@@ -43,6 +43,7 @@ export default defineConfig({
       // Vite's first-match resolution picks the package src, not ./src/hades.
       // Subpath exports go first, or the bare alias swallows them.
       '@runkora/hades/theme': path.resolve(__dirname, './src/packages/hades/src/theme/index.ts'),
+      '@runkora/hades/defaults.json': path.resolve(__dirname, './src/packages/hades/defaults.json'),
       '@runkora/hades/manifest.json': path.resolve(__dirname, './src/packages/hades/manifest.json'),
       '@runkora/hades': path.resolve(__dirname, './src/packages/hades/src/index.ts'),
       '@orbit/test-utils': path.resolve(__dirname, './src/test-utils'),

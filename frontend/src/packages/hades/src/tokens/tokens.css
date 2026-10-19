@@ -115,7 +115,7 @@
   /* border: L=52% is the minimum clearing WCAG 1.4.11 non-text 3:1.             */
   --hades-raw-border: #7f858b;
   /* border-subtle: decorative separators only — WCAG-exempt.                    */
-  --hades-raw-border-subtle: rgb(236 233 226 / 10%);
+  --hades-raw-border-subtle: #ece9e21a;
 }
 
 /* ─── Light mode ─────────────────────────────────────────────────────────── */
@@ -136,7 +136,7 @@
 
   --hades-raw-subtle: #575b60;
   --hades-raw-border: #737980;
-  --hades-raw-border-subtle: rgb(13 15 17 / 12%);
+  --hades-raw-border-subtle: #0d0f111f;
 
   --hades-raw-black: #ece9e2;
 

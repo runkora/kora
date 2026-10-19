@@ -31,6 +31,13 @@ export interface IgnoredEntry {
   readonly name: string;
 }
 
+/** A contrast pair of `warn` severity that a theme fails. Advisory: never affects `ok`. */
+export interface ContrastWarning {
+  /** Dotted path of a token the theme set, such as `tokens.--hades-raw-300.dark`. */
+  readonly path: string;
+  readonly message: string;
+}
+
 export interface ThemeReport {
   /** Entries under `tokens` or `slots` the running manifest does not know. */
   readonly ignored: readonly IgnoredEntry[];
@@ -40,6 +47,8 @@ export interface ThemeReport {
   readonly mixedIdentity: readonly string[];
   /** True for a development build: `koraVersion` was checked for shape only. */
   readonly versionCheckSkipped: boolean;
+  /** Contrast pairs of `warn` severity the theme fails; empty when none do. Advisory: never affects `ok`. */
+  readonly contrastWarnings: readonly ContrastWarning[];
 }
 
 export type ValidationResult =

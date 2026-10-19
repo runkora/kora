@@ -156,6 +156,7 @@ describe('loadThemeFrom', () => {
       fallThrough: [],
       mixedIdentity: [],
       versionCheckSkipped: false,
+      contrastWarnings: [],
     });
     expect(loaded.koraVersion).toBeNull();
     expect(String(info.mock.calls[0]![0])).toContain('no theme');

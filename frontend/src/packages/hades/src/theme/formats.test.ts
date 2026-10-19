@@ -29,6 +29,19 @@ describe('hex-or-oklch', () => {
   ])('rejects %s', (v) => expect(matchesFormat('hex-or-oklch', v)).toBe(false));
 });
 
+describe('format patterns on long hostile input', () => {
+  it('reject in linear time', () => {
+    const n = 100_000;
+    const start = performance.now();
+    expect(matchesFormat('hex-or-oklch', `oklch(${'1'.repeat(n)}x 0 0)`)).toBe(false);
+    expect(matchesFormat('hex-or-oklch', `oklch(${'1 '.repeat(n)}`)).toBe(false);
+    expect(matchesFormat('css-length', `${'1'.repeat(n)}x`)).toBe(false);
+    expect(matchesFormat('css-shadow-list', `${'1'.repeat(n)}px x`)).toBe(false);
+    expect(matchesFormat('css-shadow-list', `0 ${'1'.repeat(n)}x`)).toBe(false);
+    expect(performance.now() - start).toBeLessThan(2000);
+  });
+});
+
 describe('css-shadow-list', () => {
   it.each([
     '0 1px 2px #000',

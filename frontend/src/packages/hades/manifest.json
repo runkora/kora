@@ -3,10 +3,84 @@
     "dark",
     "light"
   ],
+  "groups": [
+    {
+      "id": "branding",
+      "label": "Branding",
+      "order": 1
+    },
+    {
+      "id": "neutral",
+      "label": "Neutral ramp",
+      "order": 2
+    },
+    {
+      "id": "surfaces",
+      "label": "Surfaces",
+      "order": 3
+    },
+    {
+      "id": "text",
+      "label": "Text",
+      "order": 4
+    },
+    {
+      "id": "borders",
+      "label": "Borders",
+      "order": 5
+    },
+    {
+      "id": "overlays",
+      "label": "Overlays",
+      "order": 6
+    },
+    {
+      "id": "status",
+      "label": "Status",
+      "order": 7
+    },
+    {
+      "id": "providers",
+      "label": "Providers",
+      "order": 8
+    },
+    {
+      "id": "strategies",
+      "label": "Strategies",
+      "order": 9
+    },
+    {
+      "id": "charts",
+      "label": "Chart series",
+      "order": 10
+    },
+    {
+      "id": "radius",
+      "label": "Radius",
+      "order": 11
+    },
+    {
+      "id": "shadows",
+      "label": "Shadows",
+      "order": 12
+    },
+    {
+      "id": "fonts",
+      "label": "Fonts",
+      "order": 13
+    },
+    {
+      "id": "motion",
+      "label": "Motion",
+      "order": 14
+    }
+  ],
   "tokens": [
     {
       "name": "--hades-raw-100",
       "kind": "color",
+      "group": "neutral",
+      "label": "100",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -16,6 +90,8 @@
     {
       "name": "--hades-raw-200",
       "kind": "color",
+      "group": "neutral",
+      "label": "200",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -25,6 +101,8 @@
     {
       "name": "--hades-raw-300",
       "kind": "color",
+      "group": "neutral",
+      "label": "300",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -34,6 +112,8 @@
     {
       "name": "--hades-raw-400",
       "kind": "color",
+      "group": "neutral",
+      "label": "400",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -43,6 +123,8 @@
     {
       "name": "--hades-raw-500",
       "kind": "color",
+      "group": "neutral",
+      "label": "500",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -52,6 +134,8 @@
     {
       "name": "--hades-raw-600",
       "kind": "color",
+      "group": "neutral",
+      "label": "600",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -61,6 +145,8 @@
     {
       "name": "--hades-raw-700",
       "kind": "color",
+      "group": "neutral",
+      "label": "700",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -70,6 +156,8 @@
     {
       "name": "--hades-raw-800",
       "kind": "color",
+      "group": "neutral",
+      "label": "800",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -79,6 +167,8 @@
     {
       "name": "--hades-raw-900",
       "kind": "color",
+      "group": "neutral",
+      "label": "900",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -88,6 +178,8 @@
     {
       "name": "--hades-raw-950",
       "kind": "color",
+      "group": "neutral",
+      "label": "950",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -97,6 +189,8 @@
     {
       "name": "--hades-raw-accent-300",
       "kind": "color",
+      "group": "branding",
+      "label": "accent 300",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -106,6 +200,8 @@
     {
       "name": "--hades-raw-accent-400",
       "kind": "color",
+      "group": "branding",
+      "label": "accent 400",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -115,6 +211,8 @@
     {
       "name": "--hades-raw-accent-500",
       "kind": "color",
+      "group": "branding",
+      "label": "accent 500",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -124,6 +222,8 @@
     {
       "name": "--hades-raw-accent-600",
       "kind": "color",
+      "group": "branding",
+      "label": "accent 600",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -133,6 +233,8 @@
     {
       "name": "--hades-raw-accent-fg",
       "kind": "color",
+      "group": "branding",
+      "label": "accent foreground",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -142,6 +244,8 @@
     {
       "name": "--hades-raw-black",
       "kind": "color",
+      "group": "neutral",
+      "label": "black",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -151,6 +255,8 @@
     {
       "name": "--hades-raw-border",
       "kind": "color",
+      "group": "borders",
+      "label": "border",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -160,6 +266,8 @@
     {
       "name": "--hades-raw-border-subtle",
       "kind": "color",
+      "group": "borders",
+      "label": "border subtle",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -169,6 +277,8 @@
     {
       "name": "--hades-raw-chart-1",
       "kind": "color",
+      "group": "charts",
+      "label": "series 1",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -178,6 +288,8 @@
     {
       "name": "--hades-raw-chart-2",
       "kind": "color",
+      "group": "charts",
+      "label": "series 2",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -187,6 +299,8 @@
     {
       "name": "--hades-raw-chart-3",
       "kind": "color",
+      "group": "charts",
+      "label": "series 3",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -196,6 +310,8 @@
     {
       "name": "--hades-raw-chart-4",
       "kind": "color",
+      "group": "charts",
+      "label": "series 4",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -205,6 +321,8 @@
     {
       "name": "--hades-raw-chart-5",
       "kind": "color",
+      "group": "charts",
+      "label": "series 5",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -214,6 +332,8 @@
     {
       "name": "--hades-raw-chart-6",
       "kind": "color",
+      "group": "charts",
+      "label": "series 6",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -223,6 +343,8 @@
     {
       "name": "--hades-raw-chart-7",
       "kind": "color",
+      "group": "charts",
+      "label": "series 7",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -232,6 +354,8 @@
     {
       "name": "--hades-raw-chart-8",
       "kind": "color",
+      "group": "charts",
+      "label": "series 8",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -241,6 +365,8 @@
     {
       "name": "--hades-raw-degraded",
       "kind": "color",
+      "group": "status",
+      "label": "degraded",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -250,6 +376,8 @@
     {
       "name": "--hades-raw-error",
       "kind": "color",
+      "group": "status",
+      "label": "error",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -259,6 +387,8 @@
     {
       "name": "--hades-raw-font-mono",
       "kind": "font",
+      "group": "fonts",
+      "label": "mono",
       "format": "font-family-name",
       "modes": [
         "dark",
@@ -268,6 +398,8 @@
     {
       "name": "--hades-raw-font-sans",
       "kind": "font",
+      "group": "fonts",
+      "label": "sans",
       "format": "font-family-name",
       "modes": [
         "dark",
@@ -277,6 +409,8 @@
     {
       "name": "--hades-raw-healthy",
       "kind": "color",
+      "group": "status",
+      "label": "healthy",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -286,6 +420,8 @@
     {
       "name": "--hades-raw-overlay",
       "kind": "color",
+      "group": "overlays",
+      "label": "overlay",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -295,6 +431,8 @@
     {
       "name": "--hades-raw-overlay-strong",
       "kind": "color",
+      "group": "overlays",
+      "label": "overlay strong",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -304,6 +442,8 @@
     {
       "name": "--hades-raw-pending",
       "kind": "color",
+      "group": "status",
+      "label": "pending",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -313,6 +453,8 @@
     {
       "name": "--hades-raw-provider-azure",
       "kind": "color",
+      "group": "providers",
+      "label": "azure",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -322,6 +464,8 @@
     {
       "name": "--hades-raw-provider-bedrock",
       "kind": "color",
+      "group": "providers",
+      "label": "bedrock",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -331,6 +475,8 @@
     {
       "name": "--hades-raw-provider-vertexai",
       "kind": "color",
+      "group": "providers",
+      "label": "vertex ai",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -340,6 +486,8 @@
     {
       "name": "--hades-raw-radius-2xl",
       "kind": "length",
+      "group": "radius",
+      "label": "2x large",
       "format": "css-length",
       "modes": [
         "dark",
@@ -349,6 +497,8 @@
     {
       "name": "--hades-raw-radius-lg",
       "kind": "length",
+      "group": "radius",
+      "label": "large",
       "format": "css-length",
       "modes": [
         "dark",
@@ -358,6 +508,8 @@
     {
       "name": "--hades-raw-radius-md",
       "kind": "length",
+      "group": "radius",
+      "label": "medium",
       "format": "css-length",
       "modes": [
         "dark",
@@ -367,6 +519,8 @@
     {
       "name": "--hades-raw-radius-sm",
       "kind": "length",
+      "group": "radius",
+      "label": "small",
       "format": "css-length",
       "modes": [
         "dark",
@@ -376,6 +530,8 @@
     {
       "name": "--hades-raw-radius-xl",
       "kind": "length",
+      "group": "radius",
+      "label": "extra large",
       "format": "css-length",
       "modes": [
         "dark",
@@ -385,6 +541,8 @@
     {
       "name": "--hades-raw-shadow-elevated",
       "kind": "shadow",
+      "group": "shadows",
+      "label": "elevated",
       "format": "css-shadow-list",
       "modes": [
         "dark",
@@ -394,6 +552,8 @@
     {
       "name": "--hades-raw-shadow-sm",
       "kind": "shadow",
+      "group": "shadows",
+      "label": "small",
       "format": "css-shadow-list",
       "modes": [
         "dark",
@@ -403,6 +563,8 @@
     {
       "name": "--hades-raw-strategy-weighted",
       "kind": "color",
+      "group": "strategies",
+      "label": "weighted",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -412,6 +574,8 @@
     {
       "name": "--hades-raw-subtle",
       "kind": "color",
+      "group": "text",
+      "label": "subtle",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -421,6 +585,8 @@
     {
       "name": "--hades-raw-white",
       "kind": "color",
+      "group": "neutral",
+      "label": "white",
       "format": "hex-or-oklch",
       "modes": [
         "dark",
@@ -430,278 +596,477 @@
   ],
   "mapping": {
     "--color-accent": {
+      "group": "branding",
+      "label": "accent",
       "tokens": [
         "--hades-raw-accent-400"
       ],
       "derived": false
     },
     "--color-accent-border": {
+      "group": "branding",
+      "label": "accent border",
       "tokens": [
         "--hades-raw-accent-400"
       ],
       "derived": true
     },
     "--color-accent-foreground": {
+      "group": "branding",
+      "label": "accent foreground",
       "tokens": [
         "--hades-raw-accent-fg"
       ],
       "derived": false
     },
     "--color-accent-hover": {
+      "group": "branding",
+      "label": "accent hover",
       "tokens": [
         "--hades-raw-accent-300"
       ],
       "derived": false
     },
     "--color-accent-muted": {
+      "group": "branding",
+      "label": "accent muted",
       "tokens": [
         "--hades-raw-accent-400"
       ],
       "derived": true
     },
     "--color-accent-subtle": {
+      "group": "branding",
+      "label": "accent subtle",
       "tokens": [
         "--hades-raw-accent-400"
       ],
       "derived": true
     },
     "--color-background": {
+      "group": "surfaces",
+      "label": "background",
       "tokens": [
         "--hades-raw-black"
       ],
       "derived": false
     },
     "--color-border": {
+      "group": "borders",
+      "label": "border",
       "tokens": [
         "--hades-raw-border"
       ],
       "derived": false
     },
     "--color-border-accent": {
+      "group": "borders",
+      "label": "border accent",
       "tokens": [
         "--hades-raw-accent-600"
       ],
       "derived": false
     },
     "--color-border-subtle": {
+      "group": "borders",
+      "label": "border subtle",
       "tokens": [
         "--hades-raw-border-subtle"
       ],
       "derived": false
     },
     "--color-chart-1": {
+      "group": "charts",
+      "label": "series 1",
       "tokens": [
         "--hades-raw-chart-1"
       ],
       "derived": false
     },
     "--color-chart-2": {
+      "group": "charts",
+      "label": "series 2",
       "tokens": [
         "--hades-raw-chart-2"
       ],
       "derived": false
     },
     "--color-chart-3": {
+      "group": "charts",
+      "label": "series 3",
       "tokens": [
         "--hades-raw-chart-3"
       ],
       "derived": false
     },
     "--color-chart-4": {
+      "group": "charts",
+      "label": "series 4",
       "tokens": [
         "--hades-raw-chart-4"
       ],
       "derived": false
     },
     "--color-chart-5": {
+      "group": "charts",
+      "label": "series 5",
       "tokens": [
         "--hades-raw-chart-5"
       ],
       "derived": false
     },
     "--color-chart-6": {
+      "group": "charts",
+      "label": "series 6",
       "tokens": [
         "--hades-raw-chart-6"
       ],
       "derived": false
     },
     "--color-chart-7": {
+      "group": "charts",
+      "label": "series 7",
       "tokens": [
         "--hades-raw-chart-7"
       ],
       "derived": false
     },
     "--color-chart-8": {
+      "group": "charts",
+      "label": "series 8",
       "tokens": [
         "--hades-raw-chart-8"
       ],
       "derived": false
     },
     "--color-foreground": {
+      "group": "text",
+      "label": "foreground",
       "tokens": [
         "--hades-raw-white"
       ],
       "derived": false
     },
     "--color-muted": {
+      "group": "text",
+      "label": "muted",
       "tokens": [
         "--hades-raw-300"
       ],
       "derived": false
     },
     "--color-overlay": {
+      "group": "overlays",
+      "label": "overlay",
       "tokens": [
         "--hades-raw-overlay"
       ],
       "derived": false
     },
     "--color-overlay-strong": {
+      "group": "overlays",
+      "label": "overlay strong",
       "tokens": [
         "--hades-raw-overlay-strong"
       ],
       "derived": false
     },
     "--color-provider-azure": {
+      "group": "providers",
+      "label": "azure",
       "tokens": [
         "--hades-raw-provider-azure"
       ],
       "derived": false
     },
     "--color-provider-bedrock": {
+      "group": "providers",
+      "label": "bedrock",
       "tokens": [
         "--hades-raw-provider-bedrock"
       ],
       "derived": false
     },
     "--color-provider-vertexai": {
+      "group": "providers",
+      "label": "vertex ai",
       "tokens": [
         "--hades-raw-provider-vertexai"
       ],
       "derived": false
     },
     "--color-status-degraded": {
+      "group": "status",
+      "label": "degraded",
       "tokens": [
         "--hades-raw-degraded"
       ],
       "derived": false
     },
     "--color-status-error": {
+      "group": "status",
+      "label": "error",
       "tokens": [
         "--hades-raw-error"
       ],
       "derived": false
     },
     "--color-status-healthy": {
+      "group": "status",
+      "label": "healthy",
       "tokens": [
         "--hades-raw-healthy"
       ],
       "derived": false
     },
     "--color-status-idle": {
+      "group": "status",
+      "label": "idle",
       "tokens": [
         "--hades-raw-subtle"
       ],
       "derived": false
     },
     "--color-status-pending": {
+      "group": "status",
+      "label": "pending",
       "tokens": [
         "--hades-raw-pending"
       ],
       "derived": false
     },
     "--color-strategy-weighted": {
+      "group": "strategies",
+      "label": "weighted",
       "tokens": [
         "--hades-raw-strategy-weighted"
       ],
       "derived": false
     },
     "--color-subtle": {
+      "group": "text",
+      "label": "subtle",
       "tokens": [
         "--hades-raw-subtle"
       ],
       "derived": false
     },
     "--color-surface": {
+      "group": "surfaces",
+      "label": "surface",
       "tokens": [
         "--hades-raw-950"
       ],
       "derived": false
     },
     "--color-surface-elevated": {
+      "group": "surfaces",
+      "label": "surface elevated",
       "tokens": [
         "--hades-raw-900"
       ],
       "derived": false
     },
     "--color-surface-overlay": {
+      "group": "surfaces",
+      "label": "surface overlay",
       "tokens": [
         "--hades-raw-800"
       ],
       "derived": false
     },
     "--ease-standard": {
+      "group": "motion",
+      "label": "standard easing",
       "tokens": [],
       "derived": false
     },
     "--font-mono": {
+      "group": "fonts",
+      "label": "mono",
       "tokens": [
         "--hades-raw-font-mono"
       ],
       "derived": false
     },
     "--font-sans": {
+      "group": "fonts",
+      "label": "sans",
       "tokens": [
         "--hades-raw-font-sans"
       ],
       "derived": false
     },
     "--radius-2xl": {
+      "group": "radius",
+      "label": "2x large",
       "tokens": [
         "--hades-raw-radius-2xl"
       ],
       "derived": false
     },
     "--radius-full": {
+      "group": "radius",
+      "label": "full",
       "tokens": [],
       "derived": false
     },
     "--radius-lg": {
+      "group": "radius",
+      "label": "large",
       "tokens": [
         "--hades-raw-radius-lg"
       ],
       "derived": false
     },
     "--radius-md": {
+      "group": "radius",
+      "label": "medium",
       "tokens": [
         "--hades-raw-radius-md"
       ],
       "derived": false
     },
     "--radius-sm": {
+      "group": "radius",
+      "label": "small",
       "tokens": [
         "--hades-raw-radius-sm"
       ],
       "derived": false
     },
     "--radius-xl": {
+      "group": "radius",
+      "label": "extra large",
       "tokens": [
         "--hades-raw-radius-xl"
       ],
       "derived": false
     },
     "--shadow-elevated": {
+      "group": "shadows",
+      "label": "elevated",
       "tokens": [
         "--hades-raw-shadow-elevated"
       ],
       "derived": false
     },
     "--shadow-sm": {
+      "group": "shadows",
+      "label": "small",
       "tokens": [
         "--hades-raw-shadow-sm"
       ],
       "derived": false
     }
   },
+  "contrast": [
+    {
+      "id": "accent-foreground-on-accent",
+      "text": "--color-accent-foreground",
+      "on": [
+        "--color-accent"
+      ],
+      "min": 4.5,
+      "severity": "warn"
+    },
+    {
+      "id": "accent-on-surfaces",
+      "text": "--color-accent",
+      "on": [
+        "--color-background",
+        "--color-surface",
+        "--color-surface-elevated",
+        "--color-surface-overlay"
+      ],
+      "min": 4.5,
+      "severity": "warn"
+    },
+    {
+      "id": "foreground-on-surfaces",
+      "text": "--color-foreground",
+      "on": [
+        "--color-background",
+        "--color-surface",
+        "--color-surface-elevated",
+        "--color-surface-overlay"
+      ],
+      "min": 4.5,
+      "severity": "warn"
+    },
+    {
+      "id": "muted-on-surfaces",
+      "text": "--color-muted",
+      "on": [
+        "--color-background",
+        "--color-surface",
+        "--color-surface-elevated",
+        "--color-surface-overlay"
+      ],
+      "min": 4.5,
+      "severity": "warn"
+    },
+    {
+      "id": "status-degraded-on-surfaces",
+      "text": "--color-status-degraded",
+      "on": [
+        "--color-background",
+        "--color-surface",
+        "--color-surface-elevated",
+        "--color-surface-overlay"
+      ],
+      "min": 3,
+      "severity": "warn"
+    },
+    {
+      "id": "status-error-on-surfaces",
+      "text": "--color-status-error",
+      "on": [
+        "--color-background",
+        "--color-surface",
+        "--color-surface-elevated",
+        "--color-surface-overlay"
+      ],
+      "min": 3,
+      "severity": "warn"
+    },
+    {
+      "id": "status-healthy-on-surfaces",
+      "text": "--color-status-healthy",
+      "on": [
+        "--color-background",
+        "--color-surface",
+        "--color-surface-elevated",
+        "--color-surface-overlay"
+      ],
+      "min": 3,
+      "severity": "warn"
+    },
+    {
+      "id": "status-pending-on-surfaces",
+      "text": "--color-status-pending",
+      "on": [
+        "--color-background",
+        "--color-surface",
+        "--color-surface-elevated",
+        "--color-surface-overlay"
+      ],
+      "min": 3,
+      "severity": "warn"
+    },
+    {
+      "id": "subtle-on-surfaces",
+      "text": "--color-subtle",
+      "on": [
+        "--color-background",
+        "--color-surface",
+        "--color-surface-elevated",
+        "--color-surface-overlay"
+      ],
+      "min": 4.5,
+      "severity": "warn"
+    }
+  ],
   "slots": [
     {
       "name": "favicon",

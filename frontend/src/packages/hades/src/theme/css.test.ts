@@ -108,7 +108,7 @@ describe('generateThemeCss', () => {
   });
 
   it('stays under the 16 KiB first-paint budget for a theme that sets every token and both fonts', async () => {
-    const manifest = manifestJson as ThemeManifest;
+    const manifest = { ...(manifestJson as ThemeManifest), contrast: [] };
     // The longest value each format accepts in practice.
     const sample: Record<string, string> = {
       'hex-or-oklch': 'oklch(62.55% 0.155 250.55 / 0.85)',

@@ -4,7 +4,10 @@ import { describe, expect, it } from 'vitest';
 import manifestJson from '../../manifest.json';
 import { FULL_DOCUMENT, MANIFEST } from './fixtures.test-support';
 import type { ThemeManifest } from './manifest';
-import { validateTheme } from './validate';
+import { contrastRatio } from './contrast';
+import { matchesFormat } from './formats';
+import defaultsJson from '../../defaults.json';
+import { validateTheme, type TokenDefaults } from './validate';
 
 const RUNNING = '1.3.0';
 
@@ -51,6 +54,7 @@ describe('validateTheme: a full theme', () => {
       fallThrough: [],
       mixedIdentity: [],
       versionCheckSkipped: false,
+      contrastWarnings: [],
     });
   });
 
@@ -462,8 +466,9 @@ describe('validateTheme: against the real manifest', () => {
       tokens[token.name] = { dark: sample[token.format]!, light: sample[token.format]! };
     }
     const doc = JSON.stringify({ koraVersion: '1.0.0', productName: 'Acme', tokens });
+    // One colour for every token is no palette: leave the contrast pairs to their own tests.
     const result = await validateTheme(doc, {
-      manifest,
+      manifest: { ...manifest, contrast: [] },
       koraVersion: '1.0.0',
     });
     expect(result.ok).toBe(true);
@@ -505,6 +510,228 @@ describe('validateTheme: empty maps, code points and unreadable assets', () => {
         `koraVersion: "1.0.0"\ntokens:\n  --hades-raw-font-sans:\n    dark: ${JSON.stringify(value)}\n`,
       );
       expect(errorPaths(result)).toEqual(['tokens.--hades-raw-font-sans.dark']);
+    }
+  });
+});
+
+describe('contrastRatio', () => {
+  it('computes the WCAG ratio for hex colours', () => {
+    expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 5);
+    expect(contrastRatio('#fff', '#fff')).toBeCloseTo(1, 5);
+    // #777 on white is the classic 4.48:1.
+    expect(contrastRatio('#777777', '#ffffff')).toBeCloseTo(4.48, 2);
+    expect(contrastRatio('#ffffff', '#777777')).toBeCloseTo(4.48, 2);
+    expect(contrastRatio('#000000ff', '#ffffffff')).toBeCloseTo(21, 5);
+  });
+
+  it('reads oklch, including percentages, none and alpha', () => {
+    expect(contrastRatio('oklch(0 0 0)', 'oklch(1 0 0)')).toBeCloseTo(21, 1);
+    expect(contrastRatio('oklch(0% 0 0)', 'oklch(100% 0 0 / 0.5)')).toBeCloseTo(21, 1);
+    expect(contrastRatio('oklch(0 none none)', 'oklch(1 0 0)')).toBeCloseTo(21, 1);
+    // oklch(0.5 0 0) is mid grey, #636363 in sRGB.
+    expect(contrastRatio('oklch(0.5 0 0)', '#636363')).toBeCloseTo(1, 1);
+    expect(contrastRatio('oklch(0.5 0 0)', '#ffffff')).toBeCloseTo(
+      contrastRatio('#636363', '#ffffff')!,
+      1,
+    );
+  });
+
+  it('is null for a value that is neither hex nor oklch', () => {
+    expect(contrastRatio('red', '#fff')).toBeNull();
+    expect(contrastRatio('#fff', 'rgb(0 0 0)')).toBeNull();
+  });
+
+  it('rejects malformed oklch values', () => {
+    for (const bad of [
+      'oklch(0 0)',
+      'oklch(0 0 0 0)',
+      'oklch()',
+      'oklch(0 0 0 / )',
+      'oklch(0 0 0 / 1 2)',
+      'oklch(0 0/1 0)',
+      'oklch(0 0 0',
+      'oklch(0 0 0deg)',
+      'OKLCH(0 0 0)',
+    ]) {
+      expect(contrastRatio(bad, '#fff'), bad).toBeNull();
+    }
+    expect(contrastRatio('oklch( 0 0 0/0.5 )', '#fff')).not.toBeNull();
+    expect(contrastRatio('oklch(+.5 0. 1e0)', '#fff')).toBeNull();
+    expect(contrastRatio('oklch(+.5 0. 10)', '#fff')).not.toBeNull();
+  });
+
+  it('clamps lightness to [0, 1] and chroma to at least 0, as CSS does', () => {
+    expect(contrastRatio('oklch(0.55 -0.3 0)', '#000')).toBeCloseTo(
+      contrastRatio('oklch(0.55 0 0)', '#000')!,
+      5,
+    );
+    expect(contrastRatio('oklch(1.5 0 0)', '#000')).toBeCloseTo(
+      contrastRatio('oklch(1 0 0)', '#000')!,
+      5,
+    );
+    expect(contrastRatio('oklch(-0.5 0 0)', '#000')).toBeCloseTo(1, 5);
+  });
+
+  it('parses long hostile input in linear time', () => {
+    const start = performance.now();
+    for (const n of [50_000, 100_000]) {
+      expect(contrastRatio(`oklch(${'1'.repeat(n)}x 0 0)`, '#fff')).toBeNull();
+      expect(contrastRatio(`oklch(0 0 0 / ${'!/!'.repeat(n)}`, '#fff')).toBeNull();
+      expect(contrastRatio(`oklch(${'1 '.repeat(n)})`, '#fff')).toBeNull();
+      expect(contrastRatio(`oklch(1 1 1 / ${'1 '.repeat(n)}`, '#fff')).toBeNull();
+    }
+    // The old pattern took tens of seconds here; linear parsing takes milliseconds.
+    expect(performance.now() - start).toBeLessThan(2000);
+  });
+});
+
+describe('validateTheme: contrast pairs', () => {
+  const PAIRED: ThemeManifest = {
+    ...MANIFEST,
+    mapping: {
+      '--color-accent': { tokens: ['--hades-raw-accent-400'], derived: false },
+      '--color-accent-subtle': { tokens: ['--hades-raw-accent-400'], derived: true },
+      '--color-background': { tokens: ['--hades-raw-black'], derived: false },
+    },
+    contrast: [
+      {
+        id: 'accent-on-background',
+        text: '--color-accent',
+        on: ['--color-background'],
+        min: 4.5,
+        severity: 'error',
+      },
+    ],
+  };
+  const DEFAULTS: TokenDefaults = {
+    dark: { '--hades-raw-black': '#0d0f11', '--hades-raw-accent-400': '#8aa7bb' },
+    light: { '--hades-raw-black': '#ece9e2', '--hades-raw-accent-400': '#445f71' },
+  };
+  const doc = (tokens: string) => `koraVersion: "1.0.0"\ntokens:\n${tokens}`;
+  const runWith = (text: string, manifest = PAIRED, defaults?: TokenDefaults) =>
+    validateTheme(text, {
+      manifest,
+      koraVersion: RUNNING,
+      ...(defaults ? { defaults } : {}),
+    });
+
+  it('fails an error pair, naming the token the theme set and the ratio', async () => {
+    const result = await runWith(
+      doc('  --hades-raw-accent-400:\n    dark: "#222222"\n'),
+      PAIRED,
+      DEFAULTS,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]!.path).toBe('tokens.--hades-raw-accent-400.dark');
+    expect(result.errors[0]!.message).toMatch(
+      /--color-accent on --color-background in dark has contrast 1\.\d\d:1, below the 4\.5:1 minimum \(contrast pair accent-on-background/,
+    );
+  });
+
+  it('passes a pair at or above the minimum, and checks the mode the theme set only', async () => {
+    const result = await runWith(
+      doc('  --hades-raw-accent-400:\n    light: "#000000"\n    dark: "#ffffff"\n'),
+      PAIRED,
+      DEFAULTS,
+    );
+    expect(result.ok).toBe(true);
+    // Light accent #000 on the light default #ece9e2 passes; dark white on #0d0f11 passes.
+  });
+
+  it('measures a set background against the default text colour', async () => {
+    const result = await runWith(
+      doc('  --hades-raw-black:\n    dark: "#8aa7bb"\n'),
+      PAIRED,
+      DEFAULTS,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors[0]!.path).toBe('tokens.--hades-raw-black.dark');
+  });
+
+  it('does not blame a theme for default-on-default pairs it leaves alone', async () => {
+    const failing: TokenDefaults = {
+      ...DEFAULTS,
+      dark: { ...DEFAULTS.dark!, '--hades-raw-accent-400': '#101010' },
+    };
+    const result = await runWith(doc('  --hades-raw-radius-md:\n    dark: 6px\n'), PAIRED, failing);
+    expect(result.ok).toBe(true);
+  });
+
+  it('without defaults checks only pairs whose every raw token the theme sets', async () => {
+    const partial = await runWith(doc('  --hades-raw-accent-400:\n    dark: "#222222"\n'));
+    expect(partial.ok).toBe(true);
+    const full = await runWith(
+      doc(
+        '  --hades-raw-accent-400:\n    dark: "#222222"\n  --hades-raw-black:\n    dark: "#1a1a1a"\n',
+      ),
+    );
+    expect(full.ok).toBe(false);
+    if (full.ok) return;
+    expect(full.errors).toHaveLength(1);
+  });
+
+  it('puts a warn pair in the report and leaves ok alone', async () => {
+    const warn: ThemeManifest = {
+      ...PAIRED,
+      contrast: [{ ...PAIRED.contrast![0]!, severity: 'warn', min: 3 }],
+    };
+    const result = await runWith(
+      doc('  --hades-raw-accent-400:\n    dark: "#222222"\n'),
+      warn,
+      DEFAULTS,
+    );
+    expect(result.ok).toBe(true);
+    expect(result.report.contrastWarnings).toHaveLength(1);
+    expect(result.report.contrastWarnings[0]).toMatchObject({
+      path: 'tokens.--hades-raw-accent-400.dark',
+    });
+    expect(result.report.contrastWarnings[0]!.message).toContain('accent-on-background');
+  });
+
+  it('skips a pair the manifest cannot resolve to one raw token, or a value it cannot read', async () => {
+    const derived: ThemeManifest = {
+      ...PAIRED,
+      contrast: [{ ...PAIRED.contrast![0]!, text: '--color-accent-subtle' }],
+    };
+    const text = doc('  --hades-raw-accent-400:\n    dark: "#222222"\n');
+    expect((await runWith(text, derived, DEFAULTS)).ok).toBe(true);
+    const unreadable: TokenDefaults = { dark: { ...DEFAULTS.dark!, '--hades-raw-black': 'red' } };
+    expect((await runWith(text, PAIRED, unreadable)).ok).toBe(true);
+    const old: ThemeManifest = MANIFEST;
+    expect((await runWith(text, old, DEFAULTS)).ok).toBe(true);
+  });
+
+  it('ships a default in its token format for every colour token, in both modes', () => {
+    const real = manifestJson as unknown as ThemeManifest;
+    const defaults = defaultsJson as unknown as TokenDefaults;
+    const misfits: string[] = [];
+    for (const token of real.tokens.filter((t) => t.kind === 'color')) {
+      for (const mode of token.modes) {
+        const value = defaults[mode]?.[token.name];
+        if (value === undefined || !matchesFormat(token.format, value))
+          misfits.push(`${token.name} (${mode}): ${value ?? 'missing'}`);
+      }
+    }
+    expect(misfits).toEqual([]);
+  });
+
+  it('passes the kora defaults against every pair in the real manifest', async () => {
+    const real = manifestJson as unknown as ThemeManifest;
+    expect(real.contrast?.length).toBeGreaterThan(0);
+    // Setting each raw token to its own default makes every pair "set by the theme" and so checked.
+    const defaults = defaultsJson as unknown as TokenDefaults;
+    for (const mode of ['dark', 'light'] as const) {
+      const tokens = Object.entries(defaults[mode]!)
+        .filter(([, value]) => value.startsWith('#') || value.startsWith('oklch('))
+        .map(([name, value]) => `  ${name}:\n    ${mode}: ${JSON.stringify(value)}\n`)
+        .join('');
+      const result = await runWith(doc(tokens), real, defaults);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.report.contrastWarnings).toEqual([]);
     }
   });
 });

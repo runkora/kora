@@ -17,7 +17,7 @@ The white-labelling PRDs assume consumers outside this repository will render ko
 
 ### Background
 
-- The [versioning ADR](2026-10-11-hades-versioning-and-theme-surface-manifest.md) decides that Hades is released with kora under the kora `vX.Y.Z` tag, that the tag is stamped into the package when the release is built, and that every release carries `manifest.json` and `theme.schema.json`.
+- The [versioning ADR](2026-10-11-hades-versioning-and-theme-surface-manifest.md) decides that Hades is released with kora under the kora `vX.Y.Z` tag, that the tag is stamped into the package when the release is built, and that every release carries `manifest.json`, `theme.schema.json` and `defaults.json`.
 - The organisation already publishes container images to `ghcr.io`, so GitHub Packages is in use and authenticated from CI.
 - The Hades PRD excludes Storybook, and any design-tooling artefact, from the Hades deliverable.
 
@@ -43,11 +43,11 @@ Decide what a Hades release delivers, in what form, through what channel, and ho
 
 ## Decision Drivers
 
-* Hades stays in this repository and keeps working by workspace link; delivery must not change how the frontend consumes it.
-* This ADR requires consumers to be React applications on Tailwind v4, the same stack as the frontend, so that shipping source is sufficient and there is one build toolchain.
-* Versioned resolution matters: a consumer must be able to say "the latest 1.2.x" and get it, which a URL to a tarball cannot do.
-* The repository is private today and is being open-sourced within weeks, at which point the package is made public. Until then the channel must be authenticated and already available to the organisation.
-* Delayed decision making.
+- Hades stays in this repository and keeps working by workspace link; delivery must not change how the frontend consumes it.
+- This ADR requires consumers to be React applications on Tailwind v4, the same stack as the frontend, so that shipping source is sufficient and there is one build toolchain.
+- Versioned resolution matters: a consumer must be able to say "the latest 1.2.x" and get it, which a URL to a tarball cannot do.
+- The repository is private today and is being open-sourced within weeks, at which point the package is made public. Until then the channel must be authenticated and already available to the organisation.
+- Delayed decision making.
 
 ---
 
@@ -55,15 +55,17 @@ Decide what a Hades release delivers, in what form, through what channel, and ho
 
 ### Option 1: Publish to the GitHub Packages npm registry on each final kora release
 
-**Description:** The release workflow packs the package and publishes it to `npm.pkg.github.com`. That registry accepts only packages whose scope is the owning account, so the package must be renamed from `@orbit/hades` to `@runkora/hades`. The package ships its TypeScript source, `tokens.css`, `manifest.json` and `README.md`. Consumers add the registry for the scope in their `.npmrc`, authenticate with a token that can read packages, and depend on the package by semver range.
+**Description:** The release workflow packs the package and publishes it to `npm.pkg.github.com`. That registry accepts only packages whose scope is the owning account, so the package must be renamed from `@orbit/hades` to `@runkora/hades`. The package ships its TypeScript source, `tokens.css`, `manifest.json`, `defaults.json` (the raw colour defaults, which a consumer passes to the validator to check contrast) and `README.md`. Consumers add the registry for the scope in their `.npmrc`, authenticate with a token that can read packages, and depend on the package by semver range.
 
 **Pros:**
+
 - Standard npm resolution: ranges, lockfiles, `pnpm outdated`, one line to upgrade.
 - Authentication and the registry already exist for the organisation; CI publishes with its own token.
 - No new repository, no mirror, no copying.
 - The same tarball can be attached to a GitHub Release as a fallback.
 
 **Cons:**
+
 - The rename touches every import of the package: 292 files across the frontend source, its ESLint rules, configs, the Makefile, the Dockerfile and the docs. It is a one-time mechanical change, but it is not additive.
 - `package.json` must drop `private` and declare `files` and `publishConfig`, which slightly changes a file the frontend also depends on.
 - Consumers must configure a scoped registry and a token. One-time setup per consumer.
@@ -74,9 +76,11 @@ Decide what a Hades release delivers, in what form, through what channel, and ho
 **Description:** The consumer depends on `github:runkora/kora#v1.2.0` and points at the package subdirectory.
 
 **Pros:**
+
 - No registry, no publish step.
 
 **Cons:**
+
 - pnpm's git dependencies do not support a subdirectory of a monorepo without workarounds; the consumer would clone the whole kora repository on every install.
 - No range resolution; every upgrade is a tag edit.
 - Grants the consumer's CI read access to the entire repository rather than one package.
@@ -86,9 +90,11 @@ Decide what a Hades release delivers, in what form, through what channel, and ho
 **Description:** The release workflow splits the package directory into its own repository and tags it there; consumers depend on that repository.
 
 **Pros:**
+
 - A clean, standalone repository for consumers to look at.
 
 **Cons:**
+
 - It is extraction by another name. The PRD keeps Hades here, and a mirror invites changes that never flow back.
 - Two repositories to keep in step, with the split history as a second source of truth.
 - Still no range resolution unless the mirror also publishes, at which point Option 1 was the work anyway.
@@ -98,9 +104,11 @@ Decide what a Hades release delivers, in what form, through what channel, and ho
 **Description:** `pnpm pack` in the release workflow; the tarball is attached to a GitHub Release for the tag; consumers depend on the asset URL.
 
 **Pros:**
+
 - No registry configuration.
 
 **Cons:**
+
 - No range resolution and no lockfile integrity by name; every upgrade is a URL edit.
 - Private release assets still need a token, so the authentication cost is the same as Option 1 with none of the resolution benefit.
 
@@ -139,7 +147,7 @@ The jobs are part of kora's `.github/workflows/release.yml`, triggered by `v*` t
 1. **hades-verify**: the manifest and `theme.schema.json` are verified in sync with their sources. It runs first, before any image is built or anything is published.
 2. **hades-test**: the Hades type check under the package's own strict flags, and the Hades unit tests.
 3. **hades-pack-and-smoke**: set `package.json` `version` from the tag, then `pnpm --filter @runkora/hades pack` into `runkora-hades-X.Y.Z.tgz`, uploaded as a workflow artefact. Then the **smoke build**: scaffold a minimal Vite plus React plus Tailwind v4 application in a temporary directory, install the tarball into it, render a page that imports `tokens.css` and the `Button` component, and run its production build. This is the proof that the package is buildable without the Next.js application, and it runs on every release, release candidates included.
-4. **release assets**: kora's existing `publish` job, which creates the GitHub Release, attaches the tarball, `manifest.json` and `theme.schema.json` to it, release candidates included, so a theme builder can offer every release and read its surface.
+4. **release assets**: kora's existing `publish` job, which creates the GitHub Release, attaches the tarball, `manifest.json`, `theme.schema.json` and `defaults.json` to it, release candidates included, so a theme builder can offer every release, read its surface and run the contrast check against that release's colour defaults.
 5. **hades-publish**: publish the same tarball to GitHub Packages, for a final release only. A release candidate does not publish, because a published package version can be neither removed nor published again. It runs after kora's `publish` job, so a failure of the images, the charts or the release leaves no package version published. A failure of `hades-publish` itself leaves the release in place and no package, and is recovered by re-running that job on its own.
 
 ### Workflow requirements

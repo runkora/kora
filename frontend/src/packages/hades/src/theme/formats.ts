@@ -4,7 +4,7 @@
  */
 import type { TokenFormat } from '../tokens/surface';
 
-const NUMBER = '(?:\\d+\\.?\\d*|\\.\\d+)';
+const NUMBER = '(?:\\d+(?:\\.\\d*)?|\\.\\d+)';
 const SIGNED = `[+-]?${NUMBER}`;
 
 /** `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`. */
