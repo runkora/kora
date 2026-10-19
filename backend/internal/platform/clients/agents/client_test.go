@@ -322,7 +322,9 @@ func TestSendRunMessage_ConflictReason(t *testing.T) {
 		err := c.SendRunMessage(context.Background(), "tok", "run-1", SendRunMessageRequest{Content: "hi"})
 		if !errors.Is(err, want) || !strings.Contains(err.Error(), "status 409") {
 			t.Errorf("body %s: got %v, want %v", body, err, want)
-||||||| parent of aa441ea2 (feat(platform): list agent types with their name and description)
+		}
+	}
+}
 
 func TestListAgentTypes(t *testing.T) {
 	c, cap := newTestClient(t, http.StatusOK, `{"agent_types":[{"id":"at-1","tenant_id":"t1","slug":"coder","name":"Coder","description":"Implements changes.","identity_mode":"autonomous"}]}`)
