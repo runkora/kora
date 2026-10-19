@@ -17,8 +17,7 @@ const segmentedControlVariants = cva([
 
 /**
  * One option on the track; `selected` fills it with the accent, like a primary button.
- * The radius is the track's (2 units) minus the track's 1px border and 3px padding,
- * so the selected fill sits concentric inside the track.
+ * Its radius is the track's medium step minus border and padding, so it sits concentric.
  */
 const segmentedControlOptionVariants = cva(
   [
@@ -27,7 +26,7 @@ const segmentedControlOptionVariants = cva(
     'cursor-pointer',
     'items-center',
     'gap-1.5',
-    'rounded-[calc(var(--hades-radius-unit)*2_-_4px)]',
+    'rounded-[calc(var(--radius-md)_-_4px)]',
     'border-none',
     'px-[11px]',
     'font-sans',

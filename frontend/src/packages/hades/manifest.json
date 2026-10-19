@@ -320,6 +320,51 @@
       ]
     },
     {
+      "name": "--hades-raw-radius-2xl",
+      "kind": "length",
+      "format": "css-length",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-radius-lg",
+      "kind": "length",
+      "format": "css-length",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-radius-md",
+      "kind": "length",
+      "format": "css-length",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-radius-sm",
+      "kind": "length",
+      "format": "css-length",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-radius-xl",
+      "kind": "length",
+      "format": "css-length",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
       "name": "--hades-raw-shadow-elevated",
       "kind": "shadow",
       "format": "css-shadow-list",
@@ -589,7 +634,9 @@
       "derived": false
     },
     "--radius-2xl": {
-      "tokens": [],
+      "tokens": [
+        "--hades-raw-radius-2xl"
+      ],
       "derived": false
     },
     "--radius-full": {
@@ -597,19 +644,27 @@
       "derived": false
     },
     "--radius-lg": {
-      "tokens": [],
+      "tokens": [
+        "--hades-raw-radius-lg"
+      ],
       "derived": false
     },
     "--radius-md": {
-      "tokens": [],
+      "tokens": [
+        "--hades-raw-radius-md"
+      ],
       "derived": false
     },
     "--radius-sm": {
-      "tokens": [],
+      "tokens": [
+        "--hades-raw-radius-sm"
+      ],
       "derived": false
     },
     "--radius-xl": {
-      "tokens": [],
+      "tokens": [
+        "--hades-raw-radius-xl"
+      ],
       "derived": false
     },
     "--shadow-elevated": {

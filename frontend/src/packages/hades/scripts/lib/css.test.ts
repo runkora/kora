@@ -14,7 +14,7 @@ const SHEET = `
 
 :root {
   color-scheme: dark;
-  --hades-radius-unit: 0.375rem;
+  --hades-seed: 0.375rem;
 }
 
 :root {
@@ -84,8 +84,8 @@ describe('readTokenSheet', () => {
     ]);
   });
 
-  it('does not treat the radius seed as a raw token', () => {
-    expect(readTokenSheet(SHEET).rawTokens).not.toContain('--hades-radius-unit');
+  it('does not treat a custom property outside the raw namespace as a raw token', () => {
+    expect(readTokenSheet(SHEET).rawTokens).not.toContain('--hades-seed');
   });
 });
 
