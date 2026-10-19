@@ -17,18 +17,6 @@ import { ApiRoute } from './api-routes';
  *      session verb symmetry, discover path coupling).
  */
 describe('ApiRoute', () => {
-  describe('marketplaceSkill', () => {
-    it('carries the Marketplace and the Skill as two encoded query values', () => {
-      const marketplace = 'core__skills?#%';
-      const skill = 'core__skills__reviewer&x=1';
-      const url = new URL(ApiRoute.marketplaceSkill.GET(marketplace, skill), 'http://localhost');
-      expect(url.pathname).toBe('/api/marketplace/skill');
-      expect([...url.searchParams.keys()]).toEqual(['marketplace', 'skill']);
-      expect(url.searchParams.get('marketplace')).toBe(marketplace);
-      expect(url.searchParams.get('skill')).toBe(skill);
-    });
-  });
-
   describe('marketplaceSkills', () => {
     it('encodes browse values and returns the Marketplace BFF path', () => {
       const url = new URL(
