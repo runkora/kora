@@ -602,7 +602,7 @@ func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes 
 // UpdateRoleBudget sets or clears a role's budget and leaves its scopes alone.
 // Reserved roles carry no budget.
 func (s *Service) UpdateRoleBudget(ctx context.Context, tenantID, role string, budget *roles.BudgetAssignment) (*roles.RoleEntry, error) {
-	if role == bundle.PlatformAdminRole {
+	if bundle.IsReservedRole(role) {
 		return nil, &ReservedRoleError{Role: role}
 	}
 	entry, err := s.roleRepo.UpdateBudget(ctx, tenantID, role, budget)

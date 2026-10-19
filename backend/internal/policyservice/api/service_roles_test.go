@@ -67,6 +67,10 @@ func TestReservedRoles_RejectWrites(t *testing.T) {
 			if err := svc.DeleteRole(context.Background(), "acme", role); !errors.As(err, &reserved) {
 				t.Errorf("DeleteRole(%q) err = %v, want ReservedRoleError", role, err)
 			}
+			budget := &roles.BudgetAssignment{LimitUSD: 5, ResetCadence: "monthly"}
+			if _, err := svc.UpdateRoleBudget(context.Background(), "acme", role, budget); !errors.As(err, &reserved) {
+				t.Errorf("UpdateRoleBudget(%q) err = %v, want ReservedRoleError", role, err)
+			}
 		})
 	}
 }
