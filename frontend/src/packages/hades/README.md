@@ -280,7 +280,7 @@ make hades-manifest          # regenerate after changing tokens.css or surface.t
 make hades-manifest-check    # what `make check` runs: fails on drift
 ```
 
-The generator reads token names from the `:root` blocks of `src/tokens/tokens.css` (every `--hades-raw-*` property is settable, in both modes, by rule) and everything else from `src/tokens/surface.ts`: the kind of each token, the slots with their formats and size limits, and the product-name bounds. A raw token declared in one file and not the other fails generation, so adding a token means touching both.
+The generator reads token names from the `:root` blocks of `src/tokens/tokens.css` (every `--hades-raw-*` property is settable, in both modes, by rule) and everything else from `src/tokens/surface.ts`: the kind of each token, the slots with their formats, and the product-name bounds. A raw token declared in one file and not the other fails generation, so adding a token means touching both.
 
 | Field         | Contents                                                                                                                                                                                                                   |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
