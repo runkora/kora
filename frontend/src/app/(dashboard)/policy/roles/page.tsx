@@ -16,12 +16,18 @@ export default async function RolesPage() {
 
   const roles = rolesResult.ok ? (rolesResult.data.roles ?? []) : [];
   const scopes = vocabResult.ok ? (vocabResult.data.scopes ?? []).map((s) => s.scope) : [];
+  const error = rolesResult.ok ? null : loadErrorMessage(rolesResult.status, 'roles');
   // The vocabulary needs platform:grants:read, which a roles-only admin may lack.
-  const error = !rolesResult.ok
-    ? loadErrorMessage(rolesResult.status, 'roles')
-    : !vocabResult.ok
-      ? loadErrorMessage(vocabResult.status, 'the scope vocabulary')
-      : null;
+  const scopesError = vocabResult.ok
+    ? null
+    : loadErrorMessage(vocabResult.status, 'the scope vocabulary');
 
-  return <RolesTab initialRoles={roles} availableScopes={scopes} initialError={error} />;
+  return (
+    <RolesTab
+      initialRoles={roles}
+      availableScopes={scopes}
+      scopesError={scopesError}
+      initialError={error}
+    />
+  );
 }

@@ -45,12 +45,19 @@ import { PermissionHint } from '@runkora/components';
 interface RolesTabProps {
   initialRoles: RoleEntry[];
   availableScopes: string[];
+  /** Set when the scope vocabulary failed to load. The editor shows it in place of a full picker. */
+  scopesError?: string | null;
   initialError: string | null;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function RolesTab({ initialRoles, availableScopes, initialError }: RolesTabProps) {
+export function RolesTab({
+  initialRoles,
+  availableScopes,
+  scopesError = null,
+  initialError,
+}: RolesTabProps) {
   const router = useRouter();
   const { productName } = useBrand();
   const canWrite = useHasScope('platform:roles:write');
@@ -215,6 +222,7 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
         open={creating || editingRole !== null}
         editingRole={editingRole}
         availableScopes={availableScopes}
+        scopesError={scopesError}
         onClose={() => {
           setCreating(false);
           setEditingRole(null);
@@ -482,12 +490,14 @@ function UpsertRoleModal({
   open,
   editingRole,
   availableScopes,
+  scopesError,
   onClose,
   onSaved,
 }: {
   open: boolean;
   editingRole: RoleEntry | null;
   availableScopes: string[];
+  scopesError: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -549,8 +559,13 @@ function UpsertRoleModal({
                 ({selectedScopes.length} selected)
               </Text>
             </Stack>
+            {scopesError && (
+              <Text size="caption" color="subtle">
+                {scopesError} Only the role&apos;s current scopes are listed.
+              </Text>
+            )}
             <ScopePicker
-              scopes={availableScopes}
+              scopes={scopesError ? (editingRole?.scopes ?? []) : availableScopes}
               selected={selectedScopes}
               onChange={setSelectedScopes}
             />
