@@ -19,6 +19,7 @@ func newTestClient(t *testing.T, status int, body string) (*Client, *capture) {
 		cap.method = r.Method
 		cap.path = r.URL.Path
 		cap.auth = r.Header.Get("Authorization")
+		cap.delegation = r.Header.Get("X-Orbit-Delegation-Token")
 		raw, _ := io.ReadAll(r.Body)
 		cap.body = string(raw)
 		w.Header().Set("Content-Type", "application/json")
@@ -33,6 +34,7 @@ func newTestClient(t *testing.T, status int, body string) (*Client, *capture) {
 
 type capture struct {
 	method, path, auth, body string
+	delegation               string
 }
 
 func TestStartRun_Success(t *testing.T) {
@@ -101,7 +103,7 @@ func TestStartRun_OmitsAbsentAttribution(t *testing.T) {
 func TestGetAgentType_Success(t *testing.T) {
 	c, cap := newTestClient(t, http.StatusOK, `{"id":"at-1","tenant_id":"t-1","slug":"code-reviewer"}`)
 
-	out, err := c.GetAgentType(context.Background(), "tok-123", "at-1")
+	out, err := c.GetAgentType(context.Background(), Caller{Bearer: "tok-123"}, "at-1")
 	if err != nil {
 		t.Fatalf("GetAgentType: %v", err)
 	}
@@ -113,6 +115,19 @@ func TestGetAgentType_Success(t *testing.T) {
 	}
 	if cap.auth != "Bearer tok-123" {
 		t.Errorf("auth header = %q, want Bearer tok-123", cap.auth)
+	}
+}
+
+// A delegated caller's delegation travels with its bearer; an autonomous caller sends none.
+func TestGetAgentType_ForwardsDelegation(t *testing.T) {
+	for _, delegation := range []string{"del-1", ""} {
+		c, cap := newTestClient(t, http.StatusOK, `{"id":"at-1"}`)
+		if _, err := c.GetAgentType(context.Background(), Caller{Bearer: "tok", Delegation: delegation}, "at-1"); err != nil {
+			t.Fatalf("GetAgentType: %v", err)
+		}
+		if cap.delegation != delegation {
+			t.Errorf("delegation header = %q, want %q", cap.delegation, delegation)
+		}
 	}
 }
 
@@ -128,7 +143,7 @@ func TestGetAgentType_StatusMapping(t *testing.T) {
 	}
 	for _, tt := range tests {
 		c, _ := newTestClient(t, tt.status, `{"error":"x"}`)
-		_, err := c.GetAgentType(context.Background(), "tok", "at-1")
+		_, err := c.GetAgentType(context.Background(), Caller{Bearer: "tok"}, "at-1")
 		if !errors.Is(err, tt.want) {
 			t.Errorf("status %d: got %v, want %v", tt.status, err, tt.want)
 		}

@@ -342,7 +342,13 @@ func (c *RedisBudgetCounter) GetCategorySpends(ctx context.Context, principalID 
 // attribution counters, ensuring every key carries a TTL. The monthly
 // principal counter is always written so reporting and late-added budgets
 // have a warm baseline.
+//
+// While Redis is unreachable it returns storage.ErrRedisUnavailable without a
+// network call. The spend still lands in the usage records.
 func (c *RedisBudgetCounter) IncrementSpends(ctx context.Context, scopes SpendScopes, categories []policy.BudgetCategory, amount float64) error {
+	if c.available != nil && !c.available() {
+		return fmt.Errorf("increment spends: %w", storage.ErrRedisUnavailable)
+	}
 	now := time.Now().UTC()
 
 	windows := map[string]struct{}{"monthly": {}}

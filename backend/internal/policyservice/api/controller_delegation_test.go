@@ -83,3 +83,21 @@ func TestEnforceScopeCeiling_RefusesDelegated(t *testing.T) {
 		t.Errorf("status = %d, want 403", rec.Code)
 	}
 }
+
+// A delegated run cannot delete a role.
+func TestHandleDeleteRole_RefusesDelegated(t *testing.T) {
+	c := NewController(nil, logging.NewLogger(), nil, nil, nil, nil, "")
+	claims := &token.PlatformClaims{}
+	claims.Subject = "spiffe://orbit.test/tenant/acme/agent/coder"
+	claims.Kora.TenantID = "acme"
+	claims.Kora.PrincipalType = token.PrincipalTypeAgent
+	ctx := policy.WithDelegation(token.WithClaims(context.Background(), claims), &policy.DelegationClaims{Sub: "person-1", ActSub: claims.Subject, RunID: "run-1"})
+
+	req := httptest.NewRequestWithContext(ctx, http.MethodDelete, "/policy/roles/analyst?tenant_id=acme", nil)
+	req.SetPathValue("role", "analyst")
+	rec := httptest.NewRecorder()
+	c.handleDeleteRole(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403 (body: %s)", rec.Code, rec.Body)
+	}
+}

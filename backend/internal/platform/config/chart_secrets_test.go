@@ -23,6 +23,7 @@ func TestChartPlatformSecretKeysPerService(t *testing.T) {
 		"orbit-tool-gateway":           {"DB_PASSWORD", "REDIS_PASSWORD"},
 		"orbit-tool-gateway-publisher": {"DB_PASSWORD"},
 		"orbit-egress-gateway":         {"REDIS_PASSWORD"},
+		"orbit-policy-gateway":         {"REDIS_PASSWORD"},
 		"orbit-migrate":                {"DB_PASSWORD"},
 	}
 	for name, keys := range want {

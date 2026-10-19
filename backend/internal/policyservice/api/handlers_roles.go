@@ -149,6 +149,9 @@ func (c *Controller) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if c.refuseDelegated(ctx, w) {
+		return
+	}
 
 	tenantID, ok := c.resolveTenantID(w, r, claims, r.URL.Query().Get("tenant_id"))
 	if !ok {

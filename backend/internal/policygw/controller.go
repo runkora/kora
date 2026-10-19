@@ -12,15 +12,18 @@ import (
 type Controller struct {
 	svc      *Service
 	verifier *token.Verifier
-	logger   logging.Logger
+	// blocklist refuses a revoked delegation token before it expires.
+	blocklist mw.JTIBlocklist
+	logger    logging.Logger
 }
 
 // NewController creates a ready-to-boot policy gateway Controller.
-func NewController(svc *Service, verifier *token.Verifier, logger logging.Logger) *Controller {
+func NewController(svc *Service, verifier *token.Verifier, blocklist mw.JTIBlocklist, logger logging.Logger) *Controller {
 	return &Controller{
-		svc:      svc,
-		verifier: verifier,
-		logger:   logger,
+		svc:       svc,
+		verifier:  verifier,
+		blocklist: blocklist,
+		logger:    logger,
 	}
 }
 

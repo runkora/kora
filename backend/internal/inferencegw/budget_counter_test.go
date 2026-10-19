@@ -443,12 +443,24 @@ func TestIncrementSpends_ExpireError_NonFatal(t *testing.T) {
 	}
 }
 
-// While Redis is unreachable GetSpends fails fast without touching Redis.
-func TestGetSpends_RedisUnavailable(t *testing.T) {
+// While Redis is unreachable budget reads and writes fail fast without touching
+// Redis (the nil client would panic).
+func TestBudgetCounter_RedisUnavailable(t *testing.T) {
 	c := newBudgetCounter(nil, &stubUsageRepo{})
 	c.available = func() bool { return false }
-	_, err := c.GetSpends(context.Background(), SpendScopes{PrincipalID: "p-1", TenantID: "t-1", PrincipalWindows: []string{"monthly"}})
-	if !errors.Is(err, storage.ErrRedisUnavailable) {
-		t.Fatalf("err = %v, want ErrRedisUnavailable", err)
+	scopes := SpendScopes{PrincipalID: "p-1", TenantID: "t-1", PrincipalWindows: []string{"monthly"}}
+	cases := []struct {
+		name string
+		call func() error
+	}{
+		{"get spends", func() error { _, err := c.GetSpends(context.Background(), scopes); return err }},
+		{"increment spends", func() error { return c.IncrementSpends(context.Background(), scopes, nil, 1.5) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.call(); !errors.Is(err, storage.ErrRedisUnavailable) {
+				t.Fatalf("err = %v, want ErrRedisUnavailable", err)
+			}
+		})
 	}
 }

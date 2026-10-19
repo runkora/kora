@@ -58,10 +58,7 @@ func (c *Controller) enforceScopeCeiling(ctx context.Context, w http.ResponseWri
 	if claims.Kora.PrincipalType == token.PrincipalTypeSystem {
 		return true
 	}
-	if policy.DelegationFromContext(ctx) != nil {
-		platformapi.ErrorResponse(ctx, w, c.logger,
-			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
-				"a delegated run cannot assign scopes", nil), nil)
+	if c.refuseDelegated(ctx, w) {
 		return false
 	}
 
@@ -116,4 +113,16 @@ func uncoveredScopes(held, requested []string) []string {
 		}
 	}
 	return out
+}
+
+// refuseDelegated writes 403 for a delegated run, which cannot change grants or
+// roles. Returns true when it refused.
+func (c *Controller) refuseDelegated(ctx context.Context, w http.ResponseWriter) bool {
+	if policy.DelegationFromContext(ctx) == nil {
+		return false
+	}
+	platformapi.ErrorResponse(ctx, w, c.logger,
+		platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
+			"a delegated run cannot change grants or roles", nil), nil)
+	return true
 }

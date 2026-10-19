@@ -30,7 +30,7 @@ type triggerStore interface {
 
 // agentTypeReader reads an agent type as a given bearer. Asked with the caller's bearer, it answers can_run for the caller.
 type agentTypeReader interface {
-	GetAgentType(ctx context.Context, bearer, id string) (agentsclient.AgentType, error)
+	GetAgentType(ctx context.Context, caller agentsclient.Caller, id string) (agentsclient.AgentType, error)
 }
 
 // TriggerService owns a trigger's lifecycle: creating it with the identity and
@@ -114,7 +114,7 @@ func refuseDelegatedBinding(at *agentsclient.AgentType, tenantID, agentTypeID st
 // A trigger runs its agent under its own principal, so binding, steering and replaying it take that same authority.
 // The read also gives create the canonical slug, resolved server-side rather than taken from the request.
 func requireRunAuthority(ctx context.Context, agents agentTypeReader, agentTypeID string) (*agentsclient.AgentType, error) {
-	at, err := agents.GetAgentType(ctx, callerBearer(ctx), agentTypeID)
+	at, err := agents.GetAgentType(ctx, callerOf(ctx), agentTypeID)
 	switch {
 	case errors.Is(err, agentsclient.ErrAgentTypeNotFound):
 		return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
