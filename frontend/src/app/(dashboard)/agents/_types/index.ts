@@ -64,8 +64,10 @@ export interface AgentTypeRow {
   environments: AgentEnvironment[];
   /** Whether the caller may start a run of this agent. */
   canRun: boolean;
-  /** Whether the caller may change or delete this agent. */
+  /** Whether the caller may change this agent. */
   canEdit: boolean;
+  /** Whether the caller may delete this agent. */
+  canDelete: boolean;
 }
 
 export interface RunRow {
@@ -128,6 +130,7 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     environments: a.environments ?? [],
     canRun: a.can_run ?? false,
     canEdit: a.can_edit ?? false,
+    canDelete: a.can_delete ?? false,
   };
 }
 

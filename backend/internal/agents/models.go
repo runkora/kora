@@ -235,6 +235,9 @@ type AgentType struct {
 	// computed: write responses leave them unset. Never stored.
 	CanRun  *bool `json:"can_run,omitempty"`
 	CanEdit *bool `json:"can_edit,omitempty"`
+	// CanDelete is set like CanEdit but by the delete check: mode write, and no
+	// delegated caller on an autonomous agent. The scope ceiling does not apply.
+	CanDelete *bool `json:"can_delete,omitempty"`
 }
 
 // ConnectorScopes compiles the attached connectors into the connection scope set

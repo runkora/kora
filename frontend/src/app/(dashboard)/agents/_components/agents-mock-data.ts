@@ -58,6 +58,7 @@ function agentType(
     environments: [],
     can_run: true,
     can_edit: true,
+    can_delete: true,
     ...partial,
   };
 }

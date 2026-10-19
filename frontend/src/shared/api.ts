@@ -403,8 +403,10 @@ export interface AgentType {
   environments?: AgentEnvironment[];
   /** Whether the caller may start a run of this agent. Set on reads. */
   can_run?: boolean;
-  /** Whether the caller may change or delete this agent. Set on reads. */
+  /** Whether the caller may change this agent. Set on reads. */
   can_edit?: boolean;
+  /** Whether the caller may delete this agent. Set on reads. */
+  can_delete?: boolean;
 }
 
 /**

@@ -354,10 +354,10 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
                       runs.
                     </Text>
                   </Stack>
-                  <PermissionHint allowed={agent.canEdit} action="delete this agent">
+                  <PermissionHint allowed={agent.canDelete} action="delete this agent">
                     <Button
                       variant="destructive"
-                      disabled={!agent.canEdit}
+                      disabled={!agent.canDelete}
                       onClick={() => cfg.setDeleteOpen(true)}
                     >
                       Delete agent

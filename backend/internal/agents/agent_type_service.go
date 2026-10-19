@@ -595,7 +595,7 @@ func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, err
 // setCallerAccess fills CanRun and CanEdit on each agent type for the caller in
 // ctx. Run uses checkRun, the run-start check. Edit uses the mode-qualified check
 // update and delete use, once per mode, plus the scope ceiling for autonomous
-// agents. The flags only drive the UI, which disables what they deny, so an
+// agents. Delete is the mode check without the ceiling. The flags only drive the UI, which disables what they deny, so an
 // evaluator error leaves them false and the read succeeds.
 func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType) {
 	canEdit := map[IdentityMode]bool{}
@@ -618,7 +618,9 @@ func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType)
 		}
 		run := runErr == nil
 		editThis := edit && s.withinCeiling(ctx, ats[i])
-		ats[i].CanEdit, ats[i].CanRun = &editThis, &run
+		// An agent acting for a person may not delete an autonomous agent (D36).
+		deleteThis := edit && (ats[i].IsDelegated() || policy.DelegationFromContext(ctx) == nil)
+		ats[i].CanEdit, ats[i].CanRun, ats[i].CanDelete = &editThis, &run, &deleteThis
 	}
 }
 

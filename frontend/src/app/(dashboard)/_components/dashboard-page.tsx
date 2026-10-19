@@ -188,8 +188,8 @@ export function DashboardPage({
         <StatCard
           icon={<Icon name="bot" size="xs" aria-hidden />}
           label="Agent Types"
-          value={agentsError ? '–' : String(agentTypes.length)}
-          delta={{ text: agentsError ? 'unavailable' : 'registered', positive: !agentsError }}
+          value={agentsError ? 'Unavailable' : String(agentTypes.length)}
+          delta={{ text: agentsError ? 'not loaded' : 'registered', positive: !agentsError }}
           footer={<Link href={APP_ROUTES.agents.list}>View all →</Link>}
         />
         <StatCard
@@ -205,9 +205,9 @@ export function DashboardPage({
         <StatCard
           icon={<Icon name="network" size="xs" aria-hidden />}
           label="Connections"
-          value={connectionsError ? '–' : String(connections.length)}
+          value={connectionsError ? 'Unavailable' : String(connections.length)}
           delta={{
-            text: connectionsError ? 'unavailable' : 'configured',
+            text: connectionsError ? 'not loaded' : 'configured',
             positive: !connectionsError,
           }}
           footer={<Link href={APP_ROUTES.connections}>View all →</Link>}
@@ -215,9 +215,9 @@ export function DashboardPage({
         <StatCard
           icon={<Icon name="layers" size="xs" aria-hidden />}
           label="Environments"
-          value={environmentsError ? '–' : String(environments.length)}
+          value={environmentsError ? 'Unavailable' : String(environments.length)}
           delta={{
-            text: environmentsError ? 'unavailable' : 'configured',
+            text: environmentsError ? 'not loaded' : 'configured',
             positive: !environmentsError,
           }}
           footer={<Link href={APP_ROUTES.environments}>View all →</Link>}
