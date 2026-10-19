@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"context"
@@ -44,6 +45,9 @@ var (
 	// remedies, and a caller that counts failures against the requester needs to
 	// not count this one.
 	ErrUpstreamUnavailable = errors.New("orbit-agents unavailable")
+	// ErrRunNotAcceptingMessages is returned when the run is starting or has left
+	// active and idle, so it cannot take a message.
+	ErrRunNotAcceptingMessages = errors.New("run is not accepting messages")
 )
 
 // Client calls the orbit-agents control-plane API.
@@ -233,5 +237,135 @@ func (c *Client) CanReadRun(ctx context.Context, bearer, delegation, runID strin
 			return c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
 		}
 		return c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+}
+
+// SendRunMessageRequest is the payload for SendRunMessage. TriggerID,
+// TriggerName and DeliveryID name the trigger and delivery the message comes
+// from, under the same rules as StartRunRequest's attribution.
+type SendRunMessageRequest struct {
+	Content     string `json:"content"`
+	TriggerID   string `json:"trigger_id,omitempty"`
+	TriggerName string `json:"trigger_name,omitempty"`
+	DeliveryID  string `json:"delivery_id,omitempty"`
+}
+
+// SendRunMessage delivers a message to an active or idle run, authenticating
+// with the supplied platform bearer token. A run that cannot take the message
+// returns ErrRunNotAcceptingMessages.
+func (c *Client) SendRunMessage(ctx context.Context, bearer, runID string, req SendRunMessageRequest) error {
+	body, err := c.EncodeJSON(req)
+	if err != nil {
+		return fmt.Errorf("encode send run message: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/runs/"+url.PathEscape(runID)+"/messages", body)
+	if err != nil {
+		return fmt.Errorf("build send run message request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+
+	_, span, resp, err := c.Do(ctx, "agents.Client.SendRunMessage", httpReq)
+	defer span.End()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusAccepted, http.StatusOK, http.StatusNoContent:
+		return nil
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return c.HandleErrorResponse(span, resp, ErrForbidden)
+	case http.StatusNotFound:
+		return c.HandleErrorResponse(span, resp, ErrRunNotFound)
+	case http.StatusConflict:
+		return c.HandleErrorResponse(span, resp, ErrRunNotAcceptingMessages)
+	default:
+		if resp.StatusCode >= http.StatusInternalServerError {
+			return c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
+		}
+		return c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+}
+
+// ListRunsQuery filters ListRuns. Empty fields do not filter, and a zero Limit
+// takes the server's default.
+type ListRunsQuery struct {
+	AgentTypeIDs []string
+	States       []string
+	// StartedByTrigger keeps only runs a trigger started.
+	StartedByTrigger bool
+	Limit            int
+}
+
+// Run is the subset of an orbit-agents run that callers need to pick a run to message.
+type Run struct {
+	ID          string            `json:"id"`
+	AgentTypeID string            `json:"agent_type_id"`
+	State       string            `json:"state"`
+	Summary     *string           `json:"summary"`
+	StartedAt   *time.Time        `json:"started_at"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+	StartedBy   *StartedByTrigger `json:"started_by,omitempty"`
+}
+
+// StartedByTrigger names the trigger and delivery that started a run.
+type StartedByTrigger struct {
+	TriggerID   string `json:"trigger_id"`
+	TriggerName string `json:"trigger_name,omitempty"`
+	DeliveryID  string `json:"delivery_id,omitempty"`
+}
+
+// ListRuns returns the first page of runs the bearer may read, newest first.
+// orbit-agents scopes the list to the token's tenant and run grants.
+func (c *Client) ListRuns(ctx context.Context, bearer string, q ListRunsQuery) ([]Run, error) {
+	params := url.Values{}
+	for _, id := range q.AgentTypeIDs {
+		params.Add("agent_type_id", id)
+	}
+	for _, st := range q.States {
+		params.Add("state", st)
+	}
+	if q.StartedByTrigger {
+		params.Set("started_by", "trigger")
+	}
+	if q.Limit > 0 {
+		params.Set("limit", strconv.Itoa(q.Limit))
+	}
+	target := c.baseURL + "/api/v1/runs"
+	if len(params) > 0 {
+		target += "?" + params.Encode()
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build list runs request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+
+	_, span, resp, err := c.Do(ctx, "agents.Client.ListRuns", httpReq)
+	defer span.End()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var out struct {
+			Runs []Run `json:"runs"`
+		}
+		if err := c.DecodeJSON(span, resp, &out); err != nil {
+			return nil, fmt.Errorf("decode list runs response: %w", err)
+		}
+		return out.Runs, nil
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return nil, c.HandleErrorResponse(span, resp, ErrForbidden)
+	default:
+		if resp.StatusCode >= http.StatusInternalServerError {
+			return nil, c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
+		}
+		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
 }

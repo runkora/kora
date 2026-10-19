@@ -160,12 +160,12 @@ func TestStarterReadsOwnRun(t *testing.T) {
 		t.Errorf("starter TerminateRun without write = %v, want ErrNotFound", err)
 	}
 
-	page, err := svc.run.ListRuns(ctx, "", RunListQuery{Limit: 10})
+	page, err := svc.run.ListRuns(ctx, nil, RunListQuery{Limit: 10})
 	if err != nil || len(page.Runs) != 1 || page.Runs[0].ID != "run-own" {
 		t.Errorf("ListRuns = %+v, %v; want only run-own", page.Runs, err)
 	}
 	seedAgentType(t, repo, AgentType{ID: "at-x", TenantID: "t1", Slug: "x"})
-	page, err = svc.run.ListRuns(ctx, "at-x", RunListQuery{Limit: 10})
+	page, err = svc.run.ListRuns(ctx, []string{"at-x"}, RunListQuery{Limit: 10})
 	if err != nil || len(page.Runs) != 0 {
 		t.Errorf("ListRuns of another agent = %+v, %v; want none", page.Runs, err)
 	}
@@ -184,7 +184,7 @@ func TestNonHumanDoesNotReadOwnRunsWithoutScope(t *testing.T) {
 			if _, err := svc.run.GetRun(ctx, "run-own"); !errors.Is(err, ErrNotFound) {
 				t.Errorf("GetRun = %v, want ErrNotFound", err)
 			}
-			page, err := svc.run.ListRuns(ctx, "", RunListQuery{Limit: 10})
+			page, err := svc.run.ListRuns(ctx, nil, RunListQuery{Limit: 10})
 			if err != nil || len(page.Runs) != 0 {
 				t.Errorf("ListRuns = %+v, %v; want none", page.Runs, err)
 			}
@@ -209,7 +209,7 @@ func TestRunReadPaths_AutonomousRunNeedsReadScope(t *testing.T) {
 				call func() error
 			}{
 				{"get", func() error { _, err := svc.run.GetRun(ctx, "run-alice"); return err }},
-				{"message", func() error { return svc.run.SendMessage(ctx, "run-alice", "hi") }},
+				{"message", func() error { return svc.run.SendMessage(ctx, "run-alice", SendMessageRequest{Content: "hi"}) }},
 				{"terminate", func() error { return svc.run.TerminateRun(ctx, "run-alice") }},
 				{"agent run stats", func() error { _, err := svc.run.AgentRunStats(ctx, "helper", "7d", time.Now()); return err }},
 			}
@@ -218,7 +218,7 @@ func TestRunReadPaths_AutonomousRunNeedsReadScope(t *testing.T) {
 					t.Errorf("%s = %v, want ErrNotFound", p.name, err)
 				}
 			}
-			page, err := svc.run.ListRuns(ctx, "", RunListQuery{Limit: 10})
+			page, err := svc.run.ListRuns(ctx, nil, RunListQuery{Limit: 10})
 			if err != nil || len(page.Runs) != 0 {
 				t.Errorf("list = %+v, %v; want none", page.Runs, err)
 			}

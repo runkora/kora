@@ -274,7 +274,7 @@ func (m *mockRepository) RunStats(_ context.Context, _ string, scope RunScope, _
 
 // scopeMatches mirrors appendScope's agent-type and own-run clauses.
 func scopeMatches(scope RunScope, r *Run) bool {
-	if scope.AgentTypeID != "" && r.AgentTypeID != scope.AgentTypeID {
+	if len(scope.OnlyAgentTypeIDs) > 0 && !slices.Contains(scope.OnlyAgentTypeIDs, r.AgentTypeID) {
 		return false
 	}
 	own := scope.Own && scope.Vis.Subject != "" && r.CreatedBy == scope.Vis.Subject
@@ -296,6 +296,9 @@ func (m *mockRepository) ListRuns(_ context.Context, tenantID string, q RunListQ
 			continue
 		}
 		if len(q.States) > 0 && !slices.Contains(q.States, r.State) {
+			continue
+		}
+		if q.StartedByTrigger && r.StartedBy == nil {
 			continue
 		}
 		if !q.CreatedAfter.IsZero() && r.CreatedAt.Before(q.CreatedAfter) {
@@ -1012,7 +1015,11 @@ func (f *testServiceFacade) GetRun(ctx context.Context, id string) (*Run, error)
 }
 
 func (f *testServiceFacade) ListRuns(ctx context.Context, tenantID, agentTypeID string) ([]Run, error) {
-	page, err := f.run.ListRuns(withTenantCtx(ctx, tenantID), agentTypeID, RunListQuery{Limit: maxRunsLimit})
+	var ids []string
+	if agentTypeID != "" {
+		ids = []string{agentTypeID}
+	}
+	page, err := f.run.ListRuns(withTenantCtx(ctx, tenantID), ids, RunListQuery{Limit: maxRunsLimit})
 	return page.Runs, err
 }
 
@@ -1044,7 +1051,7 @@ func (f *testServiceFacade) TransitionRunState(ctx context.Context, runID string
 }
 
 func (f *testServiceFacade) SendMessage(ctx context.Context, runID, content string) error {
-	return f.run.SendMessage(f.withRunTenant(ctx, runID), runID, content)
+	return f.run.SendMessage(f.withRunTenant(ctx, runID), runID, SendMessageRequest{Content: content})
 }
 
 func (f *testServiceFacade) InterruptRun(ctx context.Context, runID string) error {
