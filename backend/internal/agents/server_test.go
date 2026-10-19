@@ -424,7 +424,8 @@ func TestHandleSendMessage_RunStarting(t *testing.T) {
 	w := httptest.NewRecorder()
 	c.handleSendMessage(w, req)
 
-	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "run is starting") || !strings.Contains(w.Body.String(), `"code":"conflict"`) {
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "run is starting") || !strings.Contains(w.Body.String(), `"code":"conflict"`) ||
+		!strings.Contains(w.Body.String(), `"reason":"run_starting"`) {
 		t.Errorf("status = %d, body = %s, want 409 run is starting", w.Code, w.Body.String())
 	}
 }

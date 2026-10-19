@@ -247,7 +247,6 @@ func TestSendRunMessage_StatusMapping(t *testing.T) {
 		{http.StatusForbidden, ErrForbidden},
 		{http.StatusUnauthorized, ErrForbidden},
 		{http.StatusNotFound, ErrRunNotFound},
-		// A starting run and a finished run both answer 409; a lost race starts a new run either way.
 		{http.StatusConflict, ErrRunNotAcceptingMessages},
 		{http.StatusInternalServerError, ErrUpstreamUnavailable},
 		{http.StatusTeapot, ErrUnexpectedStatus},
@@ -309,6 +308,20 @@ func TestListRuns_StatusMapping(t *testing.T) {
 		c, _ := newTestClient(t, tt.status, `{"error":"x"}`)
 		if _, err := c.ListRuns(context.Background(), "tok", ListRunsQuery{}); !errors.Is(err, tt.want) {
 			t.Errorf("status %d: got %v, want %v", tt.status, err, tt.want)
+		}
+	}
+}
+
+func TestSendRunMessage_ConflictReason(t *testing.T) {
+	for body, want := range map[string]error{
+		`{"code":"conflict","message":"run is starting","details":{"reason":"run_starting"}}`:             ErrRunStarting,
+		`{"code":"conflict","message":"run is not accepting messages","details":{"reason":"run_closed"}}`: ErrRunNotAcceptingMessages,
+		`not json`: ErrRunNotAcceptingMessages,
+	} {
+		c, _ := newTestClient(t, http.StatusConflict, body)
+		err := c.SendRunMessage(context.Background(), "tok", "run-1", SendRunMessageRequest{Content: "hi"})
+		if !errors.Is(err, want) || !strings.Contains(err.Error(), "status 409") {
+			t.Errorf("body %s: got %v, want %v", body, err, want)
 		}
 	}
 }

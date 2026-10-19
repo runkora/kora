@@ -9,8 +9,11 @@
 package agents
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -45,9 +48,12 @@ var (
 	// remedies, and a caller that counts failures against the requester needs to
 	// not count this one.
 	ErrUpstreamUnavailable = errors.New("orbit-agents unavailable")
-	// ErrRunNotAcceptingMessages is returned when the run is starting or has left
-	// active and idle, so it cannot take a message.
+	// ErrRunNotAcceptingMessages is returned when the run has left active and
+	// idle, so it cannot take a message.
 	ErrRunNotAcceptingMessages = errors.New("run is not accepting messages")
+	// ErrRunStarting is returned when the run has not started yet and will take
+	// messages once it is active.
+	ErrRunStarting = errors.New("run is starting")
 )
 
 // Client calls the orbit-agents control-plane API.
@@ -252,7 +258,7 @@ type SendRunMessageRequest struct {
 
 // SendRunMessage delivers a message to an active or idle run, authenticating
 // with the supplied platform bearer token. A run that cannot take the message
-// returns ErrRunNotAcceptingMessages.
+// returns ErrRunNotAcceptingMessages, and one that has not started yet ErrRunStarting.
 func (c *Client) SendRunMessage(ctx context.Context, bearer, runID string, req SendRunMessageRequest) error {
 	body, err := c.EncodeJSON(req)
 	if err != nil {
@@ -280,13 +286,29 @@ func (c *Client) SendRunMessage(ctx context.Context, bearer, runID string, req S
 	case http.StatusNotFound:
 		return c.HandleErrorResponse(span, resp, ErrRunNotFound)
 	case http.StatusConflict:
-		return c.HandleErrorResponse(span, resp, ErrRunNotAcceptingMessages)
+		return c.HandleErrorResponse(span, resp, conflictReason(resp))
 	default:
 		if resp.StatusCode >= http.StatusInternalServerError {
 			return c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
 		}
 		return c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
+}
+
+// conflictReason reads the reason detail of a 409 from POST
+// /api/v1/runs/{id}/messages, leaving the body for the error that wraps it.
+func conflictReason(resp *http.Response) error {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	var detail struct {
+		Details struct {
+			Reason string `json:"reason"`
+		} `json:"details"`
+	}
+	if json.Unmarshal(body, &detail) == nil && detail.Details.Reason == "run_starting" {
+		return ErrRunStarting
+	}
+	return ErrRunNotAcceptingMessages
 }
 
 // ListRunsQuery filters ListRuns. Empty fields do not filter, and a zero Limit

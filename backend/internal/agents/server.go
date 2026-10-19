@@ -625,13 +625,15 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		// The reason detail tells a caller that can wait for a starting run
+		// apart from one that should give up on a closed run.
 		if errors.Is(err, ErrRunStarting) {
-			apiErr := api.ConflictError(api.ErrCodeConflict, "run is starting", nil)
+			apiErr := api.ConflictError(api.ErrCodeConflict, "run is starting", map[string]any{"reason": "run_starting"})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
 		if errors.Is(err, ErrRunNotAcceptingMessages) {
-			apiErr := api.ConflictError(api.ErrCodeConflict, "run is not accepting messages", nil)
+			apiErr := api.ConflictError(api.ErrCodeConflict, "run is not accepting messages", map[string]any{"reason": "run_closed"})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
