@@ -99,7 +99,7 @@ function findStringEnd(src: string, start: number): number {
 /** Index of the first non-whitespace character at or after `start`. */
 function skipWhitespace(src: string, start: number): number {
   let i = start;
-  while (i < src.length && /\s/.test(src[i])) i += 1;
+  while (i < src.length && /\s/.test(src.charAt(i))) i += 1;
   return i;
 }
 

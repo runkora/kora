@@ -89,7 +89,7 @@ export function tokenSpans(value: string): TokenSpan[] {
   const spans: TokenSpan[] = [];
   for (const match of value.matchAll(tokenRegex())) {
     const start = match.index ?? 0;
-    spans.push({ start, end: start + match[0].length, token: match[1] });
+    spans.push({ start, end: start + match[0].length, token: match[1] ?? '' });
   }
   return spans;
 }
@@ -449,7 +449,7 @@ export function domPositionToModelOffset(root: Node, node: Node | null, offset: 
   let acc = modelOffsetBefore(root, node);
   const children = node.childNodes;
   const upto = Math.max(0, Math.min(offset, children.length));
-  for (let i = 0; i < upto; i += 1) acc += modelTextOf(children[i]).length;
+  for (const child of Array.from(children).slice(0, upto)) acc += modelTextOf(child).length;
   return acc;
 }
 
@@ -463,8 +463,7 @@ export function modelOffsetToDom(root: Node, offset: number): DomPosition {
   let acc = 0;
   const children = Array.from(root.childNodes);
 
-  for (let i = 0; i < children.length; i += 1) {
-    const child = children[i];
+  for (const [i, child] of children.entries()) {
     const len = modelTextOf(child).length;
 
     if (isTextNode(child)) {

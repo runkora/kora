@@ -297,7 +297,7 @@ export interface TextProps extends VariantProps<typeof textVariants> {
    * <Text size="caption" color="subtle" mono>agt_01HZ9K3V</Text>
    * ```
    */
-  mono?: boolean;
+  mono?: boolean | undefined;
 
   /**
    * When true, applies tabular-nums to prevent layout jitter when numeric
@@ -323,7 +323,7 @@ export interface TextProps extends VariantProps<typeof textVariants> {
   // Forwarded HTML props
   children?: React.ReactNode;
   /** @internal Used for internal Hades composition via cn(). Blocked by ESLint in product code. */
-  className?: string;
+  className?: string | undefined;
   id?: string;
   htmlFor?: string;
   tabIndex?: number;

@@ -43,7 +43,7 @@ export interface WizardRailProps {
 interface WizardHeaderProps {
   icon: IconName;
   title: string;
-  subtitle?: string;
+  subtitle?: string | undefined;
   actions?: React.ReactNode;
   onClose: () => void;
 }

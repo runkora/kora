@@ -161,8 +161,7 @@ const BottomSheet = ({ open, onOpenChange, title, children }: BottomSheetProps) 
     const windowStart = now - VELOCITY_WINDOW_MS;
     const recent = drag.samples.filter((s) => s.t >= windowStart);
     const first = recent[0] ?? drag.samples[0];
-    const elapsed = Math.max(1, now - first.t);
-    const velocity = (e.clientY - first.y) / elapsed;
+    const velocity = first ? (e.clientY - first.y) / Math.max(1, now - first.t) : 0;
 
     const shouldClose =
       dy >= drag.sheetHeight * DISMISS_HEIGHT_RATIO || velocity >= VELOCITY_THRESHOLD_PX_MS;

@@ -1077,9 +1077,10 @@ frontend-lint: ## Lint the frontend (eslint)
 	@echo "$(COLOR_GREEN)✓ Frontend lint passed$(COLOR_RESET)"
 
 .PHONY: frontend-type-check
-frontend-type-check: ## Type-check the frontend (tsc --noEmit)
+frontend-type-check: ## Type-check the frontend and, under its own strict flags, the Hades package (tsc --noEmit)
 	@echo "$(COLOR_YELLOW)Type-checking frontend...$(COLOR_RESET)"
 	@cd $(FRONTEND_DIR) && pnpm type-check
+	@cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades run type-check
 	@echo "$(COLOR_GREEN)✓ Frontend type-check passed$(COLOR_RESET)"
 
 .PHONY: frontend-fmt

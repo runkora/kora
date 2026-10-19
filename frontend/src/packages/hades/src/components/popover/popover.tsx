@@ -12,7 +12,7 @@ export interface PopoverContentProps extends React.ComponentPropsWithoutRef<
   typeof PopoverPrimitive.Content
 > {
   /** Match the trigger's width, with an 18rem floor for narrow triggers. */
-  matchTriggerWidth?: boolean;
+  matchTriggerWidth?: boolean | undefined;
 }
 
 const PopoverContent = React.forwardRef<
