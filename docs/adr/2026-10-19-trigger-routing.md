@@ -311,6 +311,7 @@ The target step and the delivery detail follow the stories under `Pages/Triggers
 - Every routed fire that misses the key adds one decision model call to dispatch latency and spend.
 - A delivery can join a run that another trigger started. The joined run's agent receives a message from a source its own trigger does not listen to.
 - A routed trigger's grant spans every candidate. Removing a candidate requires an update to replace the grant.
+- An update that replaces the grant stores the trigger only while its stored grant is still the one it replaced. A concurrent update that replaced it first wins, and the other deletes its new grant and answers 409. Revoking the replaced grant is retried a few times, and a revocation that still fails is returned as an error naming the grant that is still live, never dropped. Durable cleanup of such a grant is follow-up work.
 - Routing quality depends on agent descriptions that agent owners write for people.
 - orbit-triggers needs mesh access to the inference gateway: a DestinationRule entry and an AuthorizationPolicy principal.
 
