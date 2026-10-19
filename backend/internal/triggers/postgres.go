@@ -503,7 +503,7 @@ func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writ
 		}
 		if tag.RowsAffected() == 0 {
 			if guardGrant {
-				return ErrTriggerConflict
+				return grantGuardMiss(ctx, tx, t)
 			}
 			return ErrTriggerNotFound
 		}
@@ -512,6 +512,20 @@ func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writ
 		}
 		return writeRoute(ctx, tx, t)
 	})
+}
+
+// grantGuardMiss tells a concurrent grant swap (409) from a deleted trigger
+// (404), so a caller is not told to retry an update that cannot land.
+func grantGuardMiss(ctx context.Context, tx pgx.Tx, t *Trigger) error {
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM triggers WHERE id = $1 AND tenant_id = $2)`,
+		t.ID, t.TenantID).Scan(&exists); err != nil {
+		return fmt.Errorf("check trigger exists: %w", err)
+	}
+	if !exists {
+		return ErrTriggerNotFound
+	}
+	return ErrTriggerConflict
 }
 
 func (r *postgresRepository) DeleteTrigger(ctx context.Context, tenantID, id string) error {

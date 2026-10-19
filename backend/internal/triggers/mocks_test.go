@@ -301,7 +301,11 @@ func (m *mockRepository) UpdateTriggerGrant(_ context.Context, t *Trigger, write
 	}
 	m.mu.Lock()
 	stored, ok := m.triggers[t.ID]
-	if ok && deref(stored.GrantID) != deref(oldGrantID) {
+	if !ok {
+		m.mu.Unlock()
+		return ErrTriggerNotFound
+	}
+	if deref(stored.GrantID) != deref(oldGrantID) {
 		m.mu.Unlock()
 		return ErrTriggerConflict
 	}

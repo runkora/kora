@@ -225,6 +225,13 @@ func TestPostgres_UpdateTriggerGrantIsConditional(t *testing.T) {
 	if got, _ := r.GetTrigger(ctx, tenant, tr.ID); deref(got.GrantID) != "grant-winner" {
 		t.Errorf("stored grant = %s, want grant-winner", deref(got.GrantID))
 	}
+
+	if err := r.DeleteTrigger(ctx, tenant, tr.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if err := r.UpdateTriggerGrant(ctx, loser, false, &original); !errors.Is(err, ErrTriggerNotFound) {
+		t.Errorf("replacement on a deleted trigger = %v, want ErrTriggerNotFound", err)
+	}
 }
 
 // An update that did not replace the grant never writes grant_id, so a
