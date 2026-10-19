@@ -116,8 +116,10 @@ func refuseDelegatedBinding(at *agentsclient.AgentType, tenantID, agentTypeID st
 func requireRunAuthority(ctx context.Context, agents agentTypeReader, agentTypeID string) (*agentsclient.AgentType, error) {
 	at, err := agents.GetAgentType(ctx, callerBearer(ctx), agentTypeID)
 	switch {
-	case errors.Is(err, agentsclient.ErrAgentTypeNotFound), errors.Is(err, agentsclient.ErrForbidden):
-		return nil, fmt.Errorf("%w: agent type %q: %w", ErrBindForbidden, agentTypeID, err)
+	case errors.Is(err, agentsclient.ErrAgentTypeNotFound):
+		return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
+	case errors.Is(err, agentsclient.ErrForbidden):
+		return nil, fmt.Errorf("%w: agent type %q", ErrBindForbidden, agentTypeID)
 	case err != nil:
 		return nil, fmt.Errorf("check run access: %w", err)
 	case !at.CanRun:
@@ -126,13 +128,14 @@ func requireRunAuthority(ctx context.Context, agents agentTypeReader, agentTypeI
 	return &at, nil
 }
 
-// bindTarget reads the agent a new trigger binds. An agent the caller cannot see reads as not found, as orbit-agents answers.
-func bindTarget(ctx context.Context, agents agentTypeReader, agentTypeID string) (*agentsclient.AgentType, error) {
-	at, err := requireRunAuthority(ctx, agents, agentTypeID)
-	if errors.Is(err, agentsclient.ErrAgentTypeNotFound) {
-		return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
+// requireRunAccess is requireRunAuthority for changes to an existing trigger, source or delivery.
+// The caller named those, not the agent, so an agent they cannot see refuses the change as forbidden.
+func requireRunAccess(ctx context.Context, agents agentTypeReader, agentTypeID string) error {
+	_, err := requireRunAuthority(ctx, agents, agentTypeID)
+	if errors.Is(err, ErrValidation) {
+		return fmt.Errorf("%w: agent type %q", ErrBindForbidden, agentTypeID)
 	}
-	return at, err
+	return err
 }
 
 // matchableLister lists the triggers a delivery on a source could start.
@@ -153,7 +156,7 @@ func requireRunAccessForSource(ctx context.Context, repo matchableLister, agents
 			continue
 		}
 		checked[t.AgentTypeID] = true
-		if _, err := requireRunAuthority(ctx, agents, t.AgentTypeID); err != nil {
+		if err := requireRunAccess(ctx, agents, t.AgentTypeID); err != nil {
 			return err
 		}
 	}
@@ -190,7 +193,7 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 		return nil, err
 	}
 
-	at, err := bindTarget(ctx, s.agents, req.AgentTypeID)
+	at, err := requireRunAuthority(ctx, s.agents, req.AgentTypeID)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +286,7 @@ func (s *TriggerService) createOwnedTrigger(ctx context.Context, tenantID string
 	}
 	grants = append(grants, svcGrantID)
 
-	at, err := bindTarget(ctx, s.agents, req.AgentTypeID)
+	at, err := requireRunAuthority(ctx, s.agents, req.AgentTypeID)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +405,7 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	}
 	wasEnabled := t.Enabled
 	if changesRunBehaviour(t, req) {
-		if _, err = requireRunAuthority(ctx, s.agents, t.AgentTypeID); err != nil {
+		if err = requireRunAccess(ctx, s.agents, t.AgentTypeID); err != nil {
 			return nil, err
 		}
 	}
