@@ -19,7 +19,7 @@ import (
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go/v3"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw"
 )
 
 // TranslationError is returned by translation functions when the caller

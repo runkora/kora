@@ -6,8 +6,8 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 // AddToScheme registers the kora CRD types into a runtime.Scheme.

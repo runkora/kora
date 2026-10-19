@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
 )
 
 func provider(name string, spec ip.Spec) *ip.InferenceProvider {

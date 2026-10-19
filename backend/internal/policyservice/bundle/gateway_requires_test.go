@@ -3,10 +3,10 @@ package bundle_test
 import (
 	"testing"
 
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 // TestGateway_RequiresExpansion_RolesAndGrants pins the gateway bundle to the

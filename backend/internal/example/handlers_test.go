@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/api"
 )
 
 // newTestServer wires a Controller over a fake repo and mounts it on a real

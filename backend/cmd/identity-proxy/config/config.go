@@ -4,7 +4,7 @@ package identityProxyConfig
 import (
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
 // Config holds the identity-proxy sidecar's own configuration values.

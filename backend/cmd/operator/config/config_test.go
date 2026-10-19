@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
 func TestBaseDefaults(t *testing.T) {

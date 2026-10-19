@@ -8,14 +8,14 @@ import (
 	"os/signal"
 	"syscall"
 
-	ec "github.com/clear-route/orbit/cmd/example/config"
-	"github.com/clear-route/orbit/internal/example"
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/storage"
+	ec "github.com/runkora/kora/backend/cmd/example/config"
+	"github.com/runkora/kora/backend/internal/example"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 func main() {

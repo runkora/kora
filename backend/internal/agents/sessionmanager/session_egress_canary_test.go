@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
-	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
+	execpb "github.com/runkora/kora/backend/internal/agents/sandbox/proto"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 	"google.golang.org/grpc"
 )
 

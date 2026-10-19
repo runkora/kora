@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
-	"github.com/clear-route/orbit/internal/platform/brand"
-	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/token"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

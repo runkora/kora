@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/token"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 func (c *Controller) handleScopes(w http.ResponseWriter, r *http.Request) {

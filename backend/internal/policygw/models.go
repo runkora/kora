@@ -1,6 +1,6 @@
 package policygw
 
-import "github.com/clear-route/orbit/internal/platform/policy"
+import "github.com/runkora/kora/backend/internal/platform/policy"
 
 // CheckRequest is the body for POST /v1/policy/check.
 type CheckRequest struct {

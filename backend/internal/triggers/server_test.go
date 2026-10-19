@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 func newTestController(t *testing.T) (*Controller, *testDeps, *Service) {

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"net/http"
 
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
 )
 
 func (c *Controller) handleUpsertRole(w http.ResponseWriter, r *http.Request) {

@@ -12,7 +12,7 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/parser"
 
-	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials"
 )
 
 // GraphQL requests are authorized by the granular actions of the fields they

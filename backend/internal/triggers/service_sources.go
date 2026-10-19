@@ -7,9 +7,9 @@ import (
 
 	"github.com/google/uuid"
 
-	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ─── Sources ──────────────────────────────────────────────────────────────────

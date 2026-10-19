@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/egressgw/tlsca/testtlsca"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/egressgw/tlsca/testtlsca"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // TestConnect_IdleTunnelClosed locks the intercept path's idle deadline.

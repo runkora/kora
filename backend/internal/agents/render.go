@@ -10,8 +10,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	"github.com/clear-route/orbit/internal/agents/manifestpatch"
-	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
+	"github.com/runkora/kora/backend/internal/agents/manifestpatch"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
 )
 
 // RenderResources builds the patchable resources orbit-agents provisions for

@@ -3,7 +3,7 @@ package storage
 import (
 	"fmt"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
 // StorageConfig is the single top-level configuration struct for all storage backends.

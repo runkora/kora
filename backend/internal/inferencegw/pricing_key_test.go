@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Routes and usage name a provider by resource (bedrock:aus), while Bedrock,

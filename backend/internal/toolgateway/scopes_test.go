@@ -3,7 +3,7 @@ package toolgateway
 import (
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 )
 
 func TestNormalizeSegment(t *testing.T) {

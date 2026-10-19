@@ -33,8 +33,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	platformconns "github.com/clear-route/orbit/internal/platform/connections"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 const (

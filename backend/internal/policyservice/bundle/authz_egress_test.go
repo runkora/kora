@@ -5,11 +5,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/policyservice/bundle"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
 	opabundle "github.com/open-policy-agent/opa/v1/bundle"
 	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/runkora/kora/backend/internal/policyservice/bundle"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════

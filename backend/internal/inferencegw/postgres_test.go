@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/cmd/inference-gateway/migrations"
-	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/runkora/kora/backend/cmd/inference-gateway/migrations"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Postgres integration tests for the inference usage repository. They run only

@@ -3,7 +3,7 @@ package orbitmcp
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/clear-route/orbit/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/brand"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mcpkit "github.com/clear-route/orbit/internal/platform/mcp"
+	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mcpkit "github.com/runkora/kora/backend/internal/platform/mcp"
 )
 
 // TestAgentWriteToolsForwardMethodAndBody exercises the write vertical: each

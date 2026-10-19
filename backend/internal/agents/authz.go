@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ErrForbidden is returned when the principal in context lacks the required

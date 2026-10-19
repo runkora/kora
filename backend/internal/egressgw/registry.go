@@ -3,7 +3,7 @@ package egressgw
 import (
 	"sync"
 
-	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials"
 )
 
 // AdapterRegistry maps an AdapterType to its adapter implementation. The owning

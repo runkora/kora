@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // A delegated run belongs to its starter (docs/adr/2026-07-23-delegated-agent-identity.md,

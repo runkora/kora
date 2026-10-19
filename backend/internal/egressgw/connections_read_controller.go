@@ -4,11 +4,11 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	platformtoken "github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ConnectionsReadController serves the read-only connection catalog for the

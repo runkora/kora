@@ -11,8 +11,8 @@ import (
 
 	"github.com/google/uuid"
 
-	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ─── Ingest (webhook) ─────────────────────────────────────────────────────────

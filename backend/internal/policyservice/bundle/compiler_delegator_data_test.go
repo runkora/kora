@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/policyservice/routes"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 // Delegator-leg bundle data (delegated-agent-identity ADR, Decision 5): the

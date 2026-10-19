@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	sandboxfolder "github.com/runkora/kora/backend/internal/agents/sandbox/folder"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Guardrails bounds how long a run may keep failing the same way before the

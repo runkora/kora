@@ -268,7 +268,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/clear-route/orbit/internal/platform/logging"
+    "github.com/runkora/kora/backend/internal/platform/logging"
     "github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -367,7 +367,7 @@ import (
     "context"
     "fmt"
 
-    "github.com/clear-route/orbit/internal/platform/logging"
+    "github.com/runkora/kora/backend/internal/platform/logging"
     "github.com/jackc/pgx/v5"
 )
 
@@ -493,8 +493,8 @@ import (
     "fmt"
 
     "github.com/jackc/pgx/v5"
-    "github.com/clear-route/orbit/internal/platform/logging"
-    "github.com/clear-route/orbit/internal/platform/storage"
+    "github.com/runkora/kora/backend/internal/platform/logging"
+    "github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 type postgresRepository struct {
@@ -624,9 +624,9 @@ import (
     "syscall"
     "time"
 
-    "github.com/clear-route/orbit/internal/platform/logging"
-    "github.com/clear-route/orbit/internal/platform/storage"
-    "github.com/clear-route/orbit/internal/identity"
+    "github.com/runkora/kora/backend/internal/platform/logging"
+    "github.com/runkora/kora/backend/internal/platform/storage"
+    "github.com/runkora/kora/backend/internal/identity"
 )
 
 func main() {

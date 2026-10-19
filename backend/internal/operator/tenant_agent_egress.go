@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/clear-route/orbit/internal/platform/ports"
+	"github.com/runkora/kora/backend/internal/platform/ports"
 )
 
 // agentEgressName names both the NetworkPolicy and the Istio Sidecar.

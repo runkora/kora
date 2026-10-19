@@ -7,7 +7,7 @@ import (
 
 	networkingv1 "k8s.io/api/networking/v1"
 
-	"github.com/clear-route/orbit/internal/platform/ports"
+	"github.com/runkora/kora/backend/internal/platform/ports"
 )
 
 // allowedPorts lists every "namespace/app:port" the policy admits. An empty

@@ -8,16 +8,16 @@ import (
 	"os/signal"
 	"syscall"
 
-	pgc "github.com/clear-route/orbit/cmd/policy-gateway/config"
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	platformtoken "github.com/clear-route/orbit/internal/platform/token"
-	"github.com/clear-route/orbit/internal/policygw"
+	pgc "github.com/runkora/kora/backend/cmd/policy-gateway/config"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/policygw"
 )
 
 func main() {

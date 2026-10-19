@@ -27,8 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 // Warm condition reasons.

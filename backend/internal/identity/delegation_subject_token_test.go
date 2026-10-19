@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // The RFC 8693 subject_token path: a platform service (orbit-agents) brokers

@@ -11,8 +11,8 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/google/uuid"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 

@@ -9,9 +9,9 @@ RUN test -n "$SERVICE" || (echo "ERROR: --build-arg SERVICE=<service> is require
 
 WORKDIR /app
 
-ENV GOPRIVATE=github.com/clear-route/*
-ENV GONOSUMDB=github.com/clear-route/*
-ENV GONOPROXY=github.com/clear-route/*
+ENV GOPRIVATE=github.com/runkora/*
+ENV GONOSUMDB=github.com/runkora/*
+ENV GONOPROXY=github.com/runkora/*
 
 COPY go.mod go.sum ./
 # TODO: use .netrc + docker secrets for private modules in CI

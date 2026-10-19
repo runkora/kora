@@ -12,7 +12,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	orbitmcp "github.com/clear-route/orbit/internal/platform/mcp"
+	orbitmcp "github.com/runkora/kora/backend/internal/platform/mcp"
 )
 
 // newFakeMCPServer starts an in-process MCP server exposing one tool, and

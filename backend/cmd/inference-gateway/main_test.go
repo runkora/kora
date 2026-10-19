@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	igc "github.com/clear-route/orbit/cmd/inference-gateway/config"
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	igc "github.com/runkora/kora/backend/cmd/inference-gateway/config"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // registration is the wire payload the policy service receives.

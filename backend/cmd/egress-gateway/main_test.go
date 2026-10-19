@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	egc "github.com/clear-route/orbit/cmd/egress-gateway/config"
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
-	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
-	"github.com/clear-route/orbit/internal/egressgw"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	egc "github.com/runkora/kora/backend/cmd/egress-gateway/config"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/githubapp"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
+	"github.com/runkora/kora/backend/internal/egressgw"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // mountedRegistry writes a connections.json the way the operator renders it and

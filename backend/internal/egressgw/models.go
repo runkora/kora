@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials"
 )
 
 // EgressRequest is the broker's view of one inbound outbound-call attempt. It

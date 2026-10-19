@@ -9,13 +9,13 @@ import (
 	"regexp"
 	"slices"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/principalroles"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
-	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/principalroles"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
+	"github.com/runkora/kora/backend/internal/policyservice/tenantbudget"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 // validTenantID matches alphanumeric IDs with hyphens, underscores, and dots.

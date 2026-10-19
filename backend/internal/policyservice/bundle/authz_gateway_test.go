@@ -16,14 +16,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/policyservice/bundle"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 	jwt "github.com/golang-jwt/jwt/v5"
 	opabundle "github.com/open-policy-agent/opa/v1/bundle"
 	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/runkora/kora/backend/internal/policyservice/bundle"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 // ---------------------------------------------------------------------------

@@ -11,9 +11,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
-	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
+	execpb "github.com/runkora/kora/backend/internal/agents/sandbox/proto"
 	"google.golang.org/grpc"
 )
 

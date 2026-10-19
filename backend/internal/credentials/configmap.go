@@ -26,8 +26,8 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	platformconns "github.com/clear-route/orbit/internal/platform/connections"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // registryEntry is the wire shape of one element of connections.json,

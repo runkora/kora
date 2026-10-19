@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Registration timing, shared by every binary that keeps itself registered.

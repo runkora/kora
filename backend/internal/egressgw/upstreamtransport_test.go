@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/egressgw/tlsca/testtlsca"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/egressgw/tlsca/testtlsca"
 )
 
 // testCACertPEM returns a valid, freshly-minted self-signed CA certificate

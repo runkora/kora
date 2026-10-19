@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	smclient "github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
+	smclient "github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 )
 
 func TestIsSleepCommand(t *testing.T) {

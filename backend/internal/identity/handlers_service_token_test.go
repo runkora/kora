@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // The mint endpoint issues a token for a principal the caller names, so the

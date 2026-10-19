@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ─── GET /v1/usage ───────────────────────────────────────────────────────────

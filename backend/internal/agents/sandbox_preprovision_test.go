@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	platformconns "github.com/clear-route/orbit/internal/platform/connections"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
 )
 
 // seedKubeRun sets up a run whose agent type declares one Kubernetes connector,

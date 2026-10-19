@@ -28,9 +28,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/api"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	ext_procv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"github.com/runkora/kora/backend/internal/platform/api"
 	"go.opentelemetry.io/otel"
 	otelcodes "go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -40,7 +40,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // authorizationHeader is the canonical HTTP header name injected by the proxy.

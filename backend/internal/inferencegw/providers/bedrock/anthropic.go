@@ -8,9 +8,9 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // AnthropicMessages is the zero-translation path for POST /v1/messages.

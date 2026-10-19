@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
-	platformconns "github.com/clear-route/orbit/internal/platform/connections"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
 )
 
 // environmentLookup loads a tenant's environments by ID, in the order given.

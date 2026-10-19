@@ -22,15 +22,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	oc "github.com/clear-route/orbit/cmd/operator/config"
-	"github.com/clear-route/orbit/internal/operator"
-	"github.com/clear-route/orbit/internal/operator/preflight"
-	"github.com/clear-route/orbit/internal/operator/webhookcert"
-	"github.com/clear-route/orbit/internal/platform/brand"
-	"github.com/clear-route/orbit/internal/platform/config"
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/observability"
+	oc "github.com/runkora/kora/backend/cmd/operator/config"
+	"github.com/runkora/kora/backend/internal/operator"
+	"github.com/runkora/kora/backend/internal/operator/preflight"
+	"github.com/runkora/kora/backend/internal/operator/webhookcert"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 const (

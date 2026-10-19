@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ── buildFlags ────────────────────────────────────────────────────────────────

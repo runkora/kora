@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	platformtoken "github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // fakeEval is a policy.Evaluator stub: Query returns a configured allowlist and

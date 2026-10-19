@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clear-route/orbit/internal/agents/manifestpatch"
-	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
-	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
-	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
-	"github.com/clear-route/orbit/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/agents/manifestpatch"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
+	sandboxfolder "github.com/runkora/kora/backend/internal/agents/sandbox/folder"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/platform/brand"
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -45,10 +45,10 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/ports"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
+	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/ports"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 var k8sTracer = otel.Tracer("orbit.agents.k8s")

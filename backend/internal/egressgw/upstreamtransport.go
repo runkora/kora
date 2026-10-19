@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 )
 
 // ErrTransportUnavailable is returned by TransportCache.For when a connection's

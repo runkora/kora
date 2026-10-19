@@ -15,17 +15,17 @@ import (
 	"os/signal"
 	"syscall"
 
-	omc "github.com/clear-route/orbit/cmd/orbit-mcp/config"
-	"github.com/clear-route/orbit/internal/orbitmcp"
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/brand"
-	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mcpkit "github.com/clear-route/orbit/internal/platform/mcp"
-	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/observability"
+	omc "github.com/runkora/kora/backend/cmd/orbit-mcp/config"
+	"github.com/runkora/kora/backend/internal/orbitmcp"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mcpkit "github.com/runkora/kora/backend/internal/platform/mcp"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 func main() {

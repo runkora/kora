@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 )
 
 // Mux wraps http.ServeMux with controller-level routing and middleware support.

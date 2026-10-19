@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials"
 )
 
 func TestShouldIntercept(t *testing.T) {

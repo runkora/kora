@@ -20,8 +20,8 @@ import (
 	"os/exec"
 	"syscall"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/landlock-lsm/go-landlock/landlock"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 )
 
 // procFiles are the /proc files the agent may read. None describes a process:

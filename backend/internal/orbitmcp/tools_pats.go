@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
 )
 
 // registerPATTools wires the Personal Access Token domain: viewing and managing

@@ -10,10 +10,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	smclient "github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	smclient "github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // errNotifierUnexpectedStatus is the stable sentinel recorded on the notifier

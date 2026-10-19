@@ -25,12 +25,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
-	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/tenantbudget"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 //go:embed authz.rego

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // seedAutonomousAgentType stores an ordinary (non-delegated) agent type, which

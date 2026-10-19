@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/brand"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func newTestCodexRunner() *CodexRunner {

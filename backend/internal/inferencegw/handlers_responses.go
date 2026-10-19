@@ -10,8 +10,8 @@ import (
 
 	"github.com/openai/openai-go/v3/responses"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ─── Request envelope ────────────────────────────────────────────────────────

@@ -13,7 +13,7 @@ This package provides centralized OTEL setup with environment-based configuratio
 ## Quick Start
 
 ```go
-import "github.com/clear-route/orbit/internal/platform/observability"
+import "github.com/runkora/kora/backend/internal/platform/observability"
 
 func main() {
     ctx := context.Background()

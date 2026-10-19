@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw"
 )
 
 func TestSystemOneIsRefused(t *testing.T) {

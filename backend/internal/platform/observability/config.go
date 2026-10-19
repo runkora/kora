@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
 // SamplingRateString renders the configured sampling rate for passing to a

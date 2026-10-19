@@ -3,8 +3,8 @@ package config
 import (
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/config"
-	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 )
 
 // Config is the root configuration for the inference-gateway service.

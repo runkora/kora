@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/api"
 	"go.opentelemetry.io/otel/attribute"
 )
 

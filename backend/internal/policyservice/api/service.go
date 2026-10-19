@@ -12,13 +12,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/policyservice/bundle"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
-	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/policyservice/bundle"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/tenantbudget"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 // ErrInvalidPrincipalType is returned when principal_type is not a known value.

@@ -3,7 +3,7 @@ package bundle_test
 import (
 	"testing"
 
-	"github.com/clear-route/orbit/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
 )
 
 // ─── Delegator ceilings (delegated-agent-identity ADR, Decision 5) ───────────

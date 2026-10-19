@@ -3,7 +3,7 @@ package inferencegw
 import (
 	"context"
 
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 )
 
 // Run identity extraction lives in internal/platform/middleware (StripRunPrefix

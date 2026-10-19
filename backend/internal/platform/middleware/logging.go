@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // LoggingMiddleware creates middleware that logs HTTP requests with OTEL trace correlation.

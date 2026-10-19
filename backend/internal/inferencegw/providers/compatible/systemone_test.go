@@ -16,10 +16,10 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // sysOneUpstream answers /v1/systemone with a fixed status and body and records the request.

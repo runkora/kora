@@ -27,9 +27,9 @@ import (
 	"path"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	platformconns "github.com/clear-route/orbit/internal/platform/connections"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Action constants returned by Classify. Sourced from the shared

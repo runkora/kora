@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/egressgw"
-	"github.com/clear-route/orbit/internal/egressgw/tlsca"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/egressgw"
+	"github.com/runkora/kora/backend/internal/egressgw/tlsca"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func TestLoadEager_HappyPath(t *testing.T) {

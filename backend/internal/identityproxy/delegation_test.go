@@ -14,7 +14,7 @@ import (
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 
-	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
 )
 
 // ── fakes and helpers ─────────────────────────────────────────────────────────

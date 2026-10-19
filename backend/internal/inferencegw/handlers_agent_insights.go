@@ -6,8 +6,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/validation"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/usagewindow"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
 // handleAgentInsights handles GET /v1/usage/agent-insights?period=24h|7d|30d|90d and

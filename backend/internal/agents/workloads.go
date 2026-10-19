@@ -11,7 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/clear-route/orbit/internal/agents/manifestpatch"
+	"github.com/runkora/kora/backend/internal/agents/manifestpatch"
 )
 
 // WorkloadCustomization is the operator-supplied customization for one kind of

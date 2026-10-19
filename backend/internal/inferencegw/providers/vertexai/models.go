@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // publishers are the Model Garden publishers whose models the gateway exposes.

@@ -6,7 +6,7 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw"
 )
 
 // AnthropicStream is the server-sent event stream the Anthropic SDK returns for

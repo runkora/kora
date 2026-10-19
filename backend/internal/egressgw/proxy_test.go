@@ -19,13 +19,13 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
-	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
-	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/githubapp"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
+	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ── stubs ─────────────────────────────────────────────────────────────────────

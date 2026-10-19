@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/cmd/orbit-agents/migrations"
+	"github.com/runkora/kora/backend/cmd/orbit-agents/migrations"
 )
 
 // TestRunStateOccupiesPod_AnswersEveryDeclaredState is the guard that matters:

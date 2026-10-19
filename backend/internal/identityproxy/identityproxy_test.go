@@ -10,7 +10,7 @@ import (
 
 	ext_procv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ── test helpers ──────────────────────────────────────────────────────────────
