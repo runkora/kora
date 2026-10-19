@@ -1128,9 +1128,9 @@ hades-check: hades-manifest-check ## Hades manifest sync check (part of make che
 hades-smoke: ## Pack Hades and build a throwaway Vite consumer from the tarball: the release workflow's smoke build, run locally (needs network)
 	@echo "$(COLOR_YELLOW)Packing @runkora/hades...$(COLOR_RESET)"
 	@dest=$$(mktemp -d "$${TMPDIR:-/tmp}/hades-pack.XXXXXX") && \
+	trap 'rm -rf "$$dest"' EXIT && \
 	cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades pack --pack-destination "$$dest" >/dev/null && \
-	cd $(CURDIR) && bash .github/scripts/hades-smoke-build.sh "$$dest/runkora-hades-$$(jq -r .version $(HADES_DIR)/package.json).tgz" && \
-	rm -rf "$$dest"
+	cd $(CURDIR) && bash .github/scripts/hades-smoke-build.sh "$$dest/runkora-hades-$$(jq -r .version $(HADES_DIR)/package.json).tgz"
 	@echo "$(COLOR_GREEN)✓ Hades smoke build passed$(COLOR_RESET)"
 
 .PHONY: frontend-test-e2e

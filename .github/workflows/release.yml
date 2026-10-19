@@ -124,7 +124,7 @@ jobs:
 
   publish:
     name: Publish charts
-    needs: [images, hades-verify, hades-pack-and-smoke]
+    needs: [images, hades-pack-and-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: write
