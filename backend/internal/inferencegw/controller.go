@@ -88,7 +88,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	POST   /embeddings            OpenAI Embeddings API
 //	POST   /responses             OpenAI Responses API (streaming and non-streaming)
 //	POST   /systemone             System One decision API (typed questions, probabilities)
-//	GET    /models                List available models
+//	GET    /models                List the models the caller can use
 //	GET    /usage/stats           Per-PAT usage aggregates (request count, last used)
 //	GET    /usage/budget          Caller's current budget status (spend, limit, has_limit)
 //	GET    /usage/run/{runID}      Per-run spend + token total (run chat usage meter)

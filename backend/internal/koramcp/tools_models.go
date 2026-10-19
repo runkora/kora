@@ -18,7 +18,7 @@ func registerModelTools(srv *sdk.Server, b Backends, jc *korajson.Client, produc
 	catalog := base + "/catalog"
 
 	addTool(srv, "models.list",
-		"List the inference models available through "+product+" at runtime, with provider and capability metadata.",
+		"List the inference models the caller can use through "+product+", with provider and capability metadata.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
 			return jsonResult(jc.Get(ctx, caller(ctx), base+"/models", nil))
 		})

@@ -111,7 +111,7 @@ export const ApiRoute = {
    * `/api/models`
    *
    * GET — proxies to the Go inference gateway `GET /v1/models` and returns
-   *       the full list of available models. Requires an authenticated session.
+   *       the models the caller can use. Requires an authenticated session.
    */
   models: {
     GET: (): `${typeof API_BASE}/models` => `${API_BASE}/models`,

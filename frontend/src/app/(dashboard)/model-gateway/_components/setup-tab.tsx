@@ -359,7 +359,7 @@ export function SetupTab() {
                 <Stack direction="horizontal" gap="snug" align="center">
                   <ScopeChip scope="inference:list" />
                   <Text size="caption" color="muted">
-                    List available models.
+                    List the models you can use.
                   </Text>
                 </Stack>
                 <Stack direction="horizontal" gap="snug" align="center">

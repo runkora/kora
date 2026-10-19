@@ -298,7 +298,7 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 	decls := []routescopes.ScopeDeclaration{
 		{Scope: "inference:invoke", ResourceType: "inference", PathSegments: []string{}, Action: "invoke", Description: "Call the inference endpoints"},
 		{Scope: "inference:use", ResourceType: "inference", PathSegments: []string{}, Action: "use", Description: "Use any model across all providers"},
-		{Scope: "inference:list", ResourceType: "inference", PathSegments: []string{}, Action: "list", Description: "List available models"},
+		{Scope: "inference:list", ResourceType: "inference", PathSegments: []string{}, Action: "list", Description: "List the models you can use"},
 		{Scope: "platform:catalog:read", ResourceType: "platform", PathSegments: []string{"catalog"}, Action: "read", Description: "Read the virtual model catalog and provider model settings"},
 		{Scope: "platform:catalog:write", ResourceType: "platform", PathSegments: []string{"catalog"}, Action: "write", Description: "Manage the virtual model catalog and provider model settings"},
 		{Scope: "platform:analytics:read", ResourceType: "platform", PathSegments: []string{"analytics"}, Action: "read", Description: "Read tenant-wide inference analytics"},
