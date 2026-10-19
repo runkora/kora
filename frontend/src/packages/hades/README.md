@@ -316,7 +316,7 @@ Hades contains no kora identity. The kora default is a theme like any other, own
 
 ## Consuming Hades from another repository
 
-Each final kora release `vX.Y.Z` publishes `@runkora/hades@X.Y.Z` to the GitHub Packages npm registry and attaches the tarball, `manifest.json` and `theme.schema.json` to kora's GitHub Release. A release candidate attaches the same files and publishes no package. The package ships TypeScript source, `tokens.css`, the theme module, the manifest, the theme schema, the contract and this README: no compiled JavaScript, no fonts, no Storybook, no stories, no tests. The rules are in the [Hades delivery ADR](../../../../docs/adr/2026-10-11-hades-delivery-to-external-consumers.md); a consumer needs the following.
+Each final kora release `vX.Y.Z` publishes `@runkora/hades@X.Y.Z` to the GitHub Packages npm registry and attaches the tarball, `manifest.json` and `theme.schema.json` to kora's GitHub Release. A release candidate attaches the same files and publishes no package. The package ships TypeScript source, `tokens.css`, the theme module, the manifest, the theme schema and this README: no compiled JavaScript, no fonts, no Storybook, no stories, no tests. The rules are in the [Hades delivery ADR](../../../../docs/adr/2026-10-11-hades-delivery-to-external-consumers.md); a consumer needs the following.
 
 **Registry and token.** An `.npmrc` with the scope mapped to the registry, and a token that has `read:packages` for this repository (a personal access token (classic), or, for a workflow in a repository granted access to the package, its own `GITHUB_TOKEN`; the GitHub Packages npm registry accepts neither fine-grained personal access tokens nor GitHub App installation tokens):
 
