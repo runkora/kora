@@ -371,7 +371,7 @@ See [Design System PRD — Timeline and Milestones](../prd/design-system.md#time
 
 - [monorepo-technology-stack](2026-02-16-monorepo-technology-stack.md) — Monorepo structure; established `frontend/` directory and monorepo conventions that this ADR extends with `frontend/src/packages/hades/`
 - [language-and-framework-selection](2026-02-16-language-and-framework-selection.md) — Language and framework selection; Next.js and Tailwind CSS choices that this ADR builds on
-- [design-system-semantic-versioning](2026-10-11-design-system-semantic-versioning.md) — Versions the package this ADR established, so a white-labelling theme contract can be defined against its major
+- [hades-versioning-and-theme-surface-manifest](2026-10-11-hades-versioning-and-theme-surface-manifest.md) — Versions the package this ADR established, so a white-labelling theme contract can be defined against its major
 - [hades-delivery-to-external-consumers](2026-10-11-hades-delivery-to-external-consumers.md) — Delivers each release to consumers outside the kora frontend
 
 ---
@@ -397,6 +397,6 @@ The key discipline this ADR enforces is the **token boundary**: no component sho
 
 ## Amendment 1 (2026-10-11): Versioning and delivery
 
-Hades is versioned with kora and delivered to consumers outside the kora frontend, so that the white-labelling theme contract can be defined against the kora release Hades ships in. The decisions are in [design-system-semantic-versioning](2026-10-11-design-system-semantic-versioning.md) (version source of truth, pinning and exposure, and the theme surface manifest) and [hades-delivery-to-external-consumers](2026-10-11-hades-delivery-to-external-consumers.md) (what a release ships and how). Nothing in this ADR's decisions changes; the workspace-link consumption in the Implementation section remains how the frontend consumes the package.
+Hades is versioned with kora and delivered to consumers outside the kora frontend, so that the white-labelling theme contract can be defined against the kora release Hades ships in. The decisions are in [hades-versioning-and-theme-surface-manifest](2026-10-11-hades-versioning-and-theme-surface-manifest.md) (version source of truth, pinning and exposure, and the theme surface manifest) and [hades-delivery-to-external-consumers](2026-10-11-hades-delivery-to-external-consumers.md) (what a release ships and how). Nothing in this ADR's decisions changes; the workspace-link consumption in the Implementation section remains how the frontend consumes the package.
 
 **Last Updated:** 2026-10-11 (Amendment 1: versioning and delivery)

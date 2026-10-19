@@ -3,7 +3,7 @@
 **Status:** Accepted, amended 2026-10-19
 **Date:** 2026-10-12
 **Deciders:** Qj Stout-Spykers
-**Technical Story:** The six architectural decisions the [White-labelling PRD](../prd/white-labelling.md) defers to this ADR, numbered as that PRD numbers them so other documents can cite each one. Depends on [Design System Semantic Versioning](2026-10-11-design-system-semantic-versioning.md) for the manifest and the version, and on [Hades Delivery to External Consumers](2026-10-11-hades-delivery-to-external-consumers.md) for how a producer obtains Hades.
+**Technical Story:** The six architectural decisions the [White-labelling PRD](../prd/white-labelling.md) defers to this ADR, numbered as that PRD numbers them so other documents can cite each one. Depends on [Hades Versioning and Theme Surface Manifest](2026-10-11-hades-versioning-and-theme-surface-manifest.md) for the manifest and the version, and on [Hades Delivery to External Consumers](2026-10-11-hades-delivery-to-external-consumers.md) for how a producer obtains Hades.
 
 > **Amendment, 2026-10-15.** The theme no longer records a Hades contract version. Hades is released with kora under one version, so a theme records the kora release it was written against, `koraVersion`, and an instance accepts a theme of the same major. The versioning ADR carries the reasoning. The `contractVersion` key, the `contractVersion` and `hadesVersion` health fields and the contract-minor handling in this ADR are replaced accordingly; nothing else in the decisions changes.
 
@@ -303,7 +303,7 @@ The implementation lands as separate pull requests, each stacked on the previous
 
 ## Related Decisions
 
-- [Design System Semantic Versioning](2026-10-11-design-system-semantic-versioning.md) - the manifest and the version this ADR builds on; its deferred runtime-exposure question is answered in Decision 3.
+- [Hades Versioning and Theme Surface Manifest](2026-10-11-hades-versioning-and-theme-surface-manifest.md) - the manifest and the version this ADR builds on; its deferred runtime-exposure question is answered in Decision 3.
 - [Hades Delivery to External Consumers](2026-10-11-hades-delivery-to-external-consumers.md) - how a producer obtains the Hades release a theme targets.
 - [Install and Distribution Model](2026-09-04-install-and-distribution-model.md) - charts as the product, GitOps cleanliness and the operator's scope.
 - [Rendered Service Config Files](2026-10-06-rendered-service-config-files.md) - the path the product name takes into the backend.

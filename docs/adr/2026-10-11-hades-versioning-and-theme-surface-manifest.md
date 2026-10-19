@@ -1,4 +1,4 @@
-# Design System Semantic Versioning
+# Hades Versioning and Theme Surface Manifest
 
 **Status:** Accepted, amended 2026-10-19
 **Date:** 2026-10-11
@@ -239,6 +239,6 @@ Before the white-labelling theme ADR's contract subsection is finalised, because
 
 ## Notes
 
-The PRDs cite this ADR by subsection number. SD-1 to SD-3 above are those subsections, in order.
+The PRDs cite this ADR by subsection number. SD-1 to SD-3 above are those subsections, in order. The ADR was first titled Design System Semantic Versioning and was renamed when Hades stopped having a version of its own.
 
 **Last Updated:** 2026-10-19

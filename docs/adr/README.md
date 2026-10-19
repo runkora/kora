@@ -159,7 +159,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 
 - [Frontend Scaffolding and Toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md) — `Accepted` · 2026-03-17
 - [Hades Frontend Design System](2026-03-25-terra-frontend-design-system.md) — `Accepted` · 2026-03-25
-- [Design System Semantic Versioning](2026-10-11-design-system-semantic-versioning.md) — `Accepted` · 2026-10-11
+- [Hades Versioning and Theme Surface Manifest](2026-10-11-hades-versioning-and-theme-surface-manifest.md) — `Accepted` · 2026-10-11
 - [Hades Delivery to External Consumers](2026-10-11-hades-delivery-to-external-consumers.md) — `Accepted` · 2026-10-11
 - [White-labelling Theme](2026-10-12-white-labelling-theme.md) — `Accepted` · 2026-10-12
 - [Frontend Component Consolidation](2026-05-04-frontend-component-consolidation.md) — `Accepted` · 2026-05-04
@@ -302,7 +302,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-07 | [Bundled Sandbox Images](2026-10-07-bundled-sandbox-images.md) | Accepted | — |
 | 2026-10-08 | [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) | Accepted | — |
 | 2026-10-10 | [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) | Accepted | — |
-| 2026-10-11 | [Design System Semantic Versioning](2026-10-11-design-system-semantic-versioning.md) | Accepted | — |
+| 2026-10-11 | [Hades Versioning and Theme Surface Manifest](2026-10-11-hades-versioning-and-theme-surface-manifest.md) | Accepted | — |
 | 2026-10-11 | [Hades Delivery to External Consumers](2026-10-11-hades-delivery-to-external-consumers.md) | Accepted | — |
 | 2026-10-12 | [Run Scheduling](2026-10-12-run-scheduling.md) | Accepted | — |
 | 2026-10-12 | [White-labelling Theme](2026-10-12-white-labelling-theme.md) | Accepted | — |

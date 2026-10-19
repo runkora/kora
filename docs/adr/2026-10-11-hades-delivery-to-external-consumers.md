@@ -5,7 +5,7 @@
 **Deciders:** Qj Stout-Spykers
 **Technical Story:** The versioning story in the [Hades Design System PRD](../prd/design-system.md#version-the-design-system-so-a-theme-contract-can-be-defined-against-it) requires that Hades can be obtained outside the kora frontend as a buildable package, per release, so that consumers kora assumes will exist can render the product's own components.
 
-> **Amendment, 2026-10-15.** Hades no longer has releases of its own. The [versioning ADR](2026-10-11-design-system-semantic-versioning.md) withdrew the `hades/v*` tag, the package Semantic Version and the contract version: Hades is released with kora, under the kora tag. This ADR keeps what it delivers and how, and changes when and under which version: the jobs that were a separate `hades-release.yml` workflow are now jobs of kora's `release.yml`, and the package version is the kora release version.
+> **Amendment, 2026-10-15.** Hades no longer has releases of its own. The [versioning ADR](2026-10-11-hades-versioning-and-theme-surface-manifest.md) withdrew the `hades/v*` tag, the package Semantic Version and the contract version: Hades is released with kora, under the kora tag. This ADR keeps what it delivers and how, and changes when and under which version: the jobs that were a separate `hades-release.yml` workflow are now jobs of kora's `release.yml`, and the package version is the kora release version.
 
 ---
 
@@ -17,7 +17,7 @@ The white-labelling PRDs assume consumers outside this repository will render ko
 
 ### Background
 
-- The [versioning ADR](2026-10-11-design-system-semantic-versioning.md) decides that Hades is released with kora under the kora `vX.Y.Z` tag, that the tag is stamped into the package when the release is built, and that every release carries `manifest.json` and `theme.schema.json`.
+- The [versioning ADR](2026-10-11-hades-versioning-and-theme-surface-manifest.md) decides that Hades is released with kora under the kora `vX.Y.Z` tag, that the tag is stamped into the package when the release is built, and that every release carries `manifest.json` and `theme.schema.json`.
 - The organisation already publishes container images to `ghcr.io`, so GitHub Packages is in use and authenticated from CI.
 - The Hades PRD excludes Storybook, and any design-tooling artefact, from the Hades deliverable.
 
@@ -221,7 +221,7 @@ With the first final kora release after this ADR lands.
 
 ## Related Decisions
 
-- [design-system-semantic-versioning](2026-10-11-design-system-semantic-versioning.md) - the release this ADR delivers, and the manifest it ships
+- [hades-versioning-and-theme-surface-manifest](2026-10-11-hades-versioning-and-theme-surface-manifest.md) - the release this ADR delivers, and the manifest it ships
 - [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) - the package structure, peer dependencies and Tailwind integration the deliverable relies on
 
 ---

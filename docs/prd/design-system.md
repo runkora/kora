@@ -135,7 +135,7 @@ The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` 
 **Rules:**
 
 - A major defines the theme surface and the theme format. A theme is accepted by an instance of the same major. Which release gets a major is decided by whoever cuts it; nothing checks it.
-- Hades has no version of its own. It is released with kora, under the kora version, and that is the version an instance validates themes against. The pin is implicit in the monorepo: the frontend consumes Hades by workspace link, so the Hades in a release is the one in the tree at that release. How the version is exposed to the instance is subsection 2 of the design system versioning ADR.
+- Hades has no version of its own. It is released with kora, under the kora version, and that is the version an instance validates themes against. The pin is implicit in the monorepo: the frontend consumes Hades by workspace link, so the Hades in a release is the one in the tree at that release. How the version is exposed to the instance is subsection 2 of the Hades versioning ADR.
 
 **Acceptance Criteria:**
 - [ ] The design system package is versioned by the kora release it ships in. There is no separate contract version. The version is the release tag, stamped into the package when the release is built, and the manifest carries none. Nothing is promised below `1.0.0`.
@@ -160,7 +160,7 @@ The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` 
 
 **ADR hand-off:** How the design system is versioned is decided separately from white-labelling, because it affects more than white-labelling. Two ADRs follow from this story:
 
-- Design system semantic versioning, with numbered subsections: (1) the version source of truth and the release process; (2) how kora pins and exposes the version, which the white-labelling PRD cites; (3) the manifest.
+- Hades versioning and theme surface manifest, with numbered subsections: (1) the version source of truth and the release process; (2) how kora pins and exposes the version, which the white-labelling PRD cites; (3) the manifest.
 - Hades delivery to external consumers. The deliverable is the tokens, the manifest and the components, buildable without the Next.js app. Storybook is not part of it.
 
 The [Hades Frontend Design System ADR](../adr/2026-03-25-terra-frontend-design-system.md) gains a pointer to both.
