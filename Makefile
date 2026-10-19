@@ -1108,7 +1108,7 @@ frontend-test-hades: ## Run Hades component unit tests in isolation (happy-dom)
 	@echo "$(COLOR_GREEN)✓ Hades unit tests passed$(COLOR_RESET)"
 
 # ─── Hades versioning ────────────────────────────────────────────────────────
-# The theme surface manifest from the design system versioning ADR. The scripts are TypeScript run directly by Node.
+# The theme surface manifest. The scripts are TypeScript that Node runs directly.
 
 HADES_DIR := $(FRONTEND_DIR)/src/packages/hades
 HADES_NODE := node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON

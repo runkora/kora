@@ -1,15 +1,13 @@
 /**
- * The theme surface declaration.
+ * What a theme can set that `tokens.css` does not say: the kind of each raw
+ * token, the asset slots and the product-name bounds.
  *
- * Everything about the surface a theme can set that `tokens.css` does not say:
- * the kind of every settable token, the asset slots, and the product-name
- * bounds. `scripts/manifest.ts` reads token names from the `:root` blocks of
- * `tokens.css` and everything else from here, and fails when a raw token is
- * declared in one file and not the other. Hand-written and reviewed like any
- * source file. See the design system versioning ADR, SD-3.
+ * `scripts/manifest.ts` takes token names from the `:root` blocks of
+ * `tokens.css` and everything else from here. It fails when a raw token is in
+ * one file and not the other.
  *
- * Every `--hades-raw-*` custom property in `:root` is settable in both modes by
- * rule. Semantic names in `@theme inline` are never settable.
+ * Every `--hades-raw-*` property in `:root` is settable in both modes.
+ * Semantic names in `@theme inline` are never settable.
  */
 
 export const MODES = ['dark', 'light'] as const;
@@ -27,11 +25,7 @@ export const FORMAT_FOR_KIND: Readonly<Record<TokenKind, TokenFormat>> = {
   font: 'font-family-name',
 };
 
-/**
- * Kind of every raw token in `tokens.css`, keyed by custom property name.
- * Adding a raw token to `tokens.css` without an entry here fails
- * `make hades-manifest`, and the reverse.
- */
+/** Kind of every raw token in `tokens.css`, keyed by property name. */
 export const TOKEN_KINDS: Readonly<Record<string, TokenKind>> = {
   // Neutral scale
   '--hades-raw-black': 'color',
@@ -102,8 +96,8 @@ export interface SlotDeclaration {
 }
 
 /**
- * Asset slots, with the formats the versioning ADR's SD-3 table decides. Only the identity the product renders today: the combined logo and
- * the favicon. A mark-only slot is added when a surface needs one.
+ * Asset slots. The identity slots are the logo and the favicon. Add a
+ * mark-only slot when a surface needs one.
  */
 export const SLOTS: readonly SlotDeclaration[] = [
   { name: 'logo', kind: 'image', formats: ['svg'], modes: MODES },
@@ -121,9 +115,8 @@ export interface ProductNameBounds {
 }
 
 /**
- * One string of 1 to 40 characters after trimming: Unicode letters, digits,
- * spaces and the punctuation `.`, `-`, `&` and `'`. Control characters and
- * `<`, `>` and `"` are excluded by construction.
+ * 1 to 40 characters after trimming: Unicode letters, digits, spaces and
+ * `.`, `-`, `&` and `'`. Control characters, `<`, `>` and `"` never match.
  */
 export const PRODUCT_NAME: ProductNameBounds = {
   minLength: 1,

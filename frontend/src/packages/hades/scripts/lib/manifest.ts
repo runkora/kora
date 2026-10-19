@@ -1,7 +1,6 @@
 /**
- * Builds the theme surface manifest from the token sheet and the surface
- * declaration. Pure: takes the CSS text and the declaration, returns the
- * manifest or throws naming every token missing from one side.
+ * Builds the theme surface manifest from the CSS text and the surface
+ * declaration. Pure. Throws when a raw token is missing from either side.
  */
 import {
   FORMAT_FOR_KIND,
@@ -39,8 +38,8 @@ export interface ManifestSlot {
 }
 
 /**
- * The surface a theme can set. It carries no version: it ships inside a kora
- * release, and the release is its version.
+ * The surface a theme can set. It has no version field. It ships in a kora
+ * release, which is its version.
  */
 export interface Manifest {
   readonly modes: readonly Mode[];

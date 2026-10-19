@@ -18,9 +18,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Hades is released with kora, and the manifest ships in the release, so a
-  # stale manifest fails the release before an image is built or anything is
-  # published.
+  # Fails the release when manifest.json is out of sync, before any image is
+  # built. The manifest ships in the release.
   hades-verify:
     name: Verify the Hades manifest
     runs-on: ubuntu-latest
@@ -46,8 +45,8 @@ jobs:
       - name: The manifest is in sync
         run: make hades-check
 
-  # Nothing has been built or published when hades-verify fails, so the tag is
-  # removed and the same release can be re-cut once the cause is fixed.
+  # Deletes the tag when hades-verify fails. Nothing was built or published, so
+  # the release can be cut again after the fix.
   hades-unwind:
     name: Delete the tag after a failed Hades check
     needs: hades-verify

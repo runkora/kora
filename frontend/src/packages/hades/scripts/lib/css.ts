@@ -1,8 +1,6 @@
 /**
- * A parser for exactly what `tokens.css` says about the theme surface: the
- * custom properties declared in each `:root`, `[data-theme='light']` and
- * `@theme inline` block. It is not a CSS parser; it reads declarations in
- * those blocks and nothing else, which is all the manifest needs.
+ * Reads the custom properties declared in the `:root`, `[data-theme='light']`
+ * and `@theme inline` blocks of `tokens.css`. It is not a general CSS parser.
  */
 
 export interface Declaration {

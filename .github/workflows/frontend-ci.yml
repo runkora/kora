@@ -49,7 +49,7 @@ jobs:
       - name: Format check
         run: make frontend-fmt
 
-      # A stale manifest is a defect whatever the version, so it fails the pull request.
+      # Fails when manifest.json no longer matches the token sources.
       - name: Hades manifest in sync
         run: make hades-check
 
