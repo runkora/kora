@@ -57,6 +57,7 @@ spec:
         - name: workloads
           configMap:
             name: orbit-agents-workloads
+        {{- include "orbit.redisCAVolume" . | nindent 8 }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "agents") | nindent 8 }}
       containers:
         - name: orbit-agents
@@ -65,7 +66,7 @@ spec:
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
-            {{- include "orbit.platformEnv" (dict "root" $ "name" "agents" "keys" (list "DB_PASSWORD")) | nindent 12 }}
+            {{- include "orbit.platformEnv" (dict "root" $ "name" "agents" "keys" (list "DB_PASSWORD" "REDIS_PASSWORD")) | nindent 12 }}
           ports:
             - name: http
               containerPort: 8080
@@ -96,6 +97,7 @@ spec:
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             {{- include "orbit.configVolumeMount" . | nindent 12 }}
+            {{- include "orbit.redisCAVolumeMount" . | nindent 12 }}
             - name: tenant-connections
               mountPath: /var/run/orbit/connections
               readOnly: true

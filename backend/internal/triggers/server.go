@@ -54,7 +54,7 @@ type Controller struct {
 }
 
 // NewController builds the Triggers controller. authMW is the platform JWT auth
-// middleware (supplied by the identity service); eval/routes/basePath drive
+// and delegation middleware (supplied by main); eval/routes/basePath drive
 // ScopeEnforcementMiddleware on the management routes, exactly as for identity's
 // own authenticated routes.
 func NewController(svc *Service, sources *SourceService, triggers *TriggerService, authMW mw.Middleware, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *Controller {

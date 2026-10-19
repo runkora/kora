@@ -266,7 +266,7 @@ func TestHandleUpdateEnvironment_RefusedForAttachedAgent(t *testing.T) {
 		TenantNamespaceFn: func(id string) string { return "orbit-tenant-" + id },
 		EnvironmentSizes:  testSizes,
 	}, logging.NewLoggerWithOutput(io.Discard))
-	c := NewController(nil, nil, svc, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	c := NewController(nil, nil, svc, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 
 	req := withTenantRequest(httptest.NewRequest(http.MethodPut, "/api/v1/environments/e1", strings.NewReader(`{"name":"After"}`)), "t-1")
 	req.SetPathValue("id", "e1")

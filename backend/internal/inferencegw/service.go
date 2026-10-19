@@ -726,7 +726,7 @@ func (s *Service) writeUsage(ctx context.Context, rec InferenceUsageRecord) erro
 	rec.RunID = runIDFromContext(ctx)
 	rec.AgentSlug = agentSlugFromPrincipal(rec.PrincipalType, rec.PrincipalID)
 	// Stamp the delegator from the VERIFIED delegation context — set by the
-	// DelegationMiddleware after signature/blocklist checks, never from
+	// DelegationMiddlewareWithBlocklist after signature/blocklist checks, never from
 	// anything the caller asserts. Spend then rolls up to the person as well
 	// as the agent (delegated-agent-identity ADR, Decision 5).
 	if d := policy.DelegationFromContext(ctx); d != nil && d.Sub != "" {

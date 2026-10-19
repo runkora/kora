@@ -33,7 +33,7 @@ import (
 // OPA enforcement. Pass "" for services that mount controllers at the root.
 //
 // This middleware MUST run after AuthMiddleware (which puts the verified
-// platform claims in context) and DelegationMiddleware (which puts parsed
+// platform claims in context) and DelegationMiddlewareWithBlocklist (which puts parsed
 // delegation claims in context). See docs/adr/2026-06-04-platform-scope-enforcement-middleware.md for the design rationale.
 func ScopeEnforcementMiddleware(eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) Middleware {
 	return NewMiddleware(func(next http.Handler) http.Handler {

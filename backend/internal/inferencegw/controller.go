@@ -58,10 +58,10 @@ func (c *Controller) GroupedBy() string { return "" }
 //
 // Execution order:
 //
-//	xAPIKeyMiddleware       — promotes x-api-key to Authorization: Bearer
-//	orbCredentialMiddleware — strips orb_ prefix from bearer value
-//	AuthMiddleware          — verifies JWT, stores claims in context
-//	DelegationMiddleware    — extracts X-Orbit-Delegation-Token, stores in context
+//	xAPIKeyMiddleware                 — promotes x-api-key to Authorization: Bearer
+//	orbCredentialMiddleware           — strips orb_ prefix from bearer value
+//	AuthMiddleware                    — verifies JWT, stores claims in context
+//	DelegationMiddlewareWithBlocklist — extracts X-Orbit-Delegation-Token, stores in context
 func (c *Controller) Middleware() mw.MiddlewareHandler {
 	return mw.MiddlewareChain(
 		xAPIKeyMiddleware(),

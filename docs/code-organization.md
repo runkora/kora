@@ -228,7 +228,7 @@ Use `errors.Is(err, pgx.ErrNoRows)` for not-found checks. `storage.WithTransacti
 
 ### 4. Redis access via `storage.RedisClient`
 
-Redis is a first-class storage primitive. `storage.RedisClient` wraps a `*redis.Client`; features that need it receive `*storage.RedisClient` via their constructor (the identity service writes the JTI blocklist; the inference, tool and egress gateways read it to refuse revoked delegations).
+Redis is a first-class storage primitive. `storage.RedisClient` wraps a `*redis.Client`; features that need it receive `*storage.RedisClient` via their constructor (the identity service writes the JTI blocklist; identity, orbit-agents, orbit-triggers, policy-service and the inference, tool and egress gateways read it to refuse revoked delegations).
 
 ### 5. Service-to-service calls via platform clients
 

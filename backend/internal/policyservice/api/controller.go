@@ -39,9 +39,11 @@ type Controller struct {
 	svc      *Service
 	logger   logging.Logger
 	verifier *token.Verifier
-	eval     policy.Evaluator
-	routes   []routescopes.RouteScope
-	basePath string
+	// blocklist refuses revoked delegation tokens before they expire.
+	blocklist mw.JTIBlocklist
+	eval      policy.Evaluator
+	routes    []routescopes.RouteScope
+	basePath  string
 }
 
 // NewController creates a ready-to-boot policy Controller.
@@ -52,13 +54,13 @@ type Controller struct {
 // POST /routes/register) fail-closed at the middleware with 403. basePath
 // must match the server's BasePath so the middleware can reconstruct absolute
 // paths after http.StripPrefix.
-func NewController(svc *Service, logger logging.Logger, verifier *token.Verifier, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string) *Controller {
-	return &Controller{svc: svc, logger: logger, verifier: verifier, eval: eval, routes: routes, basePath: basePath}
+func NewController(svc *Service, logger logging.Logger, verifier *token.Verifier, blocklist mw.JTIBlocklist, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string) *Controller {
+	return &Controller{svc: svc, logger: logger, verifier: verifier, blocklist: blocklist, eval: eval, routes: routes, basePath: basePath}
 }
 
 func (c *Controller) GroupedBy() string { return "/policy" }
 
-// Middleware applies JWT auth and scope enforcement to all policy routes
+// Middleware applies JWT auth, delegation verification and scope enforcement to all policy routes
 // except bundle polling endpoints.
 //
 // GET /bundles/{tenant_id} — polled by per-tenant OPA sidecars in tenant namespaces.
@@ -68,8 +70,10 @@ func (c *Controller) GroupedBy() string { return "/policy" }
 //	access from outside orbit-system, since the gateway bundle contains all tenants'
 //	grants, roles, and routes.
 func (c *Controller) Middleware() mw.MiddlewareHandler {
+	// The verified delegation bounds a delegated run's scope check by the person's access.
 	authChain := mw.MiddlewareChain(
 		mw.AuthMiddleware(c.verifier, c.logger),
+		mw.DelegationMiddlewareWithBlocklist(c.logger, c.verifier, c.blocklist),
 		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
 	)
 	return func(next http.Handler) http.Handler {

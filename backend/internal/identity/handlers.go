@@ -104,11 +104,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// gateway and must not be used to manage identity resources.
 	// ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md) then checks the route's required
 	// scope against the principal's grants.
-	auth := mw.MiddlewareChain(
-		c.svc.AuthMiddleware(c.logger),
-		rejectPATMiddleware(c.logger),
-		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
-	)
+	auth := c.authChain()
 	// OAuth authorization code creation: called by the BFF /authorize with the
 	// human's session token. Any authenticated (non-PAT) human may start their own
 	// MCP OAuth flow, so it authenticates but requires no specific scope.
@@ -155,6 +151,20 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// bearer auth chain; the rego platform-internal bypass exempts the path
 	// at the edge the same way it exempts /identity/exchange.
 	mux.Handle("GET /delegation/run/{run_id}", c.handleGetDelegationForRun)
+}
+
+// authChain authenticates the bearer, verifies a delegated run's delegation
+// against identity's own key and the revoked-JTI blocklist, refuses PAT bearers,
+// then checks the route scope. With a delegation the scope check evaluates agent
+// grant intersected with the person's access. The delegation records the person
+// even when a PAT started the run (delegated-agent-identity ADR, Decision 3).
+func (c *Controller) authChain() mw.MiddlewareHandler {
+	return mw.MiddlewareChain(
+		c.svc.AuthMiddleware(c.logger),
+		mw.DelegationMiddlewareWithBlocklist(c.logger, c.svc.delegationVerifier(), c.svc.blocklist),
+		rejectPATMiddleware(c.logger),
+		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
+	)
 }
 
 // rejectPATMiddleware rejects requests that carry a PAT token with 403

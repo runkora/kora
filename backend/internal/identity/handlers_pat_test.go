@@ -2,15 +2,21 @@ package identity
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -416,5 +422,125 @@ func TestRejectPATMiddleware_BlocksPATPrincipal(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusForbidden, w.Body)
+	}
+}
+
+// allowRecorder allows every Check and records the last input.
+type allowRecorder struct {
+	policy.Evaluator
+	last *policy.CheckInput
+}
+
+func (e *allowRecorder) Check(_ context.Context, in policy.CheckInput) (policy.Result, error) {
+	e.last = &in
+	return policy.Result{Allow: true}, nil
+}
+
+// Identity's auth chain verifies delegations identity signed, refuses revoked or
+// forged ones, keeps refusing PAT bearers, and passes the delegation into the
+// scope check.
+func TestAuthChain_Delegation(t *testing.T) {
+	_, svc, _, _, blocklist, _ := newTestController(t)
+	const agent = "spiffe://orbit.test/tenant/t1/agent/coder"
+	now := time.Now()
+	issuance := func(jti string) *DelegationIssuance {
+		return &DelegationIssuance{JTI: jti, RunID: "run-1", TenantID: "t1", DelegatorPrincipalID: "user-1", DelegatorPrincipalType: PrincipalTypeHuman, AgentPrincipalID: agent}
+	}
+	sign := func(jti string) string {
+		raw, err := svc.signDelegationToken(issuance(jti), now, time.Hour)
+		if err != nil {
+			t.Fatalf("sign delegation: %v", err)
+		}
+		return raw
+	}
+	bearer := func(p *Principal, patID string) string {
+		raw, err := svc.signToken(p, "jti-"+p.ID, "", patID, now, time.Hour)
+		if err != nil {
+			t.Fatalf("sign platform token: %v", err)
+		}
+		return raw
+	}
+	_ = blocklist.BlockJTI(context.Background(), "jti-revoked", time.Hour)
+
+	other, _, _, _, _ := newFullTestService(t)
+	forged, err := other.signDelegationToken(issuance("jti-forged"), now, time.Hour)
+	if err != nil {
+		t.Fatalf("sign forged delegation: %v", err)
+	}
+	agentBearer := bearer(&Principal{ID: agent, Type: PrincipalTypeAgent, TenantID: "t1"}, "")
+
+	cases := []struct {
+		name       string
+		bearer     string
+		delegation string
+		wantStatus int
+		wantPerson string
+	}{
+		{"delegated", agentBearer, sign("jti-1"), http.StatusOK, "user-1"},
+		{"autonomous", agentBearer, "", http.StatusOK, ""},
+		{"revoked delegation", agentBearer, sign("jti-revoked"), http.StatusUnauthorized, ""},
+		{"delegation signed by another key", agentBearer, forged, http.StatusUnauthorized, ""},
+		{"PAT bearer", bearer(&Principal{ID: "user-1", Type: PrincipalTypePAT, TenantID: "t1"}, "pat-1"), "", http.StatusForbidden, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			eval := &allowRecorder{}
+			routes := []routescopes.RouteScope{{PathPrefix: "/api/v1/identity/users", Method: "GET", RequiredScope: "identity:users:read"}}
+			c := NewController(svc, eval, routes, "/api/v1", logging.NewLoggerWithOutput(io.Discard))
+			h := c.authChain()(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+			req := httptest.NewRequest(http.MethodGet, "/identity/users", nil)
+			req.Header.Set("Authorization", "Bearer "+tc.bearer)
+			if tc.delegation != "" {
+				req.Header.Set(mw.DelegationTokenHeader, tc.delegation)
+			}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			if w.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d (body: %s)", w.Code, tc.wantStatus, w.Body)
+			}
+			if tc.wantStatus != http.StatusOK {
+				return
+			}
+			var person string
+			if eval.last != nil && eval.last.Delegation != nil {
+				person = eval.last.Delegation.Sub
+			}
+			if eval.last == nil || person != tc.wantPerson {
+				t.Errorf("scope check delegator = %q, want %q", person, tc.wantPerson)
+			}
+		})
+	}
+}
+
+// A delegated run cannot create or widen a PAT.
+func TestPATHandlers_RefuseDelegated(t *testing.T) {
+	c, _, _, _, _, _ := newTestController(t)
+	agentClaims := &token.PlatformClaims{}
+	agentClaims.Subject = "spiffe://orbit.test/tenant/t1/agent/coder"
+	agentClaims.Kora.TenantID = "t1"
+	agentClaims.Kora.PrincipalType = token.PrincipalTypeAgent
+	d := &policy.DelegationClaims{Sub: "user-1", ActSub: agentClaims.Subject, RunID: "run-1"}
+
+	cases := []struct {
+		name    string
+		handler http.HandlerFunc
+		method  string
+		body    string
+	}{
+		{"create", c.handleCreatePAT, http.MethodPost, `{"name":"x","scopes":["inference:invoke"]}`},
+		{"update scopes", c.handleUpdatePATScopes, http.MethodPatch, `{"scopes":["inference:invoke"]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, "/tokens/pat-1/scopes", strings.NewReader(tc.body))
+			req.SetPathValue("id", "pat-1")
+			req = req.WithContext(policy.WithDelegation(token.WithClaims(req.Context(), agentClaims), d))
+			w := httptest.NewRecorder()
+			tc.handler(w, req)
+			if w.Code != http.StatusForbidden {
+				t.Errorf("status = %d, want 403 (body: %s)", w.Code, w.Body)
+			}
+		})
 	}
 }

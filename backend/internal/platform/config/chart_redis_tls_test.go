@@ -85,10 +85,10 @@ func TestChartRedisTLSWithCA(t *testing.T) {
 			t.Errorf("%s mounts the CA at %s", name, path)
 		}
 	}
-	if names := slices.Sorted(maps.Keys(mounts)); strings.Join(names, ",") != "orbit-egress-gateway,orbit-identity,orbit-inference-gateway,orbit-tool-gateway,orbit-triggers" {
-		t.Errorf("Redis CA mounted in %v, want egress-gateway, identity, inference-gateway, tool-gateway and triggers", names)
+	if names := slices.Sorted(maps.Keys(mounts)); strings.Join(names, ",") != "orbit-agents,orbit-egress-gateway,orbit-identity,orbit-inference-gateway,orbit-policy-service,orbit-tool-gateway,orbit-triggers" {
+		t.Errorf("Redis CA mounted in %v, want agents, egress-gateway, identity, inference-gateway, policy-service, tool-gateway and triggers", names)
 	}
-	if strings.Join(cfgs, ",") != "orbit-egress-gateway-config,orbit-identity-config,orbit-inference-gateway-config,orbit-tool-gateway-config,orbit-triggers-config" {
-		t.Errorf("caFile rendered in %v, want egress-gateway, identity, inference-gateway, tool-gateway and triggers", cfgs)
+	if strings.Join(cfgs, ",") != "orbit-agents-config,orbit-egress-gateway-config,orbit-identity-config,orbit-inference-gateway-config,orbit-policy-service-config,orbit-tool-gateway-config,orbit-triggers-config" {
+		t.Errorf("caFile rendered in %v, want agents, egress-gateway, identity, inference-gateway, policy-service, tool-gateway and triggers", cfgs)
 	}
 }

@@ -103,6 +103,14 @@ func realMain() error {
 	// Pre-compile the cross-tenant gateway bundle.
 	bundleSrv.BootstrapGateway(ctx)
 
+	// The shared revoked-JTI blocklist refuses a revoked delegation before its
+	// token expires (docs/adr/2026-07-23-delegated-agent-identity.md).
+	redis, err := storage.NewRedis(ctx, &storageCfg.Redis, logger)
+	if err != nil {
+		return fmt.Errorf("initialize redis: %w", err)
+	}
+	defer func() { _ = redis.Close() }()
+
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	svc := api.NewService(grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, bundleSrv, routeStore, logger)
 
@@ -131,7 +139,7 @@ func realMain() error {
 	policyEval := policy.NewEvaluator(bundleEndpoint, 30*time.Second, logger)
 	policyEval.Start(ctx)
 
-	controller := api.NewController(svc, logger, verifier, policyEval, policyServiceRoutes(), psc.Current.Server.BasePath)
+	controller := api.NewController(svc, logger, verifier, storage.NewJTIBlocklist(redis), policyEval, policyServiceRoutes(), psc.Current.Server.BasePath)
 	server := initServer(ctx, logger, controller, metrics)
 
 	run(ctx, logger, server, metrics)

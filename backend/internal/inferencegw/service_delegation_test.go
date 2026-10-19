@@ -19,7 +19,7 @@ import (
 // receives the delegator so budget.rego can apply their ceilings.
 
 // delegatedAgentCtx returns a context carrying AGENT claims plus verified
-// delegation claims — the shape DelegationMiddleware produces after
+// delegation claims — the shape DelegationMiddlewareWithBlocklist produces after
 // signature/blocklist checks.
 func delegatedAgentCtx(delegatorID string) context.Context {
 	claims := &token.PlatformClaims{

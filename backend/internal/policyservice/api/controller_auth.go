@@ -51,9 +51,18 @@ func (c *Controller) resolveTenantID(w http.ResponseWriter, r *http.Request, cla
 // Returns true if the request may proceed; otherwise it has written the error
 // response (403 naming the rejected scopes, or 500 if the caller's scopes can't be
 // resolved) and the caller must return.
+//
+// A delegated run is refused outright. Its ceiling would be the agent's own grant,
+// which can exceed the person's access and would outlive the run.
 func (c *Controller) enforceScopeCeiling(ctx context.Context, w http.ResponseWriter, claims *token.PlatformClaims, scopes []string) bool {
 	if claims.Kora.PrincipalType == token.PrincipalTypeSystem {
 		return true
+	}
+	if policy.DelegationFromContext(ctx) != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger,
+			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
+				"a delegated run cannot assign scopes", nil), nil)
+		return false
 	}
 
 	callerScopes, err := c.callerEffectiveScopes(ctx, claims)

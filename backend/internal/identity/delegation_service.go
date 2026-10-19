@@ -305,9 +305,15 @@ func (s *Service) ListDelegations(ctx context.Context, claims *PlatformClaims) (
 	return issuances, nil
 }
 
+// delegationVerifier verifies the delegation tokens this service signs, with its
+// own public key. Identity holds the key, so it does not fetch its own JWKS.
+func (s *Service) delegationVerifier() *token.Verifier {
+	return token.NewStaticVerifier(&s.signingKey.PublicKey, token.DefaultIssuer, s.cfg.Token.Audience)
+}
+
 // signDelegationToken signs an RS256 delegation JWT from a live issuance
 // record. iss/aud/signing key are identical to platform tokens so the existing
-// consumer stack (policy.ParseDelegationToken via the shared JWKS) verifies it.
+// consumer stack (policy.ParseDelegationToken) verifies it.
 // The JTI is the issuance's — STABLE across re-signs — while iat/exp are fresh.
 func (s *Service) signDelegationToken(d *DelegationIssuance, now time.Time, ttl time.Duration) (string, error) {
 	claims := delegationTokenClaims{
