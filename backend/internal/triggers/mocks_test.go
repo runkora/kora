@@ -683,7 +683,8 @@ type agentsStub struct {
 	atDelegated map[string]bool
 
 	// agentTypes is what GET /api/v1/agent-types lists.
-	agentTypes []agentsclient.AgentType
+	agentTypes       []agentsclient.AgentType
+	agentTypesStatus int // non-zero fails the listing with this status
 	// runs is what GET /api/v1/runs lists, and runsQuery the last query it got.
 	runs       []agentsclient.Run
 	runsQuery  string
@@ -749,8 +750,13 @@ func newAgentsStub() *agentsStub {
 	mux.HandleFunc("GET /api/v1/agent-types", func(w http.ResponseWriter, _ *http.Request) {
 		as.mu.Lock()
 		body, _ := json.Marshal(map[string]any{"agent_types": as.agentTypes})
+		status := as.agentTypesStatus
 		as.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
+		if status != 0 {
+			w.WriteHeader(status)
+			return
+		}
 		_, _ = w.Write(body)
 	})
 	mux.HandleFunc("GET /api/v1/runs", func(w http.ResponseWriter, r *http.Request) {

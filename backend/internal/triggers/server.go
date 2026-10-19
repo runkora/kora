@@ -556,6 +556,8 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 		// 403 with the scopes, so the caller knows what to ask for.
 		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, err.Error(),
 			map[string]any{"missing_scopes": mse.Scopes}), nil)
+	case errors.Is(err, ErrCannotListAgents):
+		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil), nil)
 	case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrTriggerNotFound), errors.Is(err, ErrDeliveryNotFound),
 		errors.Is(err, ErrProviderNotFound):
 		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, err.Error(), nil), nil)

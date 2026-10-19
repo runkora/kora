@@ -830,6 +830,20 @@ func TestHandleRoutingCandidates(t *testing.T) {
 	}
 }
 
+// A caller who may not list agent types gets a 403, not a 500.
+func TestHandleRoutingCandidates_CallerCannotListAgents(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.agentTypesStatus = http.StatusForbidden
+
+	req := withTenant(newRequest(t, http.MethodGet, "/triggers/routing/candidates", nil, nil))
+	req.Header.Set("Authorization", "Bearer caller-token")
+	w := invoke(c.handleRoutingCandidates, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body: %s)", w.Code, w.Body.String())
+	}
+}
+
 // A failed revocation answers with a fixed message and the trigger id, never the grant ids.
 func TestHandleUpdateTrigger_RevokeFailureHidesGrants(t *testing.T) {
 	c, deps, _ := newTestController(t)

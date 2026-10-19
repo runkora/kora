@@ -15,6 +15,9 @@ import (
 // trigger does not hold every scope its grant would confer.
 var ErrCallerLacksScopes = errors.New("caller does not hold the scopes this routed trigger would be granted")
 
+// ErrCannotListAgents is returned when the caller may not read the tenant's agent types.
+var ErrCannotListAgents = errors.New("caller may not list agent types")
+
 // MissingScopesError lists the scopes the caller lacks. It matches
 // ErrCallerLacksScopes under errors.Is.
 type MissingScopesError struct {
@@ -47,6 +50,9 @@ const delegatedCandidateReason = "delegated agents act for the person who runs t
 // bearer is the caller's own token, so the list is what the caller may see.
 func (s *TriggerService) RoutingCandidates(ctx context.Context, claims *token.PlatformClaims, bearer string) ([]RoutingCandidate, error) {
 	types, err := s.agents.ListAgentTypes(ctx, bearer)
+	if errors.Is(err, agentsclient.ErrForbidden) {
+		return nil, ErrCannotListAgents
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list agent types: %w", err)
 	}
