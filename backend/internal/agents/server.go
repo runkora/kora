@@ -331,7 +331,7 @@ func (c *Controller) handleDeleteAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrIdentityModeWriteForbidden) {
+		if errors.Is(err, ErrIdentityModeWriteForbidden) || errors.Is(err, ErrScopeCeiling) {
 			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return

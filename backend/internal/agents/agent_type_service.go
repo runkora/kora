@@ -745,6 +745,9 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 	if err := s.authz.checkAgentTypeModeWrite(ctx, at.IdentityMode.OrDefault()); err != nil {
 		return err
 	}
+	if err := refuseDelegatedAutonomousWrite(ctx, *at); err != nil {
+		return err
+	}
 	span.SetAttributes(attribute.String("slug", at.Slug))
 
 	// Allow retrying a stuck deletion; skip state transition if already deleting.

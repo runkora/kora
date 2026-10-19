@@ -16,9 +16,9 @@ import (
 var ErrScopeCeiling = errors.New("agent scope ceiling")
 
 // errDelegatedCaller is returned when an agent acting for a person tries to
-// confer scopes on an agent. Its grant is only a ceiling on the person's
+// write an autonomous agent or confer scopes on an agent. Its grant is only a ceiling on the person's
 // access, which orbit-agents cannot resolve.
-var errDelegatedCaller = errors.New("an agent acting for a person cannot confer scopes on an agent")
+var errDelegatedCaller = errors.New("an agent acting for a person cannot write an autonomous agent or confer scopes on an agent")
 
 // errNoCallerScopes is returned when no caller-scope source is configured.
 var errNoCallerScopes = errors.New("caller scopes unavailable")
@@ -34,6 +34,9 @@ type callerScopeSource interface {
 func (s *AgentTypeService) checkCeiling(ctx context.Context, at AgentType, r *ScopeResolver) error {
 	if claims := claimsFromContext(ctx); claims != nil && claims.Kora.PrincipalType == token.PrincipalTypeSystem {
 		return nil
+	}
+	if err := refuseDelegatedAutonomousWrite(ctx, at); err != nil {
+		return err
 	}
 	resolved, err := r.EffectiveScopes(ctx, at)
 	if err != nil {
@@ -56,6 +59,16 @@ func (s *AgentTypeService) checkCeiling(ctx context.Context, at AgentType, r *Sc
 	if missing := uncoveredAgentScopes(held, required); len(missing) > 0 {
 		return fmt.Errorf("%w: this agent would hold scopes you do not hold: %s",
 			ErrScopeCeiling, strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// refuseDelegatedAutonomousWrite refuses an agent acting under delegation any
+// write to an autonomous agent, whatever its scopes. The autonomous agent's
+// standing authority would outlive the person's delegation.
+func refuseDelegatedAutonomousWrite(ctx context.Context, at AgentType) error {
+	if !at.IsDelegated() && policy.DelegationFromContext(ctx) != nil {
+		return fmt.Errorf("%w: %w", ErrScopeCeiling, errDelegatedCaller)
 	}
 	return nil
 }

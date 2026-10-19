@@ -340,3 +340,41 @@ func TestCheckEnvironmentEdit_DelegatedEgress(t *testing.T) {
 		})
 	}
 }
+
+// An agent acting under delegation cannot write an autonomous agent, even one
+// whose grant resolves to no scopes.
+func TestDelegatedCaller_AutonomousWritesRefused(t *testing.T) {
+	delegated := func() context.Context {
+		return policy.WithDelegation(withTenantCtx(context.Background(), "t-1"), &policy.DelegationClaims{Sub: "user-1"})
+	}
+	t.Run("update with an empty grant", func(t *testing.T) {
+		svc, repo := newModeTestService(t, "agents:types:write")
+		svc.SetCallerScopes(broadScopes)
+		at := seedModeAgentType(t, repo, IdentityModeAutonomous)
+		prompt := "new prompt"
+		_, err := svc.UpdateAgentType(delegated(), UpdateAgentTypeRequest{ID: at.ID, SystemPrompt: &prompt})
+		if !errors.Is(err, errDelegatedCaller) {
+			t.Fatalf("err = %v, want the delegated-caller refusal", err)
+		}
+		if repo.agentTypes[at.ID].SystemPrompt == prompt {
+			t.Error("refused update was stored")
+		}
+	})
+	t.Run("delete", func(t *testing.T) {
+		svc, repo := newModeTestService(t, "agents:types:write")
+		at := seedModeAgentType(t, repo, IdentityModeAutonomous)
+		if err := svc.DeleteAgentType(delegated(), at.ID); !errors.Is(err, errDelegatedCaller) {
+			t.Fatalf("err = %v, want the delegated-caller refusal", err)
+		}
+		if _, ok := repo.agentTypes[at.ID]; !ok {
+			t.Error("refused delete removed the agent type")
+		}
+	})
+	t.Run("delegated agent delete is allowed", func(t *testing.T) {
+		svc, repo := newModeTestService(t, "agents:types:write")
+		at := seedModeAgentType(t, repo, IdentityModeDelegated)
+		if err := svc.DeleteAgentType(delegated(), at.ID); err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+	})
+}
