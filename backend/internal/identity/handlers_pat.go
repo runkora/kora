@@ -81,7 +81,7 @@ func (c *Controller) handleCreatePAT(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Name = name
-	resp, err := c.svc.CreatePAT(ctx, claims.Orbit.TenantID, claims.Subject, claims, req)
+	resp, err := c.svc.CreatePAT(ctx, claims.Kora.TenantID, claims.Subject, claims, req)
 	if err != nil {
 		var scopeErr *ErrPATScopesForbiddenError
 		if errors.As(err, &scopeErr) {
@@ -109,7 +109,7 @@ func (c *Controller) handleListPATs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := c.svc.ListPATs(ctx, claims.Orbit.TenantID, claims.Subject)
+	resp, err := c.svc.ListPATs(ctx, claims.Kora.TenantID, claims.Subject)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "failed to list PATs", nil), err)
@@ -166,7 +166,7 @@ func (c *Controller) handleUpdatePATScopes(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	if err := c.svc.UpdatePATScopes(ctx, claims.Orbit.TenantID, claims.Subject, patID, claims, req); err != nil {
+	if err := c.svc.UpdatePATScopes(ctx, claims.Kora.TenantID, claims.Subject, patID, claims, req); err != nil {
 		var scopeErr *ErrPATScopesForbiddenError
 		switch {
 		case errors.Is(err, ErrPATNotFound):
@@ -206,7 +206,7 @@ func (c *Controller) handleRevokePAT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := c.svc.RevokePAT(ctx, claims.Orbit.TenantID, claims.Subject, patID); err != nil {
+	if err := c.svc.RevokePAT(ctx, claims.Kora.TenantID, claims.Subject, patID); err != nil {
 		// Intentionally returns 404 for both missing tokens and tokens that belong
 		// to a different user. This prevents cross-user token enumeration: a caller
 		// cannot distinguish "does not exist" from "exists but belongs to someone else".
@@ -259,7 +259,7 @@ func (c *Controller) handleGetPATAttribution(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	attribution, err := c.svc.GetPATAttribution(ctx, claims.Orbit.TenantID, patIDs)
+	attribution, err := c.svc.GetPATAttribution(ctx, claims.Kora.TenantID, patIDs)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "failed to resolve PAT attribution", nil), err)

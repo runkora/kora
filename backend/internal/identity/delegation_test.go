@@ -268,21 +268,21 @@ func newDelegationTestController(t *testing.T) (*Controller, *Service, *mockDele
 // serviceClaims returns PlatformClaims for a SERVICE principal.
 func serviceClaims(tenantID, principalID string) *token.PlatformClaims {
 	c := humanClaims(tenantID, principalID)
-	c.Orbit.PrincipalType = token.PrincipalTypeService
+	c.Kora.PrincipalType = token.PrincipalTypeService
 	return c
 }
 
 // agentClaims returns PlatformClaims for an AGENT principal.
 func agentClaims(tenantID, principalID string) *token.PlatformClaims {
 	c := humanClaims(tenantID, principalID)
-	c.Orbit.PrincipalType = token.PrincipalTypeAgent
+	c.Kora.PrincipalType = token.PrincipalTypeAgent
 	return c
 }
 
 // systemClaims returns PlatformClaims for a SYSTEM principal (no tenant).
 func systemClaims(principalID string) *token.PlatformClaims {
 	c := humanClaims("", principalID)
-	c.Orbit.PrincipalType = token.PrincipalTypeSystem
+	c.Kora.PrincipalType = token.PrincipalTypeSystem
 	return c
 }
 
@@ -384,7 +384,7 @@ func TestHandleCreateDelegation_PersistsRecordAndReturnsNoToken(t *testing.T) {
 		// match), while the PAT lineage is preserved for audit/revocation.
 		{"pat normalises to human person and records lineage", func() *token.PlatformClaims {
 			c := patTokenClaims("t1", "user-1")
-			c.Orbit.PatID = "pat-uuid-1"
+			c.Kora.PatID = "pat-uuid-1"
 			return c
 		}(), token.PrincipalTypeHuman, "pat-uuid-1"},
 	}
@@ -543,7 +543,7 @@ func TestHandleGetDelegationForRun_ReleasesVerifiableToken(t *testing.T) {
 func TestHandleGetDelegationForRun_PATMintedTokenNamesThePerson(t *testing.T) {
 	c, svc, _, _ := newDelegationTestController(t)
 	patClaims := patTokenClaims("t1", "user-1")
-	patClaims.Orbit.PatID = "pat-uuid-1"
+	patClaims.Kora.PatID = "pat-uuid-1"
 	mintTestDelegation(t, svc, patClaims, "run-1")
 
 	w := getDelegationForRun(t, c, "run-1", testAgentSpiffeID)

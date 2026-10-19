@@ -61,19 +61,19 @@ func (c *ConnectionCatalogController) Boot(mux *api.Mux) {
 }
 
 // handleListConnections returns the caller's tenant's connection catalog. The
-// result is scoped to claims.Orbit.TenantID read from the verified token; a
+// result is scoped to claims.Kora.TenantID read from the verified token; a
 // request without a tenant is rejected 401.
 func (c *ConnectionCatalogController) handleListConnections(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims.Orbit.TenantID == "" {
+	if !ok || claims.Kora.TenantID == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "missing tenant in token", nil), nil)
 		return
 	}
 
-	conns, err := c.catalog.ListByTenant(ctx, claims.Orbit.TenantID)
+	conns, err := c.catalog.ListByTenant(ctx, claims.Kora.TenantID)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "failed to list connections", nil), err)

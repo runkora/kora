@@ -63,7 +63,7 @@ func (c *Controller) handleCreateDelegation(w http.ResponseWriter, r *http.Reque
 			api.ErrorResponse(ctx, w, c.logger,
 				api.ForbiddenError(api.ErrCodeForbidden,
 					"delegations can only be minted by HUMAN or PAT principals; AGENT, SERVICE, and SYSTEM callers cannot delegate",
-					map[string]any{"principal_type": string(claims.Orbit.PrincipalType)}), nil)
+					map[string]any{"principal_type": string(claims.Kora.PrincipalType)}), nil)
 		case errors.Is(err, ErrDelegationSubjectToken):
 			api.ErrorResponse(ctx, w, c.logger,
 				api.UnauthorizedError(api.ErrCodeUnauthorized,
@@ -128,7 +128,7 @@ func (c *Controller) handleRevokeDelegation(w http.ResponseWriter, r *http.Reque
 
 	c.logger.Info(ctx, "delegation revoked",
 		logging.Field{Key: "jti", Value: jti},
-		logging.Field{Key: "principal.type", Value: string(claims.Orbit.PrincipalType)},
+		logging.Field{Key: "principal.type", Value: string(claims.Kora.PrincipalType)},
 	)
 
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)

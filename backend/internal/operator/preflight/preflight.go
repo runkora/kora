@@ -296,7 +296,7 @@ func (r *Runner) clusterSPIFFEIDs(ctx context.Context) Check {
 		}
 		return Check{Name: name, OK: false, Message: err.Error()}
 	}
-	orbitOwned := 0
+	koraOwned := 0
 	for _, item := range list.Items {
 		spec, _ := item.Object["spec"].(map[string]any)
 		className, _ := spec["className"].(string)
@@ -307,17 +307,17 @@ func (r *Runner) clusterSPIFFEIDs(ctx context.Context) Check {
 			if failures := statFailures(item.Object); failures != "" {
 				return Check{Name: name, OK: false, Message: fmt.Sprintf("kora registration %s: %s; spire-controller-manager is not reconciling it", item.GetName(), failures)}
 			}
-			orbitOwned++
+			koraOwned++
 			continue
 		}
 		if claimsAllManagedPods(spec) {
 			return Check{Name: name, OK: false, Message: fmt.Sprintf("ClusterSPIFFEID %s selects every spiffe.io/spire-managed-identity pod without fallback; disable the SPIRE chart's default registration or set fallback: true", item.GetName())}
 		}
 	}
-	if orbitOwned == 0 {
+	if koraOwned == 0 {
 		return Check{Name: name, OK: false, Message: "no kora ClusterSPIFFEIDs found; is the orbit chart installed"}
 	}
-	return Check{Name: name, OK: true, Message: fmt.Sprintf("%d kora registrations for class %s", orbitOwned, r.Config.SPIREClassName)}
+	return Check{Name: name, OK: true, Message: fmt.Sprintf("%d kora registrations for class %s", koraOwned, r.Config.SPIREClassName)}
 }
 
 // statFailures reads status.stats.entryFailures and podEntryRenderFailures

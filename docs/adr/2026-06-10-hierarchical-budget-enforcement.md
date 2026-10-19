@@ -16,7 +16,7 @@ The budget system enforces exactly one ceiling type: per-principal, monthly. The
 
 Constraints discovered during design:
 
-1. **Agent tokens carry no run identifier** (`token.OrbitClaims` has session/tenant/display-name/SPIFFE claims only; run binding happens at the orbit-agents service layer by tenant+slug). Run identity must reach the gateway another way.
+1. **Agent tokens carry no run identifier** (`token.KoraClaims` has session/tenant/display-name/SPIFFE claims only; run binding happens at the orbit-agents service layer by tenant+slug). Run identity must reach the gateway another way.
 2. **Role membership is request-time knowledge** (IDP-asserted JWT roles), so pool counters cannot be rebuilt from the database unless usage rows record the caller's roles.
 3. A weekly and a monthly assignment can apply to the same principal simultaneously; their limits cannot be merged by MAX (different windows).
 

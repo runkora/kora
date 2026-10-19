@@ -35,7 +35,7 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 		trace.WithAttributes(
 			attribute.String("server.address", host),
 			attribute.String("server.port", port),
-			attribute.String("orbit.tenant_id", claims.Orbit.TenantID),
+			attribute.String("orbit.tenant_id", claims.Kora.TenantID),
 			attribute.String("orbit.principal_id", claims.Subject),
 		))
 	defer span.End()
@@ -86,7 +86,7 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 		logging.Field{Key: "host", Value: host},
 		logging.Field{Key: "port", Value: port},
 		logging.Field{Key: "principal_id", Value: claims.Subject},
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 	)
 
 	// Forward any bytes the tool pipelined after CONNECT. Clients normally wait
@@ -111,7 +111,7 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 		logging.Field{Key: "host", Value: host},
 		logging.Field{Key: "port", Value: port},
 		logging.Field{Key: "principal_id", Value: claims.Subject},
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 		logging.Field{Key: "bytes_sent", Value: sent},
 		logging.Field{Key: "bytes_recv", Value: recv},
 		logging.Field{Key: "duration_ms", Value: time.Since(start).Milliseconds()},

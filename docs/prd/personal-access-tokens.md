@@ -261,7 +261,7 @@ The `x-api-key` middleware in the inference gateway already normalises the key t
 - Raw PAT value is never stored; only SHA-256 hash persisted in `user_pat_tokens`
 - PAT JWTs are signed RS256 using the same signing key as all other platform tokens
 - JTI is unique per PAT; revocation via Redis JTI blocklist takes effect immediately
-- PATs carry `PrincipalType=PAT` in `OrbitClaims` — scope enforcement is type-driven and cannot be spoofed without access to the signing key
+- PATs carry `PrincipalType=PAT` in `KoraClaims` — scope enforcement is type-driven and cannot be spoofed without access to the signing key
 - Users can only see and revoke their own PATs
 
 **Reliability:**
@@ -312,9 +312,9 @@ The `x-api-key` middleware in the inference gateway already normalises the key t
 - Long-lived human sessions complicate session revocation (revoking a session also kills a long-lived credential that may be shared across tools).
 - No clear way to scope long-lived human sessions to inference only without adding scope infrastructure to the session layer.
 
-### Alternative 2: Add a `Scope` field to `OrbitClaims`
+### Alternative 2: Add a `Scope` field to `KoraClaims`
 
-**Description:** Add `Scope []string` to `OrbitClaims` (e.g., `["inference:*"]`). Enforcement checks the scope field at each endpoint.
+**Description:** Add `Scope []string` to `KoraClaims` (e.g., `["inference:*"]`). Enforcement checks the scope field at each endpoint.
 
 **Why not chosen:**
 - Scope selection at PAT creation is explicitly deferred to the OPA policy integration phase. Introducing a scope field now without a policy engine to enforce it is premature.
@@ -386,7 +386,7 @@ The `x-api-key` middleware in the inference gateway already normalises the key t
 - **PAT** — Personal Access Token. A user-bound, longer-lived, inference-scoped platform token.
 - **JTI** — JWT ID. A unique identifier per token used for revocation tracking.
 - **JTI Blocklist** — Redis-backed store of revoked JTI values, checked by the token verifier on every request.
-- **PrincipalType** — The discriminator field in `OrbitClaims` that identifies the class of identity making a request (`HUMAN`, `AGENT`, `SERVICE`, `SYSTEM`, `PAT`).
+- **PrincipalType** — The discriminator field in `KoraClaims` that identifies the class of identity making a request (`HUMAN`, `AGENT`, `SERVICE`, `SYSTEM`, `PAT`).
 
 ---
 

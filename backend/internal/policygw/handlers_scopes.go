@@ -30,7 +30,7 @@ func (c *Controller) handleScopes(w http.ResponseWriter, r *http.Request) {
 
 	platformapi.JSON(ctx, w, c.logger, http.StatusOK, ScopesResponse{
 		Scopes:      scopes,
-		TenantID:    claims.Orbit.TenantID,
+		TenantID:    claims.Kora.TenantID,
 		EvaluatedAt: time.Now().UTC().Format(time.RFC3339),
 	})
 }

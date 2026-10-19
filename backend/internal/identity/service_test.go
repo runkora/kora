@@ -152,14 +152,14 @@ func TestExchangeSVID_TokenParses(t *testing.T) {
 	if claims.Subject != spiffeID {
 		t.Errorf("sub: got %q, want %q", claims.Subject, spiffeID)
 	}
-	if claims.Orbit.TenantID != "platform-team" {
-		t.Errorf("tenant_id: got %q, want %q", claims.Orbit.TenantID, "platform-team")
+	if claims.Kora.TenantID != "platform-team" {
+		t.Errorf("tenant_id: got %q, want %q", claims.Kora.TenantID, "platform-team")
 	}
-	if claims.Orbit.PrincipalType != PrincipalTypeAgent {
-		t.Errorf("principal_type: got %q, want %q", claims.Orbit.PrincipalType, PrincipalTypeAgent)
+	if claims.Kora.PrincipalType != PrincipalTypeAgent {
+		t.Errorf("principal_type: got %q, want %q", claims.Kora.PrincipalType, PrincipalTypeAgent)
 	}
-	if claims.Orbit.IdentitySource != IdentitySourceAttested {
-		t.Errorf("identity_source: got %q, want %q", claims.Orbit.IdentitySource, IdentitySourceAttested)
+	if claims.Kora.IdentitySource != IdentitySourceAttested {
+		t.Errorf("identity_source: got %q, want %q", claims.Kora.IdentitySource, IdentitySourceAttested)
 	}
 }
 
@@ -176,8 +176,8 @@ func TestExchangeSVID_TenantFromSPIFFEPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseToken: %v", err)
 	}
-	if claims.Orbit.TenantID != "acme-corp" {
-		t.Errorf("tenant_id: got %q, want %q", claims.Orbit.TenantID, "acme-corp")
+	if claims.Kora.TenantID != "acme-corp" {
+		t.Errorf("tenant_id: got %q, want %q", claims.Kora.TenantID, "acme-corp")
 	}
 }
 
@@ -742,17 +742,17 @@ func TestExchangeIDToken_PropagatesRoles(t *testing.T) {
 		t.Fatal("expected MapClaims")
 	}
 
-	orbit, ok := claims["orbit"].(map[string]any)
+	kora, ok := claims["orbit"].(map[string]any)
 	if !ok {
 		t.Fatal("expected orbit claims object")
 	}
 
-	orbitClaims, ok := orbit["claims"].(map[string]any)
+	koraClaims, ok := kora["claims"].(map[string]any)
 	if !ok {
 		t.Fatal("expected orbit.claims map")
 	}
 
-	rolesRaw, ok := orbitClaims["roles"]
+	rolesRaw, ok := koraClaims["roles"]
 	if !ok {
 		t.Fatal("expected orbit.claims.roles to be set")
 	}
@@ -792,10 +792,10 @@ func TestExchangeIDToken_PropagatesGroupsAsRoles(t *testing.T) {
 	}
 
 	claims := tok.Claims.(jwt.MapClaims)
-	orbit := claims["orbit"].(map[string]any)
-	orbitClaims := orbit["claims"].(map[string]any)
+	kora := claims["orbit"].(map[string]any)
+	koraClaims := kora["claims"].(map[string]any)
 
-	rolesStr, ok := orbitClaims["roles"].(string)
+	rolesStr, ok := koraClaims["roles"].(string)
 	if !ok {
 		t.Fatal("expected orbit.claims.roles to be set as a string")
 	}
@@ -830,13 +830,13 @@ func TestExchangeIDToken_NoRolesOmitsClaimField(t *testing.T) {
 	}
 
 	claims := tok.Claims.(jwt.MapClaims)
-	orbit := claims["orbit"].(map[string]any)
-	orbitClaims, ok := orbit["claims"].(map[string]any)
+	kora := claims["orbit"].(map[string]any)
+	koraClaims, ok := kora["claims"].(map[string]any)
 	if !ok {
 		t.Fatal("expected orbit.claims map")
 	}
 
-	if _, hasRoles := orbitClaims["roles"]; hasRoles {
+	if _, hasRoles := koraClaims["roles"]; hasRoles {
 		t.Error("expected no roles field when OIDC token has no roles claim")
 	}
 }

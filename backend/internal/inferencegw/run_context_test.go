@@ -13,7 +13,7 @@ import (
 func agentClaims(tenantID string) *token.PlatformClaims {
 	return &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "spiffe://orbit.test/tenant/t1/agent/coder"},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      tenantID,
 			PrincipalType: token.PrincipalTypeAgent,
 		},

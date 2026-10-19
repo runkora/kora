@@ -561,7 +561,7 @@ func tenantFromCtx(ctx context.Context) string {
 	if !ok || claims == nil {
 		return ""
 	}
-	return claims.Orbit.TenantID
+	return claims.Kora.TenantID
 }
 
 func principalFromCtx(ctx context.Context) string {

@@ -89,7 +89,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		span.SetStatus(codes.Error, ErrUnauthenticated.Error())
 		return Decision{}, ErrUnauthenticated
 	}
-	tenantID := claims.Orbit.TenantID
+	tenantID := claims.Kora.TenantID
 	if tenantID == "" {
 		return Decision{}, ErrUnauthenticated
 	}
@@ -169,7 +169,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	identity := credentials.CallerIdentity{
 		TenantID:       tenantID,
 		PrincipalID:    claims.Subject,
-		RunID:          claims.Orbit.Claims["run_id"],
+		RunID:          claims.Kora.Claims["run_id"],
 		Action:         action,
 		Qualifier:      cls.Qualifier,
 		AlsoAuthorized: also,
@@ -223,7 +223,7 @@ func (b *Broker) policyDenied(ctx context.Context, span trace.Span, claims *toke
 	// An evaluator error is logged where it happens. An operational result
 	// such as no policy for the tenant is logged here.
 	if denial != nil && denial.decision != "" {
-		b.logDenial(ctx, claims.Orbit.TenantID, req, denial)
+		b.logDenial(ctx, claims.Kora.TenantID, req, denial)
 	}
 	return Decision{}, perr
 }
@@ -240,7 +240,7 @@ const anonymousReadAction = "anonymous_read"
 func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claims *token.PlatformClaims, conn *credentials.Connection, req EgressRequest, denial *Denial) (Decision, error) {
 	if conn.Adapter != credentials.AdapterGitHubApp || !isRead(req) || !b.ownEgressAllows(ctx, claims, req.Host) {
 		span.SetStatus(codes.Error, ErrForbidden.Error())
-		b.logDenial(ctx, claims.Orbit.TenantID, req, denial)
+		b.logDenial(ctx, claims.Kora.TenantID, req, denial)
 		return Decision{}, denial
 	}
 
@@ -252,9 +252,9 @@ func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claim
 		logging.Field{Key: "decision", Value: anonymousReadAction},
 		logging.Field{Key: "connection", Value: conn.Name},
 		logging.Field{Key: "denial_reason", Value: string(denial.Reason)},
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 		logging.Field{Key: "principal_id", Value: claims.Subject},
-		logging.Field{Key: "run_id", Value: claims.Orbit.Claims["run_id"]},
+		logging.Field{Key: "run_id", Value: claims.Kora.Claims["run_id"]},
 		logging.Field{Key: "host", Value: req.Host},
 		logging.Field{Key: "method", Value: req.Method},
 		logging.Field{Key: "path", Value: requestPath(req)},
@@ -535,7 +535,7 @@ const passthroughConnectionName = "passthrough"
 // Connections are a credential overlay, not the reachability gate, so a host
 // that only needs to be reached needs the egress whitelist and nothing else.
 func (b *Broker) resolveConnection(ctx context.Context, claims *token.PlatformClaims, req EgressRequest) (*credentials.Connection, bool, error) {
-	tenantID, host := claims.Orbit.TenantID, req.Host
+	tenantID, host := claims.Kora.TenantID, req.Host
 	candidates, err := b.conns.ListByHost(ctx, tenantID, host)
 	switch {
 	case err == nil && len(candidates) == 1:

@@ -161,11 +161,11 @@ func requireDelegatorPrincipal(ctx context.Context) error {
 	if !ok || claims == nil {
 		return ErrDelegatedRunPrincipal
 	}
-	switch claims.Orbit.PrincipalType {
+	switch claims.Kora.PrincipalType {
 	case token.PrincipalTypeHuman, token.PrincipalTypePAT:
 		return nil
 	default:
-		return fmt.Errorf("%w (principal type %s)", ErrDelegatedRunPrincipal, claims.Orbit.PrincipalType)
+		return fmt.Errorf("%w (principal type %s)", ErrDelegatedRunPrincipal, claims.Kora.PrincipalType)
 	}
 }
 

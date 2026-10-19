@@ -132,7 +132,7 @@ func newDraftTestService(t *testing.T) (*DraftService, *mockDraftRepository) {
 func withUserCtx(ctx context.Context, tenantID, subject string) context.Context {
 	return token.WithClaims(ctx, &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: subject},
-		Orbit:            token.OrbitClaims{TenantID: tenantID},
+		Kora:             token.KoraClaims{TenantID: tenantID},
 	})
 }
 

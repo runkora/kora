@@ -128,7 +128,7 @@ linters:
         - ruleguard
       settings:
         ruleguard:
-          rules: "../rules/orbit_rules.go"
+          rules: "../rules/kora_rules.go"
 
     # depguard enforces import discipline per ADR-0004, ADR-0020, and ADR-0022.
     #
@@ -353,7 +353,7 @@ linters:
         linters:
           - errcheck
           - unparam
-      # Do not exclude ruleguard's "empty rule set" message: it means rules/orbit_rules.go
+      # Do not exclude ruleguard's "empty rule set" message: it means rules/kora_rules.go
       # failed to load, and excluding it would switch off every Tier 1 rule.
 
       # The sandbox-mount node agent's export directories are walked by NFS
@@ -369,7 +369,7 @@ linters:
       # is protecting.
       #
       # NOTE: the `text` regex must match ruleguard's actual reported message
-      # (the Report() string in rules/orbit_rules.go), not the Go function name
+      # (the Report() string in rules/kora_rules.go), not the Go function name
       # — golangci-lint never surfaces the ruleguard function identifier in the
       # issue text, so a text filter naming the function is a silent no-op.
       - path: "internal/platform/api/"

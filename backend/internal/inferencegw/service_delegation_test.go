@@ -23,7 +23,7 @@ import (
 // signature/blocklist checks.
 func delegatedAgentCtx(delegatorID string) context.Context {
 	claims := &token.PlatformClaims{
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      "tenant-1",
 			PrincipalType: token.PrincipalTypeAgent,
 		},

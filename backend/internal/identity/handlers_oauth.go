@@ -96,11 +96,11 @@ func (c *Controller) handleCreateOAuthCode(w http.ResponseWriter, r *http.Reques
 	}
 	human := AuthCode{
 		Subject:     claims.Subject,
-		TenantID:    claims.Orbit.TenantID,
-		DisplayName: claims.Orbit.DisplayName,
+		TenantID:    claims.Kora.TenantID,
+		DisplayName: claims.Kora.DisplayName,
 		// Carry the human's verified claims (roles, etc.) so the minted MCP token
 		// has the same permissions — the token acts as this human.
-		Claims: claims.Orbit.Claims,
+		Claims: claims.Kora.Claims,
 	}
 	code, err := c.svc.CreateAuthCode(ctx, human, AuthorizeParams(req))
 	if err != nil {

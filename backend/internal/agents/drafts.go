@@ -104,10 +104,10 @@ func NewDraftService(repo DraftRepository, authz *Authz, cfg DraftServiceConfig,
 // token, never from the request body.
 func callerFromContext(ctx context.Context) (tenantID, createdBy string, err error) {
 	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims.Orbit.TenantID == "" || claims.Subject == "" {
+	if !ok || claims.Kora.TenantID == "" || claims.Subject == "" {
 		return "", "", errNoVerifiedClaims
 	}
-	return claims.Orbit.TenantID, claims.Subject, nil
+	return claims.Kora.TenantID, claims.Subject, nil
 }
 
 // normalizeDraftPayload validates a draft payload: valid JSON, at most

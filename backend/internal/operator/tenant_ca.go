@@ -52,7 +52,7 @@ const caCertValidity = 10 * 365 * 24 * time.Hour
 // The shape of the secret matches what cabundle.LoadEager expects under
 // {tenantCARoot}/{tenant}/, so the gateway's projected volume can consume it
 // without translation.
-func (r *TenantReconciler) ensureTenantCA(ctx context.Context, tenant *OrbitTenant) error {
+func (r *TenantReconciler) ensureTenantCA(ctx context.Context, tenant *KoraTenant) error {
 	ns := tenantNamespace(tenant)
 
 	existing := &corev1.Secret{}

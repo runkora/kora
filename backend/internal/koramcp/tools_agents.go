@@ -1,4 +1,4 @@
-package orbitmcp
+package koramcp
 
 import (
 	"context"
@@ -6,13 +6,13 @@ import (
 	"net/url"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
 )
 
 // registerAgentTools wires the agents domain: the agent-type (agent definition)
 // lifecycle. Reads forward the caller's token to orbit-agents; writes do the
 // same and the agents service enforces the real platform scope (agents:types:*).
-func registerAgentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client, product string) {
+func registerAgentTools(srv *sdk.Server, b Backends, jc *korajson.Client, product string) {
 	base := b.Agents + "/api/v1/agent-types"
 
 	addTool(srv, "agents.list",

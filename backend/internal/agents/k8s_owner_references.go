@@ -11,19 +11,19 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-// orbitTenantGVR is the GroupVersionResource for the cluster-scoped OrbitTenant
+// koraTenantGVR is the GroupVersionResource for the cluster-scoped OrbitTenant
 // CR defined by the operator (backend/internal/operator/models.go). Duplicated
 // here — as a three-field literal — so backend/internal/agents does not import
 // backend/internal/operator (feature packages must not import each other).
-var orbitTenantGVR = schema.GroupVersionResource{
+var koraTenantGVR = schema.GroupVersionResource{
 	Group:    "orbit.io",
 	Version:  "v1alpha1",
 	Resource: "orbittenants",
 }
 
 const (
-	orbitTenantAPIVersion = "orbit.io/v1alpha1"
-	orbitTenantKind       = "OrbitTenant"
+	koraTenantAPIVersion = "orbit.io/v1alpha1"
+	koraTenantKind       = "OrbitTenant"
 )
 
 // tenantOwnerRef fetches the cluster-scoped OrbitTenant named tenantID and
@@ -36,7 +36,7 @@ func (p *K8sProvisioner) tenantOwnerRef(ctx context.Context, tenantID string) me
 	if tenantID == "" {
 		return metav1.OwnerReference{}
 	}
-	obj, err := p.dynamicClient.Resource(orbitTenantGVR).Get(ctx, tenantID, metav1.GetOptions{})
+	obj, err := p.dynamicClient.Resource(koraTenantGVR).Get(ctx, tenantID, metav1.GetOptions{})
 	if err != nil {
 		degraded := apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || isNoKindMatchError(err)
 		if degraded {
@@ -54,8 +54,8 @@ func (p *K8sProvisioner) tenantOwnerRef(ctx context.Context, tenantID string) me
 	}
 	yes := true
 	return metav1.OwnerReference{
-		APIVersion:         orbitTenantAPIVersion,
-		Kind:               orbitTenantKind,
+		APIVersion:         koraTenantAPIVersion,
+		Kind:               koraTenantKind,
 		Name:               obj.GetName(),
 		UID:                obj.GetUID(),
 		Controller:         &yes,

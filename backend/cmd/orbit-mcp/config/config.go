@@ -1,5 +1,5 @@
-// Package orbitMCPConfig holds the configuration for the orbit-mcp binary.
-package orbitMCPConfig
+// Package koraMCPConfig holds the configuration for the orbit-mcp binary.
+package koraMCPConfig
 
 import (
 	"time"

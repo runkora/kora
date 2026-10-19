@@ -22,7 +22,7 @@ const pullSecretComponent = "image-pull-secret"
 // namespace and removes the replicas that are no longer configured, so a
 // credential dropped from global.imagePullSecrets is dropped from the tenants
 // that received it.
-func (r *TenantReconciler) ensureImagePullSecrets(ctx context.Context, tenant *OrbitTenant) error {
+func (r *TenantReconciler) ensureImagePullSecrets(ctx context.Context, tenant *KoraTenant) error {
 	ns := tenantNamespace(tenant)
 	for _, name := range r.ImagePullSecrets {
 		src := &corev1.Secret{}

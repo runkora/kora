@@ -66,7 +66,7 @@ func (f *fakeDelegationIssuer) revokedJTIs() []string {
 func withPrincipalCtx(ctx context.Context, tenantID string, pt token.PrincipalType, sub string) context.Context {
 	return token.WithClaims(ctx, &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: sub},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      tenantID,
 			PrincipalType: pt,
 		},

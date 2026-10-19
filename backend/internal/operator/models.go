@@ -11,10 +11,10 @@ import (
 var GroupVersion = schema.GroupVersion{Group: "orbit.io", Version: "v1alpha1"}
 
 // -----------------------------------------------------------------------------
-// OrbitTenant: cluster-scoped, one per tenant
+// KoraTenant: cluster-scoped, one per tenant
 // -----------------------------------------------------------------------------
 
-// OrbitTenant declares a tenant's existence, OIDC configuration, and namespace.
+// KoraTenant declares a tenant's existence, OIDC configuration, and namespace.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
@@ -22,16 +22,16 @@ var GroupVersion = schema.GroupVersion{Group: "orbit.io", Version: "v1alpha1"}
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Namespace",type=string,JSONPath=`.status.namespace`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
-type OrbitTenant struct {
+type KoraTenant struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   OrbitTenantSpec   `json:"spec,omitempty"`
-	Status OrbitTenantStatus `json:"status,omitempty"`
+	Spec   KoraTenantSpec   `json:"spec,omitempty"`
+	Status KoraTenantStatus `json:"status,omitempty"`
 }
 
-// OrbitTenantSpec defines the desired state of a tenant.
-type OrbitTenantSpec struct {
+// KoraTenantSpec defines the desired state of a tenant.
+type KoraTenantSpec struct {
 	// DisplayName is the human-readable tenant name surfaced in the identity
 	// service tenant registry.
 	// +kubebuilder:validation:MinLength=1
@@ -86,8 +86,8 @@ type TenantOIDCSpec struct {
 	EmailDomains []string `json:"emailDomains,omitempty"`
 }
 
-// OrbitTenantStatus records observed tenant state.
-type OrbitTenantStatus struct {
+// KoraTenantStatus records observed tenant state.
+type KoraTenantStatus struct {
 	// Phase summarizes tenant lifecycle state.
 	// +kubebuilder:validation:Enum=Pending;Provisioning;Ready;Degraded;Suspended
 	Phase string `json:"phase,omitempty"`
@@ -120,26 +120,26 @@ const (
 	TenantPhaseSuspended    = "Suspended"
 )
 
-// OrbitTenantList is a list of OrbitTenant resources.
+// KoraTenantList is a list of KoraTenant resources.
 // +kubebuilder:object:root=true
-type OrbitTenantList struct {
+type KoraTenantList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []OrbitTenant `json:"items"`
+	Items           []KoraTenant `json:"items"`
 }
 
 // DeepCopyObject implements runtime.Object.
-func (t *OrbitTenant) DeepCopyObject() runtime.Object {
+func (t *KoraTenant) DeepCopyObject() runtime.Object {
 	if t == nil {
 		return nil
 	}
-	out := new(OrbitTenant)
+	out := new(KoraTenant)
 	t.DeepCopyInto(out)
 	return out
 }
 
 // DeepCopyInto copies all fields into out.
-func (t *OrbitTenant) DeepCopyInto(out *OrbitTenant) {
+func (t *KoraTenant) DeepCopyInto(out *KoraTenant) {
 	*out = *t
 	out.TypeMeta = t.TypeMeta
 	t.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
@@ -148,40 +148,40 @@ func (t *OrbitTenant) DeepCopyInto(out *OrbitTenant) {
 }
 
 // DeepCopy returns a deep copy.
-func (t *OrbitTenant) DeepCopy() *OrbitTenant {
+func (t *KoraTenant) DeepCopy() *KoraTenant {
 	if t == nil {
 		return nil
 	}
-	out := new(OrbitTenant)
+	out := new(KoraTenant)
 	t.DeepCopyInto(out)
 	return out
 }
 
-// DeepCopyObject implements runtime.Object for OrbitTenantList.
-func (l *OrbitTenantList) DeepCopyObject() runtime.Object {
+// DeepCopyObject implements runtime.Object for KoraTenantList.
+func (l *KoraTenantList) DeepCopyObject() runtime.Object {
 	if l == nil {
 		return nil
 	}
-	out := new(OrbitTenantList)
+	out := new(KoraTenantList)
 	l.DeepCopyInto(out)
 	return out
 }
 
 // DeepCopyInto copies all fields into out.
-func (l *OrbitTenantList) DeepCopyInto(out *OrbitTenantList) {
+func (l *KoraTenantList) DeepCopyInto(out *KoraTenantList) {
 	*out = *l
 	out.TypeMeta = l.TypeMeta
 	l.ListMeta.DeepCopyInto(&out.ListMeta)
 	if l.Items != nil {
-		out.Items = make([]OrbitTenant, len(l.Items))
+		out.Items = make([]KoraTenant, len(l.Items))
 		for i := range l.Items {
 			l.Items[i].DeepCopyInto(&out.Items[i])
 		}
 	}
 }
 
-// DeepCopyInto for OrbitTenantSpec.
-func (s *OrbitTenantSpec) DeepCopyInto(out *OrbitTenantSpec) {
+// DeepCopyInto for KoraTenantSpec.
+func (s *KoraTenantSpec) DeepCopyInto(out *KoraTenantSpec) {
 	*out = *s
 	out.OIDC = s.OIDC
 	if s.OIDC.ClientSecretRef != nil {
@@ -194,8 +194,8 @@ func (s *OrbitTenantSpec) DeepCopyInto(out *OrbitTenantSpec) {
 	}
 }
 
-// DeepCopyInto for OrbitTenantStatus.
-func (s *OrbitTenantStatus) DeepCopyInto(out *OrbitTenantStatus) {
+// DeepCopyInto for KoraTenantStatus.
+func (s *KoraTenantStatus) DeepCopyInto(out *KoraTenantStatus) {
 	*out = *s
 	if s.LastReconciledAt != nil {
 		t := *s.LastReconciledAt

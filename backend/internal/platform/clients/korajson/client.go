@@ -1,4 +1,4 @@
-// Package orbitjson is a generic authenticated JSON client over httpclient.Base.
+// Package korajson is a generic authenticated JSON client over httpclient.Base.
 //
 // It GET/POST/PATCH/DELETEs a kora API endpoint with the caller's bearer token
 // and returns the raw JSON body. It is the forwarding primitive for services that proxy
@@ -6,7 +6,7 @@
 // kora MCP, whose tools return backend JSON to an agent verbatim. It uses
 // httpclient.Base (OTel client spans, W3C trace propagation, structured logging);
 // it never constructs a raw http.Client.
-package orbitjson
+package korajson
 
 import (
 	"bytes"

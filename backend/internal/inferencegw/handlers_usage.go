@@ -223,7 +223,7 @@ func (c *Controller) handleGetPersonalBudget(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	status, err := c.svc.GetPersonalBudget(ctx, claims.Orbit.TenantID, claims.Subject)
+	status, err := c.svc.GetPersonalBudget(ctx, claims.Kora.TenantID, claims.Subject)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get budget status", nil), err)
 		return
@@ -253,7 +253,7 @@ func (c *Controller) handleGetRunUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	usage, err := c.svc.GetRunUsage(ctx, claims.Orbit.TenantID, runID)
+	usage, err := c.svc.GetRunUsage(ctx, claims.Kora.TenantID, runID)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get run usage", nil), err)
 		return

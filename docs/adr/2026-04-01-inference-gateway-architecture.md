@@ -98,7 +98,7 @@ We need to define:
 
 #### Option B: kora Platform Token ([unified-identity-model](2026-03-05-unified-identity-model.md))
 
-**Description:** The gateway accepts kora platform JWTs as its only authentication mechanism. Envoy (Layer 1, [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)) validates the JWT (signature, expiry, JTI blocklist) and forwards the request to the Inference Gateway with the `Authorization: Bearer` header intact. The Inference Gateway handler parses the JWT a second time — a cheap local operation using the same RS256 public key — to extract principal context directly from `PlatformClaims.Orbit` (tenant ID, principal type, identity source, subject). No header injection; the token is the source of truth.
+**Description:** The gateway accepts kora platform JWTs as its only authentication mechanism. Envoy (Layer 1, [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)) validates the JWT (signature, expiry, JTI blocklist) and forwards the request to the Inference Gateway with the `Authorization: Bearer` header intact. The Inference Gateway handler parses the JWT a second time — a cheap local operation using the same RS256 public key — to extract principal context directly from `PlatformClaims.Kora` (tenant ID, principal type, identity source, subject). No header injection; the token is the source of truth.
 
 **Pros:**
 - Zero additional credential surface — agents already carry platform tokens issued by the ext_proc sidecar ([envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)); they simply point their OpenAI client at the Inference Gateway base URL
@@ -468,15 +468,15 @@ The inference-gateway pod carries label `spiffe.io/component: inference-gateway`
 3. Inference Gateway — Gateway API Handler:
    - Parses JWT from Authorization header → PlatformClaims
      (RS256, same signing key as identity service)
-   - Extracts principal context from the token's OrbitClaims:
-       claims.Orbit.TenantID        → tenant context
-       claims.Orbit.PrincipalType   → AGENT | HUMAN | SERVICE | SYSTEM
-       claims.Orbit.IdentitySource  → ATTESTED | FEDERATED | PLATFORM
+   - Extracts principal context from the token's KoraClaims:
+       claims.Kora.TenantID        → tenant context
+       claims.Kora.PrincipalType   → AGENT | HUMAN | SERVICE | SYSTEM
+       claims.Kora.IdentitySource  → ATTESTED | FEDERATED | PLATFORM
        claims.Subject               → principal ID (JWT subject field)
    - Validates request body (model field, messages array)
    - Calls RoutingEngine.Resolve(req) → []RouteTarget
 
-   **Implementation prerequisite:** `PlatformClaims` and `OrbitClaims` currently live in
+   **Implementation prerequisite:** `PlatformClaims` and `KoraClaims` currently live in
    `internal/identity/models.go`. Feature packages must not import each other ([repository-pattern-and-code-organization](2026-02-17-repository-pattern-and-code-organization.md)).
    Before implementing the inference gateway handler, these types must be moved to
    `internal/platform/token/` so both `internal/identity` and `internal/inferencegw` can
@@ -1093,7 +1093,7 @@ inference_gateway:
 SYSTEM principals ([unified-identity-model](2026-03-05-unified-identity-model.md)) represent automated platform pipelines (e.g. scheduled
 evaluation jobs, internal benchmarking runners) that carry service-account-style platform
 tokens. The Inference Gateway handler treats them identically to AGENT principals:
-the JWT is parsed, `claims.Orbit.PrincipalType` is read, policy is evaluated,
+the JWT is parsed, `claims.Kora.PrincipalType` is read, policy is evaluated,
 and usage is attributed with `principal_type = 'SYSTEM'`.
 
 No special routing or short-circuit logic applies to SYSTEM callers. If the Policy Engine

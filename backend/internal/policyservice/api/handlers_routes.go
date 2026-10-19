@@ -54,11 +54,11 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 	}
 
 	var tenantID string
-	switch claims.Orbit.PrincipalType {
+	switch claims.Kora.PrincipalType {
 	case token.PrincipalTypeSystem:
 		tenantID = ""
 	case token.PrincipalTypeService:
-		tenantID = claims.Orbit.TenantID
+		tenantID = claims.Kora.TenantID
 	default:
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
@@ -97,8 +97,8 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 
 // ownService is the service name the caller may register routes under.
 func ownService(claims *token.PlatformClaims) string {
-	if claims.Orbit.PrincipalType == token.PrincipalTypeSystem {
-		return claims.Orbit.DisplayName
+	if claims.Kora.PrincipalType == token.PrincipalTypeSystem {
+		return claims.Kora.DisplayName
 	}
 	return claims.Subject
 }

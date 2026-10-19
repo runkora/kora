@@ -46,7 +46,7 @@ func TestEnsureAuthorizationPolicy_DisabledCreatesNothing(t *testing.T) {
 	}
 }
 
-func TestEnsureAuthorizationPolicy_RestrictsPortToOrbitAgents(t *testing.T) {
+func TestEnsureAuthorizationPolicy_RestrictsPortToKoraAgents(t *testing.T) {
 	p, dc := authPolicyProvisioner(t, K8sProvisionerConfig{
 		TrustDomain:                "orbit.test",
 		AuthorizationPolicyEnabled: true,

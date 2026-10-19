@@ -72,7 +72,7 @@ func ScopeEnforcementMiddleware(eval policy.Evaluator, routes []routescopes.Rout
 			// tenant". The Istio AuthorizationPolicy + mTLS already restrict
 			// which SPIFFE identities can reach each endpoint; in-process scope
 			// enforcement is for human/agent/PAT principals, not platform infra.
-			if claims != nil && claims.Orbit.PrincipalType == token.PrincipalTypeSystem {
+			if claims != nil && claims.Kora.PrincipalType == token.PrincipalTypeSystem {
 				next.ServeHTTP(w, r)
 				return
 			}

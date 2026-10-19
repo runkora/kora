@@ -21,14 +21,14 @@ func makeClaims(tenantID, principalID string, pt token.PrincipalType, sessionID 
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: principalID,
 		},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      tenantID,
 			PrincipalType: pt,
 			SessionID:     sessionID,
 		},
 	}
 	if pt == token.PrincipalTypePAT {
-		c.Orbit.PatID = sessionID
+		c.Kora.PatID = sessionID
 	}
 	return c
 }

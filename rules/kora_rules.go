@@ -312,7 +312,7 @@ func noDirectWriteHeader(m dsl.Matcher) {
 
 // speakingPackages and productNameWord feed both noProductNameLiteral matchers.
 const (
-	speakingPackages = `^github\.com/runkora/kora/backend/internal/(agents|orbitmcp|egressgw|platform/sandboximages)(/|$)`
+	speakingPackages = `^github\.com/runkora/kora/backend/internal/(agents|koramcp|egressgw|platform/sandboximages)(/|$)`
 	productNameWord  = `(?i)(^|[^-_./a-z0-9])(kora|orbit)(\.[^a-z0-9]|[^-_./a-z0-9]|$)`
 )
 

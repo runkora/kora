@@ -78,8 +78,8 @@ func testController(held ...string) *Controller {
 func callerClaims() *token.PlatformClaims {
 	c := &token.PlatformClaims{}
 	c.Subject = "user-1"
-	c.Orbit.PrincipalType = token.PrincipalTypeHuman
-	c.Orbit.TenantID = "tenant-1"
+	c.Kora.PrincipalType = token.PrincipalTypeHuman
+	c.Kora.TenantID = "tenant-1"
 	return c
 }
 
@@ -153,7 +153,7 @@ func TestScopesExplain_OtherPrincipalRequiresGrantsRead(t *testing.T) {
 func TestScopesExplain_SystemPrincipalPasses(t *testing.T) {
 	claims := &token.PlatformClaims{}
 	claims.Subject = "orbit-agents"
-	claims.Orbit.PrincipalType = token.PrincipalTypeSystem
+	claims.Kora.PrincipalType = token.PrincipalTypeSystem
 
 	c := testController()
 	w := httptest.NewRecorder()

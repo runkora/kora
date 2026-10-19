@@ -95,7 +95,7 @@ type ConnectionList struct {
 }
 
 // -----------------------------------------------------------------------------
-// DeepCopy (hand-written, mirroring OrbitTenant)
+// DeepCopy (hand-written, mirroring KoraTenant)
 // -----------------------------------------------------------------------------
 
 // DeepCopyObject implements runtime.Object.

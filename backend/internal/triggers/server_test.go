@@ -30,7 +30,7 @@ func newTestController(t *testing.T) (*Controller, *testDeps, *Service) {
 
 // withTenant injects verified platform claims so tenantFromCtx resolves a tenant.
 func withTenant(req *http.Request) *http.Request {
-	ctx := token.WithClaims(req.Context(), &token.PlatformClaims{Orbit: token.OrbitClaims{TenantID: testTenant}})
+	ctx := token.WithClaims(req.Context(), &token.PlatformClaims{Kora: token.KoraClaims{TenantID: testTenant}})
 	return req.WithContext(ctx)
 }
 

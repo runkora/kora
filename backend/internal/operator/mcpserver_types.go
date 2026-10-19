@@ -171,7 +171,7 @@ type MCPServerList struct {
 }
 
 // -----------------------------------------------------------------------------
-// DeepCopy (hand-written, mirroring Connection/OrbitTenant)
+// DeepCopy (hand-written, mirroring Connection/KoraTenant)
 // -----------------------------------------------------------------------------
 
 // DeepCopyObject implements runtime.Object.

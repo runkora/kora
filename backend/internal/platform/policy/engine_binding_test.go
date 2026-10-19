@@ -23,7 +23,7 @@ func bindingAgentClaims(sub, tokenRunID string) *token.PlatformClaims {
 	}
 	return &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: sub},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      "t1",
 			PrincipalType: token.PrincipalTypeAgent,
 			Claims:        extra,

@@ -41,7 +41,7 @@ type Config struct {
 		BasePath string `yaml:"basePath"`
 	} `yaml:"workspaces"`
 
-	OrbitAgents struct {
+	KoraAgents struct {
 		// URL is the base URL of orbit-agents (e.g. "http://orbit-agents.orbit-system.svc.cluster.local").
 		// When empty, event push is disabled (local dev without orbit-agents).
 		URL string `yaml:"url"`
@@ -143,7 +143,7 @@ var Current = func() *Config {
 // the YAML defaults. getenv is injected so tests can drive it.
 func applyEnvOverrides(cfg *Config, getenv func(string) string) error {
 	if v := getenv("ORBIT_AGENTS_URL"); v != "" {
-		cfg.OrbitAgents.URL = v
+		cfg.KoraAgents.URL = v
 	}
 	if v := getenv("ORBIT_INFERENCE_GATEWAY_URL"); v != "" {
 		cfg.InferenceGateway.URL = v

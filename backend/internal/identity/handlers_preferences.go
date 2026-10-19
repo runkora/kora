@@ -29,7 +29,7 @@ func (c *Controller) handleGetPreferences(w http.ResponseWriter, r *http.Request
 	}
 
 	start := time.Now()
-	raw, err := c.svc.GetPreferences(ctx, claims.Subject, claims.Orbit.TenantID)
+	raw, err := c.svc.GetPreferences(ctx, claims.Subject, claims.Kora.TenantID)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "failed to retrieve preferences", nil), err)
@@ -38,7 +38,7 @@ func (c *Controller) handleGetPreferences(w http.ResponseWriter, r *http.Request
 
 	c.logger.Info(ctx, "preferences fetched",
 		logging.Field{Key: "user_id", Value: claims.Subject},
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 		logging.Field{Key: "latency_ms", Value: time.Since(start).Milliseconds()},
 	)
 
@@ -80,7 +80,7 @@ func (c *Controller) handlePutPreferences(w http.ResponseWriter, r *http.Request
 	}
 
 	start := time.Now()
-	if err := c.svc.UpsertPreferences(ctx, claims.Subject, claims.Orbit.TenantID, json.RawMessage(body)); err != nil {
+	if err := c.svc.UpsertPreferences(ctx, claims.Subject, claims.Kora.TenantID, json.RawMessage(body)); err != nil {
 		if errors.Is(err, ErrPreferencesDocumentTooLarge) {
 			api.ErrorResponse(ctx, w, c.logger,
 				api.ValidationError(api.ErrCodeInvalidField, "preferences document exceeds the 64 KB size limit", map[string]any{
@@ -95,7 +95,7 @@ func (c *Controller) handlePutPreferences(w http.ResponseWriter, r *http.Request
 
 	c.logger.Info(ctx, "preferences updated",
 		logging.Field{Key: "user_id", Value: claims.Subject},
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 		logging.Field{Key: "latency_ms", Value: time.Since(start).Milliseconds()},
 	)
 
@@ -115,7 +115,7 @@ func (c *Controller) handleDeletePreferences(w http.ResponseWriter, r *http.Requ
 	}
 
 	start := time.Now()
-	if err := c.svc.DeletePreferences(ctx, claims.Subject, claims.Orbit.TenantID); err != nil {
+	if err := c.svc.DeletePreferences(ctx, claims.Subject, claims.Kora.TenantID); err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "failed to delete preferences", nil), err)
 		return
@@ -123,7 +123,7 @@ func (c *Controller) handleDeletePreferences(w http.ResponseWriter, r *http.Requ
 
 	c.logger.Info(ctx, "preferences deleted",
 		logging.Field{Key: "user_id", Value: claims.Subject},
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 		logging.Field{Key: "latency_ms", Value: time.Since(start).Milliseconds()},
 	)
 

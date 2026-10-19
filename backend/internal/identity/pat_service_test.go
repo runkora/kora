@@ -13,7 +13,7 @@ import (
 func testClaims() *PlatformClaims {
 	return &PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},
-		Orbit: OrbitClaims{
+		Kora: KoraClaims{
 			TenantID:      "t1",
 			PrincipalType: PrincipalTypeHuman,
 		},

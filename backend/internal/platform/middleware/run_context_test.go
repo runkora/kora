@@ -18,7 +18,7 @@ import (
 func runCtxAgentClaims(tenantID string) *token.PlatformClaims {
 	return &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "spiffe://orbit.test/tenant/t1/agent/coder"},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      tenantID,
 			PrincipalType: token.PrincipalTypeAgent,
 		},
@@ -28,7 +28,7 @@ func runCtxAgentClaims(tenantID string) *token.PlatformClaims {
 func runCtxHumanClaims(tenantID string) *token.PlatformClaims {
 	return &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      tenantID,
 			PrincipalType: token.PrincipalTypeHuman,
 		},

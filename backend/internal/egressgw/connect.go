@@ -132,7 +132,7 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID := claims.Orbit.TenantID
+	tenantID := claims.Kora.TenantID
 	if tenantID == "" {
 		platformapi.ErrorResponse(ctx, w, h.logger,
 			platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "platform token missing tenant", nil),
@@ -251,9 +251,9 @@ func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.
 		trace.WithAttributes(
 			attribute.String("server.address", host),
 			attribute.String("server.port", port),
-			attribute.String("orbit.tenant_id", claims.Orbit.TenantID),
+			attribute.String("orbit.tenant_id", claims.Kora.TenantID),
 			attribute.String("orbit.principal_id", claims.Subject),
-			attribute.String("orbit.run_id", claims.Orbit.Claims["run_id"]),
+			attribute.String("orbit.run_id", claims.Kora.Claims["run_id"]),
 		))
 	defer span.End()
 

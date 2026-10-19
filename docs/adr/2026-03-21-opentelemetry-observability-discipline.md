@@ -79,7 +79,7 @@ Similarly, raw HTTP clients constructed outside of the shared `httpclient.Base` 
 
 ### Option 2: Custom lint rules — `ruleguard` AST matchers enforce the two-signal pattern
 
-**Description:** Encode the forbidden patterns as `ruleguard` functions in `rules/orbit_rules.go`. The CI pipeline rejects any code that violates them.
+**Description:** Encode the forbidden patterns as `ruleguard` functions in `rules/kora_rules.go`. The CI pipeline rejects any code that violates them.
 
 **Pros:**
 - Immediate feedback in editor (via `golangci-lint` language server integration)
@@ -183,7 +183,7 @@ import "go.opentelemetry.io/otel/trace"   // ← blocked by depguard
 
 ## Enforcement
 
-All rules are enforced at lint time via `golangci-lint`. See `rules/orbit_rules.go` for the `ruleguard` AST matchers and `.golangci.yml` for the `depguard` import restrictions.
+All rules are enforced at lint time via `golangci-lint`. See `rules/kora_rules.go` for the `ruleguard` AST matchers and `.golangci.yml` for the `depguard` import restrictions.
 
 | Rule | Mechanism | Scope |
 |---|---|---|
@@ -221,7 +221,7 @@ Legitimate exceptions (e.g. the `httpclient/base.go` implementation itself) are 
 
 The following files implement this ADR:
 
-- `rules/orbit_rules.go` — `ruleguard` AST matchers for all four span discipline rules
+- `rules/kora_rules.go` — `ruleguard` AST matchers for all four span discipline rules
 - `.golangci.yml` — `depguard` rule `no-otel-span-mgmt-in-service-clients`
 - `backend/internal/platform/clients/httpclient/base.go` — canonical span lifecycle owner
 

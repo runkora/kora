@@ -168,7 +168,7 @@ func rejectPATMiddleware(logger logging.Logger) mw.Middleware {
 	return mw.NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if claims, ok := token.ClaimsFromContext(r.Context()); ok && claims != nil {
-				if claims.Orbit.PrincipalType == token.PrincipalTypePAT {
+				if claims.Kora.PrincipalType == token.PrincipalTypePAT {
 					api.ErrorResponse(r.Context(), w, logger,
 						api.ForbiddenError(api.ErrCodeForbidden,
 							"personal access tokens are not permitted on this endpoint", nil), nil)

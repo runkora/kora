@@ -755,14 +755,14 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 // ErrForbidden on any identity mismatch.
 func (s *RunService) AuthorizeAgentCallback(ctx context.Context, runID string) error {
 	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil || claims.Orbit.PrincipalType != token.PrincipalTypeAgent {
+	if !ok || claims == nil || claims.Kora.PrincipalType != token.PrincipalTypeAgent {
 		return ErrForbidden
 	}
 	run, err := s.repo.GetRun(ctx, runID)
 	if err != nil {
 		return err
 	}
-	if run.TenantID != claims.Orbit.TenantID {
+	if run.TenantID != claims.Kora.TenantID {
 		return ErrForbidden
 	}
 	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)

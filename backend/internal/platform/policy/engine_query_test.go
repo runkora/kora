@@ -55,7 +55,7 @@ func (c *countingQuery) Eval(_ context.Context, options ...rego.EvalOption) (reg
 func queryTestClaims() *token.PlatformClaims {
 	return &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      "t1",
 			PrincipalType: token.PrincipalTypeHuman,
 		},

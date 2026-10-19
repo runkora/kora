@@ -28,4 +28,4 @@ Tests construct a brand with `brand.MustNew("Acme")` and assert the name appears
 
 ## Lint
 
-The `noProductNameLiteral` ruleguard rule (`rules/orbit_rules.go`) flags a new `kora` or `orbit` prose literal in the speaking packages, so a string that should read the brand cannot be hardcoded again. Identifier-shaped literals (`orbit.io`, `kora-base`) pass.
+The `noProductNameLiteral` ruleguard rule (`rules/kora_rules.go`) flags a new `kora` or `orbit` prose literal in the speaking packages, so a string that should read the brand cannot be hardcoded again. Identifier-shaped literals (`orbit.io`, `kora-base`) pass.

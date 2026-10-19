@@ -1,18 +1,18 @@
-package orbitmcp
+package koramcp
 
 import (
 	"context"
 	"net/url"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
 )
 
 // registerBudgetTools wires the budgets domain: the tenant-level rollup cap (on the
 // policy service) plus per-principal budget status (on the inference gateway). Grant
 // and role budgets are set through policy.grants.set_budget and policy.roles.upsert.
 // Reads require platform:budgets:read, writes platform:budgets:write.
-func registerBudgetTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
+func registerBudgetTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 	policy := b.Policy + "/api/v1/policy"
 
 	addTool(srv, "budgets.tenant.get",

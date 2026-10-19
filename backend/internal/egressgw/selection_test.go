@@ -73,7 +73,7 @@ func egressRequest(method, url string) EgressRequest {
 	return EgressRequest{Host: r.Host, Method: method, URL: r.URL, HTTPRequest: r}
 }
 
-var acmeClaims = &token.PlatformClaims{Orbit: token.OrbitClaims{TenantID: "acme"}}
+var acmeClaims = &token.PlatformClaims{Kora: token.KoraClaims{TenantID: "acme"}}
 
 func TestResolveConnection_SameHostSelection(t *testing.T) {
 	contoso := githubConn(t, "contoso-github", "contoso")

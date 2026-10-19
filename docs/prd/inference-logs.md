@@ -117,7 +117,7 @@ The kora Inference Gateway already writes a usage record (`inference_usage`) for
 
 > **Note:** Full implementation detail is deferred to the ADR. This section describes the conceptual approach only.
 
-**Backend attribution fix:** The JWT issued for a PAT currently sets `sub = userID`. The PAT record's own UUID is already embedded in the JWT as `orbit.session_id` (it is passed as the `sessionID` argument to `signToken` at creation time). A new `token_id` column is added to `inference_usage`; when `principalFromClaims` extracts a PAT-type principal, it reads `claims.Orbit.SessionID` as the PAT record ID and populates `token_id`. For non-PAT principals, `token_id` is null.
+**Backend attribution fix:** The JWT issued for a PAT currently sets `sub = userID`. The PAT record's own UUID is already embedded in the JWT as `orbit.session_id` (it is passed as the `sessionID` argument to `signToken` at creation time). A new `token_id` column is added to `inference_usage`; when `principalFromClaims` extracts a PAT-type principal, it reads `claims.Kora.SessionID` as the PAT record ID and populates `token_id`. For non-PAT principals, `token_id` is null.
 
 **New HTTP endpoint:** A `GET /v1/usage` (or equivalent) endpoint is added to the `inferencegw` service. It calls `InferenceUsageRepository.List` with a filter that always scopes by `TenantID` + `PrincipalID` (the user ID from the verified token) and optionally by `token_id` when a PAT filter is requested. The response includes enough PAT metadata (PAT ID, display name) for the frontend to render the filter UI.
 
@@ -246,7 +246,7 @@ The kora Inference Gateway already writes a usage record (`inference_usage`) for
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
 | Historical `inference_usage` rows have no `token_id` (pre-dates this feature) | Medium | High | `token_id` is nullable; historical rows display "Unknown key" or are excluded from key-specific filter results. |
-| `claims.Orbit.SessionID` semantics — using it as PAT record ID may confuse future session-type disambiguation | Medium | Low | Resolved in OQ-1: `claims.Orbit.SessionID` is used as-is. Usage is documented in code via a comment on the local `principal.TokenID` field. No JWT schema change required for this feature. |
+| `claims.Kora.SessionID` semantics — using it as PAT record ID may confuse future session-type disambiguation | Medium | Low | Resolved in OQ-1: `claims.Kora.SessionID` is used as-is. Usage is documented in code via a comment on the local `principal.TokenID` field. No JWT schema change required for this feature. |
 | PAT list and log list are separate API calls — filter dropdown may show stale/revoked keys | Low | Medium | Revoked PATs can still have historical logs; show revoked keys in the filter with a visual indicator. |
 | Large log volumes causing slow page loads | Medium | Low | Enforce server-side pagination; add database indexes as listed in NFRs. |
 
@@ -254,8 +254,8 @@ The kora Inference Gateway already writes a usage record (`inference_usage`) for
 
 ## Open Questions
 
-1. **`token_id` attribution mechanism:** Should we read `claims.Orbit.SessionID` (PAT record UUID, already present in JWT) or add an explicit `pat_id` field to `OrbitClaims`? An explicit field is cleaner but requires a token schema change.
-   - **Decision:** Use `claims.Orbit.SessionID` as-is — no JWT schema change required. The PAT record UUID is already reliably stored there at signing time. The value is extracted in `principalFromClaims` into the **inferencegw-local `principal` struct** only (a new `TokenID string` field). `token.Principal` — the platform-wide identity abstraction shared across all service binaries — is **not modified**: it is agnostic to PAT-specific semantics and must remain so. The local `principal` struct is a domain-specific value object scoped to the inference gateway; adding `TokenID` there is appropriate. For non-PAT principals (OIDC-federated humans, SPIFFE-attested agents) `TokenID` is the empty string and `inference_usage.token_id` is null.
+1. **`token_id` attribution mechanism:** Should we read `claims.Kora.SessionID` (PAT record UUID, already present in JWT) or add an explicit `pat_id` field to `KoraClaims`? An explicit field is cleaner but requires a token schema change.
+   - **Decision:** Use `claims.Kora.SessionID` as-is — no JWT schema change required. The PAT record UUID is already reliably stored there at signing time. The value is extracted in `principalFromClaims` into the **inferencegw-local `principal` struct** only (a new `TokenID string` field). `token.Principal` — the platform-wide identity abstraction shared across all service binaries — is **not modified**: it is agnostic to PAT-specific semantics and must remain so. The local `principal` struct is a domain-specific value object scoped to the inference gateway; adding `TokenID` there is appropriate. For non-PAT principals (OIDC-federated humans, SPIFFE-attested agents) `TokenID` is the empty string and `inference_usage.token_id` is null.
    - **Status:** Closed
 
 2. **Backfill strategy for `token_id`:** Historical rows without `token_id` — do we attempt a best-effort backfill using session records, or simply accept nulls?
@@ -318,7 +318,7 @@ The kora Inference Gateway already writes a usage record (`inference_usage`) for
 - **JTI (JWT ID):** The unique identifier embedded in a JWT's `jti` registered claim. For PATs, the JTI is a UUID generated at creation time and stored on the PAT record. It is used to revoke in-flight tokens via a Redis blocklist. The JTI is distinct from the PAT record UUID.
 - **`inference_usage`:** The Postgres table that records one row per inference request processed by the kora Inference Gateway. Fields include: model, provider, token counts, estimated cost (USD), latency (ms), status, and principal attribution.
 - **`token_id`:** A proposed new column on `inference_usage` that stores the PAT record UUID when a request is authenticated via a PAT. Null for non-PAT principals (human sessions, agents). Enables per-key log attribution and filtering.
-- **`orbit.session_id` claim:** The `OrbitClaims.SessionID` field embedded in every platform JWT. For PAT-issued tokens, this value is the PAT record UUID (set at signing time). For human sessions, it is the session record UUID.
+- **`orbit.session_id` claim:** The `KoraClaims.SessionID` field embedded in every platform JWT. For PAT-issued tokens, this value is the PAT record UUID (set at signing time). For human sessions, it is the session record UUID.
 
 ---
 

@@ -93,7 +93,7 @@ type PodSecurityLabels struct {
 func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Logger
 
-	tenant := &OrbitTenant{}
+	tenant := &KoraTenant{}
 	if err := r.Get(ctx, req.NamespacedName, tenant); err != nil {
 		if apierrors.IsNotFound(err) {
 			// CR deleted: re-run every aggregator so the removed tenant is no
@@ -303,7 +303,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 // Ready, which is every reconcile after the first, so Namespace and
 // LastReconciledAt would never reach the API server on steady-state
 // reconciles.
-func (r *TenantReconciler) markReady(ctx context.Context, tenant *OrbitTenant, ns string) error {
+func (r *TenantReconciler) markReady(ctx context.Context, tenant *KoraTenant, ns string) error {
 	patch := client.MergeFrom(tenant.DeepCopy())
 	now := metav1.Now()
 	tenant.Status.Namespace = ns
@@ -322,7 +322,7 @@ func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		// markReady patches status on every pass; without this predicate that
 		// patch re-enqueues the tenant and the reconciler spins.
-		For(&OrbitTenant{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&KoraTenant{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		// A Connection CR change must re-aggregate the orbit-system connection
 		// registry/secrets the egress gateway mounts (Amendment 3). The
 		// Connection lives in a tenant namespace, so map it to the owning
@@ -351,7 +351,7 @@ func (r *TenantReconciler) connectionToTenants(ctx context.Context, obj client.O
 		return nil
 	}
 
-	list := &OrbitTenantList{}
+	list := &KoraTenantList{}
 	if err := r.List(ctx, list); err != nil {
 		r.Logger.Error(ctx, "failed to list OrbitTenants for connection watch",
 			logging.Field{Key: "error", Value: err.Error()},
@@ -380,7 +380,7 @@ func (r *TenantReconciler) oauthClientToTenants(ctx context.Context, obj client.
 		return nil
 	}
 
-	list := &OrbitTenantList{}
+	list := &KoraTenantList{}
 	if err := r.List(ctx, list); err != nil {
 		r.Logger.Error(ctx, "failed to list OrbitTenants for oauth client watch",
 			logging.Field{Key: "error", Value: err.Error()},
@@ -408,7 +408,7 @@ func (r *TenantReconciler) oauthClientToTenants(ctx context.Context, obj client.
 // it if required labels are missing. Namespace creation is done via client-go
 // CreateOrUpdate so Helm never owns the namespace (avoiding the ownership
 // conflict described in docs/adr/2026-03-31-orbit-kubernetes-operator.md).
-func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTenant) error {
+func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *KoraTenant) error {
 	ns := tenantNamespace(tenant)
 
 	existing := &corev1.Namespace{}
@@ -462,7 +462,7 @@ func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTen
 
 // reconcileSuspended handles the case where spec.active is false. The
 // namespace is left intact; only the registry is synced to reflect suspension.
-func (r *TenantReconciler) reconcileSuspended(ctx context.Context, tenant *OrbitTenant) (ctrl.Result, error) {
+func (r *TenantReconciler) reconcileSuspended(ctx context.Context, tenant *KoraTenant) (ctrl.Result, error) {
 	r.Logger.Info(ctx, "tenant is suspended, syncing registry and aggregated secrets",
 		logging.Field{Key: "tenant", Value: tenant.Name},
 	)
@@ -497,7 +497,7 @@ func (r *TenantReconciler) reconcileSuspended(ctx context.Context, tenant *Orbit
 // setTenantPhase patches the OrbitTenant status phase.
 // It is a no-op when the phase is already set to the requested value, which
 // prevents spurious status patches from triggering extra reconcile events.
-func (r *TenantReconciler) setTenantPhase(ctx context.Context, t *OrbitTenant, phase string) error {
+func (r *TenantReconciler) setTenantPhase(ctx context.Context, t *KoraTenant, phase string) error {
 	if t.Status.Phase == phase {
 		return nil
 	}
@@ -512,7 +512,7 @@ func (r *TenantReconciler) setTenantPhase(ctx context.Context, t *OrbitTenant, p
 // setTenantCondition sets a named condition on the OrbitTenant status.
 func (r *TenantReconciler) setTenantCondition(
 	ctx context.Context,
-	t *OrbitTenant,
+	t *KoraTenant,
 	condType string,
 	status metav1.ConditionStatus,
 	reason, message string,
@@ -535,7 +535,7 @@ func (r *TenantReconciler) setTenantCondition(
 // tenant namespace. The webhook mounts it into the OPA sidecar it injects: the
 // policy-service bundle endpoint and the tenant bundle path, resolved at runtime
 // from the pod's orbit.io/tenant-id annotation.
-func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *OrbitTenant) error {
+func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *KoraTenant) error {
 	ns := tenantNamespace(tenant)
 
 	// OPA bundle polling interval is configurable via operator config. After a
@@ -631,7 +631,7 @@ allow if input.path == ["health"]
 }
 
 // applyPreflightGate marks the tenant Degraded until prerequisites pass.
-func (r *TenantReconciler) applyPreflightGate(ctx context.Context, tenant *OrbitTenant) (ctrl.Result, bool) {
+func (r *TenantReconciler) applyPreflightGate(ctx context.Context, tenant *KoraTenant) (ctrl.Result, bool) {
 	if r.Preflight == nil {
 		return ctrl.Result{}, false
 	}
@@ -665,7 +665,7 @@ func staleInjectionLabel(revision string) string {
 	return "istio.io/rev"
 }
 
-func (r *TenantReconciler) tenantNamespaceLabels(tenant *OrbitTenant) map[string]string {
+func (r *TenantReconciler) tenantNamespaceLabels(tenant *KoraTenant) map[string]string {
 	labels := map[string]string{
 		"spiffe.io/spire-managed":      "true",
 		"orbit.io/role":                "tenant",

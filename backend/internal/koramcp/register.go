@@ -1,13 +1,13 @@
-package orbitmcp
+package koramcp
 
 import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
 )
 
 // registerTools wires every domain's tools onto the server. Each domain lives in
 // its own tools_<domain>.go file and registers its tools here.
-func registerTools(srv *sdk.Server, b Backends, jc *orbitjson.Client, product string) {
+func registerTools(srv *sdk.Server, b Backends, jc *korajson.Client, product string) {
 	registerAgentTools(srv, b, jc, product)
 	registerEnvironmentTools(srv, b, jc, product)
 	registerRunTools(srv, b, jc)

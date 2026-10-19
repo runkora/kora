@@ -32,7 +32,7 @@ import (
 
 // registryEntry is the wire shape of one element of connections.json,
 // runtime contract the operator's ConnectionAggregator renders. tenant_id equals
-// claims.Orbit.TenantID (the OrbitTenant CR name); secret_ref is a flat key the
+// claims.Kora.TenantID (the OrbitTenant CR name); secret_ref is a flat key the
 // k8sfile resolver reads under the connection-secret root.
 type registryEntry struct {
 	TenantID  string          `json:"tenant_id"`

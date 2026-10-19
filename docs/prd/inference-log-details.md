@@ -292,7 +292,7 @@ Same argument as above — 1:1 relationship, write-once, JSONB handles schema ev
 
 The following corrections apply to [PRD: Inference Logs](inference-logs.md). That document is immutable; amendments are recorded here.
 
-**OQ-1 (token_id attribution):** The decision states `claims.Orbit.SessionID` is used as the PAT record UUID. The actual implementation uses `claims.Orbit.PatID`, a distinct field. `SessionID` is a per-issuance revocation key; `PatID` is the stable PAT record UUID. The risk table entry referencing `SessionID` semantics is similarly affected — the correct field is `PatID`.
+**OQ-1 (token_id attribution):** The decision states `claims.Kora.SessionID` is used as the PAT record UUID. The actual implementation uses `claims.Kora.PatID`, a distinct field. `SessionID` is a per-issuance revocation key; `PatID` is the stable PAT record UUID. The risk table entry referencing `SessionID` semantics is similarly affected — the correct field is `PatID`.
 
 **OQ-3 (pagination):** The decision states offset-based pagination was chosen. The actual `InferenceUsageRepository.List` implementation uses cursor-based pagination (`CursorTime` + `CursorID` keyset cursors, no `Offset` field). The recommendation to not hardcode offset values in the URL scheme is correct but the rationale is wrong.
 

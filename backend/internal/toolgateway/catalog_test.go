@@ -30,12 +30,12 @@ func TestCatalogToolsFromSnapshots(t *testing.T) {
 		byScope[r.Scope] = r
 	}
 
-	orbit, ok := byScope["mcp:orbit:agents:create:use"]
+	kora, ok := byScope["mcp:orbit:agents:create:use"]
 	if !ok {
 		t.Fatalf("missing orbit tool scope; rows=%+v", rows)
 	}
-	if orbit.TenantID != "" || orbit.ServerSlug != "orbit" || orbit.ToolName != "agents.create" || orbit.Description != "create an agent" {
-		t.Errorf("orbit row wrong: %+v", orbit)
+	if kora.TenantID != "" || kora.ServerSlug != "orbit" || kora.ToolName != "agents.create" || kora.Description != "create an agent" {
+		t.Errorf("orbit row wrong: %+v", kora)
 	}
 
 	gh, ok := byScope["mcp:github:create_issue:use"]

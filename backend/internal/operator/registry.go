@@ -98,13 +98,13 @@ func (r *TenantRegistry) Sync(ctx context.Context) error {
 // private helpers
 // -----------------------------------------------------------------------------
 
-func (r *TenantRegistry) listActiveTenants(ctx context.Context) ([]OrbitTenant, error) {
-	list := &OrbitTenantList{}
+func (r *TenantRegistry) listActiveTenants(ctx context.Context) ([]KoraTenant, error) {
+	list := &KoraTenantList{}
 	if err := r.client.List(ctx, list); err != nil {
 		return nil, fmt.Errorf("list OrbitTenants: %w", err)
 	}
 
-	active := make([]OrbitTenant, 0, len(list.Items))
+	active := make([]KoraTenant, 0, len(list.Items))
 	for _, t := range list.Items {
 		if t.Spec.Active {
 			active = append(active, t)
@@ -119,7 +119,7 @@ func (r *TenantRegistry) listActiveTenants(ctx context.Context) ([]OrbitTenant, 
 //
 // All tenants passed in are assumed active: listActiveTenants already
 // filters the list before this function is called.
-func (r *TenantRegistry) buildRegistryYAML(tenants []OrbitTenant) (string, error) {
+func (r *TenantRegistry) buildRegistryYAML(tenants []KoraTenant) (string, error) {
 	entries := make([]registryEntry, 0, len(tenants))
 	for _, t := range tenants {
 		scopes := t.Spec.OIDC.Scopes

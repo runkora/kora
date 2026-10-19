@@ -47,7 +47,7 @@ const egressGatewayServiceName = "orbit-egress-gateway"
 // ensureSandboxEgressPolicy reconciles the NetworkPolicy that locks sandbox
 // egress to the per-tenant gateway. Re-applied on every reconcile so a
 // gateway port/name change in config flows through to existing tenants.
-func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant *OrbitTenant) error {
+func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant *KoraTenant) error {
 	return r.ensureNetworkPolicy(ctx, tenant, sandboxEgressPolicy(tenantNamespace(tenant), tenant.Name))
 }
 
@@ -203,7 +203,7 @@ func sandboxEgressPolicy(ns, tenantName string) *networkingv1.NetworkPolicy {
 // The exec port is excluded from the inbound mesh, so no AuthorizationPolicy
 // covers it and sandbox-exec's per-run token is the only check on the receiving
 // side. This narrows who can present a token to the tenant's own agent pods.
-func (r *TenantReconciler) ensureSandboxIngressPolicy(ctx context.Context, tenant *OrbitTenant) error {
+func (r *TenantReconciler) ensureSandboxIngressPolicy(ctx context.Context, tenant *KoraTenant) error {
 	ns := tenantNamespace(tenant)
 
 	desired := &networkingv1.NetworkPolicy{
@@ -247,7 +247,7 @@ func (r *TenantReconciler) ensureSandboxIngressPolicy(ctx context.Context, tenan
 
 // ensureNetworkPolicy creates the policy, or patches an existing one back onto
 // the desired spec so config changes reach existing tenants.
-func (r *TenantReconciler) ensureNetworkPolicy(ctx context.Context, tenant *OrbitTenant, desired *networkingv1.NetworkPolicy) error {
+func (r *TenantReconciler) ensureNetworkPolicy(ctx context.Context, tenant *KoraTenant, desired *networkingv1.NetworkPolicy) error {
 	ns := desired.Namespace
 
 	existing := &networkingv1.NetworkPolicy{}

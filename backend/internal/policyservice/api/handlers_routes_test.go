@@ -51,16 +51,16 @@ func TestHandleRegisterRoutes_CallerService(t *testing.T) {
 	system := func(name string) *token.PlatformClaims {
 		return &token.PlatformClaims{
 			RegisteredClaims: jwt.RegisteredClaims{Subject: "spiffe://orbit.local/system/" + name},
-			Orbit:            token.OrbitClaims{PrincipalType: token.PrincipalTypeSystem, DisplayName: name},
+			Kora:             token.KoraClaims{PrincipalType: token.PrincipalTypeSystem, DisplayName: name},
 		}
 	}
 	service := &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: serviceSubject},
-		Orbit:            token.OrbitClaims{PrincipalType: token.PrincipalTypeService, TenantID: "example", DisplayName: "billing"},
+		Kora:             token.KoraClaims{PrincipalType: token.PrincipalTypeService, TenantID: "example", DisplayName: "billing"},
 	}
 	unnamedSystem := &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "orbit-identity-service"},
-		Orbit:            token.OrbitClaims{PrincipalType: token.PrincipalTypeSystem},
+		Kora:             token.KoraClaims{PrincipalType: token.PrincipalTypeSystem},
 	}
 
 	tests := []struct {

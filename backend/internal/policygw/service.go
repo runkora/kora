@@ -45,7 +45,7 @@ func (s *Service) Check(
 	}
 
 	s.logger.Info(ctx, "policy check",
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 		logging.Field{Key: "principal_id", Value: claims.Subject},
 		logging.Field{Key: "resource_type", Value: resourceType},
 		logging.Field{Key: "allow", Value: result.Allow},
@@ -67,7 +67,7 @@ func (s *Service) Scopes(
 	}
 
 	s.logger.Info(ctx, "policy scopes projection",
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 		logging.Field{Key: "principal_id", Value: claims.Subject},
 		logging.Field{Key: "scopes_count", Value: len(scopes)},
 	)
@@ -88,7 +88,7 @@ func (s *Service) ScopesExplain(
 	}
 
 	s.logger.Info(ctx, "policy scopes explain",
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 		logging.Field{Key: "principal_id", Value: claims.Subject},
 		logging.Field{Key: "effective_scopes_count", Value: len(result.EffectiveScopes)},
 	)
@@ -114,15 +114,15 @@ func (s *Service) CheckSimulate(
 	// provided roles so OPA can resolve role-based scopes.
 	effectiveClaims := callerClaims
 	isSelf := principalID == callerClaims.Subject &&
-		token.PrincipalType(principalType) == callerClaims.Orbit.PrincipalType &&
+		token.PrincipalType(principalType) == callerClaims.Kora.PrincipalType &&
 		len(roles) == 0
 	if !isSelf {
 		effectiveClaims = &token.PlatformClaims{}
 		effectiveClaims.Subject = principalID
-		effectiveClaims.Orbit.PrincipalType = token.PrincipalType(principalType)
-		effectiveClaims.Orbit.TenantID = callerClaims.Orbit.TenantID
+		effectiveClaims.Kora.PrincipalType = token.PrincipalType(principalType)
+		effectiveClaims.Kora.TenantID = callerClaims.Kora.TenantID
 		if len(roles) > 0 {
-			effectiveClaims.Orbit.Claims = map[string]string{
+			effectiveClaims.Kora.Claims = map[string]string{
 				"roles": strings.Join(roles, ","),
 			}
 		}
@@ -140,7 +140,7 @@ func (s *Service) CheckSimulate(
 	}
 
 	s.logger.Info(ctx, "policy check simulate",
-		logging.Field{Key: "tenant_id", Value: callerClaims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: callerClaims.Kora.TenantID},
 		logging.Field{Key: "simulated_principal", Value: principalID},
 		logging.Field{Key: "simulated_type", Value: principalType},
 		logging.Field{Key: "resource_type", Value: resourceType},
@@ -180,7 +180,7 @@ func (s *Service) Query(
 	}
 
 	s.logger.Info(ctx, "policy query",
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 		logging.Field{Key: "resource_type", Value: resourceType},
 		logging.Field{Key: "candidates", Value: len(candidates)},
 		logging.Field{Key: "allowed", Value: len(allowed)},

@@ -1,4 +1,4 @@
-package orbitjson
+package korajson
 
 import (
 	"context"

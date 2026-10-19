@@ -1,4 +1,4 @@
-package orbitmcp
+package koramcp
 
 import (
 	"context"
@@ -6,13 +6,13 @@ import (
 	"net/url"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
 	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 // registerEnvironmentTools wires the sandbox environment tools. The agents service enforces
 // agents:environments:read and :write and recompiles the grants of attached agents.
-func registerEnvironmentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client, product string) {
+func registerEnvironmentTools(srv *sdk.Server, b Backends, jc *korajson.Client, product string) {
 	base := b.Agents + "/api/v1/environments"
 
 	addTool(srv, "agents.environments.list",

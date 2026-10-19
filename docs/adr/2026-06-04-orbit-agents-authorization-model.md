@@ -143,7 +143,7 @@ Each handler calls `c.authz.Allow(ctx, scope, tenantID)` at the top, after readi
 
 ### Option 2: Repository-layer tenant scoping from `ctx`
 
-The PostgreSQL repository reads `claims.Orbit.TenantID` from context and silently appends `AND tenant_id = $N` to every query.
+The PostgreSQL repository reads `claims.Kora.TenantID` from context and silently appends `AND tenant_id = $N` to every query.
 
 **Pros:**
 - Forgotten tenant checks become mechanically impossible — the SQL enforces.
