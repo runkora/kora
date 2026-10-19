@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, waitFor, within } from 'storybook/test';
+import type { TriggerRoutingCandidate } from '@runkora/shared/api';
 import { dashboardPage } from '@runkora/storybook/dashboard-frame';
 import type { MockRequest, MockRoutes } from '@runkora/storybook/mock-api';
 import { TriggersShell } from './triggers-shell';
@@ -11,13 +12,20 @@ import {
   MANY_DELIVERIES,
   MANY_TRIGGERS,
   PULL_REQUEST_FIELDS,
+  ROUTED_TRIGGER,
   SCHEDULE_PREVIEW,
   SOURCES,
   TRIGGERS,
+  modelCatalog,
+  routedDelivery,
+  routingCandidates,
 } from './triggers-mock-data';
+import type { RoutingCase } from './triggers-mock-data';
 
 /** The client-side calls the drawer and the wizard make while open. */
 const catalogRoutes: MockRoutes = {
+  'GET /api/triggers/routing/candidates': { data: routingCandidates(4) },
+  'GET /api/models': { data: modelCatalog(true) },
   'GET /api/trigger-sources/:id/event-types': { data: GITHUB_EVENT_TYPES },
   'GET /api/trigger-providers/:provider/event-types': { data: GITHUB_EVENT_TYPES },
   'GET /api/trigger-providers/:provider/fields': { data: { fields: PULL_REQUEST_FIELDS } },
@@ -170,3 +178,208 @@ export const WizardWebhook: Story = {
     await userEvent.click(await within(document.body).findByRole('radio', { name: /Webhook/ }));
   },
 };
+
+// ── Let kora choose ──────────────────────────────────────────────────────────
+
+/** The page with the routing step's answers swapped in. */
+function routingFrame(routes: MockRoutes = {}) {
+  return [dashboardPage({ ...catalogRoutes, ...routes })];
+}
+
+const withCandidates = (candidates: TriggerRoutingCandidate[]) => ({
+  'GET /api/triggers/routing/candidates': { data: candidates },
+});
+
+/** Takes a webhook trigger through its first step to Target. */
+async function openTargetStep(canvasElement: HTMLElement) {
+  await userEvent.click(await within(canvasElement).findByRole('button', { name: /New trigger/ }));
+  const body = within(document.body);
+  await userEvent.click(await body.findByRole('radio', { name: /Webhook/ }));
+  await userEvent.type(await body.findByLabelText(/Trigger name/), 'route-github-work');
+  await userEvent.click(await body.findByRole('button', { name: 'Event type' }));
+  const options = await body.findAllByText('issue_comment');
+  const option = options[options.length - 1];
+  if (option === undefined) throw new Error('no issue_comment event');
+  await userEvent.click(option);
+  await userEvent.type(
+    await body.findByLabelText('Prompt'),
+    'Handle this comment on {{{{ issue.html_url }}.',
+  );
+  await next(body);
+  return body;
+}
+
+async function next(body: ReturnType<typeof within>) {
+  const button = await body.findByRole('button', { name: /Continue/ });
+  await waitFor(() => {
+    if ((button as HTMLButtonElement).disabled) throw new Error('Continue is disabled');
+  });
+  await userEvent.click(button);
+}
+
+/** Switches the Target step to Let kora choose and picks the named candidates and a model. */
+async function chooseKora(
+  body: ReturnType<typeof within>,
+  candidates: string[],
+  {
+    model = 'Liquid d1',
+    fallback = candidates[0],
+  }: { model?: string | null; fallback?: string } = {},
+) {
+  await userEvent.click(await body.findByRole('radio', { name: /Let kora choose/ }));
+  for (const name of candidates) {
+    await userEvent.click(await body.findByRole('checkbox', { name }));
+  }
+  if (model !== null) await userEvent.click(await body.findByRole('radio', { name: model }));
+  if (fallback !== undefined && candidates.length > 0) {
+    await userEvent.selectOptions(await body.findByLabelText('Fallback agent'), fallback);
+  }
+}
+
+/** Brings the candidate list back into view after the settings below it took focus. */
+async function showCandidates(body: ReturnType<typeof within>) {
+  (await body.findByText('Candidate agents')).scrollIntoView({ block: 'start' });
+}
+
+/** Route to one agent: the step as it was, under the new mode choice. */
+export const WizardTargetOneAgent: Story = {
+  decorators: routingFrame(),
+  play: async ({ canvasElement }) => {
+    const body = await openTargetStep(canvasElement);
+    await userEvent.click(await body.findByRole('radio', { name: 'Code Reviewer' }));
+  },
+};
+
+/** Let kora choose between three candidates with a decision model picked. */
+export const WizardKoraChooses: Story = {
+  decorators: routingFrame(),
+  play: async ({ canvasElement }) => {
+    const body = await openTargetStep(canvasElement);
+    await chooseKora(body, ['Code Reviewer', 'Coder', 'Security Reviewer']);
+    await userEvent.type(
+      await body.findByLabelText('Join key'),
+      '{{{{ repository.full_name }}#{{{{ issue.number }}',
+    );
+  },
+};
+
+/** Twelve runnable candidates: the list searches and pages, the count tracks the selection. */
+export const WizardManyCandidates: Story = {
+  decorators: routingFrame(withCandidates(routingCandidates(12))),
+  play: async ({ canvasElement }) => {
+    const body = await openTargetStep(canvasElement);
+    await chooseKora(body, ['Code Reviewer', 'Coder', 'Security Reviewer', 'Docs Writer']);
+    await showCandidates(body);
+  },
+};
+
+/** A candidate with no description, and one too short to route on. */
+export const WizardMissingDescription: Story = {
+  decorators: routingFrame(withCandidates(routingCandidates(5, { coder: '' }))),
+  play: async ({ canvasElement }) => {
+    const body = await openTargetStep(canvasElement);
+    await chooseKora(body, ['Code Reviewer', 'Coder', 'Docs Writer']);
+    await showCandidates(body);
+  },
+};
+
+/** Nothing picked yet: Continue stays disabled until two agents are chosen. */
+export const WizardEmptySelection: Story = {
+  decorators: routingFrame(),
+  play: async ({ canvasElement }) => {
+    const body = await openTargetStep(canvasElement);
+    await chooseKora(body, [], { model: null });
+    await showCandidates(body);
+  },
+};
+
+/** The catalog has no decision model, so this mode cannot be completed. */
+export const WizardNoDecisionModels: Story = {
+  decorators: routingFrame({ 'GET /api/models': { data: modelCatalog(false) } }),
+  play: async ({ canvasElement }) => {
+    const body = await openTargetStep(canvasElement);
+    await userEvent.click(await body.findByRole('radio', { name: /Let kora choose/ }));
+  },
+};
+
+/** A model search that matches nothing in the decision catalog. */
+export const WizardModelSearchNoMatch: Story = {
+  decorators: routingFrame(),
+  play: async ({ canvasElement }) => {
+    const body = await openTargetStep(canvasElement);
+    await chooseKora(body, ['Code Reviewer', 'Coder'], { model: null });
+    const input = await body.findByPlaceholderText('Search decision models');
+    await userEvent.type(input, 'gpt');
+    input.scrollIntoView({ block: 'center' });
+  },
+};
+
+/** Create refused because the caller lacks a candidate's run scope: the wizard names the scopes. */
+export const WizardMissingScopes: Story = {
+  decorators: routingFrame({
+    'POST /api/triggers': () =>
+      new Response(
+        JSON.stringify({
+          code: 'forbidden',
+          message: 'caller does not hold the scopes this routed trigger would be granted',
+          details: { missing_scopes: ['agent:security-reviewer:run', 'model:liquid:d1:use'] },
+        }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      ),
+  }),
+  play: async ({ canvasElement }) => {
+    const body = await openTargetStep(canvasElement);
+    await chooseKora(body, ['Code Reviewer', 'Security Reviewer']);
+    await next(body);
+    await next(body);
+    await userEvent.click(await body.findByRole('button', { name: 'Create trigger' }));
+    (await body.findByText(/Missing: agent:security-reviewer:run/)).scrollIntoView({
+      block: 'center',
+    });
+  },
+};
+
+/** The routed trigger open in its drawer: the candidates instead of one agent. */
+export const TriggerDrawerRouted: Story = {
+  decorators: frame,
+  args: { triggers: [ROUTED_TRIGGER, ...TRIGGERS] },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByText('route-github-work'));
+    const target = await within(document.body).findByText('kora chooses between 4 agents');
+    target.scrollIntoView({ block: 'start' });
+  },
+};
+
+/** The delivery panel for one routing outcome, opened from the Deliveries tab. */
+function deliveryStory(c: RoutingCase): Story {
+  return {
+    decorators: frame,
+    args: {
+      triggers: [ROUTED_TRIGGER, ...TRIGGERS],
+      deliveries: [routedDelivery(c), ...DELIVERIES],
+    },
+    play: async ({ canvasElement }) => {
+      const canvas = within(canvasElement);
+      await userEvent.click(await canvas.findByRole('tab', { name: 'Deliveries' }));
+      const rows = await canvas.findAllByText('route-github-work');
+      const row = rows[0];
+      if (row === undefined) throw new Error('no routed delivery');
+      await userEvent.click(row);
+    },
+  };
+}
+
+/** kora was sure: a new run of the chosen agent. */
+export const DeliveryConfidentNewRun = deliveryStory('confident');
+
+/** The join key matched an open run, so no model call was made. */
+export const DeliveryJoinedByKey = deliveryStory('joined-by-key');
+
+/** Below the confidence bar: the fallback agent took it. */
+export const DeliveryLowConfidenceFallback = deliveryStory('fallback');
+
+/** Below the confidence bar with no fallback: nothing ran. */
+export const DeliveryLowConfidenceNoRun = deliveryStory('no-run');
+
+/** The decision model did not answer: the fallback agent took it. */
+export const DeliveryModelFailed = deliveryStory('model-failed');

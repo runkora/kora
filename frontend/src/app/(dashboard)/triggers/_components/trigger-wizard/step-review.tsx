@@ -4,11 +4,46 @@
  * the step that owns it, each group jumping back to its step for edits. */
 
 import { Alert, Stack, Text, Wizard } from '@runkora/hades';
-import { coalesceDraftOf, coalesceFrom, parallelWord } from './wizard-state';
-import type { StepComponentProps } from './types';
+import { coalesceDraftOf, coalesceFrom, isRouted, parallelWord } from './wizard-state';
+import type { RoutingDraft, RoutingOptions, StepComponentProps, WizardState } from './types';
+
+const CONFIDENCE_LABEL: Record<RoutingDraft['confidence'], string> = {
+  strict: 'Strict',
+  balanced: 'Balanced',
+  loose: 'Loose',
+};
+
+/** The Target card's rows for a routed trigger: who kora chooses between, and how. */
+function routingRows(routing: RoutingDraft, options: RoutingOptions) {
+  const agents = options.candidates.status === 'ready' ? options.candidates.items : [];
+  const name = (id: string) => {
+    const a = agents.find((x) => x.id === id);
+    return a?.name?.trim() || a?.slug || id;
+  };
+  return [
+    { label: 'Candidates', value: routing.candidateIds.map(name).join(', ') },
+    { label: 'Decision model', value: routing.modelId, mono: true },
+    { label: 'Confidence', value: CONFIDENCE_LABEL[routing.confidence] },
+    {
+      label: 'When unsure',
+      value: routing.unsure === 'fallback' ? `Send to ${name(routing.fallbackId)}` : 'No run',
+    },
+    {
+      label: 'Join open runs',
+      value: routing.joinOpenRuns ? routing.joinKey.trim() || 'On' : 'Off',
+      mono: routing.joinOpenRuns && routing.joinKey.trim() !== '',
+    },
+  ];
+}
+
+function targetRows(state: WizardState, context: StepComponentProps['context']) {
+  if (context.routing !== undefined && isRouted(state, context))
+    return routingRows(state.routing, context.routing);
+  const agent = context.agents.find((a) => a.id === state.agentTypeId);
+  return [{ label: 'Agent', value: agent?.name?.trim() || agent?.slug || '—' }];
+}
 
 export function StepReview({ state, context, definition, error, onGoTo }: StepComponentProps) {
-  const agent = context.agents.find((a) => a.id === state.agentTypeId);
   const configStep = definition.steps[0];
 
   const coalesce = coalesceFrom(coalesceDraftOf(state));
@@ -58,7 +93,7 @@ export function StepReview({ state, context, definition, error, onGoTo }: StepCo
           icon="route"
           title="Target"
           onEdit={onGoTo ? () => onGoTo('target') : undefined}
-          rows={[{ label: 'Agent', value: agent?.name?.trim() || agent?.slug || '—' }]}
+          rows={targetRows(state, context)}
         />
 
         <Wizard.ReviewCard

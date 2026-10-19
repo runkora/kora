@@ -31,7 +31,7 @@ import { FleetKpis } from './fleet-kpis';
 import { TriggerDrawer } from './trigger-drawer';
 import { TriggerList } from './trigger-list';
 import { DeliveryGrid } from './delivery-grid';
-import { matchesStatusFilter } from '../_types';
+import { matchesStatusFilter, runTargets } from '../_types';
 import { ingestHostFromWindow } from '../_lib/endpoints';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
 import { useHasScope } from '../../_components/permissions-provider';
@@ -73,8 +73,10 @@ export function TriggersPage({
     (agentTypeId: string) => agents.some((a) => a.id === agentTypeId && a.canRun),
     [agents],
   );
+  const canRunTrigger = (t: TriggerRow | undefined) =>
+    t !== undefined && runTargets(t).every(canRunAgent);
   const canRunOwner = (triggerId: string | null) =>
-    canRunAgent(triggers.find((t) => t.id === triggerId)?.agentTypeId ?? '');
+    canRunTrigger(triggers.find((t) => t.id === triggerId));
 
   const sourceName = useMemo(() => {
     const map = new Map<string, string>();
@@ -286,6 +288,7 @@ export function TriggersPage({
           onClose={() => setDetailDelivery(null)}
           onRedeliver={redeliver}
           redeliverAllowed={canRunOwner(detailDelivery.triggerId)}
+          agents={agents}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);
@@ -297,7 +300,7 @@ export function TriggersPage({
       {/* Modals */}
       <TriggerDrawer
         trigger={drawerRow}
-        canRunAgent={drawerRow !== null && canRunAgent(drawerRow.agentTypeId)}
+        canRunAgent={drawerRow !== null && canRunTrigger(drawerRow)}
         sources={sources}
         deliveries={deliveries}
         ingestHost={ingestHost}
@@ -318,6 +321,7 @@ export function TriggersPage({
         // Scoped to the trigger on screen: firing one trigger must not make
         // another one's panel claim it is queueing.
         firing={firingId === drawerRow?.id}
+        agents={agents}
       />
 
       {/* One modal owns the whole creation flow: kind picker, the kind's own
@@ -331,6 +335,7 @@ export function TriggersPage({
             provider: sources.find((x) => x.id === f.id)?.provider ?? 'github',
           }))}
           ingestHost={ingestHost}
+          allowRouting
           onCreate={createFromWizard}
           onClose={() => setWizardOpen(false)}
         />

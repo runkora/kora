@@ -9,10 +9,15 @@
 import 'server-only';
 
 export class ApiError extends Error {
+  /**
+   * `details` is the upstream's structured context, such as the scopes a 403
+   * says are missing. The BFF passes it through to the browser.
+   */
   constructor(
     public readonly status: number,
     public readonly code: string,
     message: string,
+    public readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'ApiError';

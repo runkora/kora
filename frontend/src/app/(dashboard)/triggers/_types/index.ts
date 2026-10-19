@@ -20,11 +20,23 @@ import type {
   TriggerDelivery,
   TriggerKind,
   TriggerOverflow,
+  TriggerRouteOutcome,
+  TriggerRouting,
+  TriggerRoutingConfidence,
+  TriggerRoutingDecision,
+  TriggerTargetKind,
   TriggerUpdateRequest,
   WebhookSource,
 } from '@runkora/shared/api';
 
-export type { InputField, TriggerKind, TriggerOverflow };
+export type {
+  InputField,
+  TriggerKind,
+  TriggerOverflow,
+  TriggerRouteOutcome,
+  TriggerRoutingConfidence,
+  TriggerTargetKind,
+};
 
 /** Burst coalescing for a webhook trigger: a key template and a window in seconds. */
 export interface TriggerCoalesce {
@@ -34,6 +46,38 @@ export interface TriggerCoalesce {
 
 /** Who may fire a webhook trigger; both lists empty means anyone. */
 export type Senders = Required<SenderRestriction>;
+
+/** A routed trigger's candidates and settings. */
+export interface TriggerRoutingRow {
+  /** Agent type ids. */
+  candidates: string[];
+  /** The decision model's catalog id. */
+  model: string;
+  confidence: TriggerRoutingConfidence;
+  /** Null starts no run when routing is unsure. */
+  fallbackAgentTypeId: string | null;
+  joinRuns: boolean;
+  /** Empty when the trigger has no join key. */
+  joinKey: string;
+}
+
+/**
+ * The probability each confidence preset routes at. Mirrors the backend's
+ * thresholds, so the delivery panel can name the preset a decision used.
+ */
+export const CONFIDENCE_THRESHOLDS: Record<TriggerRoutingConfidence, number> = {
+  strict: 0.85,
+  balanced: 0.7,
+  loose: 0.5,
+};
+
+/** The preset a recorded threshold belongs to, or null for a value none of them uses. */
+export function confidencePresetOf(threshold: number): TriggerRoutingConfidence | null {
+  const found = (Object.keys(CONFIDENCE_THRESHOLDS) as TriggerRoutingConfidence[]).find(
+    (p) => Math.abs(CONFIDENCE_THRESHOLDS[p] - threshold) < 1e-9,
+  );
+  return found ?? null;
+}
 
 // ── Shared vocabulary ─────────────────────────────────────────────────────────
 //
@@ -53,6 +97,8 @@ export const LIMITS = {
   timeout: { min: 5, max: 600 },
   /** Coalescing: window in seconds, and the key template's size in bytes. */
   coalesce: { window: { min: 1, max: 300 }, keyBytes: 256 },
+  /** A routed trigger's join key template, in bytes. */
+  joinKeyBytes: 256,
 };
 
 /** Icon per kind: what wakes this trigger up. One map, so every surface agrees. */
@@ -83,8 +129,12 @@ export interface TriggerRow {
   kind: TriggerKind;
   sourceId: string;
   name: string;
+  /** "routed" triggers have no single agent: both agent fields are empty. */
+  targetKind: TriggerTargetKind;
   agentTypeId: string;
   agentSlug: string;
+  /** Routed triggers only. */
+  routing: TriggerRoutingRow | null;
   /** Webhook triggers only. */
   eventType: string;
   matchCondition: Record<string, string[]>;
@@ -172,12 +222,33 @@ export interface DeliveryRunRow {
   error: string | null;
   /** The delivery whose fire replaced this one; set when the status is `superseded`. */
   supersededBy?: string;
+  /** The decision a routed trigger made for this delivery. Absent on every other trigger. */
+  routing?: DeliveryRoutingRow;
   /**
    * When this outcome was recorded. Against the delivery's receivedAt this is
    * how long the platform took to start the run, which is the only dispatch
    * latency signal available without instrumenting the agent API.
    */
   createdAt: string | null;
+}
+
+/** What a routed trigger decided for one delivery. */
+export interface DeliveryRoutingRow {
+  outcome: TriggerRouteOutcome;
+  keyMatched: boolean;
+  joinKey: string | null;
+  /** Null when the join key decided without a model call. */
+  model: string | null;
+  /** The agent that received the delivery. */
+  agentTypeId: string | null;
+  /** The chosen option's probability. */
+  probability: number | null;
+  threshold: number | null;
+  /** Each candidate agent's probability, highest first. */
+  agentScores: { agentTypeId: string; probability: number }[];
+  /** below_threshold, decision_failed or run_closed. */
+  fallbackReason: string | null;
+  error: string | null;
 }
 
 /** Minimal agent identity used by the trigger create/edit form's agent picker. */
@@ -195,6 +266,11 @@ export interface AgentOption {
 }
 
 // ── Transformers ──────────────────────────────────────────────────────────────
+
+/** The agents a trigger can start: its bound agent, or every candidate of a routed trigger. */
+export function runTargets(t: Pick<TriggerRow, 'agentTypeId' | 'routing'>): string[] {
+  return t.routing ? t.routing.candidates : [t.agentTypeId];
+}
 
 export function toSourceRow(s: WebhookSource): SourceRow {
   return {
@@ -215,8 +291,10 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     kind: t.kind,
     sourceId: t.source_id ?? '',
     name: t.name,
-    agentTypeId: t.agent_type_id,
-    agentSlug: t.agent_slug,
+    targetKind: t.target_kind ?? 'agent',
+    agentTypeId: t.agent_type_id ?? '',
+    agentSlug: t.agent_slug ?? '',
+    routing: t.routing ? toRoutingRow(t.routing) : null,
     eventType: t.event_type ?? '',
     matchCondition: t.match_condition ?? {},
     matchContains: t.match_contains ?? {},
@@ -278,6 +356,7 @@ export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
       status: r.status,
       error: r.error ?? null,
       ...(r.superseded_by !== undefined && { supersededBy: r.superseded_by }),
+      ...(r.routing !== undefined && { routing: toDeliveryRoutingRow(r.routing) }),
       createdAt: r.created_at ?? null,
     })),
     coalesceKeys: (d.coalesce_keys ?? []).map((c) => ({
@@ -288,7 +367,51 @@ export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
   };
 }
 
+export function toRoutingRow(r: TriggerRouting): TriggerRoutingRow {
+  return {
+    candidates: r.candidates ?? [],
+    model: r.model,
+    confidence: r.confidence,
+    fallbackAgentTypeId: r.fallback_agent_type_id ?? null,
+    joinRuns: r.join_runs ?? true,
+    joinKey: r.join_key ?? '',
+  };
+}
+
+export function toDeliveryRoutingRow(d: TriggerRoutingDecision): DeliveryRoutingRow {
+  return {
+    outcome: d.outcome,
+    keyMatched: d.key_matched,
+    joinKey: d.join_key ?? null,
+    model: d.model ?? null,
+    agentTypeId: d.agent_type_id ?? null,
+    probability: d.probability ?? null,
+    threshold: d.threshold ?? null,
+    agentScores: Object.entries(d.scores?.agents ?? {})
+      .map(([agentTypeId, probability]) => ({ agentTypeId, probability }))
+      .sort((a, b) => b.probability - a.probability),
+    fallbackReason: d.fallback_reason ?? null,
+    error: d.error ?? null,
+  };
+}
+
 // ── Request mapping ───────────────────────────────────────────────────────────
+
+/**
+ * The wire form of a routing object. Shared by create and update. A join key
+ * is sent only while joining is on, since the backend reads it for nothing else.
+ */
+export function toRoutingRequest(r: TriggerRoutingRow): TriggerRouting {
+  const joinKey = r.joinKey.trim();
+  return {
+    candidates: r.candidates,
+    model: r.model,
+    confidence: r.confidence,
+    fallback_agent_type_id: r.fallbackAgentTypeId,
+    join_runs: r.joinRuns,
+    ...(r.joinRuns && joinKey !== '' && { join_key: joinKey }),
+  };
+}
 
 /** A schedule as the console holds it, before it is put on the wire. */
 export interface TriggerScheduleDraft {
@@ -419,9 +542,12 @@ export function formatTimestampUtc(iso: string): string {
 export function deliveryStatusTone(status: string): 'healthy' | 'degraded' | 'error' | 'unknown' {
   switch (status) {
     case 'dispatched':
+    case 'joined':
       return 'healthy';
     case 'verified':
     case 'skipped':
+    // A routed trigger that was not sure enough and had no fallback worked as configured.
+    case 'unrouted':
     // A repeat arrival and a tick that fired while the platform was away are
     // notable but not faults; they share the cautionary tone with skipped.
     case 'duplicate':

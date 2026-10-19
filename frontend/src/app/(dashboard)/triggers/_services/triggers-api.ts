@@ -13,12 +13,14 @@
 
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type {
+  ModelObject,
   SchedulePreviewResponse,
   Trigger,
   TriggerCreateRequest,
   TriggerDelivery,
   TriggerEventTypes,
   TriggerField,
+  TriggerRoutingCandidate,
   TriggerUpdateRequest,
   WebhookSource,
   WebhookSourceCreateRequest,
@@ -26,9 +28,27 @@ import type {
   WebhookSourceUpdateRequest,
 } from '@runkora/shared/api';
 
+interface ErrorBody {
+  message?: string;
+  details?: { missing_scopes?: unknown };
+}
+
+/**
+ * The message to show for a refused request. A routed trigger the caller cannot
+ * grant is refused with the scopes it lacks, and those are what the person
+ * needs to ask for, so they replace the upstream's sentence.
+ */
+export function errorMessageOf(status: number, body: ErrorBody): string {
+  const missing = body.details?.missing_scopes;
+  if (Array.isArray(missing) && missing.length > 0) {
+    return `You do not hold every scope this trigger needs. Missing: ${missing.join(', ')}.`;
+  }
+  return body.message ?? `Request failed (${status})`;
+}
+
 async function errorMessage(res: Response): Promise<string> {
-  const body = await res.json().catch(() => ({}) as { message?: string });
-  return (body as { message?: string }).message ?? `Request failed (${res.status})`;
+  const body = (await res.json().catch(() => ({}))) as ErrorBody;
+  return errorMessageOf(res.status, body);
 }
 
 /**
@@ -90,6 +110,23 @@ export async function listDeliveries(): Promise<{
     cache: 'no-store',
   });
   return { deliveries: res.data ?? [], error: res.error };
+}
+
+/** The agent types a routed trigger may name, each marked runnable for the caller. */
+export async function listRoutingCandidates(): Promise<{
+  candidates: TriggerRoutingCandidate[];
+  error: string | null;
+}> {
+  const res = await send<TriggerRoutingCandidate[]>(ApiRoute.triggers.routingCandidates(), {
+    cache: 'no-store',
+  });
+  return { candidates: res.data ?? [], error: res.error };
+}
+
+/** The tenant's model catalog, as the caller may use it. */
+export async function listModels(): Promise<{ models: ModelObject[]; error: string | null }> {
+  const res = await send<ModelObject[]>(ApiRoute.models.GET(), { cache: 'no-store' });
+  return { models: res.data ?? [], error: res.error };
 }
 
 // ── Sources ─────────────────────────────────────────────────────────────────

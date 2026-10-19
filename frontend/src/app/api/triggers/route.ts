@@ -6,7 +6,11 @@ import type { TriggerCreateRequest } from '@runkora/shared/api';
 
 function validateCreateRequest(body: TriggerCreateRequest): string | null {
   if (!body.name?.trim()) return 'name is required';
-  if (!body.agent_type_id) return 'agent_type_id is required';
+  if (body.target_kind === 'routed') {
+    if (!body.routing) return 'routing is required when target_kind is routed';
+  } else if (!body.agent_type_id) {
+    return 'agent_type_id is required';
+  }
   if (!body.prompt_template?.trim()) return 'prompt_template is required';
   const kind = body.kind ?? 'webhook';
   switch (kind) {
@@ -54,6 +58,8 @@ export const POST = withAuth(async (req: NextRequest, session) => {
     source_id: body.source_id,
     name: body.name,
     agent_type_id: body.agent_type_id,
+    target_kind: body.target_kind,
+    routing: body.routing,
     event_type: body.event_type,
     match_condition: body.match_condition ?? {},
     match_contains: body.match_contains,

@@ -5,6 +5,8 @@
  * operator to take away before closing. */
 
 import { Button, Heading, Icon, Stack, Text } from '@runkora/hades';
+import { useBrand } from '@runkora/theme/brand-provider';
+import { isRouted } from './wizard-state';
 import type { DoneContentProps, TriggerKindDefinition, WizardContext, WizardState } from './types';
 
 export interface SuccessPanelProps {
@@ -28,8 +30,11 @@ export function SuccessPanel({
   onClose,
   onCreateAnother,
 }: SuccessPanelProps) {
+  const { productName } = useBrand();
   const agent = context.agents.find((a) => a.id === state.agentTypeId);
-  const agentLabel = agent?.name?.trim() || agent?.slug || 'the agent';
+  const agentLabel = isRouted(state, context)
+    ? `the agent ${productName} picks for each delivery`
+    : agent?.name?.trim() || agent?.slug || 'the agent';
   const KindDone: React.ComponentType<DoneContentProps> = definition.doneContent;
 
   return (

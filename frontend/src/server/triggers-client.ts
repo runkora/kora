@@ -10,6 +10,7 @@ import type {
   TriggerField,
   TriggerFireRequest,
   TriggerFireResponse,
+  TriggerRoutingCandidate,
   TriggerUpdateRequest,
   WebhookSource,
   WebhookSourceCreateRequest,
@@ -53,8 +54,13 @@ async function request<T>(
 
   if (!response.ok) {
     const errJson = await response.json().catch(() => ({}));
-    const err = errJson as { code?: string; message?: string };
-    throw new ApiError(response.status, err.code ?? 'UNKNOWN', err.message ?? response.statusText);
+    const err = errJson as { code?: string; message?: string; details?: Record<string, unknown> };
+    throw new ApiError(
+      response.status,
+      err.code ?? 'UNKNOWN',
+      err.message ?? response.statusText,
+      err.details,
+    );
   }
 
   if (response.status === 204 || response.headers.get('Content-Length') === '0') {
@@ -166,6 +172,18 @@ export async function updateTrigger(
     method: 'PATCH',
     body: payload,
   });
+}
+
+// GET /api/v1/triggers/routing/candidates: the agent types a routed trigger may
+// name, each marked runnable against the caller's own claims.
+export async function listRoutingCandidates(
+  accessToken: string,
+): Promise<TriggerRoutingCandidate[]> {
+  const body = await request<{ agent_types?: TriggerRoutingCandidate[] }>(
+    '/triggers/routing/candidates',
+    accessToken,
+  );
+  return body?.agent_types ?? [];
 }
 
 export async function deleteTrigger(accessToken: string, id: string): Promise<void> {

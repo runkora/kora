@@ -411,6 +411,9 @@ export const ApiRoute = {
     delete: (id: string): `${typeof API_BASE}/triggers/${string}` => `${API_BASE}/triggers/${id}`,
     fire: (id: string): `${typeof API_BASE}/triggers/${string}/fire` =>
       `${API_BASE}/triggers/${id}/fire`,
+    /** Agent types a routed trigger may name, each marked runnable for the caller. */
+    routingCandidates: (): `${typeof API_BASE}/triggers/routing/candidates` =>
+      `${API_BASE}/triggers/routing/candidates`,
     /** Next fires for a cron expression, resolved by the scheduler itself. */
     schedulePreview: (): `${typeof API_BASE}/triggers/schedule-preview` =>
       `${API_BASE}/triggers/schedule-preview`,

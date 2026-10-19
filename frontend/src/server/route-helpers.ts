@@ -69,7 +69,14 @@ export function withAuth<TParams = Record<string, string>>(
       return await handler(req, session, context);
     } catch (err) {
       if (err instanceof ApiError) {
-        return NextResponse.json({ code: err.code, message: err.message }, { status: err.status });
+        return NextResponse.json(
+          {
+            code: err.code,
+            message: err.message,
+            ...(err.details !== undefined && { details: err.details }),
+          },
+          { status: err.status },
+        );
       }
       throw err;
     }

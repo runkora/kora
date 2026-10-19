@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createFromWizardDraft } from './create-from-wizard';
-import { createSource, createTrigger } from './triggers-api';
+import { createSource, createTrigger, errorMessageOf } from './triggers-api';
 import type { TriggerDraft } from '../_components/trigger-wizard';
 
-vi.mock('./triggers-api', () => ({
+vi.mock('./triggers-api', async (original) => ({
+  errorMessageOf: (await original<typeof import('./triggers-api')>()).errorMessageOf,
   createSource: vi.fn(),
   createTrigger: vi.fn(),
 }));
@@ -21,6 +22,7 @@ function draft(overrides: Partial<TriggerDraft> = {}): TriggerDraft {
     promptTemplate: 'Review {{ push.branch }}',
     source: { existingId: 'src-1' },
     eventType: 'push',
+    targetKind: 'agent',
     agentTypeId: 'at-1',
     maxParallel: 4,
     overflow: 'wait',
@@ -263,6 +265,55 @@ describe('failures', () => {
     expect(await createFromWizardDraft(draft(), OPTIONS)).toEqual({
       ok: false,
       error: 'Failed to create the trigger.',
+    });
+  });
+});
+
+describe('routed drafts', () => {
+  it('sends target_kind and routing without an agent', async () => {
+    await createFromWizardDraft(
+      draft({
+        targetKind: 'routed',
+        agentTypeId: '',
+        routing: {
+          candidates: ['at-1', 'at-2'],
+          model: 'liquid/d1',
+          confidence: 'balanced',
+          fallbackAgentTypeId: null,
+          joinRuns: true,
+          joinKey: '{{ issue.number }}',
+        },
+      }),
+      OPTIONS,
+    );
+    const sent = mockCreateTrigger.mock.calls[0]?.[0];
+    expect(sent).toMatchObject({
+      target_kind: 'routed',
+      routing: {
+        candidates: ['at-1', 'at-2'],
+        model: 'liquid/d1',
+        confidence: 'balanced',
+        fallback_agent_type_id: null,
+        join_runs: true,
+        join_key: '{{ issue.number }}',
+      },
+    });
+    expect(sent).not.toHaveProperty('agent_type_id');
+  });
+
+  it('shows the scopes a refused routed trigger is missing', async () => {
+    mockCreateTrigger.mockResolvedValue({
+      trigger: null,
+      error: errorMessageOf(403, {
+        message: 'caller does not hold the scopes this routed trigger would be granted',
+        details: { missing_scopes: ['agent:coder:run', 'model:liquid:d1:use'] },
+      }),
+    } as never);
+    const result = await createFromWizardDraft(draft(), OPTIONS);
+    expect(result).toEqual({
+      ok: false,
+      error:
+        'You do not hold every scope this trigger needs. Missing: agent:coder:run, model:liquid:d1:use.',
     });
   });
 });

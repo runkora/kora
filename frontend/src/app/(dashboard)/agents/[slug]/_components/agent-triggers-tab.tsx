@@ -255,6 +255,7 @@ export function AgentTriggersTab() {
         // Scoped to the trigger on screen: firing one trigger must not make
         // another one's panel claim it is queueing.
         firing={firingId === drawerRow?.id}
+        agents={[agent]}
       />
 
       {detailDelivery !== null && (
@@ -263,6 +264,7 @@ export function AgentTriggersTab() {
           onClose={() => setDetailDelivery(null)}
           onRedeliver={redeliver}
           redeliverAllowed={agent.canRun}
+          agents={[agent]}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);

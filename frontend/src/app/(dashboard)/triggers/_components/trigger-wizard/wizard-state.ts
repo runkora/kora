@@ -4,22 +4,30 @@
  * handed to the parent. No React, so every rule is unit-testable.
  */
 
+import type { ModelObject, TriggerRoutingCandidate } from '@runkora/shared/api';
 import { resolveBrowserZone, timezoneOptions } from './cron';
 import { LIMITS } from '../../_types';
-import type { Senders, TriggerCoalesce } from '../../_types';
+import type { Senders, TriggerCoalesce, TriggerRoutingRow } from '../../_types';
 import type { SenderRestrictionDraft } from '../sender-restriction-editor';
 import type { FilterOperator, FilterRow } from '../filter-rows-editor';
 import type {
+  DecisionModel,
   KindStep,
+  RoutingAgent,
+  RoutingDraft,
+  RoutingOptions,
   StepValidation,
   TriggerDraft,
   TriggerKind,
   TriggerKindDefinition,
+  WizardContext,
   WizardField,
   WizardState,
 } from './types';
 
 export const VALID: StepValidation = { valid: true };
+
+const textEncoder = new TextEncoder();
 
 /**
  * Wraps a kind's own first-step checks with the two every kind shares: the
@@ -92,6 +100,7 @@ export function baseState(sources: { id: string }[]): WizardState {
     fields: [newField(0)],
 
     agentTypeId: '',
+    routing: DEFAULT_ROUTING,
     maxParallel: 4,
     overflow: 'wait',
     maxQueueDepth: 32,
@@ -191,13 +200,86 @@ export function describeMatchCondition(filters: FilterRow[]): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-/** The Target step: an agent, and limits the platform will accept. */
-export function validateTarget(state: WizardState): StepValidation {
+export const DEFAULT_ROUTING: RoutingDraft = {
+  mode: 'one',
+  candidateIds: [],
+  modelId: '',
+  confidence: 'balanced',
+  unsure: 'fallback',
+  fallbackId: '',
+  joinOpenRuns: true,
+  joinKey: '',
+};
+
+/** The tenant catalog narrowed to the models that can answer a routing question. */
+export function decisionModelsOf(models: ModelObject[]): DecisionModel[] {
+  return models
+    .filter((m) => m.status === 'available' && m.capabilities.includes('decision'))
+    .map((m) => ({ id: m.id, name: m.display_name || m.id }));
+}
+
+/** A routing candidate from the API, as the picker lists it. */
+export function toRoutingAgent(c: TriggerRoutingCandidate): RoutingAgent {
+  return {
+    id: c.id,
+    slug: c.slug,
+    name: c.name,
+    description: c.description,
+    identityMode: c.identity_mode ?? 'autonomous',
+    runnable: c.runnable,
+    ...(c.reason !== undefined && c.reason !== '' && { reason: c.reason }),
+  };
+}
+
+/** Below this many characters a description is too thin to route on. */
+const MIN_DESCRIPTION = 40;
+
+export function needsDescription(agent: RoutingAgent): boolean {
+  return agent.description.trim().length < MIN_DESCRIPTION;
+}
+
+/** Whether the Target step is set to let kora choose. */
+export function isRouted(state: WizardState, context: WizardContext): boolean {
+  return context.routing !== undefined && state.routing.mode === 'choose';
+}
+
+/** No decision model in the catalog: the mode cannot be completed. */
+export function noDecisionModels(options: RoutingOptions): boolean {
+  return options.models.status === 'ready' && options.models.items.length === 0;
+}
+
+export function validateRouting(draft: RoutingDraft, options: RoutingOptions): StepValidation {
+  // The step says why inline and hides everything else, so no hint repeats it.
+  if (noDecisionModels(options)) return { valid: false };
+  if (draft.candidateIds.length < 2)
+    return { valid: false, hint: 'Pick at least two candidate agents.' };
+  if (draft.modelId === '') return { valid: false, hint: 'Choose a decision model.' };
+  if (draft.unsure === 'fallback' && !draft.candidateIds.includes(draft.fallbackId))
+    return { valid: false, hint: 'Choose the fallback agent.' };
+  if (draft.joinOpenRuns && textEncoder.encode(draft.joinKey.trim()).length > LIMITS.joinKeyBytes)
+    return { valid: false, hint: `Join key must be at most ${LIMITS.joinKeyBytes} bytes.` };
+  return VALID;
+}
+
+/** The Target step: one agent, or the routing settings when kora chooses. */
+export function validateTarget(state: WizardState, context?: WizardContext): StepValidation {
+  if (context?.routing !== undefined && state.routing.mode === 'choose')
+    return validateRouting(state.routing, context.routing);
   if (!state.agentTypeId) return { valid: false, hint: 'Choose the agent this trigger runs.' };
   return VALID;
 }
 
-const textEncoder = new TextEncoder();
+/** The routing settings as the trigger stores them. */
+export function routingRowOf(draft: RoutingDraft): TriggerRoutingRow {
+  return {
+    candidates: draft.candidateIds,
+    model: draft.modelId,
+    confidence: draft.confidence,
+    fallbackAgentTypeId: draft.unsure === 'fallback' ? draft.fallbackId : null,
+    joinRuns: draft.joinOpenRuns,
+    joinKey: draft.joinOpenRuns ? draft.joinKey.trim() : '',
+  };
+}
 
 /** The coalesce setting as edited: a switch, and the raw key and window. */
 export interface CoalesceDraft {
@@ -308,11 +390,15 @@ export function previewBody(fields: WizardField[]): string {
 
 /** Builds the draft the parent submits: shared fields plus the kind's own. */
 export function toDraft(def: TriggerKindDefinition, state: WizardState): TriggerDraft {
+  // Only a webhook trigger can be routed; the step offers the mode for no other kind.
+  const routed = def.id === 'webhook' && state.routing.mode === 'choose';
   return {
     kind: def.id,
     name: state.name.trim(),
     promptTemplate: state.promptTemplate,
-    agentTypeId: state.agentTypeId,
+    ...(routed
+      ? { targetKind: 'routed' as const, agentTypeId: '', routing: routingRowOf(state.routing) }
+      : { targetKind: 'agent' as const, agentTypeId: state.agentTypeId }),
     maxParallel: state.maxParallel,
     overflow: state.overflow,
     maxQueueDepth: state.maxQueueDepth,
