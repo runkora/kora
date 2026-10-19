@@ -408,6 +408,12 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	}
 	span.SetAttributes(attribute.String("agent_type_id", at.ID))
 
+	// Publish the new slug's scopes now. A trigger bound seconds after create
+	// needs agents:runs:<slug>:* in the vocabulary before provisioning ends.
+	if s.hook != nil {
+		s.hook()
+	}
+
 	// Return immediately with state=provisioning; K8s resource creation runs in
 	// the background so the caller can redirect to the detail page and poll.
 	// Detach from the request context (it is canceled when the response is sent)

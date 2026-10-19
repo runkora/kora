@@ -3,12 +3,15 @@ package agents
 import (
 	"context"
 	"errors"
+	"io"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -286,5 +289,36 @@ func TestCreateAgentType_CreatorIsThePerson(t *testing.T) {
 				t.Errorf("created_by = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// blockingK8s never finishes provisioning, so only CreateAgentType itself can have run the hook.
+type blockingK8s struct {
+	*mockK8s
+	release chan struct{}
+}
+
+func (b blockingK8s) ProvisionAgentType(context.Context, AgentType, string) error {
+	<-b.release
+	return nil
+}
+
+// N3: the new slug's scopes are republished before CreateAgentType returns,
+// without waiting for provisioning.
+func TestCreateAgentType_RepublishesScopesBeforeProvisioning(t *testing.T) {
+	repo := newMockRepository()
+	k8s := blockingK8s{mockK8s: &mockK8s{}, release: make(chan struct{})}
+	t.Cleanup(func() { close(k8s.release) })
+	svc := NewAgentTypeService(repo, repo, k8s, NewAuthz(&scopedEvaluator{granted: []string{"agents:types:delegated:write"}}),
+		AgentTypeServiceConfig{MaxConcurrentRunsPerPod: 5, TenantNamespaceFn: func(id string) string { return "orbit-tenant-" + id }},
+		logging.NewLoggerWithOutput(io.Discard))
+	var calls atomic.Int32
+	svc.SetAgentTypeHook(func() { calls.Add(1) })
+
+	if _, err := svc.CreateAgentType(withTenantCtx(context.Background(), "t-1"), CreateAgentTypeRequest{Name: "Bot", Slug: "bot", IdentityMode: IdentityModeDelegated}); err != nil {
+		t.Fatalf("CreateAgentType: %v", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("hook calls before CreateAgentType returned = %d, want 1", got)
 	}
 }
