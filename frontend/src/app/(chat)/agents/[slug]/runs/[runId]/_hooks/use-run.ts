@@ -786,6 +786,19 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       });
     });
 
+    // A routed trigger sends a later delivery to a run already working on it.
+    es.addEventListener('trigger_message', (e: MessageEvent) => {
+      const payload = read<{ content: string; trigger_id?: string; trigger_name?: string }>(e);
+      if (!payload?.content) return;
+      appendHuman({
+        type: 'human',
+        id: `h-${++turnSeq.current}`,
+        content: payload.content,
+        timestamp: eventTime,
+        fromTrigger: payload.trigger_name || payload.trigger_id || 'a trigger',
+      });
+    });
+
     es.addEventListener('run_error', (e: MessageEvent) => {
       const payload = read<RunErrorPayload>(e);
       if (!payload) return;

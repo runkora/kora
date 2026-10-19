@@ -170,6 +170,41 @@ describe('useRun — server event envelope', () => {
     expect(result.current.turns.map((t) => t.timestamp)).toEqual([local, laterLocal, laterLocal]);
   });
 
+  it('adds a message a trigger sent as a turn from that trigger', async () => {
+    const { result } = renderHook(() => useRun('run-1', 'slug'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      const es = FakeEventSource.instances[0];
+      es.open();
+      es.emit('human_message', { at, payload: { content: 'review this' } });
+      es.emit('trigger_message', {
+        at: later,
+        payload: {
+          content: 'new comment',
+          trigger_id: 'trig-1',
+          trigger_name: 'route-github-work',
+        },
+      });
+      es.emit('trigger_message', {
+        at: later,
+        payload: { content: 'unnamed', trigger_id: 'trig-2' },
+      });
+    });
+    expect(result.current.turns).toMatchObject([
+      { type: 'human', content: 'review this' },
+      {
+        type: 'human',
+        content: 'new comment',
+        fromTrigger: 'route-github-work',
+        timestamp: laterLocal,
+      },
+      { type: 'human', content: 'unnamed', fromTrigger: 'trig-2' },
+    ]);
+    expect(result.current.turns[0]).not.toHaveProperty('fromTrigger');
+  });
+
   it('stamps a sent message with the time of its echo, and reads a bare payload', async () => {
     server.use(
       http.post('/api/agents/runs/:runId/messages', () => new HttpResponse(null, { status: 202 })),

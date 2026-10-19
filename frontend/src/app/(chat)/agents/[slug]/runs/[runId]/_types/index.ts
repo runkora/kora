@@ -30,6 +30,11 @@ export interface HumanTurn {
   delivery?: Delivery;
   /** Why a send failed; set with delivery 'failed'. */
   error?: string;
+  /**
+   * Set on a message a trigger sent to this run while it was working: the
+   * trigger's name, or its id when the name is unknown.
+   */
+  fromTrigger?: string;
 }
 
 export interface ToolCall {
