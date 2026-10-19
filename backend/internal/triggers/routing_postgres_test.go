@@ -286,6 +286,12 @@ func TestPostgres_HoldPending(t *testing.T) {
 	if del, _ := r.GetDelivery(ctx, tenant, p.DeliveryID); deref(del.Reason) != "waiting for run run-1 to start" {
 		t.Errorf("delivery reason = %q", deref(del.Reason))
 	}
+	if err := r.ClearDeliveryReason(ctx, p.DeliveryID); err != nil {
+		t.Fatalf("ClearDeliveryReason: %v", err)
+	}
+	if del, _ := r.GetDelivery(ctx, tenant, p.DeliveryID); del.Reason != nil {
+		t.Errorf("cleared delivery reason = %q, want none", deref(del.Reason))
+	}
 
 	// Once the delay has passed it is claimable again and carries its count.
 	if _, err := r.pool.Exec(ctx, `UPDATE trigger_pending_deliveries SET dispatch_after = now() - interval '1 second' WHERE id = $1`, p.ID); err != nil {

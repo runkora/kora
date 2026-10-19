@@ -734,6 +734,26 @@ func TestDispatchRouted_HoldsForStartingRun(t *testing.T) {
 		}
 	})
 
+	t.Run("a delivery leaving the hold drops the hold reason", func(t *testing.T) {
+		for _, starting := range []bool{false, true} {
+			svc, deps, _, tr := setup(t)
+			if held := dispatch(t, svc, deps, tr, "d-2", 0); !held {
+				t.Fatal("want the fire held")
+			}
+			holds := startingRunHolds
+			if !starting {
+				deps.agents.startingRuns, holds = nil, 1
+			}
+			again := PendingDelivery{ID: "p-d-2", TenantID: testTenant, TriggerID: tr.ID, DeliveryID: "d-2", Fields: routedFields, HoldCount: int16(holds)}
+			if held := svc.DispatchPending(context.Background(), again); held {
+				t.Fatal("want the fire routed")
+			}
+			if d := deps.repo.deliveryByID("d-2"); d.Reason != nil {
+				t.Errorf("starting=%v: delivery reason = %q, want it cleared", starting, *d.Reason)
+			}
+		}
+	})
+
 	t.Run("the holds run out and the model decides", func(t *testing.T) {
 		svc, deps, decisions, tr := setup(t)
 		if held := dispatch(t, svc, deps, tr, "d-2", startingRunHolds); held {

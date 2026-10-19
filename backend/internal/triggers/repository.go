@@ -223,6 +223,8 @@ type PendingQueue interface {
 	// HoldPending returns a claimed fire to the queue, claimable again after
 	// delay, counts the hold and records reason on the delivery.
 	HoldPending(ctx context.Context, pendingID, deliveryID string, delay time.Duration, reason string) error
+	// ClearDeliveryReason removes the reason a hold recorded on a delivery.
+	ClearDeliveryReason(ctx context.Context, deliveryID string) error
 	// TrimPending evicts the oldest waiting rows beyond depth, returning them.
 	TrimPending(ctx context.Context, triggerID string, depth int) ([]PendingDelivery, error)
 	// DrainPending removes everything still WAITING for a trigger, returning it.

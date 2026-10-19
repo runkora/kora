@@ -53,6 +53,9 @@ func (s *Service) dispatchRouted(ctx, dispatchCtx context.Context, t Trigger, p 
 		)
 		err = fmt.Errorf("hold for starting run: %w", holdErr)
 	}
+	if p.HoldCount > 0 {
+		s.clearHoldReason(ctx, t, p.DeliveryID)
+	}
 	if d != nil {
 		if insertErr := s.repo.InsertRoutingDecision(ctx, d); insertErr != nil {
 			s.logger.Error(ctx, "failed to record routing decision",
@@ -73,6 +76,18 @@ func (s *Service) dispatchRouted(ctx, dispatchCtx context.Context, t Trigger, p 
 		s.recordStarted(ctx, t, p.DeliveryID, RunStatusDispatched, runID)
 	}
 	return false
+}
+
+// clearHoldReason removes the hold reason from a delivery that has left the
+// hold, so it no longer reads as waiting once it routes.
+func (s *Service) clearHoldReason(ctx context.Context, t Trigger, deliveryID string) {
+	if err := s.repo.ClearDeliveryReason(ctx, deliveryID); err != nil {
+		s.logger.Error(ctx, "failed to clear a held delivery's reason",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "delivery_id", Value: deliveryID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
 }
 
 // recordUnrouted records a delivery that started nothing under the no-run

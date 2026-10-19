@@ -1526,3 +1526,15 @@ func (m *mockRepository) HoldPending(_ context.Context, pendingID, deliveryID st
 	}
 	return nil
 }
+
+// ClearDeliveryReason removes a known delivery's reason.
+func (m *mockRepository) ClearDeliveryReason(_ context.Context, deliveryID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, d := range m.deliveries {
+		if d.ID == deliveryID {
+			d.Reason = nil
+		}
+	}
+	return nil
+}

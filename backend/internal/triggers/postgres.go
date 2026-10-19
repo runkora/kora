@@ -1797,3 +1797,11 @@ func (r *postgresRepository) HoldPending(ctx context.Context, pendingID, deliver
 		return nil
 	})
 }
+
+// ClearDeliveryReason removes the reason HoldPending recorded on a delivery.
+func (r *postgresRepository) ClearDeliveryReason(ctx context.Context, deliveryID string) error {
+	if _, err := r.pool.Exec(ctx, `UPDATE trigger_deliveries SET reason = NULL WHERE id = $1`, deliveryID); err != nil {
+		return fmt.Errorf("clear delivery reason: %w", err)
+	}
+	return nil
+}
