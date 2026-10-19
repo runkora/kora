@@ -40,7 +40,7 @@ jobs:
       - name: Install dependencies
         run: cd frontend && pnpm install --frozen-lockfile
 
-      - name: The manifest is in sync
+      - name: The manifest and theme schema are in sync
         run: make hades-check
 
   hades-test:
@@ -223,7 +223,7 @@ jobs:
             fi
           fi
           gh release create "${TAG}" "${flags[@]}" dist/*.tgz images.txt compatibility.yaml \
-            "$tarball" "$hades_dir/manifest.json"
+            "$tarball" "$hades_dir/manifest.json" "$hades_dir/theme.schema.json"
 
   # Runs last: a published version cannot be removed or republished.
   # Final releases only; a failure here publishes nothing and can be re-run.
