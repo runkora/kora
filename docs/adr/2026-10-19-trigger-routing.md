@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-19-trigger-routing.md -->
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-10-19  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [Trigger Routing PRD](../prd/trigger-routing.md)

@@ -1,8 +1,8 @@
 # Trigger Routing - Product Requirements Document
 
-**Status:** Draft  
+**Status:** Approved  
 **Created:** 2026-10-19  
-**Last Updated:** 2026-10-19  
+**Last Updated:** 2026-10-20  
 **Owner:** Justin Wilkin  
 **Stakeholders:** Platform Team, trigger authors across engineering teams
 
