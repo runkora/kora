@@ -489,10 +489,10 @@ delegation_covers_required_scope if {
 #                                         source PAT role attribution uses
 #   data.roles.role_scopes                role→scope mappings
 #
-# plus the vocabulary `requires` projection: a required scope a person is never
-# granted (an MCP tool scope) is satisfied on the delegator leg when the person
-# covers every scope in its transitive requires expansion — the same edges
-# expandRequires folds into agent grants at bundle compile.
+# plus the vocabulary `requires` projection: a required scope with requires edges
+# (an MCP tool scope that declares them) is also satisfied on the delegator leg
+# when the person covers every scope in its transitive requires expansion — the
+# same edges expandRequires folds into agent grants at bundle compile.
 
 # Direct grants. Principal type must match the delegation token's
 # delegator_principal_type so two principal types sharing an id string can

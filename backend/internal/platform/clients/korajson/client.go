@@ -32,9 +32,35 @@ const (
 var (
 	// ErrUnauthorized is returned when the upstream rejects the caller's token.
 	ErrUnauthorized = errors.New("unauthorized: caller token rejected upstream")
+	// ErrForbidden is returned when the upstream accepts the token but denies
+	// the caller access to the resource.
+	ErrForbidden = errors.New("forbidden: caller lacks access upstream")
 	// ErrUpstream is returned for any other non-2xx upstream status.
 	ErrUpstream = errors.New("unexpected status from upstream")
 )
+
+// ForbiddenError is a platform 403. Message is the upstream error message, which
+// is a policy reason ("deny:...") for a plain scope denial and a sentence for a
+// business rule. It matches ErrForbidden with errors.Is.
+type ForbiddenError struct {
+	Message string
+}
+
+func (e *ForbiddenError) Error() string { return ErrForbidden.Error() + ": " + e.Message }
+
+// Is reports ErrForbidden as the sentinel this error stands for.
+func (e *ForbiddenError) Is(target error) bool { return target == ErrForbidden }
+
+// upstreamMessage extracts the message field of the platform's error body.
+func upstreamMessage(body string) string {
+	var payload struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal([]byte(body), &payload) != nil {
+		return ""
+	}
+	return payload.Message
+}
 
 // Caller is the identity a request is sent as: the caller's platform bearer and,
 // for a delegated run, its delegation token.
@@ -135,8 +161,12 @@ func (c *Client) send(ctx context.Context, spanName string, caller Caller, req *
 	defer func() { _ = resp.Body.Close() }()
 
 	switch {
-	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+	case resp.StatusCode == http.StatusUnauthorized:
 		return nil, c.HandleErrorResponse(span, resp, ErrUnauthorized)
+	case resp.StatusCode == http.StatusForbidden:
+		forbidden := &ForbiddenError{Message: upstreamMessage(c.ReadErrorBody(span, resp))}
+		_ = c.RecordError(span, ErrForbidden)
+		return nil, forbidden
 	case resp.StatusCode == http.StatusNoContent:
 		return json.RawMessage(`{"status":"ok"}`), nil
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:

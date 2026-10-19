@@ -36,14 +36,13 @@ export async function listPATsFromIdentity(accessToken: string): Promise<ListPAT
 
 // ── Principal display names ───────────────────────────────────────────────────
 
-interface IdentityUserEntry {
+interface IdentityUserNameEntry {
   id: string;
-  email: string;
   display_name: string;
 }
 
-interface IdentityUsersResponse {
-  users: IdentityUserEntry[];
+interface IdentityUserNamesResponse {
+  users: IdentityUserNameEntry[];
 }
 
 /**
@@ -52,8 +51,9 @@ interface IdentityUsersResponse {
  * get no entry — callers fall back to the raw principal. Best-effort: any
  * upstream failure returns an empty map rather than failing the caller.
  */
-// Upstream /identity/users caps a single lookup at this many ids, so a page
-// with more distinct starters is split into batches and merged.
+// Uses the by-id names lookup, which any signed-in caller may use; listing the
+// directory needs identity:users:read. Upstream caps a lookup at this many ids,
+// so a page with more distinct starters is split into batches and merged.
 const USER_LOOKUP_BATCH = 100;
 
 export async function resolveUserDisplayNames(
@@ -66,12 +66,12 @@ export async function resolveUserDisplayNames(
   try {
     for (let i = 0; i < ids.length; i += USER_LOOKUP_BATCH) {
       const batch = ids.slice(i, i + USER_LOOKUP_BATCH);
-      const data = await koraClient.get<IdentityUsersResponse>(
-        `/identity/users?ids=${encodeURIComponent(batch.join(','))}&limit=${USER_LOOKUP_BATCH}`,
+      const data = await koraClient.get<IdentityUserNamesResponse>(
+        `/identity/users/names?ids=${encodeURIComponent(batch.join(','))}`,
         { Authorization: `Bearer ${accessToken}` },
       );
       for (const u of data?.users ?? []) {
-        names.set(u.id, u.display_name || u.email);
+        if (u.display_name) names.set(u.id, u.display_name);
       }
     }
     return names;

@@ -70,9 +70,8 @@ type ScopeDeclaration struct {
 	Description  string   `json:"description,omitempty"`
 	// Requires lists other scopes this scope depends on: holding this scope in a
 	// grant additionally confers the required scopes in the compiled effective
-	// set (not in the stored grant). Used by first-party platform MCP tools whose
-	// mcp:<server>:<tool>:use scope needs the underlying platform scope the tool
-	// calls upstream (e.g. mcp:orbit:agents:list:use requires agents:types:read).
+	// set (not in the stored grant), for example the GitHub repo umbrella
+	// conferring each category scope.
 	//
 	// nil is sent as null and means unknown: the stored set is kept. A non-nil
 	// empty slice is sent as [] and clears it. Only the owning service's

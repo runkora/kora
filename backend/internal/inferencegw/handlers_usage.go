@@ -1,6 +1,7 @@
 package inferencegw
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -9,7 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/runkora/kora/backend/internal/platform/api"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -234,10 +239,8 @@ func (c *Controller) handleGetPersonalBudget(w http.ResponseWriter, r *http.Requ
 
 // handleGetRunUsage handles GET /v1/usage/run/{runID}.
 // Returns the spend and token total recorded against a single run, scoped to
-// the caller's verified tenant — powers the run chat usage meter. Any
-// authenticated caller in the tenant may read it (the run chat view is already
-// tenant-scoped); the query filters by the verified tenant, so a caller can
-// never read another tenant's run usage.
+// the caller's verified tenant — powers the run chat usage meter. The caller
+// must be able to read the run itself; orbit-agents decides that.
 func (c *Controller) handleGetRunUsage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -247,9 +250,15 @@ func (c *Controller) handleGetRunUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Run ids are canonical UUIDs. Anything else could name a different
+	// orbit-agents route (/runs/stats) and pass the run access check.
 	runID := r.PathValue("runID")
-	if runID == "" {
-		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "run id is required", nil), nil)
+	if parsed, err := uuid.Parse(runID); err != nil || parsed.String() != runID {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "run id must be a UUID", nil), nil)
+		return
+	}
+
+	if !c.authorizeRunRead(w, r, runID) {
 		return
 	}
 
@@ -317,4 +326,31 @@ func (c *Controller) handleListUsage(w http.ResponseWriter, r *http.Request) {
 		NextCursor:  nextCursor,
 		Limit:       filter.Limit,
 	})
+}
+
+// ErrRunReaderMissing is the refusal when no run reader is wired: run spend is
+// never served without a run access check.
+var ErrRunReaderMissing = errors.New("run usage has no run access check configured")
+
+// authorizeRunRead lets the request through only when orbit-agents would let
+// the caller read the run. It writes the error response otherwise.
+func (c *Controller) authorizeRunRead(w http.ResponseWriter, r *http.Request, runID string) bool {
+	ctx := r.Context()
+	if c.runs == nil {
+		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, "not authorized to read this run", nil), ErrRunReaderMissing)
+		return false
+	}
+	bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	err := c.runs.CanReadRun(ctx, bearer, r.Header.Get(mw.DelegationTokenHeader), runID)
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, agentsclient.ErrForbidden):
+		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, "not authorized to read this run", nil), err)
+	case errors.Is(err, agentsclient.ErrRunNotFound):
+		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil), err)
+	default:
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to check run access", nil), err)
+	}
+	return false
 }

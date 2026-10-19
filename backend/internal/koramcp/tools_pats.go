@@ -12,7 +12,7 @@ import (
 
 // registerPATTools wires the Personal Access Token domain: viewing and managing
 // PATs. These endpoints are auth-only (no platform scope), scoped by the caller's
-// token to their own tenant/principal, so they carry no toolRequires entry.
+// token to their own tenant/principal.
 //
 // Deliberately NO create tool: agents must not be able to mint new PATs (a PAT is
 // a long-lived standing credential), so the POST /identity/tokens endpoint is not

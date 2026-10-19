@@ -461,10 +461,8 @@ func marshalBudgetDocs(tenantGrants []*grants.Grant, roleEntries []*roles.RoleEn
 // buildBundle constructs the .tar.gz bytes for a tenant's OPA bundle.
 // requiresFromVocab builds the scope→requires adjacency used to expand grants.
 // A grant holding a scope with requires confers those scopes in the compiled
-// effective set (never the stored grant) — the mechanism first-party platform
-// MCP tools use to pull in the platform scope they call upstream (e.g.
-// mcp:orbit:agents:list:use → agents:types:read). Empty for ordinary scopes and
-// every external MCP.
+// effective set (never the stored grant), for example the GitHub repo umbrella
+// conferring each category scope. Empty for ordinary scopes.
 func requiresFromVocab(vocabEntries []*vocabulary.ScopeEntry) map[string][]string {
 	m := make(map[string][]string)
 	for _, e := range vocabEntries {
@@ -481,8 +479,7 @@ func requiresFromVocab(vocabEntries []*vocabulary.ScopeEntry) map[string][]strin
 // Expansion is prefix-aware: a scope confers the requires of every vocabulary leaf
 // it *covers* (via the same ScopeCovers hierarchy the edge authorizes with), not
 // only the leaf whose key matches it exactly. So a family/parent grant or role
-// such as mcp:orbit:use confers each covered tool's upstream requires — without
-// this, a family scope passes the gateway PEP but the upstream call is denied.
+// such as mcp:<server>:use confers each covered tool's requires.
 // requiresMap keys are iterated in sorted order so the output (and thus the
 // compiled bundle hash) is deterministic.
 func expandRequires(scopes []string, requiresMap map[string][]string) []string {
@@ -591,10 +588,7 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 			mergedRoles[e.Role] = e.Scopes
 		}
 	}
-	// Expand each role's scopes with their transitive requires, exactly like grants,
-	// so a role bundling an MCP tool (or family) scope confers the tool's upstream
-	// platform scope — otherwise a HUMAN holding the role passes the gateway PEP but
-	// the upstream call is denied.
+	// Expand each role's scopes with their transitive requires, exactly like grants.
 	for role, scopes := range mergedRoles {
 		mergedRoles[role] = expandRequires(scopes, requiresMap)
 	}

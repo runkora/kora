@@ -61,6 +61,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //
 //	GET    /identity/users                     List users in the caller's tenant (requires auth).
 //	GET    /identity/users/{id}                Get a single user profile (requires auth).
+//	GET    /identity/users/names?ids=a,b       Display names for specific user ids (requires auth).
 //
 //	GET    /identity/preferences               Get the caller's preferences document (requires auth).
 //	PUT    /identity/preferences               Replace the caller's preferences document (requires auth).
@@ -126,6 +127,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// User profile resolution: requires a human session token.
 	mux.HandleWithMiddleware("GET /users", auth, c.handleListUsers)
 	mux.HandleWithMiddleware("GET /users/{id}", auth, c.handleGetUser)
+	mux.HandleWithMiddleware("GET /users/names", auth, c.handleResolveUserNames)
 
 	// User preferences: requires a human session token.
 	mux.HandleWithMiddleware("GET /preferences", auth, c.handleGetPreferences)

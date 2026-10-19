@@ -1,15 +1,18 @@
 package inferencegw
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -655,10 +658,13 @@ func TestHandleGetRunUsage(t *testing.T) {
 	usage.runSpend = 1.25
 	usage.runTokens = 4096
 	svc := &Service{usage: usage, logger: logging.NewLoggerWithOutput(io.Discard)}
-	c := &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
+	reader := &stubRunReader{}
+	c := &Controller{svc: svc, runs: reader, logger: logging.NewLoggerWithOutput(io.Discard)}
 
-	req := httptest.NewRequest(http.MethodGet, "/usage/run/run-123", nil)
-	req.SetPathValue("runID", "run-123")
+	req := httptest.NewRequest(http.MethodGet, "/usage/run/3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43", nil)
+	req.SetPathValue("runID", "3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43")
+	req.Header.Set("Authorization", "Bearer caller-token")
+	req.Header.Set("X-Orbit-Delegation-Token", "deleg-token")
 	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
 	w := httptest.NewRecorder()
 	c.handleGetRunUsage(w, req)
@@ -670,14 +676,75 @@ func TestHandleGetRunUsage(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got.RunID != "run-123" {
-		t.Errorf("RunID = %q, want run-123", got.RunID)
+	if got.RunID != "3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43" {
+		t.Errorf("RunID = %q, want the requested run", got.RunID)
 	}
 	if got.SpendUSD != 1.25 {
 		t.Errorf("SpendUSD = %v, want 1.25", got.SpendUSD)
 	}
 	if got.TotalTokens != 4096 {
 		t.Errorf("TotalTokens = %v, want 4096", got.TotalTokens)
+	}
+	if reader.bearer != "caller-token" || reader.delegation != "deleg-token" || reader.runID != "3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43" {
+		t.Errorf("run check got bearer %q delegation %q run %q, want the caller's tokens and the run", reader.bearer, reader.delegation, reader.runID)
+	}
+}
+
+// stubRunReader answers the run access check with a fixed error and records the call.
+type stubRunReader struct {
+	err                       error
+	bearer, delegation, runID string
+}
+
+func (s *stubRunReader) CanReadRun(_ context.Context, bearer, delegation, runID string) error {
+	s.bearer, s.delegation, s.runID = bearer, delegation, runID
+	return s.err
+}
+
+// TestHandleGetRunUsage_RunAccess locks that run spend follows run access:
+// a run the caller cannot read reveals nothing.
+func TestHandleGetRunUsage_RunAccess(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		runs   runReader
+		status int
+	}{
+		{"unreadable run", &stubRunReader{err: agentsclient.ErrForbidden}, http.StatusForbidden},
+		{"run in no tenant the caller sees", &stubRunReader{err: agentsclient.ErrRunNotFound}, http.StatusNotFound},
+		{"orbit-agents unavailable", &stubRunReader{err: agentsclient.ErrUpstreamUnavailable}, http.StatusInternalServerError},
+		{"no run reader wired", nil, http.StatusForbidden},
+	}
+	for _, id := range []string{"stats", "run-123", "3F1C2A9E-8D4B-4C1A-9F2E-6B7A1D0C5E43"} {
+		reader := &stubRunReader{}
+		c := &Controller{svc: &Service{usage: newMockUsageRepo(), logger: logging.NewLoggerWithOutput(io.Discard)}, runs: reader, logger: logging.NewLoggerWithOutput(io.Discard)}
+		req := httptest.NewRequest(http.MethodGet, "/usage/run/"+id, nil)
+		req.SetPathValue("runID", id)
+		req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+		w := httptest.NewRecorder()
+		c.handleGetRunUsage(w, req)
+		if w.Code != http.StatusBadRequest || reader.runID != "" {
+			t.Errorf("run id %q: status %d, checked %q; want 400 before any run check", id, w.Code, reader.runID)
+		}
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			usage := newMockUsageRepo()
+			usage.runSpend = 9.99
+			svc := &Service{usage: usage, logger: logging.NewLoggerWithOutput(io.Discard)}
+			c := &Controller{svc: svc, runs: tc.runs, logger: logging.NewLoggerWithOutput(io.Discard)}
+			req := httptest.NewRequest(http.MethodGet, "/usage/run/3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43", nil)
+			req.SetPathValue("runID", "3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43")
+			req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+			w := httptest.NewRecorder()
+			c.handleGetRunUsage(w, req)
+			if w.Code != tc.status {
+				t.Errorf("status = %d, want %d", w.Code, tc.status)
+			}
+			if strings.Contains(w.Body.String(), "9.99") {
+				t.Errorf("body %s reveals the run's spend", w.Body)
+			}
+		})
 	}
 }
 
@@ -686,8 +753,8 @@ func TestHandleGetRunUsage_MissingClaims(t *testing.T) {
 	svc := &Service{usage: newMockUsageRepo(), logger: logging.NewLoggerWithOutput(io.Discard)}
 	c := &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
 
-	req := httptest.NewRequest(http.MethodGet, "/usage/run/run-123", nil)
-	req.SetPathValue("runID", "run-123")
+	req := httptest.NewRequest(http.MethodGet, "/usage/run/3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43", nil)
+	req.SetPathValue("runID", "3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43")
 	w := httptest.NewRecorder()
 	c.handleGetRunUsage(w, req)
 

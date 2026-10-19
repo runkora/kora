@@ -1,6 +1,10 @@
 package api
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+)
 
 // TestIsStructurallyValidEgressScope locks the grant-path acceptance rule for
 // egress connectivity-posture scopes (ADR 2026-06-06, Amendment 2026-06-07).
@@ -104,5 +108,46 @@ func TestIsTriggerFireScope(t *testing.T) {
 				t.Errorf("isTriggerFireScope(%q) = %v, want %v", tc.scope, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestValidateScopes locks the shared grant and role validation: roles accept
+// repository-qualified connection scopes like grants do, and only registered
+// egress. Per-host egress and per-trigger fire scopes are grant-only.
+func TestValidateScopes(t *testing.T) {
+	vocab := map[string]bool{"connection:github:issues:write": true, "inference:invoke": true, "egress:connect": true}
+	exists := func(_ context.Context, scope string) (bool, error) { return vocab[scope], nil }
+
+	cases := []struct {
+		name    string
+		scope   string
+		grant   bool
+		wantErr bool
+	}{
+		{"registered scope", "inference:invoke", false, false},
+		{"qualified connection scope in a role", "connection:github:issues:orbit:write", false, false},
+		{"qualified connection scope in a grant", "connection:github:issues:orbit:write", true, false},
+		{"qualified scope over an unknown base", "connection:github:pulls:orbit:write", false, true},
+		{"egress in a grant", "egress:api.github.com:connect", true, false},
+		{"per-host egress in a role", "egress:api.github.com:connect", false, true},
+		{"registered egress in a role", "egress:connect", false, false},
+		{"unknown scope", "platform:tenants:manage", true, true},
+		{"per-trigger fire in a grant", "trigger:3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43:fire", true, false},
+		{"per-trigger fire in a role", "trigger:3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43:fire", false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateScopes(context.Background(), exists, []string{tc.scope}, tc.grant)
+			var vErr *ScopeVocabularyError
+			if tc.wantErr != errors.As(err, &vErr) {
+				t.Errorf("validateScopes(%q, grant=%v) = %v, wantErr %v", tc.scope, tc.grant, err, tc.wantErr)
+			}
+		})
+	}
+
+	boom := errors.New("db down")
+	failing := func(context.Context, string) (bool, error) { return false, boom }
+	if err := validateScopes(context.Background(), failing, []string{"inference:invoke"}, false); !errors.Is(err, boom) {
+		t.Errorf("vocabulary error = %v, want it wrapped", err)
 	}
 }

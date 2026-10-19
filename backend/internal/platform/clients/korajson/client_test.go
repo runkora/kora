@@ -2,6 +2,7 @@ package korajson
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -63,5 +64,35 @@ func TestSendAttachesCaller(t *testing.T) {
 				t.Errorf("delegation = %q, want %q", got, tc.wantDelegation)
 			}
 		})
+	}
+}
+
+func TestStatusSentinels(t *testing.T) {
+	cases := []struct {
+		status   int
+		body     string
+		want     error
+		notWant  error
+		wantText string
+	}{
+		{http.StatusUnauthorized, `{"code":"unauthorized"}`, ErrUnauthorized, ErrForbidden, ""},
+		{http.StatusForbidden, `{"code":"forbidden","message":"runs can only be started by a person"}`, ErrForbidden, ErrUnauthorized, "runs can only be started by a person"},
+		{http.StatusForbidden, `not json`, ErrForbidden, ErrUnauthorized, ""},
+		{http.StatusInternalServerError, `{}`, ErrUpstream, ErrForbidden, ""},
+	}
+	for _, tc := range cases {
+		backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		_, err := NewClient(logging.NewLogger()).Get(context.Background(), Caller{Bearer: "t"}, backend.URL, nil)
+		backend.Close()
+		if !errors.Is(err, tc.want) || errors.Is(err, tc.notWant) {
+			t.Errorf("status %d: err = %v, want %v and not %v", tc.status, err, tc.want, tc.notWant)
+		}
+		var forbidden *ForbiddenError
+		if errors.As(err, &forbidden) && forbidden.Message != tc.wantText {
+			t.Errorf("status %d: message = %q, want %q", tc.status, forbidden.Message, tc.wantText)
+		}
 	}
 }

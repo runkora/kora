@@ -85,7 +85,7 @@ func (c *Controller) handleUpsertRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	platformapi.JSON(ctx, w, c.logger, http.StatusOK, entry)
+	platformapi.JSON(ctx, w, c.logger, http.StatusOK, roleWriteResponse{RoleEntry: entry, Warnings: c.svc.LintScopes(ctx, req.Scopes)})
 }
 
 func (c *Controller) handleGetRole(w http.ResponseWriter, r *http.Request) {

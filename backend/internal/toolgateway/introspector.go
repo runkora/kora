@@ -193,13 +193,13 @@ func (i *Introspector) introspectOne(ctx context.Context, srv Server) ([]Tool, e
 			Name:           tool.Name,
 			Description:    tool.Description,
 			InputSchema:    marshalSchema(tool.InputSchema),
-			RequiresScopes: requiresFromMeta(tool.Meta),
+			RequiresScopes: toolRequires(srv, tool),
 		})
 	}
 	return tools, nil
 }
 
-// metaRequiresKey is the tool _meta field a first-party MCP server uses to
+// metaRequiresKey is the tool _meta field a global MCP server uses to
 // declare the platform scopes its tool calls upstream (see Tool.RequiresScopes).
 const metaRequiresKey = "orbit/requires"
 
@@ -222,6 +222,16 @@ func requiresFromMeta(meta sdk.Meta) []string {
 		return nil
 	}
 	return out
+}
+
+// toolRequires returns the scopes a tool declares in _meta. Requires confer
+// authority to every holder of the tool through vocabulary every tenant reads,
+// so a tenant server declares none.
+func toolRequires(srv Server, tool *sdk.Tool) []string {
+	if srv.TenantID != "" {
+		return nil
+	}
+	return requiresFromMeta(tool.Meta)
 }
 
 // FlagDegraded marks a server's snapshot Degraded with a reason — used to flag

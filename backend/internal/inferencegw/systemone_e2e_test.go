@@ -91,7 +91,7 @@ func TestSystemOneEndToEnd(t *testing.T) {
 
 	mux := api.NewMux(context.Background(), logger)
 	mux.SetBasePath("/v1")
-	inferencegw.NewController(context.Background(), svc, nil, nil, "/v1", nil, logger).Boot(mux)
+	inferencegw.NewController(context.Background(), svc, nil, nil, "/v1", nil, nil, logger).Boot(mux)
 
 	claims := &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},

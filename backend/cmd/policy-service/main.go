@@ -175,7 +175,6 @@ func selfRegisteredScopes() []routes.ScopeDeclaration {
 		{Scope: "platform:grants:write", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "write", Description: "Create and delete policy grants"},
 		{Scope: "platform:roles:read", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "read", Description: "Read role→scope mappings"},
 		{Scope: "platform:roles:write", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "write", Description: "Create and delete role→scope mappings"},
-		{Scope: "platform:tenants:manage", ResourceType: "platform", PathSegments: []string{"tenants"}, Action: "manage", Description: "Manage tenants (platform-admin only)"},
 		{Scope: "platform:budgets:read", ResourceType: "platform", PathSegments: []string{"budgets"}, Action: "read", Description: "Read tenant budget assignments"},
 		{Scope: "platform:budgets:write", ResourceType: "platform", PathSegments: []string{"budgets"}, Action: "write", Description: "Manage tenant budget assignments on roles and grants"},
 	}

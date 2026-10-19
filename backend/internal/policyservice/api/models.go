@@ -3,6 +3,9 @@ package api
 import (
 	"net/http"
 	"strconv"
+
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
 )
 
 // budgetAssignmentRequest is the inline budget configuration on a grant or role.
@@ -63,6 +66,18 @@ type upsertRoleRequest struct {
 	Role     string                   `json:"role"`
 	Scopes   []string                 `json:"scopes"`
 	Budget   *budgetAssignmentRequest `json:"budget,omitempty"`
+}
+
+// grantWriteResponse is a created grant plus its coherence lint warnings.
+type grantWriteResponse struct {
+	*grants.Grant
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// roleWriteResponse is an upserted role plus its coherence lint warnings.
+type roleWriteResponse struct {
+	*roles.RoleEntry
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 const (
