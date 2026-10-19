@@ -64,7 +64,8 @@ func NewRedis(ctx context.Context, cfg *RedisConfig, logger logging.Logger) (*Re
 
 	r := &RedisClient{client: redis.NewClient(opts), logger: logger, addr: opts.Addr, done: make(chan struct{})}
 	r.probe(ctx)
-	go r.watch(ctx, redisProbeInterval)
+	// The probe lives until Close, whatever the caller's ctx does.
+	go r.watch(context.WithoutCancel(ctx), redisProbeInterval)
 	r.registerAvailabilityGauge(ctx)
 	return r, nil
 }
@@ -74,6 +75,9 @@ func (r *RedisClient) probe(ctx context.Context) {
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	err := r.client.Ping(pingCtx).Err()
+	if r.closed() {
+		return
+	}
 	up := err == nil
 	prev := r.available.Swap(up)
 	if r.probed.Swap(true) && prev == up {
@@ -89,14 +93,12 @@ func (r *RedisClient) probe(ctx context.Context) {
 		logging.Field{Key: "error", Value: err.Error()})
 }
 
-// watch re-probes Redis until ctx ends or the client closes.
+// watch re-probes Redis until the client closes.
 func (r *RedisClient) watch(ctx context.Context, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	for {
 		select {
-		case <-ctx.Done():
-			return
 		case <-r.done:
 			return
 		case <-t.C:
@@ -119,6 +121,16 @@ func (r *RedisClient) registerAvailabilityGauge(ctx context.Context) {
 		}))
 	if err != nil {
 		r.logger.Error(ctx, "register redis availability gauge", logging.Field{Key: "error", Value: err.Error()})
+	}
+}
+
+// closed reports whether Close has run.
+func (r *RedisClient) closed() bool {
+	select {
+	case <-r.done:
+		return true
+	default:
+		return false
 	}
 }
 

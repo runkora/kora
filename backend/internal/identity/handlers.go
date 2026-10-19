@@ -106,8 +106,8 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// scope against the principal's grants.
 	auth := c.authChain()
 	// OAuth authorization code creation: called by the BFF /authorize with the
-	// human's session token. Any authenticated (non-PAT) human may start their own
-	// MCP OAuth flow, so it authenticates but requires no specific scope.
+	// human's session token. Any authenticated human may start their own MCP OAuth
+	// flow, so it requires no specific scope. The handler refuses non-human callers.
 	authNoScope := mw.MiddlewareChain(
 		c.svc.AuthMiddleware(c.logger),
 		rejectPATMiddleware(c.logger),
