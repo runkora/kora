@@ -43,7 +43,6 @@ const BrandLogo = React.forwardRef<HTMLSpanElement, BrandLogoProps>(
         <img
           src={dark}
           alt=""
-          height={size}
           data-mode="dark"
           className="block w-auto [[data-theme='light']_&]:hidden"
           style={{ height: size }}
@@ -51,7 +50,6 @@ const BrandLogo = React.forwardRef<HTMLSpanElement, BrandLogoProps>(
         <img
           src={light}
           alt=""
-          height={size}
           data-mode="light"
           className="hidden w-auto [[data-theme='light']_&]:block"
           style={{ height: size }}
