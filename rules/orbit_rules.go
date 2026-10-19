@@ -316,8 +316,7 @@ const (
 	productNameWord  = `(?i)(^|[^-_./a-z0-9])(kora|orbit)(\.[^a-z0-9]|[^-_./a-z0-9]|$)`
 )
 
-// noProductNameLiteral flags a prose "kora" or "orbit" literal in a speaking package; the name comes from internal/platform/brand.
-// Identifier-shaped literals such as "orbit.io" and "kora-base", and logging.Logger arguments, pass.
+// noProductNameLiteral bans "kora" and "orbit" string literals, primarily so a white-labelled install never shows them.
 func noProductNameLiteral(m dsl.Matcher) {
 	m.Match(`$recv.$method($*_, $s, $*_)`).
 		Where(m.File().PkgPath.Matches(speakingPackages) &&
