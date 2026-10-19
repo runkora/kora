@@ -27,6 +27,7 @@ import {
   deleteTenantBudgetAction,
 } from '../../../policy/_actions/tenant-budget';
 import type { TenantCapStatus } from '../../_types';
+import { PermissionHint } from '@runkora/components';
 
 interface TenantCapCardProps {
   cap: TenantCapStatus | null;
@@ -50,11 +51,11 @@ export function TenantCapCard({ cap }: TenantCapCardProps) {
               Tenant Cap
             </Text>
           </Stack>
-          {canWrite && (
-            <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+          <PermissionHint allowed={canWrite} action="change the tenant cap">
+            <Button variant="ghost" size="sm" disabled={!canWrite} onClick={() => setEditing(true)}>
               {cap ? 'Edit' : 'Set cap'}
             </Button>
-          )}
+          </PermissionHint>
         </Stack>
       </CardHeader>
       <CardContent>

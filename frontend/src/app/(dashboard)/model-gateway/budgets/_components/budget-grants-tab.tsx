@@ -13,6 +13,7 @@ import type { Grant } from '../../../policy/_types/api';
 import type { PrincipalIdentity } from '../../_types';
 import { BudgetEditModal } from './budget-edit-modal';
 import { principalDisplay } from './principal-display';
+import { PermissionHint } from '@runkora/components';
 
 interface BudgetGrantsTabProps {
   grants: Grant[];
@@ -120,19 +121,21 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
         locked: true,
         gridWidth: '4rem',
         cell: (g) => {
-          if (!canWrite) return null;
           return (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditing(g);
-              }}
-              aria-label={`Edit budget for ${g.principal_id}`}
-            >
-              <Icon name="edit" size="2xs" />
-            </Button>
+            <PermissionHint allowed={canWrite} action="change grant budgets">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canWrite}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditing(g);
+                }}
+                aria-label={`Edit budget for ${g.principal_id}`}
+              >
+                <Icon name="edit" size="2xs" />
+              </Button>
+            </PermissionHint>
           );
         },
       },

@@ -19,6 +19,7 @@ import { fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { updateRoleBudgetAction } from '../../../policy/_actions/roles';
 import type { RoleEntry } from '../../../policy/_types/api';
 import { BudgetEditModal } from './budget-edit-modal';
+import { PermissionHint } from '@runkora/components';
 
 interface BudgetRolesTabProps {
   roles: RoleEntry[];
@@ -98,19 +99,22 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
         gridWidth: '4rem',
         cell: (r) => {
           // Reserved roles cannot carry budgets: the bundle compiler skips them.
-          if (!canWrite || r.reserved) return null;
+          if (r.reserved) return null;
           return (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditing(r);
-              }}
-              aria-label={`Edit budget for ${r.role}`}
-            >
-              <Icon name="edit" size="2xs" />
-            </Button>
+            <PermissionHint allowed={canWrite} action="change role budgets">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canWrite}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditing(r);
+                }}
+                aria-label={`Edit budget for ${r.role}`}
+              >
+                <Icon name="edit" size="2xs" />
+              </Button>
+            </PermissionHint>
           );
         },
       },

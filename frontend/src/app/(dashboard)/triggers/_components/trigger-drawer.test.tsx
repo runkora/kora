@@ -435,16 +435,17 @@ describe('permissions', () => {
     expect(screen.getByLabelText("You don't have permission to fire this trigger.")).toBeTruthy();
   });
 
-  it('disables the enable switch and edits for a read-only caller, with hints', () => {
+  it('disables the enable switch and edits for a read-only caller, under one notice', () => {
     renderWith(['triggers:read'], scheduled);
     expect(screen.getByRole('switch')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled();
-    expect(screen.getByLabelText("You don't have permission to edit triggers.")).toBeTruthy();
+    expect(screen.getByText("You don't have permission to edit triggers.")).toBeTruthy();
   });
 
   it('keeps the switch and edits for a caller with triggers:write', () => {
     renderWith(['triggers:read', 'triggers:write'], scheduled);
     expect(screen.getByRole('switch')).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled();
+    expect(screen.queryByText("You don't have permission to edit triggers.")).toBeNull();
   });
 });

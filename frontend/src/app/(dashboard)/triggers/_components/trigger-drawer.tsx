@@ -79,7 +79,7 @@ import {
 import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
 import { useEditableSection } from './use-editable-section';
 import { useHasScope } from '../../_components/permissions-provider';
-import { PermissionHint } from '@runkora/components';
+import { PermissionHint, permissionHintText } from '@runkora/components';
 
 /**
  * A correction to a stored trigger. Every field is optional: a section saves
@@ -522,14 +522,12 @@ export function TriggerDrawer({
         title={trigger.name}
         description={subtitle}
         actions={
-          <PermissionHint allowed={canWrite} action="turn this trigger on or off">
-            <Toggle
-              checked={trigger.enabled}
-              onChange={(next) => onToggleEnabled(trigger, next)}
-              disabled={!canWrite}
-              aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} ${trigger.name}`}
-            />
-          </PermissionHint>
+          <Toggle
+            checked={trigger.enabled}
+            onChange={(next) => onToggleEnabled(trigger, next)}
+            disabled={!canWrite}
+            aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} ${trigger.name}`}
+          />
         }
       />
 
@@ -543,6 +541,8 @@ export function TriggerDrawer({
         </TabsList>
 
         <SidePanelBody padding="compact">
+          {/* One notice covers every disabled edit control in the drawer. */}
+          {!canWrite && <Alert variant="info">{permissionHintText('edit triggers')}</Alert>}
           {/* ── Overview: what this is and how it fires ─────────────────── */}
           <TabsContent value="overview">
             <Stack gap="comfortable">
@@ -699,16 +699,14 @@ export function TriggerDrawer({
                             {trigger.scheduleConfig.timezone}
                           </Text>
                           {editAction !== undefined && (
-                            <PermissionHint allowed={canWrite} action="edit triggers">
-                              <Button
-                                variant="ghost"
-                                size="xs"
-                                disabled={!editable}
-                                onClick={() => setScheduleOpen(true)}
-                              >
-                                Edit
-                              </Button>
-                            </PermissionHint>
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              disabled={!editable}
+                              onClick={() => setScheduleOpen(true)}
+                            >
+                              Edit
+                            </Button>
                           )}
                         </Stack>
                       }
@@ -1112,16 +1110,14 @@ export function TriggerDrawer({
                 title="Delete trigger"
                 description="Stops all future deliveries. Anything still waiting is recorded as dropped, and history is retained."
                 action={
-                  <PermissionHint allowed={canWrite} action="delete triggers">
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      disabled={!canWrite}
-                      onClick={() => onDelete(trigger)}
-                    >
-                      Delete
-                    </Button>
-                  </PermissionHint>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={!canWrite}
+                    onClick={() => onDelete(trigger)}
+                  >
+                    Delete
+                  </Button>
                 }
               />
             </Stack>
