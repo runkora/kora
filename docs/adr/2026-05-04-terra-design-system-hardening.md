@@ -10,7 +10,7 @@
 
 ## Context
 
-[terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) established the Hades design system (`@orbit/hades`) as the mandatory UI primitive layer for the kora frontend. [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) extended enforcement with a suite of custom ESLint rules and expanded Hades' component catalogue to eliminate recurring inline patterns across the product. The result of those two phases is a frontend that passes `pnpm lint && pnpm tsc --noEmit` with zero errors and has nine active custom ESLint rules preventing the most common escape hatches.
+[terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) established the Hades design system (`@runkora/hades`) as the mandatory UI primitive layer for the kora frontend. [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) extended enforcement with a suite of custom ESLint rules and expanded Hades' component catalogue to eliminate recurring inline patterns across the product. The result of those two phases is a frontend that passes `pnpm lint && pnpm tsc --noEmit` with zero errors and has nine active custom ESLint rules preventing the most common escape hatches.
 
 However, a clean lint report is not the same as a fully hardened design system. The following structural gaps remain after Phase 1:
 
@@ -58,7 +58,7 @@ The root cause of these gaps is that Phase 1 focused on establishing the enforce
 * **Consistency with established precedent**: `Stack` and `Icon` already had `style` removed from their public APIs in Phase 1. `Text` and `StatusDot` must follow the same pattern to avoid a two-tier design system where some primitives are hardened and others are not.
 * **Inverted default (whitelist over blacklist)**: In a security-oriented system, safe default + explicit opt-in is always preferable to permissive default + opt-out. The prop whitelisting decision applies the same principle to the component API surface.
 * **Accessibility correctness**: `FormField` context exists specifically to eliminate the manual `id`/aria attribute threading that developers routinely skip. If the inputs don't consume the context, the feature is documented but non-functional — actively misleading.
-* **AI-agent code quality**: The ESLint rule messages are the primary mechanism by which AI agents (Forge, v0.dev) learn what the correct pattern is. A rule that says "don't use `<button>`" with no guidance produces unhelpful output; a rule that says "use `<Button>` from `@orbit/hades`" produces correct first-pass output.
+* **AI-agent code quality**: The ESLint rule messages are the primary mechanism by which AI agents (Forge, v0.dev) learn what the correct pattern is. A rule that says "don't use `<button>`" with no guidance produces unhelpful output; a rule that says "use `<Button>` from `@runkora/hades`" produces correct first-pass output.
 * **Reviewability**: A component `Props` interface with 40 inherited native HTML props is not reviewable in a PR. An explicit 8-prop whitelist is.
 
 ---

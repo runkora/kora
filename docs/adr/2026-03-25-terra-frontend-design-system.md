@@ -33,7 +33,7 @@ We need a set of architectural decisions that establish:
 ### Goals
 
 - Establish a semantic design token system encoding kora's visual identity
-- Deliver reusable, on-brand UI components importable as `import { Button } from "@orbit/hades"`
+- Deliver reusable, on-brand UI components importable as `import { Button } from "@runkora/hades"`
 - Enable isolated design system development with no dependency on the Next.js application
 - Provide a well-documented token and component vocabulary that AI tooling can reliably consume
 - Keep the system maintainable: global visual changes should require changing one token value, not hunting through component files
@@ -111,7 +111,7 @@ We need a set of architectural decisions that establish:
 
 ### Option 4: Isolated workspace package with Radix UI primitives, Tailwind v4 tokens, and shadcn as a scaffolding aid
 
-**Description:** Create a dedicated workspace package (`frontend/src/packages/hades/`) containing the design token definitions, all components, and a Storybook instance. Components are built on Radix UI accessibility primitives, styled with Tailwind v4 and semantic Hades tokens. The shadcn/ui CLI is used as a one-time scaffolding tool to generate Radix-based component boilerplate; all shadcn-specific references are stripped immediately after generation, leaving fully Hades-native components. The frontend depends on the package via the pnpm workspace protocol (`"@orbit/hades": "workspace:*"`).
+**Description:** Create a dedicated workspace package (`frontend/src/packages/hades/`) containing the design token definitions, all components, and a Storybook instance. Components are built on Radix UI accessibility primitives, styled with Tailwind v4 and semantic Hades tokens. The shadcn/ui CLI is used as a one-time scaffolding tool to generate Radix-based component boilerplate; all shadcn-specific references are stripped immediately after generation, leaving fully Hades-native components. The frontend depends on the package via the pnpm workspace protocol (`"@runkora/hades": "workspace:*"`).
 
 **Pros:**
 - Complete isolation: the design system builds, runs in Storybook, and is documented with no Next.js app involvement
@@ -193,7 +193,7 @@ frontend/src/packages/hades/src/components/
 
 There is **no** `atoms/`, `molecules/`, or `organisms/` subdirectory hierarchy. Atomic design (atoms → molecules → organisms) is used as a mental model for reasoning about component complexity and composition — not as a directory prescription. Applying it as a folder structure forces components to be categorized before their usage patterns are known, produces frequent re-categorizations as components evolve, and adds navigation friction without meaningful benefit.
 
-All public component exports are re-exported from `frontend/src/packages/hades/src/index.ts`, giving consumers a single, stable import surface: `import { Button, Card, Badge } from "@orbit/hades"`.
+All public component exports are re-exported from `frontend/src/packages/hades/src/index.ts`, giving consumers a single, stable import surface: `import { Button, Card, Badge } from "@runkora/hades"`.
 
 **Why folder-per-component over single files:** Co-locating the story and re-export with each component keeps everything related to a component in one place. Finding `button/button.stories.tsx` requires no search; adding a test file or documentation file for a specific component has an obvious home.
 
@@ -236,7 +236,7 @@ All public component exports are re-exported from `frontend/src/packages/hades/s
 - **Token-driven maintainability**: Changing kora's accent color (currently orange/amber at `--hades-accent-hue: 26`) is a one-line change in `tokens/tokens.css`. No component file needs to be touched.
 - **AI-friendly surface**: The combination of a documented token vocabulary, a known component API (shadcn/Radix conventions), and Storybook stories gives AI tools (Forge, v0.dev) the context needed to generate accurate, on-brand output.
 - **Accessibility by default**: Radix UI handles focus management, ARIA, keyboard navigation, and portal rendering — the hardest parts of accessible component development — without requiring implementation per component.
-- **Extensible to future kora surfaces**: If a second kora UI surface is built, it can consume `@orbit/hades` via the same workspace protocol with no additional infrastructure.
+- **Extensible to future kora surfaces**: If a second kora UI surface is built, it can consume `@runkora/hades` via the same workspace protocol with no additional infrastructure.
 
 ### Negative
 
@@ -281,7 +281,7 @@ frontend/src/packages/hades/
 │   │   └── utils.ts              # cn() utility (clsx + tailwind-merge)
 │   ├── tokens.css                # @theme block: all semantic design tokens
 │   └── index.ts                  # Public API: re-exports all components + cn()
-├── package.json                  # name: "@orbit/hades"; runtime deps: @radix-ui/*, cva, clsx, tailwind-merge
+├── package.json                  # name: "@runkora/hades"; runtime deps: @radix-ui/*, cva, clsx, tailwind-merge
 └── tsconfig.json
 ```
 
@@ -289,20 +289,20 @@ frontend/src/packages/hades/
 
 ```css
 /* frontend/src/app/globals.css */
-@import "@orbit/hades/src/tokens/tokens.css";
+@import "@runkora/hades/src/tokens/tokens.css";
 @source "../packages/hades/src";
 ```
 
 ```json
 // frontend/package.json (dependencies)
 {
-  "@orbit/hades": "workspace:*"
+  "@runkora/hades": "workspace:*"
 }
 ```
 
 ### Component Variant Pattern
 
-Components use `class-variance-authority` (cva) to define variant-driven class sets. The `cn()` utility (re-exported from `@orbit/hades`) composes and deduplicates classes at the call site.
+Components use `class-variance-authority` (cva) to define variant-driven class sets. The `cn()` utility (re-exported from `@runkora/hades`) composes and deduplicates classes at the call site.
 
 ```typescript
 // Example: frontend/src/packages/hades/src/components/button/button.tsx
@@ -339,7 +339,7 @@ There is no prior component system to migrate from. The implementation is additi
 
 1. **Phase 1**: Scaffold `frontend/src/packages/hades/`, configure workspace, define tokens, validate Storybook and cross-package Tailwind scanning
 2. **Phase 2**: Bootstrap and clean P0 components (Button, Badge, Card), then P1 components (Input, Label, Separator, Skeleton, Tooltip)
-3. **Phase 3**: Layout primitives (PageLayout, Section), README documentation, token showcase story; refactor `page.tsx` to import from `@orbit/hades`
+3. **Phase 3**: Layout primitives (PageLayout, Section), README documentation, token showcase story; refactor `page.tsx` to import from `@runkora/hades`
 4. **Ongoing**: P2 components (Avatar, DropdownMenu, Dialog, Alert) added as real feature development surfaces the need
 
 ### Timeline
@@ -355,9 +355,9 @@ See [Design System PRD — Timeline and Milestones](../prd/design-system.md#time
 - **Zero arbitrary color classes in component source**: A grep for `gray-\d`, `blue-\d`, `green-\d` etc. in `frontend/src/packages/hades/src/components/**` returns no results
 - **Storybook runs independently**: `pnpm storybook` from `frontend/src/packages/hades/` launches with no Next.js process running; all component stories render correctly with the correct token-driven visual style
 - **Frontend CSS output is correct**: Building the frontend with `pnpm build` produces a CSS file that includes utility classes from Hades component files (validated by searching the output for a known component-specific class)
-- **AI generation accuracy**: A prompt to Forge or v0.dev referencing `@orbit/hades` tokens and components produces output that imports correctly and renders on-brand without manual class corrections
+- **AI generation accuracy**: A prompt to Forge or v0.dev referencing `@runkora/hades` tokens and components produces output that imports correctly and renders on-brand without manual class corrections
 - **P0 component suite complete**: Button, Badge, and Card components ship with full variant coverage and at least one Storybook story each
-- **First real feature built on the system**: At least one product feature page is built using only components imported from `@orbit/hades`, with no bespoke CSS
+- **First real feature built on the system**: At least one product feature page is built using only components imported from `@runkora/hades`, with no bespoke CSS
 
 ### Monitoring
 
@@ -391,7 +391,7 @@ See [Design System PRD — Timeline and Milestones](../prd/design-system.md#time
 
 ## Notes
 
-The name **Hades** (`@orbit/hades`) follows the kora metaphor. kora is another name for Persephone, who lives half the year in Olympus and half in the underworld. The product surfaces are the Olympus half, what people see. Hades is the underworld half of kora: the tokens and primitives beneath every screen, the layer every product surface stands on. The system was named Terra (the destination of every orbital descent, terra firma as solid ground) until the kora rebrand, and was renamed Hades to match. The file name of this ADR keeps the original name, as the kora rebrand did for its own historical ADRs.
+The name **Hades** (`@runkora/hades`) follows the kora metaphor. kora is another name for Persephone, who lives half the year in Olympus and half in the underworld. The product surfaces are the Olympus half, what people see. Hades is the underworld half of kora: the tokens and primitives beneath every screen, the layer every product surface stands on. The system was named Terra (the destination of every orbital descent, terra firma as solid ground) until the kora rebrand, and was renamed Hades to match. The file name of this ADR keeps the original name, as the kora rebrand did for its own historical ADRs.
 
 The key discipline this ADR enforces is the **token boundary**: no component should ever reference a literal color value or arbitrary Tailwind shade. That discipline is what makes the system maintainable at scale. A component library where individual components reference `gray-900` instead of `surface` is not a design system — it is a collection of styled components with no shared visual contract.
 

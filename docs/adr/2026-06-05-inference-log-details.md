@@ -23,7 +23,7 @@ The kora Model Gateway (`cmd/inference-gateway`) processes requests across three
 
 The existing `inference_usage` write path has five branches in `service.go`: success, policy denied, routing failed, provider error, and client canceled. Each branch constructs an `InferenceUsageRecord` and calls `repository.Create`. Both new fields can be populated at each branch without restructuring the write path.
 
-The frontend table is a `DataTable` component from `@orbit/hades`. The Models tab in the same section of the application (`model-gateway/`) already implements a row-click detail modal via `ModelDetailModal`, triggered by `onRowClick={setSelectedModel}` on `DataTable`. The Hades `Modal` component (`@radix-ui/react-dialog` under the hood) supports a `constrained` body variant that limits height to `max-h-[60vh]` with internal scroll.
+The frontend table is a `DataTable` component from `@runkora/hades`. The Models tab in the same section of the application (`model-gateway/`) already implements a row-click detail modal via `ModelDetailModal`, triggered by `onRowClick={setSelectedModel}` on `DataTable`. The Hades `Modal` component (`@radix-ui/react-dialog` under the hood) supports a `constrained` body variant that limits height to `max-h-[60vh]` with internal scroll.
 
 ### Goals
 
