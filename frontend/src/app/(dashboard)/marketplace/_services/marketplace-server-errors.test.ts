@@ -16,7 +16,7 @@ vi.mock('../../_preferences/preferences-server', () => ({
   getPreferences: vi.fn(),
 }));
 
-import { loadMarketplaceOverview, loadSkillDetail, loadSkillPage } from './marketplace-server';
+import { loadMarketplaceOverview, loadSkillPage } from './marketplace-server';
 import { fetchMarketplaces, fetchSkillDetail, fetchSkills } from '@orbit/server/marketplace-client';
 import { getPreferences } from '../../_preferences/preferences-server';
 import { ApiError } from '@orbit/server/api-error';
@@ -244,6 +244,9 @@ describe('loadSkillPage', () => {
     skill: { path: 'SKILL.md', name: 'SKILL.md', content: '# Reviewer' },
     documents: [],
   };
+  const teamMarketplaces = {
+    marketplaces: [{ name: 'Team', marketplaceSlug: 'team__repo', link: 'https://example.com' }],
+  };
 
   it('takes the Marketplace identity and display name from the route selection', async () => {
     vi.mocked(fetchMarketplaces).mockResolvedValue({
@@ -283,67 +286,39 @@ describe('loadSkillPage', () => {
     });
     expect(fetchSkillDetail).not.toHaveBeenCalled();
   });
-});
-
-describe('loadSkillDetail', () => {
-  function makeSkill(overrides: Partial<Skill> = {}): Skill {
-    return {
-      skillSlug: 'core__skills__react-expert',
-      name: 'React Expert',
-      description: 'Senior React developer.',
-      skill: { path: 'skills/react-expert/SKILL.md', name: 'SKILL.md', content: '# React Expert' },
-      documents: [],
-      ...overrides,
-    };
-  }
-
-  it('returns the Skill for a known slug', async () => {
-    const skill = makeSkill();
-    vi.mocked(fetchSkillDetail).mockResolvedValue(skill);
-
-    const result = await loadSkillDetail(ACCESS_TOKEN, 'core__skills', skill.skillSlug);
-
-    expect(result).toEqual({ ok: true, skill });
-    expect(fetchSkillDetail).toHaveBeenCalledWith(ACCESS_TOKEN, 'core__skills', skill.skillSlug);
-  });
 
   it('returns a 404 with a message distinct from a failed load for a missing Skill', async () => {
+    vi.mocked(fetchMarketplaces).mockResolvedValue(teamMarketplaces);
     vi.mocked(fetchSkillDetail).mockResolvedValue(null);
 
-    const result = await loadSkillDetail(
-      ACCESS_TOKEN,
-      'core__skills',
-      'core__skills__does-not-exist',
-    );
-
-    expect(result).toEqual({ ok: false, status: 404, message: 'Skill not found' });
+    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', 'team__repo__does-not-exist')).toEqual({
+      ok: false,
+      status: 404,
+      message: 'Skill not found',
+    });
   });
 
   it('maps an upstream ApiError status for a failed Skill load', async () => {
+    vi.mocked(fetchMarketplaces).mockResolvedValue(teamMarketplaces);
     vi.mocked(fetchSkillDetail).mockRejectedValue(
       new ApiError(500, 'internal', 'Upstream failure'),
     );
 
-    const result = await loadSkillDetail(
-      ACCESS_TOKEN,
-      'core__skills',
-      'core__skills__react-expert',
-    );
-
-    expect(result).toEqual({ ok: false, status: 500, message: 'Upstream failure' });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.status).not.toBe(404);
+    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', skill.skillSlug)).toEqual({
+      ok: false,
+      status: 500,
+      message: 'Upstream failure',
+    });
   });
 
-  it('maps an unexpected failure to 502', async () => {
+  it('maps an unexpected failure of the Skill load to 502', async () => {
+    vi.mocked(fetchMarketplaces).mockResolvedValue(teamMarketplaces);
     vi.mocked(fetchSkillDetail).mockRejectedValue(new Error('boom'));
 
-    const result = await loadSkillDetail(
-      ACCESS_TOKEN,
-      'core__skills',
-      'core__skills__react-expert',
-    );
-
-    expect(result).toEqual({ ok: false, status: 502, message: 'Failed to load the Skill' });
+    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', skill.skillSlug)).toEqual({
+      ok: false,
+      status: 502,
+      message: 'Failed to load the Skill',
+    });
   });
 });
