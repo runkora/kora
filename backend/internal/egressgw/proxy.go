@@ -159,6 +159,8 @@ func (p *ProxyHandler) handleBrokerError(w http.ResponseWriter, r *http.Request,
 		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "connection configuration is invalid", nil)
 	case errors.Is(err, credentials.ErrUnsupportedAdapter):
 		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "unsupported adapter", nil)
+	case errors.Is(err, ErrDelegationRunUnattested):
+		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, ErrDelegationRunUnattested.Error(), nil)
 	case errors.As(err, &denial):
 		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, denial.Message(p.brand.ProductName()), denial.Details())
 	case errors.Is(err, ErrForbidden):

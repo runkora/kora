@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/runkora/kora/backend/internal/credentials"
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -149,4 +150,48 @@ func TestBrokerChecks_CarryDelegation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A delegation bound to one run is refused for a caller attesting another run,
+// and a delegated caller with no attested run is refused before any lookup.
+// The evaluator is the real engine with no bundle. The binding denial needs none.
+func TestBrokerAuthorize_DelegationRunBinding(t *testing.T) {
+	const agent = "spiffe://orbit.test/tenant/acme/agent/coder"
+	delegation := &policy.DelegationClaims{Sub: "person-1", DelegatorPrincipalType: "HUMAN", ActSub: agent, RunID: "run-a"}
+	claimsFor := func(runID string) *token.PlatformClaims {
+		c := &token.PlatformClaims{}
+		c.Subject = agent
+		c.Kora.TenantID = "acme"
+		c.Kora.PrincipalType = token.PrincipalTypeAgent
+		if runID != "" {
+			c.Kora.Claims = map[string]string{"run_id": runID}
+		}
+		return c
+	}
+	logger := logging.NewLoggerWithOutput(io.Discard)
+	engine := policy.NewEvaluator("http://127.0.0.1:1/bundles", time.Hour, logger)
+	ctx := policy.WithDelegation(context.Background(), delegation)
+
+	t.Run("connection check for another run", func(t *testing.T) {
+		b := NewBroker(engine, nil, nil, nil, logger)
+		cls := credentials.Classification{Action: "issues:read", Qualifier: "orbit"}
+		_, err := b.evaluatePolicy(ctx, claimsFor("run-b"), &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "GET"})
+		var d *Denial
+		if !errors.As(err, &d) || d.decision != policy.ReasonDelegationRunMismatch {
+			t.Fatalf("want %s denial, got %v", policy.ReasonDelegationRunMismatch, err)
+		}
+	})
+	t.Run("posture check for another run", func(t *testing.T) {
+		b := NewBroker(engine, nil, nil, nil, logger)
+		if b.ownEgressAllows(ctx, claimsFor("run-b"), "github.com") {
+			t.Fatal("posture check allowed a delegation bound to another run")
+		}
+	})
+	t.Run("no attested run", func(t *testing.T) {
+		b := NewBroker(engine, nil, nil, nil, logger)
+		_, err := b.Authorize(ctx, claimsFor(""), EgressRequest{Host: "api.github.com", Method: "GET"})
+		if !errors.Is(err, ErrDelegationRunUnattested) || !errors.Is(err, ErrForbidden) {
+			t.Fatalf("want ErrDelegationRunUnattested, got %v", err)
+		}
+	})
 }
