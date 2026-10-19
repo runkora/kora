@@ -73,7 +73,7 @@ func testController(eval policy.Evaluator, cat CatalogRepository) *MCPController
 		servers: []Server{{TenantID: "", Name: "orbit", Endpoint: "http://orbit/mcp", CallerIdentity: "forward"}},
 		loaded:  true,
 	}
-	return NewMCPController(nil, eval, cat, reg, NewProxy("test", logging.NewLogger()), "/v1", logging.NewLogger())
+	return NewMCPController(nil, eval, cat, reg, NewProxy("test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
 }
 
 // doRPC dispatches a JSON-RPC body against the per-server endpoint, setting the
@@ -155,7 +155,7 @@ func TestTenantOwnershipGuard(t *testing.T) {
 			loaded:  true,
 		}
 		return NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg,
-			NewProxy("test", logging.NewLogger()), "/v1", logging.NewLogger())
+			NewProxy("test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
 	}
 	init := `{"jsonrpc":"2.0","id":1,"method":"initialize"}`
 

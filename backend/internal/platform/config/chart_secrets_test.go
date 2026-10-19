@@ -20,9 +20,9 @@ func TestChartPlatformSecretKeysPerService(t *testing.T) {
 		"orbit-agents":                 {"DB_PASSWORD"},
 		"orbit-inference-gateway":      {"DB_PASSWORD", "REDIS_PASSWORD"},
 		"orbit-policy-service":         {"DB_PASSWORD", "REDIS_PASSWORD"},
-		"orbit-tool-gateway":           {"DB_PASSWORD"},
+		"orbit-tool-gateway":           {"DB_PASSWORD", "REDIS_PASSWORD"},
 		"orbit-tool-gateway-publisher": {"DB_PASSWORD"},
-		"orbit-egress-gateway":         nil,
+		"orbit-egress-gateway":         {"REDIS_PASSWORD"},
 		"orbit-migrate":                {"DB_PASSWORD"},
 	}
 	for name, keys := range want {

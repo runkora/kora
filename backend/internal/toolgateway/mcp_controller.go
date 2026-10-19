@@ -38,28 +38,31 @@ const jsonRPCVersion = "2.0"
 
 // MCPController implements the governing MCP proxy.
 type MCPController struct {
-	verifier *platformtoken.Verifier
-	eval     policy.Evaluator
-	catalog  CatalogRepository
-	registry *Registry
-	proxy    *Proxy
-	basePath string // the gateway base path (e.g. /v1), used to form the per-server resource
-	logger   logging.Logger
-	tracer   trace.Tracer
+	verifier  *platformtoken.Verifier
+	blocklist mw.JTIBlocklist
+	eval      policy.Evaluator
+	catalog   CatalogRepository
+	registry  *Registry
+	proxy     *Proxy
+	basePath  string // the gateway base path (e.g. /v1), used to form the per-server resource
+	logger    logging.Logger
+	tracer    trace.Tracer
 }
 
 // NewMCPController constructs the request-path controller. basePath forms the
 // per-server resource in the 401 challenge (host derived per request).
-func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, catalog CatalogRepository, registry *Registry, proxy *Proxy, basePath string, logger logging.Logger) *MCPController {
+// blocklist holds revoked delegation JTIs.
+func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, catalog CatalogRepository, registry *Registry, proxy *Proxy, blocklist mw.JTIBlocklist, basePath string, logger logging.Logger) *MCPController {
 	return &MCPController{
-		verifier: verifier,
-		eval:     eval,
-		catalog:  catalog,
-		registry: registry,
-		proxy:    proxy,
-		basePath: basePath,
-		logger:   logger,
-		tracer:   otel.Tracer("orbit.tool-gateway"),
+		verifier:  verifier,
+		blocklist: blocklist,
+		eval:      eval,
+		catalog:   catalog,
+		registry:  registry,
+		proxy:     proxy,
+		basePath:  basePath,
+		logger:    logger,
+		tracer:    otel.Tracer("orbit.tool-gateway"),
 	}
 }
 
@@ -73,12 +76,12 @@ func (c *MCPController) GroupedBy() string { return "" }
 func (c *MCPController) Middleware() mw.MiddlewareHandler {
 	// challengeMiddleware runs first so its writer wraps AuthMiddleware's 401,
 	// adding the RFC 9728 WWW-Authenticate pointer to the protected-resource metadata.
-	// DelegationMiddleware puts the run's verified delegator into context for
-	// every tool decision below.
+	// The delegation middleware puts the run's verified delegator into context
+	// for every tool decision below and refuses a revoked delegation.
 	return mw.MiddlewareChain(
 		challengeMiddleware(c.basePath),
 		mw.AuthMiddleware(c.verifier, c.logger),
-		mw.DelegationMiddleware(c.logger, c.verifier),
+		mw.DelegationMiddlewareWithBlocklist(c.logger, c.verifier, c.blocklist),
 	)
 }
 

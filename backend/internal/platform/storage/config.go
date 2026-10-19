@@ -29,6 +29,21 @@ func LoadPostgresConfig() (*PostgresConfig, error) {
 	return &cfg.Postgres, nil
 }
 
+// LoadRedisConfig loads storage YAML and the Redis password. Use this in
+// services that only need a Redis connection.
+func LoadRedisConfig() (*RedisConfig, error) {
+	cfg, err := config.Load[StorageConfig]("internal/platform/storage", config.Environment())
+	if err != nil {
+		return nil, fmt.Errorf("load storage config: %w", err)
+	}
+
+	if err := loadRedisConfig(&cfg.Redis); err != nil {
+		return nil, err
+	}
+
+	return &cfg.Redis, nil
+}
+
 // LoadStorageConfig loads the unified YAML once, then each backend's password.
 // Use this in services that need both Postgres and Redis.
 func LoadStorageConfig() (*StorageConfig, error) {

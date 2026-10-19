@@ -106,6 +106,14 @@ func realMain() error {
 		// ── Request-path PEP + proxy ─────────────────────────────────────────
 		eval := policy.NewEvaluator(tgc.Current.Policy.BundleEndpoint, tgc.Current.BundlePollInterval(), logger)
 		eval.Start(ctx)
+		// The shared revoked-JTI blocklist rejects a revoked delegation before
+		// its token expires (docs/adr/2026-07-23-delegated-agent-identity.md).
+		redis, err := initRedis(ctx, logger)
+		if err != nil {
+			return fmt.Errorf("init redis: %w", err)
+		}
+		defer func() { _ = redis.Close() }()
+		blocklist := storage.NewJTIBlocklist(redis)
 		proxy := toolgateway.NewProxy(tgc.Current.App.Version, logger)
 		// MCP OAuth (RFC 9728): the MCP route challenges unauthenticated clients
 		// toward the protected-resource metadata, which the metadata controller
@@ -113,7 +121,7 @@ func realMain() error {
 		// are derived from the request host — only the base path is configured.
 		basePath := tgc.Current.Server.BasePath
 		controllers = append(controllers,
-			toolgateway.NewMCPController(verifier, eval, catalogRepo, registry, proxy, basePath, logger),
+			toolgateway.NewMCPController(verifier, eval, catalogRepo, registry, proxy, blocklist, basePath, logger),
 			toolgateway.NewOAuthMetadataController(basePath, logger),
 		)
 		go registry.Watch(ctx) // keep the mounted registry fresh for server resolution
@@ -206,6 +214,19 @@ func runIntrospectionLoop(ctx context.Context, cycle func(context.Context, bool)
 			cycle(ctx, false)
 		}
 	}
+}
+
+func initRedis(ctx context.Context, logger logging.Logger) (*storage.RedisClient, error) {
+	cfg, err := storage.LoadRedisConfig()
+	if err != nil {
+		return nil, err
+	}
+	rc, err := storage.NewRedis(ctx, cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info(ctx, "Redis initialized successfully")
+	return rc, nil
 }
 
 func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error) {
