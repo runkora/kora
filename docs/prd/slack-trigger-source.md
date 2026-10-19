@@ -96,7 +96,8 @@ None at this time.
 **Acceptance Criteria:**
 
 - [ ] Every Slack delivery carries a thread field that identifies its thread. A message outside a thread starts a thread of its own.
-- [ ] A routing trigger whose join key names the channel and the thread sends a follow-up to the open run for that thread.
+- [ ] A routing trigger in a channel can send a follow-up in the same thread to the open run for that thread.
+- [ ] A routing trigger on direct messages can send any later message in the same conversation to the open run for that conversation.
 - [ ] In a channel, a follow-up reaches kora only when it mentions the bot. In a direct message, every message reaches kora.
 
 ### US-004: See Slack deliveries
@@ -124,11 +125,11 @@ None at this time.
 4.  kora shows the request URL. The admin enters it in the Slack app's event settings, and Slack confirms the URL.
 5.  The admin installs the app in the workspace and invites the bot to the channels it should hear.
 
-The manifest asks only for what kora needs to hear mentions and direct messages. Replying in Slack goes through a Slack MCP server registered for the same Slack app. That server holds the bot token and declares the scopes it needs. kora's trigger source never holds a Slack token.
+The manifest asks for what kora needs to hear mentions and direct messages, and for what the agent needs to read the thread and reply. Replying in Slack goes through a Slack MCP server registered with the same Slack app's bot token. The admin adds any further permissions that server needs. kora's trigger source never holds a Slack token.
 
 ### Writing a Trigger
 
-A Slack trigger is a webhook trigger on a Slack source. The author picks the mention event or the direct message event, narrows by channel and Slack user, and writes the prompt. Agent choice and thread follow-ups come from trigger routing. A routing trigger's join key can combine the channel and the thread, such as `{{ event.channel }}:{{ thread }}`.
+A Slack trigger is a webhook trigger on a Slack source. The author picks the mention event or the direct message event, narrows by channel and Slack user, and writes the prompt. Agent choice and thread follow-ups come from trigger routing. A routing trigger's join key can identify the thread in a channel or the conversation in a direct message.
 
 ---
 
@@ -176,4 +177,4 @@ The ADR decides the following:
 - [Trigger Payload Templating PRD](trigger-payload-templating.md)
 - [Delegated Agent Identity PRD](delegated-agent-identity.md)
 - [Slack Trigger Source ADR](../adr/2026-10-20-slack-trigger-source.md)
-- Trigger Routing PRD (`docs/prd/trigger-routing.md`, on the trigger routing stack)
+- Trigger Routing PRD (`docs/prd/trigger-routing.md`)

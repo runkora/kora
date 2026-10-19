@@ -38,7 +38,7 @@ How should a Slack adapter verify requests, answer the URL check, identify event
 - A platform acknowledgement in Slack, runs that act as the Slack user, Socket Mode, Kubernetes resources for sources, OAuth distribution to several workspaces, Teams, Discord and reaction events.
 - A chat-platform abstraction.
 - A Slack credentials connection.
-- Replying to Slack. Agents reply through a Slack MCP server registered for the same Slack app. That server holds the bot token. The trigger source holds no Slack token.
+- Replying to Slack. Agents reply through a Slack MCP server registered for the same Slack app. The trigger source holds no Slack token.
 
 ### Which of the Three Questions This Touches
 
@@ -129,12 +129,15 @@ type fieldDeriver interface {
 
 The call sites are:
 
-- **Issued secret at create:** `CreateSourceRequest` and `UpdateSourceRequest` (`models.go`) gain a write-only `signing_secret`. At `service_sources.go:84`, an adapter that implements `issuedSecret` requires a non-empty `signing_secret` and encrypts it. Any other adapter rejects `signing_secret` with `ErrValidation` and generates the secret as today. `SourceResponse.Secret` stays empty for an issued secret.
-- **Issued secret at rotate:** At `service_sources.go:178`, `rotate_secret` on an issued-secret source requires `signing_secret` and stores it through the existing rotation path. `secret_rotated_at` and the redelivery cutoff in `redeliverWebhook` (`service_fire.go:332`) apply unchanged.
-- **Handshake:** In `Service.Ingest`, between `Verify` (`service_ingest.go:44`) and `DeliveryID` (`service_ingest.go:53`), a `handshaker` adapter whose `Handshake` returns ok ends the request. The handshake writes no delivery row, takes no replay key and leaves the source counters unchanged. `Ingest` returns an `IngestResult` with the `IngestOutcome` and the reply. A new `IngestHandshake` outcome makes `handleIngest` (`server.go:197-201`) answer 200 with the reply through `api.JSON`.
+- **Issued secret:** `CreateSourceRequest` and `UpdateSourceRequest` (`models.go`) gain a write-only `signing_secret`. It is valid only for an adapter that implements `issuedSecret`, on create and on an update that sets `rotate_secret`. Every other request that carries it fails with `ErrValidation`, including updates to GitHub and Alertmanager sources. For an issued-secret provider, create and rotate require it. The value is trimmed and must be non-empty and at most 256 bytes.
+- **Issued secret at create:** At `service_sources.go:84`, an issued-secret source encrypts `signing_secret` and every other source generates the secret as today. `SourceResponse.Secret` stays empty for an issued secret.
+- **Issued secret at rotate:** At `service_sources.go:178`, an issued-secret source stores the new `signing_secret` through the existing rotation path. `secret_rotated_at` and the redelivery cutoff in `redeliverWebhook` (`service_fire.go:332`) apply unchanged.
+- **Handshake:** In `Service.Ingest`, between `Verify` (`service_ingest.go:44`) and `DeliveryID` (`service_ingest.go:53`), a `handshaker` adapter whose `Handshake` returns ok ends the request. The handshake writes no delivery row, takes no replay key and leaves the source counters unchanged. `Ingest` returns an `IngestResult` with the `IngestOutcome` and the reply. `IngestResult` sits beside `IngestOutcome` in `service.go`. A new `IngestHandshake` outcome makes `handleIngest` (`server.go:197-201`) answer 200 with the reply through `api.JSON`.
 - **Derived fields:** `fanOut` computes the derived fields once beside `identifySender` (`service_ingest.go:268`). No fields are derived for a nil `doc`. `triggerFields` (`payload.go:66`) takes them and copies them after the referenced payload paths. A derived key overrides a payload path with the same key. Match conditions, the prompt, the coalesce key and the routing `join_key` read the same map. `Redeliver` goes through `fanOut` and gets the same fields.
 
 GitHub and Alertmanager implement none of the three, and every call site keeps its current path for them.
+
+The kora MCP tools `triggers.sources.create` and `triggers.sources.update` (`backend/internal/koramcp/tools_triggers.go:74-98`) do not accept `signing_secret`. A secret must not pass through a model's context. An admin creates and rotates a Slack source in the console or through the REST API. The tool descriptions stop promising a returned secret for every provider.
 
 ### 2. Verification
 
@@ -144,12 +147,12 @@ GitHub and Alertmanager implement none of the three, and every call site keeps i
 2.  Compute HMAC-SHA256 with the signing secret over `v0:{timestamp}:{body}`.
 3.  Compare `v0=` plus the lowercase hex digest with `X-Slack-Signature` using `hmac.Equal`.
 
-Every failure returns `ErrSignatureInvalid`. The source counts it as an invalid signature, and the caller gets the same 404 as today. The adapter takes its clock as a field for tests.
+Every failure returns `ErrSignatureInvalid`. The source counts it as an invalid signature, and the caller gets the same 404 as today. The adapter takes its clock as a field for tests and uses `time.Now` when the field is nil.
 
 ### 3. Events and Delivery ID
 
 - **Handshake:** A body whose `type` is `url_verification` returns `{"challenge": <challenge>}`. Slack accepts a JSON reply with status 200.
-- **Delivery id:** `DeliveryID` returns the body's `event_id`. Slack's Events API documents it as globally unique. A body without one, such as `app_rate_limited`, fails the existing `ErrMissingDeliveryID` guard.
+- **Delivery id:** `DeliveryID` returns the body's `event_id`, and Slack's Events API documents it as globally unique. A body without one fails the existing `ErrMissingDeliveryID` guard. `app_rate_limited` carries no `event_id` and is rejected this way, and that rejection is accepted.
 - **Event type:** `EventType` returns `""` unless the body's `type` is `event_callback`. It returns `""` when `event.bot_id` is set or `event.subtype` is `bot_message`. Otherwise `event.type` `app_mention` maps to `app_mention`. `event.type` `message` with `event.channel_type` `im` and no subtype or the `file_share` subtype maps to `message.im`, the Slack event subscription name. Every other event returns `""`.
 - **Retries:** Slack retries a delivery up to three times and marks each retry with `X-Slack-Retry-Num`. A retry carries the same `event_id`. The partial unique index on `trigger_deliveries` records it as a duplicate, and the handler answers 200 (`server.go:197`). The adapter does not read the retry headers.
 
@@ -157,9 +160,11 @@ Every failure returns `ErrSignatureInvalid`. The source counts it as an invalid 
 
 The adapter implements `senderIdentifier`. `Sender` returns `event.user` and reports no sender when the field is empty. `NormalizeLogin` uppercases the id, and `Associations` returns an empty list. A trigger's sender restriction lists Slack user ids.
 
+`EventTypesResponse` (`models.go`) gains `identifies_senders`. `SourceEventTypes` and `ProviderEventTypes` (`service_sources.go`) set it when the adapter implements `senderIdentifier`. `SenderRestrictionEditor` (`sender-restriction-editor.tsx:44`) shows on that flag and no longer on a non-empty associations list. It hides the association control when the list is empty, and its copy and placeholder name no provider. Its callers in `kinds/webhook.tsx:205` and `trigger-drawer.tsx:804` pass the flag. The test at `trigger-wizard.test.tsx:244` covers a provider that identifies senders and has no associations.
+
 ### 5. Derived Fields
 
-The adapter implements `fieldDeriver` and returns a single `thread` field that holds `event.thread_ts` for a reply and `event.ts` for a top-level message. A `ts` is unique within one conversation. A routing `join_key` that identifies a thread combines both keys: `{{ event.channel }}:{{ thread }}`. `team_id` and `event.channel` are plain payload paths and are not derived.
+The adapter implements `fieldDeriver` and returns a single `thread` field that holds `event.thread_ts` for a reply and `event.ts` for a top-level message. A `ts` is unique within one conversation. A channel trigger's routing `join_key` combines both keys: `{{ event.channel }}:{{ thread }}`. A direct message trigger's `join_key` is `{{ event.channel }}`, one key per direct message conversation. `team_id` and `event.channel` are plain payload paths and are not derived.
 
 ### 6. Schema
 
@@ -169,14 +174,15 @@ The adapter implements `fieldDeriver` and returns a single `thread` field that h
 
 `frontend/src/app/(dashboard)/triggers/_lib/slack-app-manifest.ts` builds a JSON app manifest from `useBrand().productName`:
 
-- `display_information.name` and `features.bot_user.display_name` are the product name.
+- `display_information.name` is the product name, cut to 35 characters.
+- `features.bot_user.display_name` is a slug of the product name in the characters Slack allows: `a-z`, `0-9`, `-`, `_` and `.`.
 - `features.app_home.messages_tab_enabled` is true and `messages_tab_read_only_enabled` is false. People can then send the bot direct messages.
-- `oauth_config.scopes.bot` lists `app_mentions:read` and `im:history`.
+- `oauth_config.scopes.bot` lists `app_mentions:read` and `im:history` for the trigger source. It lists `chat:write`, `channels:history`, `groups:history` and `users:read` for the agent to read the thread and reply.
 - `settings.event_subscriptions.bot_events` lists `app_mention` and `message.im`.
 - `settings.event_subscriptions.request_url` is a placeholder built from the ingest host and the webhook path with `SOURCE_ID` in place of the source id.
 - `settings.socket_mode_enabled`, `org_deploy_enabled` and `token_rotation_enabled` are false.
 
-The scopes for replying belong to the Slack MCP server and are not in this manifest. When Slack is the chosen provider, the new-source step in `kinds/webhook.tsx` shows the manifest with a copy button and a signing secret field. The done step shows the request URL to set in the app. Slack requires a manual check of a request URL set in a manifest, and that check is the handshake.
+The Slack MCP server uses this app's bot token, and the admin adds any further scopes that server needs. The reply MCP server must post with this app's bot token (`xoxb-`). When Slack is the chosen provider, the new-source step in `kinds/webhook.tsx` shows the manifest with a copy button and a signing secret field. The done step shows the request URL to set in the app. Its copy for a source without a returned secret (`kinds/webhook.tsx:287-288`) gets Slack wording for that case. Slack requires a manual check of a request URL set in a manifest, and that check is the handshake.
 
 ### 8. Acknowledgement Time
 
@@ -195,9 +201,11 @@ Slack requires a 2xx within three seconds. `Service.Ingest` records the delivery
 
 - Every message an app posts in a direct message with the bot, including the agent's replies, records a delivery that matches no trigger.
 - A channel follow-up reaches kora only when it mentions the bot. `message.channels` is not subscribed.
-- `fanOut` bounds the inline enqueue with `dispatchTimeout` (60 seconds, `service.go:21`). A slow database past three seconds makes Slack retry, and the retry records as a duplicate.
+- `fanOut` bounds the inline enqueue with `dispatchTimeout` (60 seconds, `service.go:20`). A slow database past three seconds makes Slack retry, and the retry records as a duplicate.
 - A Slack trigger with dedupe disabled starts a run for every Slack retry (`dispatchDuplicate` in `service_ingest.go`).
 - An admin configures two things for one Slack app: the trigger source and the Slack MCP server.
+- A Slack MCP server that posts with a user token sends messages without `bot_id`. Those messages can start runs and loop.
+- Slack's signing secret regeneration has no grace window. Deliveries between the regeneration in Slack and the rotation in kora get 404, and Slack drops them after its retries.
 
 ### Neutral
 
@@ -210,10 +218,12 @@ Slack requires a 2xx within three seconds. `Service.Ingest` records the delivery
 
 1.  `backend/internal/triggers/adapter.go`: the three capability interfaces and the Slack registration.
 2.  `backend/internal/triggers/adapter_slack.go` and `schemas/slack.json`: the adapter and its schema.
-3.  `backend/internal/triggers/models.go`: `ProviderSlack`, `signing_secret` on the create and update requests, and `IngestResult`.
+3.  `backend/internal/triggers/models.go` and `service.go`: `ProviderSlack`, `signing_secret` on the create and update requests, `identifies_senders` on `EventTypesResponse`, and `IngestResult` beside `IngestOutcome`.
 4.  `backend/internal/triggers/service_sources.go`: the issued-secret paths in `CreateSource` and `UpdateSource`.
 5.  `backend/internal/triggers/service_ingest.go`, `payload.go` and `server.go`: the handshake, the derived fields and the handshake response.
-6.  `frontend/src/app/(dashboard)/triggers/`: the manifest module, Slack in the provider list, the secret field, the request URL on the done step and a secret input on rotation for Slack sources.
+6.  `backend/internal/koramcp/tools_triggers.go`: the source tool descriptions.
+7.  `frontend/src/app/(dashboard)/triggers/`: the manifest module, Slack in the provider list, the secret field, the request URL on the done step, a secret input on rotation for Slack sources and the sender restriction editor.
+8.  The BFF passthroughs for `signing_secret` and `identifies_senders`: `frontend/src/app/api/trigger-sources/route.ts:30-34`, `frontend/src/app/api/trigger-sources/[id]/route.ts:14-17`, `frontend/src/shared/api.ts:745-765` and `@runkora/server/triggers-client`.
 
 ---
 
@@ -226,6 +236,7 @@ Unit tests cover:
 - Event types for a mention, a direct message, a `file_share` direct message, an edited message, a message with `bot_id` and a `bot_message`.
 - `thread` for a top-level message and a thread reply, and a derived key that overrides a payload path.
 - Create and rotate with and without `signing_secret` for Slack, GitHub and Alertmanager.
+- A fake adapter that implements all three capabilities exercises their call sites.
 
 ---
 
@@ -236,7 +247,7 @@ Unit tests cover:
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md)
 - [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md)
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md)
-- Trigger Routing (`docs/adr/2026-10-19-trigger-routing.md`, on the trigger routing stack)
+- Trigger Routing (`docs/adr/2026-10-19-trigger-routing.md`)
 
 ---
 
