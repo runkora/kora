@@ -6,7 +6,7 @@
  */
 'use client';
 
-import { CopyButton, Modal, ModalBody, ModalHeader, Separator, Stack, Text } from '@orbit/hades';
+import { CopyButton, Modal, ModalBody, ModalHeader, Separator, Stack, Text } from '@runkora/hades';
 import { ScopeChip } from '@orbit/components';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import type { BudgetAssignment, Grant } from '../_types';

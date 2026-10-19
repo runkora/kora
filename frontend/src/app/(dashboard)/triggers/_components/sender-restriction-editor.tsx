@@ -8,7 +8,7 @@
  */
 
 import { useId, type ReactNode } from 'react';
-import { Card, Checkbox, FormField, Grid, Input, SectionLabel, Stack, Text } from '@orbit/hades';
+import { Card, Checkbox, FormField, Grid, Input, SectionLabel, Stack, Text } from '@runkora/hades';
 
 export interface SenderRestrictionDraft {
   /** Raw while typed; split on commas and whitespace when saved. */

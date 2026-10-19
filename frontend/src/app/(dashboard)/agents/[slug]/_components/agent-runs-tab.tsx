@@ -12,10 +12,10 @@ import {
   Text,
   ConfirmDialog,
   EmptyState,
-} from '@orbit/hades';
+} from '@runkora/hades';
 
 import { DelegatedRunNotice } from '../../_components/motif/delegated-run-notice';
-import type { DataTableColumn } from '@orbit/hades';
+import type { DataTableColumn } from '@runkora/hades';
 import { StatusBadge } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import type { RunStateCounts } from '@orbit/shared/api';

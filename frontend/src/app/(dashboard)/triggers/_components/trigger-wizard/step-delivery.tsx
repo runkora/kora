@@ -26,8 +26,8 @@ import {
   Stack,
   Text,
   ToggleRow,
-} from '@orbit/hades';
-import type { IconName } from '@orbit/hades';
+} from '@runkora/hades';
+import type { IconName } from '@runkora/hades';
 import { admissionSummary, coalesceDraftOf, parallelWord } from './wizard-state';
 import { LIMITS } from '../../_types';
 import { CoalesceEditor } from '../coalesce-editor';

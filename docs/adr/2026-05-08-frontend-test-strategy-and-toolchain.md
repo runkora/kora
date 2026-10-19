@@ -13,7 +13,7 @@ The kora frontend has zero test infrastructure. No `vitest.config.ts`, `jest.con
 
 The codebase is not a blank slate -- it is a production-intended frontend with two distinct layers of complexity that any test strategy must accommodate.
 
-**The Hades design system (`@orbit/hades`)** is a fully implemented workspace package at `frontend/src/packages/hades/`. It has 21+ component families built on Radix UI primitives, a semantic token system expressed via Tailwind v4 `@theme` blocks, and Storybook stories for every component. It already has `vite@6.3.5` and `@vitejs/plugin-react@4.5.2` installed as dev dependencies. It has no unit or component tests.
+**The Hades design system (`@runkora/hades`)** is a fully implemented workspace package at `frontend/src/packages/hades/`. It has 21+ component families built on Radix UI primitives, a semantic token system expressed via Tailwind v4 `@theme` blocks, and Storybook stories for every component. It already has `vite@6.3.5` and `@vitejs/plugin-react@4.5.2` installed as dev dependencies. It has no unit or component tests.
 
 **The Next.js 16 App Router application** (`frontend/src/app/`) has a working OIDC auth flow (PKCE, HRD discover, iron-session cookie sealing), a dashboard shell with page-scoped colocated components under `_components/` directories, shared app-level components at `frontend/src/components/`, a Backend-for-Frontend (BFF) layer at `frontend/src/server/` that proxies requests to the Go backend, and BFF route handlers under `frontend/src/app/api/`. All server-side modules are guarded by `import "server-only"`. There are no tests.
 
@@ -29,7 +29,7 @@ frontend/src/
 ├── lib/
 │   ├── oidc-client.ts                # buildUserManager, TenantOidcConfig
 │   └── routing/                      # ApiRoute, isSafeRedirectPath
-├── packages/hades/                   # @orbit/hades workspace package
+├── packages/hades/                   # @runkora/hades workspace package
 ├── server/                           # server-only: client.ts, auth-config.ts, session.ts
 └── shared/                           # HealthResponse and other shared types
 ```
@@ -38,7 +38,7 @@ Note: there is no `_core/` directory. Shared components live in `src/components/
 
 ### Background
 
-kora is structured as a pnpm workspace. `frontend/pnpm-workspace.yaml` declares `packages: ['src/packages/*']`, which means Hades is an independent installable package (`@orbit/hades`) consumed by the app via a workspace link. The monorepo's Go backend runs as a separate process; the only interface between the frontend and the backend is the BFF layer at `src/server/client.ts` (`orbitClient`) and the `/api/*` route handlers.
+kora is structured as a pnpm workspace. `frontend/pnpm-workspace.yaml` declares `packages: ['src/packages/*']`, which means Hades is an independent installable package (`@runkora/hades`) consumed by the app via a workspace link. The monorepo's Go backend runs as a separate process; the only interface between the frontend and the backend is the BFF layer at `src/server/client.ts` (`orbitClient`) and the `/api/*` route handlers.
 
 [frontend-scaffolding-and-toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md) (frontend scaffolding) established the Next.js 16 App Router application structure. [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) (Hades design system) established the workspace package isolation model, the Tailwind v4 token architecture, and the Storybook-based development workflow. This ADR establishes the test layer that sits alongside those decisions.
 
@@ -105,7 +105,7 @@ We need a set of architectural decisions that establish:
 **Cons:**
 - Hades already uses Vite as its build system; introducing Jest requires a separate Babel or SWC transform pipeline running alongside the existing Vite pipeline -- two transform stacks for the same code
 - Jest's ESM support is still experimental and requires `--experimental-vm-modules`; the codebase is fully ESM and imports ESM-only packages (`oidc-client-ts`)
-- Path aliases (`@orbit/hades`, `@orbit/test-utils`, `@/server/`) work automatically in Vitest because it shares Vite's resolver; Jest requires a separate `moduleNameMapper` that must be kept in sync with `tsconfig.json` and `vite.config.ts`
+- Path aliases (`@runkora/hades`, `@orbit/test-utils`, `@/server/`) work automatically in Vitest because it shares Vite's resolver; Jest requires a separate `moduleNameMapper` that must be kept in sync with `tsconfig.json` and `vite.config.ts`
 - No benefit from Vite's HMR-aware test reruns; watch mode is slower for a Vite-based project
 
 ### Option 2: Storybook interaction tests as the sole component test strategy
@@ -508,12 +508,12 @@ Four granular targets are added to the root `Makefile`, plus a combined convenie
 ```makefile
 # Run only Hades' component tests (happy-dom, Hades' own vitest.config.ts)
 frontend-test-hades:
-	cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
+	cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades run test:unit
 
 # Run all unit tests: Hades first, then the app (jsdom, vitest.config.unit.ts)
 # App config excludes src/packages/** so Hades tests never run under jsdom
 frontend-test-unit:
-	cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
+	cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades run test:unit
 	cd $(FRONTEND_DIR) && pnpm run test:unit
 
 frontend-test-integration:

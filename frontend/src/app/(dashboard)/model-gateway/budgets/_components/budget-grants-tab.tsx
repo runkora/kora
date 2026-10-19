@@ -3,8 +3,8 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Callout, DataTable, Icon, PageSectionHeader, Stack, Text } from '@orbit/hades';
-import type { DataTableColumn } from '@orbit/hades';
+import { Button, Callout, DataTable, Icon, PageSectionHeader, Stack, Text } from '@runkora/hades';
+import type { DataTableColumn } from '@runkora/hades';
 import { PrincipalBadge } from '@orbit/components';
 import { usePermissions } from '../../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';

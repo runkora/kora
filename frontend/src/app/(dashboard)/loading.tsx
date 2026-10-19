@@ -12,7 +12,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from '@orbit/hades';
+} from '@runkora/hades';
 
 /**
  * The dashboard home fetches agents, runs, connections, environments and

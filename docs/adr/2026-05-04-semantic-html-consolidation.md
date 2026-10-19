@@ -252,15 +252,15 @@ Ban all seven element types unconditionally in product code via two new ESLint r
 | Raw element | Hades replacement |
 |-------------|-------------------|
 | `<ul>` used as layout container | `<Stack>` |
-| `<ul>` as a genuine list | `<List>` from `@orbit/hades` |
-| `<ol>` as an ordered list | `<List ordered>` from `@orbit/hades` |
-| `<li>` | `<ListItem>` from `@orbit/hades` |
-| `<form>` | `<Form>` from `@orbit/hades` (accepts `onSubmit`, `noValidate`, `gap`, `maxWidth`) |
-| `<label>` for text | `<Label>` from `@orbit/hades` |
-| `<label>` wrapping a checkbox | `<Checkbox>` from `@orbit/hades` |
-| `<input type="checkbox">` | `<Checkbox>` from `@orbit/hades` (supports `indeterminate`) |
-| `<input type="text/...">` | `<Input>` from `@orbit/hades` |
-| `<output>` | `<Output>` from `@orbit/hades` (`field` prop for input-like styling) |
+| `<ul>` as a genuine list | `<List>` from `@runkora/hades` |
+| `<ol>` as an ordered list | `<List ordered>` from `@runkora/hades` |
+| `<li>` | `<ListItem>` from `@runkora/hades` |
+| `<form>` | `<Form>` from `@runkora/hades` (accepts `onSubmit`, `noValidate`, `gap`, `maxWidth`) |
+| `<label>` for text | `<Label>` from `@runkora/hades` |
+| `<label>` wrapping a checkbox | `<Checkbox>` from `@runkora/hades` |
+| `<input type="checkbox">` | `<Checkbox>` from `@runkora/hades` (supports `indeterminate`) |
+| `<input type="text/...">` | `<Input>` from `@runkora/hades` |
+| `<output>` | `<Output>` from `@runkora/hades` (`field` prop for input-like styling) |
 
 ### New Hades components added (2026-04-29)
 

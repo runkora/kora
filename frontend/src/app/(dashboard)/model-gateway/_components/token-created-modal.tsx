@@ -11,7 +11,7 @@ import {
   Stack,
   Text,
   Button,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import type { CreatePATResponse } from '@orbit/shared/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────

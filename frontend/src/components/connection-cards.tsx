@@ -21,7 +21,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import type {
   ConnectionCatalogEntry,
   ConnectionQualifierEntry,

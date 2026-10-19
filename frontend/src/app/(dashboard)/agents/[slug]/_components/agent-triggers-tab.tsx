@@ -19,7 +19,7 @@ import {
   Text,
   ConfirmDialog,
   EmptyState,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import { TriggerWizard } from '../../../triggers/_components/trigger-wizard';
 import type {
   TriggerCreateResult,

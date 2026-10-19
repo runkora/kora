@@ -4,8 +4,8 @@
  * @promote-to-tier-2 if: a second feature area outside model-gateway needs
  * chart legends with status dots.
  */
-import { Stack, StatusDot, Text } from '@orbit/hades';
-import type { StatusDotProps } from '@orbit/hades';
+import { Stack, StatusDot, Text } from '@runkora/hades';
+import type { StatusDotProps } from '@runkora/hades';
 
 type StatusDotStatus = StatusDotProps['status'];
 

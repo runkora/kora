@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { expect, userEvent, within } from 'storybook/test';
-import { Stack } from '@orbit/hades';
+import { Stack } from '@runkora/hades';
 import { mockApi } from '@orbit/storybook/mock-api';
 import { AlreadySignedIn } from './already-signed-in';
 import { LoginCard } from './login-card';

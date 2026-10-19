@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Badge, Button, Callout, SegmentedControl, Stack, Text } from '@orbit/hades';
+import { Badge, Button, Callout, SegmentedControl, Stack, Text } from '@runkora/hades';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { useLogsContext } from '../_context/logs-context';

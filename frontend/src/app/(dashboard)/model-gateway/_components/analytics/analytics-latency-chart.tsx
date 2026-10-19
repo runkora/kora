@@ -11,7 +11,7 @@ import {
   ChartTooltipContent,
   ChartLegendContent,
   type ChartConfig,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import type { AnalyticsBucket } from '../../_types';
 
 const CHART_CONFIG: ChartConfig = {

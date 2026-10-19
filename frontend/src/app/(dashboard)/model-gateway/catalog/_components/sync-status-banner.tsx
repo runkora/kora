@@ -2,7 +2,7 @@
 
 /** @tier 3 — catalog-scoped. Promote to src/components/ if a second feature needs this. */
 
-import { Alert, Badge, Icon, Stack, Text } from '@orbit/hades';
+import { Alert, Badge, Icon, Stack, Text } from '@runkora/hades';
 import { fmtDate } from '@orbit/utils';
 
 export interface SyncSummary {

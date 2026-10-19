@@ -2,7 +2,7 @@
  * @tier 3 — policy scoped.
  * @promote-to-tier-2 if: a second feature area outside policy adds filter tabs with count badges.
  */
-import { Button, Text } from '@orbit/hades';
+import { Button, Text } from '@runkora/hades';
 
 export interface FilterChipProps {
   label: string;

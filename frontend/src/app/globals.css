@@ -10,9 +10,9 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * You might expect to write:
  *
- *   @import '@orbit/hades/src/tokens/tokens.css';   ← DOES NOT WORK
+ *   @import '@runkora/hades/src/tokens/tokens.css';   ← DOES NOT WORK
  *
- * This silently no-ops even though transpilePackages: ['@orbit/hades'] is set
+ * This silently no-ops even though transpilePackages: ['@runkora/hades'] is set
  * in next.config.ts (which does work for JS/TS imports). The reason is that
  * @tailwindcss/postcss resolves CSS @import paths using PostCSS's filesystem
  * resolver — not Node.js module resolution. PostCSS does not follow pnpm
@@ -37,7 +37,7 @@
  *   ../        →  frontend/src/
  *   packages/hades/src/tokens/tokens.css  →  the real file on disk
  *
- *   (node_modules/@orbit/hades is a pnpm symlink → ../../src/packages/hades)
+ *   (node_modules/@runkora/hades is a pnpm symlink → ../../src/packages/hades)
  */
 @import '../packages/hades/src/tokens/tokens.css';
 

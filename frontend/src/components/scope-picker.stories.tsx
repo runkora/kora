@@ -2,7 +2,7 @@
 
 import type { Meta, StoryObj } from '@storybook/react';
 import { useState } from 'react';
-import { Stack } from '@orbit/hades';
+import { Stack } from '@runkora/hades';
 import { Example, Option, OptionTable } from '../packages/hades/src/docs/story-ui';
 import { ScopePicker } from './scope-picker';
 

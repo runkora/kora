@@ -12,8 +12,8 @@ import {
   PageSectionHeader,
   Stack,
   Text,
-} from '@orbit/hades';
-import type { DataTableColumn } from '@orbit/hades';
+} from '@runkora/hades';
+import type { DataTableColumn } from '@runkora/hades';
 import { usePermissions } from '../../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
 import { fmtUsd, fmtWindowSuffix } from '@orbit/utils';

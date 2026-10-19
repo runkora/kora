@@ -20,8 +20,8 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@orbit/hades": ["./src/index.ts"],
-      "@orbit/hades/*": ["./src/*"]
+      "@runkora/hades": ["./src/index.ts"],
+      "@runkora/hades/*": ["./src/*"]
     },
     "noEmit": true,
     "allowImportingTsExtensions": true

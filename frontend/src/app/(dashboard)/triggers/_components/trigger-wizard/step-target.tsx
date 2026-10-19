@@ -18,7 +18,7 @@ import {
   SectionLabel,
   Stack,
   Text,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import type { StepComponentProps, TriggerWizardAgent } from './types';
 
 function initial(agent: TriggerWizardAgent): string {

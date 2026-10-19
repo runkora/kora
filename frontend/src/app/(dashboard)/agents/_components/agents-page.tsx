@@ -16,8 +16,8 @@ import {
   Stack,
   Text,
   EmptyState,
-} from '@orbit/hades';
-import type { DataTableColumn } from '@orbit/hades';
+} from '@runkora/hades';
+import type { DataTableColumn } from '@runkora/hades';
 import Link from 'next/link';
 import { StatusBadge } from '@orbit/components';
 import type { AgentInsightsResponse, AgentTypeUsage } from '@orbit/shared/api';
