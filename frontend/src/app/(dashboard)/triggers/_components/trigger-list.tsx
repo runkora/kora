@@ -18,6 +18,7 @@ import type { DeliveryRow, TriggerRow } from '../_types';
 import { lastFired, recentFailures, sparkline } from '../_types/fleet';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
 import { useHasScope } from '../../_components/permissions-provider';
+import { PermissionHint } from '@runkora/components';
 
 // ── View-model type ───────────────────────────────────────────────────────────
 
@@ -171,12 +172,14 @@ function makeColumns(
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
         >
-          <Toggle
-            checked={row.enabled}
-            onChange={() => onToggle(row)}
-            disabled={!canWrite}
-            aria-label={`${row.enabled ? 'Disable' : 'Enable'} ${row.name}`}
-          />
+          <PermissionHint allowed={canWrite} action="turn triggers on or off">
+            <Toggle
+              checked={row.enabled}
+              onChange={() => onToggle(row)}
+              disabled={!canWrite}
+              aria-label={`${row.enabled ? 'Disable' : 'Enable'} ${row.name}`}
+            />
+          </PermissionHint>
         </Stack>
       ),
     },

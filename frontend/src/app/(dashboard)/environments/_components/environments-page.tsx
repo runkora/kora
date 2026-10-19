@@ -26,6 +26,7 @@ import { EnvironmentWizard } from './environment-wizard';
 import { imageProblem, sizeLabel } from '@runkora/lib/environments';
 import type { EnvironmentRow } from '../_types';
 import { useHasScope } from '../../_components/permissions-provider';
+import { PermissionHint } from '@runkora/components';
 
 interface EnvironmentsPageProps {
   rows: EnvironmentRow[];
@@ -216,12 +217,13 @@ export function EnvironmentsPage({
         pinEnd: true,
         locked: true,
         gridWidth: '5rem',
-        cell: (row) =>
-          canWrite && (
-            <Stack direction="horizontal" gap="tight" justify="end">
+        cell: (row) => (
+          <Stack direction="horizontal" gap="tight" justify="end">
+            <PermissionHint allowed={canWrite} action="edit environments">
               <Button
                 variant="ghost"
                 size="icon-sm"
+                disabled={!canWrite}
                 onClick={(e) => {
                   e.stopPropagation();
                   setFormState({ environment: row });
@@ -230,9 +232,12 @@ export function EnvironmentsPage({
               >
                 <Icon name="edit" size="2xs" />
               </Button>
+            </PermissionHint>
+            <PermissionHint allowed={canWrite} action="delete environments">
               <Button
                 variant="ghost"
                 size="icon-sm"
+                disabled={!canWrite}
                 onClick={(e) => {
                   e.stopPropagation();
                   setDeleteCandidate(row);
@@ -241,8 +246,9 @@ export function EnvironmentsPage({
               >
                 <Icon name="trash" size="2xs" />
               </Button>
-            </Stack>
-          ),
+            </PermissionHint>
+          </Stack>
+        ),
       },
     ],
     [rows, images, canWrite],
@@ -260,12 +266,16 @@ export function EnvironmentsPage({
             configuration page.
           </Text>
         </Stack>
-        {canWrite && (
-          <Button size="sm" onClick={() => setFormState({ environment: null })}>
+        <PermissionHint allowed={canWrite} action="create environments">
+          <Button
+            size="sm"
+            disabled={!canWrite}
+            onClick={() => setFormState({ environment: null })}
+          >
             <Icon name="plus" size="xs" />
             New environment
           </Button>
-        )}
+        </PermissionHint>
       </Stack>
 
       {error ? (
@@ -276,12 +286,16 @@ export function EnvironmentsPage({
           title="No environments"
           description={`Agents without an environment run on the ${productName} base image. Create an environment to give them a registered image, a size and access.`}
           action={
-            canWrite ? (
-              <Button size="sm" onClick={() => setFormState({ environment: null })}>
+            <PermissionHint allowed={canWrite} action="create environments">
+              <Button
+                size="sm"
+                disabled={!canWrite}
+                onClick={() => setFormState({ environment: null })}
+              >
                 <Icon name="plus" size="xs" />
                 New environment
               </Button>
-            ) : undefined
+            </PermissionHint>
           }
         />
       ) : (

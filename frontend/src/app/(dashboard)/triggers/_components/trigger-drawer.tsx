@@ -79,6 +79,7 @@ import {
 import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
 import { useEditableSection } from './use-editable-section';
 import { useHasScope } from '../../_components/permissions-provider';
+import { PermissionHint } from '@runkora/components';
 
 /**
  * A correction to a stored trigger. Every field is optional: a section saves
@@ -311,14 +312,14 @@ export function TriggerDrawer({
   onFire: fireAction,
   firing = false,
 }: TriggerDrawerProps) {
-  // Without triggers:write every write handler is dropped, which disables or
-  // hides its control. Firing has its own per-trigger answer from the API.
+  // Without triggers:write every write handler is dropped, which disables its
+  // control. Firing has its own per-trigger answer from the API.
   const canWrite = useHasScope('triggers:write');
   const onUpdateSafety = canWrite ? updateSafetyAction : undefined;
   const onEdit = canWrite ? editAction : undefined;
   const onRedeliver = canWrite ? redeliverAction : undefined;
   const onRotateSecret = canWrite ? rotateSecretAction : undefined;
-  const onFire = trigger?.canFire ? fireAction : undefined;
+  const canFire = !!trigger?.canFire;
   const [expanded, setExpanded] = useState<string | null>(null);
   // Rotation is destructive (the provider's configured secret stops working the
   // moment it lands), so the button asks once before doing it.
@@ -521,12 +522,14 @@ export function TriggerDrawer({
         title={trigger.name}
         description={subtitle}
         actions={
-          <Toggle
-            checked={trigger.enabled}
-            onChange={(next) => onToggleEnabled(trigger, next)}
-            disabled={!canWrite}
-            aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} ${trigger.name}`}
-          />
+          <PermissionHint allowed={canWrite} action="turn this trigger on or off">
+            <Toggle
+              checked={trigger.enabled}
+              onChange={(next) => onToggleEnabled(trigger, next)}
+              disabled={!canWrite}
+              aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} ${trigger.name}`}
+            />
+          </PermissionHint>
         }
       />
 
@@ -695,10 +698,17 @@ export function TriggerDrawer({
                           <Text mono size="micro" color="subtle">
                             {trigger.scheduleConfig.timezone}
                           </Text>
-                          {editable && (
-                            <Button variant="ghost" size="xs" onClick={() => setScheduleOpen(true)}>
-                              Edit
-                            </Button>
+                          {editAction !== undefined && (
+                            <PermissionHint allowed={canWrite} action="edit triggers">
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                disabled={!editable}
+                                onClick={() => setScheduleOpen(true)}
+                              >
+                                Edit
+                              </Button>
+                            </PermissionHint>
                           )}
                         </Stack>
                       }
@@ -757,14 +767,16 @@ export function TriggerDrawer({
                       <Text mono size="micro" color="accent" truncate>
                         POST /api/v1/trigger-fires/{trigger.id}
                       </Text>
-                      {onFire !== undefined && (
-                        <Button
-                          size="sm"
-                          disabled={!trigger.enabled || firing}
-                          onClick={() => onFire(trigger)}
-                        >
-                          {firing ? 'Queueing…' : 'Run now'}
-                        </Button>
+                      {fireAction !== undefined && (
+                        <PermissionHint allowed={canFire} action="fire this trigger">
+                          <Button
+                            size="sm"
+                            disabled={!canFire || !trigger.enabled || firing}
+                            onClick={() => fireAction(trigger)}
+                          >
+                            {firing ? 'Queueing…' : 'Run now'}
+                          </Button>
+                        </PermissionHint>
                       )}
                     </Stack>
                   </Card>
@@ -1096,17 +1108,22 @@ export function TriggerDrawer({
                 </Stack>
               </Stack>
 
-              {canWrite && (
-                <DangerZone
-                  title="Delete trigger"
-                  description="Stops all future deliveries. Anything still waiting is recorded as dropped, and history is retained."
-                  action={
-                    <Button variant="destructive" size="sm" onClick={() => onDelete(trigger)}>
+              <DangerZone
+                title="Delete trigger"
+                description="Stops all future deliveries. Anything still waiting is recorded as dropped, and history is retained."
+                action={
+                  <PermissionHint allowed={canWrite} action="delete triggers">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={!canWrite}
+                      onClick={() => onDelete(trigger)}
+                    >
                       Delete
                     </Button>
-                  }
-                />
-              )}
+                  </PermissionHint>
+                }
+              />
             </Stack>
           </TabsContent>
         </SidePanelBody>

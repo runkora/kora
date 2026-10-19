@@ -13,7 +13,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@runkora/hades';
-import { SmartTable } from '@runkora/components';
+import { PermissionHint, SmartTable } from '@runkora/components';
 import type { DataTableColumn } from '@runkora/components';
 import { fmtCost } from '@runkora/utils';
 import type { VirtualModel } from '../_types/catalog';
@@ -225,12 +225,12 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
         />
       }
       toolbarActions={
-        canWrite && (
-          <Button size="sm" onClick={() => onSelect(NEW_VIRTUAL_MODEL)}>
+        <PermissionHint allowed={canWrite} action="change the model catalog">
+          <Button size="sm" disabled={!canWrite} onClick={() => onSelect(NEW_VIRTUAL_MODEL)}>
             <Icon name="plus" size="2xs" />
             New Virtual Model
           </Button>
-        )
+        </PermissionHint>
       }
     />
   );

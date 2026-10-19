@@ -35,6 +35,7 @@ import { matchesStatusFilter } from '../_types';
 import { ingestHostFromWindow } from '../_lib/endpoints';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
 import { useHasScope } from '../../_components/permissions-provider';
+import { PermissionHint } from '@runkora/components';
 
 interface TriggersPageProps {
   sources: SourceRow[];
@@ -217,12 +218,12 @@ export function TriggersPage({
                 />
               }
               toolbarActions={
-                canWrite && (
-                  <Button size="sm" onClick={() => setWizardOpen(true)}>
+                <PermissionHint allowed={canWrite} action="create triggers">
+                  <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
                     <Icon name="plus" size="xs" />
                     New trigger
                   </Button>
-                )
+                </PermissionHint>
               }
               resetKey={kindFilter}
               triggers={visibleTriggers}

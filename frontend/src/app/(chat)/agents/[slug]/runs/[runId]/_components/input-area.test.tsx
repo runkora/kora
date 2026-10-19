@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
+import { renderWithProviders as render } from '@runkora/test-utils';
 import type { UseRunReturn } from '../_hooks/use-run';
 import { InputArea } from './input-area';
 
@@ -47,7 +48,7 @@ describe('InputArea', () => {
   });
 
   it.each([
-    [false, 'You can watch this run but not message it.'],
+    [false, "You don't have permission to message this run."],
     [true, 'Only the person who started this run can message it.'],
   ] as const)(
     'blocks messages and Stop when the caller cannot steer (delegated %s)',
@@ -55,7 +56,10 @@ describe('InputArea', () => {
       ctx = { ...ctx, canSteer: false, delegated };
       render(<InputArea />);
       expect(screen.getByPlaceholderText(placeholder)).toBeDisabled();
-      expect(screen.queryByLabelText('Stop agent')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Stop agent')).toBeDisabled();
+      expect(
+        screen.getByLabelText("You don't have permission to stop this run."),
+      ).toBeInTheDocument();
     },
   );
 

@@ -42,3 +42,7 @@ export { ConnectionCards } from './connection-cards';
 /** Each run state's status dot and label. */
 export { RUN_STATE_DISPLAY } from './run-state';
 export type { RunStateDisplay } from './run-state';
+
+/** A disabled control's tooltip naming the missing permission. */
+export { PermissionHint, permissionHintText } from './permission-hint';
+export type { PermissionHintProps } from './permission-hint';

@@ -16,7 +16,7 @@ import {
 
 import { DelegatedRunNotice } from '../../_components/motif/delegated-run-notice';
 import type { DataTableColumn } from '@runkora/hades';
-import { StatusBadge } from '@runkora/components';
+import { PermissionHint, StatusBadge } from '@runkora/components';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import type { RunStateCounts } from '@runkora/shared/api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
@@ -217,10 +217,11 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
             >
               Open
             </Button>
-            {agent?.canRun && (
+            <PermissionHint allowed={!!agent?.canRun} action="delete runs of this agent">
               <Button
                 variant="ghost"
                 size="sm"
+                disabled={!agent?.canRun}
                 onClick={(e) => {
                   e.stopPropagation();
                   setDeleteError(null);
@@ -229,7 +230,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
               >
                 Delete
               </Button>
-            )}
+            </PermissionHint>
           </Stack>
         ),
       },
@@ -252,17 +253,13 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         <EmptyState
           icon="play-circle"
           title="No runs yet"
-          description={
-            agent?.canRun
-              ? 'Start your first run to execute tasks with this agent.'
-              : 'Runs of this agent show here.'
-          }
+          description="Start your first run to execute tasks with this agent."
           action={
-            agent?.canRun ? (
-              <Button onClick={onStartRun} disabled={agent.state !== 'active'}>
+            <PermissionHint allowed={!!agent?.canRun} action="start runs of this agent">
+              <Button onClick={onStartRun} disabled={!agent?.canRun || agent.state !== 'active'}>
                 Start your first run
               </Button>
-            ) : undefined
+            </PermissionHint>
           }
         />
       ) : (

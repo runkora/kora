@@ -22,18 +22,14 @@ export function ConfigurationRail({
   active,
   onSelect,
   updatedAt,
-  canEdit,
 }: {
   active: string;
   onSelect: (key: string) => void;
   updatedAt: string | null;
-  /** Without edit access the Danger zone, which only deletes, is left out. */
-  canEdit: boolean;
 }) {
-  const sections = canEdit ? CONFIG_SECTIONS : CONFIG_SECTIONS.filter((s) => s.key !== 'danger');
   return (
     <Stack gap="comfortable" minWidth="compact" maxWidth="compact" shrink={false}>
-      <SectionNav sections={sections} active={active} onSelect={onSelect} />
+      <SectionNav sections={CONFIG_SECTIONS} active={active} onSelect={onSelect} />
 
       <Card subtle>
         <CardContent padded compact>

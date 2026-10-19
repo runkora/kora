@@ -43,6 +43,7 @@ import type { DeliveryRow, SourceRow, TriggerRow } from '../../../triggers/_type
 import { ingestHostFromWindow } from '../../../triggers/_lib/endpoints';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { useHasScope } from '../../../_components/permissions-provider';
+import { PermissionHint } from '@runkora/components';
 
 export function AgentTriggersTab() {
   const { agent } = useAgentDetailContext();
@@ -178,12 +179,12 @@ export function AgentTriggersTab() {
             Managed by platform admins.
           </Text>
         </Stack>
-        {canWrite && (
-          <Button size="sm" onClick={() => setWizardOpen(true)}>
+        <PermissionHint allowed={canWrite} action="create triggers">
+          <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
             <Icon name="plus" size="xs" />
             New trigger
           </Button>
-        )}
+        </PermissionHint>
       </Stack>
 
       {loadError && <Alert variant="error">{loadError}</Alert>}
@@ -197,12 +198,12 @@ export function AgentTriggersTab() {
           title="No triggers for this agent"
           description="Create a trigger to run this agent automatically from a webhook event, a schedule, or a manual fire."
           action={
-            canWrite ? (
-              <Button size="sm" onClick={() => setWizardOpen(true)}>
+            <PermissionHint allowed={canWrite} action="create triggers">
+              <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
                 <Icon name="plus" size="xs" />
                 New trigger
               </Button>
-            ) : undefined
+            </PermissionHint>
           }
         />
       ) : (

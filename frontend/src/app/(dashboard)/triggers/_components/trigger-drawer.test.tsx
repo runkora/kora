@@ -429,20 +429,22 @@ describe('permissions', () => {
     expect(screen.getByRole('button', { name: 'Run now' })).toBeTruthy();
   });
 
-  it('hides Run now without fire access, even with triggers:write', () => {
+  it('disables Run now with a hint without fire access, even with triggers:write', () => {
     renderWith(['triggers:read', 'triggers:write'], manual(false));
-    expect(screen.queryByRole('button', { name: 'Run now' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Run now' })).toBeDisabled();
+    expect(screen.getByLabelText("You don't have permission to fire this trigger.")).toBeTruthy();
   });
 
-  it('disables the enable switch and drops edits for a read-only caller', () => {
+  it('disables the enable switch and edits for a read-only caller, with hints', () => {
     renderWith(['triggers:read'], scheduled);
     expect(screen.getByRole('switch')).toBeDisabled();
-    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled();
+    expect(screen.getByLabelText("You don't have permission to edit triggers.")).toBeTruthy();
   });
 
   it('keeps the switch and edits for a caller with triggers:write', () => {
     renderWith(['triggers:read', 'triggers:write'], scheduled);
     expect(screen.getByRole('switch')).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled();
   });
 });

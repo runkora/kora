@@ -7,6 +7,7 @@
 
 import { useState, useCallback } from 'react';
 import { Stack, Text, Button, InputSurface, Textarea } from '@runkora/hades';
+import { PermissionHint, permissionHintText } from '@runkora/components';
 import { useRunContext } from '../_context/run-context';
 
 // Context tools — toggleable pills that annotate the message with context sources
@@ -144,7 +145,8 @@ export function InputArea() {
   // Only show Stop when the run is actually interruptible. The backend rejects an
   // interrupt unless the run is 'active' (and interruptRun swallows that error), so
   // showing Stop during 'starting'/pending made the button a silent no-op.
-  const showStop = runState === 'active' && canSteer !== false;
+  const showStop = runState === 'active';
+  const mayStop = canSteer !== false;
 
   function toggle(id: ContextToolId) {
     if (isDisabled) return;
@@ -198,7 +200,7 @@ export function InputArea() {
                   : canSteer === false
                     ? delegated
                       ? 'Only the person who started this run can message it.'
-                      : 'You can watch this run but not message it.'
+                      : permissionHintText('message this run')
                     : isStarting
                       ? `${agentName} is ${runState === 'pending' ? 'queued' : 'starting'}…`
                       : showStop
@@ -237,27 +239,30 @@ export function InputArea() {
             <Stack direction="horizontal" align="center" style={{ gap: 6 }}>
               {showStop && (
                 /* Stop button — interrupts the active turn */
-                <Button
-                  type="button"
-                  onClick={interruptRun}
-                  aria-label="Stop agent"
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 9,
-                    flexShrink: 0,
-                    background: 'var(--color-surface-overlay)',
-                    border: '1px solid var(--color-border)',
-                    color: 'var(--color-foreground)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'background 0.15s, color 0.15s',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <StopIcon />
-                </Button>
+                <PermissionHint allowed={mayStop} action="stop this run">
+                  <Button
+                    type="button"
+                    onClick={interruptRun}
+                    disabled={!mayStop}
+                    aria-label="Stop agent"
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 9,
+                      flexShrink: 0,
+                      background: 'var(--color-surface-overlay)',
+                      border: '1px solid var(--color-border)',
+                      color: 'var(--color-foreground)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'background 0.15s, color 0.15s',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <StopIcon />
+                  </Button>
+                </PermissionHint>
               )}
               {
                 /* Accent rounded-square send button */

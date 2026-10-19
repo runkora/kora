@@ -35,7 +35,7 @@ import { EnvironmentsCard } from '../../_components/motif/environments-card';
 import { GuardrailsFields } from '../../_components/motif/guardrail-rows';
 import type { GuardrailValues } from '../../_components/motif/guardrail-rows';
 import { PlannedLimits } from '../../_components/motif/planned-limits';
-import { EffectiveAccessPanel } from '@runkora/components';
+import { EffectiveAccessPanel, PermissionHint } from '@runkora/components';
 import { ConfigurationRail } from './configuration-rail';
 import { useAgentConfiguration } from '../_hooks/use-agent-configuration';
 
@@ -120,12 +120,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
 
   return (
     <Stack direction="horizontal" gap="relaxed" align="start">
-      <ConfigurationRail
-        active={active}
-        onSelect={setActive}
-        updatedAt={agent.updatedAt}
-        canEdit={agent.canEdit}
-      />
+      <ConfigurationRail active={active} onSelect={setActive} updatedAt={agent.updatedAt} />
 
       <Stack grow gap="relaxed">
         {!agent.canEdit && (
@@ -324,7 +319,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
         )}
 
         {/* ── Danger zone ──────────────────────────────────────────────────── */}
-        {active === 'danger' && agent.canEdit && (
+        {active === 'danger' && (
           <Stack gap="relaxed">
             <SectionHeading
               icon="triangle-alert"
@@ -343,9 +338,15 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
                       runs.
                     </Text>
                   </Stack>
-                  <Button variant="destructive" onClick={() => cfg.setDeleteOpen(true)}>
-                    Delete agent
-                  </Button>
+                  <PermissionHint allowed={agent.canEdit} action="delete this agent">
+                    <Button
+                      variant="destructive"
+                      disabled={!agent.canEdit}
+                      onClick={() => cfg.setDeleteOpen(true)}
+                    >
+                      Delete agent
+                    </Button>
+                  </PermissionHint>
                 </Stack>
               </CardContent>
             </Card>

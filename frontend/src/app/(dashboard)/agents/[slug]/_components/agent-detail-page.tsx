@@ -22,7 +22,7 @@ import {
   EmptyState,
 } from '@runkora/hades';
 import Link from 'next/link';
-import { StatusBadge } from '@runkora/components';
+import { PermissionHint, StatusBadge } from '@runkora/components';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { AgentOverviewTab } from './agent-overview-tab';
@@ -194,17 +194,17 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
               options={PERIOD_OPTIONS}
             />
           )}
-          {agent.canRun && (
+          <PermissionHint allowed={agent.canRun} action="start runs of this agent">
             <Button
               variant="default"
               size="sm"
               onClick={() => setStartRunOpen(true)}
-              disabled={agent.state !== 'active'}
+              disabled={!agent.canRun || agent.state !== 'active'}
             >
               <Icon name="play" size="xs" />
               Start Run
             </Button>
-          )}
+          </PermissionHint>
         </Stack>
       </Stack>
 

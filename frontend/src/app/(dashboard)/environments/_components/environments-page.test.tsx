@@ -60,13 +60,18 @@ describe('EnvironmentsPage', () => {
   it.each([
     [['agents:environments:read'], false],
     [['agents:environments:read', 'agents:environments:write'], true],
-  ])('with %j shows write controls: %s', (scopes, shown) => {
+  ])('with %j enables write controls: %s', (scopes, shown) => {
     renderWithProviders(
       <EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} sizes={null} error={null} />,
       { scopes },
     );
-    expect(!!screen.queryByRole('button', { name: /new environment/i })).toBe(shown);
-    expect(!!screen.queryByRole('button', { name: `Delete ${ROWS[0]!.name}` })).toBe(shown);
+    expect(
+      !(screen.getByRole('button', { name: /new environment/i }) as HTMLButtonElement).disabled,
+    ).toBe(shown);
+    expect(
+      !(screen.getByRole('button', { name: `Delete ${ROWS[0]!.name}` }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(shown);
   });
 
   it('shows each slug under its name', () => {

@@ -19,7 +19,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@runkora/hades';
-import { SmartTable } from '@runkora/components';
+import { PermissionHint, SmartTable } from '@runkora/components';
 import type { DataTableColumn } from '@runkora/components';
 import { BadgeList } from '../../_components/badge-list';
 import { fmtCost, fmtDate } from '@runkora/utils';
@@ -430,25 +430,29 @@ function PricingOverlay({
             <Text size="supporting" color="muted">
               Enabled
             </Text>
-            <Toggle
-              checked={model.enabled}
-              onChange={(v) => void onToggleEnabled(model.provider, model.modelId, v)}
-              disabled={!canWrite}
-            />
+            <PermissionHint allowed={canWrite} action="change the model catalog">
+              <Toggle
+                checked={model.enabled}
+                onChange={(v) => void onToggleEnabled(model.provider, model.modelId, v)}
+                disabled={!canWrite}
+              />
+            </PermissionHint>
           </Stack>
         </Stack>
       </ModalBody>
       <ModalFooter>
         <Stack direction="horizontal" gap="snug" justify="between" grow>
-          {canWrite && p?.has_override ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void handleClearOverride()}
-              disabled={clearing || saving}
-            >
-              {clearing ? 'Clearing…' : 'Clear override'}
-            </Button>
+          {p?.has_override ? (
+            <PermissionHint allowed={canWrite} action="change the model catalog">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleClearOverride()}
+                disabled={!canWrite || clearing || saving}
+              >
+                {clearing ? 'Clearing…' : 'Clear override'}
+              </Button>
+            </PermissionHint>
           ) : (
             <Stack />
           )}
@@ -456,16 +460,16 @@ function PricingOverlay({
             <Button variant="outline" size="sm" onClick={onClose} disabled={saving || clearing}>
               Cancel
             </Button>
-            {canWrite && (
+            <PermissionHint allowed={canWrite} action="change the model catalog">
               <Button
                 variant="default"
                 size="sm"
                 onClick={() => void handleSaveOverride()}
-                disabled={saving || clearing || !p}
+                disabled={!canWrite || saving || clearing || !p}
               >
                 {saving ? 'Saving…' : 'Save override'}
               </Button>
-            )}
+            </PermissionHint>
           </Stack>
         </Stack>
       </ModalFooter>
@@ -694,11 +698,13 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
         locked: true,
         cell: (m) => (
           <Stack onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-            <Toggle
-              checked={m.enabled}
-              onChange={(v) => void toggle(m.provider, m.modelId, v)}
-              disabled={!canWrite}
-            />
+            <PermissionHint allowed={canWrite} action="change the model catalog">
+              <Toggle
+                checked={m.enabled}
+                onChange={(v) => void toggle(m.provider, m.modelId, v)}
+                disabled={!canWrite}
+              />
+            </PermissionHint>
           </Stack>
         ),
       },

@@ -15,7 +15,7 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
-import { StatusBadge } from '@runkora/components';
+import { PermissionHint, StatusBadge } from '@runkora/components';
 import { fmtUsd } from '@runkora/utils';
 import type { AgentTypeUsage } from '@runkora/shared/api';
 import { APP_ROUTES } from '@runkora/lib/routing';
@@ -134,12 +134,16 @@ export function AgentCard({
                   : 'Idle'}
             </Text>
             <Stack direction="horizontal" align="center" gap="tight">
-              {agent.canRun && (
-                <Button size="sm" disabled={!runnable} onClick={() => onRun(agent)}>
+              <PermissionHint allowed={agent.canRun} action="start runs of this agent">
+                <Button
+                  size="sm"
+                  disabled={!runnable || !agent.canRun}
+                  onClick={() => onRun(agent)}
+                >
                   <Icon name="play" size="xs" />
                   Run
                 </Button>
-              )}
+              </PermissionHint>
               <Button
                 variant="ghost"
                 size="icon-sm"

@@ -19,7 +19,7 @@ import {
 } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
 import Link from 'next/link';
-import { StatusBadge } from '@runkora/components';
+import { PermissionHint, StatusBadge } from '@runkora/components';
 import type { AgentInsightsResponse, AgentTypeUsage } from '@runkora/shared/api';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { useAgentsContext } from '../_context/agents-context';
@@ -256,17 +256,18 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
         gridWidth: '6rem',
         cell: (row) => (
           <Stack direction="horizontal" gap="tight" onClick={(e) => e.stopPropagation()}>
-            {row.canRun && (
+            <PermissionHint allowed={row.canRun} action="start runs of this agent">
               <Button
                 variant="ghost"
                 size="icon-sm"
-                title="Start run"
+                title={row.canRun ? 'Start run' : undefined}
                 aria-label={`Start run for ${row.name}`}
+                disabled={!row.canRun}
                 onClick={() => setStartRunTarget(row)}
               >
                 <Icon name="play" size="2xs" />
               </Button>
-            )}
+            </PermissionHint>
             <Button variant="ghost" size="icon-sm" aria-label={`Settings for ${row.name}`} asChild>
               <Link href={APP_ROUTES.agents.detail(row.slug)}>
                 <Icon name="settings" size="2xs" />
@@ -303,18 +304,22 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
             open={draftsOpen}
             onToggle={() => setDraftsOpen((open) => !open)}
           />
-          {runnableAgentTypes.length > 0 && (
-            <Button variant="outline" onClick={() => setGlobalRunOpen(true)}>
+          <PermissionHint allowed={runnableAgentTypes.length > 0} action="start runs of any agent">
+            <Button
+              variant="outline"
+              disabled={runnableAgentTypes.length === 0}
+              onClick={() => setGlobalRunOpen(true)}
+            >
               <Icon name="play" size="xs" />
               New Run
             </Button>
-          )}
-          {canCreate && (
-            <Button onClick={() => openBuilder()}>
+          </PermissionHint>
+          <PermissionHint allowed={canCreate} action="create agents">
+            <Button disabled={!canCreate} onClick={() => openBuilder()}>
               <Icon name="plus" size="xs" />
               New Agent
             </Button>
-          )}
+          </PermissionHint>
           <Separator orientation="vertical" style={{ height: '1.5rem', alignSelf: 'center' }} />
           <Button
             variant={viewMode === 'grid' ? 'default' : 'ghost'}
@@ -401,7 +406,13 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
               ? 'Create your first agent definition to start running AI tasks.'
               : 'No agents are shared with you yet.'
           }
-          action={canCreate ? <Button onClick={() => openBuilder()}>New Agent</Button> : undefined}
+          action={
+            <PermissionHint allowed={canCreate} action="create agents">
+              <Button disabled={!canCreate} onClick={() => openBuilder()}>
+                New Agent
+              </Button>
+            </PermissionHint>
+          }
         />
       ) : viewMode === 'grid' ? (
         /* ── Grid view ─────────────────────────────────────────────────────── */
