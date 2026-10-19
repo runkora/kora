@@ -570,7 +570,7 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	case errors.As(err, &gre):
 		// The update is stored. Grant ids stay in the log.
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError,
-			"trigger updated, but revoking the previous grant failed; retry the update or contact your platform team",
+			"trigger updated, but its previous grant could not be revoked and is still live; ask your platform team to revoke it",
 			map[string]any{"trigger_id": gre.TriggerID}), err)
 	case errors.Is(err, ErrTriggerDisabled), errors.Is(err, ErrTriggerAutoPaused):
 		// 409 for both: the trigger is not accepting fires until someone acts.

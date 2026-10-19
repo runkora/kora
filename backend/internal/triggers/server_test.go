@@ -883,7 +883,7 @@ func TestHandleUpdateTrigger_RevokeFailureHidesGrants(t *testing.T) {
 		t.Fatalf("status = %d (body: %s)", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "revoking the previous grant failed") || !strings.Contains(body, tr.ID) || strings.Contains(body, "grant-") {
+	if !strings.Contains(body, "previous grant could not be revoked") || !strings.Contains(body, tr.ID) || strings.Contains(body, "grant-") {
 		t.Errorf("body = %s, want the fixed message and trigger id only", body)
 	}
 }
