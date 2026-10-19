@@ -1,4 +1,4 @@
-package orbitmcp
+package koramcp
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
 )
 
 // registerPATTools wires the Personal Access Token domain: viewing and managing
@@ -17,7 +17,7 @@ import (
 // Deliberately NO create tool: agents must not be able to mint new PATs (a PAT is
 // a long-lived standing credential), so the POST /identity/tokens endpoint is not
 // exposed through this MCP surface. Agents may view, re-scope, and revoke.
-func registerPATTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
+func registerPATTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 	base := b.Identity + "/api/v1/identity/tokens"
 
 	addTool(srv, "pats.list",

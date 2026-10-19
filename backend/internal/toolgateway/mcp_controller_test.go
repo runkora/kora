@@ -76,7 +76,7 @@ func testController(eval policy.Evaluator, cat CatalogRepository) *MCPController
 func doRPC(t *testing.T, c *MCPController, server, body string) (*httptest.ResponseRecorder, jsonRPCResponse) {
 	t.Helper()
 	claims := &platformtoken.PlatformClaims{}
-	claims.Orbit.TenantID = "acme"
+	claims.Kora.TenantID = "acme"
 	claims.Subject = "agent-1"
 	ctx := platformtoken.WithClaims(context.Background(), claims)
 	req := httptest.NewRequest(http.MethodPost, "/v1/mcp/"+server, strings.NewReader(body)).WithContext(ctx)

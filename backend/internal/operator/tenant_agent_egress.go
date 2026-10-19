@@ -59,7 +59,7 @@ func (c AgentCollector) external() bool {
 
 // ensureAgentEgressPolicy reconciles the NetworkPolicy that limits agent pod
 // egress to the platform services, the tenant's sandboxes and the collector.
-func (r *TenantReconciler) ensureAgentEgressPolicy(ctx context.Context, tenant *OrbitTenant) error {
+func (r *TenantReconciler) ensureAgentEgressPolicy(ctx context.Context, tenant *KoraTenant) error {
 	return r.ensureNetworkPolicy(ctx, tenant, agentEgressPolicy(tenantNamespace(tenant), tenant.Name, r.Collector))
 }
 
@@ -112,7 +112,7 @@ func agentEgressPolicy(ns, tenantName string, collector AgentCollector) *network
 // ensureAgentEgressSidecar reconciles the Istio Sidecar that has the agent
 // pod's Envoy refuse any other host at once, instead of the NetworkPolicy
 // leaving the connection to time out.
-func (r *TenantReconciler) ensureAgentEgressSidecar(ctx context.Context, tenant *OrbitTenant) error {
+func (r *TenantReconciler) ensureAgentEgressSidecar(ctx context.Context, tenant *KoraTenant) error {
 	desired := agentEgressSidecar(tenantNamespace(tenant), tenant.Name, r.Collector)
 	err := r.Create(ctx, desired)
 	if err == nil || !apierrors.IsAlreadyExists(err) {

@@ -29,7 +29,7 @@ var tracer = otel.Tracer("inferencegw")
 // principal carries the extracted identity context for a single request.
 // Populated from the verified PlatformClaims stored in context by AuthMiddleware.
 // TokenID is only populated for PAT-authenticated requests (PrincipalType == "PAT");
-// it holds the PAT record UUID from claims.Orbit.PatID. It is empty for all
+// it holds the PAT record UUID from claims.Kora.PatID. It is empty for all
 // other principal types — those callers have no PAT record to reference.
 type principal struct {
 	TenantID       string
@@ -985,7 +985,7 @@ func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID s
 
 	p := principal{TenantID: tenantID, PrincipalID: principalID}
 	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil {
-		p.PrincipalType = string(claims.Orbit.PrincipalType)
+		p.PrincipalType = string(claims.Kora.PrincipalType)
 	}
 	scopes, _, roles := s.budgetScopesFor(ctx, p)
 
@@ -1335,7 +1335,7 @@ func utilization(s BudgetPrincipalStatus) float64 {
 // in the JWT carry related but non-equivalent identifiers:
 //   - claims.RegisteredClaims.ID (JTI) — a per-issuance revocation key stored
 //     in Redis; a new JTI is minted on every token issuance.
-//   - claims.Orbit.PatID — the stable PAT record UUID; constant for the
+//   - claims.Kora.PatID — the stable PAT record UUID; constant for the
 //     lifetime of the PAT regardless of how many tokens have been issued.
 //
 // We use PatID (not JTI) so that all requests authenticated by the same
@@ -1347,15 +1347,15 @@ func principalFromClaims(ctx context.Context) (principal, error) {
 	}
 
 	var tokenID string
-	if claims.Orbit.PrincipalType == token.PrincipalTypePAT {
-		tokenID = claims.Orbit.PatID
+	if claims.Kora.PrincipalType == token.PrincipalTypePAT {
+		tokenID = claims.Kora.PatID
 	}
 
 	return principal{
-		TenantID:       claims.Orbit.TenantID,
+		TenantID:       claims.Kora.TenantID,
 		PrincipalID:    claims.Subject,
-		PrincipalType:  string(claims.Orbit.PrincipalType),
-		IdentitySource: string(claims.Orbit.IdentitySource),
+		PrincipalType:  string(claims.Kora.PrincipalType),
+		IdentitySource: string(claims.Kora.IdentitySource),
 		TokenID:        tokenID,
 	}, nil
 }
@@ -1393,10 +1393,10 @@ func dedupeRoles(roles []string) []string {
 // extractRolesFromClaims reads the comma-separated roles claim from the platform JWT.
 // Returns an empty slice when no roles claim is present.
 func extractRolesFromClaims(claims *token.PlatformClaims) []string {
-	if claims.Orbit.Claims == nil {
+	if claims.Kora.Claims == nil {
 		return nil
 	}
-	raw, ok := claims.Orbit.Claims["roles"]
+	raw, ok := claims.Kora.Claims["roles"]
 	if !ok || raw == "" {
 		return nil
 	}

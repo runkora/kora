@@ -1,4 +1,4 @@
-package orbitmcp
+package koramcp
 
 import (
 	"context"
@@ -6,14 +6,14 @@ import (
 	"net/url"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
 )
 
 // registerModelTools wires the models domain: the inference catalog exposed by
 // the inference gateway — the runtime model list plus full management of virtual
 // models, provider models, and pricing overrides. Reads require platform:catalog:read,
 // writes platform:catalog:write; the inference gateway enforces the real scope.
-func registerModelTools(srv *sdk.Server, b Backends, jc *orbitjson.Client, product string) {
+func registerModelTools(srv *sdk.Server, b Backends, jc *korajson.Client, product string) {
 	base := b.Inference + "/v1"
 	catalog := base + "/catalog"
 
@@ -78,7 +78,7 @@ func registerModelTools(srv *sdk.Server, b Backends, jc *orbitjson.Client, produ
 
 // registerProviderModelTools wires the provider-model catalog (the upstream
 // models that virtual models route to) and the providers that serve them.
-func registerProviderModelTools(srv *sdk.Server, catalog string, jc *orbitjson.Client) {
+func registerProviderModelTools(srv *sdk.Server, catalog string, jc *korajson.Client) {
 	addTool(srv, "models.providers.status",
 		"List the registered inference providers: name, type, region or endpoint, credential mode, "+
 			"InferenceProvider resource, status, model count and last error. "+
@@ -113,7 +113,7 @@ func registerProviderModelTools(srv *sdk.Server, catalog string, jc *orbitjson.C
 }
 
 // registerPricingTools wires the per-provider-model pricing overrides.
-func registerPricingTools(srv *sdk.Server, catalog string, jc *orbitjson.Client) {
+func registerPricingTools(srv *sdk.Server, catalog string, jc *korajson.Client) {
 	addTool(srv, "models.pricing.list",
 		"List per-provider-model pricing (default rates plus any tenant overrides).",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {

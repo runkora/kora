@@ -20,8 +20,8 @@ import (
 
 const bundledTestNS = "orbit-tenant-example"
 
-func bundledTenant() *OrbitTenant {
-	return &OrbitTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
+func bundledTenant() *KoraTenant {
+	return &KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
 }
 
 // newBundledReconciler returns a tenant reconciler over a fake client holding objs.

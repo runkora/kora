@@ -101,8 +101,8 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 	cfg := smConfig.Current
 
 	var notifier sessionmanager.Notifier = sessionmanager.NoopNotifier{}
-	if cfg.OrbitAgents.URL != "" {
-		notifier = sessionmanager.NewHTTPNotifier(cfg.OrbitAgents.URL, logger)
+	if cfg.KoraAgents.URL != "" {
+		notifier = sessionmanager.NewHTTPNotifier(cfg.KoraAgents.URL, logger)
 	}
 
 	// The session-control API can start, message, interrupt, and kill any run on

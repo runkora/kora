@@ -14,10 +14,10 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-func tenant(name string, active bool) *OrbitTenant {
-	return &OrbitTenant{
+func tenant(name string, active bool) *KoraTenant {
+	return &KoraTenant{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Spec:       OrbitTenantSpec{Active: active},
+		Spec:       KoraTenantSpec{Active: active},
 	}
 }
 

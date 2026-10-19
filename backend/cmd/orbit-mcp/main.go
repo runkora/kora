@@ -16,10 +16,10 @@ import (
 	"syscall"
 
 	omc "github.com/runkora/kora/backend/cmd/orbit-mcp/config"
-	"github.com/runkora/kora/backend/internal/orbitmcp"
+	"github.com/runkora/kora/backend/internal/koramcp"
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/brand"
-	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
 	"github.com/runkora/kora/backend/internal/platform/config"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mcpkit "github.com/runkora/kora/backend/internal/platform/mcp"
@@ -68,8 +68,8 @@ func realMain() error {
 		return fmt.Errorf("load brand: %w", err)
 	}
 
-	jc := orbitjson.NewClient(logger)
-	srv := orbitmcp.NewServer(orbitmcp.Backends{
+	jc := korajson.NewClient(logger)
+	srv := koramcp.NewServer(koramcp.Backends{
 		Agents:      omc.Current.Backends.Agents,
 		Policy:      omc.Current.Backends.Policy,
 		Inference:   omc.Current.Backends.Inference,

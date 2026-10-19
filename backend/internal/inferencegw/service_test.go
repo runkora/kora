@@ -134,7 +134,7 @@ func (s *stubEvaluator) Start(_ context.Context) {}
 func testClaims(tenantID string) *token.PlatformClaims {
 	return &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      tenantID,
 			PrincipalType: token.PrincipalTypeHuman,
 		},
@@ -149,7 +149,7 @@ func ctxWithClaims(t *testing.T) context.Context {
 func ctxWithRoles(t *testing.T, roles ...string) context.Context {
 	t.Helper()
 	c := testClaims("tenant-1")
-	c.Orbit.Claims = map[string]string{"roles": strings.Join(roles, ",")}
+	c.Kora.Claims = map[string]string{"roles": strings.Join(roles, ",")}
 	return token.WithClaims(context.Background(), c)
 }
 

@@ -238,7 +238,7 @@ func TestSandboxImage_PullSecret(t *testing.T) {
 }
 
 func TestEnsureBaseSandboxImage(t *testing.T) {
-	tenant := &OrbitTenant{ObjectMeta: metav1.ObjectMeta{Name: "acme"}, Spec: OrbitTenantSpec{Namespace: testNS}}
+	tenant := &KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: "acme"}, Spec: KoraTenantSpec{Namespace: testNS}}
 	c := fake.NewClientBuilder().WithScheme(NewScheme()).Build()
 	r := &TenantReconciler{Client: c, SandboxBase: SandboxBase{Image: "ghcr.io/runkora/kora-sandbox-base:1", Warm: true}}
 

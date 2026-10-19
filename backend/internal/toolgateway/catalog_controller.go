@@ -108,12 +108,12 @@ func (c *CatalogController) handleListServers(w http.ResponseWriter, r *http.Req
 	ctx := r.Context()
 
 	claims, ok := platformtoken.ClaimsFromContext(ctx)
-	if !ok || claims.Orbit.TenantID == "" {
+	if !ok || claims.Kora.TenantID == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "missing tenant in token", nil), nil)
 		return
 	}
-	tenantID := claims.Orbit.TenantID
+	tenantID := claims.Kora.TenantID
 
 	tools, err := c.repo.ListByTenant(ctx, tenantID)
 	if err != nil {
@@ -171,18 +171,18 @@ func (c *CatalogController) handleListServers(w http.ResponseWriter, r *http.Req
 }
 
 // handleListCatalog returns the caller's tenant's tools (plus global tools),
-// scoped to claims.Orbit.TenantID from the verified token.
+// scoped to claims.Kora.TenantID from the verified token.
 func (c *CatalogController) handleListCatalog(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	claims, ok := platformtoken.ClaimsFromContext(ctx)
-	if !ok || claims.Orbit.TenantID == "" {
+	if !ok || claims.Kora.TenantID == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "missing tenant in token", nil), nil)
 		return
 	}
 
-	tools, err := c.repo.ListByTenant(ctx, claims.Orbit.TenantID)
+	tools, err := c.repo.ListByTenant(ctx, claims.Kora.TenantID)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "failed to list MCP tool catalog", nil), err)

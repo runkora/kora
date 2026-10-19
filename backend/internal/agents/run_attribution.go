@@ -112,8 +112,8 @@ func authorizeTriggerAttribution(ctx context.Context, req StartRunRequest) (*Sta
 	if !ok || claims == nil {
 		return nil, ErrTriggerAttributionRefused
 	}
-	if claims.Orbit.PrincipalType != token.PrincipalTypeService {
-		return nil, fmt.Errorf("%w (principal type %s)", ErrTriggerAttributionRefused, claims.Orbit.PrincipalType)
+	if claims.Kora.PrincipalType != token.PrincipalTypeService {
+		return nil, fmt.Errorf("%w (principal type %s)", ErrTriggerAttributionRefused, claims.Kora.PrincipalType)
 	}
 	if err := triggerPrincipalMayClaim(claims.Subject, triggerID); err != nil {
 		return nil, err

@@ -103,8 +103,8 @@ func evalLayer2(t *testing.T, pq rego.PreparedEvalQuery, claims *token.PlatformC
 
 	input := map[string]any{
 		"principal": map[string]any{
-			"type":      string(claims.Orbit.PrincipalType),
-			"tenant_id": claims.Orbit.TenantID,
+			"type":      string(claims.Kora.PrincipalType),
+			"tenant_id": claims.Kora.TenantID,
 			"id":        claims.Subject,
 			"roles":     extractRoles(claims),
 		},
@@ -148,10 +148,10 @@ func evalLayer1(t *testing.T, pq rego.PreparedEvalQuery, method, path string, he
 }
 
 func extractRoles(claims *token.PlatformClaims) []string {
-	if claims.Orbit.Claims == nil {
+	if claims.Kora.Claims == nil {
 		return []string{}
 	}
-	raw, ok := claims.Orbit.Claims["roles"]
+	raw, ok := claims.Kora.Claims["roles"]
 	if !ok || raw == "" {
 		return []string{}
 	}
@@ -171,7 +171,7 @@ func extractRoles(claims *token.PlatformClaims) []string {
 func agentClaims(principalID string) *token.PlatformClaims {
 	return &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: principalID},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			PrincipalType: token.PrincipalTypeAgent,
 			TenantID:      testTenantID,
 		},
@@ -185,7 +185,7 @@ func humanClaims(principalID string, rolesList ...string) *token.PlatformClaims 
 	}
 	return &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: principalID},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			PrincipalType: token.PrincipalTypeHuman,
 			TenantID:      testTenantID,
 			Claims:        claims,
@@ -267,8 +267,8 @@ func evalScopes(t *testing.T, pq rego.PreparedEvalQuery, claims *token.PlatformC
 
 	input := map[string]any{
 		"principal": map[string]any{
-			"type":      string(claims.Orbit.PrincipalType),
-			"tenant_id": claims.Orbit.TenantID,
+			"type":      string(claims.Kora.PrincipalType),
+			"tenant_id": claims.Kora.TenantID,
 			"id":        claims.Subject,
 			"roles":     extractRoles(claims),
 		},
@@ -507,7 +507,7 @@ func TestAuthz_EmptyPrincipal(t *testing.T) {
 
 	emptyClaims := &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: ""},
-		Orbit:            token.OrbitClaims{TenantID: testTenantID},
+		Kora:             token.KoraClaims{TenantID: testTenantID},
 	}
 	allow, reason := evalLayer2(t, pq, emptyClaims, nil, "inference", nil, "invoke")
 	if allow {

@@ -137,7 +137,7 @@ func TestAgentInsightsHandlers(t *testing.T) {
 		logger: logging.NewLoggerWithOutput(io.Discard),
 	}
 	claims := func(tenant string) *token.PlatformClaims {
-		return &token.PlatformClaims{Orbit: token.OrbitClaims{TenantID: tenant, PrincipalType: token.PrincipalTypeHuman}}
+		return &token.PlatformClaims{Kora: token.KoraClaims{TenantID: tenant, PrincipalType: token.PrincipalTypeHuman}}
 	}
 	for _, tc := range []struct {
 		name    string

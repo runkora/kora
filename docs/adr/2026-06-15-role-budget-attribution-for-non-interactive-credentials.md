@@ -13,7 +13,7 @@
 
 kora's [hierarchical budget model](2026-06-10-hierarchical-budget-enforcement.md) supports four ceiling scopes: **principal** (grant budgets), **role** (pooled or per-member, keyed on OIDC role/group membership), **tenant** (account rollup), and **run** (per-session). Role budgets are the only scope that depends on *per-request role membership* rather than a stable identifier (`principal_id` / `run_id` / `tenant_id`).
 
-The inference gateway derives a caller's roles from the verified platform JWT at request time (`rolesFromContext` → `claims.Orbit.Claims["roles"]`). Two facts collide:
+The inference gateway derives a caller's roles from the verified platform JWT at request time (`rolesFromContext` → `claims.Kora.Claims["roles"]`). Two facts collide:
 
 1. **Only interactive browser sessions carry roles.** `ExchangeIDToken` / the login flow merges the IdP's `roles` + `groups` claims into `orbit.claims.roles` on the *session* token (`identity/service.go:406`).
 2. **PATs and agent tokens carry no roles.** `CreatePAT` mints a JWT with no `claims` map at all (`identity/pat_service.go:55`, `signToken` at `service.go:962`); the agent SVID-derived platform token likewise has none. The gateway middleware only strips the `orb_` prefix — there is no enrichment.

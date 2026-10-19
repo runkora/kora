@@ -124,7 +124,7 @@ func TestConnectionAggregator_KeepsEarlierOfConflictingConnections(t *testing.T)
 	c := fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(objs...).Build()
 	a := NewConnectionAggregator(c, logging.NewLoggerWithOutput(io.Discard))
 
-	entries, _, err := a.collect(context.Background(), []OrbitTenant{{ObjectMeta: metav1.ObjectMeta{Name: "acme"}}})
+	entries, _, err := a.collect(context.Background(), []KoraTenant{{ObjectMeta: metav1.ObjectMeta{Name: "acme"}}})
 	if err != nil {
 		t.Fatalf("collect: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestConnectionAggregator_KeepsEarlierOfConflictingConnections(t *testing.T)
 			t.Fatal(err)
 		}
 	}
-	entries, _, err = a.collect(context.Background(), []OrbitTenant{{ObjectMeta: metav1.ObjectMeta{Name: "acme"}}})
+	entries, _, err = a.collect(context.Background(), []KoraTenant{{ObjectMeta: metav1.ObjectMeta{Name: "acme"}}})
 	if err != nil {
 		t.Fatalf("collect: %v", err)
 	}

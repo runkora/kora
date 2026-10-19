@@ -22,7 +22,7 @@ type SandboxBase struct {
 
 // ensureBaseSandboxImage keeps kora-base pointing at the install's base image.
 // Every reconcile replaces its whole spec and drops a field a tenant added.
-func (r *TenantReconciler) ensureBaseSandboxImage(ctx context.Context, tenant *OrbitTenant) error {
+func (r *TenantReconciler) ensureBaseSandboxImage(ctx context.Context, tenant *KoraTenant) error {
 	desired := baseSandboxImage(tenantNamespace(tenant), tenant.Name, r.SandboxBase, r.ProductName)
 	existing, err := r.getSandboxImage(ctx, desired.Namespace, desired.Name)
 	if err != nil {
@@ -87,7 +87,7 @@ type BundledSandboxImage struct {
 // SandboxImages it created. A tenant's own SandboxImage under a bundled name is
 // left alone, and that tenant does not receive the bundled image. A failure on
 // one image does not stop the others.
-func (r *TenantReconciler) ensureBundledSandboxImages(ctx context.Context, tenant *OrbitTenant) error {
+func (r *TenantReconciler) ensureBundledSandboxImages(ctx context.Context, tenant *KoraTenant) error {
 	ns := tenantNamespace(tenant)
 	var errs []error
 	for _, b := range si.Bundled {

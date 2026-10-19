@@ -242,7 +242,7 @@ Connectors and egress are server-derived from intent; inference should be too.
 
 ### Implementation pointer
 
-A `deriveInferenceScopes(modelID string) []string` in `internal/agents`, applied in `CreateAgentType`/`UpdateAgentType` before the `EffectiveGrantScopes()` composition; then remove the duplicated derivation from orbit-mcp (`internal/orbitmcp/tools_agents.go` `deriveGrantScopes`) and the frontend BFF (`create-agent-form.tsx`, `use-agent-settings.ts`).
+A `deriveInferenceScopes(modelID string) []string` in `internal/agents`, applied in `CreateAgentType`/`UpdateAgentType` before the `EffectiveGrantScopes()` composition; then remove the duplicated derivation from orbit-mcp (`internal/koramcp/tools_agents.go` `deriveGrantScopes`) and the frontend BFF (`create-agent-form.tsx`, `use-agent-settings.ts`).
 
 ---
 

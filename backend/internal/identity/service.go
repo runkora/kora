@@ -979,7 +979,7 @@ func (s *Service) signToken(p *Principal, jti, sessionID, patID string, now time
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 			Issuer:    token.DefaultIssuer,
 		},
-		Orbit: OrbitClaims{
+		Kora: KoraClaims{
 			SessionID:      sessionID,
 			PrincipalType:  p.Type,
 			TenantID:       p.TenantID,

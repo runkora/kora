@@ -208,7 +208,7 @@ One typed kind gives admission-time validation per provider with one list. A dec
 - `backend/internal/inferencegw/providers/compatible/`: the compatible connector.
 - `backend/internal/inferencegw/`: swappable connectors, provider status, `GET /v1/catalog/providers`, `InferFamily`, provider-name validation, pricing by type.
 - `backend/cmd/inference-gateway/`: start the watcher and seed the routing engine; the CHECK widening migration.
-- `backend/internal/orbitmcp/tools_models.go`: `models.providers.status`.
+- `backend/internal/koramcp/tools_models.go`: `models.providers.status`.
 - `frontend/src/app/(dashboard)/model-gateway/catalog/`: the Providers tab.
 - `charts/orbit/`: the gateway Role, API server label, namespace env and the admission policy.
 - `backend/internal/operator/inferenceprovider_serviceentry.go` and `charts/orbit/templates/operator/role.yaml`: Amendment 1.

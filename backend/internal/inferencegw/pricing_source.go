@@ -86,8 +86,8 @@ type liteLLMEntry struct {
 	OutputCostPerAudioToken     *float64 `json:"output_cost_per_audio_token"`
 }
 
-// liteLLMProviderToOrbit maps LiteLLM litellm_provider field values to kora ProviderNames.
-var liteLLMProviderToOrbit = map[string]ProviderName{
+// liteLLMProviderToKora maps LiteLLM litellm_provider field values to kora ProviderNames.
+var liteLLMProviderToKora = map[string]ProviderName{
 	"bedrock":                    ProviderBedrock,
 	"bedrock_converse":           ProviderBedrock,
 	"bedrock_mantle":             ProviderBedrock,
@@ -103,7 +103,7 @@ var liteLLMProviderToOrbit = map[string]ProviderName{
 // resolveProvider maps a LiteLLM provider field value to a kora ProviderName.
 // Returns ("", false) for providers not supported by kora.
 func resolveProvider(liteLLMProvider string) (ProviderName, bool) {
-	p, ok := liteLLMProviderToOrbit[liteLLMProvider]
+	p, ok := liteLLMProviderToKora[liteLLMProvider]
 	return p, ok
 }
 

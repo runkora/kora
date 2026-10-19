@@ -300,7 +300,7 @@ func checkDelegationBinding(input CheckInput) string {
 		return ReasonDelegationRunUnbound
 	}
 	// Sandbox mode: the platform token carries the per-run SVID's run_id claim.
-	if tokenRunID := input.Claims.Orbit.Claims["run_id"]; tokenRunID != "" && tokenRunID != d.RunID {
+	if tokenRunID := input.Claims.Kora.Claims["run_id"]; tokenRunID != "" && tokenRunID != d.RunID {
 		return ReasonDelegationRunMismatch
 	}
 	// Path mode: the request asserted a /run/{run_id} prefix.
@@ -318,7 +318,7 @@ func (e *engine) Check(ctx context.Context, input CheckInput) (Result, error) {
 	if reason := checkDelegationBinding(input); reason != "" {
 		return Result{Reason: reason}, nil
 	}
-	tenantID := input.Claims.Orbit.TenantID
+	tenantID := input.Claims.Kora.TenantID
 
 	tb, err := e.bundleForTenant(ctx, tenantID)
 	if err != nil {
@@ -343,7 +343,7 @@ func (e *engine) Query(ctx context.Context, input QueryInput) ([]string, error) 
 	if input.Claims == nil {
 		return nil, nil
 	}
-	tenantID := input.Claims.Orbit.TenantID
+	tenantID := input.Claims.Kora.TenantID
 
 	tb, err := e.bundleForTenant(ctx, tenantID)
 	if err != nil {
@@ -396,7 +396,7 @@ func (e *engine) Scopes(ctx context.Context, input ScopesInput) ([]string, error
 	if input.Claims == nil {
 		return nil, nil
 	}
-	tenantID := input.Claims.Orbit.TenantID
+	tenantID := input.Claims.Kora.TenantID
 
 	tb, err := e.bundleForTenant(ctx, tenantID)
 	if err != nil {
@@ -407,8 +407,8 @@ func (e *engine) Scopes(ctx context.Context, input ScopesInput) ([]string, error
 	}
 
 	opaInput := principalInput{
-		Type:     string(input.Claims.Orbit.PrincipalType),
-		TenantID: input.Claims.Orbit.TenantID,
+		Type:     string(input.Claims.Kora.PrincipalType),
+		TenantID: input.Claims.Kora.TenantID,
 		ID:       principalID(input.Claims),
 		Roles:    extractRoles(input.Claims),
 	}
@@ -428,7 +428,7 @@ func (e *engine) ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesE
 	if input.Claims == nil {
 		return &ScopesExplainResult{}, nil
 	}
-	tenantID := input.Claims.Orbit.TenantID
+	tenantID := input.Claims.Kora.TenantID
 
 	tb, err := e.bundleForTenant(ctx, tenantID)
 	if err != nil {
@@ -440,8 +440,8 @@ func (e *engine) ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesE
 
 	opaInput := map[string]any{
 		"principal": principalInput{
-			Type:     string(input.Claims.Orbit.PrincipalType),
-			TenantID: input.Claims.Orbit.TenantID,
+			Type:     string(input.Claims.Kora.PrincipalType),
+			TenantID: input.Claims.Kora.TenantID,
 			ID:       principalID(input.Claims),
 			Roles:    extractRoles(input.Claims),
 		},
@@ -949,8 +949,8 @@ func buildOPAInput(
 
 	input := opaInput{
 		Principal: principalInput{
-			Type:     string(claims.Orbit.PrincipalType),
-			TenantID: claims.Orbit.TenantID,
+			Type:     string(claims.Kora.PrincipalType),
+			TenantID: claims.Kora.TenantID,
 			ID:       principalID(claims),
 			Roles:    extractRoles(claims),
 		},
@@ -980,17 +980,17 @@ func buildOPAInput(
 // For PAT principals, sub holds the issuing user's OIDC subject for attribution;
 // the grant is keyed on the PAT UUID stored in PatID instead.
 func principalID(claims *token.PlatformClaims) string {
-	if claims.Orbit.PrincipalType == token.PrincipalTypePAT && claims.Orbit.PatID != "" {
-		return claims.Orbit.PatID
+	if claims.Kora.PrincipalType == token.PrincipalTypePAT && claims.Kora.PatID != "" {
+		return claims.Kora.PatID
 	}
 	return claims.Subject
 }
 
 func extractRoles(claims *token.PlatformClaims) []string {
-	if claims.Orbit.Claims == nil {
+	if claims.Kora.Claims == nil {
 		return []string{}
 	}
-	raw, ok := claims.Orbit.Claims["roles"]
+	raw, ok := claims.Kora.Claims["roles"]
 	if !ok || raw == "" {
 		return []string{}
 	}

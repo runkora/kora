@@ -111,7 +111,7 @@ func testKeyPEM(t *testing.T) []byte {
 func claimsFor(tenant, principal, run string) *token.PlatformClaims {
 	return &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: principal},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      tenant,
 			PrincipalType: token.PrincipalTypeAgent,
 			Claims:        map[string]string{"run_id": run},

@@ -1,4 +1,4 @@
-package orbitmcp
+package koramcp
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"strconv"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
 )
 
 // registerTriggerTools wires the triggers domain: webhook sources, the triggers
@@ -16,7 +16,7 @@ import (
 // orbit-triggers binary (these endpoints moved out of identity; pointing them at
 // b.Identity made every trigger tool 404). Reads require triggers:read, writes
 // triggers:write.
-func registerTriggerTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
+func registerTriggerTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 	base := b.Triggers + "/api/v1"
 	sources := base + "/trigger-sources"
 	triggers := base + "/triggers"
@@ -28,7 +28,7 @@ func registerTriggerTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 
 // registerTriggerProviderTools wires each provider's schema catalog: the event
 // types a trigger can listen for and the fields it can template or filter on.
-func registerTriggerProviderTools(srv *sdk.Server, providers string, jc *orbitjson.Client) {
+func registerTriggerProviderTools(srv *sdk.Server, providers string, jc *korajson.Client) {
 	addTool(srv, "triggers.providers.event_types",
 		"List the event types a webhook provider (e.g. github, alertmanager) sends, from its published schema, "+
 			"and the sender associations a trigger's sender_restriction may name (empty when the provider identifies no sender).",
@@ -54,7 +54,7 @@ func registerTriggerProviderTools(srv *sdk.Server, providers string, jc *orbitjs
 
 // registerTriggerSourceTools wires the webhook trigger sources (the endpoints
 // that receive external events).
-func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *orbitjson.Client) {
+func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Client) {
 	addTool(srv, "triggers.sources.list",
 		"List the webhook trigger sources in the caller's tenant — each source's provider and enabled state "+
 			"(the signing secret is never returned).",
@@ -110,7 +110,7 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *orbitjson.C
 
 // registerTriggerBindingTools wires the triggers themselves (source→agent-run
 // bindings) and the delivery history.
-func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *orbitjson.Client) {
+func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *korajson.Client) {
 	addTool(srv, "triggers.list",
 		"List the triggers in the caller's tenant — each binds a source event to an agent run.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {

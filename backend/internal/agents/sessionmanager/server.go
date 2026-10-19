@@ -173,10 +173,10 @@ func (c *Controller) requireExpectedCaller(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		claims, ok := token.ClaimsFromContext(ctx)
-		if !ok || claims.Orbit.PrincipalType != token.PrincipalTypeSystem || claims.Orbit.DisplayName != expectedCaller {
+		if !ok || claims.Kora.PrincipalType != token.PrincipalTypeSystem || claims.Kora.DisplayName != expectedCaller {
 			principalType, displayName := "", ""
 			if claims != nil {
-				principalType, displayName = string(claims.Orbit.PrincipalType), claims.Orbit.DisplayName
+				principalType, displayName = string(claims.Kora.PrincipalType), claims.Kora.DisplayName
 			}
 			c.logger.Warn(ctx, "Rejected session-manager call from unexpected principal",
 				logging.Field{Key: "path", Value: r.URL.Path},

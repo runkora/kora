@@ -13,10 +13,11 @@ import (
 // AddToScheme registers the kora CRD types into a runtime.Scheme.
 // Call this on the controller-runtime manager's scheme before starting.
 func AddToScheme(s *runtime.Scheme) error {
-	// Register the concrete CRD types for orbit.io/v1alpha1.
+	// Register the concrete CRD types for orbit.io/v1alpha1. The tenant types
+	// carry the CRD kind explicitly, since it differs from the Go type name.
+	s.AddKnownTypeWithName(GroupVersion.WithKind("OrbitTenant"), &KoraTenant{})
+	s.AddKnownTypeWithName(GroupVersion.WithKind("OrbitTenantList"), &KoraTenantList{})
 	s.AddKnownTypes(GroupVersion,
-		&OrbitTenant{},
-		&OrbitTenantList{},
 		&Connection{},
 		&ConnectionList{},
 		&MCPServer{},

@@ -20,7 +20,7 @@ func (c *Controller) handleEffectiveScopes(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if claims.Orbit.PrincipalType != token.PrincipalTypeHuman {
+	if claims.Kora.PrincipalType != token.PrincipalTypeHuman {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
 				"effective scopes are only available for human principals", nil), nil)
@@ -28,7 +28,7 @@ func (c *Controller) handleEffectiveScopes(w http.ResponseWriter, r *http.Reques
 	}
 
 	var roles []string
-	if raw := claims.Orbit.Claims["roles"]; raw != "" {
+	if raw := claims.Kora.Claims["roles"]; raw != "" {
 		for role := range strings.SplitSeq(raw, ",") {
 			if t := strings.TrimSpace(role); t != "" {
 				roles = append(roles, t)
@@ -36,7 +36,7 @@ func (c *Controller) handleEffectiveScopes(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	scopes, err := c.svc.EffectiveScopes(ctx, claims.Orbit.TenantID, string(claims.Orbit.PrincipalType), claims.Subject, roles)
+	scopes, err := c.svc.EffectiveScopes(ctx, claims.Kora.TenantID, string(claims.Kora.PrincipalType), claims.Subject, roles)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.InternalError(platformapi.ErrCodeInternalError, "failed to resolve effective scopes", nil), err)

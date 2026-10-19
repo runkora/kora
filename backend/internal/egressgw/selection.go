@@ -137,7 +137,7 @@ func (b *Broker) selectByNodeIDs(ctx context.Context, claims *token.PlatformClai
 // cached owner counts only for the same connection and categories. Ids no held
 // candidate can see are ignored.
 func (b *Broker) resolveNodeOwners(ctx context.Context, claims *token.PlatformClaims, host string, held []*credentials.Connection, scoped map[*credentials.Connection]ownerScoped, scopes, ids []string) ([]string, error) {
-	tenantID := claims.Orbit.TenantID
+	tenantID := claims.Kora.TenantID
 	found := map[string]bool{}
 	pending := slices.Clone(ids)
 	for _, c := range held {
@@ -192,9 +192,9 @@ func (b *Broker) lookupNodeOwners(ctx context.Context, claims *token.PlatformCla
 		{Key: "connection", Value: c.Name},
 		{Key: "node_ids", Value: len(ids)},
 		{Key: "resolved", Value: len(resolved)},
-		{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		{Key: "tenant_id", Value: claims.Kora.TenantID},
 		{Key: "principal_id", Value: claims.Subject},
-		{Key: "run_id", Value: claims.Orbit.Claims["run_id"]},
+		{Key: "run_id", Value: claims.Kora.Claims["run_id"]},
 	}
 	if err != nil {
 		span.RecordError(err)
@@ -280,11 +280,11 @@ func unresolved(host string, candidates []*credentials.Connection, ambiguous boo
 func (b *Broker) unresolvedConnection(ctx context.Context, span trace.Span, claims *token.PlatformClaims, req EgressRequest, d *Denial) (Decision, error) {
 	if d.ambiguous || d.Reason != DenialConnectionUnresolved {
 		span.SetStatus(codes.Error, ErrForbidden.Error())
-		b.logDenial(ctx, claims.Orbit.TenantID, req, d)
+		b.logDenial(ctx, claims.Kora.TenantID, req, d)
 		return Decision{}, d
 	}
 	conn := &credentials.Connection{
-		TenantID: claims.Orbit.TenantID,
+		TenantID: claims.Kora.TenantID,
 		Name:     passthroughConnectionName,
 		Adapter:  d.adapter,
 		BaseHost: req.Host,

@@ -45,7 +45,7 @@ func replicatedPullSecret(name, ns, tenant string) *corev1.Secret {
 // received it and the revoked credential remained usable there.
 func TestEnsureImagePullSecrets_PrunesRemoved(t *testing.T) {
 	const ns = "orbit-tenant-example"
-	tenant := &OrbitTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
+	tenant := &KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
 
 	c := fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(
 		systemPullSecret("keep-registry"),
@@ -80,7 +80,7 @@ func TestEnsureImagePullSecrets_PrunesRemoved(t *testing.T) {
 // it, so reconciliation has to add it.
 func TestEnsureImagePullSecrets_LabelsExistingReplica(t *testing.T) {
 	const ns = "orbit-tenant-example"
-	tenant := &OrbitTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
+	tenant := &KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
 
 	unlabelled := replicatedPullSecret("keep-registry", ns, "example")
 	delete(unlabelled.Labels, "orbit.io/component")

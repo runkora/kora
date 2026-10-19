@@ -112,7 +112,7 @@ func (c *Controller) handleGetGrant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Non-SYSTEM principals can only see grants within their own tenant.
-	if claims.Orbit.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Orbit.TenantID {
+	if claims.Kora.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Kora.TenantID {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.NotFoundError(platformapi.ErrCodeResourceNotFound, "grant not found", nil), nil)
 		return
@@ -147,7 +147,7 @@ func (c *Controller) handleUpdateGrantBudget(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if claims.Orbit.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Orbit.TenantID {
+	if claims.Kora.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Kora.TenantID {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.NotFoundError(platformapi.ErrCodeResourceNotFound, "grant not found", nil), nil)
 		return
@@ -177,7 +177,7 @@ func (c *Controller) handleDeleteGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if claims.Orbit.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Orbit.TenantID {
+	if claims.Kora.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Kora.TenantID {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.NotFoundError(platformapi.ErrCodeResourceNotFound, "grant not found", nil), nil)
 		return
@@ -201,7 +201,7 @@ func (c *Controller) handleListGrants(w http.ResponseWriter, r *http.Request) {
 
 	supplied := r.URL.Query().Get("tenant_id")
 	if supplied == "" {
-		supplied = claims.Orbit.TenantID
+		supplied = claims.Kora.TenantID
 	}
 	tenantID, ok := c.resolveTenantID(w, r, claims, supplied)
 	if !ok {

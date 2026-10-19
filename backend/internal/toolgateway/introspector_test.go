@@ -12,7 +12,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	orbitmcp "github.com/runkora/kora/backend/internal/platform/mcp"
+	mcpkit "github.com/runkora/kora/backend/internal/platform/mcp"
 )
 
 // newFakeMCPServer starts an in-process MCP server exposing one tool, and
@@ -22,13 +22,13 @@ func newFakeMCPServer(t *testing.T) (endpoint string, listCalls *int) {
 	t.Helper()
 	listCalls = new(int)
 
-	srv := orbitmcp.NewServer("fake", "v0")
+	srv := mcpkit.NewServer("fake", "v0")
 	srv.AddTool(&sdk.Tool{Name: "echo", InputSchema: json.RawMessage(`{"type":"object"}`)},
 		func(ctx context.Context, _ *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 			return &sdk.CallToolResult{}, nil
 		})
 
-	handler := orbitmcp.NewController("/mcp", srv).Handler()
+	handler := mcpkit.NewController("/mcp", srv).Handler()
 	counting := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handler.ServeHTTP(w, r)
 	})

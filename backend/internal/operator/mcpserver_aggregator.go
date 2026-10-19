@@ -120,7 +120,7 @@ func (a *MCPServerAggregator) Sync(ctx context.Context) error {
 // servers — matching the connection aggregator's behavior. The orbit-system
 // namespace is handled separately (global, tenant_id "").
 func (a *MCPServerAggregator) activeTenantNamespaces(ctx context.Context) (map[string]string, error) {
-	list := &OrbitTenantList{}
+	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
 		return nil, fmt.Errorf("list OrbitTenants: %w", err)
 	}

@@ -111,7 +111,7 @@ func (c *MCPController) handleMCP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	claims, ok := platformtoken.ClaimsFromContext(ctx)
-	if !ok || claims.Orbit.TenantID == "" {
+	if !ok || claims.Kora.TenantID == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "missing tenant in token", nil), nil)
 		return
@@ -132,7 +132,7 @@ func (c *MCPController) handleMCP(w http.ResponseWriter, r *http.Request) {
 	// mcp:<server>:<tool>:use could reach — or shadow — another tenant's server.
 	// Reject as 404 (indistinguishable from an unknown server) so a cross-tenant
 	// server can't even be probed. Covers tools/list, tools/call, and initialize.
-	if srv.TenantID != "" && srv.TenantID != claims.Orbit.TenantID {
+	if srv.TenantID != "" && srv.TenantID != claims.Kora.TenantID {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.NotFoundError(api.ErrCodeResourceNotFound, "unknown MCP server", nil), nil)
 		return
@@ -181,7 +181,7 @@ type mcpTool struct {
 // server by its path. The filter is one Query whose prefix rule lets a
 // server-level grant cover the whole list.
 func (c *MCPController) handleToolsList(ctx context.Context, w http.ResponseWriter, req jsonRPCRequest, claims *platformtoken.PlatformClaims, server string) {
-	tools, err := c.catalog.ListByTenant(ctx, claims.Orbit.TenantID)
+	tools, err := c.catalog.ListByTenant(ctx, claims.Kora.TenantID)
 	if err != nil {
 		c.writeRPCError(ctx, w, req.ID, -32603, "failed to load tool catalog")
 		return
@@ -217,7 +217,7 @@ func (c *MCPController) handleToolsList(ctx context.Context, w http.ResponseWrit
 		out = append(out, mcpTool{Name: name, Description: t.Description, InputSchema: t.InputSchema})
 	}
 	c.logger.Info(ctx, "tools/list filtered",
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 		logging.Field{Key: "server", Value: server},
 		logging.Field{Key: "candidates", Value: len(candidates)},
 		logging.Field{Key: "allowed", Value: len(out)})
@@ -250,7 +250,7 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 	span.SetAttributes(
 		attribute.String("mcp.server", server),
 		attribute.String("mcp.tool", tool),
-		attribute.String("orbit.tenant_id", claims.Orbit.TenantID),
+		attribute.String("orbit.tenant_id", claims.Kora.TenantID),
 		attribute.String("orbit.principal", claims.Subject),
 	)
 

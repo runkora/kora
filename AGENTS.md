@@ -131,7 +131,7 @@ An agent **must** follow these conventions when modifying this codebase. Each co
 
 All conventions above are mechanically enforced. Do not add inline `//nolint` directives; exceptions are managed centrally via path-scoped exclusions in `.golangci.yml`.
 
-**Tier 1: AST rules** (`rules/orbit_rules.go`, enforced via `gocritic/ruleguard`):
+**Tier 1: AST rules** (`rules/kora_rules.go`, enforced via `gocritic/ruleguard`):
 
 | Rule                     | What it bans                                      |
 | ------------------------ | ------------------------------------------------- |

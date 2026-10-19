@@ -589,18 +589,18 @@ func TestOpenCodeWriteConfig(t *testing.T) {
 	if len(cfg.Provider) != 1 {
 		t.Fatalf("providers = %v, want only orbit", cfg.Provider)
 	}
-	orbit := cfg.Provider["orbit"]
-	if orbit.Name != "Acme" {
-		t.Errorf("provider name = %q, want Acme", orbit.Name)
+	kora := cfg.Provider["orbit"]
+	if kora.Name != "Acme" {
+		t.Errorf("provider name = %q, want Acme", kora.Name)
 	}
-	if orbit.NPM != "@ai-sdk/openai-compatible" {
-		t.Errorf("npm = %q, want @ai-sdk/openai-compatible", orbit.NPM)
+	if kora.NPM != "@ai-sdk/openai-compatible" {
+		t.Errorf("npm = %q, want @ai-sdk/openai-compatible", kora.NPM)
 	}
-	if got := orbit.Options["baseURL"]; got != "http://inference-gateway.test/run/test-run/v1" {
+	if got := kora.Options["baseURL"]; got != "http://inference-gateway.test/run/test-run/v1" {
 		t.Errorf("baseURL = %q, want http://inference-gateway.test/run/test-run/v1", got)
 	}
-	if _, ok := orbit.Models["anthropic/claude-sonnet-5"]; !ok || len(orbit.Models) != 1 {
-		t.Errorf("models = %v, want only anthropic/claude-sonnet-5", orbit.Models)
+	if _, ok := kora.Models["anthropic/claude-sonnet-5"]; !ok || len(kora.Models) != 1 {
+		t.Errorf("models = %v, want only anthropic/claude-sonnet-5", kora.Models)
 	}
 	if cfg.Share != "disabled" || cfg.Autoupdate == nil || *cfg.Autoupdate {
 		t.Errorf("share, autoupdate = %q, %v; want disabled, false", cfg.Share, cfg.Autoupdate)

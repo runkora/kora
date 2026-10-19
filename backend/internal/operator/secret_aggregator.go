@@ -76,12 +76,12 @@ func (a *ClientSecretAggregator) Sync(ctx context.Context) error {
 
 // listConfidentialTenants returns active tenants that have a clientSecretRef —
 // i.e. confidential OIDC clients that require a client_secret in token requests.
-func (a *ClientSecretAggregator) listConfidentialTenants(ctx context.Context) ([]OrbitTenant, error) {
-	list := &OrbitTenantList{}
+func (a *ClientSecretAggregator) listConfidentialTenants(ctx context.Context) ([]KoraTenant, error) {
+	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
 		return nil, fmt.Errorf("list OrbitTenants: %w", err)
 	}
-	out := make([]OrbitTenant, 0, len(list.Items))
+	out := make([]KoraTenant, 0, len(list.Items))
 	for _, t := range list.Items {
 		if t.Spec.Active && t.Spec.OIDC.ClientSecretRef != nil {
 			out = append(out, t)
@@ -93,7 +93,7 @@ func (a *ClientSecretAggregator) listConfidentialTenants(ctx context.Context) ([
 // collectSecrets fetches the OIDC_CLIENT_SECRET key from each tenant's
 // referenced Secret. Missing Secrets and missing keys produce a warning and
 // are skipped rather than aborting the sync.
-func (a *ClientSecretAggregator) collectSecrets(ctx context.Context, tenants []OrbitTenant) (map[string]string, error) {
+func (a *ClientSecretAggregator) collectSecrets(ctx context.Context, tenants []KoraTenant) (map[string]string, error) {
 	out := make(map[string]string, len(tenants))
 	for _, t := range tenants {
 		ref := t.Spec.OIDC.ClientSecretRef

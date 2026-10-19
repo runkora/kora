@@ -1,16 +1,16 @@
-// Package orbitmcp is the kora MCP server: the first platform-global MCP server.
+// Package koramcp is the kora MCP server: the first platform-global MCP server.
 // It exposes kora's own management surface (agents, policy, models, …) as MCP
 // tools so an agent can operate the control plane. This package holds the TOOLS
 // ONLY — the protocol/transport/passthrough live in the reusable internal/
-// platform/mcp kit, and the HTTP forwarding in internal/platform/clients/orbitjson.
+// platform/mcp kit, and the HTTP forwarding in internal/platform/clients/korajson.
 //
 // Identity model: passthrough. Each tool forwards the CALLER's token to the
-// relevant kora API (via orbitjson + the kit's CallerToken); the downstream
+// relevant kora API (via korajson + the kit's CallerToken); the downstream
 // service enforces the real platform scope. This server holds no authority.
 //
 // Tools are organized one file per domain (tools_agents.go, tools_models.go,
 // tools_policy.go, …) and wired together in register.go.
-package orbitmcp
+package koramcp
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
 	mcpkit "github.com/runkora/kora/backend/internal/platform/mcp"
 )
 
@@ -39,7 +39,7 @@ type productNamer interface {
 }
 
 // NewServer builds the MCP server, named after brand, and registers its tools onto a kit server.
-func NewServer(b Backends, jc *orbitjson.Client, brand productNamer) *sdk.Server {
+func NewServer(b Backends, jc *korajson.Client, brand productNamer) *sdk.Server {
 	product := brand.ProductName()
 	srv := mcpkit.NewServer(product, "0.1.0")
 	registerTools(srv, b, jc, product)

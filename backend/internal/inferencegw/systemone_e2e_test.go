@@ -95,7 +95,7 @@ func TestSystemOneEndToEnd(t *testing.T) {
 
 	claims := &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},
-		Orbit:            token.OrbitClaims{TenantID: "tenant-1", PrincipalType: token.PrincipalTypeHuman},
+		Kora:             token.KoraClaims{TenantID: "tenant-1", PrincipalType: token.PrincipalTypeHuman},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/v1/systemone", strings.NewReader(request))
 	req = req.WithContext(token.WithClaims(req.Context(), claims))

@@ -242,7 +242,7 @@ func tenantFromContext(ctx context.Context) string {
 	if !ok {
 		return ""
 	}
-	return c.Orbit.TenantID
+	return c.Kora.TenantID
 }
 
 func stringSet(in []string) map[string]struct{} {
@@ -264,11 +264,11 @@ func agentSlugFromClaims(claims *token.PlatformClaims) string {
 	if claims == nil {
 		return ""
 	}
-	if sp := claims.Orbit.Claims["spiffe_path"]; sp != "" {
+	if sp := claims.Kora.Claims["spiffe_path"]; sp != "" {
 		segs := strings.Split(strings.Trim(sp, "/"), "/")
 		if n := len(segs); n >= 2 && segs[n-2] == "agent" {
 			return segs[n-1]
 		}
 	}
-	return claims.Orbit.DisplayName
+	return claims.Kora.DisplayName
 }

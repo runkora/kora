@@ -16,10 +16,10 @@ import (
 // reconcile: the phase is already Ready, so a patch built from setTenantPhase
 // alone would no-op and never write Namespace or LastReconciledAt.
 func TestMarkReady_PatchesNamespaceEvenWhenAlreadyReady(t *testing.T) {
-	tenant := &OrbitTenant{
+	tenant := &KoraTenant{
 		ObjectMeta: metav1.ObjectMeta{Name: "example"},
-		Spec:       OrbitTenantSpec{Active: true},
-		Status:     OrbitTenantStatus{Phase: TenantPhaseReady},
+		Spec:       KoraTenantSpec{Active: true},
+		Status:     KoraTenantStatus{Phase: TenantPhaseReady},
 	}
 	c := fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(tenant).WithStatusSubresource(tenant).Build()
 	r := &TenantReconciler{Client: c, Logger: logging.NewLoggerWithOutput(io.Discard)}
@@ -29,7 +29,7 @@ func TestMarkReady_PatchesNamespaceEvenWhenAlreadyReady(t *testing.T) {
 		t.Fatalf("markReady: %v", err)
 	}
 
-	got := &OrbitTenant{}
+	got := &KoraTenant{}
 	if err := c.Get(ctx, client.ObjectKey{Name: "example"}, got); err != nil {
 		t.Fatalf("get: %v", err)
 	}

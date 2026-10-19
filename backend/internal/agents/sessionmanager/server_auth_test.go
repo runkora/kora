@@ -138,7 +138,7 @@ func TestRequireExpectedCaller(t *testing.T) {
 	}{
 		{
 			name: "orbit-agents system token is accepted",
-			claims: &token.PlatformClaims{Orbit: token.OrbitClaims{
+			claims: &token.PlatformClaims{Kora: token.KoraClaims{
 				PrincipalType: token.PrincipalTypeSystem,
 				DisplayName:   "orbit-agents",
 			}},
@@ -149,7 +149,7 @@ func TestRequireExpectedCaller(t *testing.T) {
 			// The whole point of the check: every in-mesh component can mint a
 			// SYSTEM token, and scope enforcement treats SYSTEM as unrestricted.
 			name: "another system component is rejected",
-			claims: &token.PlatformClaims{Orbit: token.OrbitClaims{
+			claims: &token.PlatformClaims{Kora: token.KoraClaims{
 				PrincipalType: token.PrincipalTypeSystem,
 				DisplayName:   "orbit-triggers",
 			}},
@@ -157,7 +157,7 @@ func TestRequireExpectedCaller(t *testing.T) {
 		},
 		{
 			name: "an agent's own token is rejected",
-			claims: &token.PlatformClaims{Orbit: token.OrbitClaims{
+			claims: &token.PlatformClaims{Kora: token.KoraClaims{
 				PrincipalType: token.PrincipalTypeAgent,
 				DisplayName:   "orbit-agents",
 			}},
@@ -165,7 +165,7 @@ func TestRequireExpectedCaller(t *testing.T) {
 		},
 		{
 			name: "a human token is rejected",
-			claims: &token.PlatformClaims{Orbit: token.OrbitClaims{
+			claims: &token.PlatformClaims{Kora: token.KoraClaims{
 				PrincipalType: token.PrincipalTypeHuman,
 				DisplayName:   "dev@orbit.local",
 			}},

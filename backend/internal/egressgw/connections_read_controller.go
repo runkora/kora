@@ -78,12 +78,12 @@ func (c *ConnectionsReadController) handleListConnectionResources(w http.Respons
 	ctx := r.Context()
 
 	claims, ok := platformtoken.ClaimsFromContext(ctx)
-	if !ok || claims.Orbit.TenantID == "" {
+	if !ok || claims.Kora.TenantID == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "missing tenant in token", nil), nil)
 		return
 	}
-	tenantID := claims.Orbit.TenantID
+	tenantID := claims.Kora.TenantID
 
 	name := r.PathValue("name")
 	conns, err := c.connRegistry.ListByTenant(ctx, tenantID)
@@ -146,18 +146,18 @@ type connectionJSON struct {
 }
 
 // handleListConnections returns the caller's tenant's connections. The result
-// is scoped to claims.Orbit.TenantID read from the verified token; a request
+// is scoped to claims.Kora.TenantID read from the verified token; a request
 // without a tenant is rejected 401.
 func (c *ConnectionsReadController) handleListConnections(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	claims, ok := platformtoken.ClaimsFromContext(ctx)
-	if !ok || claims.Orbit.TenantID == "" {
+	if !ok || claims.Kora.TenantID == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "missing tenant in token", nil), nil)
 		return
 	}
-	tenantID := claims.Orbit.TenantID
+	tenantID := claims.Kora.TenantID
 
 	conns, err := c.connRegistry.ListByTenant(ctx, tenantID)
 	if err != nil {

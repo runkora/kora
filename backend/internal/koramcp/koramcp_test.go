@@ -1,4 +1,4 @@
-package orbitmcp
+package koramcp
 
 import (
 	"bytes"
@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mcpkit "github.com/runkora/kora/backend/internal/platform/mcp"
 )
@@ -31,7 +31,7 @@ func TestAgentWriteToolsForwardMethodAndBody(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{Agents: backend.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -73,7 +73,7 @@ func TestAgentWriteToolsForwardMethodAndBody(t *testing.T) {
 // schema (a) constrains framework to the closed enum and (b) points model_id at
 // the models.list tool — so a client/agent sees valid options up front.
 func TestCreateToolSchemaSurfacesEnumAndModelHint(t *testing.T) {
-	srv := NewServer(Backends{}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -121,7 +121,7 @@ func TestCreateForwardsModelWithoutDerivingScopes(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{Agents: backend.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -151,7 +151,7 @@ func TestGuardrailsForwarded(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{Agents: backend.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -198,7 +198,7 @@ func TestTriggerToolsUseTriggersBackend(t *testing.T) {
 	}))
 	defer identity.Close()
 
-	srv := NewServer(Backends{Identity: identity.URL, Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{Identity: identity.URL, Triggers: triggers.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -225,7 +225,7 @@ func TestTriggerProviderToolsAndSenderRestriction(t *testing.T) {
 	}))
 	defer triggers.Close()
 
-	srv := NewServer(Backends{Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{Triggers: triggers.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -297,7 +297,7 @@ func TestTriggerKindsCreateUpdateAndPreview(t *testing.T) {
 	}))
 	defer triggers.Close()
 
-	srv := NewServer(Backends{Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{Triggers: triggers.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -475,7 +475,7 @@ func TestConnectorsDiscoveryAndForwarding(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{Agents: backend.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -518,7 +518,7 @@ func TestRunToolsForwardMethodAndPath(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{Agents: backend.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -597,7 +597,7 @@ func TestPolicyWriteToolsForwardMethodAndPath(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Policy: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{Policy: backend.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -638,7 +638,7 @@ func TestPolicyWriteToolsForwardMethodAndPath(t *testing.T) {
 
 // TestToolForwardsCallerTokenAndReturnsJSON exercises the whole Phase 1 vertical:
 // a tools/call over Streamable HTTP → the kit's caller-token passthrough → the
-// orbitjson forwarder → a backend, asserting (a) the backend received the
+// korajson forwarder → a backend, asserting (a) the backend received the
 // caller's bearer, (b) it was the right path, and (c) the backend JSON is
 // returned to the caller verbatim.
 func TestToolForwardsCallerTokenAndReturnsJSON(t *testing.T) {
@@ -651,7 +651,7 @@ func TestToolForwardsCallerTokenAndReturnsJSON(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{Agents: backend.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 
@@ -688,7 +688,7 @@ func TestToolForwardsCallerTokenAndReturnsJSON(t *testing.T) {
 // missing from the map would silently 403 when granted — so this also spot-checks
 // that a representative new tool carries its _meta["orbit/requires"].
 func TestToolRequiresKeysAreRegisteredTools(t *testing.T) {
-	srv := NewServer(Backends{}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -852,7 +852,7 @@ func TestListToolsMapTimeWindowAndPayloadParams(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Agents: backend.URL, Triggers: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{Agents: backend.URL, Triggers: backend.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -892,7 +892,7 @@ func TestTriggerCoalesceForwarding(t *testing.T) {
 	}))
 	defer triggers.Close()
 
-	srv := NewServer(Backends{Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{Triggers: triggers.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -928,7 +928,7 @@ func TestTriggerCoalesceForwarding(t *testing.T) {
 
 // TestServerReadsTheBrand checks the server name and tool descriptions use the brand.
 func TestServerReadsTheBrand(t *testing.T) {
-	srv := NewServer(Backends{}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)

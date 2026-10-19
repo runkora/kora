@@ -24,7 +24,7 @@ func humanClaims(tenantID, userID string) *token.PlatformClaims {
 			Subject:   userID,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      tenantID,
 			PrincipalType: token.PrincipalTypeHuman,
 			DisplayName:   "Test User",
@@ -35,7 +35,7 @@ func humanClaims(tenantID, userID string) *token.PlatformClaims {
 // patTokenClaims returns PlatformClaims with PrincipalTypePAT set.
 func patTokenClaims(tenantID, userID string) *token.PlatformClaims {
 	c := humanClaims(tenantID, userID)
-	c.Orbit.PrincipalType = token.PrincipalTypePAT
+	c.Kora.PrincipalType = token.PrincipalTypePAT
 	return c
 }
 

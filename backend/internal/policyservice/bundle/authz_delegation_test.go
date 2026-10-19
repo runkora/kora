@@ -467,11 +467,11 @@ func TestAuthz_Layer1_DelegationRunBinding_UnboundTokenDenied(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			orbitExtra := map[string]any{}
+			koraExtra := map[string]any{}
 			if tc.tokenRunID != "" {
-				orbitExtra["claims"] = map[string]any{"run_id": tc.tokenRunID}
+				koraExtra["claims"] = map[string]any{"run_id": tc.tokenRunID}
 			}
-			mainJWT := signTestJWT(t, "AGENT", testTenantID, testAgentID, orbitExtra)
+			mainJWT := signTestJWT(t, "AGENT", testTenantID, testAgentID, koraExtra)
 			allow, reason := evalLayer1(t, pq, "POST", tc.path, map[string]string{
 				"authorization":            "Bearer " + mainJWT,
 				"x-orbit-delegation-token": tc.delegation,

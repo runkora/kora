@@ -98,12 +98,12 @@ func (a *OAuthClientAggregator) Sync(ctx context.Context) error {
 
 // listActiveTenants returns all OrbitTenant resources whose Spec.Active is true,
 // mirroring the connection aggregator: suspended tenants' clients are not served.
-func (a *OAuthClientAggregator) listActiveTenants(ctx context.Context) ([]OrbitTenant, error) {
-	list := &OrbitTenantList{}
+func (a *OAuthClientAggregator) listActiveTenants(ctx context.Context) ([]KoraTenant, error) {
+	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
 		return nil, fmt.Errorf("list OrbitTenants: %w", err)
 	}
-	out := make([]OrbitTenant, 0, len(list.Items))
+	out := make([]KoraTenant, 0, len(list.Items))
 	for _, t := range list.Items {
 		if t.Spec.Active {
 			out = append(out, t)
@@ -117,8 +117,8 @@ func (a *OAuthClientAggregator) listActiveTenants(ctx context.Context) ([]OrbitT
 // visited in name order so the dedup winner for a duplicated client_id is stable
 // across reconciles — the Kubernetes list order is not guaranteed, and an
 // unstable winner would churn the ConfigMap.
-func (a *OAuthClientAggregator) collect(ctx context.Context, tenants []OrbitTenant) ([]oauthClientRegistryEntry, error) {
-	sorted := append([]OrbitTenant(nil), tenants...)
+func (a *OAuthClientAggregator) collect(ctx context.Context, tenants []KoraTenant) ([]oauthClientRegistryEntry, error) {
+	sorted := append([]KoraTenant(nil), tenants...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
 
 	var entries []oauthClientRegistryEntry
@@ -143,7 +143,7 @@ func (a *OAuthClientAggregator) collect(ctx context.Context, tenants []OrbitTena
 
 // tenantClients lists a tenant's OAuthClient CRs, name-sorted so dedup ordering
 // is deterministic.
-func (a *OAuthClientAggregator) tenantClients(ctx context.Context, t *OrbitTenant) ([]OAuthClient, error) {
+func (a *OAuthClientAggregator) tenantClients(ctx context.Context, t *KoraTenant) ([]OAuthClient, error) {
 	ns := tenantNamespace(t)
 	list := &OAuthClientList{}
 	if err := a.client.List(ctx, list, client.InNamespace(ns)); err != nil {
@@ -158,7 +158,7 @@ func (a *OAuthClientAggregator) tenantClients(ctx context.Context, t *OrbitTenan
 // invalid redirect URI, or a client_id already claimed by an earlier tenant.
 // Every skip is logged and never fatal; a kept entry records its client_id ->
 // tenant ownership in seen.
-func (a *OAuthClientAggregator) entryFor(ctx context.Context, t *OrbitTenant, oc *OAuthClient, seen map[string]string) (oauthClientRegistryEntry, bool) {
+func (a *OAuthClientAggregator) entryFor(ctx context.Context, t *KoraTenant, oc *OAuthClient, seen map[string]string) (oauthClientRegistryEntry, bool) {
 	id := oc.Spec.ClientID
 	cr := []logging.Field{
 		{Key: "oauthclient", Value: oc.Name},

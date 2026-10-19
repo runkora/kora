@@ -29,7 +29,7 @@ func (c *Controller) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile, err := c.svc.GetUserProfile(ctx, claims.Orbit.TenantID, userID)
+	profile, err := c.svc.GetUserProfile(ctx, claims.Kora.TenantID, userID)
 	if err != nil {
 		if errors.Is(err, ErrUserProfileNotFound) {
 			api.ErrorResponse(ctx, w, c.logger,
@@ -124,7 +124,7 @@ func (c *Controller) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		filter.Limit = l
 	}
 
-	profiles, total, err := c.svc.ListUserProfiles(ctx, claims.Orbit.TenantID, filter)
+	profiles, total, err := c.svc.ListUserProfiles(ctx, claims.Kora.TenantID, filter)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "failed to list users", nil), err)

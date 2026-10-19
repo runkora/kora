@@ -32,16 +32,16 @@ func (c *Controller) claimsFromContext(w http.ResponseWriter, r *http.Request) (
 // explicitly passes a different tenant ID.
 func (c *Controller) resolveTenantID(w http.ResponseWriter, r *http.Request, claims *token.PlatformClaims, supplied string) (string, bool) {
 	ctx := r.Context()
-	if claims.Orbit.PrincipalType == token.PrincipalTypeSystem {
+	if claims.Kora.PrincipalType == token.PrincipalTypeSystem {
 		return supplied, true
 	}
-	if supplied != "" && supplied != claims.Orbit.TenantID {
+	if supplied != "" && supplied != claims.Kora.TenantID {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
 				"tenant_id does not match your token", nil), nil)
 		return "", false
 	}
-	return claims.Orbit.TenantID, true
+	return claims.Kora.TenantID, true
 }
 
 // enforceScopeCeiling implements the grant-administration anti-escalation invariant
@@ -52,12 +52,12 @@ func (c *Controller) resolveTenantID(w http.ResponseWriter, r *http.Request, cla
 // response (403 naming the rejected scopes, or 500 if the caller's scopes can't be
 // resolved) and the caller must return.
 func (c *Controller) enforceScopeCeiling(ctx context.Context, w http.ResponseWriter, claims *token.PlatformClaims, scopes []string) bool {
-	if claims.Orbit.PrincipalType == token.PrincipalTypeSystem {
+	if claims.Kora.PrincipalType == token.PrincipalTypeSystem {
 		return true
 	}
 
 	var roles []string
-	if raw := claims.Orbit.Claims["roles"]; raw != "" {
+	if raw := claims.Kora.Claims["roles"]; raw != "" {
 		for role := range strings.SplitSeq(raw, ",") {
 			if t := strings.TrimSpace(role); t != "" {
 				roles = append(roles, t)
@@ -65,7 +65,7 @@ func (c *Controller) enforceScopeCeiling(ctx context.Context, w http.ResponseWri
 		}
 	}
 
-	callerScopes, err := c.svc.EffectiveScopes(ctx, claims.Orbit.TenantID, string(claims.Orbit.PrincipalType), claims.Subject, roles)
+	callerScopes, err := c.svc.EffectiveScopes(ctx, claims.Kora.TenantID, string(claims.Kora.PrincipalType), claims.Subject, roles)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.InternalError(platformapi.ErrCodeInternalError, "failed to resolve caller scopes", nil), err)

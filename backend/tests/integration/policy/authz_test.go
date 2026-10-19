@@ -61,7 +61,7 @@ func policyServiceURL(t *testing.T) string {
 func agentClaims(principalID string) *token.PlatformClaims {
 	return &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: principalID},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			PrincipalType: token.PrincipalTypeAgent,
 			TenantID:      defaultTenantID,
 		},

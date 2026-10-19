@@ -20,7 +20,7 @@ import (
 func withRunCallerCtx(ctx context.Context, tenantID, sub string) context.Context {
 	return token.WithClaims(ctx, &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: sub},
-		Orbit:            token.OrbitClaims{TenantID: tenantID, PrincipalType: token.PrincipalTypeHuman},
+		Kora:             token.KoraClaims{TenantID: tenantID, PrincipalType: token.PrincipalTypeHuman},
 	})
 }
 

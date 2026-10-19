@@ -69,7 +69,7 @@ var secretRefSanitize = regexp.MustCompile(`[^-_a-zA-Z0-9]`)
 
 // connectionRegistryEntry is one element of connections.json — the runtime
 // contract the egress gateway's registry reader agrees on. tenant_id MUST equal
-// the value the gateway sees as claims.Orbit.TenantID (the OrbitTenant CR name,
+// the value the gateway sees as claims.Kora.TenantID (the OrbitTenant CR name,
 // the same key the CA aggregator uses for tenant CA lookup).
 type connectionRegistryEntry struct {
 	TenantID  string          `json:"tenant_id"`
@@ -131,12 +131,12 @@ func (a *ConnectionAggregator) Sync(ctx context.Context) error {
 // listActiveTenants returns all OrbitTenant resources whose Spec.Active is true.
 // Suspended tenants are excluded so the gateway will not broker their
 // connections — matching the CA aggregator's behavior.
-func (a *ConnectionAggregator) listActiveTenants(ctx context.Context) ([]OrbitTenant, error) {
-	list := &OrbitTenantList{}
+func (a *ConnectionAggregator) listActiveTenants(ctx context.Context) ([]KoraTenant, error) {
+	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
 		return nil, fmt.Errorf("list OrbitTenants: %w", err)
 	}
-	out := make([]OrbitTenant, 0, len(list.Items))
+	out := make([]KoraTenant, 0, len(list.Items))
 	for _, t := range list.Items {
 		if t.Spec.Active {
 			out = append(out, t)
@@ -150,7 +150,7 @@ func (a *ConnectionAggregator) listActiveTenants(ctx context.Context) ([]OrbitTe
 // are kept consistent: an entry is only emitted when its secret material is
 // successfully read, so connections.json never references a key the Secret
 // lacks.
-func (a *ConnectionAggregator) collect(ctx context.Context, tenants []OrbitTenant) ([]connectionRegistryEntry, map[string][]byte, error) {
+func (a *ConnectionAggregator) collect(ctx context.Context, tenants []KoraTenant) ([]connectionRegistryEntry, map[string][]byte, error) {
 	var entries []connectionRegistryEntry
 	secretData := make(map[string][]byte)
 
@@ -190,7 +190,7 @@ func (a *ConnectionAggregator) collect(ctx context.Context, tenants []OrbitTenan
 			// Kept before the Secret read, so a late Secret never flips the winner.
 			kept = append(kept, conn)
 
-			// tenant_id MUST equal claims.Orbit.TenantID — the OrbitTenant CR
+			// tenant_id MUST equal claims.Kora.TenantID — the OrbitTenant CR
 			// name, the identifier the CA aggregator keys on. Do not invent one.
 			tenantID := t.Name
 			secretRef := connectionSecretRef(tenantID, conn.Name)

@@ -20,7 +20,7 @@ import (
 var (
 	roots = []string{
 		"backend/internal/agents",
-		"backend/internal/orbitmcp",
+		"backend/internal/koramcp",
 		"backend/internal/egressgw",
 		"backend/internal/platform/sandboximages",
 	}
@@ -67,7 +67,7 @@ func main() {
 		for _, f := range findings {
 			fmt.Fprintln(os.Stderr, f)
 		}
-		fmt.Fprintln(os.Stderr, "\nA struct tag cannot read the brand, so its text must be neutral, or move to code that takes the product name (see backend/internal/orbitmcp/tools_agents.go). docs/adr/2026-10-12-white-labelling-theme.md, Decision 5.")
+		fmt.Fprintln(os.Stderr, "\nA struct tag cannot read the brand, so its text must be neutral, or move to code that takes the product name (see backend/internal/koramcp/tools_agents.go). docs/adr/2026-10-12-white-labelling-theme.md, Decision 5.")
 		os.Exit(1)
 	}
 }

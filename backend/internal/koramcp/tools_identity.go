@@ -1,4 +1,4 @@
-package orbitmcp
+package koramcp
 
 import (
 	"context"
@@ -7,13 +7,13 @@ import (
 	"strconv"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
 )
 
 // registerIdentityTools wires the identity domain: read-only user/profile lookups
 // for access-audit workflows (who is in the tenant, who owns what). Auth-only
 // (no platform scope), tenant-scoped by the caller's token — no toolRequires.
-func registerIdentityTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
+func registerIdentityTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 	base := b.Identity + "/api/v1/identity/users"
 
 	addTool(srv, "identity.users.list",

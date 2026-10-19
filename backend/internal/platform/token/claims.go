@@ -64,12 +64,12 @@ type Principal struct {
 // PlatformClaims are the JWT claims carried in every platform session token.
 type PlatformClaims struct {
 	jwt.RegisteredClaims
-	Orbit OrbitClaims `json:"orbit"`
+	Kora KoraClaims `json:"orbit"`
 }
 
-// OrbitClaims are the kora-specific claims embedded in the platform token's
+// KoraClaims are the kora-specific claims embedded in the platform token's
 // "orbit" namespace so they do not conflict with registered claim names.
-type OrbitClaims struct {
+type KoraClaims struct {
 	SessionID      string            `json:"session_id"`
 	PrincipalType  PrincipalType     `json:"principal_type"`
 	TenantID       string            `json:"tenant_id"`

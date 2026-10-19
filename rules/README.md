@@ -6,12 +6,12 @@ There are two tiers depending on what the rule needs to inspect:
 
 | Tier | Mechanism | File | What it can catch |
 |------|-----------|------|-------------------|
-| 1 | `gocritic` / `ruleguard` AST matcher | `rules/orbit_rules.go` | Call-site patterns, argument shapes, expression forms |
+| 1 | `gocritic` / `ruleguard` AST matcher | `rules/kora_rules.go` | Call-site patterns, argument shapes, expression forms |
 | 2 | `depguard` import ban | `.golangci.yml` | Whole-package imports |
 
 ---
 
-## Tier 1: AST rules (`rules/orbit_rules.go`)
+## Tier 1: AST rules (`rules/kora_rules.go`)
 
 Each function in the file is one rule. The rule name is the function name. Violation messages include the governing ADR and a link to the decision document.
 
@@ -53,9 +53,9 @@ The rules target the literal identifier `err` and the `ctx.Err()` chain, which c
 
 ### [white-labelling-theme](../docs/adr/2026-10-12-white-labelling-theme.md) rule (product name)
 
-A white-labelled install must never show the kora name in text its people or agents read, so every such string takes the name from `internal/platform/brand`. The rule matches the whole word `kora` or `orbit`, case-insensitively, not adjacent to `-`, `_` or `/`, nor to a `.` followed by a letter or digit: `orbit.io`, `kora-base`, `orbit-system` and `ORBIT_RUN_ID` pass, prose fails, including a sentence ending `kora.`. It is scoped to `internal/agents`, `internal/orbitmcp`, `internal/egressgw` and `internal/platform/sandboximages` through `m.File().PkgPath`, and skips a literal passed directly to a `logging.Logger` method, since log lines keep the kora name.
+A white-labelled install must never show the kora name in text its people or agents read, so every such string takes the name from `internal/platform/brand`. The rule matches the whole word `kora` or `orbit`, case-insensitively, not adjacent to `-`, `_` or `/`, nor to a `.` followed by a letter or digit: `orbit.io`, `kora-base`, `orbit-system` and `ORBIT_RUN_ID` pass, prose fails, including a sentence ending `kora.`. It is scoped to `internal/agents`, `internal/koramcp`, `internal/egressgw` and `internal/platform/sandboximages` through `m.File().PkgPath`, and skips a literal passed directly to a `logging.Logger` method, since log lines keep the kora name.
 
-Two limits of the bundled ruleguard shape the rule. A bare `$s` pattern never visits a literal, so the rule names each position a literal can occupy (call argument, composite-literal element, const or var initialiser, return, assignment, operand of `+`). And gogrep has no pattern for a struct field's tag, so the rule does not see a `jsonschema:"..."` description. `scripts/check-brand-tags.go`, run by `make brand-tags-check` as part of `make check`, parses the same packages and fails on a struct tag that matches the same word pattern. Keep tag text neutral and put the product-specific sentence in code, as `internal/orbitmcp/tools_agents.go` does.
+Two limits of the bundled ruleguard shape the rule. A bare `$s` pattern never visits a literal, so the rule names each position a literal can occupy (call argument, composite-literal element, const or var initialiser, return, assignment, operand of `+`). And gogrep has no pattern for a struct field's tag, so the rule does not see a `jsonschema:"..."` description. `scripts/check-brand-tags.go`, run by `make brand-tags-check` as part of `make check`, parses the same packages and fails on a struct tag that matches the same word pattern. Keep tag text neutral and put the product-specific sentence in code, as `internal/koramcp/tools_agents.go` does.
 
 ### Exclusions
 
@@ -69,7 +69,7 @@ Some call sites are legitimately exempt. Rather than scattering `//nolint` direc
 - `internal/egressgw/tlsca/`: the X.509 subject of the per-tenant CA's leaf certificates is an identifier, not prose, and keeps the kora name
 - `internal/agents/sessionmanager/runner_codex.go` and `runner_opencode.go`, scoped by `source:` to the one declaration line each: `codexProvider` and `openCodeProvider` are the config-table keys the runtimes key on; the provider display name beside them reads the brand
 
-There is deliberately no exclusion for ruleguard's `used Run() with an empty rule set` message. It appears on every file when `rules/orbit_rules.go` fails to load, which is how a DSL construct the bundled ruleguard rejects surfaces, and never when it loads; excluding it would switch every Tier 1 rule off without a signal.
+There is deliberately no exclusion for ruleguard's `used Run() with an empty rule set` message. It appears on every file when `rules/kora_rules.go` fails to load, which is how a DSL construct the bundled ruleguard rejects surfaces, and never when it loads; excluding it would switch every Tier 1 rule off without a signal.
 
 ---
 
@@ -112,7 +112,7 @@ Stdlib `log` and `log/slog` produce unstructured output and have no access to th
 
 ## Adding a new rule
 
-**Tier 1 (call-site pattern):** Add a new `func ruleName(m dsl.Matcher)` to `rules/orbit_rules.go`. Follow the existing doc-comment convention: state what is banned, show a Bad/Good example, and cite the ADR. If the rule has legitimate exceptions, add a path-scoped entry to the `exclusions:` block in `.golangci.yml` rather than using an inline `//nolint` directive.
+**Tier 1 (call-site pattern):** Add a new `func ruleName(m dsl.Matcher)` to `rules/kora_rules.go`. Follow the existing doc-comment convention: state what is banned, show a Bad/Good example, and cite the ADR. If the rule has legitimate exceptions, add a path-scoped entry to the `exclusions:` block in `.golangci.yml` rather than using an inline `//nolint` directive.
 
 **Tier 2 (import ban):** Add a new named rule under `linters-settings.depguard.rules` in `.golangci.yml`. Use the `files:` key to scope exceptions. Add a comment block above the `depguard:` key following the existing `# Rule: name` documentation format.
 

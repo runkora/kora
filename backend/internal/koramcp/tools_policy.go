@@ -1,4 +1,4 @@
-package orbitmcp
+package koramcp
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"net/url"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
 )
 
 // registerPolicyTools wires the policy domain: the caller's authorization view plus
@@ -14,7 +14,7 @@ import (
 // service, which enforces the anti-escalation ceiling (a caller may only assign
 // scopes it holds itself — 2026-06-30 amendment to the authorisation model), so a
 // caller can never escalate beyond its own scopes through these tools.
-func registerPolicyTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
+func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 	base := b.Policy + "/api/v1/policy"
 
 	addTool(srv, "policy.scopes",

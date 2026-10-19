@@ -22,7 +22,7 @@ const inspectOthersScope = "platform:grants:read"
 // denied by a per-tenant bundle lookup. This is the same carve-out
 // ScopeEnforcementMiddleware makes.
 func (c *Controller) authorizeInspectOthers(ctx context.Context, w http.ResponseWriter, claims *token.PlatformClaims) bool {
-	if claims.Orbit.PrincipalType == token.PrincipalTypeSystem {
+	if claims.Kora.PrincipalType == token.PrincipalTypeSystem {
 		return true
 	}
 
@@ -79,7 +79,7 @@ func (c *Controller) handleScopesExplain(w http.ResponseWriter, r *http.Request)
 	if principalType != "" && principalID != "" {
 		// If looking up yourself, use original claims (preserves OIDC roles etc).
 		isSelf := principalID == claims.Subject &&
-			token.PrincipalType(principalType) == claims.Orbit.PrincipalType
+			token.PrincipalType(principalType) == claims.Kora.PrincipalType
 		if !isSelf {
 			if !c.authorizeInspectOthers(ctx, w, claims) {
 				return
@@ -89,8 +89,8 @@ func (c *Controller) handleScopesExplain(w http.ResponseWriter, r *http.Request)
 			// scopes will only resolve for grant-based principals.
 			targetClaims = &token.PlatformClaims{}
 			targetClaims.Subject = principalID
-			targetClaims.Orbit.PrincipalType = token.PrincipalType(principalType)
-			targetClaims.Orbit.TenantID = claims.Orbit.TenantID
+			targetClaims.Kora.PrincipalType = token.PrincipalType(principalType)
+			targetClaims.Kora.TenantID = claims.Kora.TenantID
 		}
 	}
 
@@ -101,9 +101,9 @@ func (c *Controller) handleScopesExplain(w http.ResponseWriter, r *http.Request)
 	}
 
 	platformapi.JSON(ctx, w, c.logger, http.StatusOK, ScopesExplainResponse{
-		PrincipalType:   string(targetClaims.Orbit.PrincipalType),
+		PrincipalType:   string(targetClaims.Kora.PrincipalType),
 		PrincipalID:     targetClaims.Subject,
-		TenantID:        targetClaims.Orbit.TenantID,
+		TenantID:        targetClaims.Kora.TenantID,
 		FromRoles:       result.FromRoles,
 		FromGrants:      result.FromGrants,
 		EffectiveScopes: result.EffectiveScopes,

@@ -64,8 +64,8 @@ func (s *Service) delegationTokenTTL() time.Duration {
 func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, req CreateDelegationRequest) (*DelegationIssuance, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.MintDelegation",
 		trace.WithAttributes(
-			attribute.String("principal.type", string(claims.Orbit.PrincipalType)),
-			attribute.String("tenant_id", claims.Orbit.TenantID),
+			attribute.String("principal.type", string(claims.Kora.PrincipalType)),
+			attribute.String("tenant_id", claims.Kora.TenantID),
 			attribute.String("run_id", req.RunID),
 		),
 	)
@@ -74,7 +74,7 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 	// An AGENT can never mint or courier a delegation, with or without a
 	// subject token — this structurally blocks a delegated run from starting
 	// another delegated agent.
-	if claims.Orbit.PrincipalType == token.PrincipalTypeAgent {
+	if claims.Kora.PrincipalType == token.PrincipalTypeAgent {
 		span.RecordError(ErrDelegationPrincipalType)
 		span.SetStatus(codes.Error, ErrDelegationPrincipalType.Error())
 		return nil, ErrDelegationPrincipalType
@@ -115,7 +115,7 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 		delegator = subject
 	}
 
-	switch delegator.Orbit.PrincipalType {
+	switch delegator.Kora.PrincipalType {
 	case token.PrincipalTypeHuman, token.PrincipalTypePAT:
 		// The person, directly or via a PAT acting as the person.
 	default:
@@ -136,7 +136,7 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 	issuance := &DelegationIssuance{
 		JTI:                    uuid.NewString(),
 		RunID:                  req.RunID,
-		TenantID:               delegator.Orbit.TenantID,
+		TenantID:               delegator.Kora.TenantID,
 		DelegatorPrincipalID:   delegator.Subject,
 		DelegatorPrincipalType: token.PrincipalTypeHuman,
 		AgentPrincipalID:       req.AgentPrincipalID,
@@ -144,8 +144,8 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 	}
 	// PAT lineage: record which PAT minted the delegation so revoking the PAT
 	// can tombstone its issuances.
-	if delegator.Orbit.PrincipalType == token.PrincipalTypePAT && delegator.Orbit.PatID != "" {
-		patID := delegator.Orbit.PatID
+	if delegator.Kora.PrincipalType == token.PrincipalTypePAT && delegator.Kora.PatID != "" {
+		patID := delegator.Kora.PatID
 		issuance.DelegatorPATID = &patID
 	}
 
@@ -177,7 +177,7 @@ func (s *Service) RevokeDelegation(ctx context.Context, claims *PlatformClaims, 
 	ctx, span := s.tracer.Start(ctx, "identity.RevokeDelegation",
 		trace.WithAttributes(
 			attribute.String("jti", jti),
-			attribute.String("principal.type", string(claims.Orbit.PrincipalType)),
+			attribute.String("principal.type", string(claims.Kora.PrincipalType)),
 		),
 	)
 	defer span.End()
@@ -194,11 +194,11 @@ func (s *Service) RevokeDelegation(ctx context.Context, claims *PlatformClaims, 
 		return fmt.Errorf("get delegation issuance: %w", err)
 	}
 
-	switch claims.Orbit.PrincipalType {
+	switch claims.Kora.PrincipalType {
 	case token.PrincipalTypeService, token.PrincipalTypeSystem:
 		// Platform components (orbit-agents on terminal run state).
 	case token.PrincipalTypeHuman, token.PrincipalTypePAT:
-		if claims.Subject != issuance.DelegatorPrincipalID || claims.Orbit.TenantID != issuance.TenantID {
+		if claims.Subject != issuance.DelegatorPrincipalID || claims.Kora.TenantID != issuance.TenantID {
 			span.RecordError(ErrDelegationRevokeForbidden)
 			span.SetStatus(codes.Error, ErrDelegationRevokeForbidden.Error())
 			return ErrDelegationRevokeForbidden
@@ -298,7 +298,7 @@ func (s *Service) DelegationTokenForRun(ctx context.Context, r *http.Request, ru
 // delegator view. PAT callers list the issuances of the person they act as
 // (sub carries the user id for both HUMAN and PAT tokens).
 func (s *Service) ListDelegations(ctx context.Context, claims *PlatformClaims) ([]DelegationIssuance, error) {
-	issuances, err := s.delegations.ListActiveByDelegator(ctx, claims.Orbit.TenantID, claims.Subject)
+	issuances, err := s.delegations.ListActiveByDelegator(ctx, claims.Kora.TenantID, claims.Subject)
 	if err != nil {
 		return nil, fmt.Errorf("list delegation issuances: %w", err)
 	}

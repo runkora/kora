@@ -47,7 +47,7 @@ func TestHandleGetPreferences_ExistingRow_ReturnsDoc(t *testing.T) {
 	c, prefs := newTestControllerWithPrefs(t)
 	claims := humanClaims("t1", "user-1")
 	stored := json.RawMessage(`{"analytics":{"defaultPeriod":"30d"}}`)
-	if err := prefs.Upsert(t.Context(), claims.Subject, claims.Orbit.TenantID, stored); err != nil {
+	if err := prefs.Upsert(t.Context(), claims.Subject, claims.Kora.TenantID, stored); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	req := httptest.NewRequest(http.MethodGet, "/preferences", nil)

@@ -34,7 +34,7 @@ func ownerRefFixture(t *testing.T, cfg K8sProvisionerConfig, tenantName string) 
 	kinds := map[schema.GroupVersionResource]string{
 		authorizationPolicyGVR: "AuthorizationPolicyList",
 		destinationRuleGVR:     "DestinationRuleList",
-		orbitTenantGVR:         "OrbitTenantList",
+		koraTenantGVR:          "OrbitTenantList",
 	}
 	tenant := &unstructured.Unstructured{
 		Object: map[string]any{
@@ -64,9 +64,9 @@ func assertTenantOwnerRef(t *testing.T, refs []metav1.OwnerReference, tenantName
 		t.Fatalf("no owner references set; want OrbitTenant/%s", tenantName)
 	}
 	for _, r := range refs {
-		if r.Kind == orbitTenantKind && r.Name == tenantName {
-			if r.APIVersion != orbitTenantAPIVersion {
-				t.Errorf("apiVersion = %q, want %q", r.APIVersion, orbitTenantAPIVersion)
+		if r.Kind == koraTenantKind && r.Name == tenantName {
+			if r.APIVersion != koraTenantAPIVersion {
+				t.Errorf("apiVersion = %q, want %q", r.APIVersion, koraTenantAPIVersion)
 			}
 			if r.UID != types.UID("tenant-uid-"+tenantName) {
 				t.Errorf("uid = %q, want tenant-uid-%s", r.UID, tenantName)
@@ -272,7 +272,7 @@ func TestApplyOwnerRef_ZeroValueIsNoop(t *testing.T) {
 }
 
 func TestApplyOwnerRef_ReplacesExistingEntry(t *testing.T) {
-	first := metav1.OwnerReference{APIVersion: orbitTenantAPIVersion, Kind: orbitTenantKind, Name: "acme", UID: "old"}
+	first := metav1.OwnerReference{APIVersion: koraTenantAPIVersion, Kind: koraTenantKind, Name: "acme", UID: "old"}
 	second := first
 	second.UID = "new"
 
@@ -312,7 +312,7 @@ func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 	kinds := map[schema.GroupVersionResource]string{
 		authorizationPolicyGVR: "AuthorizationPolicyList",
 		destinationRuleGVR:     "DestinationRuleList",
-		orbitTenantGVR:         "OrbitTenantList",
+		koraTenantGVR:          "OrbitTenantList",
 	}
 	tenant := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "orbit.io/v1alpha1",
@@ -370,7 +370,7 @@ func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 
 func TestMergeOwnerRefs(t *testing.T) {
 	unrelated := metav1.OwnerReference{APIVersion: "v1", Kind: "ConfigMap", Name: "other"}
-	first := metav1.OwnerReference{APIVersion: orbitTenantAPIVersion, Kind: orbitTenantKind, Name: "acme", UID: "old"}
+	first := metav1.OwnerReference{APIVersion: koraTenantAPIVersion, Kind: koraTenantKind, Name: "acme", UID: "old"}
 	updated := first
 	updated.UID = "new"
 

@@ -290,7 +290,7 @@ The Policy Service is a standard kora Go service (following [multi-service-backe
 - Bundle compilation triggered on every grant write — the affected tenant's bundle is recompiled immediately
 - A per-tenant bundle polling endpoint: `GET /v1/policy/bundles/{tenant_id}`
 
-**PAP Authorization — OIDC Role Bootstrap:** The grant management API is itself a platform resource (`platform:grants:write`). To avoid a circular dependency (you need a grant to create grants), access to the PAP API is bootstrapped via OIDC role claims rather than grants. When the identity service federates an OIDC token, role or group claims from the IdP (e.g. an Entra group membership) are embedded in `PlatformClaims.Orbit.Claims["roles"]`. The ext_authz Rego evaluates a `role_scopes` mapping (compiled into the bundle) that translates the `tenant-admin` role to `platform:grants:write`. This is the only documented exception to "grants govern all access" — it is explicit, inspectable in the bundle, and constrained to the `platform:` resource type.
+**PAP Authorization — OIDC Role Bootstrap:** The grant management API is itself a platform resource (`platform:grants:write`). To avoid a circular dependency (you need a grant to create grants), access to the PAP API is bootstrapped via OIDC role claims rather than grants. When the identity service federates an OIDC token, role or group claims from the IdP (e.g. an Entra group membership) are embedded in `PlatformClaims.Kora.Claims["roles"]`. The ext_authz Rego evaluates a `role_scopes` mapping (compiled into the bundle) that translates the `tenant-admin` role to `platform:grants:write`. This is the only documented exception to "grants govern all access" — it is explicit, inspectable in the bundle, and constrained to the `platform:` resource type.
 
 ### Layer 1 PDP — OPA Envoy Plugin Sidecar
 
@@ -552,7 +552,7 @@ scope_covers(a, b) if {
 }
 ```
 
-`required_scope` is derived by the ext_authz service from the resource attributes and action provided by the calling service. `delegation_scopes` is the delegation token's `scope` claim split on spaces. `delegator_id` is the delegation token's `sub` claim (the human who delegated). The `act.sub` claim is the agent acting on the delegator's behalf — which is the calling principal, already identified in `principal.id`. `roles` is populated from the `PlatformClaims.Orbit.Claims` map for HUMAN principals.
+`required_scope` is derived by the ext_authz service from the resource attributes and action provided by the calling service. `delegation_scopes` is the delegation token's `scope` claim split on spaces. `delegator_id` is the delegation token's `sub` claim (the human who delegated). The `act.sub` claim is the agent acting on the delegator's behalf — which is the calling principal, already identified in `principal.id`. `roles` is populated from the `PlatformClaims.Kora.Claims` map for HUMAN principals.
 
 ### Failure Mode — Fail-Closed
 

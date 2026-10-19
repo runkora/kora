@@ -862,7 +862,7 @@ var testSizes = EnvironmentSizes{
 // without requiring every test to construct PlatformClaims manually.
 func withTenantCtx(ctx context.Context, tenantID string) context.Context {
 	return token.WithClaims(ctx, &token.PlatformClaims{
-		Orbit: token.OrbitClaims{TenantID: tenantID},
+		Kora: token.KoraClaims{TenantID: tenantID},
 	})
 }
 
@@ -872,7 +872,7 @@ func withTenantCtx(ctx context.Context, tenantID string) context.Context {
 // final segment of the SPIFFE path). Used by internal-callback handler tests.
 func withAgentCtx(ctx context.Context, tenantID, slug string) context.Context {
 	return token.WithClaims(ctx, &token.PlatformClaims{
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			PrincipalType: token.PrincipalTypeAgent,
 			TenantID:      tenantID,
 			DisplayName:   slug,

@@ -89,7 +89,7 @@ func controllerWithNotifier(t *testing.T, n Notifier) (*Controller, string) {
 // A restart empties the session map, and orbit-shell only asks when its own
 // workspace copy is missing. orbit-agents holds the sandbox pod, so it is the
 // one place that still knows.
-func TestGetSandbox_AsksOrbitAgentsAfterRestart(t *testing.T) {
+func TestGetSandbox_AsksKoraAgentsAfterRestart(t *testing.T) {
 	n := &lookupNotifier{sandbox: Sandbox{Endpoint: "10.0.0.5:50051", ExecToken: "exec-abc"}, found: true}
 	c, workspaces := controllerWithNotifier(t, n)
 	tok, err := mintRunToken(workspaces, "run-1")

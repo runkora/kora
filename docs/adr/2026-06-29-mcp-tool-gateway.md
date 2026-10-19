@@ -143,7 +143,7 @@ claims, _ := token.ClaimsFromContext(ctx)
 
 switch req.Method {
 case "tools/list":
-    candidates := c.catalog.Tools(ctx, claims.Orbit.TenantID, server) // registered tools for server
+    candidates := c.catalog.Tools(ctx, claims.Kora.TenantID, server) // registered tools for server
     // policy.Candidate carries {ID, PathSegments}; encode the FULL scope path into
     // PathSegments so the evaluator's prefix rule fires (mcp:<…>:use covers the tool).
     // ID = the tool's wire name; PathSegments = scopePath(tenant, server, tool).

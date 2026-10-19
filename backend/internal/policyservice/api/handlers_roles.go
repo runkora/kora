@@ -125,7 +125,7 @@ func (c *Controller) handleListRoles(w http.ResponseWriter, r *http.Request) {
 
 	supplied := r.URL.Query().Get("tenant_id")
 	if supplied == "" {
-		supplied = claims.Orbit.TenantID
+		supplied = claims.Kora.TenantID
 	}
 	tenantID, ok := c.resolveTenantID(w, r, claims, supplied)
 	if !ok {

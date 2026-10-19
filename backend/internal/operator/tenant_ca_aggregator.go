@@ -73,12 +73,12 @@ func (a *TenantCAAggregator) Sync(ctx context.Context) error {
 // so the gateway will refuse CONNECTs from their sandboxes — there are
 // none currently running, but this future-proofs the aggregator against
 // a tenant suspension while a sandbox is somehow still alive.
-func (a *TenantCAAggregator) listActiveTenants(ctx context.Context) ([]OrbitTenant, error) {
-	list := &OrbitTenantList{}
+func (a *TenantCAAggregator) listActiveTenants(ctx context.Context) ([]KoraTenant, error) {
+	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
 		return nil, fmt.Errorf("list OrbitTenants: %w", err)
 	}
-	out := make([]OrbitTenant, 0, len(list.Items))
+	out := make([]KoraTenant, 0, len(list.Items))
 	for _, t := range list.Items {
 		if t.Spec.Active {
 			out = append(out, t)
@@ -91,7 +91,7 @@ func (a *TenantCAAggregator) listActiveTenants(ctx context.Context) ([]OrbitTena
 // tenant namespace and returns the aggregated keyspace. The keys produced
 // are "{tenant}.ca.crt" / "{tenant}.ca.key", matching what
 // cabundle.LoadEager expects.
-func (a *TenantCAAggregator) collectCAMaterial(ctx context.Context, tenants []OrbitTenant) (map[string][]byte, error) {
+func (a *TenantCAAggregator) collectCAMaterial(ctx context.Context, tenants []KoraTenant) (map[string][]byte, error) {
 	out := make(map[string][]byte, len(tenants)*2)
 	for i := range tenants {
 		t := &tenants[i]
