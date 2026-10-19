@@ -1,9 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { isBundlePath, isKoraVersion, koraMajor, matchesFormat, svgFaults } from './index';
+import { hasAssetExtension, isAssetUrl, isKoraVersion, koraMajor, matchesFormat } from './index';
 import { fontFamilyFault, fontFamilyList } from './formats';
-import { NOT_SVG, SVG, SVG_WITH_BOM } from './fixtures.test-support';
 
 describe('hex-or-oklch', () => {
   it.each([
@@ -92,7 +91,7 @@ describe('font-family-name', () => {
   ])('rejects %j', (v) => expect(matchesFormat('font-family-name', v)).toBe(false));
 });
 
-describe('kora versions and bundle paths', () => {
+describe('kora versions and asset URLs', () => {
   it('recognises MAJOR.MINOR.PATCH and nothing else', () => {
     for (const v of ['1.0.0', '0.0.0', '1.10.2', '10.20.30']) expect(isKoraVersion(v)).toBe(true);
     for (const v of [
@@ -117,64 +116,37 @@ describe('kora versions and bundle paths', () => {
     for (const v of ['1.4', 'dev', '', 'vX.Y.Z']) expect(koraMajor(v)).toBeNull();
   });
 
-  it('accepts bundle-relative paths and rejects escapes', () => {
-    for (const p of [
-      'assets/logo.svg',
-      'logo.svg',
-      'assets/brand/2026/logo.dark.svg',
-      'assets/...x/y',
+  it('accepts https URLs and rejects every other form', () => {
+    for (const u of [
+      'https://cdn.example/logo.svg',
+      'https://a/b',
+      'https://cdn.example:443/a/b.svg?v=1&w=2',
+      'https://xn--caf-dma.example/a.svg',
     ])
-      expect(isBundlePath(p)).toBe(true);
-    for (const p of [
-      '/assets/logo.svg',
-      '../logo.svg',
-      'assets/../logo.svg',
-      'assets/..',
-      'assets/./logo.svg',
-      '.',
-      'assets//logo.svg',
-      'assets/',
-      'assets\\logo.svg',
+      expect(isAssetUrl(u), u).toBe(true);
+    for (const u of [
+      'http://cdn.example/a.svg',
+      'HTTPS://cdn.example/a.svg',
+      'https://',
+      'https:///a.svg',
+      'https://user@cdn.example/a.svg',
+      'https://cdn.example/a.svg#x',
+      'https://cdn.example/a b.svg',
+      "https://cdn.example/a'b.svg",
+      'https://cdn.example/<a>.svg',
+      'https://cdn.example/\u0000.svg',
+      'https://[::1]/a.svg',
       '',
     ])
-      expect(isBundlePath(p), p).toBe(false);
-  });
-});
-
-describe('svgFaults', () => {
-  it('accepts a prolog, comments, whitespace and a BOM before <svg', () => {
-    expect(svgFaults(SVG)).toEqual([]);
-    expect(svgFaults(SVG_WITH_BOM)).toEqual([]);
-    expect(svgFaults(new TextEncoder().encode('\n\n<!-- a --><!-- b -->\n<svg/>'))).toEqual([]);
+      expect(isAssetUrl(u), u).toBe(false);
   });
 
-  it('names every fault it finds', () => {
-    expect(svgFaults(NOT_SVG)).toEqual(['does not begin with <svg']);
-    const faults = svgFaults(
-      new TextEncoder().encode(
-        '<svg onclick="x"><script/><a href="http://x"/><style>a{fill:url(http://y)}</style></svg>',
-      ),
-    );
-    expect(faults).toHaveLength(4);
-    expect(svgFaults(new TextEncoder().encode('<!-- open'))).toEqual(['unterminated comment']);
-  });
-
-  it('catches an event attribute after a slash and an @import with no url()', () => {
-    const encode = (text: string) => new TextEncoder().encode(text);
-    expect(svgFaults(encode('<svg/onload=alert(1)/>'))).toEqual([
-      'contains an event attribute (on*=)',
-    ]);
-    expect(
-      svgFaults(encode('<svg><style>@import "https://x.example/a.css";</style></svg>')),
-    ).toEqual(['references an external stylesheet through @import']);
-  });
-
-  it('does not backtrack on long runs of whitespace', () => {
-    const spaces = ' '.repeat(100_000);
-    const started = performance.now();
-    svgFaults(new TextEncoder().encode(`<svg><a href=${spaces}</svg>`));
-    svgFaults(new TextEncoder().encode(`<svg><a style="fill:url(${spaces}"/></svg>`));
-    expect(performance.now() - started).toBeLessThan(500);
+  it('reads the extension from the path, whatever its case, and never from the query', () => {
+    expect(hasAssetExtension('https://cdn.example/a/logo.SVG?v=1', ['svg'])).toBe(true);
+    expect(hasAssetExtension('https://cdn.example/f.woff2', ['woff2'])).toBe(true);
+    expect(hasAssetExtension('https://cdn.example/f.woff2', ['svg'])).toBe(false);
+    expect(hasAssetExtension('https://cdn.example/a?f=/b.svg', ['svg'])).toBe(false);
+    expect(hasAssetExtension('https://cdn.example/.svg', ['svg'])).toBe(false);
   });
 });
 
@@ -208,62 +180,5 @@ describe('font-family-name values', () => {
     expect(fontFamilyList(' Cafe\u0301 , System-UI , monospace', quote)).toBe(
       '"Cafe\u0301", system-ui, monospace',
     );
-  });
-});
-
-describe('svgFaults: attributes versus text', () => {
-  const faults = (svg: string) => svgFaults(new TextEncoder().encode(svg));
-
-  it.each([
-    '<svg><text>go online = fast</text></svg>',
-    '<svg><title>the onion = good</title></svg>',
-    '<svg><text>see href=x</text></svg>',
-    '<svg><text>a xlink:href=http://x b</text></svg>',
-    '<svg><!-- onload=x href=http://x --><rect/></svg>',
-    '<svg><![CDATA[ onclick=1 href=http://x ]]></svg>',
-    '<svg><text title="a > b">on = off</text></svg>',
-    '<svg><a href="#frag"/><image xlink:href="data:image/png;base64,AAAA"/></svg>',
-  ])('accepts %s', (svg) => expect(faults(svg)).toEqual([]));
-
-  it.each([
-    ['<svg onload="x"/>', 'event attribute'],
-    ['<svg\tonload="x"/>', 'event attribute'],
-    ['<svg\nonload="x"/>', 'event attribute'],
-    ['<svg\fonload="x"/>', 'event attribute'],
-    ['<svg\vonload="x"/>', 'event attribute'],
-    ['<svg/onload="x"/>', 'event attribute'],
-    ['<svg a="1"onload="x"/>', 'event attribute'],
-    ["<svg a='1'onclick='x'/>", 'event attribute'],
-    ['<svg ONLOAD="x"/>', 'event attribute'],
-    ['<svg onload = "x"/>', 'event attribute'],
-    ['<svg><a title="a > b" onclick="x"/></svg>', 'event attribute'],
-    ['<svg><a href="http://x"/></svg>', 'href'],
-    ['<svg><a href="https://x"/></svg>', 'href'],
-    ['<svg><a href="//x"/></svg>', 'href'],
-    ['<svg><a href="javascript:alert(1)"/></svg>', 'href'],
-    ['<svg><a href="data:text/html,x"/></svg>', 'href'],
-    ['<svg><a href="&#104;ttp://x"/></svg>', 'href'],
-    ['<svg><a href=" http://x"/></svg>', 'href'],
-    ['<svg><a href="a.svg"/></svg>', 'href'],
-    ['<svg><a HREF="http://x"/></svg>', 'href'],
-    ['<svg><a href = "http://x"/></svg>', 'href'],
-    ['<svg><image foo:href="http://evil"/></svg>', 'href'],
-    ['<svg><image xlink:href="http://evil"/></svg>', 'href'],
-    ['<svg><script/></svg>', '<script>'],
-    ['<svg:script/>', '<script>'],
-    ['<svg><x:script xmlns:x="http://www.w3.org/2000/svg"/></svg>', '<script>'],
-    ['<svg><SVG:SCRIPT/></svg>', '<script>'],
-    ['<svg><!-- <script> --></svg>', '<script>'],
-    ['<svg><foreignObject/></svg>', 'foreignObject'],
-    ['<svg><FOREIGNOBJECT/></svg>', 'foreignObject'],
-    ['<svg><svg:foreignObject/></svg>', 'foreignObject'],
-  ])('rejects %j', (svg, fragment) => {
-    const found = faults(svg);
-    expect(found.length).toBeGreaterThan(0);
-    expect(found.join(';')).toContain(fragment);
-  });
-
-  it('keeps fragment and image data hrefs with a prefix', () => {
-    expect(faults('<svg><image foo:href="#a"/></svg>')).toEqual([]);
   });
 });

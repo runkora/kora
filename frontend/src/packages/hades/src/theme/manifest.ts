@@ -15,9 +15,9 @@ export interface ThemeManifestToken {
 export interface ThemeManifestSlot {
   readonly name: string;
   readonly kind: SlotKind;
+  /** Extensions the slot's URL path may end in. */
   readonly formats: readonly string[];
-  readonly maxBytes: number;
-  /** Empty when one file serves both modes. */
+  /** Empty when one URL serves both modes. */
   readonly modes: readonly Mode[];
 }
 

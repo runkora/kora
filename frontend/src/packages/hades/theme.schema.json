@@ -596,28 +596,76 @@
           "additionalProperties": false,
           "properties": {
             "dark": {
-              "$ref": "#/$defs/bundle-path"
+              "allOf": [
+                {
+                  "$ref": "#/$defs/asset-url"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^https://[^/?]+(?:/[^/?]*)*/[^/?]+\\.(?:[sS][vV][gG])(?:\\?.*)?$"
+                }
+              ]
             },
             "light": {
-              "$ref": "#/$defs/bundle-path"
+              "allOf": [
+                {
+                  "$ref": "#/$defs/asset-url"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^https://[^/?]+(?:/[^/?]*)*/[^/?]+\\.(?:[sS][vV][gG])(?:\\?.*)?$"
+                }
+              ]
             }
           }
         },
         "font.mono": {
-          "$ref": "#/$defs/bundle-path"
+          "allOf": [
+            {
+              "$ref": "#/$defs/asset-url"
+            },
+            {
+              "type": "string",
+              "pattern": "^https://[^/?]+(?:/[^/?]*)*/[^/?]+\\.(?:[wW][oO][fF][fF]2)(?:\\?.*)?$"
+            }
+          ]
         },
         "font.sans": {
-          "$ref": "#/$defs/bundle-path"
+          "allOf": [
+            {
+              "$ref": "#/$defs/asset-url"
+            },
+            {
+              "type": "string",
+              "pattern": "^https://[^/?]+(?:/[^/?]*)*/[^/?]+\\.(?:[wW][oO][fF][fF]2)(?:\\?.*)?$"
+            }
+          ]
         },
         "logo": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "dark": {
-              "$ref": "#/$defs/bundle-path"
+              "allOf": [
+                {
+                  "$ref": "#/$defs/asset-url"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^https://[^/?]+(?:/[^/?]*)*/[^/?]+\\.(?:[sS][vV][gG])(?:\\?.*)?$"
+                }
+              ]
             },
             "light": {
-              "$ref": "#/$defs/bundle-path"
+              "allOf": [
+                {
+                  "$ref": "#/$defs/asset-url"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^https://[^/?]+(?:/[^/?]*)*/[^/?]+\\.(?:[sS][vV][gG])(?:\\?.*)?$"
+                }
+              ]
             }
           }
         }
@@ -642,9 +690,9 @@
       "type": "string",
       "pattern": "^(?:#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|oklch\\(\\s*(?:none|[+-]?(?:\\d+\\.?\\d*|\\.\\d+)%?)\\s+(?:none|[+-]?(?:\\d+\\.?\\d*|\\.\\d+)%?)\\s+(?:none|[+-]?(?:\\d+\\.?\\d*|\\.\\d+)%?)\\s*(?:/\\s*(?:none|[+-]?(?:\\d+\\.?\\d*|\\.\\d+)%?)\\s*)?\\))$"
     },
-    "bundle-path": {
+    "asset-url": {
       "type": "string",
-      "pattern": "^(?:(?!\\.\\.?/)[^/\\\\]+/)*(?!\\.\\.?$)[^/\\\\]+$"
+      "pattern": "^(?=.{1,2048}$)https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\\d{1,5})?(?:/[^\\s?#\\\\\"'<>()\\u0000-\\u001f]*)?(?:\\?[^\\s#\\\\\"'<>()\\u0000-\\u001f]*)?$"
     }
   }
 }

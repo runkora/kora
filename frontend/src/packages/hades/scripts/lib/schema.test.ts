@@ -6,8 +6,9 @@ import Ajv2020 from 'ajv/dist/2020';
 import { describe, expect, it } from 'vitest';
 
 import {
-  BUNDLE_PATH_PATTERN,
+  ASSET_URL_PATTERN,
   FORMAT_PATTERNS,
+  assetExtensionPattern,
   KORA_VERSION_PATTERN,
 } from '../../src/theme/formats';
 import { validateTheme } from '../../src/theme/validate';
@@ -63,16 +64,22 @@ describe('buildThemeSchema', () => {
     };
     expect(Object.keys(slots.properties)).toEqual(manifest.slots.map((s) => s.name));
     expect(slots.additionalProperties).toBe(true);
-    expect(slots.properties['font.sans']).toEqual({ $ref: '#/$defs/bundle-path' });
+    const url = (formats: string[]) => ({
+      allOf: [
+        { $ref: '#/$defs/asset-url' },
+        { type: 'string', pattern: assetExtensionPattern(formats) },
+      ],
+    });
+    expect(slots.properties['font.sans']).toEqual(url(['woff2']));
     expect(slots.properties.logo).toEqual({
       type: 'object',
       additionalProperties: false,
-      properties: { dark: { $ref: '#/$defs/bundle-path' }, light: { $ref: '#/$defs/bundle-path' } },
+      properties: { dark: url(['svg']), light: url(['svg']) },
     });
     for (const [format, pattern] of Object.entries(FORMAT_PATTERNS)) {
       expect(schema.$defs[format]).toEqual({ type: 'string', pattern });
     }
-    expect(schema.$defs['bundle-path']).toEqual({ type: 'string', pattern: BUNDLE_PATH_PATTERN });
+    expect(schema.$defs['asset-url']).toEqual({ type: 'string', pattern: ASSET_URL_PATTERN });
   });
 
   it('writes the font-family-name pattern with combining marks allowed', () => {
@@ -100,13 +107,11 @@ describe('buildThemeSchema', () => {
 describe('the schema and the validator agree', () => {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   const check = ajv.compile(schema);
-  const noAssets = async () => null;
 
   async function both(doc: unknown): Promise<{ schema: boolean; validator: boolean }> {
     const result = await validateTheme(JSON.stringify(doc), {
       manifest,
       koraVersion: '1.0.0',
-      readAsset: noAssets,
     });
     return { schema: check(doc), validator: result.ok };
   }
@@ -120,6 +125,10 @@ describe('the schema and the validator agree', () => {
         '--hades-raw-shadow-sm': { dark: '0 2px 8px oklch(0% 0 0 / 0.25)' },
         '--hades-raw-radius-md': { light: '6px' },
         '--hades-raw-font-mono': { dark: 'Cascadia Code, monospace' },
+      },
+      slots: {
+        logo: { dark: 'https://cdn.example/logo.svg?v=2', light: 'https://cdn.example/l.svg' },
+        'font.sans': 'https://cdn.example:8443/fonts/sans.woff2',
       },
     };
     expect(await both(doc)).toEqual({ schema: true, validator: true });
@@ -151,8 +160,15 @@ describe('the schema and the validator agree', () => {
       { koraVersion: '1.0.0', tokens: { '--hades-raw-radius-md': { dark: '6' } } },
       { koraVersion: '1.0.0', tokens: { '--hades-raw-shadow-sm': { dark: '0 0 0 #000; }' } } },
       { koraVersion: '1.0.0', slots: { logo: { dark: '../x.svg' } } },
-      { koraVersion: '1.0.0', slots: { 'font.sans': { dark: 'x.woff2' } } },
-      { koraVersion: '1.0.0', slots: { logo: 'x.svg' } },
+      { koraVersion: '1.0.0', slots: { logo: { dark: 'assets/x.svg' } } },
+      { koraVersion: '1.0.0', slots: { logo: { dark: 'http://cdn.example/x.svg' } } },
+      { koraVersion: '1.0.0', slots: { logo: { dark: 'https://u:p@cdn.example/x.svg' } } },
+      { koraVersion: '1.0.0', slots: { logo: { dark: 'https://cdn.example/x.png' } } },
+      { koraVersion: '1.0.0', slots: { logo: { dark: 'https://cdn.example/x.svg#a' } } },
+      { koraVersion: '1.0.0', slots: { logo: { dark: 'https://cdn.example/?a=/x.svg' } } },
+      { koraVersion: '1.0.0', slots: { 'font.sans': 'https://cdn.example/x.svg' } },
+      { koraVersion: '1.0.0', slots: { 'font.sans': { dark: 'https://cdn.example/x.woff2' } } },
+      { koraVersion: '1.0.0', slots: { logo: 'https://cdn.example/x.svg' } },
     ];
     for (const doc of faults) {
       expect(await both(doc), JSON.stringify(doc)).toEqual({ schema: false, validator: false });

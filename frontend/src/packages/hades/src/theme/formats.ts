@@ -100,10 +100,15 @@ export function fontFamilyList(value: string, quote: (name: string) => string): 
 export const KORA_VERSION_PATTERN = '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$';
 
 /**
- * A bundle-relative path: `/`-separated segments, none empty, none `.` or
- * `..`, no backslash, no leading slash.
+ * An asset URL: `https://`, a host of letters, digits, dots and hyphens (an
+ * internationalised name in its punycode form) with an optional port, no
+ * credentials, an optional path and query, no fragment, and nothing a CSS
+ * `url()` or an HTML attribute would have to escape. At most 2048 characters.
+ * Whether the path ends in an extension the slot accepts is the validator's,
+ * because it depends on the slot.
  */
-export const BUNDLE_PATH_PATTERN = '^(?:(?!\\.\\.?/)[^/\\\\]+/)*(?!\\.\\.?$)[^/\\\\]+$';
+export const ASSET_URL_PATTERN =
+  '^(?=.{1,2048}$)https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\\d{1,5})?(?:/[^\\s?#\\\\"\'<>()\\u0000-\\u001f]*)?(?:\\?[^\\s#\\\\"\'<>()\\u0000-\\u001f]*)?$';
 
 /**
  * Characters no token value may carry whatever its format, checked before the
@@ -141,6 +146,22 @@ export function koraMajor(value: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-export function isBundlePath(value: string): boolean {
-  return pattern(BUNDLE_PATH_PATTERN).test(value);
+export function isAssetUrl(value: string): boolean {
+  return pattern(ASSET_URL_PATTERN).test(value);
+}
+
+/**
+ * The source of a pattern an asset URL must match to end, before any query, in
+ * one of a slot's extensions, whatever the case. Anchored from `https://`, so
+ * a `/name.ext` inside the query does not count.
+ */
+export function assetExtensionPattern(formats: readonly string[]): string {
+  const folded = formats.map((f) =>
+    [...f].map((c) => (/[a-z]/i.test(c) ? `[${c.toLowerCase()}${c.toUpperCase()}]` : c)).join(''),
+  );
+  return `^https://[^/?]+(?:/[^/?]*)*/[^/?]+\\.(?:${folded.join('|')})(?:\\?.*)?$`;
+}
+
+export function hasAssetExtension(url: string, formats: readonly string[]): boolean {
+  return pattern(assetExtensionPattern(formats)).test(url);
 }

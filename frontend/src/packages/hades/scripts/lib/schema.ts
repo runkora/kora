@@ -7,11 +7,12 @@
  *
  * The schema is the shape a producer can check a document against before a
  * deploy; the validator remains the authority: it also trims the product
- * name, reads the assets and applies the font-slot rule.
+ * name and applies the font-slot rule, and neither fetches an asset.
  */
 import {
-  BUNDLE_PATH_PATTERN,
+  ASSET_URL_PATTERN,
   KORA_VERSION_PATTERN,
+  assetExtensionPattern,
   FORMAT_PATTERNS,
 } from '../../src/theme/formats.ts';
 import type { Manifest } from './manifest.ts';
@@ -31,12 +32,12 @@ export interface ThemeSchema {
   readonly additionalProperties: false;
   readonly required: readonly string[];
   readonly properties: Readonly<Record<string, SchemaProperty>>;
-  /** One string schema per value format and one for bundle paths, referenced from every token and slot. */
+  /** One string schema per value format and one for asset URLs, referenced from every token and slot. */
   readonly $defs: Readonly<Record<string, SchemaProperty>>;
 }
 
-/** The `$defs` name for a bundle-relative path. */
-export const BUNDLE_PATH_DEF = 'bundle-path';
+/** The `$defs` name for an asset URL. */
+export const ASSET_URL_DEF = 'asset-url';
 
 export function buildThemeSchema(manifest: Manifest): ThemeSchema {
   const ref = (def: string): SchemaProperty => ({ $ref: `#/$defs/${def}` });
@@ -47,7 +48,7 @@ export function buildThemeSchema(manifest: Manifest): ThemeSchema {
   )) {
     $defs[format] = { type: 'string', pattern };
   }
-  $defs[BUNDLE_PATH_DEF] = { type: 'string', pattern: BUNDLE_PATH_PATTERN };
+  $defs[ASSET_URL_DEF] = { type: 'string', pattern: ASSET_URL_PATTERN };
 
   const tokens: Record<string, SchemaProperty> = {};
   for (const token of manifest.tokens) {
@@ -60,13 +61,17 @@ export function buildThemeSchema(manifest: Manifest): ThemeSchema {
 
   const slots: Record<string, SchemaProperty> = {};
   for (const slot of manifest.slots) {
+    // The URL's form, and the extensions this slot's path may end in.
+    const url: SchemaProperty = {
+      allOf: [ref(ASSET_URL_DEF), { type: 'string', pattern: assetExtensionPattern(slot.formats) }],
+    };
     slots[slot.name] =
       slot.modes.length === 0
-        ? ref(BUNDLE_PATH_DEF)
+        ? url
         : {
             type: 'object',
             additionalProperties: false,
-            properties: Object.fromEntries(slot.modes.map((mode) => [mode, ref(BUNDLE_PATH_DEF)])),
+            properties: Object.fromEntries(slot.modes.map((mode) => [mode, url])),
           };
   }
 

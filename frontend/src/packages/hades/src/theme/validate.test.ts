@@ -2,32 +2,14 @@
 import { describe, expect, it } from 'vitest';
 
 import manifestJson from '../../manifest.json';
-import {
-  FULL_BUNDLE,
-  FULL_DOCUMENT,
-  MANIFEST,
-  NOT_WOFF2,
-  SVG,
-  SVG_DATA_IMAGE,
-  SVG_DOCTYPE,
-  SVG_EXTERNAL_HREF,
-  SVG_EXTERNAL_URL,
-  SVG_ONLOAD,
-  SVG_SCRIPT,
-  WOFF2,
-  bundle,
-} from './fixtures.test-support';
+import { FULL_DOCUMENT, MANIFEST } from './fixtures.test-support';
 import type { ThemeManifest } from './manifest';
 import { validateTheme } from './validate';
 
 const RUNNING = '1.3.0';
 
-async function run(
-  text: string,
-  files: Record<string, Uint8Array> = FULL_BUNDLE,
-  manifest = MANIFEST,
-) {
-  return validateTheme(text, { manifest, koraVersion: RUNNING, readAsset: bundle(files) });
+async function run(text: string, manifest = MANIFEST) {
+  return validateTheme(text, { manifest, koraVersion: RUNNING });
 }
 
 function errorPaths(result: Awaited<ReturnType<typeof run>>): string[] {
@@ -54,11 +36,15 @@ describe('validateTheme: a full theme', () => {
     });
     expect(result.theme.slots.logo).toEqual({
       kind: 'image',
-      paths: { dark: 'assets/logo-dark.svg', light: 'assets/logo-light.svg' },
+      urls: {
+        dark: 'https://cdn.example/logo-dark.svg',
+        light: 'https://cdn.example/logo-light.svg',
+      },
     });
-    expect(result.theme.slots['font.sans']).toEqual({ kind: 'font', path: 'assets/sans.woff2' });
-    expect([...result.theme.assets.keys()].sort()).toEqual(Object.keys(FULL_BUNDLE).sort());
-    expect(result.theme.assets.get('assets/sans.woff2')).toBe(WOFF2);
+    expect(result.theme.slots['font.sans']).toEqual({
+      kind: 'font',
+      url: 'https://cdn.example/sans.woff2',
+    });
     expect(result.theme.hash).toMatch(/^[0-9a-f]{64}$/);
     expect(result.report).toEqual({
       ignored: [],
@@ -79,7 +65,7 @@ describe('validateTheme: a full theme', () => {
 describe('validateTheme: partial themes and the report', () => {
   it('passes a partial theme and reports every identity value left to fall through', async () => {
     const result = await run(
-      `koraVersion: "1.0.0"\nslots:\n  logo:\n    dark: assets/logo-dark.svg\n`,
+      `koraVersion: "1.0.0"\nslots:\n  logo:\n    dark: https://cdn.example/logo-dark.svg\n`,
     );
     expect(result.ok).toBe(true);
     expect(result.report.fallThrough).toEqual([
@@ -91,12 +77,11 @@ describe('validateTheme: partial themes and the report', () => {
   });
 
   it('passes a version-only document and reports everything falling through', async () => {
-    const result = await run('koraVersion: "1.9.0"\n', {});
+    const result = await run('koraVersion: "1.9.0"\n');
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.theme.tokens).toEqual({});
     expect(result.theme.slots).toEqual({});
-    expect(result.theme.assets.size).toBe(0);
     expect(result.report.fallThrough).toEqual([
       'productName',
       'favicon.dark',
@@ -108,7 +93,7 @@ describe('validateTheme: partial themes and the report', () => {
 
   it('ignores and reports unknown tokens and slots without failing', async () => {
     const result = await run(
-      `koraVersion: "1.0.0"\ntokens:\n  --hades-raw-future:\n    dark: "#fff"\n  --hades-raw-black:\n    dark: "#000"\nslots:\n  logo.mark:\n    dark: assets/logo-dark.svg\n`,
+      `koraVersion: "1.0.0"\ntokens:\n  --hades-raw-future:\n    dark: "#fff"\n  --hades-raw-black:\n    dark: "#000"\nslots:\n  logo.mark:\n    dark: https://cdn.example/logo-dark.svg\n`,
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -117,7 +102,6 @@ describe('validateTheme: partial themes and the report', () => {
       { kind: 'slot', name: 'logo.mark' },
     ]);
     expect(Object.keys(result.theme.tokens)).toEqual(['--hades-raw-black']);
-    expect(result.theme.assets.size).toBe(0);
   });
 
   it('still reports ignored entries when validation fails', async () => {
@@ -133,7 +117,7 @@ describe('validateTheme: mixed identity', () => {
   const ALL = ['productName', 'favicon.dark', 'favicon.light', 'logo.dark', 'logo.light'];
 
   it('is empty when no identity value is set', async () => {
-    const result = await run('koraVersion: "1.0.0"\n', {});
+    const result = await run('koraVersion: "1.0.0"\n');
     expect(result.ok).toBe(true);
     expect(result.report.fallThrough).toEqual(ALL);
     expect(result.report.mixedIdentity).toEqual([]);
@@ -146,7 +130,7 @@ describe('validateTheme: mixed identity', () => {
   });
 
   it('lists the fall-through values when only the product name is set', async () => {
-    const result = await run('koraVersion: "1.0.0"\nproductName: Meridian\n', {});
+    const result = await run('koraVersion: "1.0.0"\nproductName: Meridian\n');
     expect(result.ok).toBe(true);
     expect(result.report.mixedIdentity).toEqual([
       'favicon.dark',
@@ -159,7 +143,7 @@ describe('validateTheme: mixed identity', () => {
 
   it('lists the fall-through values when only the dark logo is set', async () => {
     const result = await run(
-      `koraVersion: "1.0.0"\nslots:\n  logo:\n    dark: assets/logo-dark.svg\n`,
+      `koraVersion: "1.0.0"\nslots:\n  logo:\n    dark: https://cdn.example/logo-dark.svg\n`,
     );
     expect(result.ok).toBe(true);
     expect(result.report.mixedIdentity).toEqual([
@@ -172,7 +156,7 @@ describe('validateTheme: mixed identity', () => {
 
   it('lists the fall-through values when only the dark favicon is set', async () => {
     const result = await run(
-      `koraVersion: "1.0.0"\nslots:\n  favicon:\n    dark: assets/favicon.svg\n`,
+      `koraVersion: "1.0.0"\nslots:\n  favicon:\n    dark: https://cdn.example/favicon.svg\n`,
     );
     expect(result.ok).toBe(true);
     expect(result.report.mixedIdentity).toEqual([
@@ -186,14 +170,15 @@ describe('validateTheme: mixed identity', () => {
   it('is empty for a colours-only theme', async () => {
     const result = await run(
       'koraVersion: "1.0.0"\ntokens:\n  --hades-raw-black:\n    dark: "#000"\n',
-      {},
     );
     expect(result.ok).toBe(true);
     expect(result.report.mixedIdentity).toEqual([]);
   });
 
   it('is empty for a fonts-only theme', async () => {
-    const result = await run('koraVersion: "1.0.0"\nslots:\n  font.sans: assets/sans.woff2\n');
+    const result = await run(
+      'koraVersion: "1.0.0"\nslots:\n  font.sans: https://cdn.example/sans.woff2\n',
+    );
     expect(result.ok).toBe(true);
     expect(result.report.mixedIdentity).toEqual([]);
   });
@@ -249,7 +234,6 @@ describe('validateTheme: document faults', () => {
     const options = (koraVersion: string | null) => ({
       manifest: MANIFEST,
       koraVersion,
-      readAsset: bundle({}),
     });
     expect((await validateTheme('koraVersion: "0.8.0"\n', options('0.8.1-rc.2'))).ok).toBe(true);
     expect((await validateTheme('koraVersion: "1.0.0"\n', options('0.8.1-rc.2'))).ok).toBe(false);
@@ -259,14 +243,12 @@ describe('validateTheme: document faults', () => {
     const result = await validateTheme('koraVersion: "7.0.0"\n', {
       manifest: MANIFEST,
       koraVersion: null,
-      readAsset: bundle({}),
     });
     expect(result.ok).toBe(true);
     expect(result.report.versionCheckSkipped).toBe(true);
     const bad = await validateTheme('koraVersion: "7.0"\n', {
       manifest: MANIFEST,
       koraVersion: null,
-      readAsset: bundle({}),
     });
     expect(bad.ok).toBe(false);
     expect((await run('koraVersion: "1.0.0"\n')).report.versionCheckSkipped).toBe(false);
@@ -276,7 +258,6 @@ describe('validateTheme: document faults', () => {
     const result = await validateTheme('koraVersion: "1.0.0"\n', {
       manifest: MANIFEST,
       koraVersion: 'latest',
-      readAsset: bundle({}),
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -344,7 +325,7 @@ describe('validateTheme: token faults', () => {
 
   it('fails a theme that sets a font slot and the same slot family token', async () => {
     const result = await run(
-      'koraVersion: "1.0.0"\ntokens:\n  --hades-raw-font-sans:\n    dark: Inter\nslots:\n  font.sans: assets/sans.woff2\n',
+      'koraVersion: "1.0.0"\ntokens:\n  --hades-raw-font-sans:\n    dark: Inter\nslots:\n  font.sans: https://cdn.example/sans.woff2\n',
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -353,156 +334,116 @@ describe('validateTheme: token faults', () => {
     ]);
     expect(result.errors[0]!.message).toContain('font.sans');
     const other = await run(
-      'koraVersion: "1.0.0"\ntokens:\n  --hades-raw-font-mono:\n    dark: Menlo\nslots:\n  font.sans: assets/sans.woff2\n',
+      'koraVersion: "1.0.0"\ntokens:\n  --hades-raw-font-mono:\n    dark: Menlo\nslots:\n  font.sans: https://cdn.example/sans.woff2\n',
     );
     expect(other.ok).toBe(true);
   });
 });
 
-describe('validateTheme: slot and asset faults', () => {
-  const logo = (path: string) =>
-    `koraVersion: "1.0.0"\nslots:\n  logo:\n    dark: ${JSON.stringify(path)}\n`;
+describe('validateTheme: slot URL faults', () => {
+  const logo = (url: string) =>
+    `koraVersion: "1.0.0"\nslots:\n  logo:\n    dark: ${JSON.stringify(url)}\n`;
 
-  it('fails a path that escapes the bundle or is absolute', async () => {
-    for (const path of [
-      '../theme.yaml',
-      'assets/../../etc/passwd',
-      '/etc/passwd',
-      'assets\\logo.svg',
-      'assets//logo.svg',
+  it('accepts an https URL with a port, a path and a query', async () => {
+    for (const url of [
+      'https://cdn.example/logo.svg',
+      'https://cdn.example:8443/brand/2026/logo.dark.svg',
+      'https://cdn.example/logo.SVG?v=3&sig=abc',
+      'https://xn--caf-dma.example/logo.svg',
+    ]) {
+      expect((await run(logo(url))).ok, url).toBe(true);
+    }
+  });
+
+  it('fails a URL that is not a plain https URL', async () => {
+    for (const url of [
+      'http://cdn.example/logo.svg',
+      '//cdn.example/logo.svg',
+      '/assets/logo.svg',
+      'assets/logo.svg',
+      'data:image/svg+xml;base64,AAAA',
+      'javascript:alert(1)//.svg',
+      'https://user:pass@cdn.example/logo.svg',
+      'https://cdn.example/logo.svg#frag',
+      'https://cdn.example/a b.svg',
+      'https://cdn.example/a".svg',
+      'https://cdn.example/a(1).svg',
+      'https://cdn.example/a\\b.svg',
+      'https://cdn.example/x?q=a b',
+      'https://.example/logo.svg',
+      `https://cdn.example/${'a'.repeat(2048)}.svg`,
       '',
     ]) {
-      const result = await run(logo(path));
-      expect(result.ok, path).toBe(false);
-      expect(errorPaths(result)).toEqual(['slots.logo.dark']);
+      const result = await run(logo(url));
+      expect(result.ok, url).toBe(false);
+      expect(errorPaths(result), url).toEqual(['slots.logo.dark']);
     }
   });
 
-  it('fails a missing asset', async () => {
-    const result = await run(logo('assets/missing.svg'));
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.errors[0]!.message).toContain('not in the bundle');
-  });
-
-  it('fails an oversized asset naming the limit', async () => {
-    const big = new Uint8Array(2049);
-    big.set(SVG);
-    const result = await run(logo('assets/logo-dark.svg'), { 'assets/logo-dark.svg': big });
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.errors[0]!.message).toContain('larger than');
-    expect(result.errors[0]!.message).toContain('2048');
-  });
-
-  it('asks the reader for no more than the largest limit of the slots that use the path', async () => {
-    const limits: number[] = [];
-    await validateTheme(
-      'koraVersion: "1.0.0"\nslots:\n  favicon:\n    dark: assets/favicon.svg\n    light: assets/favicon.svg\n',
-      {
-        manifest: MANIFEST,
-        koraVersion: RUNNING,
-        readAsset: async (_path, maxBytes) => {
-          limits.push(maxBytes);
-          return SVG;
-        },
-      },
-    );
-    expect(limits).toEqual([MANIFEST.slots.find((s) => s.name === 'favicon')!.maxBytes]);
-  });
-
-  it('fails a wrong extension before reading content', async () => {
-    const result = await run(logo('assets/logo.png'), { 'assets/logo.png': SVG });
-    expect(result.ok).toBe(false);
+  it('fails a wrong or missing extension, looking at the path and not the query', async () => {
+    for (const url of [
+      'https://cdn.example/logo.png',
+      'https://cdn.example/logo',
+      'https://cdn.example',
+      'https://cdn.example/',
+      'https://cdn.example/.svg',
+      'https://cdn.example/logo.svg/',
+      'https://cdn.example/logo?name=a.svg',
+      'https://cdn.example/?x=/a.svg',
+    ]) {
+      const result = await run(logo(url));
+      expect(result.ok, url).toBe(false);
+      expect(errorPaths(result), url).toEqual(['slots.logo.dark']);
+    }
+    const result = await run(logo('https://cdn.example/logo.png'));
     if (result.ok) return;
     expect(result.errors[0]!.message).toContain('svg');
-    expect(errorPaths(await run(logo('assets/logo'), { 'assets/logo': SVG }))).toEqual([
-      'slots.logo.dark',
-    ]);
   });
 
-  it('fails an SVG with a script, an event attribute, an external href, an external url() or a DOCTYPE', async () => {
-    const cases: [Uint8Array, string][] = [
-      [SVG_SCRIPT, '<script>'],
-      [SVG_ONLOAD, 'event attribute'],
-      [SVG_EXTERNAL_HREF, 'href'],
-      [SVG_EXTERNAL_URL, 'url()'],
-      [SVG_DOCTYPE, 'DOCTYPE'],
-    ];
-    for (const [bytes, expected] of cases) {
-      const result = await run(logo('assets/logo-dark.svg'), { 'assets/logo-dark.svg': bytes });
-      expect(result.ok, expected).toBe(false);
-      if (result.ok) return;
-      expect(result.errors[0]!.message, expected).toContain(expected);
-    }
-  });
-
-  it('accepts an SVG with fragment references and inline data images', async () => {
+  it('holds a font to .woff2', async () => {
     expect(
-      (await run(logo('assets/logo-dark.svg'), { 'assets/logo-dark.svg': SVG_DATA_IMAGE })).ok,
+      (await run('koraVersion: "1.0.0"\nslots:\n  font.mono: https://cdn.example/m.woff2\n')).ok,
     ).toBe(true);
-    expect((await run(logo('assets/logo-dark.svg'), { 'assets/logo-dark.svg': SVG })).ok).toBe(
-      true,
+    const result = await run(
+      'koraVersion: "1.0.0"\nslots:\n  font.mono: https://cdn.example/m.woff\n',
     );
-  });
-
-  it('fails a font that is not WOFF2', async () => {
-    const result = await run('koraVersion: "1.0.0"\nslots:\n  font.mono: assets/mono.woff2\n', {
-      'assets/mono.woff2': NOT_WOFF2,
-    });
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.errors).toEqual([expect.objectContaining({ path: 'slots.font.mono' })]);
-    expect(result.errors[0]!.message).toContain('WOFF2');
+    expect(errorPaths(result)).toEqual(['slots.font.mono']);
   });
 
   it('fails an image slot given a string and a font slot given a map', async () => {
     expect(
-      errorPaths(await run('koraVersion: "1.0.0"\nslots:\n  logo: assets/logo-dark.svg\n')),
+      errorPaths(await run('koraVersion: "1.0.0"\nslots:\n  logo: https://cdn.example/l.svg\n')),
     ).toEqual(['slots.logo']);
     expect(
       errorPaths(
-        await run('koraVersion: "1.0.0"\nslots:\n  font.sans:\n    dark: assets/sans.woff2\n'),
+        await run(
+          'koraVersion: "1.0.0"\nslots:\n  font.sans:\n    dark: https://cdn.example/s.woff2\n',
+        ),
       ),
     ).toEqual(['slots.font.sans']);
     expect(
       errorPaths(
-        await run('koraVersion: "1.0.0"\nslots:\n  logo:\n    dim: assets/logo-dark.svg\n'),
+        await run('koraVersion: "1.0.0"\nslots:\n  logo:\n    dim: https://cdn.example/l.svg\n'),
       ),
     ).toEqual(['slots.logo.dim']);
   });
 
-  it('reads an asset referenced twice once', async () => {
-    let reads = 0;
-    const result = await validateTheme(
-      'koraVersion: "1.0.0"\nslots:\n  favicon:\n    dark: assets/favicon.svg\n    light: assets/favicon.svg\n',
-      {
-        manifest: MANIFEST,
-        koraVersion: RUNNING,
-        readAsset: async () => {
-          reads++;
-          return SVG;
-        },
-      },
-    );
-    expect(result.ok).toBe(true);
-    expect(reads).toBe(1);
+  it('refuses a number, a list and null where a URL belongs', async () => {
+    for (const value of ['5', '[a]', 'null']) {
+      const result = await run(`koraVersion: "1.0.0"\nslots:\n  logo:\n    dark: ${value}\n`);
+      expect(errorPaths(result), value).toEqual(['slots.logo.dark']);
+    }
   });
 });
 
 describe('validateTheme: the hash', () => {
-  it('is stable for the same bundle and changes when an asset byte or the document changes', async () => {
+  it('is stable for the same document and changes when the document does', async () => {
     const a = await run(FULL_DOCUMENT);
     const b = await run(FULL_DOCUMENT);
     expect(a.ok && b.ok && a.theme.hash === b.theme.hash).toBe(true);
 
-    const changed = new Uint8Array(WOFF2);
-    changed[changed.length - 1] = 0xff;
-    const c = await run(FULL_DOCUMENT, { ...FULL_BUNDLE, 'assets/mono.woff2': changed });
+    const c = await run(`${FULL_DOCUMENT}\n# a comment\n`);
     expect(c.ok && a.ok && c.theme.hash !== a.theme.hash).toBe(true);
-
-    const d = await run(`${FULL_DOCUMENT}\n# a comment\n`);
-    expect(d.ok && a.ok && d.theme.hash !== a.theme.hash).toBe(true);
   });
 });
 
@@ -524,7 +465,6 @@ describe('validateTheme: against the real manifest', () => {
     const result = await validateTheme(doc, {
       manifest,
       koraVersion: '1.0.0',
-      readAsset: bundle({}),
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -566,23 +506,5 @@ describe('validateTheme: empty maps, code points and unreadable assets', () => {
       );
       expect(errorPaths(result)).toEqual(['tokens.--hades-raw-font-sans.dark']);
     }
-  });
-
-  it('turns a reader that throws into an error naming the path', async () => {
-    const throwing = async (path: string) => {
-      throw Object.assign(new Error(`EISDIR: ${path}`), { code: 'EISDIR' });
-    };
-    const result = await validateTheme(
-      'koraVersion: "1.0.0"\nslots:\n  font.sans: assets/dir.woff2\n',
-      { manifest: MANIFEST, koraVersion: RUNNING, readAsset: throwing },
-    );
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.errors).toEqual([
-      {
-        path: 'slots.font.sans',
-        message: '"assets/dir.woff2" is not a readable file in the bundle',
-      },
-    ]);
   });
 });

@@ -3,20 +3,17 @@ import { describe, expect, it } from 'vitest';
 
 import manifestJson from '../../manifest.json';
 import { DARK_SELECTOR, LIGHT_SELECTOR, fontPreloads, generateThemeCss } from './css';
-import { FULL_BUNDLE, FULL_DOCUMENT, MANIFEST, bundle } from './fixtures.test-support';
+import { FULL_DOCUMENT, MANIFEST } from './fixtures.test-support';
 import type { ThemeManifest } from './manifest';
 import type { Theme } from './types';
 import { validateTheme } from './validate';
 
-const resolveAsset = (path: string) => `/theme/abc123/assets/${path.replace(/^assets\//, '')}`;
-
 async function load(
   text: string,
-  files: Record<string, Uint8Array> = FULL_BUNDLE,
   manifest: ThemeManifest = MANIFEST,
   koraVersion: string | null = '1.3.0',
 ): Promise<Theme> {
-  const result = await validateTheme(text, { manifest, koraVersion, readAsset: bundle(files) });
+  const result = await validateTheme(text, { manifest, koraVersion });
   if (!result.ok) throw new Error(result.errors.map((e) => `${e.path}: ${e.message}`).join('\n'));
   return result.theme;
 }
@@ -25,9 +22,8 @@ describe('generateThemeCss', () => {
   it('puts a dark-only token in the dark block only, and omits an empty light block', async () => {
     const theme = await load(
       'koraVersion: "1.0.0"\ntokens:\n  --hades-raw-black:\n    dark: "#0d0f11"\n',
-      {},
     );
-    const css = generateThemeCss(theme, { resolveAsset });
+    const css = generateThemeCss(theme);
     expect(css).toBe(`${DARK_SELECTOR}{--hades-raw-black:#0d0f11}`);
     expect(css).not.toContain(LIGHT_SELECTOR);
   });
@@ -35,29 +31,26 @@ describe('generateThemeCss', () => {
   it('puts a light-only token in the light block only', async () => {
     const theme = await load(
       'koraVersion: "1.0.0"\ntokens:\n  --hades-raw-black:\n    light: "#fff"\n',
-      {},
     );
-    expect(generateThemeCss(theme, { resolveAsset })).toBe(
-      `${LIGHT_SELECTOR}{--hades-raw-black:#fff}`,
-    );
+    expect(generateThemeCss(theme)).toBe(`${LIGHT_SELECTOR}{--hades-raw-black:#fff}`);
   });
 
   it('returns an empty string for a theme that sets no token and no font', async () => {
-    const theme = await load('koraVersion: "1.0.0"\nproductName: Acme\n', {});
-    expect(generateThemeCss(theme, { resolveAsset })).toBe('');
-    expect(fontPreloads(theme, { resolveAsset })).toEqual([]);
+    const theme = await load('koraVersion: "1.0.0"\nproductName: Acme\n');
+    expect(generateThemeCss(theme)).toBe('');
+    expect(fontPreloads(theme)).toEqual([]);
   });
 
   it('declares a face per theme font and sets the family token in both blocks', async () => {
     const theme = await load(FULL_DOCUMENT);
-    const css = generateThemeCss(theme, { resolveAsset });
+    const css = generateThemeCss(theme);
     const lines = css.split('\n');
     expect(lines).toHaveLength(4);
     expect(lines[0]).toBe(
-      '@font-face{font-family:"hades-theme-mono";src:url("/theme/abc123/assets/mono.woff2") format("woff2");font-display:swap}',
+      '@font-face{font-family:"hades-theme-mono";src:url("https://cdn.example/mono.woff2") format("woff2");font-display:swap}',
     );
     expect(lines[1]).toBe(
-      '@font-face{font-family:"hades-theme-sans";src:url("/theme/abc123/assets/sans.woff2") format("woff2");font-display:swap}',
+      '@font-face{font-family:"hades-theme-sans";src:url("https://cdn.example/sans.woff2") format("woff2");font-display:swap}',
     );
     expect(lines[2]!.startsWith(`${DARK_SELECTOR}{`)).toBe(true);
     expect(lines[3]!.startsWith(`${LIGHT_SELECTOR}{`)).toBe(true);
@@ -78,21 +71,28 @@ describe('generateThemeCss', () => {
 
   it('lists the resolved font URLs for preloading', async () => {
     const theme = await load(FULL_DOCUMENT);
-    expect(fontPreloads(theme, { resolveAsset })).toEqual([
-      '/theme/abc123/assets/mono.woff2',
-      '/theme/abc123/assets/sans.woff2',
+    expect(fontPreloads(theme)).toEqual([
+      'https://cdn.example/mono.woff2',
+      'https://cdn.example/sans.woff2',
     ]);
   });
 
-  it('escapes the resolved URL inside the CSS string', async () => {
-    const theme = await load('koraVersion: "1.0.0"\nslots:\n  font.sans: assets/sans.woff2\n');
-    const css = generateThemeCss(theme, { resolveAsset: () => 'https://cdn.example/a"b\\c.woff2' });
+  // The validator refuses a quote, a backslash or `<` in a URL, so these build
+  // the theme by hand: the generator escapes what it writes whatever reached it.
+  const withFontUrl = (url: string): Theme => ({
+    koraVersion: '1.0.0',
+    tokens: {},
+    slots: { 'font.sans': { kind: 'font', url } },
+    hash: '',
+  });
+
+  it('escapes the URL inside the CSS string', () => {
+    const css = generateThemeCss(withFontUrl('https://cdn.example/a"b\\c.woff2'));
     expect(css).toContain('src:url("https://cdn.example/a\\"b\\\\c.woff2")');
   });
 
-  it('escapes < so a path cannot close the inline <style> element', async () => {
-    const theme = await load('koraVersion: "1.0.0"\nslots:\n  font.sans: assets/sans.woff2\n');
-    const css = generateThemeCss(theme, { resolveAsset: () => '/x</style><script>.woff2' });
+  it('escapes < so a URL cannot close the inline <style> element', () => {
+    const css = generateThemeCss(withFontUrl('https://cdn.example/x</style><script>.woff2'));
     expect(css).not.toContain('<');
     expect(css).toContain('\\3c /style>');
   });
@@ -100,13 +100,11 @@ describe('generateThemeCss', () => {
   it('is deterministic whatever the document order', async () => {
     const a = await load(
       'koraVersion: "1.0.0"\ntokens:\n  --hades-raw-black:\n    dark: "#000"\n  --hades-raw-accent-400:\n    dark: "#111"\n',
-      {},
     );
     const b = await load(
       'koraVersion: "1.0.0"\ntokens:\n  --hades-raw-accent-400:\n    dark: "#111"\n  --hades-raw-black:\n    dark: "#000"\n',
-      {},
     );
-    expect(generateThemeCss(a, { resolveAsset })).toBe(generateThemeCss(b, { resolveAsset }));
+    expect(generateThemeCss(a)).toBe(generateThemeCss(b));
   });
 
   it('stays under the 16 KiB first-paint budget for a theme that sets every token and both fonts', async () => {
@@ -127,11 +125,14 @@ describe('generateThemeCss', () => {
     const doc = JSON.stringify({
       koraVersion: '1.0.0',
       tokens,
-      slots: { 'font.sans': 'assets/sans.woff2', 'font.mono': 'assets/mono.woff2' },
+      slots: {
+        'font.sans': 'https://cdn.example/sans.woff2',
+        'font.mono': 'https://cdn.example/mono.woff2',
+      },
     });
-    const theme = await load(doc, FULL_BUNDLE, manifest, '1.0.0');
-    const css = generateThemeCss(theme, { resolveAsset: (p) => `/theme/${theme.hash}/${p}` });
-    const preloads = fontPreloads(theme, { resolveAsset: (p) => `/theme/${theme.hash}/${p}` })
+    const theme = await load(doc, manifest, '1.0.0');
+    const css = generateThemeCss(theme);
+    const preloads = fontPreloads(theme)
       .map((url) => `<link rel="preload" as="font" type="font/woff2" crossorigin href="${url}">`)
       .join('');
     const bytes = new TextEncoder().encode(`<style>${css}</style>${preloads}`).length;
@@ -143,9 +144,8 @@ describe('generateThemeCss: font family tokens', () => {
   const fontCss = async (value: string) => {
     const theme = await load(
       `koraVersion: "1.0.0"\ntokens:\n  --hades-raw-font-sans:\n    dark: ${JSON.stringify(value)}\n`,
-      {},
     );
-    return generateThemeCss(theme, { resolveAsset });
+    return generateThemeCss(theme);
   };
 
   it.each([

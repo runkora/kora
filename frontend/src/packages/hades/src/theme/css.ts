@@ -13,11 +13,6 @@ import { fontFamilyList } from './formats';
 import { familyNameForSlot } from './manifest';
 import type { Theme } from './types';
 
-export interface CssOptions {
-  /** Maps a bundle-relative asset path to the URL the page serves it from. */
-  readonly resolveAsset: (path: string) => string;
-}
-
 export const DARK_SELECTOR = "html:root:not([data-theme='light'])";
 export const LIGHT_SELECTOR = "html[data-theme='light']";
 
@@ -38,11 +33,9 @@ function fontDeclarations(theme: Theme): [token: string, value: string][] {
   ]);
 }
 
-function fontSlots(theme: Theme): [name: string, path: string][] {
+function fontSlots(theme: Theme): [name: string, url: string][] {
   return Object.entries(theme.slots)
-    .flatMap(([name, slot]): [string, string][] =>
-      slot.kind === 'font' ? [[name, slot.path]] : [],
-    )
+    .flatMap(([name, slot]): [string, string][] => (slot.kind === 'font' ? [[name, slot.url]] : []))
     .sort(([a], [b]) => a.localeCompare(b));
 }
 
@@ -76,18 +69,18 @@ function cssString(value: string): string {
     .replace(/[\n\r\f]/g, '\\a ');
 }
 
-export function generateThemeCss(theme: Theme, options: CssOptions): string {
+export function generateThemeCss(theme: Theme): string {
   const fonts = fontDeclarations(theme);
   const faces = fontSlots(theme).map(
-    ([name, path]) =>
-      `@font-face{font-family:"${familyNameForSlot(name)}";src:url("${cssString(options.resolveAsset(path))}") format("woff2");font-display:swap}`,
+    ([name, url]) =>
+      `@font-face{font-family:"${familyNameForSlot(name)}";src:url("${cssString(url)}") format("woff2");font-display:swap}`,
   );
   const dark = block(DARK_SELECTOR, [...modeDeclarations(theme, 'dark'), ...fonts]);
   const light = block(LIGHT_SELECTOR, [...modeDeclarations(theme, 'light'), ...fonts]);
   return [...faces, dark, light].filter(Boolean).join('\n');
 }
 
-/** The resolved URL of every theme font, for `<link rel="preload" as="font">` in the head. */
-export function fontPreloads(theme: Theme, options: CssOptions): string[] {
-  return fontSlots(theme).map(([, path]) => options.resolveAsset(path));
+/** The URL of every theme font, for `<link rel="preload" as="font" crossorigin>` in the head. */
+export function fontPreloads(theme: Theme): string[] {
+  return fontSlots(theme).map(([, url]) => url);
 }

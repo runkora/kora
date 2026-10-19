@@ -1,19 +1,20 @@
 /**
  * The theme validator and loader: one function that takes the document text,
- * the manifest, the instance's contract version and an asset reader, and returns
- * either the validated theme or every fault it found. Pure: it never touches
- * the filesystem or the network, so the same code runs in the init container,
+ * the manifest and the instance's kora version, and returns either the
+ * validated theme or every fault it found. Pure: it never touches the
+ * filesystem or the network, and it checks the form of a slot's URL, never what
+ * the URL serves, so the same code runs in the init container,
  * the frontend's server module and a browser preview. See the white-labelling
  * theme ADR, Decisions 1 and 3.
  */
 import { parse as parseYaml } from 'yaml';
 
 import type { Mode } from '../tokens/surface';
-import { contentFaults, extensionOf } from './assets';
 import {
   FORBIDDEN_IN_VALUES,
   fontFamilyFault,
-  isBundlePath,
+  hasAssetExtension,
+  isAssetUrl,
   isKoraVersion,
   koraMajor,
   matchesFormat,
@@ -31,14 +32,6 @@ import type {
   ValidationResult,
 } from './types';
 
-/**
- * Reads an asset by bundle-relative path; null when the bundle has no such
- * file. The validator passes the largest size any slot allows for the path and
- * the reader returns at most `maxBytes + 1` bytes, so an oversize file is
- * detected without being read in full.
- */
-export type AssetReader = (path: string, maxBytes: number) => Promise<Uint8Array | null>;
-
 export interface ValidateOptions {
   readonly manifest: ThemeManifest;
   /**
@@ -48,7 +41,6 @@ export interface ValidateOptions {
    * the report says.
    */
   readonly koraVersion: string | null;
-  readonly readAsset: AssetReader;
 }
 
 const TOP_LEVEL_KEYS = ['koraVersion', 'productName', 'tokens', 'slots'] as const;
@@ -57,7 +49,7 @@ export async function validateTheme(
   text: string,
   options: ValidateOptions,
 ): Promise<ValidationResult> {
-  const { manifest, readAsset } = options;
+  const { manifest } = options;
   const errors: ThemeError[] = [];
   const ignored: IgnoredEntry[] = [];
   const versionCheckSkipped = options.koraVersion === null;
@@ -100,7 +92,6 @@ export async function validateTheme(
     }
   }
 
-  const assets = await readAssets(slots, manifest, readAsset, errors);
   const report: ThemeReport = {
     ignored,
     versionCheckSkipped,
@@ -116,8 +107,7 @@ export async function validateTheme(
     ...(productName === undefined ? {} : { productName }),
     tokens,
     slots,
-    assets,
-    hash: await themeHash(text, assets),
+    hash: await themeHash(text),
   };
   return { ok: true, theme, report };
 }
@@ -299,15 +289,15 @@ function checkSlots(
     }
     const path = `slots.${name}`;
     if (slot.modes.length === 0) {
-      const checked = checkPath(entry, path, errors);
-      if (checked !== undefined) out[name] = { kind: 'font', path: checked };
+      const checked = checkUrl(entry, path, slot, errors);
+      if (checked !== undefined) out[name] = { kind: 'font', url: checked };
       continue;
     }
     if (!isPlainObject(entry)) {
-      errors.push({ path, message: `must be a map of mode to path (${slot.modes.join(', ')})` });
+      errors.push({ path, message: `must be a map of mode to URL (${slot.modes.join(', ')})` });
       continue;
     }
-    const paths: Partial<Record<Mode, string>> = {};
+    const urls: Partial<Record<Mode, string>> = {};
     for (const [mode, raw] of Object.entries(entry)) {
       const modePath = `${path}.${mode}`;
       if (!(slot.modes as readonly string[]).includes(mode)) {
@@ -317,101 +307,43 @@ function checkSlots(
         });
         continue;
       }
-      const checked = checkPath(raw, modePath, errors);
-      if (checked !== undefined) paths[mode as Mode] = checked;
+      const checked = checkUrl(raw, modePath, slot, errors);
+      if (checked !== undefined) urls[mode as Mode] = checked;
     }
-    if (Object.keys(paths).length > 0) out[name] = { kind: 'image', paths };
+    if (Object.keys(urls).length > 0) out[name] = { kind: 'image', urls };
   }
   return out;
 }
 
-function checkPath(raw: unknown, path: string, errors: ThemeError[]): string | undefined {
+function checkUrl(
+  raw: unknown,
+  path: string,
+  slot: ThemeManifestSlot,
+  errors: ThemeError[],
+): string | undefined {
   if (raw === null) {
     errors.push({ path, message: 'cannot be set to nothing; omit it to keep the default' });
     return undefined;
   }
   if (typeof raw !== 'string') {
-    errors.push({ path, message: 'must be a path relative to the bundle root' });
+    errors.push({ path, message: 'must be an https:// URL' });
     return undefined;
   }
-  if (!isBundlePath(raw)) {
+  if (!isAssetUrl(raw)) {
     errors.push({
       path,
-      message: `"${raw}" is not a bundle-relative path: no leading slash, no "..", no backslash`,
+      message: `"${raw}" is not an https:// URL of at most 2048 characters with a plain host, no credentials, no fragment and no quotes, parentheses or whitespace`,
+    });
+    return undefined;
+  }
+  if (!hasAssetExtension(raw, slot.formats)) {
+    errors.push({
+      path,
+      message: `"${raw}" must end in one of the extensions ${slot.formats.join(', ')}, before any query`,
     });
     return undefined;
   }
   return raw;
-}
-
-// ─── Assets ──────────────────────────────────────────────────────────────────
-
-async function readAssets(
-  slots: Readonly<Record<string, ThemeSlot>>,
-  manifest: ThemeManifest,
-  readAsset: AssetReader,
-  errors: ThemeError[],
-): Promise<Map<string, Uint8Array>> {
-  const assets = new Map<string, Uint8Array>();
-  const bySlot = new Map(manifest.slots.map((s) => [s.name, s]));
-  const references: { path: string; docPath: string; slot: ThemeManifestSlot }[] = [];
-  for (const [name, slot] of Object.entries(slots)) {
-    const declared = bySlot.get(name)!;
-    if (slot.kind === 'font') {
-      references.push({ path: slot.path, docPath: `slots.${name}`, slot: declared });
-    } else {
-      for (const [mode, path] of Object.entries(slot.paths)) {
-        references.push({ path, docPath: `slots.${name}.${mode}`, slot: declared });
-      }
-    }
-  }
-
-  const limitByPath = new Map<string, number>();
-  for (const { path, slot } of references) {
-    limitByPath.set(path, Math.max(limitByPath.get(path) ?? 0, slot.maxBytes));
-  }
-  const bytesByPath = new Map<string, Uint8Array | null | 'unreadable'>();
-  for (const [path, limit] of limitByPath) {
-    try {
-      bytesByPath.set(path, await readAsset(path, limit));
-    } catch {
-      bytesByPath.set(path, 'unreadable');
-    }
-  }
-
-  for (const { path, docPath, slot } of references) {
-    const extension = extensionOf(path);
-    if (extension === null || !slot.formats.includes(extension)) {
-      errors.push({
-        path: docPath,
-        message: `"${path}" must have one of the extensions ${slot.formats.join(', ')}`,
-      });
-      continue;
-    }
-    const bytes = bytesByPath.get(path) ?? null;
-    if (bytes === 'unreadable') {
-      errors.push({ path: docPath, message: `"${path}" is not a readable file in the bundle` });
-      continue;
-    }
-    if (bytes === null) {
-      errors.push({ path: docPath, message: `"${path}" is not in the bundle` });
-      continue;
-    }
-    if (bytes.length > slot.maxBytes) {
-      errors.push({
-        path: docPath,
-        message: `"${path}" is larger than the ${slot.name} slot allows, at most ${slot.maxBytes} bytes`,
-      });
-      continue;
-    }
-    const faults = contentFaults(extension, bytes);
-    if (faults.length > 0) {
-      errors.push({ path: docPath, message: `"${path}" ${faults.join('; ')}` });
-      continue;
-    }
-    assets.set(path, bytes);
-  }
-  return assets;
 }
 
 // ─── Report ──────────────────────────────────────────────────────────────────
@@ -436,7 +368,7 @@ function identityReport(
     const set = slots[slot.name];
     for (const mode of slot.modes) {
       total++;
-      if (!(set && set.kind === 'image' && set.paths[mode] !== undefined)) {
+      if (!(set && set.kind === 'image' && set.urls[mode] !== undefined)) {
         fallThrough.push(`${slot.name}.${mode}`);
       }
     }
