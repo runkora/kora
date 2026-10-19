@@ -27,15 +27,7 @@ export interface GroupDeclaration {
   readonly order: number;
 }
 
-/**
- * The groups, in display order. `branding` holds the brand colours. Which
- * groups a consumer derives shades for is its own configuration, keyed by token
- * name. Groups are flat. Each must have at least one token or semantic name, and every
- * token and semantic name must name one of them: `make hades-manifest` fails
- * otherwise. Groups and labels are metadata, not contract: no theme carries
- * them. Adding a group is a minor; removing or renaming an id is a
- * major; labels and order may change in a patch.
- */
+/** The groups, in display order. */
 export const GROUPS: readonly GroupDeclaration[] = [
   { id: 'branding', label: 'Branding', order: 1 },
   { id: 'neutral', label: 'Neutral ramp', order: 2 },
@@ -70,11 +62,7 @@ const raw = (kind: TokenKind, group: string, label: string): TokenDeclaration =>
 });
 const at = (group: string, label: string): Placement => ({ group, label });
 
-/**
- * Kind, group and label of every raw token in `tokens.css`, keyed by custom
- * property name. Adding a raw token to `tokens.css` without an entry here
- * fails `make hades-manifest`, and the reverse. A token has one primary group.
- */
+/** Kind, group and label of every raw token in `tokens.css`, by custom property name. */
 export const TOKENS: Readonly<Record<string, TokenDeclaration>> = {
   // Neutral ramp
   '--hades-raw-black': raw('color', 'neutral', 'black'),
@@ -144,13 +132,7 @@ export const TOKENS: Readonly<Record<string, TokenDeclaration>> = {
   '--hades-raw-font-mono': raw('font', 'fonts', 'mono'),
 };
 
-/**
- * Group and label of every semantic name in `@theme inline`, keyed by custom
- * property name. The group is the role the name plays, so it can differ from
- * the group of the raw token it resolves to (`--color-surface` is a surface;
- * the raw token under it is on the neutral ramp). A semantic name without an
- * entry here fails `make hades-manifest`, and the reverse.
- */
+/** Group and label of every semantic name in `@theme inline`. The group is the name's role, not its raw token's. */
 export const SEMANTIC: Readonly<Record<string, Placement>> = {
   '--color-background': at('surfaces', 'background'),
   '--color-surface': at('surfaces', 'surface'),
@@ -214,15 +196,9 @@ export const SEMANTIC: Readonly<Record<string, Placement>> = {
 /** How a failed contrast pair is reported: `error` fails the theme, `warn` is advisory. */
 export type ContrastSeverity = 'error' | 'warn';
 
-/**
- * A text colour that must keep a minimum contrast ratio on each of the
- * backgrounds it sits on. `text` and every `on` entry are non-derived colour
- * semantic names from `@theme inline` (never the derived accent-subtle,
- * accent-muted or accent-border). The manifest carries the pairs; the values
- * come from the theme or the app's defaults, so no default is declared here.
- */
+/** A text colour that keeps a minimum contrast on each background. Names are non-derived colours from `@theme inline`. */
 export interface ContrastPair {
-  /** Public surface: removing or renaming one is a minor. Unique. */
+  /** Unique. */
   readonly id: string;
   readonly text: string;
   readonly on: readonly string[];
@@ -239,13 +215,8 @@ const SURFACE_NAMES = [
 ] as const;
 
 /**
- * The text pairs, WCAG 2.x relative-luminance ratio, text only: borders and
- * other non-text pairs are not declared. Body text clears 4.5:1; status colours
- * clear 3:1, because a status colour is often paired with an icon or label.
- * Every pair is a `warn` for now so contrast never fails a deployment; raising
- * one to `error` is a minor, like every change to a pair: contrast is
- * non-blocking, so none breaks a theme (versioning ADR, SD-3). One id per text
- * colour.
+ * Text pairs only, one id per text colour. Body text needs 4.5:1, status colours 3:1.
+ * Every pair is a `warn`, so contrast never fails a deployment.
  */
 export const CONTRAST: readonly ContrastPair[] = [
   {

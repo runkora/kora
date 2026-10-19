@@ -19,6 +19,7 @@ import {
   type TokenDeclaration,
   type TokenKind,
 } from '../../src/tokens/surface.ts';
+import type { TokenDefaults } from '../../src/theme/validate.ts';
 import {
   RAW_PREFIX,
   isDirectReference,
@@ -82,7 +83,7 @@ export interface Manifest {
   readonly groups: readonly ManifestGroup[];
   readonly tokens: readonly ManifestToken[];
   readonly mapping: Readonly<Record<string, ManifestMapping>>;
-  /** Text pairs a theme must keep, sorted by id. Empty in a manifest from before contrast existed. */
+  /** Text pairs a theme must keep, sorted by id. */
   readonly contrast: readonly ManifestContrast[];
   readonly slots: readonly ManifestSlot[];
   readonly productName: ProductNameBounds;
@@ -121,11 +122,7 @@ export class SurfaceMismatchError extends Error {
   }
 }
 
-/**
- * Every fault between the token sheet and the declaration: a token or semantic
- * name on one side only, a placement with no group or an unknown one, a group
- * declared twice, out of order or with no member.
- */
+/** Every fault between tokens.css and surface.ts: one-sided names, and missing, unknown or empty groups. */
 function surfaceProblems(
   declaredRaw: ReadonlySet<string>,
   declaredSemantic: ReadonlySet<string>,
@@ -181,11 +178,8 @@ function surfaceProblems(
 const MAX_CONTRAST = 21;
 
 /**
- * Every fault in the contrast pairs: an empty or repeated id, a name that is
- * unknown, not a colour or derived (accent-subtle and the like have no single
- * raw colour to measure), an empty or repeated `on`, a text listed under its
- * own `on`, a minimum outside [1, 21] and a severity that is not `error` or
- * `warn`.
+ * Every fault in the contrast pairs: a bad id, `on`, `min` or severity, or a name that is
+ * unknown, not a colour or derived (a derived colour has no single value to measure).
  */
 function contrastProblems(
   pairs: readonly ContrastPair[],
@@ -310,17 +304,14 @@ export function buildManifest(css: string, surface: SurfaceInput = SURFACE): Man
   };
 }
 
-/** Raw colour token to value, per mode. */
-export type TokenDefaults = Readonly<Record<Mode, Readonly<Record<string, string>>>>;
-
 /**
- * The raw colour values `tokens.css` ships, per mode: `:root` for dark, then
- * the `[data-theme='light']` overrides on top of it for light. Written to
- * `defaults.json`, apart from the manifest: default values are not part of
- * the theme surface, and the validator reads them only to check a theme's
- * contrast pairs against the colours the theme leaves alone.
+ * The raw colour values `tokens.css` ships, per mode. Light is `:root` with the light overrides.
+ * They live in `defaults.json`, outside the manifest, because they are not part of the theme surface.
  */
-export function buildTokenDefaults(css: string, surface: SurfaceInput = SURFACE): TokenDefaults {
+export function buildTokenDefaults(
+  css: string,
+  surface: SurfaceInput = SURFACE,
+): Required<TokenDefaults> {
   const dark = new Map<string, string>();
   const light = new Map<string, string>();
   for (const block of parseBlocks(css)) {
@@ -340,6 +331,6 @@ export function serializeManifest(manifest: Manifest): string {
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
-export function serializeDefaults(defaults: TokenDefaults): string {
+export function serializeDefaults(defaults: Required<TokenDefaults>): string {
   return `${JSON.stringify(defaults, null, 2)}\n`;
 }

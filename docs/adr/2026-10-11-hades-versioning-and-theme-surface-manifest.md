@@ -50,11 +50,11 @@ The Hades PRD numbers these as subsections 1 to 3 of this ADR, and the white-lab
 
 ## Decision Drivers
 
-- Hades is released with kora, frequently, so a Hades release process separate from kora's is cost without a reader.
-- A theme author needs one fact: the kora release the theme was written against.
-- The surface a theme can set must be a fact that is diffable in a pull request and deliverable with a release.
-- No version may be written by hand and then drift. The tag is the only place a version is written.
-- The repo already has patterns for version parity checks, release tagging and generated-file drift checks; reuse them.
+* Hades is released with kora, frequently, so a Hades release process separate from kora's is cost without a reader.
+* A theme author needs one fact: the kora release the theme was written against.
+* The surface a theme can set must be a fact that is diffable in a pull request and deliverable with a release.
+* No version may be written by hand and then drift. The tag is the only place a version is written.
+* The repo already has patterns for version parity checks, release tagging and generated-file drift checks; reuse them.
 
 ---
 

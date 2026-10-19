@@ -1,15 +1,10 @@
 /**
- * WCAG 2.x contrast for the two colour formats a theme may supply, `#hex` and
- * `oklch()`. Pure arithmetic, no DOM. Alpha is ignored: a ratio is defined for
- * opaque colours, so a translucent value is measured as its opaque colour. An
- * OKLCH colour outside the sRGB gamut is clipped per channel, which is
- * simpler than the chroma-reducing gamut mapping CSS Color 4 describes, so the
- * ratio is an approximation for such a colour. Lightness is clamped to [0, 1]
- * and chroma to at least 0, as CSS does before it converts.
+ * WCAG 2.x contrast for `#hex` and `oklch()` colours. Alpha is ignored, and an
+ * out-of-gamut OKLCH colour is clipped per channel, so its ratio is approximate.
  */
 
 /** Linear-light sRGB channels, each in [0, 1]. */
-export interface LinearRgb {
+interface LinearRgb {
   readonly r: number;
   readonly g: number;
   readonly b: number;
@@ -40,14 +35,14 @@ function channel(token: string, percentBase: number): number | null {
 }
 
 function parseOklch(value: string): LinearRgb | null {
-  // Tokenised rather than one regex: `\S+\s+\S+` shapes backtrack quadratically.
+  // Split into tokens. A single regex of `\S+\s+\S+` groups backtracks quadratically.
   const v = value.trim();
   if (!v.startsWith('oklch(') || !v.endsWith(')')) return null;
   const inner = v.slice('oklch('.length, -1);
   const slash = inner.indexOf('/');
   const main = slash === -1 ? inner : inner.slice(0, slash);
   if (slash !== -1) {
-    // An alpha is ignored, but it must be present and a single token.
+    // The alpha is ignored, but it must be one token.
     const alpha = inner.slice(slash + 1).trim();
     if (alpha === '' || /\s/.test(alpha)) return null;
   }
@@ -73,12 +68,12 @@ function parseOklch(value: string): LinearRgb | null {
 }
 
 /** The colour as linear-light sRGB, or null when the value is neither a hex nor an `oklch()` colour. */
-export function parseColor(value: string): LinearRgb | null {
+function parseColor(value: string): LinearRgb | null {
   return parseHex(value) ?? parseOklch(value);
 }
 
 /** WCAG relative luminance of a linear-light sRGB colour. */
-export function relativeLuminance({ r, g, b }: LinearRgb): number {
+function relativeLuminance({ r, g, b }: LinearRgb): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 

@@ -26,17 +26,12 @@ import type {
   ValidationResult,
 } from './types';
 
-/** Raw token to value, per mode: the colours the app ships. Supplied by the caller from `defaults.json`; the manifest carries none. */
+/** Raw token to value, per mode: the colours the app ships, from `defaults.json`. */
 export type TokenDefaults = Readonly<Partial<Record<Mode, Readonly<Record<string, string>>>>>;
 
 export interface ValidateOptions {
   readonly manifest: ThemeManifest;
-  /**
-   * The raw colour defaults, per mode. With them, a contrast pair is checked
-   * whenever the theme sets either side, the other side taken from the
-   * defaults. Without them, only a pair whose every raw token the theme sets
-   * is checked.
-   */
+  /** Raw colour defaults per mode. Without them a pair is checked only when the theme sets both sides. */
   readonly defaults?: TokenDefaults;
   /** The instance's kora version without the `v`. Null for a development build, which skips the major check. */
   readonly koraVersion: string | null;
@@ -349,15 +344,9 @@ function checkUrl(
 
 // ─── Contrast ────────────────────────────────────────────────────────────────
 
-/**
- * The manifest's contrast pairs, per mode. A semantic name resolves through
- * `mapping` to its single raw token, whose value is the theme's or, failing
- * that, the default's. A combination is skipped when the theme sets neither
- * side (the app's own colours are not the theme's to answer for), when a side
- * has no value or one that is not hex or oklch, and, without `defaults`, when
- * the theme does not set both. A failed `error` pair is a fault; a failed
- * `warn` pair goes to the returned list.
- */
+// Checks each contrast pair per mode. A failed `error` pair goes to `errors`, a `warn` pair is returned.
+// A pair is skipped when the theme sets neither side (the app's own colours are not its concern),
+// a side has no hex or oklch value, or `defaults` is missing and only one side is set.
 function checkContrast(
   tokens: Readonly<Record<string, ThemeTokenValues>>,
   manifest: ThemeManifest,

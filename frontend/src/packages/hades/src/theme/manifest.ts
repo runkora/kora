@@ -4,7 +4,7 @@ import type { Mode, ProductNameBounds, SlotKind, TokenFormat, TokenKind } from '
 export interface ThemeManifestToken {
   readonly name: string;
   readonly kind: TokenKind;
-  /** A `groups` id. Display metadata, not contract; absent in older manifests. */
+  /** A `groups` id. Display metadata, not contract. Absent in older manifests. */
   readonly group?: string;
   readonly label?: string;
   readonly format: TokenFormat;
@@ -40,9 +40,9 @@ export interface ThemeManifestContrast {
 export interface ThemeManifest {
   readonly modes: readonly Mode[];
   readonly tokens: readonly ThemeManifestToken[];
-  /** Semantic name to the raw tokens beneath it; the contrast check resolves names through it. Absent in older manifests. */
+  /** Semantic name to its raw tokens. Absent in older manifests. */
   readonly mapping?: Readonly<Record<string, ThemeManifestMapping>>;
-  /** Contrast pairs the theme must keep; absent in older manifests, and then none are checked. */
+  /** Contrast pairs the theme must keep. Absent in older manifests, which then check none. */
   readonly contrast?: readonly ThemeManifestContrast[];
   readonly slots: readonly ThemeManifestSlot[];
   readonly productName: ProductNameBounds;
