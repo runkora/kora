@@ -74,3 +74,31 @@ func TestRegister_Non204IsError(t *testing.T) {
 		t.Fatalf("Register error = %v, want %v", err, ErrRegistrationFailed)
 	}
 }
+
+// The policy service reads a null requires as unknown and [] as a clear.
+func TestScopeDeclaration_RequiresWireForm(t *testing.T) {
+	tests := []struct {
+		name     string
+		requires []string
+		want     string
+	}{
+		{name: "unknown", requires: nil, want: "null"},
+		{name: "declared empty", requires: []string{}, want: "[]"},
+		{name: "declared", requires: []string{"a:read"}, want: `["a:read"]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b, err := json.Marshal(ScopeDeclaration{Scope: "x:read", Requires: tt.requires})
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var got map[string]json.RawMessage
+			if err := json.Unmarshal(b, &got); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if string(got["requires"]) != tt.want {
+				t.Errorf("requires = %s, want %s", got["requires"], tt.want)
+			}
+		})
+	}
+}

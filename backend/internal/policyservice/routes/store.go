@@ -26,6 +26,7 @@ type ScopeDeclaration struct {
 	Action       string   `json:"action"`
 	Description  string   `json:"description,omitempty"`
 	// Requires lists scopes this scope depends on (see vocabulary.ScopeEntry.Requires).
+	// Absent or null is unknown and keeps the stored set; [] clears it.
 	Requires []string `json:"requires,omitempty"`
 }
 

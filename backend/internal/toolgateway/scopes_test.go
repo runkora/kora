@@ -1,6 +1,7 @@
 package toolgateway
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
@@ -132,4 +133,39 @@ func keys(m map[string]routescopes.ScopeDeclaration) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// The leaf requires tri-state decides whether a publish sets, clears or keeps
+// the stored edges. nil keeps them; a non-nil empty slice clears them.
+func TestBuildScopes_LeafRequires(t *testing.T) {
+	tool := Tool{Name: "agents.list", RequiresScopes: []string{"agents:types:read"}}
+	bare := Tool{Name: "agents.list"}
+	tests := []struct {
+		name     string
+		tenantID string
+		state    ServerState
+		tool     Tool
+		want     []string
+	}{
+		{name: "global ok publishes declared requires", state: StateOK, tool: tool, want: []string{"agents:types:read"}},
+		{name: "global ok with none declares empty", state: StateOK, tool: bare, want: []string{}},
+		{name: "global degraded is unknown", state: StateDegraded, tool: tool, want: nil},
+		{name: "tenant server never sets or clears", tenantID: "acme", state: StateOK, tool: tool, want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			decls, _ := BuildScopes([]ServerSnapshot{{
+				Server: Server{TenantID: tt.tenantID, Name: "orbit"},
+				State:  tt.state,
+				Tools:  []Tool{tt.tool},
+			}})
+			got := scopeSet(decls)["mcp:orbit:agents:list:use"].Requires
+			if (got == nil) != (tt.want == nil) || !slices.Equal(got, tt.want) {
+				t.Errorf("leaf requires = %#v, want %#v", got, tt.want)
+			}
+			if rollup := scopeSet(decls)["mcp:orbit:agents:use"].Requires; rollup != nil {
+				t.Errorf("rollup requires = %#v, want nil", rollup)
+			}
+		})
+	}
 }

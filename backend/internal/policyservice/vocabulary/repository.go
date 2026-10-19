@@ -31,8 +31,8 @@ type ScopeEntry struct {
 	// Empty for manually-created scopes.
 	RegisteredBy string `json:"registered_by,omitempty"`
 	// Requires lists scopes this scope depends on: a grant holding this scope
-	// confers the required scopes in the compiled effective set. Empty for
-	// ordinary scopes; set by first-party platform MCP tool leaf scopes.
+	// confers the required scopes in the compiled effective set. On Upsert, nil
+	// means unknown and keeps the stored set; a non-nil empty slice clears it.
 	Requires  []string  `json:"requires,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -46,6 +46,10 @@ type ScopeEntryWithUsage struct {
 
 // ErrScopeNotFound is returned when a scope is not in the vocabulary.
 var ErrScopeNotFound = errors.New("scope not found in vocabulary")
+
+// ErrScopeOwnedByAnother is returned by Upsert when a different service
+// registered the scope. The stored entry is left unchanged.
+var ErrScopeOwnedByAnother = errors.New("scope is registered by another service")
 
 // Repository defines the scope vocabulary storage contract.
 type Repository interface {
@@ -62,7 +66,8 @@ type Repository interface {
 	// and reports whether the catalog actually changed. Used by route
 	// registration so services can declare their scopes idempotently, and by
 	// the caller to tell a re-registration that changed nothing from one that
-	// needs the bundles recompiled.
+	// needs the bundles recompiled. Only the registering service may update an
+	// entry; any other caller gets ErrScopeOwnedByAnother.
 	Upsert(ctx context.Context, e *ScopeEntry) (bool, error)
 
 	// DeleteOrphans deletes all scopes owned by registeredBy whose scope strings
@@ -100,49 +105,52 @@ func (r *postgresRepository) Upsert(ctx context.Context, e *ScopeEntry) (bool, e
 		registeredBy = &e.RegisteredBy
 	}
 
+	// A nil Requires is unknown and keeps the stored edges. A partial
+	// introspection must not wipe them. A non-nil empty slice clears them.
+	requiresKnown := e.Requires != nil
 	requires := e.Requires
 	if requires == nil {
 		requires = []string{}
 	}
 
-	// The DO UPDATE is guarded so a row that already matches is left alone and
-	// RETURNING yields nothing. That is what makes an idempotent
-	// re-registration reportable as "nothing changed".
+	// The update skips rows another service owns and rows that already match.
+	// An unchanged re-registration then reports false. prior reads the owner
+	// before the insert.
 	row := r.pool.QueryRow(ctx, `
-		INSERT INTO policy_scope_vocabulary (scope, resource_type, path_segments, action, description, registered_by, requires, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-		ON CONFLICT (scope) DO UPDATE SET
-			resource_type  = EXCLUDED.resource_type,
-			path_segments  = EXCLUDED.path_segments,
-			action         = EXCLUDED.action,
-			description    = EXCLUDED.description,
-			registered_by  = COALESCE(policy_scope_vocabulary.registered_by, EXCLUDED.registered_by),
-			-- Only overwrite requires with a non-empty incoming set. A degraded or
-			-- partial (SkipPrune) introspection can re-register a scope with empty
-			-- requires; without this it would silently wipe the upstream-scope
-			-- conferral and break grants on the next bundle compile.
-			requires       = CASE
-				WHEN array_length(EXCLUDED.requires, 1) > 0 THEN EXCLUDED.requires
-				ELSE policy_scope_vocabulary.requires
-			END
-		WHERE policy_scope_vocabulary.resource_type IS DISTINCT FROM EXCLUDED.resource_type
-			OR policy_scope_vocabulary.path_segments IS DISTINCT FROM EXCLUDED.path_segments
-			OR policy_scope_vocabulary.action IS DISTINCT FROM EXCLUDED.action
-			OR policy_scope_vocabulary.description IS DISTINCT FROM EXCLUDED.description
-			OR (policy_scope_vocabulary.registered_by IS NULL AND EXCLUDED.registered_by IS NOT NULL)
-			OR (array_length(EXCLUDED.requires, 1) > 0
-				AND policy_scope_vocabulary.requires IS DISTINCT FROM EXCLUDED.requires)
-		RETURNING scope
-	`, e.Scope, e.ResourceType, pathJSON, e.Action, e.Description, registeredBy, requires)
+		WITH prior AS (
+			SELECT registered_by FROM policy_scope_vocabulary WHERE scope = $1
+		), upserted AS (
+			INSERT INTO policy_scope_vocabulary (scope, resource_type, path_segments, action, description, registered_by, requires, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+			ON CONFLICT (scope) DO UPDATE SET
+				resource_type  = EXCLUDED.resource_type,
+				path_segments  = EXCLUDED.path_segments,
+				action         = EXCLUDED.action,
+				description    = EXCLUDED.description,
+				registered_by  = COALESCE(policy_scope_vocabulary.registered_by, EXCLUDED.registered_by),
+				requires       = CASE WHEN $8::boolean THEN EXCLUDED.requires ELSE policy_scope_vocabulary.requires END
+			WHERE (policy_scope_vocabulary.registered_by IS NULL
+					OR policy_scope_vocabulary.registered_by = EXCLUDED.registered_by)
+				AND (policy_scope_vocabulary.resource_type IS DISTINCT FROM EXCLUDED.resource_type
+					OR policy_scope_vocabulary.path_segments IS DISTINCT FROM EXCLUDED.path_segments
+					OR policy_scope_vocabulary.action IS DISTINCT FROM EXCLUDED.action
+					OR policy_scope_vocabulary.description IS DISTINCT FROM EXCLUDED.description
+					OR (policy_scope_vocabulary.registered_by IS NULL AND EXCLUDED.registered_by IS NOT NULL)
+					OR ($8::boolean AND policy_scope_vocabulary.requires IS DISTINCT FROM EXCLUDED.requires))
+			RETURNING scope
+		)
+		SELECT EXISTS (SELECT 1 FROM upserted), (SELECT registered_by FROM prior)
+	`, e.Scope, e.ResourceType, pathJSON, e.Action, e.Description, registeredBy, requires, requiresKnown)
 
-	var scope string
-	switch err := row.Scan(&scope); {
-	case errors.Is(err, pgx.ErrNoRows):
-		return false, nil
-	case err != nil:
+	var changed bool
+	var owner *string
+	if err := row.Scan(&changed, &owner); err != nil {
 		return false, fmt.Errorf("upsert scope: %w", err)
 	}
-	return true, nil
+	if !changed && owner != nil && *owner != e.RegisteredBy {
+		return false, fmt.Errorf("%w: %s", ErrScopeOwnedByAnother, *owner)
+	}
+	return changed, nil
 }
 
 func (r *postgresRepository) DeleteOrphans(ctx context.Context, registeredBy string, keepScopes []string) ([]string, error) {

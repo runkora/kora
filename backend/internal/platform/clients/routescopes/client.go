@@ -76,8 +76,11 @@ type ScopeDeclaration struct {
 	// set (not in the stored grant). Used by first-party platform MCP tools whose
 	// mcp:<server>:<tool>:use scope needs the underlying platform scope the tool
 	// calls upstream (e.g. mcp:orbit:agents:list:use requires agents:types:read).
-	// Empty for ordinary scopes and every external MCP.
-	Requires []string `json:"requires,omitempty"`
+	//
+	// nil is sent as null and means unknown: the stored set is kept. A non-nil
+	// empty slice is sent as [] and clears it. Only the owning service's
+	// declaration changes a stored entry.
+	Requires []string `json:"requires"`
 }
 
 // registrationRequest is the wire format for POST /api/v1/policy/routes/register.

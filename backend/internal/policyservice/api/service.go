@@ -24,6 +24,10 @@ import (
 // ErrInvalidPrincipalType is returned when principal_type is not a known value.
 var ErrInvalidPrincipalType = errors.New("principal_type must be AGENT, HUMAN, PAT, or SERVICE")
 
+// ErrTenantScopeDeclaration is returned when a tenant-scoped registration
+// declares scopes. The vocabulary is global and only SYSTEM services write it.
+var ErrTenantScopeDeclaration = errors.New("tenant route registrations cannot declare scopes")
+
 // ScopeVocabularyError is returned when a grant includes a scope that is not
 // registered in the scope vocabulary.
 type ScopeVocabularyError struct {
@@ -611,11 +615,11 @@ func (s *Service) ListRoutes() []*routes.Registration {
 }
 
 // RegisterRoutes stores a service's route→scope mappings and upserts any declared
-// scopes into the vocabulary. Scope declarations are always upserted — services
-// are the authoritative owners of their scopes.
+// scopes into the vocabulary. A service updates only the scopes it registered
+// first; a declaration of another service's scope is skipped with a warning.
 //
-// For tenant-scoped registrations (tenantID != ""), any required scopes not
-// covered by the service's own declarations must already exist in the vocabulary.
+// Tenant-scoped registrations (tenantID != "") cannot declare scopes, and every
+// required scope must already exist in the vocabulary.
 // Global registrations (tenantID == "") trigger recompilation for all tenants.
 func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration) error {
 	return s.RegisterRoutesWithPrune(ctx, service, tenantID, routeScopes, scopeDecls, true)
@@ -629,11 +633,15 @@ func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, 
 // live mcp scopes from grants and roles. Tenant registrations never prune, so
 // prune is a no-op for them.
 func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration, prune bool) error {
-	// Upsert declared scopes into vocabulary first so that the existence check
-	// below sees the freshly declared entries. changed tracks whether this
-	// registration moved anything a bundle is compiled from: services
-	// re-register on a timer, and recompiling every tenant for a registration
-	// that changed nothing is pure load.
+	if tenantID != "" {
+		if err := s.checkTenantRegistration(ctx, routeScopes, scopeDecls); err != nil {
+			return err
+		}
+	}
+
+	// changed tracks whether this registration moved anything a bundle is
+	// compiled from: services re-register on a timer, and recompiling every
+	// tenant for a registration that changed nothing is pure load.
 	incomingScopes, changed, err := s.upsertDeclaredScopes(ctx, service, scopeDecls)
 	if err != nil {
 		return err
@@ -655,18 +663,6 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 			return sErr
 		}
 		changed = changed || stateChanged
-	}
-
-	if tenantID != "" {
-		for _, r := range routeScopes {
-			exists, xErr := s.vocabRepo.Exists(ctx, r.RequiredScope)
-			if xErr != nil {
-				return fmt.Errorf("vocabulary check: %w", xErr)
-			}
-			if !exists {
-				return &ScopeVocabularyError{Scope: r.RequiredScope}
-			}
-		}
 	}
 
 	if s.routeStore.Register(&routes.Registration{
@@ -696,6 +692,25 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 	return nil
 }
 
+// checkTenantRegistration enforces the rules for a tenant-scoped registration.
+// The vocabulary is shared by every tenant's bundle, so a tenant principal may
+// not write to it, and every route must name a scope that already exists.
+func (s *Service) checkTenantRegistration(ctx context.Context, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration) error {
+	if len(scopeDecls) > 0 {
+		return ErrTenantScopeDeclaration
+	}
+	for _, r := range routeScopes {
+		exists, err := s.vocabRepo.Exists(ctx, r.RequiredScope)
+		if err != nil {
+			return fmt.Errorf("vocabulary check: %w", err)
+		}
+		if !exists {
+			return &ScopeVocabularyError{Scope: r.RequiredScope}
+		}
+	}
+	return nil
+}
+
 // upsertDeclaredScopes writes the service's declared scopes into the
 // vocabulary and reports the scope strings it declared plus whether any row
 // actually changed.
@@ -712,6 +727,14 @@ func (s *Service) upsertDeclaredScopes(ctx context.Context, service string, scop
 			RegisteredBy: service,
 			Requires:     scopeDecls[i].Requires,
 		})
+		// Skipping keeps a service that shares a scope name registering its routes.
+		if errors.Is(uErr, vocabulary.ErrScopeOwnedByAnother) {
+			s.logger.Warn(ctx, "scope declaration skipped: registered by another service",
+				logging.Field{Key: "scope", Value: scopeDecls[i].Scope},
+				logging.Field{Key: "service", Value: service},
+				logging.Field{Key: "error", Value: uErr.Error()})
+			continue
+		}
 		if uErr != nil {
 			return nil, false, fmt.Errorf("upsert scope %q: %w", scopeDecls[i].Scope, uErr)
 		}

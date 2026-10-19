@@ -152,7 +152,6 @@ func selfRegisteredRoutes() []routes.RouteScope {
 		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "PUT", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "DELETE", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/vocabulary", Method: "GET", RequiredScope: "platform:grants:read"},
-		{PathPrefix: "/api/v1/policy/vocabulary", Method: "DELETE", RequiredScope: "platform:grants:write"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "PUT", RequiredScope: "platform:roles:write"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "DELETE", RequiredScope: "platform:roles:write"},
@@ -165,7 +164,7 @@ func selfRegisteredRoutes() []routes.RouteScope {
 func selfRegisteredScopes() []routes.ScopeDeclaration {
 	return []routes.ScopeDeclaration{
 		{Scope: "platform:grants:read", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "read", Description: "Read policy grants and vocabulary"},
-		{Scope: "platform:grants:write", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "write", Description: "Create and delete policy grants and vocabulary"},
+		{Scope: "platform:grants:write", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "write", Description: "Create and delete policy grants"},
 		{Scope: "platform:roles:read", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "read", Description: "Read role→scope mappings"},
 		{Scope: "platform:roles:write", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "write", Description: "Create and delete role→scope mappings"},
 		{Scope: "platform:tenants:manage", ResourceType: "platform", PathSegments: []string{"tenants"}, Action: "manage", Description: "Manage tenants (platform-admin only)"},
@@ -195,7 +194,6 @@ func policyServiceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "PUT", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "DELETE", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/vocabulary", Method: "GET", RequiredScope: "platform:grants:read"},
-		{PathPrefix: "/api/v1/policy/vocabulary", Method: "DELETE", RequiredScope: "platform:grants:write"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "PUT", RequiredScope: "platform:roles:write"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "DELETE", RequiredScope: "platform:roles:write"},

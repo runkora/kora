@@ -38,7 +38,7 @@ Parent scopes implicitly cover narrower child scopes. A grant of `inference:invo
 
 ### Scope Vocabulary
 
-The vocabulary is the finite registered set of valid scopes for a tenant. Grants and role assignments are validated against it at write time: a grant referencing an unregistered scope is rejected. This prevents privilege escalation through arbitrary scope strings.
+The vocabulary is the finite registered set of valid scopes. It is global: every tenant validates against the same set. Grants and role assignments are validated against it at write time: a grant referencing an unregistered scope is rejected. This prevents privilege escalation through arbitrary scope strings.
 
 The vocabulary is populated as a side effect of route registration: a service declares its `required_scope`s when it registers its routes (see [Route Registration](#route-registration)), and those scope declarations are upserted into the vocabulary. There is no standalone write API: the vocabulary is read-only over HTTP (`GET /policy/vocabulary`). Platform-level scopes (`platform:grants:write`, `platform:roles:write`, …) are self-registered by the policy service at startup.
 
@@ -264,7 +264,7 @@ Grant deletion takes effect within the bundle polling interval (default: ≤ 30 
 
 Services declare which scopes protect their routes by registering at startup with the policy service. This is how Layer 1 (OPA Envoy sidecar) knows which scope a request needs before it reaches the service handler.
 
-Platform services (inference gateway, egress gateway, tool gateway, orbit-agents, orbit-triggers) register globally: their routes are included in every tenant's bundle. Tenant-published services (MCP servers, tenant APIs) can register per-tenant routes, but every `required_scope` must exist in that tenant's vocabulary first.
+Platform services (inference gateway, egress gateway, tool gateway, orbit-agents, orbit-triggers) register globally: their routes are included in every tenant's bundle. Tenant-published services (MCP servers, tenant APIs) can register per-tenant routes. They cannot declare scopes, and every `required_scope` must already exist in the vocabulary.
 
 ### How It Works
 
@@ -274,6 +274,10 @@ A platform service registers with its own platform token. The identity client's 
 - `SERVICE` principal → tenant-scoped, compiled into that tenant's bundle only. The `service` field must equal the token's subject.
 
 A registration for any other service is rejected with 403.
+
+Scope declarations write the global vocabulary, which every tenant's bundle reads. Only a `SYSTEM` registration may declare scopes; a `SERVICE` registration that declares any is rejected with 403. The first service to declare a scope owns it (`registered_by`). Only the owner can change its description or `requires`. A declaration of a scope another service owns is skipped and logged as a warning; the rest of the registration proceeds.
+
+A declaration's `requires` has three states. Absent or `null` means unknown and keeps the stored set. `[]` clears it. A non-empty list replaces it. A service whose view of a scope is partial, such as the tool gateway while an MCP server is degraded, sends `null`.
 
 ### Adding Route Registration to a Service
 
