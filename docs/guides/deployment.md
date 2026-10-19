@@ -28,7 +28,6 @@ The cluster must provide:
 - Working cluster DNS and a route from workloads to the Kubernetes API.
 - A `LoadBalancer` implementation for the default gateway, or another way to expose the Istio gateway when using `NodePort` or `ClusterIP`.
 - Pod Security Admission that admits the privileged SPIRE and Istio node components. The SPIFFE CSI driver and the Istio CNI must run privileged, whilst kora namespaces run at restricted.
-- Nodes on Kubernetes 1.36 or later with containerd 2.1 or CRI-O 1.31 or later, only when a [theme](#white-labelling-theme) is configured. The theme bundle is mounted as an image volume. The chart's own floor stays 1.34, and nothing checks this at render time.
 
 See [connectivity](../architecture/connectivity.md) for the request path and [identity](../architecture/identity.md) for the SPIRE and Istio trust model.
 
@@ -398,42 +397,35 @@ Point your service mesh's own telemetry at the same collector to get the mesh ho
 
 ## White-labelling theme
 
-A deployment can carry one theme: the product name, the colours and the identity assets a client's people see in place of kora's ([white-labelling theme](../adr/2026-10-12-white-labelling-theme.md)). A theme is a bundle, a directory with the document `theme.yaml` at its root and its assets under `assets/`, written against a kora release, whose manifest and `theme.schema.json` are attached to that release on GitHub. The document's `koraVersion` must be a quoted `MAJOR.MINOR.PATCH` string such as `"1.4.0"`, and the instance accepts a theme written against its own major, so a theme is reissued on each major; the chart also fails the render when `productName` is outside the Hades product-name bounds, before any workload rolls. The frontend validates it before any page serves. Without a theme the chart renders exactly as before.
+A deployment can carry one theme: the product name, the colours and the identity assets a client's people see in place of kora's ([white-labelling theme](../adr/2026-10-12-white-labelling-theme.md)). A theme is one document, `theme.yaml`, written against a kora release, whose manifest and `theme.schema.json` are attached to that release on GitHub. The document's `koraVersion` must be a quoted `MAJOR.MINOR.PATCH` string such as `"1.4.0"`, and the instance accepts a theme written against its own major, so a theme is reissued on each major; the chart also fails the render when `productName` is outside the Hades product-name bounds, before any workload rolls. The frontend validates the document before any page serves. Without a theme the chart renders exactly as before, and a theme needs nothing from the cluster beyond the chart value below.
 
-### Nodes
+### Assets
 
-The bundle reaches the frontend pod as an image volume, which the kubelet mounts straight from the registry. That needs nodes on Kubernetes 1.36 or later with containerd 2.1 or CRI-O 1.31 or later, ahead of the chart's floor of 1.34. The chart does not check this. On a cluster below it the frontend pod never starts, the rollout stalls on an event that names the `theme-bundle` volume, and the previous pods keep serving.
+The logo, the favicon and the fonts are not part of the chart. The document's `slots` hold their `https://` URLs, and the visitor's browser loads them from there:
 
-### Build the bundle image
-
-The image is the bundle directory and nothing else, with the document at the image root, `/theme.yaml`, and the assets under `/assets/`. The image volume mounts the image root at `/etc/orbit/theme`, so no `subPath` is needed:
-
-```dockerfile
-FROM scratch
-COPY theme.yaml /theme.yaml
-COPY assets/ /assets/
+```yaml
+koraVersion: "1.4.0"
+productName: Acme Agents
+slots:
+  logo:
+    dark: https://assets.acme.example/brand/2026-10/logo-dark.svg
+    light: https://assets.acme.example/brand/2026-10/logo-light.svg
+  favicon:
+    dark: https://assets.acme.example/brand/2026-10/favicon.svg
+  font.sans: https://assets.acme.example/brand/2026-10/inter.woff2
 ```
 
-Build it, push it to a registry the nodes can pull from with the configured pull secrets, and record the digest:
+Host them anywhere the browsers of your users can reach over HTTPS, such as an object store behind a CDN. The instance serves none of them, and a theme never forces an asset into a git repository. What the validator checks is the form of each URL: `https`, a plain host, no credentials, no fragment, at most 2048 characters, and a path that ends in the slot's extension (`.svg` for the logo and favicon, `.woff2` for a font). It never fetches a URL and never looks at the file, so:
 
-```bash
-docker build -t registry.example.com/acme/kora-theme:2026-10-12 .
-docker push registry.example.com/acme/kora-theme:2026-10-12
-docker inspect --format='{{index .RepoDigests 0}}' registry.example.com/acme/kora-theme:2026-10-12
-```
-
-Where `assets/` comes from is your pipeline's business: a directory beside `theme.yaml` in the repository, or an artefact store the pipeline assembles from. Nothing requires the assets in git. A theme that sets colours only has an empty `assets/` and is still an image.
+- A file that is missing, the wrong type or too large shows as a broken image or the fallback font, and nothing at deploy catches it. Check the pages after a rollout.
+- A font host must send `Access-Control-Allow-Origin` for your frontend's origin, because browsers fetch fonts with CORS. Without it the font does not load and the kora font stays.
+- A file replaced at an unchanged URL is served stale from browser and CDN caches. Give a replaced file a new URL, as the dated path above does.
+- An air-gapped installation must host the assets on a host its users' browsers can reach.
+- Every visitor's browser, including an unauthenticated one on the login page, contacts the asset host.
 
 ### Configure the chart
 
-The chart takes the digest-pinned image reference and the document itself. The document is the committed `theme.yaml`, passed as a file, so the committed file is the one thing you edit:
-
-```yaml
-theme:
-  bundle:
-    image: registry.example.com/acme/kora-theme@sha256:3f9e...   # a digest; the schema rejects a tag
-    pullSecrets: []     # {name: <secret>} objects; empty uses global.imagePullSecrets
-```
+The chart takes the document itself, passed as a file, so the committed `theme.yaml` is the one thing you edit:
 
 ```bash
 helm upgrade --install orbit oci://ghcr.io/clear-route/charts/orbit \
@@ -453,11 +445,11 @@ helm:
       path: $values/theme.yaml
 ```
 
-The image and the document come together: one without the other fails the render, as does a tag in place of a digest or a document that is not YAML, each with a message that names the fault. The chart renders the document into a ConfigMap for the frontend and reads `productName` from it into the config of the services that produce text a client's people or agents read.
+The chart renders the document into a ConfigMap for the frontend and reads `productName` from it into the config of the services that produce text a client's people or agents read. A document that is not YAML fails the render with a message that names the fault.
 
 ### Roll out a theme
 
-A theme change is a values change: a new digest, a changed document, or both, rolled out by the standard rolling update and rolled back by a revert. The frontend pod mounts the bundle read-only at `/etc/orbit/theme` and runs a `validate-theme` init container before the application starts. It validates the bundle against the kora release the image is (a theme of the same major passes) and checks that the bundle's `theme.yaml` matches the document the chart was given. A fault stops the pod there: the rollout stalls, the previous pods keep serving, and under Argo CD the Application goes Degraded once the Deployment's progress deadline passes.
+A theme change is a values change: a changed document, rolled out by the standard rolling update and rolled back by a revert. The frontend pod mounts the document read-only at `/etc/orbit/theme/theme.yaml` and runs a `validate-theme` init container before the application starts. It validates the document against the kora release the image is (a theme of the same major passes). A fault stops the pod there: the rollout stalls, the previous pods keep serving, and under Argo CD the Application goes Degraded once the Deployment's progress deadline passes.
 
 When a rollout stalls, read the init container's log on the new pod:
 
@@ -466,11 +458,9 @@ kubectl get pods -n orbit-system -l app=orbit-frontend
 kubectl logs -n orbit-system <pod> -c validate-theme
 ```
 
-It prints every fault, or, on success, every entry this version ignores and every identity value left at the kora default. A bundle that was not rebuilt after the document changed, or a document that was not committed after the bundle was, fails with a message that says so: rebuild and push, or commit, then roll again. A pod stuck in `ContainerCreating` with an event about the `theme-bundle` volume is a node below the floor above.
+It prints every fault, or, on success, every entry this version ignores and every identity value left at the kora default.
 
 A theme that sets some identity values and leaves others at the kora default shows visitors a mix of two brands, such as your product name beside the kora logo. The init container and the frontend's startup log say so with a `warning:` line that names the values still showing kora. A theme that sets none of them, such as colours or fonts only, is not warned about, and neither is one that sets all of them. The warning does not fail the rollout.
-
-While the rollout runs, old and new frontend pods serve side by side, and each knows only the theme it loaded. A page from one pod can ask for a logo or font URL that only the other pod serves, and gets a 404 until the rollout completes. A browser tab left open across a rollout loses assets it loads late until it is reloaded. There is no fallback to the previous theme's URLs, so schedule a theme change like any other frontend rollout.
 
 ## Run behind an existing gateway
 

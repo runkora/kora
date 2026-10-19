@@ -1,9 +1,7 @@
-# A configured theme, for the render matrix. The digest is a placeholder:
-# helm template pulls nothing, and the init container is what checks a real
-# bundle (docs/adr/2026-10-12-white-labelling-theme.md).
+# A configured theme, for the render matrix: the document alone, with slots
+# that hold URLs. helm template fetches nothing; the init container validates
+# the document (docs/adr/2026-10-12-white-labelling-theme.md).
 theme:
-  bundle:
-    image: registry.example.com/acme/kora-theme@sha256:0000000000000000000000000000000000000000000000000000000000000000
   document: |
     koraVersion: "1.0.0"
     productName: Acme Agents
@@ -11,3 +9,8 @@ theme:
       --hades-raw-100:
         dark: "#0b1020"
         light: "#f4f6fb"
+    slots:
+      logo:
+        dark: https://assets.acme.example/brand/logo-dark.svg
+        light: https://assets.acme.example/brand/logo-light.svg
+      font.sans: https://assets.acme.example/brand/sans.woff2

@@ -444,22 +444,12 @@ internal/platform/brand:
 
 {{/*
 The white-labelling theme (docs/adr/2026-10-12-white-labelling-theme.md).
-"true" when a theme is configured. The bundle image and the document come
-together: the frontend's init container checks one against the other, so
-either alone is a fault the render names. No Kubernetes version check: under
-helm template with no cluster Helm substitutes its own version, and the API
-server's version says nothing about the nodes the image volume needs. Take the
-root context.
+"true" when a theme is configured: theme.document is the whole theme, and its
+slots hold the https URLs the browser loads the logo, favicon and fonts from.
+Nothing else is rendered or required of the cluster. Take the root context.
 */}}
 {{- define "orbit.themeEnabled" -}}
-{{- $t := .Values.theme -}}
-{{- if and $t.bundle.image (not $t.document) -}}
-{{- fail "theme.bundle.image is set without theme.document: supply the theme.yaml the bundle was built from, e.g. --set-file theme.document=theme.yaml" -}}
-{{- end -}}
-{{- if and $t.document (not $t.bundle.image) -}}
-{{- fail "theme.document is set without theme.bundle.image: supply the digest-pinned reference to the bundle image built from it" -}}
-{{- end -}}
-{{- if $t.bundle.image }}true{{ end -}}
+{{- if .Values.theme.document }}true{{ end -}}
 {{- end }}
 
 {{/*
@@ -505,44 +495,13 @@ init container. Take the root context.
 {{- end }}
 
 {{/*
-The frontend pod's pull secrets. With a theme, global.imagePullSecrets plus
-the bundle's own (theme.bundle.pullSecrets, else the global ones again),
-deduplicated by name: the kubelet pulls the bundle image with the pod's
-imagePullSecrets, as it pulls the containers' images. Without a theme, the
-global ones, rendered as for every other workload. Take the root context.
-*/}}
-{{- define "orbit.frontendImagePullSecrets" -}}
-{{- if include "orbit.themeEnabled" . -}}
-{{- $global := .Values.global.imagePullSecrets | default list -}}
-{{- $secrets := list -}}
-{{- $names := list -}}
-{{- range concat $global (.Values.theme.bundle.pullSecrets | default $global) -}}
-{{- if not (has .name $names) -}}
-{{- $names = append $names .name -}}
-{{- $secrets = append $secrets . -}}
-{{- end -}}
-{{- end -}}
-{{- with $secrets }}
-imagePullSecrets:
-  {{- toYaml . | nindent 2 }}
-{{- end }}
-{{- else -}}
-{{- include "orbit.imagePullSecrets" . -}}
-{{- end -}}
-{{- end }}
-
-{{/*
-The theme mounts: the bundle image at /etc/orbit/theme, whose root is the
-bundle root (an image volume exposes the image's root, so no subPath), and the
-chart's copy of the document beside it. The init
-container and the frontend container mount both. Take the root context.
+The theme mount: the document, from the frontend's ConfigMap, as
+/etc/orbit/theme/theme.yaml. The init container and the frontend container
+mount it. Take the root context.
 */}}
 {{- define "orbit.themeVolumeMounts" -}}
-- name: theme-bundle
-  mountPath: /etc/orbit/theme
-  readOnly: true
 - name: theme-document
-  mountPath: /etc/orbit/theme-document
+  mountPath: /etc/orbit/theme
   readOnly: true
 {{- end }}
 

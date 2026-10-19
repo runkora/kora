@@ -1,7 +1,7 @@
 {{- if include "orbit.themeEnabled" . }}
 # The theme document, mounted into the frontend pod as
-# /etc/orbit/theme-document/theme.yaml for the init container's check that the
-# bundle was built from it (docs/adr/2026-10-12-white-labelling-theme.md).
+# /etc/orbit/theme/theme.yaml, which the init container validates and the
+# frontend loads (docs/adr/2026-10-12-white-labelling-theme.md).
 apiVersion: v1
 kind: ConfigMap
 metadata:

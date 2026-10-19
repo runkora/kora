@@ -50,8 +50,8 @@ jobs:
             echo '---'
             helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml --kube-version "${K8S_VERSION}"
             echo '---'
-            # The same release with a theme configured: the image volume, the
-            # init container and the theme ConfigMap on the frontend pod.
+            # The same release with a theme configured: the init container and
+            # the theme ConfigMap on the frontend pod.
             helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml -f charts/orbit/ci/theme-values.yaml --kube-version "${K8S_VERSION}"
           } > rendered.yaml
           # Schema coverage:
@@ -83,7 +83,7 @@ jobs:
               echo "::error::${file} rendered; expected the render to fail"
               exit 1
             fi
-            # Case-insensitive: Helm 3 says "Does not match pattern", Helm 4 "does not match pattern".
+            # Case-insensitive, so the match does not depend on the Helm version's capitalisation.
             if ! grep -qiF -- "${expected}" <<<"${out}"; then
               echo "::error::${file} failed without the expected message '${expected}':"
               echo "${out}"
@@ -91,9 +91,6 @@ jobs:
             fi
             echo "${file}: rejected (${expected})"
           done <<'CASES'
-          theme-tag.yaml|does not match pattern
-          theme-no-image.yaml|theme.document is set without theme.bundle.image
-          theme-no-document.yaml|theme.bundle.image is set without theme.document
           theme-unparseable.yaml|theme.document does not parse as a YAML map
           theme-product-name-markup.yaml|outside the Hades product-name bounds
           theme-product-name-newline.yaml|outside the Hades product-name bounds

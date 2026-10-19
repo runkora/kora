@@ -22,41 +22,35 @@ spec:
         {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         checksum/config: {{ include (print $.Template.BasePath "/frontend/configmap.yaml") . | sha256sum }}
         {{- if $theme }}
-        # Roll the pod when the theme document changes; the bundle digest in the
-        # pod spec rolls it on a bundle change.
+        # Roll the pod when the theme document changes.
         checksum/theme: {{ include (print $.Template.BasePath "/frontend/theme-configmap.yaml") . | sha256sum }}
         {{- end }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "frontend") | nindent 8 }}
     spec:
       serviceAccountName: orbit-frontend
-      {{- include "orbit.frontendImagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
       {{- include "orbit.scheduling" (dict "root" $ "name" "frontend") | nindent 6 }}
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "orbit.spireVolumes" . | nindent 8 }}
         {{- if $theme }}
-        # The theme bundle, an OCI image the kubelet mounts, and the chart's copy
-        # of the document (docs/adr/2026-10-12-white-labelling-theme.md).
-        - name: theme-bundle
-          image:
-            reference: {{ .Values.theme.bundle.image | quote }}
-            pullPolicy: IfNotPresent
+        # The theme document (docs/adr/2026-10-12-white-labelling-theme.md).
         - name: theme-document
           configMap:
             name: orbit-frontend-theme
         {{- end }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "frontend") | nindent 8 }}
       {{- if $theme }}
-      # Validates the bundle against the kora release this image is, and checks
-      # it against the document. A fault keeps the pod from starting, the
-      # rollout stalls and the previous pods keep serving; the reason is in
-      # this container's log.
+      # Validates the document against the kora release this image is. It
+      # checks each slot URL's form and fetches none. A fault keeps the pod
+      # from starting, the rollout stalls and the previous pods keep serving;
+      # the reason is in this container's log.
       initContainers:
         - name: validate-theme
           image: {{ include "orbit.image" (dict "root" $ "name" "frontend") | quote }}
           imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "frontend") }}
-          command: ["node", "/app/validate-theme.mjs", "/etc/orbit/theme", "/etc/orbit/theme-document/theme.yaml"]
+          command: ["node", "/app/validate-theme.mjs", "/etc/orbit/theme/theme.yaml"]
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" true) | nindent 12 }}
           resources:

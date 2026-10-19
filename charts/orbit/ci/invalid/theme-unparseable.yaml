@@ -1,6 +1,4 @@
 # A document that is not YAML: an unclosed flow sequence.
 theme:
-  bundle:
-    image: registry.example.com/acme/kora-theme@sha256:0000000000000000000000000000000000000000000000000000000000000000
   document: |
     koraVersion: ["1.0.0"
