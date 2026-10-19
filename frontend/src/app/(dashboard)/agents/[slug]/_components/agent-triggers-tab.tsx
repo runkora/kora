@@ -30,6 +30,7 @@ import { TriggerDrawer } from '../../../triggers/_components/trigger-drawer';
 import { RunTriggerModal } from '../../../triggers/_components/run-trigger-modal';
 import { DeliveryGrid } from '../../../triggers/_components/delivery-grid';
 import { DeliveryDetailPanel } from '../../../triggers/_components/delivery-detail-panel';
+import type { RoutingAgentName } from '../../../triggers/_components/delivery-routing';
 import { useTriggerActions } from '../../../triggers/_components/use-trigger-actions';
 import type { TriggerNotice } from '../../../triggers/_components/use-trigger-actions';
 import { createFromWizardDraft } from '../../../triggers/_services/create-from-wizard';
@@ -44,6 +45,7 @@ import { ingestHostFromWindow } from '../../../triggers/_lib/endpoints';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { useHasScope } from '../../../_components/permissions-provider';
 import { PermissionHint } from '@runkora/components';
+import { fetchAgentTypes } from '../../_services/agents-api';
 
 export function AgentTriggersTab() {
   const { agent } = useAgentDetailContext();
@@ -52,6 +54,8 @@ export function AgentTriggersTab() {
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [triggers, setTriggers] = useState<TriggerRow[]>([]);
   const [deliveries, setDeliveries] = useState<DeliveryRow[]>([]);
+  // Every tenant agent, so a routed trigger's other candidates show by name.
+  const [tenantAgents, setTenantAgents] = useState<RoutingAgentName[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -67,17 +71,21 @@ export function AgentTriggersTab() {
   // a silent refresh of lists already on screen, not a page-level spinner.
   const load = useCallback(() => {
     if (!agentId) return;
-    void Promise.all([listSources(), listTriggers(agentId), listDeliveries()]).then(
-      ([src, trg, del]) => {
-        setSources(src.sources.map(toSourceRow));
-        setTriggers(trg.triggers.map(toTriggerRow));
-        setDeliveries(del.deliveries.map(toDeliveryRow));
-        // The triggers list is what this tab is for; the other two only
-        // decorate it, so their failures do not block the page.
-        setLoadError(trg.error);
-        setLoading(false);
-      },
-    );
+    void Promise.all([
+      listSources(),
+      listTriggers(agentId),
+      listDeliveries(),
+      fetchAgentTypes(),
+    ]).then(([src, trg, del, types]) => {
+      setSources(src.sources.map(toSourceRow));
+      setTriggers(trg.triggers.map(toTriggerRow));
+      setDeliveries(del.deliveries.map(toDeliveryRow));
+      setTenantAgents(types.data);
+      // The triggers list is what this tab is for; the others only
+      // decorate it, so their failures do not block the page.
+      setLoadError(trg.error);
+      setLoading(false);
+    });
   }, [agentId]);
 
   useEffect(() => {
@@ -148,6 +156,9 @@ export function AgentTriggersTab() {
       : (triggers.find((t) => t.id === drawerTrigger.id) ?? drawerTrigger);
 
   if (!agent) return null;
+
+  // This agent still names itself when the tenant list failed to load.
+  const agentNames = tenantAgents.length > 0 ? tenantAgents : [agent];
 
   // Delegated agents cannot be bound to automated sources at all — explain the
   // constraint here instead of offering a form that would be refused on submit.
@@ -255,7 +266,7 @@ export function AgentTriggersTab() {
         // Scoped to the trigger on screen: firing one trigger must not make
         // another one's panel claim it is queueing.
         firing={firingId === drawerRow?.id}
-        agents={[agent]}
+        agents={agentNames}
       />
 
       {detailDelivery !== null && (
@@ -264,7 +275,7 @@ export function AgentTriggersTab() {
           onClose={() => setDetailDelivery(null)}
           onRedeliver={redeliver}
           redeliverAllowed={agent.canRun}
-          agents={[agent]}
+          agents={agentNames}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);
