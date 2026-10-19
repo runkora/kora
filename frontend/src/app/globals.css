@@ -48,12 +48,7 @@
  */
 @source "../packages/hades/src";
 
-/**
- * The kora fonts: Inter and Geist Mono.
- * Hades defaults these slots to generic stacks.
- * next/font sets --font-inter and --font-geist-mono on <html> (see layout.tsx).
- * Outside Next, the named families are the fallback.
- */
+/* The kora fonts (Inter, Geist Mono). next/font sets the two variables on <html>. */
 :root {
   --hades-raw-font-sans: var(--font-inter, 'Inter'), ui-sans-serif, system-ui, sans-serif;
   --hades-raw-font-mono:

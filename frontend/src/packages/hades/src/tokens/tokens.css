@@ -37,9 +37,7 @@
 }
 
 /* ─── Font slots ──────────────────────────────────────────────────────────── */
-/* The UI and code font families. The defaults are full fallback stacks, not */
-/* single family names.                                                       */
-/* The app sets its own fonts. A loaded theme sets the families it declares.  */
+/* UI and code font families. The defaults are fallback stacks; the app and a loaded theme override them. */
 :root {
   --hades-raw-font-sans: ui-sans-serif, system-ui, sans-serif;
   --hades-raw-font-mono: ui-monospace, 'Cascadia Code', monospace;
