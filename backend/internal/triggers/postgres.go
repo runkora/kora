@@ -446,18 +446,18 @@ func (r *postgresRepository) ListMatchableScheduledTriggers(ctx context.Context)
 		  AND  `+matchablePredicate)
 }
 
-func (r *postgresRepository) UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement bool) error {
-	return r.updateTrigger(ctx, t, writeEnablement, false, nil)
+func (r *postgresRepository) UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement, writeRouting bool) error {
+	return r.updateTrigger(ctx, t, writeEnablement, writeRouting, false, nil)
 }
 
 // UpdateTriggerGrant writes the trigger only while its stored grant is still
 // oldGrantID. A concurrent update that replaced the grant first wins, and this
 // one returns ErrTriggerConflict.
 func (r *postgresRepository) UpdateTriggerGrant(ctx context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error {
-	return r.updateTrigger(ctx, t, writeEnablement, true, oldGrantID)
+	return r.updateTrigger(ctx, t, writeEnablement, true, true, oldGrantID)
 }
 
-func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writeEnablement, guardGrant bool, oldGrantID *string) error {
+func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writeEnablement, writeRouting, guardGrant bool, oldGrantID *string) error {
 	condJSON, err := json.Marshal(t.MatchCondition)
 	if err != nil {
 		return fmt.Errorf("marshal match condition: %w", err)
@@ -480,7 +480,8 @@ func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writ
 	//
 	// grant_id is written only by the grant-guarded update, so an edit that did
 	// not replace the grant cannot overwrite one a concurrent update swapped in.
-	// The routing rows are replaced in the same transaction.
+	// The routing rows are replaced in the same transaction, and only when the
+	// edit changed routing, so a stale copy cannot revert a concurrent change.
 	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE triggers
@@ -505,6 +506,9 @@ func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writ
 				return ErrTriggerConflict
 			}
 			return ErrTriggerNotFound
+		}
+		if !writeRouting {
+			return nil
 		}
 		return writeRoute(ctx, tx, t)
 	})

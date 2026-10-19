@@ -306,20 +306,21 @@ func (m *mockRepository) UpdateTriggerGrant(_ context.Context, t *Trigger, write
 		return ErrTriggerConflict
 	}
 	defer m.mu.Unlock()
-	return m.updateLocked(t, writeEnablement, true)
+	return m.updateLocked(t, writeEnablement, true, true)
 }
 
-func (m *mockRepository) UpdateTrigger(_ context.Context, t *Trigger, writeEnablement bool) error {
+func (m *mockRepository) UpdateTrigger(_ context.Context, t *Trigger, writeEnablement, writeRouting bool) error {
 	if m.beforeUpdate != nil {
 		m.beforeUpdate()
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.updateLocked(t, writeEnablement, false)
+	return m.updateLocked(t, writeEnablement, writeRouting, false)
 }
 
-// updateLocked mirrors the SQL: grant_id moves only on the grant-guarded update.
-func (m *mockRepository) updateLocked(t *Trigger, writeEnablement, writeGrant bool) error {
+// updateLocked mirrors the SQL: grant_id moves only on the grant-guarded update,
+// and the routing rows only when the edit changed routing.
+func (m *mockRepository) updateLocked(t *Trigger, writeEnablement, writeRouting, writeGrant bool) error {
 	stored, ok := m.triggers[t.ID]
 	if !ok {
 		return ErrTriggerNotFound
@@ -327,6 +328,9 @@ func (m *mockRepository) updateLocked(t *Trigger, writeEnablement, writeGrant bo
 	cp := *t
 	if !writeGrant {
 		cp.GrantID = stored.GrantID
+	}
+	if !writeRouting {
+		cp.Routing = stored.Routing
 	}
 	if !writeEnablement {
 		// Mirror the SQL: an edit that did not touch enablement leaves the

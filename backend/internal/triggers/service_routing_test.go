@@ -250,6 +250,23 @@ func TestUpdateRoutedTrigger(t *testing.T) {
 		}
 	})
 
+	t.Run("an edit that does not change routing cannot revert a concurrent routing change", func(t *testing.T) {
+		_, deps, _, src := routedHarness(t)
+		tr := mustRouted(t, deps, src.ID, nil)
+		concurrent := &RoutingConfig{Candidates: []string{"at-a", "at-b"}, Model: "liquid/d1", Confidence: ConfidenceLoose}
+		deps.repo.beforeUpdate = func() {
+			deps.repo.mu.Lock()
+			deps.repo.triggers[tr.ID].Routing = concurrent
+			deps.repo.mu.Unlock()
+		}
+		if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{Name: new("renamed")}); err != nil {
+			t.Fatalf("UpdateTrigger: %v", err)
+		}
+		if got := deps.repo.triggers[tr.ID]; got.Name != "renamed" || got.Routing != concurrent {
+			t.Errorf("stored name %q routing %+v, want the rename and the concurrent routing", got.Name, got.Routing)
+		}
+	})
+
 	t.Run("a failed revocation of the old grant is an error", func(t *testing.T) {
 		_, deps, _, src := routedHarness(t)
 		tr := mustRouted(t, deps, src.ID, nil)

@@ -242,12 +242,40 @@ func TestPostgres_UpdateTriggerKeepsAConcurrentGrant(t *testing.T) {
 		t.Fatalf("UpdateTriggerGrant: %v", err)
 	}
 	stale.Name = "renamed"
-	if err := r.UpdateTrigger(ctx, stale, false); err != nil {
+	if err := r.UpdateTrigger(ctx, stale, false, false); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 	got, _ := r.GetTrigger(ctx, tenant, tr.ID)
 	if deref(got.GrantID) != "grant-swapped-in" || got.Name != "renamed" {
 		t.Errorf("after the stale edit: grant %s, name %q", deref(got.GrantID), got.Name)
+	}
+}
+
+// An update that did not change routing leaves the route rows alone, so a stale
+// rename cannot revert a routing change that landed after its read.
+func TestPostgres_UpdateTriggerKeepsAConcurrentRoute(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	src := seedSource(t, r, tenant)
+	tr := seedRoutedTrigger(t, r, tenant, src.ID)
+
+	stale, _ := r.GetTrigger(ctx, tenant, tr.ID)
+	routed, _ := r.GetTrigger(ctx, tenant, tr.ID)
+	routed.Routing = &RoutingConfig{
+		Candidates: []string{"at-a", "at-c"}, Model: "liquid/d1", Confidence: ConfidenceLoose, JoinRuns: new(true),
+		candidateSlugs: map[string]string{"at-a": "coder", "at-c": "security"},
+	}
+	if err := r.UpdateTrigger(ctx, routed, false, true); err != nil {
+		t.Fatalf("UpdateTrigger routing: %v", err)
+	}
+	stale.Name = "renamed"
+	if err := r.UpdateTrigger(ctx, stale, false, false); err != nil {
+		t.Fatalf("UpdateTrigger rename: %v", err)
+	}
+	got, _ := r.GetTrigger(ctx, tenant, tr.ID)
+	if got.Name != "renamed" || got.Routing.Confidence != ConfidenceLoose ||
+		!slices.Equal(got.Routing.Candidates, []string{"at-a", "at-c"}) {
+		t.Errorf("after the stale rename: name %q routing %+v", got.Name, got.Routing)
 	}
 }
 

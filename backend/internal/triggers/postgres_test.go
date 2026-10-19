@@ -155,7 +155,7 @@ func TestPostgres_TriggerCRUD(t *testing.T) {
 	}
 
 	tr.Enabled = false
-	if err := r.UpdateTrigger(ctx, tr, true); err != nil {
+	if err := r.UpdateTrigger(ctx, tr, true, false); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 	if got, _ := r.ListMatchableTriggersForSource(ctx, s.ID); len(got) != 0 {
@@ -177,7 +177,7 @@ func TestPostgres_TriggerCRUD(t *testing.T) {
 	// by admission forever while showing as enabled.
 	tr.Enabled = true
 	tr.AutoPausedAt = nil
-	if err := r.UpdateTrigger(ctx, tr, true); err != nil {
+	if err := r.UpdateTrigger(ctx, tr, true, false); err != nil {
 		t.Fatalf("UpdateTrigger(re-enable): %v", err)
 	}
 	if got, _ := r.GetTrigger(ctx, tenant, tr.ID); got.AutoPausedAt != nil {
@@ -185,7 +185,7 @@ func TestPostgres_TriggerCRUD(t *testing.T) {
 	}
 
 	tr.Enabled = false
-	if err := r.UpdateTrigger(ctx, tr, true); err != nil {
+	if err := r.UpdateTrigger(ctx, tr, true, false); err != nil {
 		t.Fatalf("UpdateTrigger(disable): %v", err)
 	}
 
@@ -1092,7 +1092,7 @@ func TestPostgres_DrainOrphanedPending(t *testing.T) {
 	live := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
 	off := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
 	off.Enabled = false
-	if err := r.UpdateTrigger(ctx, off, true); err != nil {
+	if err := r.UpdateTrigger(ctx, off, true, false); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 
@@ -1732,7 +1732,7 @@ func TestPostgres_WebhookSenderRestriction(t *testing.T) {
 	}
 
 	got.SenderRestriction = nil
-	if err := r.UpdateTrigger(ctx, got, false); err != nil {
+	if err := r.UpdateTrigger(ctx, got, false, false); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 	cleared, _ := r.GetTrigger(ctx, tenant, tr.ID)
@@ -1766,7 +1766,7 @@ func TestPostgres_WebhookMatchContains(t *testing.T) {
 	}
 
 	got.MatchContains = nil
-	if err := r.UpdateTrigger(ctx, got, false); err != nil {
+	if err := r.UpdateTrigger(ctx, got, false, false); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 	cleared, _ := r.GetTrigger(ctx, tenant, tr.ID)
@@ -2274,7 +2274,7 @@ func TestPostgres_WebhookCoalesce(t *testing.T) {
 	}
 
 	got.Coalesce = nil
-	if err := r.UpdateTrigger(ctx, got, false); err != nil {
+	if err := r.UpdateTrigger(ctx, got, false, false); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 	cleared, _ := r.GetTrigger(ctx, tenant, tr.ID)

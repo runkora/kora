@@ -24,7 +24,7 @@ type triggerStore interface {
 	CreateTrigger(ctx context.Context, t *Trigger) error
 	GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error)
 	ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error)
-	UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement bool) error
+	UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement, writeRouting bool) error
 	UpdateTriggerGrant(ctx context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error
 	DeleteTrigger(ctx context.Context, tenantID, id string) error
 	GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error)
@@ -469,7 +469,7 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	if req.Enabled != nil {
 		applyEnabledFields(t, *req.Enabled)
 	}
-	if err = s.storeUpdate(ctx, t, req.Enabled != nil, replaced, oldGrant); err != nil {
+	if err = s.storeUpdate(ctx, t, req.Enabled != nil, req.Routing != nil, replaced, oldGrant); err != nil {
 		return nil, err
 	}
 	if req.Enabled != nil {
@@ -506,9 +506,9 @@ func refuseRetarget(t *Trigger, req UpdateTriggerRequest) error {
 // so of two concurrent replacements one wins and the other undoes its new grant
 // and returns ErrTriggerConflict. The old grant is then revoked, and a
 // revocation that keeps failing is returned rather than reported as success.
-func (s *TriggerService) storeUpdate(ctx context.Context, t *Trigger, writeEnablement, replaced bool, oldGrant *string) error {
+func (s *TriggerService) storeUpdate(ctx context.Context, t *Trigger, writeEnablement, writeRouting, replaced bool, oldGrant *string) error {
 	if !replaced {
-		return s.repo.UpdateTrigger(ctx, t, writeEnablement)
+		return s.repo.UpdateTrigger(ctx, t, writeEnablement, writeRouting)
 	}
 	if err := s.repo.UpdateTriggerGrant(ctx, t, writeEnablement, oldGrant); err != nil {
 		s.rollbackGrants(ctx, t.ID, []string{*t.GrantID})

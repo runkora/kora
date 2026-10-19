@@ -100,11 +100,13 @@ type TriggerStore interface {
 	// gates the enabled / auto_paused_at columns: an edit that did not touch
 	// enablement (a rename, a filter change) passes false so it cannot write
 	// back the stale enabled/auto_paused_at it read at the start of the request
-	// and silently revert a concurrent auto-pause.
-	UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement bool) error
+	// and silently revert a concurrent auto-pause. writeRouting gates the
+	// routing rows on the same reasoning.
+	UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement, writeRouting bool) error
 	// UpdateTriggerGrant is UpdateTrigger for an edit that replaced the
 	// trigger's grant: it writes only while the stored grant is still
-	// oldGrantID, and returns ErrTriggerConflict otherwise.
+	// oldGrantID, and returns ErrTriggerConflict otherwise. A grant is only
+	// replaced by a routing change, so it always writes the routing rows.
 	UpdateTriggerGrant(ctx context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error
 	DeleteTrigger(ctx context.Context, tenantID, id string) error
 }
