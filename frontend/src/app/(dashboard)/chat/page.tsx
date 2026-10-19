@@ -273,8 +273,7 @@ function formatTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function getAIResponse(userInput: string, productName: string): string {
-  const RESPONSES = responsesFor(productName);
+function getAIResponse(userInput: string, RESPONSES: ReturnType<typeof responsesFor>): string {
   const lower = userInput.toLowerCase();
   if (lower.includes('policy') || lower.includes('opa') || lower.includes('rego')) {
     return RESPONSES.policy;
@@ -312,6 +311,7 @@ function getAIResponse(userInput: string, productName: string): string {
 export default function ChatPage() {
   const { productName } = useBrand();
   const suggestions = useMemo(() => suggestionsFor(productName), [productName]);
+  const responses = useMemo(() => responsesFor(productName), [productName]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -385,7 +385,7 @@ export default function ChatPage() {
       textareaRef.current.style.height = 'auto';
     }
 
-    const responseText = getAIResponse(userMsg.content, productName);
+    const responseText = getAIResponse(userMsg.content, responses);
     const thinkingMs = 500 + Math.random() * 600;
 
     setTimeout(() => {
@@ -400,7 +400,7 @@ export default function ChatPage() {
       setMessages((prev) => [...prev, assistantMsg]);
       streamResponse(assistantMsg.id, responseText);
     }, thinkingMs);
-  }, [canSubmit, input, streamResponse, productName]);
+  }, [canSubmit, input, streamResponse, responses]);
 
   // ── Keyboard handler ──
 
