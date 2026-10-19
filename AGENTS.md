@@ -144,6 +144,7 @@ All conventions above are mechanically enforced. Do not add inline `//nolint` di
 | `noRawHttpClientLiteral` | `http.Client{...}` literal construction           |
 | `noHttpErrorInHandler`   | `http.Error(w, ...)` in handlers                  |
 | `noDirectWriteHeader`    | `w.WriteHeader(code)` in handlers                 |
+| `noProductNameLiteral`   | a prose `kora`/`orbit` literal in a speaking package; the name comes from `internal/platform/brand` |
 
 **Tier 2: Import bans** (`depguard` in `.golangci.yml`):
 

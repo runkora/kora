@@ -30,7 +30,7 @@ func TestLoopGuard_RepeatedCallsPerRuntime(t *testing.T) {
 			g := &loopGuard{}
 			var got []loopVerdict
 			for n := range testLimits.RepeatedCallPause {
-				if v, _ := g.observe(toolUse(t, fmt.Sprint(n), tt.name, tt.input(n)), testLimits); v != loopOK {
+				if v, _ := g.observe(toolUse(t, fmt.Sprint(n), tt.name, tt.input(n)), testLimits, "Acme"); v != loopOK {
 					got = append(got, v)
 				}
 			}
@@ -57,7 +57,7 @@ func TestLoopGuard_WaitsPerRuntime(t *testing.T) {
 			var got []loopVerdict
 			for n := range testLimits.WaitRearmPause {
 				in := map[string]any{"command": fmt.Sprintf("sleep %d; echo waiting", n+1), "cwd": "/w"}
-				if v, _ := g.observe(toolUse(t, fmt.Sprint(n), name, in), testLimits); v != loopOK {
+				if v, _ := g.observe(toolUse(t, fmt.Sprint(n), name, in), testLimits, "Acme"); v != loopOK {
 					got = append(got, v)
 				}
 			}
@@ -78,7 +78,7 @@ func TestLoopGuard_OpenCodeReadIsNotProgress(t *testing.T) {
 			toolUse(t, r, "read", map[string]any{"filePath": fmt.Sprintf("/w/log%d", n)}), toolResult(t, r, false),
 			toolUse(t, s, "bash", map[string]any{"command": fmt.Sprintf("sleep %d", n+1)}), toolResult(t, s, false),
 		} {
-			if v, _ := g.observe(ev, testLimits); v != loopOK {
+			if v, _ := g.observe(ev, testLimits, "Acme"); v != loopOK {
 				got = append(got, v)
 			}
 		}
@@ -129,7 +129,7 @@ func TestLoopGuard_MonitorRearmsWithChangingResults(t *testing.T) {
 				return ev
 			}(),
 		} {
-			if v, f := g.observe(ev, limits); v != loopOK {
+			if v, f := g.observe(ev, limits, "Acme"); v != loopOK {
 				got = append(got, v)
 				kinds = append(kinds, f.kind)
 			}
@@ -147,7 +147,7 @@ func TestLoopGuard_SimultaneousThresholdsBothFire(t *testing.T) {
 	g := &loopGuard{}
 	var kinds []string
 	for n := range 5 {
-		if v, f := g.observe(toolUse(t, fmt.Sprint(n), "Bash", map[string]any{"command": "sleep 5"}), limits); v == loopWarn {
+		if v, f := g.observe(toolUse(t, fmt.Sprint(n), "Bash", map[string]any{"command": "sleep 5"}), limits, "Acme"); v == loopWarn {
 			kinds = append(kinds, f.kind)
 		}
 	}

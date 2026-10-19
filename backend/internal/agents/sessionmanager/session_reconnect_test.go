@@ -52,7 +52,7 @@ func TestEndpointAlive(t *testing.T) {
 func newTestRegistry(t *testing.T, n Notifier) (*Registry, string) {
 	t.Helper()
 	workspaces := t.TempDir()
-	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), workspaces, n, time.Minute)
+	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), workspaces, n, time.Minute, testBrand)
 	return reg, workspaces
 }
 

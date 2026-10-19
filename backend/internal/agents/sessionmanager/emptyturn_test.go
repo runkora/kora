@@ -55,7 +55,7 @@ func (n *emptyTurnNotifier) snapshot() (errs []string, idles int) {
 func startEmptyTurnSession(t *testing.T, triggered bool) (*Registry, *scriptRunner, *emptyTurnNotifier) {
 	t.Helper()
 	n := &emptyTurnNotifier{completed: make(chan bool, 1)}
-	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), n, time.Minute)
+	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), n, time.Minute, testBrand)
 	r := newScriptRunner()
 	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: r, Triggered: triggered}); err != nil {
 		t.Fatalf("Create: %v", err)

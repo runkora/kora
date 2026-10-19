@@ -76,7 +76,7 @@ func TestEnsureBundledSandboxImages_CreatesEnabledAndSkipsDisabled(t *testing.T)
 
 func TestEnsureBundledSandboxImages_DeletesDisabledAndPatchesEnabled(t *testing.T) {
 	owned := func(name, image string) *si.SandboxImage {
-		return bundledSandboxImage(bundledTestNS, "example", si.BundledImage{Name: name}, BundledSandboxImage{Image: image})
+		return bundledSandboxImage(bundledTestNS, "example", si.BundledImage{Name: name}, BundledSandboxImage{Image: image}, "Acme")
 	}
 	r, c := newBundledReconciler(io.Discard, map[string]BundledSandboxImage{
 		"go": {Enabled: true, Warm: true, Image: "ghcr.io/runkora/kora-sandbox-go:v2"},

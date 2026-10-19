@@ -121,6 +121,8 @@ linters:
     #     excluded via path rules in this file.
     #
     #   See docs/adr/0005-controller-based-http-routing.md
+    #
+    # Product name: noProductNameLiteral bans a prose "kora" or "orbit" literal in the speaking packages.
     gocritic:
       enabled-checks:
         - ruleguard
@@ -351,12 +353,8 @@ linters:
         linters:
           - errcheck
           - unparam
-      # ruleguard reports "empty rule set" on packages where none of our custom
-      # ADR-0022 rules fire (i.e. no OTel span calls exist). This is a known
-      # gocritic/ruleguard quirk — it is not a real violation.
-      - linters:
-          - gocritic
-        text: "ruleguard: execution error: used Run\\(\\) with an empty rule set"
+      # Do not exclude ruleguard's "empty rule set" message: it means rules/orbit_rules.go
+      # failed to load, and excluding it would switch off every Tier 1 rule.
 
       # The sandbox-mount node agent's export directories are walked by NFS
       # clients as the squashed user, so they must be world-searchable (0755).
@@ -462,6 +460,24 @@ linters:
         linters:
           - gocritic
         text: "calling WriteHeader directly"
+
+      # The CA's X.509 subject is an identifier, not prose, so it keeps the kora name.
+      - path: "internal/egressgw/tlsca/"
+        linters:
+          - gocritic
+        text: "product name must come from internal/platform/brand"
+
+      # codexProvider and openCodeProvider are config-table keys, not prose; each rule matches the declaration line only.
+      - path: "internal/agents/sessionmanager/runner_codex.go"
+        linters:
+          - gocritic
+        text: "product name must come from internal/platform/brand"
+        source: 'const codexProvider = "orbit"'
+      - path: "internal/agents/sessionmanager/runner_opencode.go"
+        linters:
+          - gocritic
+        text: "product name must come from internal/platform/brand"
+        source: 'const openCodeProvider = "orbit"'
 
       # orbit-session-runner is a thin exec() wrapper: its entire purpose is to
       # exec the binary supplied as argv[3] after applying Landlock restrictions.

@@ -120,7 +120,7 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 	// Forward transport must accept the upstream's self-signed cert. The
 	// proxy itself terminates inbound TLS via the IssuingCA.
 	forwardTransport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	proxyInner := NewProxyHandler(broker, forwardTransport, logger)
+	proxyInner := NewProxyHandler(broker, forwardTransport, testBrand, logger)
 
 	// Wrap proxyInner with claims-injection so the broker sees a verified caller.
 	innerWithAuth := authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), proxyInner)

@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/token"
@@ -53,6 +54,8 @@ type RunServiceConfig struct {
 	DefaultEnvironmentSize EnvironmentSize
 	// SandboxMount tells the agent, in its brief, to work in the sandbox's local folder.
 	SandboxMount bool
+	// Brand supplies the product name for the capabilities brief and default environment.
+	Brand brand.Brand
 }
 
 // RunService is the single state machine authority for agent runs.
@@ -112,10 +115,13 @@ func (s *RunService) systemPromptWithBrief(ctx context.Context, at AgentType, ru
 	if access == nil {
 		return at.SystemPrompt
 	}
-	return at.SystemPrompt + renderCapabilitiesBrief(access, runWorkspaceDir(runID), s.cfg.SandboxMount)
+	return at.SystemPrompt + renderCapabilitiesBrief(access, runWorkspaceDir(runID), s.cfg.SandboxMount, s.cfg.Brand.ProductName())
 }
 
-// NewRunService creates a RunService with the given dependencies.
+// ErrRunServiceProductNameEmpty is returned when the run service is built with no product name.
+var ErrRunServiceProductNameEmpty = errors.New("run service: product name is empty")
+
+// NewRunService creates a RunService with the given dependencies. It rejects an empty product name.
 func NewRunService(
 	repo RunRepository,
 	atRepo AgentTypeRepository,
@@ -129,7 +135,10 @@ func NewRunService(
 	queue runQueue,
 	cfg RunServiceConfig,
 	logger logging.Logger,
-) *RunService {
+) (*RunService, error) {
+	if strings.TrimSpace(cfg.Brand.ProductName()) == "" {
+		return nil, ErrRunServiceProductNameEmpty
+	}
 	return &RunService{
 		repo:    repo,
 		atRepo:  atRepo,
@@ -143,7 +152,7 @@ func NewRunService(
 		queue:   queue,
 		cfg:     cfg,
 		logger:  logger,
-	}
+	}, nil
 }
 
 // authorizeStart resolves the target agent type and decides whether this caller

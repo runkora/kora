@@ -89,7 +89,7 @@ var testLimits = Guardrails{RepeatedCallWarn: 3, RepeatedCallPause: 5, WaitRearm
 func verdicts(g *loopGuard, events []Event) map[int]loopVerdict {
 	out := map[int]loopVerdict{}
 	for i, ev := range events {
-		if v, _ := g.observe(ev, testLimits); v != loopOK {
+		if v, _ := g.observe(ev, testLimits, "Acme"); v != loopOK {
 			out[i] = v
 		}
 	}
@@ -115,7 +115,7 @@ func TestLoopGuard_DescriptionDoesNotHideARepeat(t *testing.T) {
 	var got []loopVerdict
 	for i := range 5 {
 		in := map[string]string{"command": "cat missing-file.txt", "description": fmt.Sprintf("attempt %d of 5", i+1)}
-		if v, _ := g.observe(toolUse(t, fmt.Sprintf("t%d", i), "Bash", in), testLimits); v != loopOK {
+		if v, _ := g.observe(toolUse(t, fmt.Sprintf("t%d", i), "Bash", in), testLimits, "Acme"); v != loopOK {
 			got = append(got, v)
 		}
 	}
@@ -177,9 +177,9 @@ func TestLoopGuard_ProgressResetsWaits(t *testing.T) {
 func TestLoopGuard_ResetClearsCounts(t *testing.T) {
 	g := &loopGuard{}
 	in := map[string]string{"command": "sleep 1"}
-	g.observe(toolUse(t, "a", "Bash", in), testLimits)
+	g.observe(toolUse(t, "a", "Bash", in), testLimits, "Acme")
 	g.reset()
-	if v, _ := g.observe(toolUse(t, "b", "Bash", in), testLimits); v != loopOK {
+	if v, _ := g.observe(toolUse(t, "b", "Bash", in), testLimits, "Acme"); v != loopOK {
 		t.Errorf("verdict after reset = %v, want OK", v)
 	}
 }
@@ -346,7 +346,7 @@ func TestDrain_LoopGuardWarnsThenPauses(t *testing.T) {
 	runner.mu.Lock()
 	sent, interrupted := runner.sent, runner.interrupted
 	runner.mu.Unlock()
-	if len(sent) != 1 || !strings.Contains(sent[0], "kora guardrail") {
+	if len(sent) != 1 || !strings.Contains(sent[0], "Acme guardrail") {
 		t.Errorf("warnings sent = %q, want one", sent)
 	}
 	if !interrupted {
@@ -372,11 +372,11 @@ func TestLoopGuard_RepeatedCallWithChangingResultIsNotALoop(t *testing.T) {
 	in := map[string]string{"task_id": "b1"}
 	for i := range 10 {
 		id := fmt.Sprintf("t%d", i)
-		if v, _ := g.observe(toolUse(t, id, "TaskOutput", in), testLimits); v != loopOK {
+		if v, _ := g.observe(toolUse(t, id, "TaskOutput", in), testLimits, "Acme"); v != loopOK {
 			t.Fatalf("call %d: verdict %v, want OK", i, v)
 		}
 		ev, _ := newEvent(EventTypeToolResult, ToolResultPayload{ToolUseID: id, Content: fmt.Sprintf("line %d", i)})
-		g.observe(ev, testLimits)
+		g.observe(ev, testLimits, "Acme")
 	}
 }
 
@@ -390,7 +390,7 @@ func TestLoopGuard_LookOnlyFillerDoesNotResetWaits(t *testing.T) {
 			toolUse(t, f, "Bash", map[string]string{"command": fmt.Sprintf("echo still waiting; tail -5 /tmp/x%d.log", i)}), toolResult(t, f, false),
 			toolUse(t, m, "Monitor", map[string]int{"n": i}), toolResult(t, m, false),
 		} {
-			if v, _ := g.observe(ev, testLimits); v != loopOK {
+			if v, _ := g.observe(ev, testLimits, "Acme"); v != loopOK {
 				got = append(got, v)
 			}
 		}
@@ -425,7 +425,7 @@ func TestApplyLoopGuard_WarningIsSentAndRecorded(t *testing.T) {
 	in := map[string]string{"command": "gh pr view 7"}
 	reg.applyLoopGuard(context.Background(), s, toolUse(t, "a", "Bash", in))
 	reg.applyLoopGuard(context.Background(), s, toolUse(t, "b", "Bash", in))
-	if len(runner.sent) != 1 || !strings.Contains(runner.sent[0], "kora guardrail") {
+	if len(runner.sent) != 1 || !strings.Contains(runner.sent[0], "Acme guardrail") {
 		t.Errorf("sent %q, want one warning", runner.sent)
 	}
 	if len(n.warnings) != 1 {

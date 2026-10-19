@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -43,6 +44,9 @@ type CodexRunnerConfig struct {
 	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway. Empty
 	// disables the governed entries.
 	ToolGatewayURL string
+
+	// Brand names the product as the model provider Codex shows the agent.
+	Brand brand.Brand
 
 	// MCPServers are the governed MCP servers this agent holds tool grants on,
 	// one streamable-HTTP entry each.
@@ -1033,6 +1037,9 @@ func (r *CodexRunner) emit(t EventType, payload any) {
 	r.events <- ev
 }
 
+// codexProvider is Codex's config-table key for the inference gateway, not the product name.
+const codexProvider = "orbit"
+
 // writeCodexConfig creates a per-run CODEX_HOME directory under workDir and
 // writes a config.toml that points Codex at the kora inference gateway.
 //
@@ -1062,16 +1069,16 @@ func (r *CodexRunner) writeCodexConfig(workDir string) (string, error) {
 	// env_key names an environment variable that holds the bearer token; the
 	// identity-proxy sidecar injects a platform token via ORBIT_INFERENCE_KEY,
 	// so the actual secret value never appears on the command line or in the file.
-	configContent := fmt.Sprintf(`model_provider = "orbit"
+	configContent := fmt.Sprintf(`model_provider = %q
 model = %q
 # Codex refuses to run a command unless it can sandbox it with bubblewrap, which
 # this image does not carry: without this it panics with "bubblewrap is
-# unavailable" and no command runs at all. kora's boundary is the sandbox pod
-# and the Landlock wrapper around this process, so a second sandbox nested inside
-# them would add nothing (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+# unavailable" and no command runs at all. The platform's boundary is the sandbox
+# pod and the Landlock wrapper around this process, so a second sandbox nested
+# inside them would add nothing (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 # Stays above the first table header: a key after one belongs to that table.
 sandbox_mode = "danger-full-access"
-# Headless: no human can answer an approval, and kora's gateways enforce policy.
+# Headless: no human can answer an approval, and the platform's gateways enforce policy.
 approval_policy = "never"
 # The agent pod reaches only platform services
 # (docs/adr/2026-09-30-agent-pod-egress-lockdown.md): no update check, and no
@@ -1085,8 +1092,8 @@ enabled = false
 [feedback]
 enabled = false
 
-[model_providers.orbit]
-name     = "kora"
+[model_providers.%s]
+name     = %q
 base_url = %q
 env_key  = "ORBIT_INFERENCE_KEY"
 wire_api = "responses"
@@ -1109,7 +1116,7 @@ unified_exec = false
 shell_snapshot = false
 # The curated plugin sync clones github.com/openai/plugins at start.
 plugins = false
-%s`, r.cfg.Model, perRunURL, workDir, r.mcpServersTOML())
+%s`, codexProvider, r.cfg.Model, codexProvider, r.cfg.Brand.ProductName(), perRunURL, workDir, r.mcpServersTOML())
 
 	configPath := filepath.Join(codexHome, "config.toml")
 	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {

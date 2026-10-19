@@ -26,6 +26,7 @@ import (
 	"github.com/clear-route/orbit/internal/operator"
 	"github.com/clear-route/orbit/internal/operator/preflight"
 	"github.com/clear-route/orbit/internal/operator/webhookcert"
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/config"
 	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -86,6 +87,12 @@ func main() {
 func run(ctx context.Context, restCfg *rest.Config, logger logging.Logger) error {
 	install := oc.Current.Install
 
+	// The product name goes into the SandboxImage descriptions agents list.
+	b, err := brand.Load()
+	if err != nil {
+		return fmt.Errorf("load brand: %w", err)
+	}
+
 	// controller-runtime logs Reconcile errors and webhook TLS failures itself;
 	// route them through the injected logger instead of discarding them.
 	ctrl.SetLogger(logr.New(operator.NewLogSink(logger)))
@@ -126,7 +133,7 @@ func run(ctx context.Context, restCfg *rest.Config, logger logging.Logger) error
 		return err
 	}
 
-	if err := initControllers(mgr, logger, checks); err != nil {
+	if err := initControllers(mgr, logger, checks, b); err != nil {
 		return fmt.Errorf("register controllers: %w", err)
 	}
 	initWebhooks(mgr)
@@ -298,7 +305,7 @@ func initWebhooks(mgr ctrl.Manager) {
 	})
 }
 
-func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.Runner) error {
+func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.Runner, b brand.Brand) error {
 	install := oc.Current.Install
 
 	registry := operator.NewTenantRegistry(mgr.GetClient(), logger)
@@ -329,6 +336,7 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 		ImagePullSecrets: install.ImagePullSecrets,
 		SandboxBase:      operator.SandboxBase{Image: install.SandboxImages.BaseImage, Warm: install.SandboxImages.WarmBase},
 		SandboxBundled:   bundledSandboxImages(install.SandboxImages.Bundled),
+		ProductName:      b.ProductName(),
 		Collector:        agentCollector(install.CollectorNamespace, install.CollectorCIDRs),
 		Preflight:        preflightSource{checks},
 	}

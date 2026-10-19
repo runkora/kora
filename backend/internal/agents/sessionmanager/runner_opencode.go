@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -50,6 +51,9 @@ type OpenCodeRunnerConfig struct {
 	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway. Empty
 	// disables the governed entries.
 	ToolGatewayURL string
+
+	// Brand names the product as the provider OpenCode shows the agent.
+	Brand brand.Brand
 
 	// MCPServers are the governed MCP servers this agent holds tool grants on,
 	// one remote entry each.
@@ -411,6 +415,7 @@ func lockOpenCodeGlobalConfig(workDir string) error {
 }
 
 // openCodeProvider is the only provider OpenCode may load: the inference gateway.
+// It is the provider's table key and the model id prefix, not the product name.
 const openCodeProvider = "orbit"
 
 // openCodeConfig is the run's OpenCode config. The agent type's model is the
@@ -427,7 +432,7 @@ func (r *OpenCodeRunner) openCodeConfig(workDir string) ([]byte, error) {
 		"small_model":       model,
 		"provider": map[string]any{
 			openCodeProvider: map[string]any{
-				"name": "kora",
+				"name": r.cfg.Brand.ProductName(),
 				// Chat completions serves every gateway model; /messages serves only Anthropic's.
 				"npm": "@ai-sdk/openai-compatible",
 				"options": map[string]string{

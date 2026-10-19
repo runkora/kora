@@ -13,12 +13,12 @@ import (
 // the inference gateway — the runtime model list plus full management of virtual
 // models, provider models, and pricing overrides. Reads require platform:catalog:read,
 // writes platform:catalog:write; the inference gateway enforces the real scope.
-func registerModelTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
+func registerModelTools(srv *sdk.Server, b Backends, jc *orbitjson.Client, product string) {
 	base := b.Inference + "/v1"
 	catalog := base + "/catalog"
 
 	addTool(srv, "models.list",
-		"List the inference models available through kora at runtime, with provider and capability metadata.",
+		"List the inference models available through "+product+" at runtime, with provider and capability metadata.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
 			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/models", nil))
 		})

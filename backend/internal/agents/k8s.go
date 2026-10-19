@@ -19,6 +19,7 @@ import (
 	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
 	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
+	"github.com/clear-route/orbit/internal/platform/brand"
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -88,6 +89,8 @@ type K8sProvisionerConfig struct {
 	// OTLPEndpoint is passed to the session-manager so a provisioned agent
 	// exports to the same collector as the platform. Empty disables its export.
 	OTLPEndpoint string
+	// ProductName is passed to the session-manager as ORBIT_PRODUCT_NAME.
+	ProductName string
 	// SamplingRate is passed alongside it so a provisioned agent samples at the
 	// same rate as the platform. Empty keeps the image's own default.
 	SamplingRate string
@@ -150,10 +153,17 @@ type K8sProvisioner struct {
 // Without it, grant reconciliation uses the agent's own scopes.
 func (p *K8sProvisioner) SetScopeResolver(r *ScopeResolver) { p.scopeResolver = r }
 
+// ErrProvisionerProductNameEmpty is returned when the provisioner is built with no product name.
+var ErrProvisionerProductNameEmpty = errors.New("k8s provisioner: product name is empty")
+
 // NewK8sProvisioner builds a provisioner using in-cluster config when inCluster
 // is true, otherwise falling back to KUBECONFIG (local development).
 // policyClient may be nil; grant creation is skipped when unset (local dev).
 func NewK8sProvisioner(inCluster bool, logger logging.Logger, cfg K8sProvisionerConfig, policyClient *policyclient.Client) (*K8sProvisioner, error) {
+	// An empty name would silently fall back to the image default in the pod.
+	if strings.TrimSpace(cfg.ProductName) == "" {
+		return nil, ErrProvisionerProductNameEmpty
+	}
 	restCfg, err := buildRestConfig(inCluster)
 	if err != nil {
 		return nil, fmt.Errorf("build k8s rest config: %w", err)
@@ -1831,6 +1841,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								{Name: "ANTHROPIC_BASE_URL", Value: inferenceURL},
 								{Name: "ORBIT_OTLP_ENDPOINT", Value: p.cfg.OTLPEndpoint},
 								{Name: "ORBIT_SAMPLING_RATE", Value: p.cfg.SamplingRate},
+								{Name: brand.EnvProductName, Value: p.cfg.ProductName},
 								// orbit-agents URL for live event push (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
 								{Name: "ORBIT_AGENTS_URL", Value: fmt.Sprintf("http://orbit-agents.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								// Codex, OpenCode and MCP URLs follow the install's system namespace.

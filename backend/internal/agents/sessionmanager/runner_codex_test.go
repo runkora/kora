@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -479,6 +480,29 @@ func TestCodexWriteConfig_BaseURLIncludesV1(t *testing.T) {
 	const wantBaseURL = `base_url = "http://orbit-inference-gateway.orbit-system.svc.cluster.local/run/test-run/v1"`
 	if !strings.Contains(string(data), wantBaseURL) {
 		t.Errorf("config.toml does not contain %q, got:\n%s", wantBaseURL, data)
+	}
+}
+
+func TestCodexWriteConfig_NamesTheProviderAfterTheBrand(t *testing.T) {
+	r := NewCodexRunner(CodexRunnerConfig{
+		Logger: logging.NewLoggerWithOutput(io.Discard),
+		RunID:  "test-run",
+		Model:  "anthropic/claude-sonnet-4-6",
+		Brand:  brand.MustNew("Acme"),
+
+		InferenceGatewayURL: "http://orbit-inference-gateway.orbit-system.svc.cluster.local",
+	})
+
+	codexHome, err := r.writeCodexConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("writeCodexConfig() error = %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
+	if err != nil {
+		t.Fatalf("read config.toml: %v", err)
+	}
+	if want := `name     = "Acme"`; !strings.Contains(string(data), want) {
+		t.Errorf("config.toml does not contain %q, got:\n%s", want, data)
 	}
 }
 

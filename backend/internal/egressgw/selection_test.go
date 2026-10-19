@@ -163,7 +163,7 @@ func TestAuthorize_UnresolvedConnection(t *testing.T) {
 
 func TestDenial_ConnectionUnresolvedNamesCandidates(t *testing.T) {
 	d := &Denial{Reason: DenialConnectionUnresolved, Host: "api.github.com", Candidates: []string{"contoso-github", "fabrikam-github"}}
-	if msg := d.Message(); !strings.Contains(msg, "contoso-github, fabrikam-github") || strings.Contains(msg, "—") {
+	if msg := d.Message("kora"); !strings.Contains(msg, "contoso-github, fabrikam-github") || strings.Contains(msg, "—") {
 		t.Errorf("message = %q, want both candidates and no em dash", msg)
 	}
 	if got := d.Details()["candidates"]; !slices.Equal(got.([]string), d.Candidates) {

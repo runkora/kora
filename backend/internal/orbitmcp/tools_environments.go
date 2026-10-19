@@ -6,12 +6,13 @@ import (
 	"net/url"
 
 	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
+	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // registerEnvironmentTools wires the sandbox environment tools. The agents service enforces
 // agents:environments:read and :write and recompiles the grants of attached agents.
-func registerEnvironmentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
+func registerEnvironmentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client, product string) {
 	base := b.Agents + "/api/v1/environments"
 
 	addTool(srv, "agents.environments.list",
@@ -67,7 +68,7 @@ func registerEnvironmentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client)
 
 	addTool(srv, "agents.sandbox_images.list",
 		"List the sandbox images registered in the caller's tenant, with whether each is valid and why not. "+
-			"An environment names one by name; kora-base is the kora base image.",
+			"An environment names one by name; "+si.BaseName+" is the "+product+" base image.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
 			return jsonResult(jc.Get(ctx, callerToken(ctx), b.Agents+"/api/v1/sandbox-images", nil))
 		})
@@ -83,7 +84,7 @@ type environmentArgs struct {
 	Slug         string         `json:"slug,omitempty" jsonschema:"what agents select the environment by: lowercase letters, digits and hyphens, unique within the tenant; derived from name when omitted on create, and it cannot change"`
 	Name         string         `json:"name" jsonschema:"the environment's name for people"`
 	Description  string         `json:"description,omitempty" jsonschema:"what this environment is for; agents read it when they choose one"`
-	SandboxImage string         `json:"sandbox_image,omitempty" jsonschema:"name of a valid sandbox image from agents.sandbox_images.list; omit for the kora base image"`
+	SandboxImage string         `json:"sandbox_image,omitempty" jsonschema:"name of a valid sandbox image from agents.sandbox_images.list; omit for the base image, kora-base"`
 	Size         *sizeArg       `json:"size,omitempty" jsonschema:"CPU, memory and local disk; omitted values take the install default"`
 	EgressHosts  []string       `json:"egress_hosts,omitempty" jsonschema:"hosts agents in this environment may reach (e.g. api.github.com)"`
 	Connectors   []connectorArg `json:"connectors,omitempty" jsonschema:"credential connections and the actions allowed; call agents.connectors to list"`

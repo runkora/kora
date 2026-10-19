@@ -69,7 +69,7 @@ type RunEnvironment struct {
 // An agent with none attached has the built-in default.
 func (s *RunService) agentEnvironments(ctx context.Context, at AgentType) ([]Environment, error) {
 	if len(at.Environments) == 0 {
-		return []Environment{DefaultEnvironment(s.cfg.DefaultEnvironmentSize)}, nil
+		return []Environment{DefaultEnvironment(s.cfg.DefaultEnvironmentSize, s.cfg.Brand.ProductName())}, nil
 	}
 	envs, err := s.envs.ListEnvironmentsByIDs(ctx, at.TenantID, environmentIDs(at.Environments))
 	if err != nil {

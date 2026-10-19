@@ -27,7 +27,9 @@ const BaseLabel = "io.orbit.sandbox.base"
 const BaseName = "kora-base"
 
 // BaseDescription describes the base image wherever it is listed.
-const BaseDescription = "The kora base image: general command-line tools, Go and Python."
+func BaseDescription(product string) string {
+	return "The " + product + " base image: general command-line tools, Go and Python."
+}
 
 // BundledComponent is the orbit.io/component label value on the bundled
 // SandboxImages the operator keeps in tenant namespaces. Together with the
@@ -38,16 +40,22 @@ const BundledComponent = "bundled-sandbox-image"
 // every tenant (docs/adr/2026-10-07-bundled-sandbox-images.md).
 type BundledImage struct {
 	// Key is the image's key under agents.sandboxImages.bundled in the chart values.
-	Key         string
-	Name        string
-	Description string
+	Key  string
+	Name string
+	// Extras is what the image adds to the base image, for Description.
+	Extras string
+}
+
+// Description describes the image wherever it is listed.
+func (b BundledImage) Description(product string) string {
+	return "The " + product + " base image plus " + b.Extras + "."
 }
 
 // Bundled lists the bundled sandbox images.
 var Bundled = []BundledImage{
-	{Key: "go", Name: "kora-go", Description: "The kora base image plus golangci-lint, buf and protoc."},
-	{Key: "python", Name: "kora-python", Description: "The kora base image plus ruff and pytest."},
-	{Key: "node", Name: "kora-node", Description: "The kora base image plus Node LTS and pnpm."},
+	{Key: "go", Name: "kora-go", Extras: "golangci-lint, buf and protoc"},
+	{Key: "python", Name: "kora-python", Extras: "ruff and pytest"},
+	{Key: "node", Name: "kora-node", Extras: "Node LTS and pnpm"},
 }
 
 // SandboxUID is the user every sandbox image runs as.

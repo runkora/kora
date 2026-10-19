@@ -83,11 +83,11 @@ type Environment struct {
 
 // DefaultEnvironment is the environment of an agent with none attached. It runs
 // the base image at the default size with no egress or connectors.
-func DefaultEnvironment(size EnvironmentSize) Environment {
+func DefaultEnvironment(size EnvironmentSize, product string) Environment {
 	return Environment{
 		Slug:         DefaultEnvironmentName,
 		Name:         defaultEnvironmentDisplayName,
-		Description:  si.BaseDescription,
+		Description:  si.BaseDescription(product),
 		SandboxImage: si.BaseName,
 		Size:         size,
 		EgressHosts:  []string{},

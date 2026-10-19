@@ -127,7 +127,7 @@ func TestConnect_StreamingResponse_ChunksArriveBeforeUpstreamCloses(t *testing.T
 
 	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger)
 	forwardTransport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	proxyHandler := NewProxyHandler(broker, forwardTransport, logger)
+	proxyHandler := NewProxyHandler(broker, forwardTransport, testBrand, logger)
 	innerWithAuth := authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), proxyHandler)
 
 	ca, rootPEM, err := testtlsca.NewCA("acme")

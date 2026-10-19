@@ -3,6 +3,7 @@ package orbitmcp
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -30,7 +31,7 @@ func TestAgentWriteToolsForwardMethodAndBody(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -72,7 +73,7 @@ func TestAgentWriteToolsForwardMethodAndBody(t *testing.T) {
 // schema (a) constrains framework to the closed enum and (b) points model_id at
 // the models.list tool — so a client/agent sees valid options up front.
 func TestCreateToolSchemaSurfacesEnumAndModelHint(t *testing.T) {
-	srv := NewServer(Backends{}, orbitjson.NewClient(logging.NewLogger()))
+	srv := NewServer(Backends{}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -120,7 +121,7 @@ func TestCreateForwardsModelWithoutDerivingScopes(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -150,7 +151,7 @@ func TestGuardrailsForwarded(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -197,7 +198,7 @@ func TestTriggerToolsUseTriggersBackend(t *testing.T) {
 	}))
 	defer identity.Close()
 
-	srv := NewServer(Backends{Identity: identity.URL, Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()))
+	srv := NewServer(Backends{Identity: identity.URL, Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -224,7 +225,7 @@ func TestTriggerProviderToolsAndSenderRestriction(t *testing.T) {
 	}))
 	defer triggers.Close()
 
-	srv := NewServer(Backends{Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()))
+	srv := NewServer(Backends{Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -296,7 +297,7 @@ func TestTriggerKindsCreateUpdateAndPreview(t *testing.T) {
 	}))
 	defer triggers.Close()
 
-	srv := NewServer(Backends{Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()))
+	srv := NewServer(Backends{Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -474,7 +475,7 @@ func TestConnectorsDiscoveryAndForwarding(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -517,7 +518,7 @@ func TestRunToolsForwardMethodAndPath(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -596,7 +597,7 @@ func TestPolicyWriteToolsForwardMethodAndPath(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Policy: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	srv := NewServer(Backends{Policy: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -650,7 +651,7 @@ func TestToolForwardsCallerTokenAndReturnsJSON(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 
@@ -687,7 +688,7 @@ func TestToolForwardsCallerTokenAndReturnsJSON(t *testing.T) {
 // missing from the map would silently 403 when granted — so this also spot-checks
 // that a representative new tool carries its _meta["orbit/requires"].
 func TestToolRequiresKeysAreRegisteredTools(t *testing.T) {
-	srv := NewServer(Backends{}, orbitjson.NewClient(logging.NewLogger()))
+	srv := NewServer(Backends{}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -851,7 +852,7 @@ func TestListToolsMapTimeWindowAndPayloadParams(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	srv := NewServer(Backends{Agents: backend.URL, Triggers: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	srv := NewServer(Backends{Agents: backend.URL, Triggers: backend.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -891,7 +892,7 @@ func TestTriggerCoalesceForwarding(t *testing.T) {
 	}))
 	defer triggers.Close()
 
-	srv := NewServer(Backends{Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()))
+	srv := NewServer(Backends{Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -924,3 +925,40 @@ func TestTriggerCoalesceForwarding(t *testing.T) {
 		t.Errorf("an update that did not mention coalesce carried it: %v", gotBody["coalesce"])
 	}
 }
+
+// TestServerReadsTheBrand checks the server name and tool descriptions use the brand.
+func TestServerReadsTheBrand(t *testing.T) {
+	srv := NewServer(Backends{}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+
+	init := call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+	info, _ := init["result"].(map[string]any)["serverInfo"].(map[string]any)
+	if info["name"] != "Acme" {
+		t.Errorf("serverInfo.name = %v, want Acme", info["name"])
+	}
+
+	list := call("tools/list", map[string]any{})
+	tools, _ := list["result"].(map[string]any)["tools"].([]any)
+	descriptions := map[string]string{}
+	for _, tt := range tools {
+		m, _ := tt.(map[string]any)
+		name, _ := m["name"].(string)
+		desc, _ := m["description"].(string)
+		descriptions[name] = desc
+	}
+	for _, name := range []string{"agents.create", "agents.sandbox_images.list", "models.list"} {
+		if _, ok := descriptions[name]; !ok {
+			t.Fatalf("%s not in tools/list", name)
+		}
+	}
+	for _, name := range []string{"agents.create", "agents.sandbox_images.list", "models.list"} {
+		if !strings.Contains(descriptions[name], "Acme") {
+			t.Errorf("%s description does not name the brand: %q", name, descriptions[name])
+		}
+	}
+}
+
+// testBrand is a name no default produces, so text carrying it proves injection.
+var testBrand = brand.MustNew("Acme")

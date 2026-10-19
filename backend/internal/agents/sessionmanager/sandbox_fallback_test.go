@@ -41,7 +41,7 @@ func writeDescriptor(t *testing.T, workspaces, runID, endpoint, token string) {
 func sandboxTestController(t *testing.T) (*Controller, string) {
 	t.Helper()
 	workspaces := t.TempDir()
-	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute)
+	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute, testBrand)
 	c := &Controller{
 		registry: reg,
 		logger:   discardLogger(),
@@ -77,7 +77,7 @@ func (n *lookupNotifier) GetSandbox(_ context.Context, _ string) (Sandbox, bool,
 func controllerWithNotifier(t *testing.T, n Notifier) (*Controller, string) {
 	t.Helper()
 	workspaces := t.TempDir()
-	reg := NewRegistry(discardLogger(), workspaces, n, time.Minute)
+	reg := NewRegistry(discardLogger(), workspaces, n, time.Minute, testBrand)
 	c := &Controller{
 		registry: reg,
 		logger:   discardLogger(),
@@ -235,7 +235,7 @@ func TestGetSandbox_NoDescriptorIsNotFound(t *testing.T) {
 // authenticate to the sandbox.
 func TestSandboxFromDisk_RequiresBothHalves(t *testing.T) {
 	workspaces := t.TempDir()
-	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute)
+	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute, testBrand)
 
 	writeDescriptor(t, workspaces, "both", "10.0.0.5:50051", "tok-abc")
 	got, ok := reg.sandboxFromDisk("both")
@@ -387,7 +387,7 @@ func TestGetSandbox_RejectsTraversingRunID(t *testing.T) {
 // gets the same treatment as the token path.
 func TestSandboxFromDisk_RejectsTraversingRunIDs(t *testing.T) {
 	workspaces := t.TempDir()
-	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute)
+	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute, testBrand)
 	writeDescriptor(t, workspaces, "victim", "10.0.0.9:50051", "exec-victim")
 
 	for _, runID := range []string{"", ".", "..", "../victim", "a/b"} {

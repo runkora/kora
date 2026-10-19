@@ -64,7 +64,9 @@ func egressCanaryCommand(host string) string {
 // stopNote prefixes the first message after an interrupt. Without it the
 // resumed model sees only the harness's tool-rejection text and reads the stop
 // as the user refusing its work.
-const stopNote = "[Orbit: the user stopped your previous turn before it finished. That was their choice, not a tool error or a refusal. Their next message follows.]\n\n"
+func stopNote(product string) string {
+	return "[" + product + ": the user stopped your previous turn before it finished. That was their choice, not a tool error or a refusal. Their next message follows.]\n\n"
+}
 
 var (
 	ErrSessionNotFound = errors.New("session not found")
@@ -156,9 +158,11 @@ type session struct {
 
 // Registry manages all active sessions for this session-manager pod.
 type Registry struct {
-	logger      logging.Logger
-	workspaces  string // base path for workspace directories
-	notifier    Notifier
+	logger     logging.Logger
+	workspaces string // base path for workspace directories
+	notifier   Notifier
+	// brand supplies the product name for text sent to the agent.
+	brand       productNamer
 	summarizer  *summarizer
 	idleTimeout time.Duration
 	guardrails  Guardrails
@@ -176,12 +180,18 @@ type Registry struct {
 	sessions map[string]*session
 }
 
+// productNamer is the one brand method the registry calls.
+type productNamer interface {
+	ProductName() string
+}
+
 // NewRegistry creates a session registry.
-func NewRegistry(logger logging.Logger, workspacesBase string, notifier Notifier, idleTimeout time.Duration) *Registry {
+func NewRegistry(logger logging.Logger, workspacesBase string, notifier Notifier, idleTimeout time.Duration, brand productNamer) *Registry {
 	return &Registry{
 		logger:      logger,
 		workspaces:  workspacesBase,
 		notifier:    notifier,
+		brand:       brand,
 		summarizer:  newSummarizer(logger),
 		idleTimeout: idleTimeout,
 		guardrails:  DefaultGuardrails(),
@@ -297,7 +307,7 @@ func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 	toAgent := text
 	noted := s.stoppedByUser.CompareAndSwap(true, false)
 	if noted {
-		toAgent = stopNote + text
+		toAgent = stopNote(reg.brand.ProductName()) + text
 	}
 	if err := s.runner.Send(ctx, toAgent); err != nil {
 		if noted {

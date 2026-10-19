@@ -59,6 +59,8 @@
 // traceparent injection, and structured logging.
 //
 // See docs/adr/2026-03-19-multi-service-backend-deployment-structure.md
+//
+// Product name: prose "kora" or "orbit" literals in the speaking packages must come from internal/platform/brand.
 package gorules
 
 import "github.com/quasilyte/go-ruleguard/dsl"
@@ -306,4 +308,36 @@ func noDirectWriteHeader(m dsl.Matcher) {
 		Report(`docs/adr/2026-02-17-controller-based-http-routing.md: use api.JSON or api.ErrorResponse instead of calling WriteHeader directly — ` +
 			`a bare WriteHeader writes no JSON envelope, records nothing on the OTel span, and emits no structured log line. ` +
 			`See docs/adr/2026-02-17-controller-based-http-routing.md`)
+}
+
+// speakingPackages and productNameWord feed both noProductNameLiteral matchers.
+const (
+	speakingPackages = `^github\.com/clear-route/orbit/internal/(agents|orbitmcp|egressgw|platform/sandboximages)(/|$)`
+	productNameWord  = `(?i)(^|[^-_./a-z0-9])(kora|orbit)(\.[^a-z0-9]|[^-_./a-z0-9]|$)`
+)
+
+// noProductNameLiteral bans "kora" and "orbit" string literals, primarily so a white-labelled install never shows them.
+func noProductNameLiteral(m dsl.Matcher) {
+	m.Match(`$recv.$method($*_, $s, $*_)`).
+		Where(m.File().PkgPath.Matches(speakingPackages) &&
+			m["s"].Node.Is("BasicLit") &&
+			m["s"].Text.Matches(productNameWord) &&
+			!m["recv"].Type.Implements(`github.com/clear-route/orbit/internal/platform/logging.Logger`)).
+		At(m["s"]).
+		Report(`docs/adr/2026-10-12-white-labelling-theme.md: the product name must come from internal/platform/brand, not a literal — ` +
+			`a white-labelled install must never show the kora name in text its people or agents read. ` +
+			`Take the name from the brand the component is given. See docs/adr/2026-10-12-white-labelling-theme.md`)
+
+	m.Match(`$fn($*_, $s, $*_)`,
+		`$_{$*_, $s, $*_}`, `$_{$*_, $_: $s, $*_}`,
+		`const $_ = $s`, `var $_ = $s`, `const $_ $_ = $s`, `var $_ $_ = $s`,
+		`return $s`, `$_ = $s`, `$_ := $s`,
+		`$s + $_`, `$_ + $s`).
+		Where(m.File().PkgPath.Matches(speakingPackages) &&
+			m["s"].Node.Is("BasicLit") &&
+			m["s"].Text.Matches(productNameWord)).
+		At(m["s"]).
+		Report(`docs/adr/2026-10-12-white-labelling-theme.md: the product name must come from internal/platform/brand, not a literal — ` +
+			`a white-labelled install must never show the kora name in text its people or agents read. ` +
+			`Take the name from the brand the component is given. See docs/adr/2026-10-12-white-labelling-theme.md`)
 }
