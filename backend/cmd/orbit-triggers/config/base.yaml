@@ -10,7 +10,7 @@ server:
   basePath: /api/v1
   shutdownTimeoutSecs: 30
 
-# The chart renders the identity, agents and policy service URLs.
+# The chart renders the identity, agents, inference gateway and policy service URLs.
 policy:
   # Short: a trigger's run grant is created moments before its first delivery,
   # so a long poll interval shows up as a spurious first-fire denial.

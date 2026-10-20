@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
@@ -99,11 +100,18 @@ type Service struct {
 	cipher    *secretCipher
 	policy    *policyclient.Client
 	agents    *agentsclient.Client
+	decisions decisionModel
 	minter    TokenMinter
 	admission *Admission
 	outcomes  outcomeRecorder
 	logger    logging.Logger
 	metrics   *Metrics // nil records nothing
+}
+
+// decisionModel asks the inference gateway's decision model which agent or run
+// a routed delivery goes to (trigger routing ADR, Decision 3).
+type decisionModel interface {
+	SystemOne(ctx context.Context, bearer string, req inferenceclient.SystemOneRequest) (inferenceclient.SystemOneResponse, error)
 }
 
 // NewService constructs the delivery pipeline: verifying an inbound webhook,
@@ -118,6 +126,7 @@ func NewService(
 	cipher *secretCipher,
 	policy *policyclient.Client,
 	agents *agentsclient.Client,
+	decisions decisionModel,
 	minter TokenMinter,
 	admission *Admission,
 	logger logging.Logger,
@@ -130,6 +139,7 @@ func NewService(
 		cipher:    cipher,
 		policy:    policy,
 		agents:    agents,
+		decisions: decisions,
 		minter:    minter,
 		admission: admission,
 		outcomes:  outcomeRecorder{repo: repo, logger: logger},

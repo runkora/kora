@@ -50,6 +50,12 @@ type Config struct {
 		InternalURL string `yaml:"internalURL"`
 	} `yaml:"agents"`
 
+	Inference struct {
+		// InternalURL is the in-cluster base URL for the inference gateway,
+		// which routing calls for its decision model.
+		InternalURL string `yaml:"internalURL"`
+	} `yaml:"inference"`
+
 	Policy struct {
 		// PolicyServiceInternalURL is the base URL for route+scope registration.
 		PolicyServiceInternalURL string `yaml:"policyServiceInternalURL"`

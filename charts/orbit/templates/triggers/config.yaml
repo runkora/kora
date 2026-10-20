@@ -10,6 +10,8 @@ cmd/orbit-triggers:
     internalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
   agents:
     internalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-agents") | toJson }}
+  inference:
+    internalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-inference-gateway") | toJson }}
   policy:
     policyServiceInternalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
     bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}

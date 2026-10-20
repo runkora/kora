@@ -737,7 +737,7 @@ func newTestService(t *testing.T) (*Service, *testDeps) {
 	// nil metrics: instrumentation is injected, and its absence must leave
 	// behavior identical. Metrics have their own test.
 	admission := NewAdmission(repo, silentLogger())
-	svc := NewService(repo, mustRegistry(), cipher, pc, ac, minter, admission, silentLogger(), nil)
+	svc := NewService(repo, mustRegistry(), cipher, pc, ac, nil, minter, admission, silentLogger(), nil)
 	deps := &testDeps{repo: repo, policy: ps, agents: as, minter: minter, policyClnt: pc}
 	deps.sources = newTestSourceService(t, repo, pc, ac)
 	deps.triggers = NewTriggerService(repo, mustRegistry(), pc, ac, admission, silentLogger())
