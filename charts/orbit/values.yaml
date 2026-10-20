@@ -61,6 +61,14 @@ global:
     serviceMonitor:
       enabled: false
       interval: 30s
+      # Extra labels merged onto every rendered ServiceMonitor, on top of
+      # orbit.labels. Most Prometheus Operator installs only select
+      # ServiceMonitors carrying their own Helm release label (e.g.
+      # `release: kube-prometheus-stack`, required because
+      # serviceMonitorSelectorNilUsesHelmValues defaults to true) — set that
+      # here. Empty by default: other installs may run a different operator
+      # release name, or none at all.
+      additionalLabels: {}
 
   # Pull secrets applied to kora and tenant workloads. Kubernetes convention:
   # a list of {name: <secret-name>} objects.

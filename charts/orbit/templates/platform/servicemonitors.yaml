@@ -24,6 +24,9 @@ metadata:
   namespace: {{ include "orbit.systemNamespace" $ }}
   labels:
     {{- include "orbit.labels" $ | nindent 4 }}
+    {{- with $.Values.global.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   selector:
     matchLabels:

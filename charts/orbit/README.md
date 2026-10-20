@@ -206,6 +206,7 @@ Kubernetes: `>=1.34.0-0`
 | global.metrics.enabled | bool | `true` |  |
 | global.metrics.port | int | `9464` |  |
 | global.metrics.scraperNamespace | string | `""` |  |
+| global.metrics.serviceMonitor.additionalLabels | object | `{}` |  |
 | global.metrics.serviceMonitor.enabled | bool | `false` |  |
 | global.metrics.serviceMonitor.interval | string | `"30s"` |  |
 | global.nodeSelector | object | `{}` |  |
