@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -117,7 +118,6 @@ func TestCreateSource_SigningSecret(t *testing.T) {
 		{name: "alertmanager generates", provider: ProviderAlertmanager},
 		{name: "github refuses a secret", provider: ProviderGitHub, secret: "s3cret", wantErr: true},
 		{name: "alertmanager refuses a secret", provider: ProviderAlertmanager, secret: "s3cret", wantErr: true},
-		{name: "issued requires a secret", provider: providerCap, wantErr: true},
 		{name: "issued refuses blank", provider: providerCap, secret: "   ", wantErr: true},
 		{name: "issued refuses over 256 bytes", provider: providerCap, secret: strings.Repeat("a", 257), wantErr: true},
 		{name: "issued takes 256 bytes", provider: providerCap, secret: strings.Repeat("a", 256), wantStored: strings.Repeat("a", 256)},
@@ -720,5 +720,158 @@ func TestFanOut_ChatJoinKeyFailsClosed(t *testing.T) {
 				t.Fatalf("pending = %+v, want one fire with the chat join key fields", pending)
 			}
 		})
+	}
+}
+
+// capSourceWithoutSecret creates a chat source that is waiting for its secret.
+func capSourceWithoutSecret(t *testing.T, deps *testDeps) *SourceResponse {
+	t.Helper()
+	resp, err := deps.sources.CreateSource(context.Background(), testTenant, CreateSourceRequest{Name: "cap", Provider: providerCap})
+	if err != nil {
+		t.Fatalf("CreateSource: %v", err)
+	}
+	return resp
+}
+
+func TestCreateSource_WithoutSecret(t *testing.T) {
+	_, deps := newCapService(t)
+	resp := capSourceWithoutSecret(t, deps)
+	if resp.SigningSecretSet || resp.Secret != "" {
+		t.Errorf("response signing_secret_set=%v secret=%q, want unset and empty", resp.SigningSecretSet, resp.Secret)
+	}
+	if deps.repo.sources[resp.ID].SecretCiphertext != "" {
+		t.Error("a source created without a secret must store none")
+	}
+	got, err := deps.sources.GetSource(context.Background(), testTenant, resp.ID)
+	if err != nil || got.SigningSecretSet {
+		t.Errorf("GetSource signing_secret_set = %v (err %v), want false", got != nil && got.SigningSecretSet, err)
+	}
+
+	withSecret := capSource(t, deps)
+	read, _ := deps.sources.GetSource(context.Background(), testTenant, withSecret.ID)
+	if !read.SigningSecretSet {
+		t.Error("a source with a secret must report signing_secret_set")
+	}
+	if github, err := deps.sources.CreateSource(context.Background(), testTenant, CreateSourceRequest{Name: "g", Provider: ProviderGitHub}); err != nil || !github.SigningSecretSet {
+		t.Errorf("github create: err %v, signing_secret_set must be true", err)
+	}
+}
+
+func TestUpdateSource_FirstSecret(t *testing.T) {
+	_, deps := newCapService(t)
+	created := capSourceWithoutSecret(t, deps)
+	ctx := context.Background()
+
+	resp, err := deps.sources.UpdateSource(ctx, testTenant, created.ID, UpdateSourceRequest{SigningSecret: " first "})
+	if err != nil {
+		t.Fatalf("first secret without rotate_secret: %v", err)
+	}
+	if !resp.SigningSecretSet || resp.Secret != "" || storedSecret(t, deps, created.ID) != "first" {
+		t.Errorf("set=%v secret=%q stored=%q, want set, no echo, stored first", resp.SigningSecretSet, resp.Secret, storedSecret(t, deps, created.ID))
+	}
+
+	if _, err := deps.sources.UpdateSource(ctx, testTenant, created.ID, UpdateSourceRequest{SigningSecret: "second"}); !errors.Is(err, ErrValidation) {
+		t.Errorf("second set without rotate_secret: err = %v, want ErrValidation", err)
+	}
+	if storedSecret(t, deps, created.ID) != "first" {
+		t.Error("a refused change must leave the secret unchanged")
+	}
+	if _, err := deps.sources.UpdateSource(ctx, testTenant, created.ID, UpdateSourceRequest{RotateSecret: true, SigningSecret: "second"}); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	if storedSecret(t, deps, created.ID) != "second" {
+		t.Error("rotate_secret must change the secret")
+	}
+}
+
+func TestUpdateSource_FirstSecretValidation(t *testing.T) {
+	_, deps := newCapService(t)
+	created := capSourceWithoutSecret(t, deps)
+	for name, req := range map[string]UpdateSourceRequest{
+		"blank":    {SigningSecret: "   "},
+		"too long": {SigningSecret: strings.Repeat("a", 257)},
+	} {
+		if _, err := deps.sources.UpdateSource(context.Background(), testTenant, created.ID, req); !errors.Is(err, ErrValidation) {
+			t.Errorf("%s: err = %v, want ErrValidation", name, err)
+		}
+	}
+	if deps.repo.sources[created.ID].SecretCiphertext != "" {
+		t.Error("a refused first secret must leave the source without one")
+	}
+}
+
+func TestIngest_SourceWithoutSecret(t *testing.T) {
+	handshake := []byte(`{"type":"handshake","challenge":"abc"}`)
+	cases := []struct {
+		name        string
+		body        []byte
+		headers     http.Header
+		wantErr     error
+		wantOutcome IngestOutcome
+		wantReply   map[string]string
+		wantReject  int64
+	}{
+		{name: "unsigned handshake echoes the challenge", body: handshake, headers: capHeaders("", ""),
+			wantOutcome: IngestHandshake, wantReply: map[string]string{"challenge": "abc"}},
+		{name: "a delivery is rejected", body: []byte(`{"type":"event","text":"hi"}`), headers: capHeaders("", "d-1"),
+			wantErr: ErrSignatureInvalid, wantReject: 1},
+		{name: "a delivery signed with any value is rejected", body: []byte(`{"type":"event","text":"hi"}`), headers: capHeaders("s3cret", "d-1"),
+			wantErr: ErrSignatureInvalid, wantReject: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, deps := newCapService(t)
+			src := capSourceWithoutSecret(t, deps)
+			res, err := svc.Ingest(context.Background(), src.ID, tc.headers, tc.body)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			}
+			if res.Outcome != tc.wantOutcome || !maps.Equal(res.Reply, tc.wantReply) {
+				t.Errorf("result = %+v, want outcome %v reply %v", res, tc.wantOutcome, tc.wantReply)
+			}
+			stored := deps.repo.sources[src.ID]
+			if len(deps.repo.deliveries) != 0 || len(deps.repo.replayKeys) != 0 {
+				t.Errorf("rows=%d replay keys=%d, want none", len(deps.repo.deliveries), len(deps.repo.replayKeys))
+			}
+			if stored.AcceptedCount != 0 || stored.RejectionCount != tc.wantReject {
+				t.Errorf("counters accepted=%d rejected=%d, want 0 and %d", stored.AcceptedCount, stored.RejectionCount, tc.wantReject)
+			}
+			if tc.wantReject > 0 && stored.LastRejectionReason != "signing secret not set" {
+				t.Errorf("reason = %q, want %q", stored.LastRejectionReason, "signing secret not set")
+			}
+		})
+	}
+}
+
+// A source without a secret answers a rejected request exactly as a bad
+// signature does, so the response does not show that the secret is missing.
+func TestHandleIngest_SourceWithoutSecretIsIndistinguishableFromBadSignature(t *testing.T) {
+	c, deps, svc := newTestController(t)
+	withCapAdapter(t, svc, deps)
+	waiting := capSourceWithoutSecret(t, deps)
+	signed := capSource(t, deps)
+	body := []byte(`{"type":"event","text":"hi"}`)
+
+	post := func(id string) *httptest.ResponseRecorder {
+		req := newRequest(t, http.MethodPost, "/webhooks/"+id, map[string]string{"sourceID": id}, body)
+		req.Header = capHeaders("wrong", "d-1")
+		return invoke(c.handleIngest, req)
+	}
+	got, want := post(waiting.ID), post(signed.ID)
+	if got.Code != http.StatusNotFound || got.Code != want.Code || got.Body.String() != want.Body.String() {
+		t.Errorf("waiting source answered %d %q, bad signature answered %d %q", got.Code, got.Body.String(), want.Code, want.Body.String())
+	}
+}
+
+// A source with a secret keeps the order Verify, then the handshake.
+func TestIngest_SourceWithSecretVerifiesBeforeHandshake(t *testing.T) {
+	svc, deps := newCapService(t)
+	src := capSource(t, deps)
+	res, err := svc.Ingest(context.Background(), src.ID, capHeaders("wrong", ""), []byte(`{"type":"handshake","challenge":"abc"}`))
+	if !errors.Is(err, ErrSignatureInvalid) || res.Reply != nil {
+		t.Errorf("res = %+v, err = %v, want ErrSignatureInvalid and no reply", res, err)
+	}
+	if got := deps.repo.sources[src.ID].LastRejectionReason; got != "invalid signature" {
+		t.Errorf("reason = %q, want invalid signature", got)
 	}
 }

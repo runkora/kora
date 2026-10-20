@@ -190,6 +190,10 @@ type WebhookSource struct {
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 
+	// SigningSecretSet is false for a source of an issued-secret provider that is
+	// still waiting for its signing secret. Set from SecretCiphertext on reads.
+	SigningSecretSet bool `json:"signing_secret_set"`
+
 	// SecretCiphertext is the AES-GCM encrypted HMAC signing secret. It is never
 	// serialized; only the ingest path reads it (to verify deliveries).
 	SecretCiphertext string `json:"-"`

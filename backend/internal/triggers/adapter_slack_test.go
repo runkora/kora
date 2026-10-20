@@ -232,13 +232,13 @@ func TestSlackAdapter_Registered(t *testing.T) {
 	}
 }
 
-// Slack sources take the admin's secret at create and rotate and report that
+// Slack sources take the admin's secret at create or later, and at rotate, and report that
 // they identify senders.
 func TestSlackSource_SecretAndSenders(t *testing.T) {
 	_, deps := newTestService(t)
 	ctx := context.Background()
-	if _, err := deps.sources.CreateSource(ctx, testTenant, CreateSourceRequest{Name: "slack", Provider: ProviderSlack}); !errors.Is(err, ErrValidation) {
-		t.Fatalf("create without a secret: err = %v, want ErrValidation", err)
+	if _, err := deps.sources.CreateSource(ctx, testTenant, CreateSourceRequest{Name: "slack", Provider: ProviderSlack, SigningSecret: "  "}); !errors.Is(err, ErrValidation) {
+		t.Fatalf("create with a blank secret: err = %v, want ErrValidation", err)
 	}
 	resp, err := deps.sources.CreateSource(ctx, testTenant, CreateSourceRequest{Name: "slack", Provider: ProviderSlack, SigningSecret: "old"})
 	if err != nil || resp.Secret != "" || storedSecret(t, deps, resp.ID) != "old" {
