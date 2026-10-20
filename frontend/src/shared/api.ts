@@ -746,6 +746,8 @@ export interface WebhookSource {
    * here so an admin with a wrong signing secret can still see it.
    */
   rejection_count?: number;
+  /** False for a source of a provider that issues its own secret and is still waiting for it. */
+  signing_secret_set?: boolean;
   last_rejection_at?: string;
   last_rejection_reason?: string;
 }
@@ -766,7 +768,7 @@ export interface WebhookSourceCreateRequest {
   name: string;
   provider: string;
   config?: Record<string, unknown>;
-  /** Write-only. Required for a provider that issues its own secret, e.g. Slack; refused otherwise. */
+  /** Write-only. Optional for a provider that issues its own secret, e.g. Slack; refused otherwise. */
   signing_secret?: string;
 }
 
@@ -774,7 +776,7 @@ export interface WebhookSourceCreateRequest {
 export interface WebhookSourceUpdateRequest {
   enabled?: boolean;
   rotate_secret?: boolean;
-  /** Write-only. The new secret when rotating a source whose provider issues it. */
+  /** Write-only. The first secret of a source that has none, or the new secret with `rotate_secret`. */
   signing_secret?: string;
 }
 

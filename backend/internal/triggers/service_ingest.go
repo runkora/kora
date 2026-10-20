@@ -17,6 +17,21 @@ import (
 
 // ─── Ingest (webhook) ─────────────────────────────────────────────────────────
 
+// ingestWithoutSecret serves a source that is still waiting for its signing
+// secret (ADR Decision 5). Verify cannot run, so the source answers only the
+// provider handshake, unsigned, and writes no row, takes no replay key and moves
+// no counter. Every other request gets the same ErrSignatureInvalid as a failed
+// Verify, so the response does not show that the secret is missing.
+func (s *Service) ingestWithoutSecret(ctx context.Context, src *WebhookSource, adapter SourceAdapter, body []byte) (IngestResult, error) {
+	if hs, ok := adapter.(handshaker); ok {
+		if reply, isHandshake := hs.Handshake(body); isHandshake {
+			return IngestResult{Outcome: IngestHandshake, Reply: reply}, nil
+		}
+	}
+	s.recordSourceRejection(ctx, src.ID, "signing secret not set")
+	return IngestResult{}, ErrSignatureInvalid
+}
+
 // Ingest verifies an inbound delivery, records it, and queues asynchronous
 // dispatch. It returns IngestAccepted for a new, verified delivery,
 // IngestDuplicate for a redelivery and IngestHandshake with the reply for a
@@ -35,6 +50,10 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 	adapter, ok := s.registry.Get(src.Provider)
 	if !ok {
 		return IngestResult{}, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
+	}
+
+	if src.SecretCiphertext == "" {
+		return s.ingestWithoutSecret(ctx, src, adapter, body)
 	}
 
 	secret, err := s.cipher.decrypt(src.SecretCiphertext)

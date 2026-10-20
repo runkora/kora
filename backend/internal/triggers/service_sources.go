@@ -71,7 +71,9 @@ func (s *SourceService) WebhookPath(sourceID string) string { return s.webhookBa
 // principal with a policy grant for the generic run scopes, generates and
 // encrypts a signing secret, and persists the record. The raw secret and webhook
 // path are returned ONCE in the response. A provider that issues its own secret
-// takes it from the request, and the response does not echo it.
+// takes it from the request, and the response does not echo it. It may omit the
+// secret on create: the source is stored without one and answers only the
+// provider handshake until an admin sets it.
 func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req CreateSourceRequest) (*SourceResponse, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -84,7 +86,7 @@ func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req C
 		return nil, err
 	}
 	adapter, _ := s.registry.Get(req.Provider)
-	secret, issued, err := sourceSecret(adapter, req.SigningSecret)
+	secret, issued, err := sourceSecret(adapter, req.SigningSecret, true)
 	if err != nil {
 		return nil, err
 	}
@@ -92,9 +94,9 @@ func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req C
 	id := uuid.NewString()
 	principalID := "trigger-source:" + id
 
-	ciphertext, err := s.cipher.encrypt(secret)
+	ciphertext, err := s.sealSecret(secret)
 	if err != nil {
-		return nil, fmt.Errorf("encrypt signing secret: %w", err)
+		return nil, err
 	}
 
 	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), principalID, sourceRunScopes, nil, false)
@@ -172,10 +174,24 @@ func (s *SourceService) GetSource(ctx context.Context, tenantID, id string) (*We
 	return s.present(src), nil
 }
 
-// present is the API view of a stored source: the secret ciphertext removed and
-// the category set from the provider's adapter.
+// sealSecret encrypts a signing secret. An empty secret stays empty: it marks a
+// source that is waiting for its secret.
+func (s *SourceService) sealSecret(secret string) (string, error) {
+	if secret == "" {
+		return "", nil
+	}
+	ciphertext, err := s.cipher.encrypt(secret)
+	if err != nil {
+		return "", fmt.Errorf("encrypt signing secret: %w", err)
+	}
+	return ciphertext, nil
+}
+
+// present is the API view of a stored source: the secret ciphertext removed,
+// whether a secret is set, and the category set from the provider's adapter.
 func (s *SourceService) present(src *WebhookSource) *WebhookSource {
 	cp := *src
+	cp.SigningSecretSet = src.SecretCiphertext != ""
 	cp.SecretCiphertext = ""
 	if adapter, ok := s.registry.Get(src.Provider); ok {
 		cp.Category = categoryOf(adapter)
@@ -183,14 +199,17 @@ func (s *SourceService) present(src *WebhookSource) *WebhookSource {
 	return &cp
 }
 
-// UpdateSource toggles enablement and optionally rotates the signing secret.
+// UpdateSource toggles enablement and optionally rotates the signing secret. A
+// source of an issued-secret provider that has no secret yet takes its first one
+// without rotate_secret; once a secret is set, a change needs rotate_secret.
 func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, req UpdateSourceRequest) (*SourceResponse, error) {
 	src, err := s.repo.GetSource(ctx, tenantID, id)
 	if err != nil {
 		return nil, err
 	}
+	changesSecret := req.RotateSecret || s.takesFirstSecret(src, req)
 	// A new secret signs deliveries for every trigger on the source. Enabling or disabling it starts or pauses all of them.
-	if req.RotateSecret || (req.Enabled != nil && *req.Enabled != src.Enabled) {
+	if changesSecret || (req.Enabled != nil && *req.Enabled != src.Enabled) {
 		if err := requireRunAccessForSource(ctx, s.repo, s.agents, src.ID); err != nil {
 			return nil, err
 		}
@@ -199,18 +218,10 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 		src.Enabled = *req.Enabled
 	}
 	var rotated string
-	if req.RotateSecret {
-		adapter, ok := s.registry.Get(src.Provider)
-		if !ok {
-			return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
-		}
-		secret, issued, err := sourceSecret(adapter, req.SigningSecret)
+	if changesSecret {
+		secret, issued, ciphertext, err := s.newSecret(src.Provider, req.SigningSecret)
 		if err != nil {
 			return nil, err
-		}
-		ciphertext, err := s.cipher.encrypt(secret)
-		if err != nil {
-			return nil, fmt.Errorf("encrypt signing secret: %w", err)
 		}
 		src.SecretCiphertext = ciphertext
 		rotated = returnedSecret(secret, issued)
@@ -231,13 +242,40 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 	}, nil
 }
 
+// takesFirstSecret reports whether the request sets the first secret of a source
+// that is waiting for one. That needs no rotate_secret.
+func (s *SourceService) takesFirstSecret(src *WebhookSource, req UpdateSourceRequest) bool {
+	adapter, ok := s.registry.Get(src.Provider)
+	if !ok {
+		return false
+	}
+	_, issued := adapter.(issuedSecret)
+	return issued && src.SecretCiphertext == "" && !req.RotateSecret && req.SigningSecret != ""
+}
+
+// newSecret resolves and encrypts the secret an update sets.
+func (s *SourceService) newSecret(provider, supplied string) (secret string, issued bool, ciphertext string, err error) {
+	adapter, ok := s.registry.Get(provider)
+	if !ok {
+		return "", false, "", fmt.Errorf("%w: %q", ErrUnknownProvider, provider)
+	}
+	secret, issued, err = sourceSecret(adapter, supplied, false)
+	if err != nil {
+		return "", false, "", err
+	}
+	ciphertext, err = s.sealSecret(secret)
+	return secret, issued, ciphertext, err
+}
+
 // maxSigningSecretBytes bounds a signing secret the admin supplies.
 const maxSigningSecretBytes = 256
 
 // sourceSecret returns the signing secret for a create or a rotation. A provider
 // that issues its own secret takes it from the request; every other provider
 // gets a generated one and refuses a supplied value. issued reports the former.
-func sourceSecret(adapter SourceAdapter, supplied string) (secret string, issued bool, err error) {
+// optional lets an issued-secret provider omit the value, and secret is then
+// empty.
+func sourceSecret(adapter SourceAdapter, supplied string, optional bool) (secret string, issued bool, err error) {
 	if _, ok := adapter.(issuedSecret); !ok {
 		if supplied != "" {
 			return "", false, fmt.Errorf("%w: signing_secret is not accepted for provider %q", ErrValidation, adapter.Provider())
@@ -246,6 +284,9 @@ func sourceSecret(adapter SourceAdapter, supplied string) (secret string, issued
 		return secret, false, err
 	}
 	secret = strings.TrimSpace(supplied)
+	if secret == "" && optional && supplied == "" {
+		return "", true, nil
+	}
 	if secret == "" {
 		return "", true, fmt.Errorf("%w: signing_secret is required for provider %q", ErrValidation, adapter.Provider())
 	}
