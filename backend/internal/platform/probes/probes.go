@@ -20,5 +20,5 @@ func StartupFailureThreshold(seconds int) int32 {
 	if seconds <= 0 {
 		seconds = DefaultStartupSeconds
 	}
-	return int32(seconds / StartupPeriodSeconds) //nolint:gosec // bounded by the chart
+	return int32(seconds / StartupPeriodSeconds)
 }
