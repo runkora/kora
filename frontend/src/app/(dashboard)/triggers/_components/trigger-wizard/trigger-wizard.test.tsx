@@ -27,6 +27,8 @@ const api = vi.hoisted(() => ({
   fetchProviderFields: vi.fn(),
 }));
 vi.mock('../../_services/triggers-api', () => api);
+const routingOptions = vi.hoisted(() => ({ useRoutingOptions: vi.fn(() => undefined) }));
+vi.mock('./use-routing-options', () => routingOptions);
 
 import { TriggerWizard } from './trigger-wizard';
 import { StepDelivery } from './step-delivery';
@@ -656,6 +658,25 @@ describe('shared steps', () => {
 });
 
 describe('let kora choose', () => {
+  it.each([
+    ['chat', true],
+    ['webhook', true],
+    ['scheduled', false],
+  ] as const)('loads routing options for a %s trigger: %s', (kind, routed) => {
+    render(
+      <TriggerWizard
+        initialKind={kind}
+        agents={CONTEXT.agents}
+        sources={CONTEXT.sources}
+        ingestHost={CONTEXT.ingestHost}
+        allowRouting
+        onCreate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(routingOptions.useRoutingOptions).toHaveBeenLastCalledWith(routed);
+  });
+
   const routingContext = (models: { id: string; name: string }[]): WizardContext => ({
     ...CONTEXT,
     routing: {

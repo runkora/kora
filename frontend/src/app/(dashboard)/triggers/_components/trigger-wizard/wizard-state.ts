@@ -288,8 +288,8 @@ export function validateRouting(draft: RoutingDraft, options: RoutingOptions): S
 export function validateTarget(state: WizardState, context?: WizardContext): StepValidation {
   if (context?.routing !== undefined && state.routing.mode === 'choose') {
     const routing = validateRouting(state.routing, context.routing);
+    // eventFields is set only for a chat command, whose backend refuses a join key outside its fields.
     if (!routing.valid || !state.routing.joinOpenRuns || state.eventFields === null) return routing;
-    // Set only for a chat command, whose backend refuses a join key outside its fields.
     const unknown = firstUnknownChatField(
       placeholderKeys(state.routing.joinKey),
       state.eventFields,
