@@ -86,6 +86,8 @@ func TestClassify_ResourceCategorization(t *testing.T) {
 		{"pod eviction subresource", http.MethodPost, "/api/v1/namespaces/default/pods/foo/eviction", k8sbearer.ActionWorkloadsWrite},
 		{"deployment scale subresource", http.MethodPatch, "/apis/apps/v1/namespaces/default/deployments/foo/scale", k8sbearer.ActionWorkloadsWrite},
 		{"horizontalpodautoscalers read", http.MethodGet, "/apis/autoscaling/v2/namespaces/default/horizontalpodautoscalers", k8sbearer.ActionWorkloadsRead},
+		{"controllerrevisions list", http.MethodGet, "/apis/apps/v1/namespaces/monitoring/controllerrevisions", k8sbearer.ActionWorkloadsRead},
+		{"controllerrevisions get", http.MethodGet, "/apis/apps/v1/namespaces/monitoring/controllerrevisions/alloy-1", k8sbearer.ActionWorkloadsRead},
 		{"horizontalpodautoscalers write", http.MethodPut, "/apis/autoscaling/v2/namespaces/default/horizontalpodautoscalers/foo", k8sbearer.ActionWorkloadsWrite},
 
 		// config vs. secrets: split into separate categories.
