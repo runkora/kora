@@ -36,7 +36,7 @@ type outcomeRecorder struct {
 // the end is both cheaper and more accurate than one per row.
 func (o outcomeRecorder) record(ctx context.Context, dr *DeliveryRun) {
 	if o.insert(ctx, dr) {
-		o.derive(ctx, dr.DeliveryID)
+		o.derive(ctx, dr.DeliveryID, dr.TenantID)
 	}
 }
 
@@ -67,7 +67,10 @@ func (o outcomeRecorder) insert(ctx context.Context, dr *DeliveryRun) bool {
 // derive recomputes a delivery's summary status from its per-trigger outcomes,
 // and records the outcome this call actually wrote: a delivery left untouched
 // (already arrival-level, or no such row) reports "" and is not counted.
-func (o outcomeRecorder) derive(ctx context.Context, deliveryID string) {
+// tenantID is carried by the caller rather than read back from the row: every
+// caller already has the delivery's or trigger's tenant in scope, and a second
+// read here would only duplicate it.
+func (o outcomeRecorder) derive(ctx context.Context, deliveryID, tenantID string) {
 	status, err := o.repo.DeriveDeliveryStatus(ctx, deliveryID)
 	if err != nil {
 		o.logger.Error(ctx, "failed to derive delivery status",
@@ -77,6 +80,6 @@ func (o outcomeRecorder) derive(ctx context.Context, deliveryID string) {
 		return
 	}
 	if status != "" {
-		o.metrics.recordDeliveryOutcome(ctx, status)
+		o.metrics.recordDeliveryOutcome(ctx, status, tenantID)
 	}
 }

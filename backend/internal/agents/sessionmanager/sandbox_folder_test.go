@@ -153,7 +153,7 @@ func TestAwaitFolderOrFail(t *testing.T) {
 			if tc.report != "" {
 				writeReport(t, reg, tc.report)
 			}
-			err := reg.awaitFolderOrFail(context.Background(), "run-1", tc.podUID, time.Now())
+			err := reg.awaitFolderOrFail(context.Background(), "run-1", tc.podUID, time.Now(), "tenant-1", "agent-1")
 			if (tc.want != "") != errors.Is(err, errSandboxFolder) {
 				t.Errorf("awaitFolderOrFail = %v", err)
 			}

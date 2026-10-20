@@ -102,17 +102,17 @@ func (m *mockSessionRepository) RevokeSession(_ context.Context, id string, revo
 	return nil
 }
 
-func (m *mockSessionRepository) CountActiveSessions(_ context.Context) (int64, error) {
+func (m *mockSessionRepository) CountActiveSessions(_ context.Context) (map[string]int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var count int64
+	counts := make(map[string]int64)
 	now := time.Now()
 	for _, s := range m.sessions {
 		if s.RevokedAt == nil && s.ExpiresAt.After(now) {
-			count++
+			counts[s.TenantID]++
 		}
 	}
-	return count, nil
+	return counts, nil
 }
 
 // ── mockRefreshTokenRepository ────────────────────────────────────────────────

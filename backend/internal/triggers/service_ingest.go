@@ -240,7 +240,7 @@ func (s *Service) recordDuplicate(ctx context.Context, src WebhookSource, adapte
 	// status is set directly here, not computed from trigger_delivery_runs),
 	// so the only place its outcome is ever recorded is this successful
 	// insertion.
-	s.metrics.recordDeliveryOutcome(ctx, StatusDuplicate)
+	s.metrics.recordDeliveryOutcome(ctx, StatusDuplicate, src.TenantID)
 
 	// Whether a repeat is suppressed or re-run is a per-trigger decision, and
 	// dedupe_enabled is where a tenant makes it. The unique index stays as the
@@ -363,7 +363,7 @@ func (s *Service) fanOut(
 	}
 	if len(matched) == 0 {
 		// May still have filtered rows; the derived summary accounts for them.
-		s.outcomes.derive(ctx, deliveryID)
+		s.outcomes.derive(ctx, deliveryID, src.TenantID)
 		return
 	}
 
@@ -382,7 +382,7 @@ func (s *Service) fanOut(
 	}
 	if queued == 0 {
 		// Nothing will start, so the outcome is already final.
-		s.outcomes.derive(ctx, deliveryID)
+		s.outcomes.derive(ctx, deliveryID, src.TenantID)
 	}
 }
 

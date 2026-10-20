@@ -277,13 +277,13 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 	})
 	if err != nil {
 		span.SetAttributes(attribute.String("mcp.decision", "error"))
-		c.metrics.recordInvocation(ctx, server, "error", time.Since(start))
+		c.metrics.recordInvocation(ctx, server, "error", claims.Kora.TenantID, time.Since(start))
 		c.writeRPCError(ctx, w, req.ID, -32603, "policy check failed")
 		return
 	}
 	if !res.Allow {
 		span.SetAttributes(attribute.String("mcp.decision", "deny"))
-		c.metrics.recordInvocation(ctx, server, "deny", time.Since(start))
+		c.metrics.recordInvocation(ctx, server, "deny", claims.Kora.TenantID, time.Since(start))
 		c.logger.Info(ctx, "tools/call denied",
 			logging.Field{Key: "server", Value: server},
 			logging.Field{Key: "tool", Value: tool},
@@ -299,7 +299,7 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 		return
 	}
 	span.SetAttributes(attribute.String("mcp.decision", "allow"))
-	c.metrics.recordInvocation(ctx, server, "allow", time.Since(start))
+	c.metrics.recordInvocation(ctx, server, "allow", claims.Kora.TenantID, time.Since(start))
 	c.logger.Info(ctx, "tools/call allowed",
 		logging.Field{Key: "server", Value: server},
 		logging.Field{Key: "tool", Value: tool},

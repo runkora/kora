@@ -33,8 +33,9 @@ type SessionRepository interface {
 	RevokeSession(ctx context.Context, id string, revokedAt time.Time) error
 
 	// CountActiveSessions returns the number of sessions that are neither
-	// revoked nor expired. Backs the orbit_identity_sessions_active gauge.
-	CountActiveSessions(ctx context.Context) (int64, error)
+	// revoked nor expired, grouped by tenant. Backs the
+	// orbit_identity_sessions_active{tenant_id} gauge.
+	CountActiveSessions(ctx context.Context) (map[string]int64, error)
 }
 
 // ─── PostgreSQL implementation ────────────────────────────────────────────────
@@ -112,18 +113,32 @@ func (r *postgresSessionRepository) RevokeSession(ctx context.Context, id string
 	return nil
 }
 
-func (r *postgresSessionRepository) CountActiveSessions(ctx context.Context) (int64, error) {
-	var count int64
-	err := r.pool.QueryRow(ctx, `
-		SELECT COUNT(*)
+func (r *postgresSessionRepository) CountActiveSessions(ctx context.Context) (map[string]int64, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT tenant_id, COUNT(*)
 		FROM   identity_sessions
 		WHERE  revoked_at IS NULL
 		  AND  expires_at > now()
-	`).Scan(&count)
+		GROUP BY tenant_id
+	`)
 	if err != nil {
-		return 0, fmt.Errorf("count active sessions: %w", err)
+		return nil, fmt.Errorf("count active sessions: %w", err)
 	}
-	return count, nil
+	defer rows.Close()
+
+	counts := make(map[string]int64)
+	for rows.Next() {
+		var tenantID string
+		var count int64
+		if err := rows.Scan(&tenantID, &count); err != nil {
+			return nil, fmt.Errorf("scan active session count: %w", err)
+		}
+		counts[tenantID] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("count active sessions: %w", err)
+	}
+	return counts, nil
 }
 
 // scanSession executes query with a single string argument and hydrates a Session.

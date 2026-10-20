@@ -11,6 +11,7 @@ import (
 
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
 	smConfig "github.com/runkora/kora/backend/cmd/session-manager/config"
@@ -73,8 +74,12 @@ func main() {
 }
 
 // registerSessionMetrics registers the observable gauge tracking the number
-// of currently active sessions on this pod (orbit_session_manager_sessions_active),
-// backed by the existing Registry.ActiveCount().
+// of currently active sessions on this pod (orbit_session_manager_sessions_active{tenant_id}),
+// backed by the existing Registry.ActiveCountByTenant(). tenant_id is a safe
+// label under the 2026-10-20 amendment to
+// docs/adr/2026-10-07-domain-metrics-instrumentation.md (bounded, slow-growing
+// tenant count); one series is emitted per tenant with at least one active
+// session, rather than a single global count.
 func registerSessionMetrics(meter metric.Meter, registry *sessionmanager.Registry) error {
 	gauge, err := meter.Int64ObservableGauge(
 		"orbit_session_manager_sessions_active",
@@ -85,7 +90,9 @@ func registerSessionMetrics(meter metric.Meter, registry *sessionmanager.Registr
 	}
 
 	_, err = meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
-		o.ObserveInt64(gauge, int64(registry.ActiveCount()))
+		for tenantID, count := range registry.ActiveCountByTenant() {
+			o.ObserveInt64(gauge, int64(count), metric.WithAttributes(attribute.String("tenant_id", tenantID)))
+		}
 		return nil
 	}, gauge)
 	if err != nil {

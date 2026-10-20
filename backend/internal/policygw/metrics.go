@@ -59,19 +59,25 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 }
 
 // recordCheck records one Check call outcome: whether it was allowed, against
-// which resource type, and how long evaluation took.
+// which resource type, for which tenant, and how long evaluation took.
 //
 // allow is safe as a raw label: it is a boolean. resourceType must already be
 // coarsened by coarsenResourceType before it reaches here — it originates in
 // CheckRequest.Resource.Type, caller-supplied and forwarded by handleCheck
 // without catalog validation, so the raw value is not safe as a label.
-func (m *Metrics) recordCheck(ctx context.Context, allow bool, resourceType string, took time.Duration) {
+// tenantID is safe as a raw label under the ADR's 2026-10-20 amendment:
+// tenant count is confirmed small (single digits to low tens per cluster),
+// so it is now a default-safe label on any metric except the generic
+// cross-cutting HTTP instruments and inference-gateway's request-duration
+// histogram.
+func (m *Metrics) recordCheck(ctx context.Context, allow bool, resourceType, tenantID string, took time.Duration) {
 	if m == nil {
 		return
 	}
 	attrs := metric.WithAttributes(
 		attribute.String("allow", allowLabel(allow)),
 		attribute.String("resource_type", resourceType),
+		attribute.String("tenant_id", tenantID),
 	)
 	m.checks.Add(ctx, 1, attrs)
 	m.checkDuration.Record(ctx, took.Seconds(), attrs)
@@ -124,13 +130,17 @@ func coarsenResourceType(resourceType string) string {
 }
 
 // recordDeny records a denied check, classified down to a bounded-cardinality
-// reason label. See classifyDenyReason for why the raw policy.Result.Reason
-// cannot be used directly.
-func (m *Metrics) recordDeny(ctx context.Context, reason string) {
+// reason label, for a given tenant. See classifyDenyReason for why the raw
+// policy.Result.Reason cannot be used directly; see recordCheck for why
+// tenantID is safe as a raw label.
+func (m *Metrics) recordDeny(ctx context.Context, reason, tenantID string) {
 	if m == nil {
 		return
 	}
-	m.denies.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", classifyDenyReason(reason))))
+	m.denies.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("reason", classifyDenyReason(reason)),
+		attribute.String("tenant_id", tenantID),
+	))
 }
 
 func allowLabel(allow bool) string {

@@ -49,9 +49,9 @@ func (s *Service) Check(
 	}
 	took := time.Since(start)
 
-	s.metrics.recordCheck(ctx, result.Allow, coarsenResourceType(resourceType), took)
+	s.metrics.recordCheck(ctx, result.Allow, coarsenResourceType(resourceType), claims.Kora.TenantID, took)
 	if !result.Allow {
-		s.metrics.recordDeny(ctx, result.Reason)
+		s.metrics.recordDeny(ctx, result.Reason, claims.Kora.TenantID)
 	}
 
 	s.logger.Info(ctx, "policy check",

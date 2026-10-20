@@ -31,9 +31,10 @@ type Metrics struct {
 }
 
 // runStateReader is the one read the runs_active gauge callback needs: every
-// currently-active run's (state, framework) pair, aggregated across all
-// tenants. The narrowest interface for what this callback calls, not the full
-// RunRepository — see AGENTS.md's "narrowest interface" convention.
+// currently-active run's (state, framework, tenant_id, agent_type_id) tuple,
+// aggregated across all tenants. The narrowest interface for what this
+// callback calls, not the full RunRepository — see AGENTS.md's "narrowest
+// interface" convention.
 type runStateReader interface {
 	CountRunsByStateAndFramework(ctx context.Context) ([]RunStateFrameworkCount, error)
 }
@@ -43,13 +44,23 @@ type sessionCounter interface {
 	ActiveSubscriptions() int
 }
 
+// agentTypeLister is the one read the agent_info gauge callback needs: every
+// active agent type, across all tenants, to emit as one info-metric row each.
+// ListActiveAgentTypes already exists on PostgresRepository for
+// AgentTypeService.ApplyAll (agent_type_service.go's activeAgentTypeLister) —
+// reused here rather than adding a new repository method, per AGENTS.md's
+// "narrowest interface" convention: each consumer declares its own.
+type agentTypeLister interface {
+	ListActiveAgentTypes(ctx context.Context) ([]AgentType, error)
+}
+
 // NewMetrics builds the instrument set on the given meter.
 //
-// runs is read by the runs_active callback and sessions by the sessions_active
-// callback; an observable gauge is only honest if it reports its subject as it
-// is at collection time rather than a counter the code remembered to keep
-// updated.
-func NewMetrics(meter metric.Meter, runs runStateReader, sessions sessionCounter, logger logging.Logger) (*Metrics, error) {
+// runs is read by the runs_active callback, sessions by the sessions_active
+// callback, and agentTypes by the agent_info callback; an observable gauge is
+// only honest if it reports its subject as it is at collection time rather
+// than a counter the code remembered to keep updated.
+func NewMetrics(meter metric.Meter, runs runStateReader, sessions sessionCounter, agentTypes agentTypeLister, logger logging.Logger) (*Metrics, error) {
 	m := &Metrics{}
 
 	var err error
@@ -103,6 +114,15 @@ func NewMetrics(meter metric.Meter, runs runStateReader, sessions sessionCounter
 		return nil, fmt.Errorf("create sessions-active gauge: %w", err)
 	}
 
+	agentInfo, err := meter.Int64ObservableGauge(
+		"orbit.agents.agent_info",
+		metric.WithDescription("Static info for each agent type (id, name, tenant, framework); value is always 1, the standard Prometheus info-metric pattern (e.g. kube_pod_info)"),
+		metric.WithUnit("{agent}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create agent-info gauge: %w", err)
+	}
+
 	m.registration, err = meter.RegisterCallback(
 		func(ctx context.Context, o metric.Observer) error {
 			counts, countErr := runs.CountRunsByStateAndFramework(ctx)
@@ -117,16 +137,33 @@ func NewMetrics(meter metric.Meter, runs runStateReader, sessions sessionCounter
 					o.ObserveInt64(runsActive, c.Count, metric.WithAttributes(
 						attribute.String("state", string(c.State)),
 						attribute.String("framework", string(c.Framework)),
+						attribute.String("tenant_id", c.TenantID),
+						attribute.String("agent_id", c.AgentTypeID),
 					))
 				}
 			}
 			o.ObserveInt64(sessionsActive, int64(sessions.ActiveSubscriptions()))
+
+			ats, atErr := agentTypes.ListActiveAgentTypes(ctx)
+			if atErr != nil {
+				logger.Error(ctx, "failed to list agent types for agent_info metric",
+					logging.Field{Key: "error", Value: atErr.Error()})
+			} else {
+				for _, at := range ats {
+					o.ObserveInt64(agentInfo, 1, metric.WithAttributes(
+						attribute.String("agent_id", at.ID),
+						attribute.String("agent_name", at.Name),
+						attribute.String("tenant_id", at.TenantID),
+						attribute.String("framework", string(at.Framework)),
+					))
+				}
+			}
 			return nil
 		},
-		runsActive, sessionsActive,
+		runsActive, sessionsActive, agentInfo,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("register runs/sessions active callback: %w", err)
+		return nil, fmt.Errorf("register runs/sessions/agent-info active callback: %w", err)
 	}
 
 	return m, nil
@@ -144,7 +181,7 @@ func (m *Metrics) Close() error {
 }
 
 // recordTransition counts one run state transition.
-func (m *Metrics) recordTransition(ctx context.Context, from, to RunState, framework AgentFramework) {
+func (m *Metrics) recordTransition(ctx context.Context, from, to RunState, framework AgentFramework, tenantID, agentID string) {
 	if m == nil {
 		return
 	}
@@ -152,26 +189,35 @@ func (m *Metrics) recordTransition(ctx context.Context, from, to RunState, frame
 		attribute.String("from_state", string(from)),
 		attribute.String("to_state", string(to)),
 		attribute.String("framework", string(framework)),
+		attribute.String("tenant_id", tenantID),
+		attribute.String("agent_id", agentID),
 	))
 }
 
 // recordRunDuration records the wall time of a run that just reached a
 // terminal state.
-func (m *Metrics) recordRunDuration(ctx context.Context, d time.Duration) {
+func (m *Metrics) recordRunDuration(ctx context.Context, d time.Duration, tenantID, agentID string) {
 	if m == nil {
 		return
 	}
-	m.runDuration.Record(ctx, d.Seconds())
+	m.runDuration.Record(ctx, d.Seconds(), metric.WithAttributes(
+		attribute.String("tenant_id", tenantID),
+		attribute.String("agent_id", agentID),
+	))
 }
 
 // recordReaped counts runs the stale-run reaper moved to outcome in one pass.
 // n <= 0 is a no-op: a pass that reaped nothing of this outcome should not add
 // a zero-valued data point.
-func (m *Metrics) recordReaped(ctx context.Context, outcome string, n int) {
+func (m *Metrics) recordReaped(ctx context.Context, outcome string, n int, tenantID, agentID string) {
 	if m == nil || n <= 0 {
 		return
 	}
-	m.runsReaped.Add(ctx, int64(n), metric.WithAttributes(attribute.String("outcome", outcome)))
+	m.runsReaped.Add(ctx, int64(n), metric.WithAttributes(
+		attribute.String("outcome", outcome),
+		attribute.String("tenant_id", tenantID),
+		attribute.String("agent_id", agentID),
+	))
 }
 
 // recordSessionDuration records the wall time of a browser's live SSE

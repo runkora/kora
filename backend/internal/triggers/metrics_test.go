@@ -316,8 +316,8 @@ func TestMetrics_DeliveryOutcomeRecordsWhatDeriveWrote(t *testing.T) {
 	m, reader := newTestMetrics(t, newMockRepository())
 	ctx := context.Background()
 
-	outcomeRecorder{repo: fakeOutcomeStore{status: StatusDispatched}, logger: silentLogger(), metrics: m}.derive(ctx, "d-1")
-	outcomeRecorder{repo: fakeOutcomeStore{status: ""}, logger: silentLogger(), metrics: m}.derive(ctx, "d-2")
+	outcomeRecorder{repo: fakeOutcomeStore{status: StatusDispatched}, logger: silentLogger(), metrics: m}.derive(ctx, "d-1", testTenant)
+	outcomeRecorder{repo: fakeOutcomeStore{status: ""}, logger: silentLogger(), metrics: m}.derive(ctx, "d-2", testTenant)
 
 	got, ok := collect(t, reader)["orbit.triggers.delivery_outcomes"]
 	if !ok {

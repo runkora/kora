@@ -74,9 +74,9 @@ func sumInt64(t *testing.T, m metricdata.Metrics) int64 {
 func TestMetrics_NilIsSafe(t *testing.T) {
 	var m *Metrics
 	ctx := context.Background()
-	m.recordDelegationIssued(ctx)
-	m.recordDelegationRevoked(ctx)
-	m.recordAuthFailure(ctx, authFailureReasonInvalidToken)
+	m.recordDelegationIssued(ctx, "t1")
+	m.recordDelegationRevoked(ctx, "t1")
+	m.recordAuthFailure(ctx, authFailureReasonInvalidToken, "t1")
 	if err := m.Close(); err != nil {
 		t.Errorf("Close on nil = %v", err)
 	}

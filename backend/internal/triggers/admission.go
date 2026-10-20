@@ -200,7 +200,7 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 	// which still carry a meaningful AdmissionResult — is counted exactly
 	// once, without repeating the call at each return statement.
 	defer func() {
-		a.metrics.recordAdmissionOutcome(ctx, result)
+		a.metrics.recordAdmissionOutcome(ctx, result, t.TenantID)
 	}()
 
 	if t.AutoPausedAt != nil {
@@ -234,7 +234,7 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 			// fire gets its own admission-outcome count at the point it is
 			// displaced, or "superseded" would be part of the outcome set and
 			// never observed.
-			a.metrics.recordAdmissionOutcome(ctx, AdmitSuperseded)
+			a.metrics.recordAdmissionOutcome(ctx, AdmitSuperseded, t.TenantID)
 		}
 		return AdmitEnqueued, nil
 

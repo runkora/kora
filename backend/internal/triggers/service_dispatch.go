@@ -143,7 +143,7 @@ func (s *Service) recordDispatchFailure(ctx context.Context, t Trigger, delivery
 	// single line; the per-trigger detail is the fan-out.
 	s.recordFailure(ctx, deliveryID, err.Error())
 	s.noteFailure(ctx, t, err)
-	s.outcomes.derive(ctx, deliveryID)
+	s.outcomes.derive(ctx, deliveryID, t.TenantID)
 }
 
 // recordStarted records a delivery that started or joined runID. status is

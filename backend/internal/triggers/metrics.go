@@ -215,21 +215,32 @@ func (m *Metrics) recordPurge(ctx context.Context, rows int64, at time.Time) {
 // recordDeliveryOutcome counts a delivery whose summary status was just
 // (re)derived, attributed by that status: verified/dispatched/skipped/failed/
 // duplicate/missed. The label comes straight off the Delivery status enum
-// (models.go), so this never invents a parallel vocabulary.
-func (m *Metrics) recordDeliveryOutcome(ctx context.Context, outcome string) {
+// (models.go), so this never invents a parallel vocabulary. tenantID is a
+// default-safe label under the cardinality policy's 2026-10-20 amendment
+// (docs/adr/2026-10-07-domain-metrics-instrumentation.md): tenant count is
+// confirmed small (single digits to low tens per cluster), unlike a run or
+// principal id.
+func (m *Metrics) recordDeliveryOutcome(ctx context.Context, outcome, tenantID string) {
 	if m == nil {
 		return
 	}
-	m.deliveryOutcomes.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", outcome)))
+	m.deliveryOutcomes.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("outcome", outcome),
+		attribute.String("tenant_id", tenantID),
+	))
 }
 
 // recordAdmissionOutcome counts one call to Admit, attributed by what it
-// decided: enqueued/superseded/dropped/paused.
-func (m *Metrics) recordAdmissionOutcome(ctx context.Context, result AdmissionResult) {
+// decided: enqueued/superseded/dropped/paused. tenantID is a default-safe
+// label under the same cardinality-policy amendment as recordDeliveryOutcome.
+func (m *Metrics) recordAdmissionOutcome(ctx context.Context, result AdmissionResult, tenantID string) {
 	if m == nil {
 		return
 	}
-	m.admissionOutcomes.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", result.metricOutcome())))
+	m.admissionOutcomes.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("outcome", result.metricOutcome()),
+		attribute.String("tenant_id", tenantID),
+	))
 }
 
 // recordSchedulerTick records one pass of the cron loop.

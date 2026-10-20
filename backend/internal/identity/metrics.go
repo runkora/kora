@@ -32,7 +32,7 @@ type Metrics struct {
 
 // activeSessionsReader is the one read the sessions-active gauge takes.
 type activeSessionsReader interface {
-	CountActiveSessions(ctx context.Context) (int64, error)
+	CountActiveSessions(ctx context.Context) (map[string]int64, error)
 }
 
 // Fixed, bounded reason labels for orbit_identity_auth_failures_total. Never
@@ -90,7 +90,7 @@ func NewMetrics(meter metric.Meter, repo activeSessionsReader, logger logging.Lo
 
 	m.registration, err = meter.RegisterCallback(
 		func(ctx context.Context, o metric.Observer) error {
-			count, countErr := repo.CountActiveSessions(ctx)
+			counts, countErr := repo.CountActiveSessions(ctx)
 			if countErr != nil {
 				// Reported, not returned: a failed scrape of this gauge must
 				// not abort the whole collection cycle and take the other
@@ -99,7 +99,9 @@ func NewMetrics(meter metric.Meter, repo activeSessionsReader, logger logging.Lo
 					logging.Field{Key: "error", Value: countErr.Error()})
 				return nil
 			}
-			o.ObserveInt64(sessionsActive, count)
+			for tenantID, count := range counts {
+				o.ObserveInt64(sessionsActive, count, metric.WithAttributes(attribute.String("tenant_id", tenantID)))
+			}
 			return nil
 		},
 		sessionsActive,
@@ -122,27 +124,35 @@ func (m *Metrics) Close() error {
 	return nil
 }
 
-// recordDelegationIssued counts a successfully minted delegation issuance.
-func (m *Metrics) recordDelegationIssued(ctx context.Context) {
+// recordDelegationIssued counts a successfully minted delegation issuance,
+// tagged by the tenant the delegation belongs to.
+func (m *Metrics) recordDelegationIssued(ctx context.Context, tenantID string) {
 	if m == nil {
 		return
 	}
-	m.delegationsIssued.Add(ctx, 1)
+	m.delegationsIssued.Add(ctx, 1, metric.WithAttributes(attribute.String("tenant_id", tenantID)))
 }
 
-// recordDelegationRevoked counts a successfully revoked delegation issuance.
-func (m *Metrics) recordDelegationRevoked(ctx context.Context) {
+// recordDelegationRevoked counts a successfully revoked delegation issuance,
+// tagged by the tenant the delegation belongs to.
+func (m *Metrics) recordDelegationRevoked(ctx context.Context, tenantID string) {
 	if m == nil {
 		return
 	}
-	m.delegationsRevoked.Add(ctx, 1)
+	m.delegationsRevoked.Add(ctx, 1, metric.WithAttributes(attribute.String("tenant_id", tenantID)))
 }
 
 // recordAuthFailure counts an authentication/token-exchange rejection, tagged
-// by a fixed reason drawn from the authFailureReason* constants.
-func (m *Metrics) recordAuthFailure(ctx context.Context, reason string) {
+// by a fixed reason drawn from the authFailureReason* constants and, where
+// resolvable at the call site, the tenant involved. tenantID is "" when a
+// failure occurs before any tenant is known (e.g. a malformed token) — a
+// real, bounded value, not an omission.
+func (m *Metrics) recordAuthFailure(ctx context.Context, reason, tenantID string) {
 	if m == nil {
 		return
 	}
-	m.authFailures.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", reason)))
+	m.authFailures.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("reason", reason),
+		attribute.String("tenant_id", tenantID),
+	))
 }

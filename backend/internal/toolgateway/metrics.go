@@ -49,7 +49,7 @@ func NewMetrics(meter metric.Meter, snapshots snapshotReader) (*Metrics, error) 
 	var err error
 	if m.invocations, err = meter.Int64Counter(
 		"orbit.tool_gateway.invocations",
-		metric.WithDescription("MCP tools/call requests, by server and policy decision"),
+		metric.WithDescription("MCP tools/call requests, by server, policy decision, and tenant"),
 		metric.WithUnit("{invocation}"),
 	); err != nil {
 		return nil, fmt.Errorf("create invocations counter: %w", err)
@@ -113,9 +113,13 @@ func (m *Metrics) Close() error {
 
 // recordInvocation records one tools/call outcome: whether the policy check
 // errored, denied, or allowed the call, how long reaching that decision took,
-// and which server it targeted. decision is one of "error", "deny", "allow"
-// — the same three values already set on the request span's mcp.decision
-// attribute, so the metric and the trace agree on vocabulary.
+// which server it targeted, and the caller's tenant. decision is one of
+// "error", "deny", "allow" — the same three values already set on the
+// request span's mcp.decision attribute, so the metric and the trace agree
+// on vocabulary. tenantID is the caller's claims.Kora.TenantID: per the ADR's
+// 2026-10-20 amendment, tenant_id is now a default-safe label (tenant count
+// is confirmed single digits to low tens per cluster), unlike the "tool"
+// label below which stays excluded.
 //
 // Deliberately no "tool" label: tool comes straight from the caller-supplied
 // JSON-RPC params.name, and is recorded (for the deny/error paths especially)
@@ -128,13 +132,14 @@ func (m *Metrics) Close() error {
 // alerting purposes; dropping it entirely is the proportionate fix. The tool
 // name remains available per-call on the span (mcp.tool) and in the
 // allowed/denied log lines for investigation.
-func (m *Metrics) recordInvocation(ctx context.Context, server, decision string, took time.Duration) {
+func (m *Metrics) recordInvocation(ctx context.Context, server, decision, tenantID string, took time.Duration) {
 	if m == nil {
 		return
 	}
 	attrs := metric.WithAttributes(
 		attribute.String("server", server),
 		attribute.String("decision", decision),
+		attribute.String("tenant_id", tenantID),
 	)
 	m.invocations.Add(ctx, 1, attrs)
 	m.invocationDuration.Record(ctx, took.Seconds(), attrs)
