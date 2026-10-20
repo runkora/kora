@@ -301,19 +301,32 @@ describe('routed drafts', () => {
     expect(sent).not.toHaveProperty('agent_type_id');
   });
 
-  it('shows the scopes a refused routed trigger is missing', async () => {
+  it('shows the decision model scope a refused routed trigger is missing', async () => {
     mockCreateTrigger.mockResolvedValue({
       trigger: null,
       error: errorMessageOf(403, {
         message: 'caller does not hold the scopes this routed trigger would be granted',
-        details: { missing_scopes: ['agent:coder:run', 'model:liquid:d1:use'] },
+        details: { missing_scopes: ['inference:liquid:d1:use'] },
       }),
     } as never);
     const result = await createFromWizardDraft(draft(), OPTIONS);
     expect(result).toEqual({
       ok: false,
-      error:
-        'You do not hold every scope this trigger needs. Missing: agent:coder:run, model:liquid:d1:use.',
+      error: 'You do not hold every scope this trigger needs. Missing: inference:liquid:d1:use.',
+    });
+  });
+
+  it('shows the refusal for a candidate the caller cannot run', async () => {
+    mockCreateTrigger.mockResolvedValue({
+      trigger: null,
+      error: errorMessageOf(403, {
+        message: 'not authorized to run the agent this trigger binds: agent type "at_coder"',
+      }),
+    } as never);
+    const result = await createFromWizardDraft(draft(), OPTIONS);
+    expect(result).toEqual({
+      ok: false,
+      error: 'not authorized to run the agent this trigger binds: agent type "at_coder"',
     });
   });
 });

@@ -90,7 +90,7 @@ describe('withAuth', () => {
   it('forwards only the missing scopes of an upstream refusal', async () => {
     const inner = vi.fn().mockRejectedValue(
       new ApiError(403, 'forbidden', 'missing scopes', {
-        missing_scopes: ['agent:coder:run'],
+        missing_scopes: ['inference:liquid:d1:use'],
         grant_id: 'internal',
       }),
     );
@@ -99,7 +99,7 @@ describe('withAuth', () => {
     expect(await res.json()).toEqual({
       code: 'forbidden',
       message: 'missing scopes',
-      details: { missing_scopes: ['agent:coder:run'] },
+      details: { missing_scopes: ['inference:liquid:d1:use'] },
     });
   });
 

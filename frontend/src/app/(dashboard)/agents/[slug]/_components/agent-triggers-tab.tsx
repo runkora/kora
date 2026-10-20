@@ -39,13 +39,14 @@ import {
   listSources,
   listTriggers,
 } from '../../../triggers/_services/triggers-api';
-import { toDeliveryRow, toSourceRow, toTriggerRow } from '../../../triggers/_types';
+import { runTargets, toDeliveryRow, toSourceRow, toTriggerRow } from '../../../triggers/_types';
 import type { DeliveryRow, SourceRow, TriggerRow } from '../../../triggers/_types';
 import { ingestHostFromWindow } from '../../../triggers/_lib/endpoints';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { useHasScope } from '../../../_components/permissions-provider';
 import { PermissionHint } from '@runkora/components';
 import { fetchAgentTypes } from '../../_services/agents-api';
+import type { AgentTypeRow } from '../../_types';
 
 export function AgentTriggersTab() {
   const { agent } = useAgentDetailContext();
@@ -55,7 +56,7 @@ export function AgentTriggersTab() {
   const [triggers, setTriggers] = useState<TriggerRow[]>([]);
   const [deliveries, setDeliveries] = useState<DeliveryRow[]>([]);
   // Every tenant agent, so a routed trigger's other candidates show by name.
-  const [tenantAgents, setTenantAgents] = useState<RoutingAgentName[]>([]);
+  const [tenantAgents, setTenantAgents] = useState<AgentTypeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -158,7 +159,12 @@ export function AgentTriggersTab() {
   if (!agent) return null;
 
   // This agent still names itself when the tenant list failed to load.
-  const agentNames = tenantAgents.length > 0 ? tenantAgents : [agent];
+  const agentNames: RoutingAgentName[] = tenantAgents.length > 0 ? tenantAgents : [agent];
+  // A routed trigger needs run authority on every candidate, not only this agent.
+  const canRunAgent = (id: string) =>
+    id === agent.id ? agent.canRun : tenantAgents.some((a) => a.id === id && a.canRun);
+  const canRunTrigger = (t: TriggerRow | null | undefined) =>
+    t != null && runTargets(t).every(canRunAgent);
 
   // Delegated agents cannot be bound to automated sources at all — explain the
   // constraint here instead of offering a form that would be refused on submit.
@@ -224,7 +230,7 @@ export function AgentTriggersTab() {
           sourceName={sourceName}
           onOpen={setDrawerTrigger}
           onToggle={(t) => void toggleTrigger(t)}
-          canRunAgent={() => agent.canRun}
+          canRunAgent={canRunAgent}
           emptyMessage="No triggers for this agent."
         />
       )}
@@ -245,7 +251,7 @@ export function AgentTriggersTab() {
           same surface, byte for byte, as configuring it there. */}
       <TriggerDrawer
         trigger={drawerRow}
-        canRunAgent={agent.canRun}
+        canRunAgent={canRunTrigger(drawerRow)}
         sources={sources}
         deliveries={agentDeliveries}
         ingestHost={ingestHost}
@@ -274,7 +280,7 @@ export function AgentTriggersTab() {
           delivery={detailDelivery}
           onClose={() => setDetailDelivery(null)}
           onRedeliver={redeliver}
-          redeliverAllowed={agent.canRun}
+          redeliverAllowed={canRunTrigger(triggers.find((t) => t.id === detailDelivery.triggerId))}
           agents={agentNames}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);

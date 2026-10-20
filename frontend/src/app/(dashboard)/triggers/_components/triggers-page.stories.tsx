@@ -314,7 +314,7 @@ export const WizardModelSearchNoMatch: Story = {
   },
 };
 
-/** Create refused because the caller lacks a candidate's run scope: the wizard names the scopes. */
+/** Create refused because the caller lacks the decision model's scope: the wizard names it. */
 export const WizardMissingScopes: Story = {
   decorators: routingFrame({
     'POST /api/triggers': () =>
@@ -322,7 +322,7 @@ export const WizardMissingScopes: Story = {
         JSON.stringify({
           code: 'forbidden',
           message: 'caller does not hold the scopes this routed trigger would be granted',
-          details: { missing_scopes: ['agent:security-reviewer:run', 'model:liquid:d1:use'] },
+          details: { missing_scopes: ['inference:liquid:d1:use'] },
         }),
         { status: 403, headers: { 'Content-Type': 'application/json' } },
       ),
@@ -333,7 +333,7 @@ export const WizardMissingScopes: Story = {
     await next(body);
     await next(body);
     await userEvent.click(await body.findByRole('button', { name: 'Create trigger' }));
-    (await body.findByText(/Missing: agent:security-reviewer:run/)).scrollIntoView({
+    (await body.findByText(/Missing: inference:liquid:d1:use/)).scrollIntoView({
       block: 'center',
     });
   },
