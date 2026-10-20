@@ -9,6 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"go.opentelemetry.io/otel/metric"
+
 	igc "github.com/runkora/kora/backend/cmd/inference-gateway/config"
 	"github.com/runkora/kora/backend/internal/inferencegw"
 	"github.com/runkora/kora/backend/internal/inferencegw/providers/registry"
@@ -328,7 +330,7 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, metrics *platformmetrics.Bootstrap) (*http.Server, func(context.Context) error, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
-	controllers, register, err := initControllers(ctx, logger, db, redis, meter)
+	controllers, register, err := initControllers(ctx, logger, db, redis, metrics.Meter())
 	if err != nil {
 		return nil, nil, err
 	}
