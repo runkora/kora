@@ -187,4 +187,4 @@ The author picks the mention event or the direct message event, narrows by conve
 - [Trigger Payload Templating PRD](trigger-payload-templating.md)
 - [Delegated Agent Identity PRD](delegated-agent-identity.md)
 - [Chat Command Triggers ADR](../adr/2026-10-20-chat-command-triggers.md)
-- Trigger Routing PRD (`docs/prd/trigger-routing.md`)
+- [Trigger Routing PRD](trigger-routing.md)

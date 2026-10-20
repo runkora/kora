@@ -23,7 +23,7 @@ Three parts of the pipeline do not fit Slack's HTTP Events API:
 - Slack confirms a request URL with a `url_verification` request that expects the `challenge` value back in an HTTP 200 ([url_verification](https://docs.slack.dev/reference/events/url_verification)). The request carries no `event_id`. `Service.Ingest` rejects it with `ErrMissingDeliveryID`, and `handleIngest` answers 404.
 - A Slack thread is `event.thread_ts` for a reply and `event.ts` for a top-level message ([Retrieving messages](https://docs.slack.dev/messaging/retrieving-messages)). Templates have no fallback syntax (`template.go`).
 
-Trigger Routing (`docs/adr/2026-10-19-trigger-routing.md`) provides agent choice and a `join_key` that sends a follow-up to an open run. Routing applies to webhook triggers only.
+[Trigger Routing](2026-10-19-trigger-routing.md) provides agent choice and a `join_key` that sends a follow-up to an open run. Routing applies to webhook triggers only.
 
 ### Problem Statement
 
@@ -106,10 +106,10 @@ How should kora add a "Chat command" trigger kind whose triggers work on every c
 
 ### 1. Chat Command Kind
 
-The backend stores and runs chat command triggers as `webhook` triggers. A source is a chat source when its adapter implements `chatAdapter`. Every `KindWebhook` path applies to chat triggers. Once trigger routing and this work are both merged, chat triggers get routing with no further change.
+The backend stores and runs chat command triggers as `webhook` triggers. A source is a chat source when its adapter implements `chatAdapter`. Every `KindWebhook` path applies to chat triggers, routing included.
 
 - **Category:** Source responses (create, get, list and update) and `EventTypesResponse` carry a read-only `category` of `chat` or `webhook`, set by type assertion on `chatAdapter`. The console reads it in place of a provider list.
-- **Validation:** For a trigger on a chat source, create and update refuse an event type outside `chat.json` and any referenced field outside the `chat.json` fields and the meta fields.
+- **Validation:** For a trigger on a chat source, create and update refuse an event type outside `chat.json` and any field outside the `chat.json` fields and the meta fields that the prompt, a match condition, the coalesce key or the routing `join_key` references. A routing update runs the same check.
 - **Observed events:** On a chat source, `observed` in the source event types response lists only `chat.json` event types.
 - **Console:** The trigger-kind registry (`kinds/index.ts`) gains a `chat` entry over the webhook kind's module with a category filter. The `chat` id exists only in the console, and its `apiKind` is `webhook`. The webhook-only gates in the wizard, routing included, test `apiKind`. The chat entry lists chat providers and shows Discord and Microsoft Teams as later, in the style of the planned kinds. The webhook entry lists webhook providers and webhook-category sources.
 - **Triggers page:** A trigger on a chat source shows as "Chat command". The kind filter gains a Chat command option with its own count, and the Webhook count excludes chat triggers.
@@ -286,7 +286,7 @@ Unit tests cover:
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md): the sender restriction vocabulary superseded in part.
 - [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md)
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md)
-- Trigger Routing (`docs/adr/2026-10-19-trigger-routing.md`)
+- [Trigger Routing](2026-10-19-trigger-routing.md)
 
 ---
 
