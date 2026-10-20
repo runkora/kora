@@ -735,6 +735,21 @@ describe('let kora choose', () => {
     expect(screen.getByText('Agent to run')).toBeTruthy();
   });
 
+  it.each([
+    ['mention', '{{ conversation.id }}:{{ thread.id }}'],
+    ['direct_message', '{{ conversation.id }}'],
+  ])('suggests the chat join key for a %s', (eventType, example) => {
+    const chat = initialState(TRIGGER_KINDS.chat, []);
+    render(
+      <StepTarget
+        {...props(routingContext([{ id: 'liquid/d1', name: 'Liquid d1' }]), 'choose')}
+        state={{ ...chat, eventType, routing: { ...chat.routing, mode: 'choose' } }}
+        definition={TRIGGER_KINDS.chat}
+      />,
+    );
+    expect(screen.getByLabelText('Join key')).toHaveAttribute('placeholder', example);
+  });
+
   it('reviews the candidates and settings of a routed trigger', () => {
     const context = routingContext([{ id: 'liquid/d1', name: 'Liquid d1' }]);
     render(

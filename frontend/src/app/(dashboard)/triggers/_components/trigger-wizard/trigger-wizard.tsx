@@ -51,8 +51,10 @@ export function TriggerWizard({
   const [created, setCreated] = useState<Created | null>(null);
   const [createdSource, setCreatedSource] = useState<CreatedSource | null>(null);
 
-  // Only a webhook trigger can be routed.
-  const routing = useRoutingOptions(allowRouting && kind === 'webhook');
+  // Only a webhook trigger can be routed, a chat command included.
+  const routing = useRoutingOptions(
+    allowRouting && kind !== null && TRIGGER_KINDS[kind].apiKind === 'webhook',
+  );
   const context = useMemo<WizardContext>(
     () => ({ agents, agentsError, sources, ingestHost, ...(routing !== undefined && { routing }) }),
     [agents, agentsError, sources, ingestHost, routing],

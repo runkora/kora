@@ -286,8 +286,16 @@ export function validateRouting(draft: RoutingDraft, options: RoutingOptions): S
 
 /** The Target step: one agent, or the routing settings when kora chooses. */
 export function validateTarget(state: WizardState, context?: WizardContext): StepValidation {
-  if (context?.routing !== undefined && state.routing.mode === 'choose')
-    return validateRouting(state.routing, context.routing);
+  if (context?.routing !== undefined && state.routing.mode === 'choose') {
+    const routing = validateRouting(state.routing, context.routing);
+    if (!routing.valid || !state.routing.joinOpenRuns || state.eventFields === null) return routing;
+    // Set only for a chat command, whose backend refuses a join key outside its fields.
+    const unknown = firstUnknownChatField(
+      placeholderKeys(state.routing.joinKey),
+      state.eventFields,
+    );
+    return unknown === undefined ? VALID : { valid: false, hint: unknownFieldHint(unknown) };
+  }
   if (!state.agentTypeId) return { valid: false, hint: 'Choose the agent this trigger runs.' };
   return VALID;
 }
@@ -419,8 +427,8 @@ export function previewBody(fields: WizardField[]): string {
 
 /** Builds the draft the parent submits: shared fields plus the kind's own. */
 export function toDraft(def: TriggerKindDefinition, state: WizardState): TriggerDraft {
-  // Only a webhook trigger can be routed; the step offers the mode for no other kind.
-  const routed = def.id === 'webhook' && state.routing.mode === 'choose';
+  // Only a webhook trigger can be routed, a chat command included; the step offers the mode for no other kind.
+  const routed = def.apiKind === 'webhook' && state.routing.mode === 'choose';
   return {
     kind: def.apiKind,
     name: state.name.trim(),

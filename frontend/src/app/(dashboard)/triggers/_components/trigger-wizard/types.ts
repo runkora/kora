@@ -372,7 +372,7 @@ export interface TriggerKindDefinition {
   fieldCatalog?: (state: WizardState, context: WizardContext) => FieldCatalogEntry[];
   /** The kind-specific block on the success screen. */
   doneContent: React.ComponentType<DoneContentProps>;
-  /** An example coalesce key for the chosen event, in the kind's own fields. */
+  /** An example coalesce or join key for the chosen event, in the kind's own fields. */
   coalesceKeyExample?: (eventType: string) => string;
   /** Starts on a new source when no source of the kind's category exists. */
   newSourceWhenNone?: boolean;

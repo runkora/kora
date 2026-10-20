@@ -357,6 +357,34 @@ export const WizardModelSearchNoMatch: Story = {
   },
 };
 
+/** Takes a mention trigger to Let kora choose and types the join key. */
+function chatRoutingStory(joinKey: string): Story {
+  return {
+    decorators: routingFrame(),
+    play: async ({ canvasElement }) => {
+      await openKind(canvasElement, /Chat command/);
+      const body = within(document.body);
+      await userEvent.type(await body.findByLabelText(/Trigger name/), 'answer-platform-questions');
+      await userEvent.click(await body.findByRole('radio', { name: /Mention/ }));
+      await userEvent.type(
+        await body.findByLabelText('Prompt'),
+        'Answer {{{{ text }} in the thread and link anything you cite.',
+      );
+      await next(body);
+      await chooseKora(body, ['Code Reviewer', 'Coder', 'Security Reviewer']);
+      const input = await body.findByLabelText('Join key');
+      await userEvent.type(input, joinKey);
+      input.scrollIntoView({ block: 'center' });
+    },
+  };
+}
+
+/** A chat command where kora chooses: the join key keeps a Slack thread on one run. */
+export const WizardChatKoraChooses = chatRoutingStory('{{{{ conversation.id }}:{{{{ thread.id }}');
+
+/** A join key naming a Slack field instead of a chat field: Continue stays disabled. */
+export const WizardChatJoinKeyNotAField = chatRoutingStory('{{{{ event.thread_ts }}');
+
 /** Create refused because the caller lacks the decision model's scope: the wizard names it. */
 export const WizardMissingScopes: Story = {
   decorators: routingFrame({
@@ -429,7 +457,13 @@ export const DeliveryModelFailed = deliveryStory('model-failed');
 
 /** Opens the wizard and picks a kind from the first phase. */
 async function openKind(canvasElement: HTMLElement, kind: RegExp) {
-  await userEvent.click(await within(canvasElement).findByRole('button', { name: /New trigger/ }));
+  // Disabled until the session's scopes load, which renders a new button.
+  const button = await waitFor(() => {
+    const b = within(canvasElement).getByRole('button', { name: /New trigger/ });
+    if ((b as HTMLButtonElement).disabled) throw new Error('New trigger is disabled');
+    return b;
+  });
+  await userEvent.click(button);
   await userEvent.click(await within(document.body).findByRole('radio', { name: kind }));
 }
 
