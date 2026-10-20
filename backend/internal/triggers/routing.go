@@ -205,8 +205,9 @@ func modelUseScope(model string) (string, error) {
 }
 
 // routedGrantScopes are the scopes a routed trigger's principal holds: run
-// scopes for every candidate, inference:invoke, and the model's use scope
-// (ADR Decision 16).
+// scopes and the agent type read scope for every candidate, inference:invoke,
+// and the model's use scope (ADR Decision 16). The read scope lets decide list
+// the candidates, because orbit-agents filters agent type reads per agent.
 func routedGrantScopes(r *RoutingConfig) ([]string, error) {
 	modelScope, err := modelUseScope(r.Model)
 	if err != nil {
@@ -214,7 +215,9 @@ func routedGrantScopes(r *RoutingConfig) ([]string, error) {
 	}
 	var scopes []string
 	for _, id := range r.Candidates {
-		scopes = append(scopes, triggerRunScopes(r.candidateSlugs[id])...)
+		slug := r.candidateSlugs[id]
+		scopes = append(scopes, triggerRunScopes(slug)...)
+		scopes = append(scopes, "agents:types:"+slug+":read")
 	}
 	return append(scopes, "inference:invoke", modelScope), nil
 }
@@ -227,9 +230,9 @@ func routedCallerScopes(r *RoutingConfig) []string {
 	return []string{"inference:invoke", modelScope}
 }
 
-// sameGrant reports whether two routing objects need the same grant.
-func sameGrant(a, b *RoutingConfig) bool {
-	return a.Model == b.Model && slices.Equal(slices.Sorted(slices.Values(a.Candidates)), slices.Sorted(slices.Values(b.Candidates)))
+// sameScopes reports whether two scope lists hold the same scopes, ignoring order.
+func sameScopes(a, b []string) bool {
+	return slices.Equal(slices.Sorted(slices.Values(a)), slices.Sorted(slices.Values(b)))
 }
 
 // renderJoinKey renders a routed trigger's join key for one delivery. ok is

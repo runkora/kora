@@ -53,10 +53,10 @@ describe('fallbackText', () => {
 
   it('says when the model failed or the chosen run closed', () => {
     expect(fallbackText(decision({ outcome: 'fallback_run', error: 'timeout' }))).toBe(
-      'Used. The decision model did not answer.',
+      'Used. The routing decision failed.',
     );
     expect(fallbackText(decision({ outcome: 'no_run', error: 'timeout' }))).toBe(
-      'Not set. The decision model did not answer.',
+      'Not set. The routing decision failed.',
     );
     expect(fallbackText(decision({ fallback_reason: 'run_closed' }))).toMatch(/run closed first/);
   });
@@ -116,9 +116,7 @@ describe('DeliveryRouting', () => {
     );
     expect(screen.getByText('fallback')).toBeTruthy();
     expect(
-      screen.getByText(
-        'The decision model call failed, so the delivery went to the fallback agent.',
-      ),
+      screen.getByText('The routing decision failed, so the delivery went to the fallback agent.'),
     ).toBeTruthy();
     expect(screen.getByText('decision model: context deadline exceeded')).toBeTruthy();
   });

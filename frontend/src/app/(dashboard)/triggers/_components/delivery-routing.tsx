@@ -47,8 +47,8 @@ export function fallbackText(d: DeliveryRoutingRow): string {
     return 'Not used. The chosen run closed first, so a new run of its agent started.';
   if (d.error !== null) {
     return d.outcome === 'no_run'
-      ? 'Not set. The decision model did not answer.'
-      : 'Used. The decision model did not answer.';
+      ? 'Not set. The routing decision failed.'
+      : 'Used. The routing decision failed.';
   }
   const best = d.probability ?? d.agentScores[0]?.probability;
   const below =
@@ -145,8 +145,8 @@ export function DeliveryRouting({ routing: d, runId, agents }: DeliveryRoutingPr
           <Stack gap="tight" minWidth="none">
             <Text size="caption" weight="emphasis">
               {unrouted
-                ? 'The decision model call failed, and the trigger has no fallback agent, so no run started.'
-                : 'The decision model call failed, so the delivery went to the fallback agent.'}
+                ? 'The routing decision failed, and the trigger has no fallback agent, so no run started.'
+                : 'The routing decision failed, so the delivery went to the fallback agent.'}
             </Text>
             <Text mono size="micro" color="subtle" preserveWhitespace>
               {d.error}

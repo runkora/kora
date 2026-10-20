@@ -236,6 +236,40 @@ func (c *Client) ListGrants(ctx context.Context, tenantID, principalType, princi
 	return result.Grants, nil
 }
 
+// GetGrant returns a grant by ID. Returns ErrGrantNotFound if it does not exist.
+func (c *Client) GetGrant(ctx context.Context, grantID string) (*Grant, error) {
+	tok, err := c.bearerToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get bearer token for get grant request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.serviceURL+"/api/v1/policy/grants/"+url.PathEscape(grantID), nil)
+	if err != nil {
+		return nil, fmt.Errorf("build get grant request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	_, span, resp, err := c.Do(ctx, "policy.Client.GetGrant", req)
+	defer span.End()
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var g Grant
+		if err := c.DecodeJSON(span, resp, &g); err != nil {
+			return nil, fmt.Errorf("decode get grant response: %w", err)
+		}
+		return &g, nil
+	case http.StatusNotFound:
+		return nil, ErrGrantNotFound
+	default:
+		return nil, c.HandleErrorResponse(span, resp, fmt.Errorf("get grant failed: status %d", resp.StatusCode))
+	}
+}
+
 // UpdateGrantBudget replaces the budget on an existing grant in place
 // (PATCH /policy/grants/{id}), preserving the grant ID and its scopes. A nil
 // budget removes the assignment. Returns ErrGrantNotFound if it does not exist.

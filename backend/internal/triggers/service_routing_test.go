@@ -88,9 +88,9 @@ func TestCreateRoutedTrigger_GrantsCandidatesAndModel(t *testing.T) {
 		t.Fatalf("trigger = %+v", tr)
 	}
 	want := []string{
-		"agents:runs:coder:read", "agents:runs:coder:write",
-		"agents:runs:reviewer:read", "agents:runs:reviewer:write",
-		"agents:runs:security:read", "agents:runs:security:write",
+		"agents:runs:coder:read", "agents:runs:coder:write", "agents:types:coder:read",
+		"agents:runs:reviewer:read", "agents:runs:reviewer:write", "agents:types:reviewer:read",
+		"agents:runs:security:read", "agents:runs:security:write", "agents:types:security:read",
 		"inference:invoke", "inference:liquid:d1:use",
 	}
 	if !slices.Equal(deps.policy.lastScopes, want) {
@@ -316,6 +316,27 @@ func TestUpdateRoutedTrigger(t *testing.T) {
 		}
 	})
 
+	t.Run("a rename replaces a grant that lacks the current scopes", func(t *testing.T) {
+		_, deps, _, src := routedHarness(t)
+		tr := mustRouted(t, deps, src.ID, nil)
+		oldGrant := *deps.repo.triggers[tr.ID].GrantID
+		// A grant written before agents:types::read was added.
+		deps.policy.scopes[oldGrant] = slices.DeleteFunc(slices.Clone(deps.policy.scopes[oldGrant]), func(sc string) bool {
+			return strings.HasPrefix(sc, "agents:types:")
+		})
+
+		got, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{Name: new("renamed")})
+		if err != nil {
+			t.Fatalf("UpdateTrigger: %v", err)
+		}
+		if *got.GrantID == oldGrant || !slices.ContainsFunc(deps.policy.lastScopes, func(sc string) bool { return strings.HasPrefix(sc, "agents:types:") }) {
+			t.Errorf("grant not replaced: %s, scopes %v", *got.GrantID, deps.policy.lastScopes)
+		}
+		if deps.policy.deletedCount() != 1 {
+			t.Errorf("deleted grants = %d, want the stale one revoked", deps.policy.deletedCount())
+		}
+	})
+
 	// D25: a rename changes neither what runs nor when, so triggers:write is enough.
 	t.Run("a routed rename is allowed without run access", func(t *testing.T) {
 		_, deps, _, src := routedHarness(t)
@@ -530,6 +551,27 @@ func TestDispatchRouted_OutcomeOrder(t *testing.T) {
 				t.Errorf("consecutive failures = %d, want counted=%v", failures, tt.wantFailure)
 			}
 		})
+	}
+}
+
+// orbit-agents lists only the agent types the caller can read. The trigger's
+// grant must hold the read scope of every candidate for the model to be asked.
+func TestDispatchRouted_GrantLetsDecideReadCandidates(t *testing.T) {
+	svc, deps, decisions, src := routedHarness(t)
+	decisions.resp = decisionAnswers(0.9, "", 0)
+	tr := mustRouted(t, deps, src.ID, func(r *CreateTriggerRequest) {
+		r.Routing.FallbackAgentTypeID = new("at-c")
+	})
+	deps.agents.readScopes = deps.policy.lastScopes
+	deps.agents.filterByScopes = true
+
+	id := fireRouted(t, svc, deps, tr, "d-1", routedFields)
+
+	if decisions.callCount() != 1 {
+		t.Fatalf("decision calls = %d, want 1; decision = %+v", decisions.callCount(), deps.repo.decisionFor(id))
+	}
+	if d := deps.repo.decisionFor(id); d.FallbackReason != nil || d.Error != nil {
+		t.Errorf("decision = %+v, want no fallback and no error", d)
 	}
 }
 
