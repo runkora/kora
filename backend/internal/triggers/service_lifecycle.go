@@ -671,7 +671,7 @@ func (s *TriggerService) applyWebhookUpdate(ctx context.Context, t *Trigger, req
 		}
 		t.MatchContains = req.MatchContains
 	}
-	if req.EventType != nil || req.PromptTemplate != nil || req.MatchCondition != nil || req.MatchContains != nil {
+	if editsMatching(req) {
 		if t.EventType == "" {
 			return fmt.Errorf("%w: event_type is required for webhook triggers", ErrValidation)
 		}
@@ -682,12 +682,17 @@ func (s *TriggerService) applyWebhookUpdate(ctx context.Context, t *Trigger, req
 	return s.applySourceRules(ctx, t, req)
 }
 
+// editsMatching reports whether a PATCH edits a field that reads the payload:
+// the event type, the prompt template or a match rule.
+func editsMatching(req UpdateTriggerRequest) bool {
+	return req.EventType != nil || req.PromptTemplate != nil || req.MatchCondition != nil || req.MatchContains != nil
+}
+
 // applySourceRules applies what depends on the source's provider: the chat
 // schema on an edit, and the sender restriction. A PATCH that touches neither
 // reads no source.
 func (s *TriggerService) applySourceRules(ctx context.Context, t *Trigger, req UpdateTriggerRequest) error {
-	edited := req.EventType != nil || req.PromptTemplate != nil || req.MatchCondition != nil ||
-		req.MatchContains != nil || req.Coalesce != nil
+	edited := editsMatching(req) || req.Coalesce != nil
 	if !edited && req.SenderRestriction == nil {
 		return nil
 	}

@@ -807,3 +807,23 @@ func TestUpdateTrigger_RunBehaviourNeedsRunAccess(t *testing.T) {
 		}
 	}
 }
+
+func TestEditsMatching(t *testing.T) {
+	s := "x"
+	cases := map[string]struct {
+		req  UpdateTriggerRequest
+		want bool
+	}{
+		"event type":     {UpdateTriggerRequest{EventType: &s}, true},
+		"prompt":         {UpdateTriggerRequest{PromptTemplate: &s}, true},
+		"match":          {UpdateTriggerRequest{MatchCondition: map[string][]string{}}, true},
+		"match contains": {UpdateTriggerRequest{MatchContains: map[string][]string{}}, true},
+		"name only":      {UpdateTriggerRequest{Name: &s}, false},
+		"coalesce only":  {UpdateTriggerRequest{Coalesce: &CoalesceConfig{}}, false},
+	}
+	for name, tc := range cases {
+		if got := editsMatching(tc.req); got != tc.want {
+			t.Errorf("%s: editsMatching = %v, want %v", name, got, tc.want)
+		}
+	}
+}
