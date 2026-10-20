@@ -87,7 +87,7 @@ func TestSystemOneEndToEnd(t *testing.T) {
 		Provider: "compatible:typesafe", ModelID: "jev-latest", InputCostPerMillion: 0.042,
 	}})
 	usage := &usageSink{}
-	svc := inferencegw.NewService(allowAll{}, router, pricing, usage, nil, logger)
+	svc := inferencegw.NewService(allowAll{}, router, pricing, usage, nil, logger, nil)
 
 	mux := api.NewMux(context.Background(), logger)
 	mux.SetBasePath("/v1")

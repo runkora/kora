@@ -131,7 +131,7 @@ func TestChatCompletionsRefuseADecisionModelBeforeTheUpstream(t *testing.T) {
 			router.LoadVirtualCatalog(newTestSnap(decisionModel(VirtualModelRoute{Provider: "mixed", ModelID: "m"}), nil))
 			discovered(router, described("mixed", "m", tc.caps))
 			logger := logging.NewLoggerWithOutput(io.Discard)
-			svc := NewService(allow(), router, NewStaticPricingCache(nil), newMockUsageRepo(), &mockSpendCounter{}, logger)
+			svc := NewService(allow(), router, NewStaticPricingCache(nil), newMockUsageRepo(), &mockSpendCounter{}, logger, nil)
 			c := &Controller{svc: svc, logger: logger}
 
 			req := httptest.NewRequest(http.MethodPost, "/chat/completions",

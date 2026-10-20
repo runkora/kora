@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials"
 )
 
 // Metrics is the egress gateway's credential-minting instrument set: how many

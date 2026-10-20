@@ -54,7 +54,7 @@ func newModelsCapabilityController(t *testing.T) *Controller {
 	for _, vm := range vms {
 		allowed[vm.Family+":"+vm.Name] = true
 	}
-	svc := NewService(&stubEvaluator{allowedCandidateIDs: allowed}, router, NewNopPricingCache(), nil, nil, logger)
+	svc := NewService(&stubEvaluator{allowedCandidateIDs: allowed}, router, NewNopPricingCache(), nil, nil, logger, nil)
 	return &Controller{svc: svc, logger: logger}
 }
 

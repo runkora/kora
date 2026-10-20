@@ -63,7 +63,7 @@ func realMain() error {
 	// its own observability into an outage — but it is loud, because
 	// unmeasured is not the state anyone signed up for. Mirrors
 	// policy-service's NewMetrics handling (cmd/policy-service/main.go).
-	policygwMetrics, err := policygw.NewMetrics(meter)
+	policygwMetrics, err := policygw.NewMetrics(metrics.Meter())
 	if err != nil {
 		logger.Error(ctx, "failed to register policy-gateway metrics; running uninstrumented",
 			logging.Field{Key: "error", Value: err.Error()})

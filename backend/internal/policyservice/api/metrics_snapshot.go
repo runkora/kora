@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/clear-route/orbit/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
 )
 
 // MetricsSnapshot is the tenant-aggregate view consumed only by the

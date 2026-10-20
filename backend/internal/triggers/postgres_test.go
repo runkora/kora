@@ -2363,7 +2363,7 @@ func TestPostgres_Admission_Coalesces(t *testing.T) {
 	s := seedSource(t, r, tenant)
 	tr := seedPendingTrigger(t, r, tenant, s.ID, "coalescing", 4)
 	tr.Coalesce = &CoalesceConfig{Key: "{{ k }}", WindowSeconds: 60}
-	adm := NewAdmission(r, silentLogger())
+	adm := NewAdmission(r, silentLogger(), nil)
 
 	var ids []string
 	for range 2 {

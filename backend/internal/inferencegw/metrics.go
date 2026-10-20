@@ -7,7 +7,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/clear-route/orbit/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
 // Metrics is the inference-gateway feature's domain instrument set.
