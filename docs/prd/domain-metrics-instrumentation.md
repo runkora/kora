@@ -2,7 +2,7 @@
 
 **Status:** Approved
 **Created:** 2026-10-07
-**Last Updated:** 2026-10-07
+**Last Updated:** 2026-10-20
 **Owner:** Platform Engineering
 **Stakeholders:** Platform operators, SRE, finance/billing stakeholders (per-tenant cost visibility)
 
@@ -39,7 +39,7 @@ Every rolled-out service exposes `/metrics`, but the only series present are the
 
 ### Primary Goals
 
-1. Instrument the domain events already identified in the companion ADR's (`2026-10-06-prometheus-metrics-endpoints.md`) Implementation section, across all four rollout tiers, in one stacked PR on top of #408.
+1. Instrument the domain events already identified in the companion ADR's (`2026-10-07-domain-metrics-instrumentation.md`) Implementation section, across all four rollout tiers, in one stacked PR on top of #408.
 2. Keep every new label low-cardinality by construction: enum-backed values only, never a raw ID, except where a metric is explicitly tenant-scoped for billing/budget purposes (see the cardinality policy below) — and never a per-run ID at any scope.
 3. Reuse the exact `meter`/`MetricsMiddleware` wiring the prior PRD built; no new ports, no new config surface, no chart changes.
 
@@ -87,7 +87,7 @@ Every rolled-out service exposes `/metrics`, but the only series present are the
 - [ ] `orbit_policyservice_grants{principal_type}`/`_roles{kind}` are tenant-aggregate gauges (no `tenant_id` label — see Non-Goals).
 - [ ] `orbit_triggers_delivery_outcomes_total{outcome}`/`_admission_outcomes_total{outcome}` present, on the existing `orbit-triggers` meter.
 - [ ] `orbit_egress_gateway_credentials_minted_total{adapter,action}`/`_mint_duration_seconds`/`_mint_failures_total{reason}` present, instrumented at the `egressgw/service.go` call site (the `Connector.Mint` implementation itself lives in the shared `internal/credentials` package and is not modified).
-- [ ] `orbit_tool_gateway_invocations_total{server,tool,decision}`/`_invocation_duration_seconds` and `orbit_tool_gateway_servers{state}` present.
+- [ ] `orbit_tool_gateway_invocations_total{server,decision}`/`_invocation_duration_seconds` and `orbit_tool_gateway_servers{state}` present. (`tool` is not a label — see Cardinality Policy correction in the ADR: the proxy binary has no cheap, bounded tool catalog to validate against on the hot path.)
 - [ ] `orbit_session_manager_sessions_active` present (meter already wired in `cmd/session-manager/main.go` from PR #408; this just adds the observable callback).
 
 ---
@@ -135,7 +135,7 @@ No new Go packages. Changes are additive instrumentation inside each service's e
 **Must Have (P0):** see User Stories' acceptance criteria above — all of it, across all four tiers, per the user's explicit direction to ship this as a single stacked PR rather than incremental per-tier PRs (deviating from the prior PRD's own stated preference for incremental follow-ups — noted, not re-litigated here).
 
 **Should Have (P1):**
-- [ ] `orbit_agents_runs_active{state,tenant_id}` — optional, flagged in the ADR as debatable; bounded cardinality (tenant count × state count), include if time allows in this PR, otherwise a trivial follow-up.
+- [ ] `orbit_agents_runs_active{state,tenant_id}` — not implemented in this PR (time went to getting the required rows correct, including two that needed real investigation — see ADR Consequences). Bounded cardinality (tenant count × state count); a trivial follow-up whenever it's wanted.
 
 ### Non-Functional Requirements
 
@@ -148,7 +148,7 @@ No new Go packages. Changes are additive instrumentation inside each service's e
 
 ### Internal Dependencies
 
-- [Prometheus Metrics Endpoints](prometheus-metrics-endpoints.md) / [its ADR](../adr/2026-10-06-prometheus-metrics-endpoints.md) — all plumbing this PRD builds on, Implemented (PR #408, not yet merged but feature-complete).
+- [Prometheus Metrics Endpoints](prometheus-metrics-endpoints.md) / [its ADR](../adr/2026-10-06-prometheus-metrics-endpoints.md) — all plumbing this PRD builds on, Implemented (PR #408, merged 2026-10-18).
 
 ### External Dependencies
 
@@ -175,4 +175,4 @@ None new.
 - [Agent Control Plane PRD](agent-control-plane.md)
 - [LLM Cost Tracking PRD](llm-cost-tracking.md)
 
-**Last Updated:** 2026-10-07
+**Last Updated:** 2026-10-20
