@@ -17,18 +17,19 @@ import (
 func TestAllScopes_NoConnections_PublishesStaticScopes(t *testing.T) {
 	registry := NewAdapterRegistry()
 	got := AllScopes(nil, registry)
-	// With no connections, AllScopes still publishes the static platform
-	// connection scopes (read guards GET /api/v1/connections; write is the
-	// reserved-role management scope) so the policy-service vocabulary contains
-	// them even when no connections are mounted.
-	if len(got) != 2 {
-		t.Fatalf("scopes = %d, want 2 (platform:connections:read + :write, no connections), got %v", len(got), scopeStrings(got))
+	// With no connections, AllScopes still publishes the static scopes so the
+	// policy-service vocabulary contains them even when no connections are mounted.
+	if len(got) != 3 {
+		t.Fatalf("scopes = %d, want 3 (platform:connections:read + :write, egress:connect), got %v", len(got), scopeStrings(got))
 	}
 	if got[0].Scope != "platform:connections:read" {
 		t.Errorf("scope[0] = %q, want platform:connections:read", got[0].Scope)
 	}
 	if got[1].Scope != "platform:connections:write" {
 		t.Errorf("scope[1] = %q, want platform:connections:write", got[1].Scope)
+	}
+	if got[2].Scope != "egress:connect" || got[2].ResourceType != "egress" || got[2].Action != "connect" || len(got[2].PathSegments) != 0 {
+		t.Errorf("scope[2] = %+v, want the two-part egress:connect declaration", got[2])
 	}
 }
 
@@ -55,13 +56,13 @@ func TestAllScopes_PerConnectionScopes(t *testing.T) {
 	}
 	got := AllScopes(conns, registry)
 
-	// AllScopes prepends the static platform connection scopes (read + write),
+	// AllScopes prepends the three static scopes,
 	// then per connection: the two covering parents (connection:<n>:read/write)
 	// plus the adapter's 15 category/catch-all actions = 17 each, 36 total.
 	// No wildcard entry: connection:<n>:* matched nothing under scope_covers
 	// and is no longer published.
 	const perConn = 17
-	if want := 2 + 2*perConn; len(got) != want {
+	if want := 3 + 2*perConn; len(got) != want {
 		t.Fatalf("scopes = %d, want %d (got: %v)", len(got), want, scopeStrings(got))
 	}
 	byScope := map[string]int{}

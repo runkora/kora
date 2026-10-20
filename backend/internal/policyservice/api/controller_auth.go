@@ -56,16 +56,7 @@ func (c *Controller) enforceScopeCeiling(ctx context.Context, w http.ResponseWri
 		return true
 	}
 
-	var roles []string
-	if raw := claims.Kora.Claims["roles"]; raw != "" {
-		for role := range strings.SplitSeq(raw, ",") {
-			if t := strings.TrimSpace(role); t != "" {
-				roles = append(roles, t)
-			}
-		}
-	}
-
-	callerScopes, err := c.svc.EffectiveScopes(ctx, claims.Kora.TenantID, string(claims.Kora.PrincipalType), claims.Subject, roles)
+	callerScopes, err := c.callerEffectiveScopes(ctx, claims)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.InternalError(platformapi.ErrCodeInternalError, "failed to resolve caller scopes", nil), err)
@@ -79,6 +70,30 @@ func (c *Controller) enforceScopeCeiling(ctx context.Context, w http.ResponseWri
 		return false
 	}
 	return true
+}
+
+// callerEffectiveScopes resolves the effective scopes of the principal in claims.
+// Roles count for HUMAN callers only; EffectiveScopes ignores them otherwise.
+func (c *Controller) callerEffectiveScopes(ctx context.Context, claims *token.PlatformClaims) ([]string, error) {
+	var roles []string
+	if raw := claims.Kora.Claims["roles"]; raw != "" {
+		for role := range strings.SplitSeq(raw, ",") {
+			if t := strings.TrimSpace(role); t != "" {
+				roles = append(roles, t)
+			}
+		}
+	}
+	return c.svc.EffectiveScopes(ctx, claims.Kora.TenantID, string(claims.Kora.PrincipalType), grantPrincipalID(claims), roles)
+}
+
+// grantPrincipalID is the principal ID grants are keyed on. A PAT's sub is the
+// issuing user, kept for attribution; its grant is keyed on the PAT ID. A PAT
+// without one resolves to no grant, as at the edge.
+func grantPrincipalID(claims *token.PlatformClaims) string {
+	if claims.Kora.PrincipalType == token.PrincipalTypePAT {
+		return claims.Kora.PatID
+	}
+	return claims.Subject
 }
 
 // uncoveredScopes returns the scopes in `requested` that are not covered by any

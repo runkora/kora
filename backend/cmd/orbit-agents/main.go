@@ -273,7 +273,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize run service: %w", err)
 	}
 
-	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, agents.EnvironmentServiceConfig{
+	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, atSvc, agents.EnvironmentServiceConfig{
 		TenantNamespaceFn: cfg.TenantNamespace,
 		EnvironmentSizes:  sizes,
 	}, logger)
@@ -298,6 +298,8 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	k8s.SetScopeResolver(resolver)
 	atSvc.SetEnvironmentLookup(repo)
 	atSvc.SetScopeResolver(resolver)
+	// An autonomous agent's grant may not exceed the scopes of whoever creates or changes it.
+	atSvc.SetCallerScopes(pc)
 	runSvc.SetScopeResolver(resolver)
 
 	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,

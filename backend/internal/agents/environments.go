@@ -220,6 +220,11 @@ type grantReconciler interface {
 	EnsureAgentGrant(ctx context.Context, at AgentType, namespace string) error
 }
 
+// agentWriteChecker authorizes an environment edit as a write to an attached agent.
+type agentWriteChecker interface {
+	checkEnvironmentEdit(ctx context.Context, at AgentType, env Environment) error
+}
+
 // EnvironmentService manages environment CRUD and recompiles the grants of
 // every agent an edited environment is attached to.
 type EnvironmentService struct {
@@ -227,6 +232,7 @@ type EnvironmentService struct {
 	agents agentsByEnvironment
 	images sandboxImageReader
 	grants grantReconciler
+	writes agentWriteChecker
 	cfg    EnvironmentServiceConfig
 	logger logging.Logger
 }
@@ -237,10 +243,11 @@ func NewEnvironmentService(
 	agents agentsByEnvironment,
 	images sandboxImageReader,
 	grants grantReconciler,
+	writes agentWriteChecker,
 	cfg EnvironmentServiceConfig,
 	logger logging.Logger,
 ) *EnvironmentService {
-	return &EnvironmentService{repo: repo, agents: agents, images: images, grants: grants, cfg: cfg, logger: logger}
+	return &EnvironmentService{repo: repo, agents: agents, images: images, grants: grants, writes: writes, cfg: cfg, logger: logger}
 }
 
 // CreateEnvironment registers a new environment for the caller's tenant.
@@ -308,21 +315,22 @@ func (s *EnvironmentService) UpdateEnvironment(ctx context.Context, req Environm
 	if err = s.validate(ctx, env); err != nil {
 		return nil, err
 	}
+	// The edit rewrites every attached agent's grant. It needs the authority to write each of those agents.
+	affected, err := s.agents.ListAgentTypesByEnvironment(ctx, tenantID, env.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list agents for environment: %w", err)
+	}
+	for _, at := range affected {
+		if err = s.writes.checkEnvironmentEdit(ctx, at, env); err != nil {
+			return nil, fmt.Errorf("attached agent %q: %w", at.Slug, err)
+		}
+	}
 	if err = s.repo.UpdateEnvironment(ctx, env); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "update environment")
 		return nil, fmt.Errorf("update environment: %w", err)
 	}
-
-	affected, err := s.agents.ListAgentTypesByEnvironment(ctx, tenantID, env.ID)
-	if err != nil {
-		s.logger.Warn(ctx, "list agents for environment re-reconcile failed",
-			logging.Field{Key: "environment_id", Value: env.ID},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-	} else {
-		s.reReconcileAgents(ctx, tenantID, affected)
-	}
+	s.reReconcileAgents(ctx, tenantID, affected)
 	return &env, nil
 }
 

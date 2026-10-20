@@ -30,6 +30,11 @@ const readConnectionsScope = "platform:connections:read"
 // grantable, for instance via a PAT. It is published without a route binding.
 const writeConnectionsScope = "platform:connections:write"
 
+// openEgressScope is the open egress posture: any host. Its two-part form
+// covers every egress:<host>:connect. Declaring it puts it in the platform-admin
+// set, which bounds who may give an autonomous agent its own egress.
+const openEgressScope = "egress:connect"
+
 // ReadRoutes returns the route-to-scope binding for the gateway's read-only
 // admin API. The policy service rejects a registration whose routes list is
 // empty, so this binding must exist for the vocabulary to publish at all.
@@ -59,6 +64,17 @@ func WriteScope() routescopes.ScopeDeclaration {
 		PathSegments: []string{"connections"},
 		Action:       "write",
 		Description:  "Manage connections (reserved-role scope; connections are GitOps-managed)",
+	}
+}
+
+// OpenEgressScope returns the declaration for the open egress posture. It is
+// declaration-only: the egress gateway matches hosts against grants, not routes.
+func OpenEgressScope() routescopes.ScopeDeclaration {
+	return routescopes.ScopeDeclaration{
+		Scope:        openEgressScope,
+		ResourceType: "egress",
+		Action:       "connect",
+		Description:  "Reach any external host from an agent sandbox; covers every egress:<host>:connect",
 	}
 }
 
@@ -156,13 +172,12 @@ func connectionScopeParts(name, actionFragment string) (path []string, action st
 }
 
 // AllScopes is the full set of scope declarations the gateway publishes: the
-// static platform:connections:read and platform:connections:write scopes, plus
-// the per-connection connection:<name>:<action> scopes for every connection in
-// conns. The two static scopes are always published (read guards a static
-// route; write is the reserved-role management scope); the connection scopes
-// vary with the mounted registry.
+// static platform:connections:read, platform:connections:write and
+// egress:connect scopes, plus the per-connection connection:<name>:<action>
+// scopes for every connection in conns. The static scopes are always
+// published; the connection scopes vary with the mounted registry.
 func AllScopes(conns []*credentials.Connection, registry *AdapterRegistry) []routescopes.ScopeDeclaration {
-	return append([]routescopes.ScopeDeclaration{ReadScope(), WriteScope()}, ConnectionScopes(conns, registry)...)
+	return append([]routescopes.ScopeDeclaration{ReadScope(), WriteScope(), OpenEgressScope()}, ConnectionScopes(conns, registry)...)
 }
 
 // dedupe returns the declaration if its Scope has not been emitted yet,
