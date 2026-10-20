@@ -526,7 +526,7 @@ describe('validateDelivery chat coalesce key', () => {
       validateDelivery(state({ ...chat, coalesceKey: '{{ channel }}:{{ thread.id }}' })),
     ).toEqual({
       valid: false,
-      hint: 'channel is not a field of this message. Use one listed under Insert field.',
+      hint: 'channel is not a field of this message. Use a chat field such as {{ conversation.id }}.',
     });
   });
 

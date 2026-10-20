@@ -209,6 +209,11 @@ export function unknownFieldHint(key: string): string {
   return `${key} is not a field of this message. Use one listed under Insert field.`;
 }
 
+/** The hint for a join or coalesce key placeholder; those inputs have no Insert field picker. */
+export function unknownKeyFieldHint(key: string): string {
+  return `${key} is not a field of this message. Use a chat field such as {{ conversation.id }}.`;
+}
+
 /** Renders the composed condition for the review step. */
 export function describeMatchCondition(filters: FilterRow[]): string | null {
   const parts = [
@@ -294,7 +299,7 @@ export function validateTarget(state: WizardState, context?: WizardContext): Ste
       placeholderKeys(state.routing.joinKey),
       state.eventFields,
     );
-    return unknown === undefined ? VALID : { valid: false, hint: unknownFieldHint(unknown) };
+    return unknown === undefined ? VALID : { valid: false, hint: unknownKeyFieldHint(unknown) };
   }
   if (!state.agentTypeId) return { valid: false, hint: 'Choose the agent this trigger runs.' };
   return VALID;
@@ -385,7 +390,7 @@ export function validateDelivery(state: WizardState): StepValidation {
   // so a bad key is caught here rather than after a new source exists.
   if (state.overflow === 'wait' && state.coalesceEnabled && state.eventFields !== null) {
     const unknown = firstUnknownChatField(placeholderKeys(state.coalesceKey), state.eventFields);
-    if (unknown !== undefined) return { valid: false, hint: unknownFieldHint(unknown) };
+    if (unknown !== undefined) return { valid: false, hint: unknownKeyFieldHint(unknown) };
   }
   return VALID;
 }

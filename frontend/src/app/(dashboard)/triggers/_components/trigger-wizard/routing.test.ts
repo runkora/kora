@@ -133,7 +133,7 @@ describe('validateTarget', () => {
     expect(withKey('{{ conversation.id }}:{{ thread.id }}').valid).toBe(true);
     expect(withKey('{{ meta.delivery_id }}').valid).toBe(true);
     expect(withKey('{{ event.thread_ts }}').hint).toBe(
-      'event.thread_ts is not a field of this message. Use one listed under Insert field.',
+      'event.thread_ts is not a field of this message. Use a chat field such as {{ conversation.id }}.',
     );
     expect(withKey('{{ thread }}').valid).toBe(false);
     expect(withKey('{{ event.thread_ts }}', false).valid).toBe(true);
