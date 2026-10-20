@@ -281,7 +281,7 @@ func scopeDeclarations() []routescopes.ScopeDeclaration {
 		// a covering scope keeps the action and drops the path: trigger:fire
 		// covers every trigger:<id>:fire. Enforced in the handler, since
 		// RouteScope cannot express a path-dependent scope (ADR Decision 6).
-		{Scope: "trigger:fire", ResourceType: "trigger", PathSegments: []string{}, Action: "fire", Description: "Fire any manual trigger; grant trigger:<trigger-id>:fire for one"},
+		{Scope: "trigger:fire", ResourceType: "trigger", PathSegments: []string{}, Action: "fire", Description: "Fire any manual trigger. Grant trigger:<trigger-id>:fire for one trigger"},
 	}
 }
 

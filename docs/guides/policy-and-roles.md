@@ -26,21 +26,25 @@ Both compile into the same OPA bundle and are evaluated by the same Rego rules. 
 Permissions use a colon-separated format: `{resource_type}:{path*}:{action}`.
 
 ```
-inference:invoke                    all inference models, any action
-inference:anthropic:invoke          Anthropic models only
-mcp:gmail:invoke                    all Gmail MCP tools
-mcp:gmail:send_email:invoke         one specific tool
+inference:invoke                    call the inference endpoints
+inference:use                       use every model
+inference:anthropic:use             Anthropic models only
+mcp:invoke                          call the tool-gateway
+mcp:gmail:use                       all Gmail MCP tools
+mcp:gmail:send_email:use            one specific tool
 platform:grants:write               manage grants
 platform:roles:write                manage role→scope mappings
 ```
 
-Parent scopes implicitly cover narrower child scopes. A grant of `inference:invoke` covers `inference:anthropic:invoke`. There is no need to enumerate every child scope.
+Parent scopes implicitly cover narrower child scopes with the same action. A grant of `inference:use` covers `inference:anthropic:use`. There is no need to enumerate every child scope.
 
 ### Scope Vocabulary
 
 The vocabulary is the finite registered set of valid scopes. It is global: every tenant validates against the same set. Grants and role assignments are validated against it at write time: a grant referencing an unregistered scope is rejected. This prevents privilege escalation through arbitrary scope strings.
 
 The vocabulary is populated as a side effect of route registration: a service declares its `required_scope`s when it registers its routes (see [Route Registration](#route-registration)), and those scope declarations are upserted into the vocabulary. There is no standalone write API: the vocabulary is read-only over HTTP (`GET /policy/vocabulary`). Platform-level scopes (`platform:grants:write`, `platform:roles:write`, …) are self-registered by the policy service at startup.
+
+A grant or role write also returns `warnings` for scopes that do nothing without a companion scope the write does not include. Examples are a model scope without `inference:invoke`, an MCP tool scope without `mcp:invoke`, a GitHub category scope without the connection's `metadata:read`, a per-agent run scope without read on that agent (`agents:types:<slug>:read` or `agents:types:read`), an agent-type write without `agents:types:read`, and `triggers:write` without `triggers:read`. A warning never blocks the write. The principal may hold the companion through another grant or role.
 
 ### Agent Scopes
 
@@ -71,7 +75,7 @@ A grant asserts that a named principal within a tenant holds a set of scopes.
 {
   "principal_type": "AGENT",
   "principal_id":   "agent-abc123",
-  "scopes":         ["inference:anthropic:invoke", "mcp:gmail:read"]
+  "scopes":         ["inference:invoke", "inference:anthropic:use", "mcp:invoke", "mcp:gmail:search_emails:use"]
 }
 ```
 
@@ -88,11 +92,11 @@ A role maps an OIDC role name to a set of scopes. When a user's JWT carries a ro
 ```json
 {
   "role":   "engineer",
-  "scopes": ["inference:invoke", "mcp:gmail:read"]
+  "scopes": ["inference:invoke", "inference:anthropic:use", "mcp:invoke", "mcp:gmail:search_emails:use"]
 }
 ```
 
-Any user whose OIDC token contains `"roles": ["engineer"]` automatically receives `inference:invoke` and `mcp:gmail:read` within the tenant. Adding a new engineer requires no policy change: just assigning the OIDC role in your identity provider.
+Any user whose OIDC token contains `"roles": ["engineer"]` automatically receives those four scopes within the tenant. Adding a new engineer requires no policy change: just assigning the OIDC role in your identity provider.
 
 The `tenant_id` is derived from your platform token. SYSTEM principals may supply it explicitly.
 
@@ -163,13 +167,24 @@ Authorization: Bearer <platform-token>
 
 {
   "role":   "engineer",
-  "scopes": ["inference:invoke", "mcp:gmail:read"]
+  "scopes": ["inference:invoke", "inference:anthropic:use", "mcp:invoke", "mcp:gmail:search_emails:use"]
 }
 ```
 
 The operation is a full replace: the `scopes` list provided becomes the complete set for that role. If the role does not exist it is created; if it exists its scopes are replaced.
 
-All scopes must be registered in the vocabulary, or the request is rejected. SYSTEM principals must include `tenant_id` in the body.
+All scopes must be registered in the vocabulary, or the request is rejected. A repository-qualified connection scope such as `connection:github:issues:orbit:write` is accepted when its unqualified base is registered, as it is for grants. A role accepts `egress:connect`, which lets a person give agents general internet access. Per-host (`egress:<host>:connect`) and connector egress scopes stay agent grants and are rejected in roles. SYSTEM principals must include `tenant_id` in the body.
+
+A role's budget changes with `platform:budgets:write`. A `PUT` that keeps the stored budget needs only `platform:roles:write`; one that sets, changes or clears it also needs `platform:budgets:write`. To change only the budget:
+
+```
+PATCH /api/v1/policy/roles/engineer/budget
+Authorization: Bearer <platform-token>
+
+{ "budget": { "limit_usd": 50, "reset_cadence": "monthly" } }
+```
+
+A `null` budget clears it. The reserved role carries no budget. A delegated run cannot make any policy write: grants, roles and budgets all refuse it.
 
 **Get a specific role:**
 
@@ -194,7 +209,7 @@ Response:
       "id":         "01jre...",
       "tenant_id":  "acme-corp",
       "role":       "engineer",
-      "scopes":     ["inference:invoke", "mcp:gmail:read"],
+      "scopes":     ["inference:invoke", "inference:anthropic:use", "mcp:invoke", "mcp:gmail:search_emails:use"],
       "created_at": "2026-04-13T12:00:00Z"
     }
   ]
@@ -285,7 +300,7 @@ Grant deletion takes effect within the bundle polling interval (default: ≤ 30 
 
 Services declare which scopes protect their routes by registering at startup with the policy service. This is how Layer 1 (OPA Envoy sidecar) knows which scope a request needs before it reaches the service handler.
 
-Platform services (inference gateway, egress gateway, tool gateway, orbit-agents, orbit-triggers) register globally: their routes are included in every tenant's bundle. Tenant-published services (MCP servers, tenant APIs) can register per-tenant routes. They cannot declare scopes, and every `required_scope` must already exist in the vocabulary.
+Platform services (inference gateway, egress gateway, tool gateway, orbit-agents, orbit-triggers) register globally: their routes are included in every tenant's bundle. Identity registers its scope vocabulary and no routes; its callers reach it east-west. Tenant-published services (MCP servers, tenant APIs) can register per-tenant routes. They cannot declare scopes, and every `required_scope` must already exist in the vocabulary.
 
 ### How It Works
 
@@ -379,6 +394,7 @@ All endpoints are under `/api/v1/policy/` and require a valid platform JWT.
 | `GET` | `/policy/roles/{role}` | `platform:roles:read` | Get a single role |
 | `GET` | `/policy/roles` | `platform:roles:read` | List roles |
 | `DELETE` | `/policy/roles/{role}` | `platform:roles:write` | Delete a role |
+| `PATCH` | `/policy/roles/{role}/budget` | `platform:budgets:write` | Set or clear a role's budget |
 
 ### Routes
 

@@ -206,9 +206,25 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// not share a process with the token authority. identity still mints each
 	// trigger's SERVICE token, now over the mesh via the internal service-token
 	// endpoint. See docs/adr/2026-06-20-extended-trigger-types.md, Decision 1.
+
+	// Publish the identity scope vocabulary, and keep it published across
+	// policy-service restarts. No route is published: identity's callers reach
+	// it east-west, and the scope is checked in-process.
+	scopeClient := routescopes.NewClient(policySvcURL, svc.SystemToken, logger)
+	go routescopes.KeepRegistered(ctx, logger, identity.ServiceName, func(ctx context.Context) error {
+		return scopeClient.Register(ctx, identity.ServiceName, nil, identityScopes())
+	})
+
 	return []api.Controller{
 		identity.NewController(svc, policyEval, identityRoutes(), ic.Current.Server.BasePath, logger),
 	}, nil
+}
+
+// identityScopes returns the scope vocabulary identity owns.
+func identityScopes() []routescopes.ScopeDeclaration {
+	return []routescopes.ScopeDeclaration{
+		{Scope: identity.UsersReadScope, ResourceType: "identity", PathSegments: []string{"users"}, Action: "read", Description: "List the users in the tenant and read any user's profile"},
+	}
 }
 
 // identityRoutes returns the static route → required-scope bindings for the
@@ -217,17 +233,18 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 // session, exchange, JWKS, tenant discovery) are registered directly with
 // mux.Handle in handlers.go Boot and never reach ScopeEnforcementMiddleware.
 //
-// Today every entry is RequiredScope: "" — meaning "any authenticated non-PAT
-// caller is allowed". This preserves current behavior. Follow-up PRs can
-// tighten scopes (e.g. platform:users:read for admin-only user listing,
-// platform:pats:write for cross-user PAT management).
+// RequiredScope "" means any authenticated caller. Listing users needs
+// identity:users:read. Reading one profile and resolving names by id
+// (/users/names) are authenticated-only at the route; the handler requires the
+// scope for anyone else's full profile.
 func identityRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		{PathPrefix: "/api/v1/identity/tokens", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/tokens", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/tokens", Method: "PATCH", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/tokens", Method: "DELETE", RequiredScope: ""},
-		{PathPrefix: "/api/v1/identity/users", Method: "GET", RequiredScope: ""},
+		{PathPrefix: "/api/v1/identity/users", Method: "GET", RequiredScope: identity.UsersReadScope},
+		{PathPrefix: "/api/v1/identity/users/", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/preferences", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/preferences", Method: "PUT", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/preferences", Method: "DELETE", RequiredScope: ""},

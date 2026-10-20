@@ -4,8 +4,10 @@ import (
 	"net/http"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -19,15 +21,15 @@ import (
 // lives here. The egress-gateway reads the same orbit-tenant-connections
 // ConfigMap for brokering; this controller reads it only to render the picker.
 //
-// The response carries non-sensitive data only (connection name, adapter type,
-// and the adapter's static action vocabulary). It is therefore auth-only — any
-// authenticated caller may read their own tenant's catalog — with no route →
-// scope enforcement, mirroring the agent-types reads' reliance on the verified
-// platform token for tenant scoping. The list is tenant-scoped from the token,
-// so a caller can never see another tenant's connections.
+// The route requires platform:connections:read, the scope the egress-gateway's
+// catalog required. The list is tenant-scoped from the token, so a caller can
+// never see another tenant's connections.
 type ConnectionCatalogController struct {
 	catalog  *ConnectionCatalog
 	verifier *token.Verifier
+	eval     policy.Evaluator
+	routes   []routescopes.RouteScope
+	basePath string
 	logger   logging.Logger
 }
 
@@ -35,11 +37,17 @@ type ConnectionCatalogController struct {
 func NewConnectionCatalogController(
 	catalog *ConnectionCatalog,
 	verifier *token.Verifier,
+	eval policy.Evaluator,
+	routes []routescopes.RouteScope,
+	basePath string,
 	logger logging.Logger,
 ) *ConnectionCatalogController {
 	return &ConnectionCatalogController{
 		catalog:  catalog,
 		verifier: verifier,
+		eval:     eval,
+		routes:   routes,
+		basePath: basePath,
 		logger:   logger,
 	}
 }
@@ -47,12 +55,12 @@ func NewConnectionCatalogController(
 // GroupedBy returns the route group prefix for this controller.
 func (c *ConnectionCatalogController) GroupedBy() string { return "" }
 
-// Middleware enforces platform JWT auth on this controller's routes only. Unlike
-// the main agents Controller it omits ScopeEnforcementMiddleware: the catalog is
-// a read-only, non-sensitive surface gated by tenant scoping from the verified
-// token, exactly like the egress-gateway's read endpoint it replaces.
+// Middleware verifies the platform JWT, then enforces the route's scope.
 func (c *ConnectionCatalogController) Middleware() mw.MiddlewareHandler {
-	return mw.MiddlewareChain(mw.AuthMiddleware(c.verifier, c.logger))
+	return mw.MiddlewareChain(
+		mw.AuthMiddleware(c.verifier, c.logger),
+		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
+	)
 }
 
 // Boot registers the read-only catalog route.

@@ -13,6 +13,7 @@ import (
 	"github.com/runkora/kora/backend/internal/inferencegw"
 	"github.com/runkora/kora/backend/internal/inferencegw/providers/registry"
 	"github.com/runkora/kora/backend/internal/platform/api"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/config"
@@ -197,7 +198,8 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// PEP before natural expiry (docs/adr/2026-07-23-delegated-agent-identity.md).
 	jtiBlocklist := storage.NewJTIBlocklist(redis)
 	controllers := []api.Controller{
-		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger),
+		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist,
+			agentsclient.NewClient(igc.Current.Agents.InternalURL, logger), logger),
 		inferencegw.NewCatalogController(catalog, router, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 	}
 	return controllers, register, nil
@@ -214,7 +216,7 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 	register := func(registerCtx context.Context) error {
 		catalogScopes := router.CatalogScopes()
 		scopeDecls := inferenceScopes(catalogScopes)
-		if err := client.Register(registerCtx, "inference-gateway", publishedInferenceRoutes(), scopeDecls); err != nil {
+		if err := client.Register(registerCtx, "inference-gateway", inferenceRoutes(), scopeDecls); err != nil {
 			return fmt.Errorf("register routes: %w", err)
 		}
 		return nil
@@ -269,8 +271,9 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// GET /v1/usage/budget is personal — any authenticated caller may check
 		// their own budget. Listed before /v1/usage so the more-specific path wins.
 		{PathPrefix: "/v1/usage/budget", Method: "GET", RequiredScope: ""},
-		// The run chat usage meter. publishedInferenceRoutes gives the OPA layers a stricter scope.
-		{PathPrefix: runUsagePath, Method: "GET", RequiredScope: ""},
+		// GET /v1/usage/run/{id} is the run chat usage meter. The handler serves
+		// it only when orbit-agents would let the caller read the run.
+		{PathPrefix: "/v1/usage/run", Method: "GET", RequiredScope: ""},
 		// GET /v1/usage/stats is personal — per-PAT aggregates for the calling
 		// principal only.
 		{PathPrefix: "/v1/usage/stats", Method: "GET", RequiredScope: ""},
@@ -288,22 +291,6 @@ func inferenceRoutes() []routescopes.RouteScope {
 	}
 }
 
-// runUsagePath is the run chat usage meter. The dashboard calls it in-mesh, where only the
-// in-process check runs, so any authenticated caller in the tenant passes.
-const runUsagePath = "/v1/usage/run"
-
-// publishedInferenceRoutes is the route table registered with the policy service.
-// Callers that pass the edge or sidecar OPA need the tenant-wide analytics scope for runUsagePath.
-func publishedInferenceRoutes() []routescopes.RouteScope {
-	routes := inferenceRoutes()
-	for i := range routes {
-		if routes[i].PathPrefix == runUsagePath {
-			routes[i].RequiredScope = "platform:analytics:read"
-		}
-	}
-	return routes
-}
-
 // inferenceScopes builds the full scope declaration list from the current catalog.
 // Static top-level scopes are always included; per-family and per-model scopes
 // are derived from the live catalog so they stay current as providers change.
@@ -311,7 +298,7 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 	decls := []routescopes.ScopeDeclaration{
 		{Scope: "inference:invoke", ResourceType: "inference", PathSegments: []string{}, Action: "invoke", Description: "Call the inference endpoints"},
 		{Scope: "inference:use", ResourceType: "inference", PathSegments: []string{}, Action: "use", Description: "Use any model across all providers"},
-		{Scope: "inference:list", ResourceType: "inference", PathSegments: []string{}, Action: "list", Description: "List available models"},
+		{Scope: "inference:list", ResourceType: "inference", PathSegments: []string{}, Action: "list", Description: "List the models you can use"},
 		{Scope: "platform:catalog:read", ResourceType: "platform", PathSegments: []string{"catalog"}, Action: "read", Description: "Read the virtual model catalog and provider model settings"},
 		{Scope: "platform:catalog:write", ResourceType: "platform", PathSegments: []string{"catalog"}, Action: "write", Description: "Manage the virtual model catalog and provider model settings"},
 		{Scope: "platform:analytics:read", ResourceType: "platform", PathSegments: []string{"analytics"}, Action: "read", Description: "Read tenant-wide inference analytics"},

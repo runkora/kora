@@ -269,6 +269,18 @@ type UserProfileResponse struct {
 	DisplayName string `json:"display_name"`
 }
 
+// UserNameResponse is one entry of GET /identity/users/names: the display name
+// only, so any signed-in caller may resolve ids without reading the directory.
+type UserNameResponse struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+}
+
+// UserNamesResponse is returned by GET /identity/users/names.
+type UserNamesResponse struct {
+	Users []UserNameResponse `json:"users"`
+}
+
 // UserProfilesResponse is returned by GET /identity/users.
 type UserProfilesResponse struct {
 	Users []UserProfileResponse `json:"users"`

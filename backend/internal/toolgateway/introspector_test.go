@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -176,4 +177,26 @@ func TestIntrospectorSync_ConcurrentSyncsDoNotRace(t *testing.T) {
 		wg.Go(func() { i.Sync(ctx, []Server{srv}, n%2 == 0) })
 	}
 	wg.Wait()
+}
+
+func TestToolRequires(t *testing.T) {
+	meta := func(scopes ...any) sdk.Meta { return sdk.Meta{metaRequiresKey: scopes} }
+	tests := []struct {
+		name string
+		srv  Server
+		tool *sdk.Tool
+		want []string
+	}{
+		{"neither", Server{}, &sdk.Tool{Name: "t"}, nil},
+		{"meta only", Server{}, &sdk.Tool{Name: "t", Meta: meta("agents:types:read")}, []string{"agents:types:read"}},
+		{"tenant server declares nothing", Server{TenantID: "acme"},
+			&sdk.Tool{Name: "t", Meta: meta("platform:grants:write")}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := toolRequires(tt.srv, tt.tool); !slices.Equal(got, tt.want) {
+				t.Errorf("toolRequires = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

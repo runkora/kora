@@ -184,3 +184,32 @@ func TestStartRun_StatusMapping(t *testing.T) {
 		}
 	}
 }
+
+func TestCanReadRun(t *testing.T) {
+	cases := []struct {
+		status int
+		want   error
+	}{
+		{http.StatusOK, nil},
+		{http.StatusForbidden, ErrForbidden},
+		{http.StatusUnauthorized, ErrForbidden},
+		{http.StatusNotFound, ErrRunNotFound},
+		{http.StatusBadGateway, ErrUpstreamUnavailable},
+		{http.StatusTeapot, ErrUnexpectedStatus},
+	}
+	for _, tc := range cases {
+		var gotPath, gotAuth, gotDelegation string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotPath, gotAuth, gotDelegation = r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("X-Orbit-Delegation-Token")
+			w.WriteHeader(tc.status)
+		}))
+		err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).CanReadRun(context.Background(), "tok", "deleg", "run-1")
+		srv.Close()
+		if !errors.Is(err, tc.want) || (tc.want == nil && err != nil) {
+			t.Errorf("status %d: err = %v, want %v", tc.status, err, tc.want)
+		}
+		if gotPath != "/api/v1/runs/run-1" || gotAuth != "Bearer tok" || gotDelegation != "deleg" {
+			t.Errorf("status %d: request %s with %q, want /api/v1/runs/run-1 with the caller's bearer", tc.status, gotPath, gotAuth)
+		}
+	}
+}

@@ -14,10 +14,8 @@ import (
 // ConnectionsReadController serves the read-only connection catalog for the
 // caller's tenant.
 //
-// GET /connections is the gateway's only HTTP route, and the policy service
-// rejects a scope registration whose routes list is empty. The route therefore
-// has to exist for the connection vocabulary to publish at all, even though the
-// frontend picker reads its catalog from orbit-agents rather than from here.
+// GET /connections is the gateway's only HTTP route. The frontend picker reads
+// its catalog from orbit-agents rather than from here.
 //
 // The response carries only a connection's name, adapter type, and grantable
 // actions, so the route is auth-only with no scope enforcement. The list is

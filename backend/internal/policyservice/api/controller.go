@@ -108,6 +108,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	GET    /policy/roles?tenant_id=                           List role→scope mappings for a tenant
 //	GET    /policy/roles/{role}?tenant_id=                    Get a single role→scope mapping
 //	DELETE /policy/roles/{role}?tenant_id=                    Remove a role→scope mapping
+//	PATCH  /policy/roles/{role}/budget                        Set or clear a role's budget
 //	GET    /policy/routes                                     List all registered route→scope mappings
 //	POST   /policy/routes/register                            Register route→scope mappings (SYSTEM or SERVICE principal)
 //	GET    /policy/bundles/{tenant_id}                        Serve OPA bundle (polling endpoint)
@@ -129,6 +130,7 @@ func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("GET /roles", c.handleListRoles)
 	mux.Handle("GET /roles/{role}", c.handleGetRole)
 	mux.Handle("DELETE /roles/{role}", c.handleDeleteRole)
+	mux.Handle("PATCH /roles/{role}/budget", c.handleUpdateRoleBudget)
 	mux.Handle("GET /routes", c.handleListRoutes)
 	mux.Handle("POST /routes/register", c.handleRegisterRoutes)
 	mux.Handle("GET /bundles/{tenant_id}", c.svc.BundleHandler().ServeHTTP)

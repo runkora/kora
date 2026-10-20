@@ -115,6 +115,32 @@ func isTriggerFireScope(scope string) bool {
 	return err == nil && parsed.String() == id
 }
 
+// validateScopes checks every scope against the vocabulary. A resource-qualified
+// connection scope is valid when its unqualified base is in the vocabulary.
+// For a grant, per-host egress and per-trigger fire scopes name data and are
+// checked by shape (ADR 2026-06-06, Amendment 2026-06-07). A role accepts them
+// only when registered in the vocabulary, as egress:connect is.
+func validateScopes(ctx context.Context, exists func(context.Context, string) (bool, error), scopes []string, grant bool) error {
+	for _, scope := range scopes {
+		if grant && (isStructurallyValidEgressScope(scope) || isTriggerFireScope(scope)) {
+			continue
+		}
+		ok, err := exists(ctx, scope)
+		if err != nil {
+			return fmt.Errorf("vocabulary check: %w", err)
+		}
+		if base, qualified := qualifiedConnectionScopeBase(scope); !ok && qualified {
+			if ok, err = exists(ctx, base); err != nil {
+				return fmt.Errorf("vocabulary check: %w", err)
+			}
+		}
+		if !ok {
+			return &ScopeVocabularyError{Scope: scope}
+		}
+	}
+	return nil
+}
+
 // recompileDebounce is the delay before a bundle recompilation fires. Multiple
 // writes within this window are coalesced into a single recompilation.
 const recompileDebounce = 500 * time.Millisecond
@@ -214,34 +240,8 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 		return nil, ErrInvalidPrincipalType
 	}
 
-	for _, scope := range scopes {
-		// Egress connectivity-posture scopes (egress:<host>:connect) name a
-		// destination HOST — open-ended data, not a bounded catalog capability —
-		// so they are validated structurally rather than against the scope
-		// vocabulary (there is no finite set of hostnames to pre-register).
-		// See ADR 2026-06-06-jit-credential-brokering-egress-gateway
-		// (Amendment 2026-06-07).
-		if isStructurallyValidEgressScope(scope) || isTriggerFireScope(scope) {
-			continue
-		}
-		exists, err := s.vocabRepo.Exists(ctx, scope)
-		if err != nil {
-			return nil, fmt.Errorf("vocabulary check: %w", err)
-		}
-		if !exists {
-			// Resource-qualified connection scopes are grant data over an open
-			// upstream set — validated structurally against their unqualified
-			// vocabulary base, mirroring egress host scopes above.
-			if base, ok := qualifiedConnectionScopeBase(scope); ok {
-				exists, err = s.vocabRepo.Exists(ctx, base)
-				if err != nil {
-					return nil, fmt.Errorf("vocabulary check: %w", err)
-				}
-			}
-		}
-		if !exists {
-			return nil, &ScopeVocabularyError{Scope: scope}
-		}
+	if err := validateScopes(ctx, s.vocabRepo.Exists, scopes, true); err != nil {
+		return nil, err
 	}
 
 	g := &grants.Grant{
@@ -561,24 +561,35 @@ func scopeCovers(a, b string) bool {
 }
 
 // UpsertRole creates or replaces the scope mapping for a role within a tenant.
-// All scopes must exist in the vocabulary. Reserved platform admin roles cannot
-// be modified.
+// Scopes are validated as for grants, except that per-host and connector egress
+// scopes stay agent grants: a role holds only egress scopes registered in the
+// vocabulary. Reserved platform admin roles cannot be modified.
 func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes []string, budget *roles.BudgetAssignment) (*roles.RoleEntry, error) {
 	if role == bundle.PlatformAdminRole {
 		return nil, &ReservedRoleError{Role: role}
 	}
-	for _, scope := range scopes {
-		exists, err := s.vocabRepo.Exists(ctx, scope)
-		if err != nil {
-			return nil, fmt.Errorf("vocabulary check: %w", err)
-		}
-		if !exists {
-			return nil, &ScopeVocabularyError{Scope: scope}
-		}
+	if err := validateScopes(ctx, s.vocabRepo.Exists, scopes, false); err != nil {
+		return nil, err
 	}
 	entry := &roles.RoleEntry{TenantID: tenantID, Role: role, Scopes: scopes, Budget: budget}
 	if err := s.roleRepo.Upsert(ctx, entry); err != nil {
 		return nil, fmt.Errorf("upsert role: %w", err)
+	}
+	s.recordWrite(tenantID)
+	s.scheduleRecompile(ctx, tenantID)
+	s.scheduleGatewayRecompile(ctx)
+	return entry, nil
+}
+
+// UpdateRoleBudget sets or clears a role's budget and leaves its scopes alone.
+// Reserved roles carry no budget.
+func (s *Service) UpdateRoleBudget(ctx context.Context, tenantID, role string, budget *roles.BudgetAssignment) (*roles.RoleEntry, error) {
+	if role == bundle.PlatformAdminRole {
+		return nil, &ReservedRoleError{Role: role}
+	}
+	entry, err := s.roleRepo.UpdateBudget(ctx, tenantID, role, budget)
+	if err != nil {
+		return nil, fmt.Errorf("update role budget: %w", err)
 	}
 	s.recordWrite(tenantID)
 	s.scheduleRecompile(ctx, tenantID)

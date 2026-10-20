@@ -19,9 +19,7 @@ import (
 const ServiceName = "egress-gateway"
 
 // readConnectionsScope is the scope guarding the read-only connections catalog
-// (GET /api/v1/connections). Binding it to the route gives the policy-service
-// registration a non-empty routes list, which it requires. The controller
-// itself stays AuthMiddleware-only, with no scope-enforcement middleware.
+// (GET /api/v1/connections, served by orbit-agents, which enforces it too).
 const readConnectionsScope = "platform:connections:read"
 
 // writeConnectionsScope is the connection-management scope. Connections are
@@ -35,9 +33,8 @@ const writeConnectionsScope = "platform:connections:write"
 // set, which bounds who may give an autonomous agent its own egress.
 const openEgressScope = "egress:connect"
 
-// ReadRoutes returns the route-to-scope binding for the gateway's read-only
-// admin API. The policy service rejects a registration whose routes list is
-// empty, so this binding must exist for the vocabulary to publish at all.
+// ReadRoutes returns the route-to-scope binding for the connections catalog, so
+// the edge and sidecar OPA enforce its scope.
 func ReadRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		{PathPrefix: "/api/v1/connections", Method: "GET", RequiredScope: readConnectionsScope},

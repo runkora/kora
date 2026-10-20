@@ -32,6 +32,8 @@ var (
 	ErrForbidden = errors.New("forbidden: token lacks required run scope")
 	// ErrAgentTypeNotFound is returned when the target agent type does not exist.
 	ErrAgentTypeNotFound = errors.New("agent type not found")
+	// ErrRunNotFound is returned when the run does not exist in the caller's tenant.
+	ErrRunNotFound = errors.New("run not found")
 	// ErrUnexpectedStatus is returned when orbit-agents returns an unexpected status.
 	ErrUnexpectedStatus = errors.New("unexpected status from orbit-agents")
 	// ErrUpstreamUnavailable is returned when orbit-agents itself failed rather
@@ -193,5 +195,43 @@ func (c *Client) StartRun(ctx context.Context, bearer string, req StartRunReques
 			return StartRunResponse{}, c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
 		}
 		return StartRunResponse{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+}
+
+// CanReadRun reports whether the bearer may read the run, by reading it from
+// orbit-agents, which owns the run visibility rules. It returns nil when the
+// read succeeds, ErrForbidden when it is refused and ErrRunNotFound when the
+// run is not in the caller's tenant. A delegated caller's delegation token is
+// forwarded so orbit-agents applies the delegated rules.
+func (c *Client) CanReadRun(ctx context.Context, bearer, delegation, runID string) error {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/runs/"+url.PathEscape(runID), nil)
+	if err != nil {
+		return fmt.Errorf("build get run request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+	httpReq.Header.Set("Accept", "application/json")
+	if delegation != "" {
+		httpReq.Header.Set(mw.DelegationTokenHeader, delegation)
+	}
+
+	_, span, resp, err := c.Do(ctx, "agents.Client.CanReadRun", httpReq)
+	defer span.End()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return c.HandleErrorResponse(span, resp, ErrForbidden)
+	case http.StatusNotFound:
+		return c.HandleErrorResponse(span, resp, ErrRunNotFound)
+	default:
+		if resp.StatusCode >= http.StatusInternalServerError {
+			return c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
+		}
+		return c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
 }

@@ -26,6 +26,11 @@ type Config struct {
 		// exchanges its SVID there for the platform token it registers routes with.
 		InternalURL string `yaml:"internalURL"`
 	} `yaml:"identity"`
+	Agents struct {
+		// InternalURL is the in-cluster base URL for orbit-agents. The run usage
+		// meter asks it whether the caller may read the run.
+		InternalURL string `yaml:"internalURL"`
+	} `yaml:"agents"`
 }
 
 // ProvidersConfig is where the gateway watches InferenceProvider resources.

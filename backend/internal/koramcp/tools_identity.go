@@ -11,8 +11,8 @@ import (
 )
 
 // registerIdentityTools wires the identity domain: read-only user/profile lookups
-// for access-audit workflows (who is in the tenant, who owns what). Auth-only
-// (no platform scope), tenant-scoped by the caller's token — no toolRequires.
+// for access-audit workflows (who is in the tenant, who owns what). The caller
+// needs identity:users:read for the directory; results are tenant-scoped.
 func registerIdentityTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 	base := b.Identity + "/api/v1/identity/users"
 

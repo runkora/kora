@@ -17,7 +17,7 @@ import type { DataTableColumn } from '@runkora/hades';
 import { usePermissions } from '../../../_components/permissions-provider';
 import { hasScope } from '@runkora/lib/permissions';
 import { fmtUsd, fmtWindowSuffix } from '@runkora/utils';
-import { upsertRoleAction } from '../../../policy/_actions/roles';
+import { updateRoleBudgetAction } from '../../../policy/_actions/roles';
 import type { RoleEntry } from '../../../policy/_types/api';
 import { BudgetEditModal } from './budget-edit-modal';
 
@@ -157,12 +157,7 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
           initialBudget={editing.budget}
           onClose={() => setEditing(null)}
           onSave={async (budget) => {
-            // Budget-only edit: pass the existing scopes back unchanged.
-            const result = await upsertRoleAction({
-              role: editing.role,
-              scopes: editing.scopes ?? [],
-              budget,
-            });
+            const result = await updateRoleBudgetAction(editing.role, budget);
             if (result.ok) {
               setEditing(null);
               router.refresh();

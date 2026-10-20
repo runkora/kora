@@ -19,6 +19,9 @@ func (c *Controller) handleUpsertTenantBudget(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	if c.refuseDelegated(ctx, w) {
+		return
+	}
 
 	var req tenantBudgetRequest
 	if !platformapi.DecodeJSON(ctx, r, w, c.logger, &req) {
@@ -95,6 +98,9 @@ func (c *Controller) handleDeleteTenantBudget(w http.ResponseWriter, r *http.Req
 
 	claims, ok := c.claimsFromContext(w, r)
 	if !ok {
+		return
+	}
+	if c.refuseDelegated(ctx, w) {
 		return
 	}
 

@@ -27,6 +27,7 @@ type Controller struct {
 	routes    []routescopes.RouteScope
 	basePath  string
 	blocklist mw.JTIBlocklist
+	runs      runReader
 	logger    logging.Logger
 }
 
@@ -42,9 +43,15 @@ type Controller struct {
 // blocklist is the shared revoked-JTI set (storage.NewJTIBlocklist) used to
 // reject revoked delegation tokens before natural expiry
 // (docs/adr/2026-07-23-delegated-agent-identity.md). May be nil in tests.
-func NewController(ctx context.Context, svc *Service, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, blocklist mw.JTIBlocklist, logger logging.Logger) *Controller {
+func NewController(ctx context.Context, svc *Service, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, blocklist mw.JTIBlocklist, runs runReader, logger logging.Logger) *Controller {
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
-	return &Controller{svc: svc, verifier: verifier, eval: eval, routes: routes, basePath: basePath, blocklist: blocklist, logger: logger}
+	return &Controller{svc: svc, verifier: verifier, eval: eval, routes: routes, basePath: basePath, blocklist: blocklist, runs: runs, logger: logger}
+}
+
+// runReader asks orbit-agents whether the caller may read a run. Run spend is
+// as private as the run, so the run usage meter applies the same rule.
+type runReader interface {
+	CanReadRun(ctx context.Context, bearer, delegation, runID string) error
 }
 
 // GroupedBy returns the route prefix. The inference gateway mounts directly
@@ -81,7 +88,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	POST   /embeddings            OpenAI Embeddings API
 //	POST   /responses             OpenAI Responses API (streaming and non-streaming)
 //	POST   /systemone             System One decision API (typed questions, probabilities)
-//	GET    /models                List available models
+//	GET    /models                List the models the caller can use
 //	GET    /usage/stats           Per-PAT usage aggregates (request count, last used)
 //	GET    /usage/budget          Caller's current budget status (spend, limit, has_limit)
 //	GET    /usage/run/{runID}      Per-run spend + token total (run chat usage meter)

@@ -1,12 +1,15 @@
 package identity
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -26,6 +29,16 @@ func (c *Controller) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	if userID == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.ValidationError(api.ErrCodeMissingField, "id is required", map[string]any{"field": "id"}), nil)
+		return
+	}
+	if err := c.authorizeUserRead(ctx, claims, userID); err != nil {
+		if errors.Is(err, ErrUserReadForbidden) {
+			api.ErrorResponse(ctx, w, c.logger,
+				api.ForbiddenError(api.ErrCodeForbidden, "not authorized to read this user", nil), err)
+			return
+		}
+		api.ErrorResponse(ctx, w, c.logger,
+			api.InternalError(api.ErrCodeInternalError, "failed to authorize user read", nil), err)
 		return
 	}
 
@@ -48,6 +61,42 @@ func (c *Controller) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ServiceName is the name identity registers its routes and scopes under.
+const ServiceName = "identity"
+
+// UsersReadScope gates the tenant user directory. A caller reads their own
+// profile without it.
+const UsersReadScope = "identity:users:read"
+
+// ErrUserReadForbidden is returned when a caller reads another user's profile
+// without UsersReadScope.
+var ErrUserReadForbidden = errors.New("reading another user's profile requires " + UsersReadScope)
+
+// authorizeUserRead allows a caller's own profile, and any other profile only
+// with UsersReadScope. The list route is gated by the route table instead.
+func (c *Controller) authorizeUserRead(ctx context.Context, claims *token.PlatformClaims, userID string) error {
+	if userID == claims.Subject || claims.Kora.PrincipalType == token.PrincipalTypeSystem {
+		return nil
+	}
+	if c.eval == nil {
+		return fmt.Errorf("%w: no policy evaluator configured", ErrUserReadForbidden)
+	}
+	result, err := c.eval.Check(ctx, policy.CheckInput{
+		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
+		ResourceType: "identity",
+		PathSegments: []string{"users"},
+		Action:       "read",
+	})
+	if err != nil {
+		return fmt.Errorf("evaluate %s: %w", UsersReadScope, err)
+	}
+	if !result.Allow {
+		return ErrUserReadForbidden
+	}
+	return nil
+}
+
 // parseUserIDs splits a comma-separated ids query value into trimmed,
 // non-empty IDs. An empty value yields nil.
 func parseUserIDs(raw string) []string {
@@ -61,6 +110,44 @@ func parseUserIDs(raw string) []string {
 		}
 	}
 	return ids
+}
+
+// handleResolveUserNames handles GET /identity/users/names?ids=a,b. Any
+// signed-in caller may resolve display names for the ids they already hold;
+// listing or searching the directory needs UsersReadScope. At most
+// maxUserProfileLimit ids per request.
+func (c *Controller) handleResolveUserNames(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.UnauthorizedError(api.ErrCodeUnauthorized, "unauthorized", nil), nil)
+		return
+	}
+
+	ids := parseUserIDs(r.URL.Query().Get("ids"))
+	if len(ids) == 0 || len(ids) > maxUserProfileLimit {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ValidationError(api.ErrCodeInvalidField,
+				"ids must list between 1 and 100 user ids",
+				map[string]any{"field": "ids", "max": maxUserProfileLimit}), nil)
+		return
+	}
+
+	profiles, _, err := c.svc.ListUserProfiles(ctx, claims.Kora.TenantID,
+		UserProfileFilter{IDs: ids, Page: 1, Limit: len(ids)})
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.InternalError(api.ErrCodeInternalError, "failed to resolve user names", nil), err)
+		return
+	}
+
+	users := make([]UserNameResponse, 0, len(profiles))
+	for _, p := range profiles {
+		users = append(users, UserNameResponse{ID: p.ID, DisplayName: p.DisplayName})
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, UserNamesResponse{Users: users})
 }
 
 // handleListUsers handles GET /identity/users.

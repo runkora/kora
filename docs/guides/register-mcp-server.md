@@ -87,6 +87,8 @@ Name the Service port `http` and set `appProtocol: http`. Istio derives a port's
 
 Point `spec.workload.selector` at those pod labels and kora handles the rest. It generates a `NetworkPolicy` admitting only the tool-gateway on the endpoint's port, and an Istio `AuthorizationPolicy` admitting only the tool-gateway's workload identity.
 
+A tool's scope only lets a caller call the tool. The tool-gateway ignores `_meta["orbit/requires"]` on tools from a tenant server, so a tenant server's tools confer no other scope.
+
 The MCP endpoint has no authentication of its own and holds whatever upstream credential the server uses. The generated policies and scope vocabulary are what control access to the server via the tool-gateway.
 
 ## Reference

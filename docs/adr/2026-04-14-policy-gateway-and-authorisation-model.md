@@ -154,7 +154,7 @@ inference:invoke                           call the inference endpoints (Layer 1
 inference:use                              use any model across all providers
 inference:anthropic:use                    use any Anthropic model
 inference:anthropic:claude-sonnet-4:use    use a specific model by family alias
-inference:list                             list available models
+inference:list                             list the models the caller can use
 
 mcp:invoke                            all MCP tools, invoke
 mcp:gmail:invoke                      Gmail MCP tools, invoke

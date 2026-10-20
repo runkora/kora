@@ -999,9 +999,12 @@ func (s *Service) signToken(p *Principal, jti, sessionID, patID string, now time
 // The SYSTEM principal type allows cross-tenant operations in the policy service.
 func (s *Service) SystemToken(ctx context.Context) (string, error) {
 	principal := &Principal{
-		ID:             "orbit-identity-service",
-		Type:           token.PrincipalTypeSystem,
-		TenantID:       "",
+		ID:       "orbit-identity-service",
+		Type:     token.PrincipalTypeSystem,
+		TenantID: "",
+		// The policy service accepts a SYSTEM route registration only under the
+		// service name this carries.
+		DisplayName:    ServiceName,
 		IdentitySource: IdentitySourcePlatform,
 	}
 	return s.signToken(principal, uuid.NewString(), "", "", time.Now().UTC(), 5*time.Minute)

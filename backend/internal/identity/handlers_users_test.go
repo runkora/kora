@@ -3,11 +3,14 @@ package identity
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -69,7 +72,8 @@ func TestHandleGetUser_MissingID_Returns400(t *testing.T) {
 
 func TestHandleGetUser_NotFound_Returns404(t *testing.T) {
 	c, _, _ := newTestControllerWithProfiles(t)
-	claims := humanClaims("t1", "user-1")
+	// The caller's own id, so no directory scope is needed to reach the lookup.
+	claims := humanClaims("t1", "unknown")
 	req := httptest.NewRequest(http.MethodGet, "/users/unknown", nil)
 	req.SetPathValue("id", "unknown")
 	req = req.WithContext(token.WithClaims(req.Context(), claims))
@@ -116,6 +120,34 @@ func TestHandleGetUser_TenantIsolation_Returns404(t *testing.T) {
 	c.handleGetUser(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status: got %d, want %d — cross-tenant profile must not be visible", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestHandleGetUser_OtherUserWithoutScope_Returns403(t *testing.T) {
+	c, _, profiles := newTestControllerWithProfiles(t)
+	c.eval = &usersReadEvaluator{}
+	seedProfile(profiles, "user-2", "t1", "bob@example.com", "Bob")
+	req := httptest.NewRequest(http.MethodGet, "/users/user-2", nil)
+	req.SetPathValue("id", "user-2")
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaims("t1", "user-1")))
+	w := httptest.NewRecorder()
+	c.handleGetUser(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status: got %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestHandleGetUser_EvaluatorFailure_Returns500(t *testing.T) {
+	c, _, profiles := newTestControllerWithProfiles(t)
+	c.eval = &usersReadEvaluator{err: errors.New("bundle not loaded")}
+	seedProfile(profiles, "user-2", "t1", "bob@example.com", "Bob")
+	req := httptest.NewRequest(http.MethodGet, "/users/user-2", nil)
+	req.SetPathValue("id", "user-2")
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaims("t1", "user-1")))
+	w := httptest.NewRecorder()
+	c.handleGetUser(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status: got %d, want %d", w.Code, http.StatusInternalServerError)
 	}
 }
 
@@ -357,5 +389,102 @@ func TestHandleGetPATAttribution_TenantIsolation(t *testing.T) {
 	}
 	if _, ok := resp.Attribution["pat-x"]; ok {
 		t.Error("cross-tenant PAT must not appear in attribution response")
+	}
+}
+
+// usersReadEvaluator answers Check with a fixed decision and records the scope asked for.
+type usersReadEvaluator struct {
+	mockPolicyEvaluator
+	allow bool
+	err   error
+	asked string
+}
+
+func (e *usersReadEvaluator) Check(_ context.Context, in policy.CheckInput) (policy.Result, error) {
+	e.asked = in.ResourceType + ":" + strings.Join(in.PathSegments, ":") + ":" + in.Action
+	return policy.Result{Allow: e.allow}, e.err
+}
+
+func TestAuthorizeUserRead(t *testing.T) {
+	system := humanClaims("t1", "orbit-agents")
+	system.Kora.PrincipalType = token.PrincipalTypeSystem
+	boom := errors.New("bundle not loaded")
+
+	cases := []struct {
+		name    string
+		claims  *token.PlatformClaims
+		userID  string
+		eval    *usersReadEvaluator
+		wantErr error
+		wantAsk bool
+	}{
+		{"own profile needs no scope", humanClaims("t1", "user-1"), "user-1", &usersReadEvaluator{}, nil, false},
+		{"other profile with the scope", humanClaims("t1", "user-1"), "user-2", &usersReadEvaluator{allow: true}, nil, true},
+		{"other profile without the scope", humanClaims("t1", "user-1"), "user-2", &usersReadEvaluator{}, ErrUserReadForbidden, true},
+		{"evaluator failure fails closed", humanClaims("t1", "user-1"), "user-2", &usersReadEvaluator{err: boom}, boom, true},
+		{"system principal", system, "user-2", &usersReadEvaluator{}, nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Controller{eval: tc.eval}
+			err := c.authorizeUserRead(context.Background(), tc.claims, tc.userID)
+			if tc.wantErr == nil && err != nil || tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
+				t.Errorf("authorizeUserRead = %v, want %v", err, tc.wantErr)
+			}
+			if tc.wantAsk && tc.eval.asked != UsersReadScope {
+				t.Errorf("checked %q, want %q", tc.eval.asked, UsersReadScope)
+			}
+			if !tc.wantAsk && tc.eval.asked != "" {
+				t.Errorf("checked %q, want no policy check", tc.eval.asked)
+			}
+		})
+	}
+}
+
+func TestHandleResolveUserNames(t *testing.T) {
+	tooMany := strings.TrimSuffix(strings.Repeat("u,", maxUserProfileLimit+1), ",")
+	cases := []struct {
+		name     string
+		claims   *token.PlatformClaims
+		query    string
+		wantCode int
+		wantIDs  []string
+	}{
+		{"no auth", nil, "ids=user-2", http.StatusUnauthorized, nil},
+		{"no ids", humanClaims("t1", "user-1"), "", http.StatusBadRequest, nil},
+		{"too many ids", humanClaims("t1", "user-1"), "ids=" + tooMany, http.StatusBadRequest, nil},
+		{"names for known ids without the directory scope", humanClaims("t1", "user-1"), "ids=user-2,ghost,other-tenant", http.StatusOK, []string{"user-2"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _, profiles := newTestControllerWithProfiles(t)
+			c.eval = &usersReadEvaluator{}
+			seedProfile(profiles, "user-2", "t1", "bob@example.com", "Bob")
+			seedProfile(profiles, "other-tenant", "t2", "eve@example.com", "Eve")
+			w := getWithQuery(t, c.handleResolveUserNames, tc.claims, tc.query)
+			if w.Code != tc.wantCode {
+				t.Fatalf("status: got %d, want %d (body: %s)", w.Code, tc.wantCode, w.Body)
+			}
+			if tc.wantCode != http.StatusOK {
+				return
+			}
+			if strings.Contains(w.Body.String(), "email") {
+				t.Errorf("body %s carries email; names lookup returns display names only", w.Body)
+			}
+			var resp UserNamesResponse
+			if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			var got []string
+			for _, u := range resp.Users {
+				got = append(got, u.ID)
+				if u.DisplayName != "Bob" {
+					t.Errorf("display_name = %q, want Bob", u.DisplayName)
+				}
+			}
+			if strings.Join(got, ",") != strings.Join(tc.wantIDs, ",") {
+				t.Errorf("ids = %v, want %v", got, tc.wantIDs)
+			}
+		})
 	}
 }
