@@ -102,8 +102,8 @@ func TestRoutedGrantScopes(t *testing.T) {
 		t.Fatalf("routedGrantScopes: %v", err)
 	}
 	want := []string{
-		"agents:runs:coder:read", "agents:runs:coder:write",
-		"agents:runs:reviewer:read", "agents:runs:reviewer:write",
+		"agents:runs:coder:read", "agents:runs:coder:write", "agents:types:coder:read",
+		"agents:runs:reviewer:read", "agents:runs:reviewer:write", "agents:types:reviewer:read",
 		"inference:invoke", "inference:liquid:d1:use",
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {

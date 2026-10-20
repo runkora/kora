@@ -88,9 +88,9 @@ func TestCreateRoutedTrigger_GrantsCandidatesAndModel(t *testing.T) {
 		t.Fatalf("trigger = %+v", tr)
 	}
 	want := []string{
-		"agents:runs:coder:read", "agents:runs:coder:write",
-		"agents:runs:reviewer:read", "agents:runs:reviewer:write",
-		"agents:runs:security:read", "agents:runs:security:write",
+		"agents:runs:coder:read", "agents:runs:coder:write", "agents:types:coder:read",
+		"agents:runs:reviewer:read", "agents:runs:reviewer:write", "agents:types:reviewer:read",
+		"agents:runs:security:read", "agents:runs:security:write", "agents:types:security:read",
 		"inference:invoke", "inference:liquid:d1:use",
 	}
 	if !slices.Equal(deps.policy.lastScopes, want) {
@@ -530,6 +530,27 @@ func TestDispatchRouted_OutcomeOrder(t *testing.T) {
 				t.Errorf("consecutive failures = %d, want counted=%v", failures, tt.wantFailure)
 			}
 		})
+	}
+}
+
+// orbit-agents lists only the agent types the caller can read. The trigger's
+// grant must hold the read scope of every candidate for the model to be asked.
+func TestDispatchRouted_GrantLetsDecideReadCandidates(t *testing.T) {
+	svc, deps, decisions, src := routedHarness(t)
+	decisions.resp = decisionAnswers(0.9, "", 0)
+	tr := mustRouted(t, deps, src.ID, func(r *CreateTriggerRequest) {
+		r.Routing.FallbackAgentTypeID = new("at-c")
+	})
+	deps.agents.readScopes = deps.policy.lastScopes
+	deps.agents.filterByScopes = true
+
+	id := fireRouted(t, svc, deps, tr, "d-1", routedFields)
+
+	if decisions.callCount() != 1 {
+		t.Fatalf("decision calls = %d, want 1; decision = %+v", decisions.callCount(), deps.repo.decisionFor(id))
+	}
+	if d := deps.repo.decisionFor(id); d.FallbackReason != nil || d.Error != nil {
+		t.Errorf("decision = %+v, want no fallback and no error", d)
 	}
 }
 

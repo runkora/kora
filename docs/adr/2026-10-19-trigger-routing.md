@@ -151,6 +151,7 @@ A trigger cannot choose among agents or send a delivery to a run that is already
 15. **Lost race:** If the chosen run leaves `active` or `idle` before the message arrives (`ErrRunStarting` or `ErrRunNotAcceptingMessages`), the delivery starts a new run of that run's agent and records the change.
 16. **Grants:** A routed trigger's principal holds one grant with the following scopes:
     - `triggerRunScopes(slug)` for every candidate.
+    - `agents:types:<slug>:read` for every candidate, so `decide` can list the candidates through orbit-agents' per-agent type filter.
     - `inference:invoke`.
     - `inference:<family>:<name>:use` for the decision model.
 

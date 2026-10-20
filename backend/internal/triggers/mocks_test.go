@@ -704,6 +704,11 @@ type agentsStub struct {
 
 	// agentTypes is what GET /api/v1/agent-types lists.
 	agentTypes []agentsclient.AgentType
+	// filterByScopes lists only the agent types whose agents:types:<slug>:read
+	// scope is in readScopes, as orbit-agents does for a caller without
+	// agents:types:read.
+	filterByScopes bool
+	readScopes     []string
 	// runs is what GET /api/v1/runs lists, and runsQuery the last query it got.
 	runs       []agentsclient.Run
 	runsQuery  string
@@ -768,7 +773,16 @@ func newAgentsStub() *agentsStub {
 	})
 	mux.HandleFunc("GET /api/v1/agent-types", func(w http.ResponseWriter, _ *http.Request) {
 		as.mu.Lock()
-		body, _ := json.Marshal(map[string]any{"agent_types": as.agentTypes})
+		listed := as.agentTypes
+		if as.filterByScopes {
+			listed = nil
+			for _, at := range as.agentTypes {
+				if slices.Contains(as.readScopes, "agents:types:"+at.Slug+":read") {
+					listed = append(listed, at)
+				}
+			}
+		}
+		body, _ := json.Marshal(map[string]any{"agent_types": listed})
 		as.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)
