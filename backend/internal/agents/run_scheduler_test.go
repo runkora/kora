@@ -147,14 +147,14 @@ func TestStartClaimed(t *testing.T) {
 			setup: func(e *startClaimedEnv) {
 				e.f.run.cfg.StartBudget = time.Minute
 				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-2 * time.Minute)
-				e.repo.agentTypes["at-1"].UpdatedAt = time.Now().Add(-3 * time.Minute)
+				e.repo.agentTypes["at-1"].ActivatedAt = time.Now().Add(-3 * time.Minute)
 			},
 			wantState: RunStateFailed, wantErr: "No agent pod could take the run within 1m0s."},
 		{name: "provisioning time does not count against the start budget",
 			setup: func(e *startClaimedEnv) {
 				e.f.run.cfg.StartBudget = time.Minute
 				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-5 * time.Minute)
-				e.repo.agentTypes["at-1"].UpdatedAt = time.Now()
+				e.repo.agentTypes["at-1"].ActivatedAt = time.Now()
 			},
 			wantState: RunStateActive, wantSessions: 1, wantMessages: 1},
 		{name: "an agent provisioning past its budget fails the run",

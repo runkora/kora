@@ -273,6 +273,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		},
 		SandboxMount:      cfg.Agents.SandboxMount,
 		StartBudget:       time.Duration(cfg.Agents.Scheduling.StartBudgetSecs) * time.Second,
+		ProvisionBudget:   time.Duration(cfg.Agents.Scheduling.ProvisionBudgetSecs) * time.Second,
 		StartPollInterval: time.Duration(cfg.Agents.Scheduling.PollIntervalSecs) * time.Second,
 		WorkerConcurrency: cfg.Agents.Scheduling.WorkerConcurrency,
 		Brand:             b,

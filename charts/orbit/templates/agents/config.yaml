@@ -7,8 +7,8 @@ orbit-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md)
   {{- fail "agents.guardrails: sandboxProvisionAttempts, sandboxProvisionBackoffSecs and sandboxProvisionBudgetSecs must be at least 1, and sandboxProvisionBudgetSecs at most 600" }}
 {{- end }}
 {{- $scheduling := .Values.agents.scheduling }}
-{{- if or (lt (int $scheduling.workerConcurrency) 1) (lt (int $scheduling.pollIntervalSecs) 1) (lt (int $scheduling.startBudgetSecs) 1) }}
-  {{- fail "agents.scheduling: workerConcurrency, pollIntervalSecs and startBudgetSecs must be at least 1" }}
+{{- if or (lt (int $scheduling.workerConcurrency) 1) (lt (int $scheduling.pollIntervalSecs) 1) (lt (int $scheduling.startBudgetSecs) 1) (lt (int $scheduling.provisionBudgetSecs) 1) }}
+  {{- fail "agents.scheduling: workerConcurrency, pollIntervalSecs, startBudgetSecs and provisionBudgetSecs must be at least 1" }}
 {{- end }}
 {{- if lt (int $scheduling.drainGracePeriodSecs) 61 }}
   {{- fail "agents.scheduling.drainGracePeriodSecs must be at least 61: the session-manager's 30 s shutdown timeout plus its 30 s drainMargin (cmd/session-manager/config/config.go)" }}
@@ -62,6 +62,7 @@ cmd/orbit-agents:
       workerConcurrency: {{ $scheduling.workerConcurrency | int }}
       pollIntervalSecs: {{ $scheduling.pollIntervalSecs | int }}
       startBudgetSecs: {{ $scheduling.startBudgetSecs | int }}
+      provisionBudgetSecs: {{ $scheduling.provisionBudgetSecs | int }}
       minReplicas: {{ $scheduling.minReplicas | int }}
       drainGracePeriodSecs: {{ $scheduling.drainGracePeriodSecs | int }}
     sessionManager:

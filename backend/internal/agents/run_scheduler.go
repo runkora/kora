@@ -212,10 +212,10 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 		s.releaseStart(ctx, span, run.ID, claimedAt, errAgentProvisioning)
 		return nil, "", 0, false
 	}
-	// Provisioning time is not part of the start budget. The agent's last update is when it became active.
+	// Provisioning time is not part of the start budget, which runs from when the agent became active.
 	budgetStart := run.CreatedAt
-	if at.UpdatedAt.After(budgetStart) {
-		budgetStart = at.UpdatedAt
+	if at.ActivatedAt.After(budgetStart) {
+		budgetStart = at.ActivatedAt
 	}
 	if time.Since(budgetStart) > s.startBudget() {
 		s.failStart(ctx, span, run.ID, RunStatePending, fmt.Sprintf("No agent pod could take the run within %s.", s.startBudget()))

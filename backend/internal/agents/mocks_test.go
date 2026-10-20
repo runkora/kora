@@ -204,6 +204,9 @@ func (m *mockRepository) SetAgentTypeState(_ context.Context, id string, from, t
 		return ErrConflict
 	}
 	at.State = to
+	if to == AgentTypeStateActive {
+		at.ActivatedAt = time.Now().UTC()
+	}
 	return nil
 }
 

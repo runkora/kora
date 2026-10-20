@@ -175,7 +175,8 @@ func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) 
 
 func (r *PostgresRepository) SetAgentTypeState(ctx context.Context, id string, from, to AgentTypeState) error {
 	tag, err := r.pool.Exec(ctx, `
-		UPDATE agent_types SET state=$1, updated_at=$2
+		UPDATE agent_types SET state=$1, updated_at=$2,
+			activated_at = CASE WHEN $1 = 'active' THEN $2 ELSE activated_at END
 		WHERE id=$3 AND state=$4`,
 		string(to), time.Now().UTC(), id, string(from),
 	)
@@ -700,7 +701,7 @@ type scanner interface {
 // a query that drifts from the scanner fails on every row at runtime rather
 // than at compile time.
 // The last column aggregates the agent's environment links, default first.
-const agentTypeColumns = `id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails, created_by,
+const agentTypeColumns = `id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails, created_by, activated_at,
 	COALESCE((SELECT jsonb_agg(jsonb_build_object('environment_id', ae.environment_id, 'is_default', ae.is_default) ORDER BY ae.is_default DESC, ae.environment_id)
 		FROM agent_environments ae WHERE ae.agent_type_id = agent_types.id), '[]'::jsonb)`
 
@@ -708,9 +709,10 @@ func scanAgentType(s scanner) (*AgentType, error) {
 	var at AgentType
 	var state, framework, identityMode string
 	var connectivityJSON, connectorsJSON, guardrailsJSON, environmentsJSON []byte
+	var activatedAt *time.Time
 	err := s.Scan(
 		&at.ID, &at.TenantID, &at.Name, &at.Slug, &at.Description, &at.SystemPrompt, &framework,
-		&at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.MCPTools, &identityMode, &guardrailsJSON, &at.CreatedBy, &environmentsJSON,
+		&at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.MCPTools, &identityMode, &guardrailsJSON, &at.CreatedBy, &activatedAt, &environmentsJSON,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -719,6 +721,9 @@ func scanAgentType(s scanner) (*AgentType, error) {
 		return nil, fmt.Errorf("scan agent_type: %w", err)
 	}
 	at.State = AgentTypeState(state)
+	if activatedAt != nil {
+		at.ActivatedAt = *activatedAt
+	}
 	at.Framework = AgentFramework(framework)
 	at.IdentityMode = IdentityMode(identityMode)
 	if len(connectivityJSON) > 0 {
