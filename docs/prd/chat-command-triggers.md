@@ -174,7 +174,7 @@ The author picks the mention event or the direct message event, narrows by conve
 
 **PD4:** One Slack app serves one workspace. The admin creates it from the manifest. **Accepted cost:** each workspace needs its own app and its own source.
 
-**PD4a:** A chat source answers Slack's URL check before it holds a signing secret, and rejects every other request until the secret is set. **Accepted cost:** the check is unsigned, so a caller who knows the source id can get a challenge echoed back.
+**PD4a:** Until the signing secret is set, the source answers only Slack's URL check and starts nothing.
 
 **PD5:** Hearing the chat and replying in the chat stay separate. The chat source holds the signing secret, and the Slack MCP server holds the bot token. They are joined only by being the same Slack app, and no Slack credentials connection exists. **Accepted cost:** an admin configures two things for one Slack app. A Slack MCP server that posts as a user can start runs from its own replies.
 
