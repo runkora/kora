@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 /** @tier 3 · triggers-scoped. The webhook and chat command kinds: an external
@@ -453,6 +454,7 @@ function SlackAppSetup({
   ingestHost: string;
 }) {
   const { productName } = useBrand();
+  const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const created = state.newSourceCreated;
@@ -467,6 +469,9 @@ function SlackAppSetup({
       setError(made.error ?? 'Failed to create the source.');
       return;
     }
+    // The source exists now; refresh so a wizard closed early leaves it in the
+    // source picker rather than orphaned, where a duplicate could be created.
+    router.refresh();
     patch({
       newSourceCreated: { id: made.source.id, name, provider: SLACK_PROVIDER },
       newSourceSecretSaved: false,

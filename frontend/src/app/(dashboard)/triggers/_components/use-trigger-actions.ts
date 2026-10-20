@@ -110,9 +110,12 @@ export function useTriggerActions({ refresh, notify }: TriggerActionsOptions) {
         });
         return null;
       }
+      // Without this the row keeps signingSecretSet=false, so the drawer keeps
+      // waiting and a second save would omit rotate_secret and be rejected.
+      refresh();
       return result.source?.secret ?? '';
     },
-    [notify],
+    [refresh, notify],
   );
 
   const toggleTrigger = useCallback(

@@ -32,6 +32,9 @@ vi.mock('../../_services/triggers-api', () => api);
 const routingOptions = vi.hoisted(() => ({ useRoutingOptions: vi.fn(() => undefined) }));
 vi.mock('./use-routing-options', () => routingOptions);
 
+const refresh = vi.hoisted(() => vi.fn());
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
+
 import { TriggerWizard } from './trigger-wizard';
 import { StepDelivery } from './step-delivery';
 import { StepReview } from './step-review';
@@ -496,6 +499,7 @@ describe('chat command kind', () => {
 
     await createSlackSource();
     expect(api.createSource).toHaveBeenCalledWith({ name: 'acme-slack', provider: 'slack' });
+    expect(refresh).toHaveBeenCalled();
     expect(screen.getByLabelText(/Signing secret/)).toBeTruthy();
   });
 
