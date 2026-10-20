@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"slices"
@@ -477,6 +478,25 @@ func TestEventTypes_CategoryAndSenders(t *testing.T) {
 	b, _ = json.Marshal(eventTypes(&alertmanagerAdapter{}, registryCatalog(t, deps, ProviderAlertmanager)))
 	if strings.Contains(string(b), "senders") {
 		t.Errorf("alertmanager event types JSON = %s, want no senders", b)
+	}
+}
+
+// A chat source's observed list keeps only chat event types, since a chat trigger reads nothing else.
+func TestSourceEventTypes_ChatObserved(t *testing.T) {
+	_, deps := newCapService(t)
+	src := capSource(t, deps)
+	for i, event := range []string{"mention", "app_mention", ""} {
+		_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
+			ID: fmt.Sprintf("d%d", i), TenantID: testTenant, SourceID: src.ID, Kind: KindWebhook,
+			ProviderDeliveryID: fmt.Sprintf("p%d", i), EventType: event, Status: StatusSkipped,
+		})
+	}
+	resp, err := deps.sources.SourceEventTypes(context.Background(), testTenant, src.ID)
+	if err != nil {
+		t.Fatalf("SourceEventTypes: %v", err)
+	}
+	if !slices.Equal(resp.Observed, []string{"mention"}) {
+		t.Errorf("observed = %v, want [mention]", resp.Observed)
 	}
 }
 

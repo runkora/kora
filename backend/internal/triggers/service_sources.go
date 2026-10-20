@@ -3,6 +3,7 @@ package triggers
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -291,7 +292,7 @@ func (s *SourceService) DeleteSource(ctx context.Context, tenantID, id string) e
 // SourceEventTypes answers "what can I write a trigger for on this source?".
 //
 // Declared comes from the provider's schema. Observed comes from this source's
-// history, including events newer than the schema.
+// history, including events newer than the schema, except on a chat source.
 func (s *SourceService) SourceEventTypes(ctx context.Context, tenantID, sourceID string) (*EventTypesResponse, error) {
 	src, err := s.repo.GetSource(ctx, tenantID, sourceID)
 	if err != nil {
@@ -308,6 +309,10 @@ func (s *SourceService) SourceEventTypes(ctx context.Context, tenantID, sourceID
 	}
 	resp := eventTypes(adapter, catalog)
 	resp.Observed = observed
+	if resp.Category == CategoryChat {
+		// A chat trigger reads only the chat document, so an event outside it is not one a trigger can name.
+		resp.Observed = slices.DeleteFunc(observed, func(e string) bool { return !slices.Contains(resp.Declared, e) })
+	}
 	return resp, nil
 }
 

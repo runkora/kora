@@ -721,20 +721,20 @@ type SenderRestriction struct {
 	Roles []string `json:"roles,omitempty"`
 }
 
-// errLegacySenderKeys refuses the keys the API used before ids and roles, which
-// a plain decode would drop and so store an empty restriction.
-var errLegacySenderKeys = errors.New("sender_restriction takes ids and roles; logins and associations are no longer accepted")
+// errSenderRestrictionKeys refuses any key but ids and roles, which a plain
+// decode would drop: a typo or a legacy key would then clear a stored restriction.
+var errSenderRestrictionKeys = errors.New("sender_restriction takes ids and roles only; logins and associations are no longer accepted")
 
-// UnmarshalJSON decodes ids and roles and refuses the legacy keys.
+// UnmarshalJSON decodes ids and roles and refuses every other key.
 func (r *SenderRestriction) UnmarshalJSON(b []byte) error {
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(b, &keys); err != nil {
 		return err
 	}
-	// encoding/json matches keys case-insensitively, so the refusal does too.
+	// encoding/json matches keys case-insensitively, so the check does too.
 	for key := range keys {
-		if strings.EqualFold(key, "logins") || strings.EqualFold(key, "associations") {
-			return errLegacySenderKeys
+		if !strings.EqualFold(key, "ids") && !strings.EqualFold(key, "roles") {
+			return fmt.Errorf("%w: unknown key %q", errSenderRestrictionKeys, key)
 		}
 	}
 	type plain SenderRestriction

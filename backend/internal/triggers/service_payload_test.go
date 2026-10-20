@@ -553,6 +553,9 @@ func TestSenderRestriction_UnmarshalJSON(t *testing.T) {
 		{body: `{"Logins":["alice"]}`, wantErr: true},
 		{body: `{"ASSOCIATIONS":["MEMBER"]}`, wantErr: true},
 		{body: `{"ids":["alice"],"logins":[]}`, wantErr: true},
+		{body: `{"IDS":["alice"]}`, want: SenderRestriction{IDs: []string{"alice"}}},
+		{body: `{"id":["alice"]}`, wantErr: true},
+		{body: `{"ids":["alice"],"role":["MEMBER"]}`, wantErr: true},
 		{body: `["alice"]`, wantErr: true},
 	}
 	for _, tc := range cases {
@@ -569,11 +572,11 @@ func TestSenderRestriction_UnmarshalJSON(t *testing.T) {
 	}
 }
 
-// A request with the legacy keys is refused rather than stored as no restriction.
-func TestHandleTrigger_LegacySenderKeys(t *testing.T) {
+// A request with a legacy or misspelt key is refused rather than stored as no restriction.
+func TestHandleTrigger_UnknownSenderKeys(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	src := mustSource(t, deps.sources)
-	for _, key := range []string{"logins", "associations"} {
+	for _, key := range []string{"logins", "associations", "id"} {
 		body := []byte(`{"source_id":"` + src.ID + `","name":"t","agent_type_id":"at-1","event_type":"issue_comment",` +
 			`"prompt_template":"p","sender_restriction":{"` + key + `":["x"]}}`)
 		w := call(t, c.handleCreateTrigger, http.MethodPost, "/triggers", nil, body)
@@ -589,13 +592,15 @@ func TestHandleTrigger_LegacySenderKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
-	w := call(t, c.handleUpdateTrigger, http.MethodPatch, "/triggers/"+tr.ID, map[string]string{"id": tr.ID},
-		[]byte(`{"sender_restriction":{"logins":[]}}`))
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("update with logins: status = %d, want 400", w.Code)
-	}
-	if got, _ := deps.repo.GetTrigger(context.Background(), testTenant, tr.ID); got.SenderRestriction == nil {
-		t.Error("a refused update cleared the restriction")
+	for _, restriction := range []string{`{"logins":[]}`, `{"rolse":[]}`} {
+		w := call(t, c.handleUpdateTrigger, http.MethodPatch, "/triggers/"+tr.ID, map[string]string{"id": tr.ID},
+			[]byte(`{"sender_restriction":`+restriction+`}`))
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("update with %s: status = %d, want 400", restriction, w.Code)
+		}
+		if got, _ := deps.repo.GetTrigger(context.Background(), testTenant, tr.ID); got.SenderRestriction == nil {
+			t.Errorf("a refused update with %s cleared the restriction", restriction)
+		}
 	}
 }
 
