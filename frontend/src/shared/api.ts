@@ -81,7 +81,8 @@ export interface ModelObject {
   output_modalities: Modality[];
   /** Only populated for models with CapabilityChat. */
   dialects: APIDialect[];
-  capabilities: ModelCapability[];
+  /** Absent when the model has no capabilities: the gateway omits an empty list. */
+  capabilities?: ModelCapability[];
   /** Effective pricing derived from the lowest-cost enabled route. Absent when no pricing data exists. */
   pricing?: ModelObjectPricing;
 }
