@@ -60,12 +60,12 @@ describe('webhook drafts', () => {
 
   it('sends the sender restriction when the draft carries one, and omits it otherwise', async () => {
     await createFromWizardDraft(
-      draft({ senderRestriction: { logins: ['octocat'], associations: ['MEMBER'] } }),
+      draft({ senderRestriction: { ids: ['octocat'], roles: ['MEMBER'] } }),
       OPTIONS,
     );
     expect(mockCreateTrigger).toHaveBeenCalledWith(
       expect.objectContaining({
-        sender_restriction: { logins: ['octocat'], associations: ['MEMBER'] },
+        sender_restriction: { ids: ['octocat'], roles: ['MEMBER'] },
       }),
     );
 

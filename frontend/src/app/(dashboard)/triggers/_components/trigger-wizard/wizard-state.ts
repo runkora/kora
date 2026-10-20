@@ -20,6 +20,7 @@ import type {
   TriggerDraft,
   TriggerKind,
   TriggerKindDefinition,
+  TriggerWizardSource,
   WizardContext,
   WizardField,
   WizardState,
@@ -72,7 +73,7 @@ export function newField(index: number): WizardField {
 }
 
 /** State shared by every kind, before the kind's own defaults are merged in. */
-export function baseState(sources: { id: string }[]): WizardState {
+export function baseState(sources: readonly { id: string }[]): WizardState {
   const browserZone = resolveBrowserZone();
   const zones = timezoneOptions(browserZone);
   return {
@@ -85,7 +86,7 @@ export function baseState(sources: { id: string }[]): WizardState {
     newSourceSecret: '',
     eventType: '',
     filters: [],
-    senders: { logins: '', associations: [] },
+    senders: { ids: '', roles: [] },
 
     freq: 'daily',
     interval: '15',
@@ -116,9 +117,19 @@ export function baseState(sources: { id: string }[]): WizardState {
   };
 }
 
-/** Initial state for a kind: the shared defaults with the kind's own on top. */
-export function initialState(def: TriggerKindDefinition, sources: { id: string }[]): WizardState {
-  return { ...baseState(sources), ...def.defaults };
+/**
+ * Initial state for a kind: the shared defaults with the kind's own on top. A
+ * kind that lists sources of one category starts on the first of those.
+ */
+export function initialState(
+  def: TriggerKindDefinition,
+  sources: readonly TriggerWizardSource[],
+): WizardState {
+  const own =
+    def.sourceCategory === undefined
+      ? sources
+      : sources.filter((s) => s.category === def.sourceCategory);
+  return { ...baseState(own), ...def.defaults };
 }
 
 /** Splits a filter row's values on `|`, dropping blanks. */
@@ -176,16 +187,16 @@ export function validateFilters(filters: FilterRow[]): StepValidation {
   return VALID;
 }
 
-/** Splits the logins box on commas and whitespace, dropping blanks and repeats. */
-export function splitLogins(raw: string): string[] {
+/** Splits the sender ids box on commas and whitespace, dropping blanks and repeats. */
+export function splitIds(raw: string): string[] {
   return [...new Set(raw.split(/[\s,]+/).filter(Boolean))];
 }
 
 /** The sender restriction as the API takes it; undefined when nothing is set, which means anyone. */
 export function senderRestrictionFrom(draft: SenderRestrictionDraft): Senders | undefined {
-  const logins = splitLogins(draft.logins);
-  const { associations } = draft;
-  return logins.length > 0 || associations.length > 0 ? { logins, associations } : undefined;
+  const ids = splitIds(draft.ids);
+  const { roles } = draft;
+  return ids.length > 0 || roles.length > 0 ? { ids, roles } : undefined;
 }
 
 /** Renders the composed condition for the review step. */
@@ -395,7 +406,7 @@ export function toDraft(def: TriggerKindDefinition, state: WizardState): Trigger
   // Only a webhook trigger can be routed; the step offers the mode for no other kind.
   const routed = def.id === 'webhook' && state.routing.mode === 'choose';
   return {
-    kind: def.id,
+    kind: def.apiKind,
     name: state.name.trim(),
     promptTemplate: state.promptTemplate,
     ...(routed

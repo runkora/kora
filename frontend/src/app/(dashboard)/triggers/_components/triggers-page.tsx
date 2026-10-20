@@ -31,9 +31,16 @@ import { FleetKpis } from './fleet-kpis';
 import { TriggerDrawer } from './trigger-drawer';
 import { TriggerList } from './trigger-list';
 import { DeliveryGrid } from './delivery-grid';
-import { matchesStatusFilter, runTargets } from '../_types';
+import { consoleKindOf, matchesStatusFilter, runTargets } from '../_types';
 import { ingestHostFromWindow } from '../_lib/endpoints';
-import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
+import type {
+  AgentOption,
+  ConsoleKind,
+  DeliveryRow,
+  SourceCategory,
+  SourceRow,
+  TriggerRow,
+} from '../_types';
 import { useHasScope } from '../../_components/permissions-provider';
 import { PermissionHint } from '@runkora/components';
 
@@ -56,6 +63,14 @@ const DELIVERY_STATUS_OPTIONS = [
   { value: 'duplicate', label: 'Duplicate' },
   { value: 'missed', label: 'Missed' },
 ];
+
+/** The kind in the empty-list message, e.g. "No chat command triggers." */
+const KIND_FILTER_NOUN: Record<ConsoleKind, string> = {
+  webhook: 'webhook',
+  chat: 'chat command',
+  scheduled: 'scheduled',
+  manual: 'manual',
+};
 
 export function TriggersPage({
   sources,
@@ -84,7 +99,17 @@ export function TriggersPage({
     return (id: string) => map.get(id) ?? id;
   }, [sources]);
 
-  const formSources = useMemo(() => sources.map((s) => ({ id: s.id, name: s.name })), [sources]);
+  const sourceCategory = useMemo(() => {
+    const map = new Map<string, SourceCategory>();
+    for (const s of sources) map.set(s.id, s.category);
+    return (id: string) => map.get(id);
+  }, [sources]);
+
+  const wizardSources = useMemo(
+    () =>
+      sources.map((s) => ({ id: s.id, name: s.name, provider: s.provider, category: s.category })),
+    [sources],
+  );
 
   // ── Modal + dialog state ─────────────────────────────────────────────────────
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -93,14 +118,21 @@ export function TriggersPage({
   // its own panel rather than the owning trigger's drawer: the question being
   // asked is "what did this delivery do", not "how is that trigger set up".
   const [detailDelivery, setDetailDelivery] = useState<DeliveryRow | null>(null);
-  const [kindFilter, setKindFilter] = useState<TriggerKind | 'all'>('all');
+  const [kindFilter, setKindFilter] = useState<ConsoleKind | 'all'>('all');
 
   // Filter by how a trigger starts. Triggers are the front door for starting
   // work, so the kind is the primary way to slice them, and the counts are part
   // of the answer rather than decoration.
+  // A chat command is a webhook trigger on a chat source, so it is counted
+  // under Chat command and never under Webhook.
+  const kindCount = (kind: ConsoleKind) =>
+    triggers.filter((t) => consoleKindOf(t, sourceCategory) === kind).length;
   const visibleTriggers = useMemo(
-    () => (kindFilter === 'all' ? triggers : triggers.filter((t) => t.kind === kindFilter)),
-    [triggers, kindFilter],
+    () =>
+      kindFilter === 'all'
+        ? triggers
+        : triggers.filter((t) => consoleKindOf(t, sourceCategory) === kindFilter),
+    [triggers, kindFilter, sourceCategory],
   );
 
   // ── Deliveries: status filter ─────────────────────────────────────────────────
@@ -168,9 +200,9 @@ export function TriggersPage({
           <Stack gap="tight" maxWidth="prose">
             <Heading variant="section">Triggers</Heading>
             <Text size="supporting" color="muted">
-              Everything that starts work on the platform: inbound webhooks, schedules and manual
-              fires today, with control-plane events, chained runs and chat commands coming. Every
-              delivery is recorded.
+              Everything that starts work on the platform: inbound webhooks, chat commands,
+              schedules and manual fires today, with control-plane events and chained runs coming.
+              Every delivery is recorded.
             </Text>
           </Stack>
         </Stack>
@@ -197,7 +229,7 @@ export function TriggersPage({
                 <SegmentedControl
                   aria-label="Filter triggers by kind"
                   value={kindFilter}
-                  onChange={(v) => setKindFilter(v as TriggerKind | 'all')}
+                  onChange={(v) => setKindFilter(v as ConsoleKind | 'all')}
                   options={[
                     {
                       value: 'all',
@@ -209,19 +241,25 @@ export function TriggersPage({
                       value: 'webhook',
                       label: 'Webhook',
                       icon: <Icon name="webhook" size="2xs" />,
-                      count: triggers.filter((t) => t.kind === 'webhook').length,
+                      count: kindCount('webhook'),
+                    },
+                    {
+                      value: 'chat',
+                      label: 'Chat command',
+                      icon: <Icon name="send" size="2xs" />,
+                      count: kindCount('chat'),
                     },
                     {
                       value: 'scheduled',
                       label: 'Schedule',
                       icon: <Icon name="clock" size="2xs" />,
-                      count: triggers.filter((t) => t.kind === 'scheduled').length,
+                      count: kindCount('scheduled'),
                     },
                     {
                       value: 'manual',
                       label: 'Manual',
                       icon: <Icon name="play" size="2xs" />,
-                      count: triggers.filter((t) => t.kind === 'manual').length,
+                      count: kindCount('manual'),
                     },
                   ]}
                 />
@@ -238,13 +276,14 @@ export function TriggersPage({
               triggers={visibleTriggers}
               deliveries={deliveries}
               sourceName={sourceName}
+              sourceCategory={sourceCategory}
               onOpen={setDrawerTrigger}
               onToggle={(t) => void toggleTrigger(t)}
               canRunAgent={canRunAgent}
               emptyMessage={
                 triggers.length === 0
                   ? 'No triggers yet.'
-                  : `No ${kindFilter === 'all' ? '' : kindFilter + ' '}triggers.`
+                  : `No ${kindFilter === 'all' ? '' : KIND_FILTER_NOUN[kindFilter] + ' '}triggers.`
               }
             />
           </Stack>
@@ -330,10 +369,7 @@ export function TriggersPage({
         <TriggerWizard
           agents={agents}
           agentsError={agentsError}
-          sources={formSources.map((f) => ({
-            ...f,
-            provider: sources.find((x) => x.id === f.id)?.provider ?? 'github',
-          }))}
+          sources={wizardSources}
           ingestHost={ingestHost}
           allowRouting
           onCreate={createFromWizard}

@@ -10,23 +10,25 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('../_services/triggers-api', () => api);
 
+const GITHUB = {
+  declared: ['push', 'issue_comment'],
+  category: 'webhook',
+  senders: {
+    roles: [
+      { value: 'OWNER', label: 'Owner', description: 'Owns the repository' },
+      { value: 'MEMBER', label: 'Member', description: 'Member of the organization' },
+    ],
+  },
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   api.fetchProviderEventTypes.mockResolvedValue({
-    eventTypes: {
-      declared: ['push', 'issue_comment'],
-      associations: ['OWNER', 'MEMBER'],
-      identifies_senders: true,
-    },
+    eventTypes: GITHUB,
     error: null,
   });
   api.fetchEventTypes.mockResolvedValue({
-    eventTypes: {
-      declared: ['push', 'issue_comment'],
-      observed: ['custom'],
-      associations: ['OWNER', 'MEMBER'],
-      identifies_senders: true,
-    },
+    eventTypes: { ...GITHUB, observed: ['custom'] },
     error: null,
   });
   api.fetchProviderFields.mockResolvedValue({
@@ -53,6 +55,7 @@ const SOURCES: SourceRow[] = [
     id: 'src-1',
     name: 'acme/widgets',
     provider: 'github',
+    category: 'webhook',
     enabled: true,
     createdAt: '2026-07-01T00:00:00Z',
     rejectionCount: 0,
@@ -179,7 +182,7 @@ describe('schema catalogue', () => {
 });
 
 describe('sender restriction editing', () => {
-  it('saves the logins and associations as the replacement restriction', async () => {
+  it('saves the ids and roles as the replacement restriction', async () => {
     const onEdit = vi.fn().mockResolvedValue(null);
     renderDrawer(trigger(), onEdit);
     fireEvent.change(await screen.findByLabelText('Allowed senders'), {
@@ -189,20 +192,22 @@ describe('sender restriction editing', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save senders' }));
 
     expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), {
-      senderRestriction: { logins: ['octocat', 'hubot'], associations: ['MEMBER'] },
+      senderRestriction: { ids: ['octocat', 'hubot'], roles: ['MEMBER'] },
     });
   });
 
   it('seeds from the stored restriction', async () => {
-    renderDrawer(trigger({ senderRestriction: { logins: ['octocat'], associations: ['OWNER'] } }));
+    renderDrawer(trigger({ senderRestriction: { ids: ['octocat'], roles: ['OWNER'] } }));
     expect(((await screen.findByLabelText('Allowed senders')) as HTMLInputElement).value).toBe(
       'octocat',
     );
+    expect(screen.getByRole('checkbox', { name: 'Owner' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Member' })).not.toBeChecked();
   });
 
   it('is absent when the provider identifies no sender', async () => {
     api.fetchEventTypes.mockResolvedValue({
-      eventTypes: { declared: ['alert.firing'], associations: [], identifies_senders: false },
+      eventTypes: { declared: ['alert.firing'], category: 'webhook' },
       error: null,
     });
     renderDrawer(trigger());
@@ -472,7 +477,9 @@ describe('permissions', () => {
 });
 
 describe('a source whose provider issues the secret', () => {
-  const SLACK: SourceRow[] = [{ ...SOURCES[0]!, name: 'acme slack', provider: 'slack' }];
+  const SLACK: SourceRow[] = [
+    { ...SOURCES[0]!, name: 'acme slack', provider: 'slack', category: 'chat' },
+  ];
 
   function renderSlack(onRotateSecret: (t: TriggerRow, secret?: string) => Promise<string | null>) {
     renderWithProviders(
@@ -509,6 +516,11 @@ describe('a source whose provider issues the secret', () => {
     expect((screen.getByLabelText(/Signing secret/) as HTMLInputElement).value).toBe('');
   });
 
+  it('names the platform in the rotation hint', () => {
+    renderSlack(vi.fn());
+    expect(screen.getByText(/Regenerate it in your Slack app/)).toBeTruthy();
+  });
+
   it('keeps the typed secret when the rotation fails', async () => {
     renderSlack(vi.fn().mockResolvedValue(null));
     fireEvent.change(screen.getByLabelText(/Signing secret/), { target: { value: 'new-secret' } });
@@ -516,5 +528,65 @@ describe('a source whose provider issues the secret', () => {
     expect(await screen.findByRole('button', { name: 'Replace secret' })).toBeTruthy();
     expect((screen.getByLabelText(/Signing secret/) as HTMLInputElement).value).toBe('new-secret');
     expect(screen.queryByText(/The new secret is stored/)).toBeNull();
+  });
+});
+
+describe('a chat command trigger', () => {
+  const CHAT_SOURCES: SourceRow[] = [
+    { ...SOURCES[0]!, id: 'src-1', name: 'acme-slack', provider: 'slack', category: 'chat' },
+  ];
+
+  beforeEach(() => {
+    api.fetchEventTypes.mockResolvedValue({
+      eventTypes: {
+        declared: ['mention', 'direct_message'],
+        category: 'chat',
+        senders: { roles: [] },
+      },
+      error: null,
+    });
+  });
+
+  function renderChat(row: TriggerRow, onEdit = vi.fn().mockResolvedValue(null)) {
+    render(
+      <TriggerDrawer
+        trigger={row}
+        sources={CHAT_SOURCES}
+        deliveries={[]}
+        ingestHost="orbit.local.clearroute.io:8443"
+        onClose={vi.fn()}
+        onToggleEnabled={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={onEdit}
+      />,
+    );
+    return onEdit;
+  }
+
+  it('reads as a chat command with the event label', () => {
+    renderChat(trigger({ eventType: 'mention', matchCondition: {} }));
+    expect(screen.getByText('Chat command · acme-slack · Mention')).toBeTruthy();
+    expect(screen.getByText('Request URL')).toBeTruthy();
+  });
+
+  it('offers the chat events as cards and saves the chosen one', async () => {
+    const onEdit = renderChat(trigger({ eventType: 'mention', matchCondition: {} }));
+    fireEvent.click(await screen.findByRole('radio', { name: /Direct message/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save filters' }));
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), {
+      eventType: 'direct_message',
+      matchCondition: {},
+      matchContains: {},
+    });
+  });
+
+  it('shows the stored sender ids with no role cards', async () => {
+    renderChat(
+      trigger({ eventType: 'mention', senderRestriction: { ids: ['U012AB3CD'], roles: [] } }),
+    );
+    expect(((await screen.findByLabelText('Allowed senders')) as HTMLInputElement).value).toBe(
+      'U012AB3CD',
+    );
+    expect(screen.queryByRole('checkbox')).toBeNull();
   });
 });

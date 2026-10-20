@@ -19,14 +19,20 @@ import type {
 import type { Frequency } from './cron';
 import type { FilterRow } from '../filter-rows-editor';
 import type { SenderRestrictionDraft } from '../sender-restriction-editor';
-import type { Senders, TriggerCoalesce, TriggerRoutingRow } from '../../_types';
+import type {
+  ConsoleKind,
+  Senders,
+  SourceCategory,
+  TriggerCoalesce,
+  TriggerRoutingRow,
+} from '../../_types';
 
-export type { TriggerKind, TriggerOverflow };
+export type { ConsoleKind, TriggerKind, TriggerOverflow };
 
 /** Field types a manual trigger may declare. Mirrors `InputFieldType`. */
 export type WizardFieldType = 'text' | 'number' | 'choice' | 'boolean';
 
-/** Sentinel for the "New source" option in the webhook source picker. */
+/** Sentinel for the "New source" option in the webhook and chat source pickers. */
 export const NEW_SOURCE = '__new__';
 
 export interface TriggerWizardAgent {
@@ -92,10 +98,13 @@ export interface TriggerWizardSource {
   id: string;
   name: string;
   provider: string;
+  /** Read from the API; a kind lists only the sources of its own category. */
+  category: SourceCategory;
 }
 
 /** What the parent needs in order to create the source and the trigger. */
 export interface TriggerDraft {
+  /** The stored kind: a chat command trigger is a `webhook` trigger on a chat source. */
   kind: TriggerKind;
   name: string;
   promptTemplate: string;
@@ -146,7 +155,7 @@ export interface TriggerWizardProps {
    * Opens straight into this kind's steps. Omit to open on the kind picker,
    * which is the first phase of the same modal.
    */
-  initialKind?: TriggerKind;
+  initialKind?: ConsoleKind;
   agents: TriggerWizardAgent[];
   /** Why the agents could not be read; the target step says so instead of offering none. */
   agentsError?: string | null;
@@ -315,7 +324,15 @@ export interface FieldCatalogEntry {
  * wizard reads only this; it never branches on `id`.
  */
 export interface TriggerKindDefinition {
-  id: TriggerKind;
+  /** The console's id for the kind; `chat` exists only in the console. */
+  id: ConsoleKind;
+  /**
+   * The kind the API stores. Every webhook-only gate tests this, so the chat
+   * command kind gets everything a webhook trigger gets.
+   */
+  apiKind: TriggerKind;
+  /** Set when the kind's triggers listen on sources: only sources of this category are listed. */
+  sourceCategory?: SourceCategory;
   icon: IconName;
   title: string;
   description: BrandedCopy;
@@ -337,6 +354,8 @@ export interface TriggerKindDefinition {
   fieldCatalog?: (state: WizardState, context: WizardContext) => FieldCatalogEntry[];
   /** The kind-specific block on the success screen. */
   doneContent: React.ComponentType<DoneContentProps>;
+  /** An example coalesce key for the chosen event, in the kind's own fields. */
+  coalesceKeyExample?: (eventType: string) => string;
 }
 
 /**

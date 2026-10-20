@@ -12,6 +12,8 @@ import {
   parallelWord,
   previewBody,
   resolvedFields,
+  senderRestrictionFrom,
+  splitIds,
   splitFilterValues,
   stepsFor,
   toDraft,
@@ -23,9 +25,11 @@ import {
 import { SHARED_STEPS } from './shared-steps';
 import { TRIGGER_KINDS } from './kinds';
 import { NEW_SOURCE } from './types';
-import type { WizardContext, WizardField, WizardState } from './types';
+import type { TriggerWizardSource, WizardContext, WizardField, WizardState } from './types';
 
-const SOURCES = [{ id: 'src-1', name: 'acme/widgets', provider: 'github' }];
+const SOURCES: TriggerWizardSource[] = [
+  { id: 'src-1', name: 'acme/widgets', provider: 'github', category: 'webhook' },
+];
 const AGENTS = [{ id: 'at-1', slug: 'coder', name: 'Coder' }];
 
 const CONTEXT: WizardContext = {
@@ -225,10 +229,38 @@ describe('toDraft', () => {
     });
   });
 
+  it('stores a chat command as a webhook trigger', () => {
+    const draft = toDraft(
+      TRIGGER_KINDS.chat,
+      state({ sourceChoice: 'src-chat', eventType: 'mention' }),
+    );
+    expect(draft.kind).toBe('webhook');
+    expect(draft.source).toEqual({ existingId: 'src-chat' });
+    expect(draft.eventType).toBe('mention');
+  });
+
   it('omits matchCondition entirely when no filter is set', () => {
     const draft = toDraft(TRIGGER_KINDS.webhook, state({ filters: [] }));
     expect(draft.matchCondition).toBeUndefined();
     expect('matchCondition' in draft).toBe(false);
+  });
+});
+
+describe('sender restriction', () => {
+  it('splits the ids on commas and whitespace, dropping blanks and repeats', () => {
+    expect(splitIds(' octocat, hubot\noctocat,, ')).toEqual(['octocat', 'hubot']);
+  });
+
+  it('sends ids and roles, and nothing when both are empty', () => {
+    expect(senderRestrictionFrom({ ids: 'U012AB3CD', roles: [] })).toEqual({
+      ids: ['U012AB3CD'],
+      roles: [],
+    });
+    expect(senderRestrictionFrom({ ids: '', roles: ['OWNER'] })).toEqual({
+      ids: [],
+      roles: ['OWNER'],
+    });
+    expect(senderRestrictionFrom({ ids: ' ', roles: [] })).toBeUndefined();
   });
 });
 

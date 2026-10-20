@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-import { webhookKind } from './webhook';
+import { chatKind, webhookKind } from './webhook';
 import { initialState } from '../wizard-state';
 import { NEW_SOURCE } from '../types';
-import type { WizardContext } from '../types';
+import type { TriggerWizardSource, WizardContext } from '../types';
 
 const CONTEXT: WizardContext = {
   agents: [{ id: 'at-1', slug: 'coder', name: 'Coder' }],
-  sources: [{ id: 'src-1', name: 'acme/widgets', provider: 'github' }],
+  sources: [{ id: 'src-1', name: 'acme/widgets', provider: 'github', category: 'webhook' }],
   ingestHost: 'orbit.local.clearroute.io:8443',
 };
 
@@ -30,44 +30,138 @@ describe('webhook DoneContent', () => {
     expect(screen.getByText('application/json')).toBeInTheDocument();
   });
 
-  it('shows a Slack source the request URL to set in its app', () => {
-    const state = {
-      ...initialState(webhookKind, CONTEXT.sources),
-      sourceChoice: NEW_SOURCE,
-      newSourceProvider: 'slack',
-    };
-    const DoneContent = webhookKind.doneContent;
-    render(
-      <DoneContent
-        state={state}
-        context={CONTEXT}
-        triggerId="trg-1"
-        endpoint="https://orbit.local/api/v1/webhooks/src-9"
-      />,
-    );
-    expect(screen.getByRole('button', { name: 'Copy request URL' })).toBeInTheDocument();
-    expect(screen.getByText(/Event Subscriptions in your Slack app/)).toBeInTheDocument();
-    expect(screen.queryByText('application/json')).toBeNull();
-    expect(screen.queryByText(/shown when the source was created/)).toBeNull();
-  });
-
-  it('shows the request URL for an existing Slack source too', () => {
-    const sources = [{ id: 'src-9', name: 'acme slack', provider: 'slack' }];
-    const DoneContent = webhookKind.doneContent;
-    render(
-      <DoneContent
-        state={{ ...initialState(webhookKind, sources), sourceChoice: 'src-9' }}
-        context={{ ...CONTEXT, sources }}
-        triggerId="trg-1"
-        endpoint="https://orbit.local/api/v1/webhooks/src-9"
-      />,
-    );
-    expect(screen.getByRole('button', { name: 'Copy request URL' })).toBeInTheDocument();
+  it('names no provider in its own wording', () => {
+    renderDone({ endpoint: 'https://orbit.local/api/v1/webhooks/src-1', secret: 'whsec_abc' });
+    expect(screen.queryByText(/Slack/)).toBeNull();
   });
 
   it('renders nothing without an endpoint', () => {
     const { container } = renderDone({});
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+const SLACK_SOURCE: TriggerWizardSource = {
+  id: 'src-9',
+  name: 'acme-slack',
+  provider: 'slack',
+  category: 'chat',
+};
+
+describe('chat DoneContent', () => {
+  const DoneContent = chatKind.doneContent;
+  const endpoint = 'https://orbit.local/api/v1/webhooks/src-9';
+
+  it('shows a new Slack source the request URL to set under Event Subscriptions', () => {
+    const state = {
+      ...initialState(chatKind, CONTEXT.sources),
+      sourceChoice: NEW_SOURCE,
+      newSourceProvider: 'slack',
+    };
+    render(<DoneContent state={state} context={CONTEXT} triggerId="trg-1" endpoint={endpoint} />);
+    expect(screen.getByText(endpoint)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy request URL' })).toBeInTheDocument();
+    expect(screen.getByText(/Event Subscriptions in your Slack app/)).toBeInTheDocument();
+    expect(screen.queryByText('application/json')).toBeNull();
+    expect(screen.queryByText(/secret/)).toBeNull();
+  });
+
+  it('shows the request URL for an existing Slack source as already set', () => {
+    const sources = [SLACK_SOURCE];
+    render(
+      <DoneContent
+        state={{ ...initialState(chatKind, sources), sourceChoice: 'src-9' }}
+        context={{ ...CONTEXT, sources }}
+        triggerId="trg-1"
+        endpoint={endpoint}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Copy request URL' })).toBeInTheDocument();
+    expect(screen.getByText(/already set under Event Subscriptions/)).toBeInTheDocument();
+  });
+
+  it('renders nothing without an endpoint', () => {
+    const { container } = render(
+      <DoneContent state={initialState(chatKind, [])} context={CONTEXT} triggerId="trg-1" />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('chat validation, review and draft', () => {
+  const validate = chatKind.steps[0]!.validate;
+  const ready = {
+    ...initialState(chatKind, [SLACK_SOURCE]),
+    name: 'ask',
+    promptTemplate: 'Answer {{ text }}',
+  };
+
+  it('asks for the message to listen for', () => {
+    expect(validate(ready, CONTEXT)).toEqual({
+      valid: false,
+      hint: 'Choose the message this trigger listens for.',
+    });
+    expect(validate({ ...ready, eventType: 'mention' }, CONTEXT).valid).toBe(true);
+  });
+
+  it('asks for a platform for a new source', () => {
+    expect(
+      validate({ ...ready, sourceChoice: NEW_SOURCE, newSourceName: 'acme-slack' }, CONTEXT),
+    ).toEqual({ valid: false, hint: 'Choose a platform.' });
+  });
+
+  it('requires the signing secret for a new Slack source and puts it on the draft', () => {
+    const slack = {
+      ...ready,
+      eventType: 'mention',
+      sourceChoice: NEW_SOURCE,
+      newSourceName: 'acme',
+      newSourceProvider: 'slack',
+    };
+    expect(validate(slack, CONTEXT)).toEqual({
+      valid: false,
+      hint: 'Paste the signing secret from your Slack app.',
+    });
+    const withSecret = { ...slack, newSourceSecret: ' slack-secret ' };
+    expect(validate(withSecret, CONTEXT).valid).toBe(true);
+    expect(chatKind.draftPatch(withSecret).source).toEqual({
+      newName: 'acme',
+      provider: 'slack',
+      signingSecret: 'slack-secret',
+    });
+  });
+
+  it('shows the event by its label and the platform by name on review', () => {
+    const rows = chatKind.summarize(
+      {
+        ...ready,
+        eventType: 'direct_message',
+        sourceChoice: NEW_SOURCE,
+        newSourceName: 'acme',
+        newSourceProvider: 'slack',
+      },
+      CONTEXT,
+    );
+    expect(rows).toEqual([
+      { key: 'Source', value: 'acme (new, Slack)' },
+      { key: 'Event', value: 'Direct message' },
+    ]);
+  });
+
+  it('puts sender ids on the draft', () => {
+    expect(
+      chatKind.draftPatch({
+        ...ready,
+        eventType: 'mention',
+        senders: { ids: 'U012AB3CD U045EF6GH', roles: [] },
+      }).senderRestriction,
+    ).toEqual({ ids: ['U012AB3CD', 'U045EF6GH'], roles: [] });
+  });
+
+  it('gives a conversation key example per event', () => {
+    expect(chatKind.coalesceKeyExample?.('mention')).toBe('{{ conversation.id }}:{{ thread.id }}');
+    expect(chatKind.coalesceKeyExample?.('direct_message')).toBe('{{ conversation.id }}');
+    expect(webhookKind.coalesceKeyExample).toBeUndefined();
   });
 });
 
@@ -95,9 +189,9 @@ describe('webhook validation and draft', () => {
       webhookKind.draftPatch({
         ...ready,
         eventType: 'push',
-        senders: { logins: 'octocat, hubot octocat', associations: ['MEMBER'] },
+        senders: { ids: 'octocat, hubot octocat', roles: ['MEMBER'] },
       }).senderRestriction,
-    ).toEqual({ logins: ['octocat', 'hubot'], associations: ['MEMBER'] });
+    ).toEqual({ ids: ['octocat', 'hubot'], roles: ['MEMBER'] });
   });
 
   it('splits is and contains rows between the two filter maps', () => {
@@ -111,27 +205,6 @@ describe('webhook validation and draft', () => {
     });
     expect(patch.matchCondition).toEqual({ action: ['created'] });
     expect(patch.matchContains).toEqual({ 'comment.body': ['@kora-agent'] });
-  });
-
-  it('requires the signing secret for a new Slack source and puts it on the draft', () => {
-    const slack = {
-      ...ready,
-      eventType: 'app_mention',
-      sourceChoice: NEW_SOURCE,
-      newSourceName: 'acme',
-      newSourceProvider: 'slack',
-    };
-    expect(validate(slack, CONTEXT)).toEqual({
-      valid: false,
-      hint: 'Paste the signing secret from your Slack app.',
-    });
-    const withSecret = { ...slack, newSourceSecret: ' slack-secret ' };
-    expect(validate(withSecret, CONTEXT).valid).toBe(true);
-    expect(webhookKind.draftPatch(withSecret).source).toEqual({
-      newName: 'acme',
-      provider: 'slack',
-      signingSecret: 'slack-secret',
-    });
   });
 
   it('never sends a signing secret for a provider that generates one', () => {
@@ -151,7 +224,7 @@ describe('webhook validation and draft', () => {
 
   it('summarises the senders for review', () => {
     const rows = webhookKind.summarize(
-      { ...ready, eventType: 'push', senders: { logins: '', associations: ['OWNER'] } },
+      { ...ready, eventType: 'push', senders: { ids: '', roles: ['OWNER'] } },
       CONTEXT,
     );
     expect(rows).toEqual(expect.arrayContaining([{ key: 'Senders', value: 'OWNER', mono: true }]));

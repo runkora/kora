@@ -11,6 +11,12 @@ const GITHUB_FIELDS: Record<string, TriggerField[]> = {
     { path: 'meta.event_type', group: 'meta', description: 'The event type' },
   ],
 };
+const CHAT_FIELDS: TriggerField[] = [
+  { path: 'text', group: 'event', description: 'The message text' },
+  { path: 'conversation.id', group: 'conversation', description: 'The conversation' },
+  { path: 'thread.id', group: 'thread', description: 'The thread' },
+  { path: 'user.id', group: 'user', description: 'The sender' },
+];
 const ALERT_FIELDS: TriggerField[] = [
   { path: 'status', group: 'event', description: 'firing or resolved' },
   { path: 'commonLabels.<name>', group: 'commonLabels', description: 'A label', pattern: true },
@@ -28,23 +34,41 @@ import { StepReview } from './step-review';
 import { StepTarget } from './step-target';
 import { KIND_ORDER, PLANNED_KINDS, TRIGGER_KINDS } from './kinds';
 import { initialState } from './wizard-state';
-import type { TriggerKind, WizardContext } from './types';
+import type { ConsoleKind, TriggerWizardSource, WizardContext } from './types';
 
 const CONTEXT: WizardContext = {
   agents: [{ id: 'at-1', slug: 'coder', name: 'Coder' }],
-  sources: [{ id: 'src-1', name: 'acme/widgets', provider: 'github' }],
+  sources: [{ id: 'src-1', name: 'acme/widgets', provider: 'github', category: 'webhook' }],
   ingestHost: 'orbit.local.clearroute.io:8443',
 };
 
-/** Slack identifies senders by user id and reports no associations. */
+const ALERTS: TriggerWizardSource = {
+  id: 'src-2',
+  name: 'prod alerts',
+  provider: 'alertmanager',
+  category: 'webhook',
+};
+const SLACK: TriggerWizardSource = {
+  id: 'src-3',
+  name: 'acme slack',
+  provider: 'slack',
+  category: 'chat',
+};
+
+/** GitHub declares its roles; Alertmanager identifies no sender; Slack identifies senders without roles. */
 const PROVIDER_EVENT_TYPES: Record<string, TriggerEventTypes> = {
   github: {
     declared: ['issue_comment', 'push'],
-    associations: ['OWNER', 'MEMBER'],
-    identifies_senders: true,
+    category: 'webhook',
+    senders: {
+      roles: [
+        { value: 'OWNER', label: 'Owner', description: 'Owns the repository' },
+        { value: 'MEMBER', label: 'Member', description: 'Member of the organization' },
+      ],
+    },
   },
-  alertmanager: { declared: ['alert.firing'], associations: [], identifies_senders: false },
-  slack: { declared: ['app_mention', 'message.im'], associations: [], identifies_senders: true },
+  alertmanager: { declared: ['alert.firing'], category: 'webhook' },
+  slack: { declared: ['mention', 'direct_message'], category: 'chat', senders: { roles: [] } },
 };
 
 beforeEach(() => {
@@ -63,19 +87,24 @@ beforeEach(() => {
     error: null,
   }));
   api.fetchProviderFields.mockImplementation(async (provider: string, eventType: string) => ({
-    fields: provider === 'alertmanager' ? ALERT_FIELDS : (GITHUB_FIELDS[eventType] ?? []),
+    fields:
+      provider === 'alertmanager'
+        ? ALERT_FIELDS
+        : provider === 'slack'
+          ? CHAT_FIELDS
+          : (GITHUB_FIELDS[eventType] ?? []),
     error: null,
   }));
 });
 
-function renderWizard(initialKind?: TriggerKind) {
+function renderWizard(initialKind?: ConsoleKind, sources = CONTEXT.sources, onCreate = vi.fn()) {
   return render(
     <TriggerWizard
       initialKind={initialKind}
       agents={CONTEXT.agents}
-      sources={CONTEXT.sources}
+      sources={sources}
       ingestHost={CONTEXT.ingestHost}
-      onCreate={vi.fn()}
+      onCreate={onCreate}
       onClose={vi.fn()}
     />,
   );
@@ -98,11 +127,19 @@ describe('TriggerWizard picker phase', () => {
       expect(screen.getByText(planned.title)).toBeTruthy();
     }
   });
+
+  it('offers Chat command as a kind that can be picked, not a planned one', () => {
+    renderWizard();
+    const chat = screen.getByRole('radio', { name: /Chat command/ });
+    expect(chat.hasAttribute('disabled')).toBe(false);
+    expect(PLANNED_KINDS.map((k) => k.title)).not.toContain('Chat command');
+  });
 });
 
 describe('TriggerWizard step phase', () => {
-  const FIRST_STEP: Record<TriggerKind, string> = {
+  const FIRST_STEP: Record<ConsoleKind, string> = {
     webhook: 'Source',
+    chat: 'Source',
     scheduled: 'Schedule',
     manual: 'Inputs',
   };
@@ -205,7 +242,7 @@ describe('filters and prompt fields', () => {
       <TriggerWizard
         initialKind="webhook"
         agents={CONTEXT.agents}
-        sources={[{ id: 'src-2', name: 'prod alerts', provider: 'alertmanager' }]}
+        sources={[ALERTS]}
         ingestHost={CONTEXT.ingestHost}
         onCreate={vi.fn()}
         onClose={vi.fn()}
@@ -229,10 +266,7 @@ describe('filters and prompt fields', () => {
       <TriggerWizard
         initialKind="webhook"
         agents={CONTEXT.agents}
-        sources={[
-          { id: 'src-1', name: 'acme/widgets', provider: 'github' },
-          { id: 'src-2', name: 'prod alerts', provider: 'alertmanager' },
-        ]}
+        sources={[...CONTEXT.sources, ALERTS]}
         ingestHost={CONTEXT.ingestHost}
         onCreate={vi.fn()}
         onClose={vi.fn()}
@@ -260,7 +294,7 @@ describe('filters and prompt fields', () => {
       <TriggerWizard
         initialKind="webhook"
         agents={CONTEXT.agents}
-        sources={[{ id: 'src-2', name: 'prod alerts', provider: 'alertmanager' }]}
+        sources={[ALERTS]}
         ingestHost={CONTEXT.ingestHost}
         onCreate={vi.fn()}
         onClose={vi.fn()}
@@ -268,43 +302,6 @@ describe('filters and prompt fields', () => {
     );
     await screen.findByRole('button', { name: 'Event type' });
     expect(screen.queryByText('Senders')).toBeNull();
-  });
-
-  it('offers sender ids without relationships when the provider reports none', async () => {
-    render(
-      <TriggerWizard
-        initialKind="webhook"
-        agents={CONTEXT.agents}
-        sources={[{ id: 'src-3', name: 'acme slack', provider: 'slack' }]}
-        ingestHost={CONTEXT.ingestHost}
-        onCreate={vi.fn()}
-        onClose={vi.fn()}
-      />,
-    );
-    expect(await screen.findByText('Senders')).toBeTruthy();
-    expect(screen.getByLabelText('Allowed senders')).toBeTruthy();
-    expect(screen.queryByRole('checkbox')).toBeNull();
-  });
-
-  it('shows the Slack app manifest and asks for the signing secret', async () => {
-    render(
-      <TriggerWizard
-        initialKind="webhook"
-        agents={CONTEXT.agents}
-        sources={[]}
-        ingestHost={CONTEXT.ingestHost}
-        onCreate={vi.fn()}
-        onClose={vi.fn()}
-      />,
-    );
-    fireEvent.click(screen.getByText('New source'));
-    fireEvent.click(screen.getByText('Slack'));
-    expect(screen.getByText('manifest.json')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Copy code' })).toBeTruthy();
-    expect(screen.getByLabelText(/Signing secret/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Event type' }));
-    expect(await screen.findByText('app_mention')).toBeTruthy();
-    expect(api.fetchProviderEventTypes).toHaveBeenCalledWith('slack');
   });
 
   it("reads a new source's catalogue from the provider being created", async () => {
@@ -324,6 +321,122 @@ describe('filters and prompt fields', () => {
     expect(api.fetchProviderEventTypes).toHaveBeenCalledWith('github');
     expect(api.fetchEventTypes).not.toHaveBeenCalled();
     expect(screen.queryByText('custom')).toBeNull();
+  });
+});
+
+describe('webhook kind beside chat sources', () => {
+  it('lists only webhook sources, never a chat source', async () => {
+    renderWizard('webhook', [...CONTEXT.sources, SLACK]);
+    expect(screen.getByText('acme/widgets')).toBeTruthy();
+    expect(screen.queryByText('acme slack')).toBeNull();
+  });
+
+  it('offers only the providers whose category is webhook', async () => {
+    renderWizard('webhook', []);
+    fireEvent.click(screen.getByText('New source'));
+    expect(await screen.findByText('Prometheus Alertmanager')).toBeTruthy();
+    expect(screen.getByText('GitHub')).toBeTruthy();
+    expect(screen.queryByText('Slack')).toBeNull();
+    expect(screen.queryByText('Discord')).toBeNull();
+  });
+
+  it('shows the role cards from the labels the provider declares', async () => {
+    renderWizard('webhook');
+    expect(await screen.findByText('Owns the repository')).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Owner' })).toBeTruthy();
+  });
+});
+
+describe('chat command kind', () => {
+  function fillNameAndPrompt() {
+    fireEvent.change(screen.getByLabelText(/Trigger name/), { target: { value: 'ask' } });
+    const prompt = screen.getByRole('textbox', { name: 'Prompt' });
+    prompt.textContent = 'Answer {{ text }}';
+    fireEvent.input(prompt);
+  }
+
+  it('lists only chat sources', () => {
+    renderWizard('chat', [...CONTEXT.sources, SLACK]);
+    expect(screen.getByText('acme slack')).toBeTruthy();
+    expect(screen.queryByText('acme/widgets')).toBeNull();
+  });
+
+  it('starts on New source when there is no chat source, with no platform chosen', () => {
+    renderWizard('chat', CONTEXT.sources);
+    expect(screen.queryByText('acme/widgets')).toBeNull();
+    expect(screen.queryByText('Platform')).toBeNull();
+    fireEvent.click(screen.getByText('New source'));
+    expect(screen.getByText('Platform')).toBeTruthy();
+  });
+
+  it('offers Slack, and shows Discord and Microsoft Teams as planned', async () => {
+    renderWizard('chat', []);
+    fireEvent.click(screen.getByText('New source'));
+    const slack = await screen.findByRole('radio', { name: /Slack/ });
+    expect(slack.hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('radio', { name: /Discord/ }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('radio', { name: /Microsoft Teams/ }).hasAttribute('disabled')).toBe(
+      true,
+    );
+    expect(screen.queryByText('GitHub')).toBeNull();
+  });
+
+  it('shows the Slack app manifest without a request URL and asks for the signing secret', async () => {
+    renderWizard('chat', []);
+    fireEvent.click(screen.getByText('New source'));
+    fireEvent.click(await screen.findByText('Slack'));
+    expect(screen.getByText('manifest.json')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Copy code' })).toBeTruthy();
+    expect(screen.getByLabelText(/Signing secret/)).toBeTruthy();
+    expect(document.body.textContent).not.toContain('request_url');
+    expect(api.fetchProviderEventTypes).toHaveBeenCalledWith('slack');
+  });
+
+  it('offers the chat events with readable labels', async () => {
+    renderWizard('chat', [SLACK]);
+    expect(await screen.findByRole('radio', { name: /Mention/ })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /Direct message/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Event type' })).toBeNull();
+  });
+
+  it('offers the chat fields to the prompt and no role cards', async () => {
+    renderWizard('chat', [SLACK]);
+    fireEvent.click(await screen.findByRole('radio', { name: /Mention/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Insert field/ }));
+    expect(await screen.findByText('conversation.id')).toBeTruthy();
+    expect(screen.getByLabelText('Allowed senders')).toHaveAttribute(
+      'placeholder',
+      'U012AB3CD, U045EF6GH',
+    );
+    expect(screen.queryByRole('checkbox')).toBeNull();
+  });
+
+  it('creates a webhook trigger on the new Slack source with its secret', async () => {
+    const onCreate = vi.fn().mockResolvedValue({ ok: true, triggerId: 'trg-1' });
+    renderWizard('chat', [], onCreate);
+    fillNameAndPrompt();
+    fireEvent.click(screen.getByText('New source'));
+    fireEvent.change(screen.getByLabelText(/Source name/), { target: { value: 'acme-slack' } });
+    fireEvent.click(await screen.findByText('Slack'));
+    expect(screen.getByText('Paste the signing secret from your Slack app.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Signing secret/), { target: { value: 'sig' } });
+    fireEvent.click(await screen.findByRole('radio', { name: /Direct message/ }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Coder' }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    expect(screen.getByText('Chat command')).toBeTruthy();
+    expect(screen.getAllByText('Direct message').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: /Create trigger/ }));
+
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'webhook',
+        eventType: 'direct_message',
+        source: { newName: 'acme-slack', provider: 'slack', signingSecret: 'sig' },
+      }),
+    );
   });
 });
 
@@ -384,6 +497,36 @@ describe('shared steps', () => {
   it('hides coalescing unless overflow is wait', () => {
     render(<StepDelivery {...shared} state={{ ...state, overflow: 'replace' }} />);
     expect(screen.queryByText('Coalesce events')).toBeNull();
+  });
+
+  it('offers coalescing to a chat command, keyed on the conversation in the example', () => {
+    render(
+      <StepDelivery
+        {...shared}
+        definition={TRIGGER_KINDS.chat}
+        state={{ ...state, eventType: 'mention', coalesceEnabled: true }}
+      />,
+    );
+    expect(screen.getByLabelText('Key')).toHaveAttribute(
+      'placeholder',
+      '{{ conversation.id }}:{{ thread.id }}',
+    );
+  });
+
+  it('keys a direct message example on the conversation alone', () => {
+    render(
+      <StepDelivery
+        {...shared}
+        definition={TRIGGER_KINDS.chat}
+        state={{ ...state, eventType: 'direct_message', coalesceEnabled: true }}
+      />,
+    );
+    expect(screen.getByLabelText('Key')).toHaveAttribute('placeholder', '{{ conversation.id }}');
+  });
+
+  it('shows coalescing on the review step for a chat command', () => {
+    render(<StepReview {...shared} definition={TRIGGER_KINDS.chat} />);
+    expect(screen.getByText('Coalescing')).toBeTruthy();
   });
 
   it('hides coalescing for scheduled and manual triggers', () => {

@@ -391,7 +391,7 @@ export const ApiRoute = {
       `${API_BASE}/trigger-sources/${id}/event-types`,
   },
 
-  /** Per-provider schema catalogue: event types, fields and sender associations. */
+  /** Per-provider schema catalogue: event types, category, fields and sender roles. */
   triggerProviders: {
     eventTypes: (provider: string): `${typeof API_BASE}/trigger-providers/${string}/event-types` =>
       `${API_BASE}/trigger-providers/${encodeURIComponent(provider)}/event-types`,

@@ -19,6 +19,7 @@ vi.mock('@runkora/server/session', () => ({
 }));
 
 import { POST } from './route';
+import { PATCH } from './[id]/route';
 import { getSession } from '@runkora/server/session';
 
 const TRIGGERS_URL = 'http://test-triggers-svc/triggers';
@@ -64,15 +65,15 @@ describe('POST /api/triggers', () => {
         agent_type_id: 'agent-1',
         event_type: 'issue_comment',
         prompt_template: '{{ comment.body }}',
-        sender_restriction: { logins: ['octocat'], associations: ['MEMBER'] },
+        sender_restriction: { ids: ['octocat'], roles: ['MEMBER'] },
       }),
       { params: Promise.resolve({}) } as never,
     );
 
     expect(res.status).toBe(201);
     expect(received?.sender_restriction).toEqual({
-      logins: ['octocat'],
-      associations: ['MEMBER'],
+      ids: ['octocat'],
+      roles: ['MEMBER'],
     });
   });
 
@@ -217,5 +218,33 @@ describe('POST /api/triggers', () => {
 
     expect(res.status).toBe(400);
     expect(called).toBe(false);
+  });
+});
+
+describe('PATCH /api/triggers/[id]', () => {
+  beforeEach(() => {
+    vi.mocked(getSession).mockResolvedValue(makeSession() as never);
+  });
+
+  it('forwards a sender restriction of ids and roles unchanged', async () => {
+    let received: Record<string, unknown> | undefined;
+    server.use(
+      http.patch(`${TRIGGERS_URL}/t-1`, async ({ request }) => {
+        received = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 't-1' });
+      }),
+    );
+
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/triggers/t-1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sender_restriction: { ids: ['U012AB3CD'], roles: [] } }),
+      }),
+      { params: Promise.resolve({ id: 't-1' }) } as never,
+    );
+
+    expect(res.status).toBe(200);
+    expect(received).toEqual({ sender_restriction: { ids: ['U012AB3CD'], roles: [] } });
   });
 });

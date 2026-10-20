@@ -4,16 +4,11 @@
  * product name so the app is named after the product it talks to.
  */
 
-import { endpointFor } from './endpoints';
-
 /**
- * The Slack provider id. Slack issues a source's signing secret, so the console
- * asks for it at create and rotate instead of showing a generated one.
+ * The Slack provider id. A new Slack source is set up from this manifest, and
+ * Slack issues its signing secret, so the console asks for it.
  */
 export const SLACK_PROVIDER = 'slack';
-
-/** Stands in for the source id in the request URL until the source exists. */
-export const SLACK_SOURCE_ID_PLACEHOLDER = 'SOURCE_ID';
 
 /** Slack's limit on an app's display name. */
 const MAX_APP_NAME = 35;
@@ -26,7 +21,7 @@ export interface SlackAppManifest {
   };
   oauth_config: { scopes: { bot: string[] } };
   settings: {
-    event_subscriptions: { request_url: string; bot_events: string[] };
+    event_subscriptions: { bot_events: string[] };
     org_deploy_enabled: boolean;
     socket_mode_enabled: boolean;
     token_rotation_enabled: boolean;
@@ -52,7 +47,11 @@ export function slackBotDisplayName(productName: string): string {
   return slug || 'bot';
 }
 
-export function slackAppManifest(productName: string, ingestHost: string): SlackAppManifest {
+/**
+ * The manifest has no request URL: the source id is known only once the source
+ * exists, so the done step shows the URL to set under Event Subscriptions.
+ */
+export function slackAppManifest(productName: string): SlackAppManifest {
   return {
     display_information: {
       // Cut by code point so a name is never split inside a character.
@@ -78,10 +77,7 @@ export function slackAppManifest(productName: string, ingestHost: string): Slack
       },
     },
     settings: {
-      event_subscriptions: {
-        request_url: endpointFor(ingestHost, SLACK_SOURCE_ID_PLACEHOLDER),
-        bot_events: ['app_mention', 'message.im'],
-      },
+      event_subscriptions: { bot_events: ['app_mention', 'message.im'] },
       org_deploy_enabled: false,
       socket_mode_enabled: false,
       token_rotation_enabled: false,

@@ -48,7 +48,7 @@ export function StepReview({ state, context, definition, error, onGoTo }: StepCo
 
   const coalesce = coalesceFrom(coalesceDraftOf(state));
   const coalesceRows =
-    definition.id === 'webhook' && state.overflow === 'wait'
+    definition.apiKind === 'webhook' && state.overflow === 'wait'
       ? [
           {
             label: 'Coalescing',

@@ -733,6 +733,8 @@ export interface WebhookSource {
   name: string;
   /** Source adapter id, e.g. "github". */
   provider: string;
+  /** Read-only, set from the provider's adapter: `chat` for a chat platform, else `webhook`. */
+  category?: SourceCategory;
   config?: Record<string, unknown>;
   enabled: boolean;
   created_at: string;
@@ -831,13 +833,30 @@ export interface SchedulePreviewResponse {
   timezone: string;
 }
 
+/** What kind of source a provider's adapter makes. Mirrors Go: triggers.CategoryChat, CategoryWebhook. */
+export type SourceCategory = 'chat' | 'webhook';
+
 /**
- * Who may fire a webhook trigger. A sender passes when its login or its
- * association is listed; both lists empty means anyone.
+ * Who may fire a webhook or chat command trigger. A sender passes when its id
+ * or any of its roles is listed; both lists empty means anyone. The API
+ * refuses any other key.
  */
 export interface SenderRestriction {
-  logins?: string[];
-  associations?: string[];
+  ids?: string[];
+  roles?: string[];
+}
+
+/** A role a provider reports for a sender, with the text the console shows. Mirrors Go: triggers.SenderRole. */
+export interface SenderRole {
+  value: string;
+  label: string;
+  description: string;
+}
+
+/** What a sender restriction on a provider's triggers may name. Mirrors Go: triggers.Senders. */
+export interface TriggerSenders {
+  /** Empty when the provider reports no roles. */
+  roles: SenderRole[];
 }
 
 /**
@@ -848,10 +867,9 @@ export interface SenderRestriction {
 export interface TriggerEventTypes {
   declared: string[];
   observed?: string[];
-  /** Association values a sender restriction may name; empty when the provider has none. */
-  associations: string[];
-  /** Whether the provider reports who caused an event, so a sender restriction applies. */
-  identifies_senders: boolean;
+  category: SourceCategory;
+  /** Present when the provider reports who caused an event, so a sender restriction applies. */
+  senders?: TriggerSenders;
 }
 
 /** One field of a provider event, from its schema. Mirrors Go: triggers.Field. */

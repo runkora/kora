@@ -13,8 +13,9 @@
 import { useMemo } from 'react';
 import { Badge, DataTable, Icon, IconTile, Sparkline, Stack, Text, Toggle } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
-import { KIND_ICON, relativeTime, runTargets } from '../_types';
-import type { DeliveryRow, TriggerRow } from '../_types';
+import { consoleKindOf, KIND_ICON, relativeTime, runTargets } from '../_types';
+import type { ConsoleKind, DeliveryRow, SourceCategory, TriggerRow } from '../_types';
+import { chatEventLabel } from '../_lib/chat';
 import { lastFired, recentFailures, sparkline } from '../_types/fleet';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
 import { useHasScope } from '../../_components/permissions-provider';
@@ -38,11 +39,15 @@ interface TriggerDisplayRow extends TriggerRow {
   lastFiredAt: string | null;
   /** Fires-on label (schedule expression, "on demand", event type, etc). */
   firesOnLabel: string;
+  /** Chat command for a webhook trigger on a chat source, else the stored kind. */
+  consoleKind: ConsoleKind;
 }
 
 /** What this trigger fires on, in its own vocabulary. */
-function firesOn(t: TriggerRow): string {
-  switch (t.kind) {
+function firesOn(t: TriggerRow, kind: ConsoleKind): string {
+  switch (kind) {
+    case 'chat':
+      return t.eventType ? chatEventLabel(t.eventType) : 'no event type (never fires)';
     case 'scheduled':
       return t.scheduleConfig?.cronExpression ?? 'schedule';
     case 'manual':
@@ -70,7 +75,7 @@ function makeColumns(
       cell: (row) => (
         <Stack direction="horizontal" gap="cozy" align="center" minWidth="none">
           <IconTile tone={row.autoPausedAt !== null ? 'accent' : 'muted'}>
-            <Icon name={KIND_ICON[row.kind]} size="xs" />
+            <Icon name={KIND_ICON[row.consoleKind]} size="xs" />
           </IconTile>
           <Stack gap="tight" minWidth="none">
             <Stack direction="horizontal" gap="snug" align="center" minWidth="none">
@@ -214,6 +219,9 @@ function triggerMatchesSearch(row: TriggerDisplayRow, q: string): boolean {
   );
 }
 
+/** Used when the caller does not know source categories: every source reads as a webhook source. */
+const noCategory = (): SourceCategory | undefined => undefined;
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface TriggerListProps {
@@ -221,6 +229,8 @@ interface TriggerListProps {
   deliveries: DeliveryRow[];
   /** Resolves a webhook source id to its name for the row subtitle. */
   sourceName: (id: string) => string;
+  /** Resolves a source id to its category, so a trigger on a chat source shows as a chat command. */
+  sourceCategory?: (id: string) => SourceCategory | undefined;
   onOpen: (t: TriggerRow) => void;
   onToggle: (t: TriggerRow) => void;
   /** Whether the caller may run an agent; the on or off switch needs it. */
@@ -242,6 +252,7 @@ export function TriggerList({
   triggers,
   deliveries,
   sourceName,
+  sourceCategory = noCategory,
   onOpen,
   onToggle,
   canRunAgent,
@@ -259,16 +270,18 @@ export function TriggerList({
         const buckets = sparkline(t.id, deliveries);
         const activity = buckets.map((b) => b.started + b.failed + b.other);
         const failures = recentFailures(t.id, deliveries);
+        const consoleKind = consoleKindOf(t, sourceCategory);
         return {
           ...t,
           failures,
           activity,
           hasActivity: activity.some((v) => v > 0),
           lastFiredAt: lastFired(t.id, deliveries),
-          firesOnLabel: firesOn(t),
+          firesOnLabel: firesOn(t, consoleKind),
+          consoleKind,
         };
       }),
-    [triggers, deliveries],
+    [triggers, deliveries, sourceCategory],
   );
 
   const canWrite = useHasScope('triggers:write');

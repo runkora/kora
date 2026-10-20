@@ -15,7 +15,7 @@ import { initialState, stepsFor, toDraft } from './wizard-state';
 import { useRoutingOptions } from './use-routing-options';
 import {
   brandedCopy,
-  type TriggerKind,
+  type ConsoleKind,
   type TriggerWizardProps,
   type WizardContext,
   type WizardState,
@@ -38,7 +38,7 @@ export function TriggerWizard({
   onClose,
 }: TriggerWizardProps) {
   const { productName } = useBrand();
-  const [kind, setKind] = useState<TriggerKind | null>(initialKind ?? null);
+  const [kind, setKind] = useState<ConsoleKind | null>(initialKind ?? null);
   const [state, setState] = useState<WizardState | null>(() =>
     initialKind ? initialState(TRIGGER_KINDS[initialKind], sources) : null,
   );
@@ -69,7 +69,7 @@ export function TriggerWizard({
   );
 
   const chooseKind = useCallback(
-    (next: TriggerKind) => {
+    (next: ConsoleKind) => {
       setKind(next);
       setState(initialState(TRIGGER_KINDS[next], sources));
       setStep(0);

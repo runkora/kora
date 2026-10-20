@@ -1,7 +1,9 @@
 'use client';
 
-/** @tier 3 — triggers-scoped. The webhook kind: an external system posts a
- * signed event to a kora endpoint. Step, review rows, draft, done block. */
+/** @tier 3 · triggers-scoped. The webhook and chat command kinds: an external
+ * system posts a signed event to a kora endpoint. One module, two registry
+ * entries told apart by the source category the API reports. Step, review
+ * rows, draft, done block. */
 
 import {
   CodeBlock,
@@ -18,7 +20,7 @@ import {
   FieldRow,
 } from '@runkora/hades';
 import { useBrand } from '@runkora/theme/brand-provider';
-import type { IconName } from '@runkora/hades';
+import type { SourceCategory } from '../../../_types';
 import {
   describeMatchCondition,
   matchConditionFrom,
@@ -26,51 +28,81 @@ import {
   coalesceDraftOf,
   coalesceFrom,
   senderRestrictionFrom,
-  splitLogins,
+  splitIds,
   validateFilters,
   validateNamedPromptStep,
 } from '../wizard-state';
 import { PromptField, TriggerNameField } from '../shared-fields';
 import { eventTypeCatalog, schemaCatalog } from '../field-catalog';
 import { CatalogPicker } from '../../catalog-picker';
+import { ChatEventPicker } from '../../chat-event-picker';
 import { DataBlockPreview } from '../../data-block-preview';
 import { FilterRowsEditor } from '../../filter-rows-editor';
 import { SenderRestrictionEditor } from '../../sender-restriction-editor';
-import { useSourceCatalog } from '../../use-source-catalog';
+import { useProviderCategories, useSourceCatalog } from '../../use-source-catalog';
 import { endpointFor } from '../../../_lib/endpoints';
+import { chatConversationKey, chatEventLabel, LATER_CHAT_PLATFORMS } from '../../../_lib/chat';
+import { PROVIDER_IDS, PROVIDERS, providerName } from '../../../_lib/providers';
 import { SLACK_PROVIDER, slackAppManifest } from '../../../_lib/slack-app-manifest';
 import { NEW_SOURCE } from '../types';
 import type {
   DoneContentProps,
   StepComponentProps,
   TriggerKindDefinition,
+  WizardContext,
   WizardState,
 } from '../types';
 
 // A new source or provider has its own events, fields and senders.
-const RESET_EVENT = { eventType: '', filters: [], senders: { logins: '', associations: [] } };
+const RESET_EVENT = { eventType: '', filters: [], senders: { ids: '', roles: [] } };
 
-/** Providers with a signature adapter in the backend. Nothing else verifies. */
-const PROVIDERS: { id: string; name: string; description: string; icon: IconName }[] = [
-  {
-    id: 'github',
-    name: 'GitHub',
-    description: 'Repository and organisation webhooks, verified by HMAC signature.',
-    icon: 'code-2',
+/** The copy that differs between the two kinds. */
+interface SourceKindCopy {
+  namePlaceholder: string;
+  nameHint: string;
+  sourceLabel: string;
+  sourceHelp: (productName: string) => string;
+  newSourceHelp: string;
+  sourceNameHint: string;
+  sourceNamePlaceholder: string;
+  providerLabel: string;
+  filtersHelp: string;
+  promptPlaceholder: string;
+  senderIdPlaceholder: string;
+}
+
+const COPY: Record<SourceCategory, SourceKindCopy> = {
+  webhook: {
+    namePlaceholder: 'github-push',
+    nameHint: 'Shown in the triggers list and on every delivery.',
+    sourceLabel: 'Webhook source',
+    sourceHelp: (productName) =>
+      `The ${productName} endpoint your provider posts events to. Triggers listen on a source; several triggers can share one.`,
+    newSourceHelp: 'Register a new origin that posts to this endpoint.',
+    sourceNameHint: 'How this origin appears in the sources list, e.g. acme/widgets.',
+    sourceNamePlaceholder: 'acme/widgets',
+    providerLabel: 'Provider',
+    filtersHelp: 'Only deliveries matching every filter start a run. Values are alternatives.',
+    promptPlaceholder: 'Answer the question in {{ comment.body }} on {{ issue.html_url }}.',
+    senderIdPlaceholder: 'octocat, hubot',
   },
-  {
-    id: 'alertmanager',
-    name: 'Prometheus Alertmanager',
-    description: 'Alert notifications, verified by bearer token.',
-    icon: 'bell',
+  chat: {
+    namePlaceholder: 'answer-mentions',
+    nameHint: 'Shown in the triggers list and on every message it receives.',
+    sourceLabel: 'Chat source',
+    sourceHelp: (productName) =>
+      `The chat app that sends messages to ${productName}. Triggers listen on a source; several triggers can share one.`,
+    newSourceHelp: 'Connect a chat workspace through a new app.',
+    sourceNameHint: 'How this workspace appears in the sources list, e.g. acme-slack.',
+    sourceNamePlaceholder: 'acme-slack',
+    providerLabel: 'Platform',
+    filtersHelp:
+      'Only messages matching every filter start a run. A filter on conversation.id limits it to chosen channels. Values are alternatives.',
+    promptPlaceholder:
+      'Answer {{ text }} from {{ user.id }}. Reply in thread {{ thread.id }} of conversation {{ conversation.id }}.',
+    senderIdPlaceholder: 'U012AB3CD, U045EF6GH',
   },
-  {
-    id: SLACK_PROVIDER,
-    name: 'Slack',
-    description: 'Mentions and direct messages to a Slack app, verified by its signing secret.',
-    icon: 'send',
-  },
-];
+};
 
 /** The provider whose schema the step reads: the chosen source's, or the new source's. */
 function catalogProvider(state: WizardState, sources: { id: string; provider: string }[]) {
@@ -78,37 +110,51 @@ function catalogProvider(state: WizardState, sources: { id: string; provider: st
   return sources.find((s) => s.id === state.sourceChoice)?.provider ?? '';
 }
 
-function StepSource({ state, patch, context }: StepComponentProps) {
-  const { sources, ingestHost } = context;
+/** The sources a kind lists: those of its category. */
+function ownSources(context: WizardContext, category: SourceCategory) {
+  return context.sources.filter((s) => s.category === category);
+}
+
+function categoryOf(definition: TriggerKindDefinition): SourceCategory {
+  return definition.sourceCategory ?? 'webhook';
+}
+
+function StepSource({ state, patch, context, definition }: StepComponentProps) {
+  const { ingestHost } = context;
+  const category = categoryOf(definition);
+  const copy = COPY[category];
+  const sources = ownSources(context, category);
   const { productName } = useBrand();
+  const providerCategories = useProviderCategories(PROVIDER_IDS);
+  const providers = PROVIDERS.filter((p) => providerCategories[p.id] === category);
   const catalog = useSourceCatalog(
     catalogProvider(state, sources),
     state.sourceChoice === NEW_SOURCE ? '' : state.sourceChoice,
     state.eventType,
   );
   const fields = schemaCatalog(catalog.fields);
+  const eventName = category === 'chat' ? chatEventLabel(state.eventType) : state.eventType;
 
   return (
     <Stack gap="relaxed">
       <TriggerNameField
         value={state.name}
         onChange={(name) => patch({ name })}
-        hint="Shown in the triggers list and on every delivery."
-        placeholder="github-push"
+        hint={copy.nameHint}
+        placeholder={copy.namePlaceholder}
       />
 
       <Stack gap="cozy">
         <Stack gap="tight">
           <SectionLabel>Deliver to</SectionLabel>
           <Text size="caption" color="subtle">
-            The {productName} endpoint your provider posts events to. Triggers listen on a source;
-            several triggers can share one.
+            {copy.sourceHelp(productName)}
           </Text>
         </Stack>
         <RadioGroup
           value={state.sourceChoice}
           onValueChange={(v) => patch({ sourceChoice: v, ...RESET_EVENT })}
-          aria-label="Webhook source"
+          aria-label={copy.sourceLabel}
         >
           <Grid cols={2} gap="cozy">
             {sources.map((s) => (
@@ -117,9 +163,9 @@ function StepSource({ state, patch, context }: StepComponentProps) {
                 value={s.id}
                 selected={state.sourceChoice === s.id}
                 onSelect={(v) => patch({ sourceChoice: v, ...RESET_EVENT })}
-                icon="webhook"
+                icon={definition.icon}
                 title={s.name}
-                description={s.provider}
+                description={providerName(s.provider)}
               />
             ))}
             <RadioCard
@@ -128,7 +174,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
               onSelect={(v) => patch({ sourceChoice: v, ...RESET_EVENT })}
               icon="plus"
               title="New source"
-              description="Register a new origin that posts to this endpoint."
+              description={copy.newSourceHelp}
             />
           </Grid>
         </RadioGroup>
@@ -144,26 +190,26 @@ function StepSource({ state, patch, context }: StepComponentProps) {
           <FormField
             label="Source name"
             id="wizard-source-name"
-            hint="How this origin appears in the sources list, e.g. acme/widgets."
+            hint={copy.sourceNameHint}
             required
           >
             <Input
               id="wizard-source-name"
               value={state.newSourceName}
               onChange={(e) => patch({ newSourceName: e.target.value })}
-              placeholder="acme/widgets"
+              placeholder={copy.sourceNamePlaceholder}
               maxLength={128}
             />
           </FormField>
           <Stack gap="snug">
-            <SectionLabel>Provider</SectionLabel>
+            <SectionLabel>{copy.providerLabel}</SectionLabel>
             <RadioGroup
               value={state.newSourceProvider}
               onValueChange={(v) => patch({ newSourceProvider: v, ...RESET_EVENT })}
-              aria-label="Provider"
+              aria-label={copy.providerLabel}
             >
-              <Grid cols={2} gap="cozy">
-                {PROVIDERS.map((p) => (
+              <Grid cols={category === 'chat' ? 3 : 2} gap="cozy">
+                {providers.map((p) => (
                   <RadioCard
                     key={p.id}
                     value={p.id}
@@ -174,12 +220,25 @@ function StepSource({ state, patch, context }: StepComponentProps) {
                     description={p.description}
                   />
                 ))}
+                {/* Planned platforms, disabled like the planned trigger kinds. */}
+                {category === 'chat' &&
+                  LATER_CHAT_PLATFORMS.map((p) => (
+                    <RadioCard
+                      key={p.name}
+                      value={p.name}
+                      selected={false}
+                      disabled
+                      onSelect={() => undefined}
+                      icon={p.icon}
+                      title={p.name}
+                      description="Planned."
+                    />
+                  ))}
               </Grid>
             </RadioGroup>
           </Stack>
           {state.newSourceProvider === SLACK_PROVIDER && (
             <SlackAppSetup
-              ingestHost={ingestHost}
               secret={state.newSourceSecret}
               onSecretChange={(newSourceSecret) => patch({ newSourceSecret })}
             />
@@ -189,24 +248,39 @@ function StepSource({ state, patch, context }: StepComponentProps) {
 
       <Stack gap="snug">
         <SectionLabel>Event</SectionLabel>
-        <Text size="caption" color="subtle">
-          The event type this trigger listens for, from the provider&apos;s published schema.
-        </Text>
-        <CatalogPicker
-          aria-label="Event type"
-          value={state.eventType}
-          placeholder="Choose an event"
-          catalog={eventTypeCatalog(catalog.declared, catalog.observed)}
-          searchPlaceholder="Search events…"
-          onSelect={(eventType) => patch({ eventType, filters: [] })}
-        />
+        {category === 'chat' ? (
+          <>
+            <Text size="caption" color="subtle">
+              The message that starts a run. Messages from bots and apps never do.
+            </Text>
+            <ChatEventPicker
+              events={catalog.declared}
+              value={state.eventType}
+              onChange={(eventType) => patch({ eventType, filters: [] })}
+            />
+          </>
+        ) : (
+          <>
+            <Text size="caption" color="subtle">
+              The event type this trigger listens for, from the provider&apos;s published schema.
+            </Text>
+            <CatalogPicker
+              aria-label="Event type"
+              value={state.eventType}
+              placeholder="Choose an event"
+              catalog={eventTypeCatalog(catalog.declared, catalog.observed)}
+              searchPlaceholder="Search events…"
+              onSelect={(eventType) => patch({ eventType, filters: [] })}
+            />
+          </>
+        )}
       </Stack>
 
       <Stack gap="snug">
         <Stack gap="tight">
           <SectionLabel>Filters</SectionLabel>
           <Text size="caption" color="subtle">
-            Only deliveries matching every filter start a run. Values are alternatives.
+            {copy.filtersHelp}
           </Text>
         </Stack>
 
@@ -219,9 +293,10 @@ function StepSource({ state, patch, context }: StepComponentProps) {
 
       <SenderRestrictionEditor
         identifiesSenders={catalog.identifiesSenders}
-        available={catalog.associations}
+        roles={catalog.roles}
         value={state.senders}
         onChange={(senders) => patch({ senders })}
+        idPlaceholder={copy.senderIdPlaceholder}
       />
 
       <PromptField
@@ -231,30 +306,42 @@ function StepSource({ state, patch, context }: StepComponentProps) {
         catalog={fields}
         catalogLabel={
           state.eventType
-            ? `Fields on ${state.eventType} deliveries.`
+            ? `Fields on ${eventName} deliveries.`
             : 'Choose an event to see its fields.'
         }
-        placeholder="Answer the question in {{ comment.body }} on {{ issue.html_url }}."
+        placeholder={copy.promptPlaceholder}
       />
       <DataBlockPreview template={state.promptTemplate} />
     </Stack>
   );
 }
 
-function validateSource(state: WizardState) {
-  return validateNamedPromptStep(state, (s) => {
-    if (s.sourceChoice === NEW_SOURCE) {
-      if (!s.newSourceName.trim())
-        return { valid: false, hint: 'Name the source you are creating.' };
-      if (!s.newSourceProvider) return { valid: false, hint: 'Choose a provider.' };
-      if (s.newSourceProvider === SLACK_PROVIDER && !s.newSourceSecret.trim())
-        return { valid: false, hint: 'Paste the signing secret from your Slack app.' };
-    } else if (!s.sourceChoice) {
-      return { valid: false, hint: 'Choose where deliveries come from.' };
-    }
-    if (!s.eventType) return { valid: false, hint: 'Choose the event this trigger listens for.' };
-    return validateFilters(s.filters);
-  });
+function validateSource(category: SourceCategory) {
+  return (state: WizardState) =>
+    validateNamedPromptStep(state, (s) => {
+      if (s.sourceChoice === NEW_SOURCE) {
+        if (!s.newSourceName.trim())
+          return { valid: false, hint: 'Name the source you are creating.' };
+        if (!s.newSourceProvider)
+          return {
+            valid: false,
+            hint: category === 'chat' ? 'Choose a platform.' : 'Choose a provider.',
+          };
+        if (s.newSourceProvider === SLACK_PROVIDER && !s.newSourceSecret.trim())
+          return { valid: false, hint: 'Paste the signing secret from your Slack app.' };
+      } else if (!s.sourceChoice) {
+        return { valid: false, hint: 'Choose where deliveries come from.' };
+      }
+      if (!s.eventType)
+        return {
+          valid: false,
+          hint:
+            category === 'chat'
+              ? 'Choose the message this trigger listens for.'
+              : 'Choose the event this trigger listens for.',
+        };
+      return validateFilters(s.filters);
+    });
 }
 
 /**
@@ -262,11 +349,9 @@ function validateSource(state: WizardState) {
  * and the signing secret Slack issues for it.
  */
 function SlackAppSetup({
-  ingestHost,
   secret,
   onSecretChange,
 }: {
-  ingestHost: string;
   secret: string;
   onSecretChange: (secret: string) => void;
 }) {
@@ -277,11 +362,12 @@ function SlackAppSetup({
         <SectionLabel>Slack app</SectionLabel>
         <Text size="caption" color="subtle">
           Create a Slack app from this manifest, then paste the signing secret from its Basic
-          Information page. Once the source exists, set its request URL under Event Subscriptions.
+          Information page. Once the source exists, you set its request URL under Event
+          Subscriptions.
         </Text>
       </Stack>
       <CodeBlock
-        text={JSON.stringify(slackAppManifest(productName, ingestHost), null, 2)}
+        text={JSON.stringify(slackAppManifest(productName), null, 2)}
         filename="manifest.json"
         language="json"
         density="compact"
@@ -294,6 +380,7 @@ function SlackAppSetup({
           mono
           value={secret}
           onChange={(e) => onSecretChange(e.target.value)}
+          placeholder="From Basic Information in your Slack app"
           maxLength={256}
         />
       </FormField>
@@ -301,26 +388,40 @@ function SlackAppSetup({
   );
 }
 
-function DoneContent({ state, context, endpoint, secret }: DoneContentProps) {
+/** The chat command kind's done block: the request URL the chat app sends events to. */
+function ChatDoneContent({ state, context, endpoint }: DoneContentProps) {
   if (!endpoint) return null;
-  if (catalogProvider(state, context.sources) === SLACK_PROVIDER) {
-    return (
-      <Stack gap="snug" minWidth="prose" maxWidth="prose">
-        <FieldRow
-          leading={<Icon name="lock" size="2xs" color="status-healthy" label="" />}
-          actions={<CopyButton value={endpoint} label="Copy request URL" />}
-        >
-          <Text as="span" size="caption" mono truncate>
-            {endpoint}
+  const provider = catalogProvider(state, context.sources);
+  const isNew = state.sourceChoice === NEW_SOURCE;
+  const note =
+    provider === SLACK_PROVIDER
+      ? isNew
+        ? 'Set this request URL under Event Subscriptions in your Slack app, and Slack checks it once. Then install the app and invite the bot to the channels it should hear.'
+        : 'This source’s request URL is already set under Event Subscriptions in its Slack app. Invite the bot to the channels this trigger should hear.'
+      : `Set this request URL in your ${providerName(provider)} app’s event settings.`;
+  return (
+    <Stack gap="snug" minWidth="prose" maxWidth="prose">
+      <FieldRow
+        leading={
+          <Text as="span" size="caption" mono color="subtle">
+            request URL
           </Text>
-        </FieldRow>
-        <Text size="caption" color="subtle" align="center">
-          Set this request URL under Event Subscriptions in your Slack app. Slack checks it once;
-          then install the app and invite the bot to the channels it should hear.
+        }
+        actions={<CopyButton value={endpoint} label="Copy request URL" />}
+      >
+        <Text as="span" size="caption" mono truncate>
+          {endpoint}
         </Text>
-      </Stack>
-    );
-  }
+      </FieldRow>
+      <Text size="caption" color="subtle" align="center">
+        {note}
+      </Text>
+    </Stack>
+  );
+}
+
+function WebhookDoneContent({ context, endpoint, secret }: DoneContentProps) {
+  if (!endpoint) return null;
   return (
     <Stack gap="snug" minWidth="prose" maxWidth="prose">
       <FieldRow
@@ -372,67 +473,101 @@ function DoneContent({ state, context, endpoint, secret }: DoneContentProps) {
   );
 }
 
+/** The source step, review rows and draft both kinds share; they differ in their category. */
+function sourceKind(
+  category: SourceCategory,
+): Pick<
+  TriggerKindDefinition,
+  'apiKind' | 'sourceCategory' | 'steps' | 'summarize' | 'draftPatch'
+> {
+  return {
+    apiKind: 'webhook',
+    sourceCategory: category,
+    steps: [
+      {
+        id: 'source',
+        railTitle: 'Source',
+        railSub: category === 'chat' ? 'Where messages come from' : 'Where it comes from',
+        description: (productName) =>
+          category === 'chat'
+            ? `Choose the chat app that sends messages to ${productName}, which message starts a run, and what the agent is asked to do.`
+            : `Choose the source that posts to ${productName}, which of its events starts a run, and what the agent is asked to do.`,
+        Component: StepSource,
+        validate: validateSource(category),
+      },
+    ],
+    summarize: (state, context) => {
+      const source = context.sources.find((s) => s.id === state.sourceChoice);
+      const rows = [
+        {
+          key: 'Source',
+          value:
+            state.sourceChoice === NEW_SOURCE
+              ? `${state.newSourceName || '—'} (new, ${providerName(state.newSourceProvider)})`
+              : (source?.name ?? '—'),
+        },
+        category === 'chat'
+          ? { key: 'Event', value: chatEventLabel(state.eventType) }
+          : { key: 'Event', value: state.eventType, mono: true },
+      ];
+      const filters = describeMatchCondition(state.filters);
+      if (filters) rows.push({ key: 'Filters', value: filters, mono: true });
+      const senders = [...splitIds(state.senders.ids), ...state.senders.roles];
+      if (senders.length > 0) rows.push({ key: 'Senders', value: senders.join(', '), mono: true });
+      return rows;
+    },
+    draftPatch: (state) => {
+      // The match condition is webhook-only, so it is folded here beside the
+      // source and event it belongs to rather than in the shared draft builder.
+      const matchCondition = matchConditionFrom(state.filters);
+      const matchContains = matchContainsFrom(state.filters);
+      const senderRestriction = senderRestrictionFrom(state.senders);
+      // Coalescing only works with `wait`, so a leftover value is dropped otherwise.
+      const coalesce = state.overflow === 'wait' ? coalesceFrom(coalesceDraftOf(state)) : undefined;
+      return {
+        source:
+          state.sourceChoice === NEW_SOURCE
+            ? {
+                newName: state.newSourceName.trim(),
+                provider: state.newSourceProvider,
+                ...(state.newSourceProvider === SLACK_PROVIDER && {
+                  signingSecret: state.newSourceSecret.trim(),
+                }),
+              }
+            : { existingId: state.sourceChoice },
+        eventType: state.eventType,
+        ...(matchCondition ? { matchCondition } : {}),
+        ...(matchContains ? { matchContains } : {}),
+        ...(senderRestriction ? { senderRestriction } : {}),
+        ...(coalesce ? { coalesce } : {}),
+      };
+    },
+  };
+}
+
 export const webhookKind: TriggerKindDefinition = {
   id: 'webhook',
   icon: 'webhook',
   title: 'Webhook',
   description: (productName) =>
     `An external service posts a signed event to your ${productName} endpoint.`,
-  example: 'GitHub · Alertmanager · Slack',
-  steps: [
-    {
-      id: 'source',
-      railTitle: 'Source',
-      railSub: 'Where it comes from',
-      description: (productName) =>
-        `Choose the source that posts to ${productName}, which of its events starts a run, and what the agent is asked to do.`,
-      Component: StepSource,
-      validate: validateSource,
-    },
-  ],
-  summarize: (state, context) => {
-    const source = context.sources.find((s) => s.id === state.sourceChoice);
-    const rows = [
-      {
-        key: 'Source',
-        value:
-          state.sourceChoice === NEW_SOURCE
-            ? `${state.newSourceName || '—'} (new, ${state.newSourceProvider})`
-            : (source?.name ?? '—'),
-      },
-      { key: 'Event', value: state.eventType, mono: true },
-    ];
-    const filters = describeMatchCondition(state.filters);
-    if (filters) rows.push({ key: 'Filters', value: filters, mono: true });
-    const senders = [...splitLogins(state.senders.logins), ...state.senders.associations];
-    if (senders.length > 0) rows.push({ key: 'Senders', value: senders.join(', '), mono: true });
-    return rows;
-  },
-  draftPatch: (state) => {
-    // The match condition is webhook-only, so it is folded here beside the
-    // source and event it belongs to rather than in the shared draft builder.
-    const matchCondition = matchConditionFrom(state.filters);
-    const matchContains = matchContainsFrom(state.filters);
-    const senderRestriction = senderRestrictionFrom(state.senders);
-    // Coalescing only works with `wait`, so a leftover value is dropped otherwise.
-    const coalesce = state.overflow === 'wait' ? coalesceFrom(coalesceDraftOf(state)) : undefined;
-    return {
-      source:
-        state.sourceChoice === NEW_SOURCE
-          ? {
-              newName: state.newSourceName.trim(),
-              provider: state.newSourceProvider,
-              ...(state.newSourceProvider === SLACK_PROVIDER && {
-                signingSecret: state.newSourceSecret.trim(),
-              }),
-            }
-          : { existingId: state.sourceChoice },
-      eventType: state.eventType,
-      ...(matchCondition ? { matchCondition } : {}),
-      ...(matchContains ? { matchContains } : {}),
-      ...(senderRestriction ? { senderRestriction } : {}),
-      ...(coalesce ? { coalesce } : {}),
-    };
-  },
-  doneContent: DoneContent,
+  example: 'GitHub · Alertmanager',
+  ...sourceKind('webhook'),
+  doneContent: WebhookDoneContent,
+};
+
+/**
+ * A chat command trigger is stored as a webhook trigger on a chat source, so
+ * this entry reuses the webhook module and lists only chat sources.
+ */
+export const chatKind: TriggerKindDefinition = {
+  id: 'chat',
+  icon: 'send',
+  title: 'Chat command',
+  description: 'Someone mentions the bot in a channel or sends it a direct message.',
+  example: 'Slack',
+  defaults: { newSourceProvider: '' },
+  ...sourceKind('chat'),
+  doneContent: ChatDoneContent,
+  coalesceKeyExample: chatConversationKey,
 };

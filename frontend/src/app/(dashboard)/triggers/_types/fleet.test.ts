@@ -19,7 +19,7 @@ function trigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
     eventType: 'push',
     matchCondition: {},
     matchContains: {},
-    senderRestriction: { logins: [], associations: [] },
+    senderRestriction: { ids: [], roles: [] },
     coalesce: null,
     promptTemplate: 'go',
     enabled: true,

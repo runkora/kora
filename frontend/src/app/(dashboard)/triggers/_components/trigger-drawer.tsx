@@ -42,11 +42,14 @@ import {
   SegmentedControl,
   EmptyState,
 } from '@runkora/hades';
-import { KIND_ICON, LIMITS } from '../_types';
+import { consoleKindOf, KIND_ICON, LIMITS } from '../_types';
 import type { DeliveryRow, Senders, SourceRow, TriggerCoalesce, TriggerRow } from '../_types';
 import { isStartedOutcome, recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
 import { SLACK_PROVIDER } from '../_lib/slack-app-manifest';
+import { chatConversationKey, chatEventLabel } from '../_lib/chat';
+import { providerName } from '../_lib/providers';
+import { ChatEventPicker } from './chat-event-picker';
 import { CatalogPicker } from './catalog-picker';
 import { CoalesceEditor } from './coalesce-editor';
 import type { CoalesceDraft } from './coalesce-editor';
@@ -70,7 +73,7 @@ import {
   matchConditionFrom,
   coalesceFrom,
   matchContainsFrom,
-  splitLogins,
+  splitIds,
   validateCoalesce,
   validateFilters,
 } from './trigger-wizard/wizard-state';
@@ -269,10 +272,17 @@ function EditActions({
 
 /**
  * The secret row for a source whose provider issues the signing secret. The
- * admin regenerates it in Slack and pastes the new value here; nothing is
- * shown back.
+ * admin regenerates it in the provider's app and pastes the new value here;
+ * nothing is shown back.
  */
-function IssuedSecretRow({ onReplace }: { onReplace?: (secret: string) => Promise<boolean> }) {
+function IssuedSecretRow({
+  providerName,
+  onReplace,
+}: {
+  /** The provider's display name, e.g. "Slack". */
+  providerName: string;
+  onReplace?: (secret: string) => Promise<boolean>;
+}) {
   const id = useId();
   const [value, setValue] = useState('');
   const [pending, setPending] = useState(false);
@@ -294,7 +304,7 @@ function IssuedSecretRow({ onReplace }: { onReplace?: (secret: string) => Promis
       <FormField
         label="Signing secret"
         id={id}
-        hint="Regenerate it in your Slack app, then paste the new secret here."
+        hint={`Regenerate it in your ${providerName} app, then paste the new secret here.`}
       >
         <Input
           id={id}
@@ -467,22 +477,20 @@ export function TriggerDrawer({
 
   const storedSenders = useMemo(
     () => ({
-      logins: (trigger?.senderRestriction.logins ?? []).join(', '),
-      associations: trigger?.senderRestriction.associations ?? [],
+      ids: (trigger?.senderRestriction.ids ?? []).join(', '),
+      roles: trigger?.senderRestriction.roles ?? [],
     }),
     [trigger?.senderRestriction],
   );
   const saveSenders = useCallback(
     (value: SenderRestrictionDraft) =>
       savePatch({
-        senderRestriction: { logins: splitLogins(value.logins), associations: value.associations },
+        senderRestriction: { ids: splitIds(value.ids), roles: value.roles },
       }),
     [savePatch],
   );
   const senders = useEditableSection(storedSenders, editKey, saveSenders, {
-    isEqual: (a, b) =>
-      a.logins === b.logins &&
-      [...a.associations].sort().join() === [...b.associations].sort().join(),
+    isEqual: (a, b) => a.ids === b.ids && [...a.roles].sort().join() === [...b.roles].sort().join(),
   });
 
   const storedCoalesce = useMemo<CoalesceDraft>(
@@ -560,6 +568,10 @@ export function TriggerDrawer({
   if (trigger === null) return null;
 
   const source = sources.find((s) => s.id === trigger.sourceId);
+  // A chat command is stored as a webhook trigger; its source's category tells them apart.
+  const kind = consoleKindOf(trigger, (id) => sources.find((s) => s.id === id)?.category);
+  const eventName =
+    kind === 'chat' ? chatEventLabel(filters.value.eventType) : filters.value.eventType;
   const failures = recentFailures(trigger.id, deliveries);
   const succeeded = mine.reduce(
     (n, d) =>
@@ -580,9 +592,14 @@ export function TriggerDrawer({
   const setFilterRows = (rows: FilterRow[]) =>
     filters.setValue({ ...filters.value, filters: rows });
 
+  const firesOn = trigger.eventType
+    ? kind === 'chat'
+      ? chatEventLabel(trigger.eventType)
+      : trigger.eventType
+    : 'no event type (never fires)';
   const subtitle =
     trigger.kind === 'webhook'
-      ? `Webhook · ${source?.name ?? trigger.sourceId} · ${trigger.eventType || 'no event type (never fires)'}`
+      ? `${kind === 'chat' ? 'Chat command' : 'Webhook'} · ${source?.name ?? trigger.sourceId} · ${firesOn}`
       : trigger.kind === 'scheduled'
         ? `Schedule · ${trigger.scheduleConfig?.cronExpression ?? ''}`
         : 'Manual · run on demand';
@@ -593,7 +610,7 @@ export function TriggerDrawer({
         density="compact"
         leading={
           <IconTile size="lg" tone={trigger.autoPausedAt !== null ? 'accent' : 'muted'}>
-            <Icon name={KIND_ICON[trigger.kind]} size="xs" />
+            <Icon name={KIND_ICON[kind]} size="xs" />
           </IconTile>
         }
         title={trigger.name}
@@ -643,7 +660,7 @@ export function TriggerDrawer({
                   that proves deliveries came from it. */}
               {trigger.kind === 'webhook' && (
                 <Stack gap="snug">
-                  <SectionLabel>Endpoint</SectionLabel>
+                  <SectionLabel>{kind === 'chat' ? 'Request URL' : 'Endpoint'}</SectionLabel>
                   <FieldRow
                     leading={<Icon name="lock" size="2xs" color="status-healthy" />}
                     actions={<CopyButton value={endpoint} label="Copy" />}
@@ -656,6 +673,7 @@ export function TriggerDrawer({
                   {source?.provider === SLACK_PROVIDER ? (
                     <IssuedSecretRow
                       key={trigger.id}
+                      providerName={providerName(source.provider)}
                       onReplace={
                         onRotateSecret &&
                         ((secret) => onRotateSecret(trigger, secret).then((r) => r !== null))
@@ -885,15 +903,24 @@ export function TriggerDrawer({
               {trigger.kind === 'webhook' && (
                 <Stack gap="snug">
                   <SectionLabel>Event filters</SectionLabel>
-                  <CatalogPicker
-                    aria-label="Event type"
-                    value={filters.value.eventType}
-                    placeholder="Choose an event"
-                    catalog={eventTypeCatalog(sourceCatalog.declared, sourceCatalog.observed)}
-                    searchPlaceholder="Search events…"
-                    disabled={!runEditable}
-                    onSelect={(eventType) => filters.setValue({ ...filters.value, eventType })}
-                  />
+                  {kind === 'chat' ? (
+                    <ChatEventPicker
+                      events={sourceCatalog.declared}
+                      value={filters.value.eventType}
+                      disabled={!runEditable}
+                      onChange={(eventType) => filters.setValue({ ...filters.value, eventType })}
+                    />
+                  ) : (
+                    <CatalogPicker
+                      aria-label="Event type"
+                      value={filters.value.eventType}
+                      placeholder="Choose an event"
+                      catalog={eventTypeCatalog(sourceCatalog.declared, sourceCatalog.observed)}
+                      searchPlaceholder="Search events…"
+                      disabled={!runEditable}
+                      onSelect={(eventType) => filters.setValue({ ...filters.value, eventType })}
+                    />
+                  )}
 
                   <FilterRowsEditor
                     rows={filters.value.filters}
@@ -904,7 +931,9 @@ export function TriggerDrawer({
 
                   <Text size="caption" color="subtle">
                     {describeMatchCondition(filters.value.filters) ??
-                      'Every delivery of this event starts a run.'}
+                      (kind === 'chat'
+                        ? 'Every message of this kind starts a run.'
+                        : 'Every delivery of this event starts a run.')}
                   </Text>
 
                   <EditActions
@@ -923,7 +952,8 @@ export function TriggerDrawer({
               {trigger.kind === 'webhook' && (
                 <SenderRestrictionEditor
                   identifiesSenders={sourceCatalog.identifiesSenders}
-                  available={sourceCatalog.associations}
+                  roles={sourceCatalog.roles}
+                  idPlaceholder={kind === 'chat' ? 'U012AB3CD, U045EF6GH' : undefined}
                   value={senders.value}
                   onChange={senders.setValue}
                   disabled={!runEditable}
@@ -945,6 +975,9 @@ export function TriggerDrawer({
                 <CoalesceEditor
                   value={coalesce.value}
                   onChange={coalesce.setValue}
+                  keyPlaceholder={
+                    kind === 'chat' ? chatConversationKey(filters.value.eventType) : undefined
+                  }
                   disabled={!editable || trigger.overflow !== 'wait'}
                   note={trigger.overflow !== 'wait' ? 'Requires overflow set to wait.' : undefined}
                   actions={
@@ -973,7 +1006,7 @@ export function TriggerDrawer({
                   placeholder="What this trigger asks the agent to do."
                   catalogLabel={
                     trigger.kind === 'webhook' && filters.value.eventType
-                      ? `Fields for ${filters.value.eventType} deliveries`
+                      ? `Fields for ${eventName} deliveries`
                       : undefined
                   }
                 />
