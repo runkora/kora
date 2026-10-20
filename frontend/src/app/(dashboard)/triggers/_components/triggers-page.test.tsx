@@ -10,6 +10,7 @@ import { makeTrigger } from '../_types/fixtures';
 
 const SOURCE: Omit<SourceRow, 'id' | 'name' | 'provider' | 'category'> = {
   enabled: true,
+  signingSecretSet: true,
   createdAt: '2026-07-01T00:00:00Z',
   rejectionCount: 0,
   lastRejectionAt: null,
@@ -52,5 +53,26 @@ describe('the kind filter', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Webhook/ }));
     expect(screen.getByText('on-push')).toBeTruthy();
     expect(screen.queryByText('answer-mentions')).toBeNull();
+  });
+});
+
+describe('a chat source waiting for its signing secret', () => {
+  it('marks its triggers and no others', () => {
+    const waiting = SOURCES.map((s) => (s.id === 'sl' ? { ...s, signingSecretSet: false } : s));
+    renderWithProviders(
+      <TriggersPage
+        sources={waiting}
+        triggers={TRIGGERS}
+        deliveries={[]}
+        agents={[]}
+        error={null}
+      />,
+    );
+    expect(screen.getAllByText('Waiting for signing secret')).toHaveLength(2);
+  });
+
+  it('marks nothing when every source holds its secret', () => {
+    renderPage();
+    expect(screen.queryByText('Waiting for signing secret')).toBeNull();
   });
 });

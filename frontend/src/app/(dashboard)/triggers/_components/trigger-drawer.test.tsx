@@ -57,6 +57,7 @@ const SOURCES: SourceRow[] = [
     provider: 'github',
     category: 'webhook',
     enabled: true,
+    signingSecretSet: true,
     createdAt: '2026-07-01T00:00:00Z',
     rejectionCount: 0,
     lastRejectionAt: null,
@@ -511,9 +512,38 @@ describe('a source whose provider issues the secret', () => {
     expect(onRotateSecret).toHaveBeenCalledWith(
       expect.objectContaining({ id: 't1' }),
       'new-secret',
+      false,
     );
     expect(await screen.findByText(/The new secret is stored/)).toBeTruthy();
     expect((screen.getByLabelText(/Signing secret/) as HTMLInputElement).value).toBe('');
+  });
+
+  it('sets the first secret of a source that is waiting for one', async () => {
+    const onRotateSecret = vi.fn().mockResolvedValue('');
+    renderWithProviders(
+      <TriggerDrawer
+        canRunAgent
+        trigger={trigger()}
+        sources={[{ ...SLACK[0]!, signingSecretSet: false }]}
+        deliveries={[]}
+        ingestHost="orbit.local.clearroute.io:8443"
+        onClose={vi.fn()}
+        onToggleEnabled={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn().mockResolvedValue(null)}
+        onRotateSecret={onRotateSecret}
+      />,
+    );
+    expect(screen.getByText('Waiting for signing secret')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Signing secret/), { target: { value: 'first' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Set secret' }));
+
+    expect(onRotateSecret).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't1' }),
+      'first',
+      true,
+    );
+    expect(await screen.findByText(/The signing secret is stored/)).toBeTruthy();
   });
 
   it('names the platform in the rotation hint', () => {

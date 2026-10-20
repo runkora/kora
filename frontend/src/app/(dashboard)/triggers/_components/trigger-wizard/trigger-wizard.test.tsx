@@ -25,6 +25,8 @@ const api = vi.hoisted(() => ({
   fetchEventTypes: vi.fn(),
   fetchProviderEventTypes: vi.fn(),
   fetchProviderFields: vi.fn(),
+  createSource: vi.fn(),
+  updateSource: vi.fn(),
 }));
 vi.mock('../../_services/triggers-api', () => api);
 const routingOptions = vi.hoisted(() => ({ useRoutingOptions: vi.fn(() => undefined) }));
@@ -367,7 +369,7 @@ describe('chat command kind', () => {
     renderWizard('chat', CONTEXT.sources);
     expect(screen.queryByText('acme/widgets')).toBeNull();
     expect(screen.getByText('Platform')).toBeTruthy();
-    expect(await screen.findByText('manifest.json')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Create source' })).toBeTruthy();
     expect(screen.getByRole('radio', { name: /^Slack/ })).toHaveAttribute('aria-checked', 'true');
   });
 
@@ -457,15 +459,82 @@ describe('chat command kind', () => {
     expect(screen.queryByRole('radio', { name: /^Slack/ })).toBeNull();
   });
 
-  it('shows the Slack app manifest without a request URL and asks for the signing secret', async () => {
+  /** Names the new Slack source and creates it, as the source step asks. */
+  async function createSlackSource() {
+    fireEvent.change(screen.getByLabelText(/Source name/), { target: { value: 'acme-slack' } });
+    fireEvent.click(await screen.findByText('Slack'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create source' }));
+    await screen.findByText('manifest.json');
+  }
+
+  async function saveSigningSecret() {
+    fireEvent.change(screen.getByLabelText(/Signing secret/), { target: { value: ' sig ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save secret' }));
+    await screen.findByText('Signing secret saved.');
+  }
+
+  async function chooseEventAndContinue() {
+    fireEvent.click(await screen.findByRole('radio', { name: /Direct message/ }));
+    const next = screen.getByRole('button', { name: /Continue/ });
+    await waitFor(() => expect(next.hasAttribute('disabled')).toBe(false));
+    fireEvent.click(next);
+  }
+
+  beforeEach(() => {
+    api.createSource.mockResolvedValue({ source: { id: 'src-new' }, error: null });
+    api.updateSource.mockResolvedValue({ source: { id: 'src-new' }, error: null });
+  });
+
+  it('creates the Slack source with no signing secret before it asks for one', async () => {
     renderWizard('chat', []);
     fireEvent.click(screen.getByText('New source'));
     fireEvent.click(await screen.findByText('Slack'));
-    expect(screen.getByText('manifest.json')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Copy code' })).toBeTruthy();
+    expect(screen.queryByText('manifest.json')).toBeNull();
+    expect(screen.queryByLabelText(/Signing secret/)).toBeNull();
+    expect(document.body.textContent).not.toContain('<issued on create>');
+    expect(api.createSource).not.toHaveBeenCalled();
+
+    await createSlackSource();
+    expect(api.createSource).toHaveBeenCalledWith({ name: 'acme-slack', provider: 'slack' });
     expect(screen.getByLabelText(/Signing secret/)).toBeTruthy();
-    expect(document.body.textContent).not.toContain('request_url');
-    expect(api.fetchProviderEventTypes).toHaveBeenCalledWith('slack');
+  });
+
+  it('shows the manifest and the request URL of the created source', async () => {
+    renderWizard('chat', []);
+    fireEvent.click(screen.getByText('New source'));
+    await createSlackSource();
+    const url = `https://${CONTEXT.ingestHost}/api/v1/webhooks/src-new`;
+    expect(screen.getByRole('button', { name: 'Copy code' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Copy request URL' })).toBeTruthy();
+    expect(screen.getAllByText(url, { exact: false }).length).toBeGreaterThan(0);
+    expect(document.body.textContent).toContain('"request_url"');
+  });
+
+  it('does not continue until the signing secret is saved', async () => {
+    renderWizard('chat', []);
+    fillNameAndPrompt();
+    fireEvent.click(screen.getByText('New source'));
+    await createSlackSource();
+    fireEvent.click(await screen.findByRole('radio', { name: /Direct message/ }));
+    expect(screen.getByText('Save the signing secret from your Slack app.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true);
+
+    await saveSigningSecret();
+    expect(api.updateSource).toHaveBeenCalledWith('src-new', { signing_secret: 'sig' });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false),
+    );
+  });
+
+  it('keeps the wizard on the source step when the source cannot be created', async () => {
+    api.createSource.mockResolvedValue({ source: null, error: 'name already taken' });
+    renderWizard('chat', []);
+    fireEvent.click(screen.getByText('New source'));
+    fireEvent.change(screen.getByLabelText(/Source name/), { target: { value: 'acme-slack' } });
+    fireEvent.click(await screen.findByText('Slack'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create source' }));
+    expect(await screen.findByText('name already taken')).toBeTruthy();
+    expect(screen.queryByText('manifest.json')).toBeNull();
   });
 
   it('offers the chat events with readable labels', async () => {
@@ -487,18 +556,13 @@ describe('chat command kind', () => {
     expect(screen.queryByRole('checkbox')).toBeNull();
   });
 
-  it('creates a webhook trigger on the new Slack source with its secret', async () => {
+  it('creates the trigger on the source the source step created', async () => {
     const onCreate = vi.fn().mockResolvedValue({ ok: true, triggerId: 'trg-1' });
     renderWizard('chat', [], onCreate);
     fillNameAndPrompt();
-    fireEvent.change(screen.getByLabelText(/Source name/), { target: { value: 'acme-slack' } });
-    expect(await screen.findByText('Paste the signing secret from your Slack app.')).toBeTruthy();
-    fireEvent.change(screen.getByLabelText(/Signing secret/), { target: { value: 'sig' } });
-    fireEvent.click(await screen.findByRole('radio', { name: /Direct message/ }));
-
-    const next = screen.getByRole('button', { name: /Continue/ });
-    await waitFor(() => expect(next.hasAttribute('disabled')).toBe(false));
-    fireEvent.click(next);
+    await createSlackSource();
+    await saveSigningSecret();
+    await chooseEventAndContinue();
     fireEvent.click(screen.getByRole('radio', { name: 'Coder' }));
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
@@ -510,28 +574,22 @@ describe('chat command kind', () => {
       expect.objectContaining({
         kind: 'webhook',
         eventType: 'direct_message',
-        source: { newName: 'acme-slack', provider: 'slack', signingSecret: 'sig' },
+        source: { existingId: 'src-new' },
       }),
     );
+    expect(api.createSource).toHaveBeenCalledTimes(1);
   });
 
-  it('reuses the source a failed attempt created when Create is retried', async () => {
+  it('reuses the created source when Create is retried', async () => {
     const onCreate = vi
       .fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        error: 'agent type not found',
-        createdSource: { id: 'src-new', name: 'acme-slack', provider: 'slack' },
-      })
+      .mockResolvedValueOnce({ ok: false, error: 'agent type not found' })
       .mockResolvedValueOnce({ ok: true, triggerId: 'trg-1' });
     renderWizard('chat', [], onCreate);
     fillNameAndPrompt();
-    fireEvent.change(screen.getByLabelText(/Source name/), { target: { value: 'acme-slack' } });
-    fireEvent.change(await screen.findByLabelText(/Signing secret/), { target: { value: 'sig' } });
-    fireEvent.click(await screen.findByRole('radio', { name: /Direct message/ }));
-    const next = screen.getByRole('button', { name: /Continue/ });
-    await waitFor(() => expect(next.hasAttribute('disabled')).toBe(false));
-    fireEvent.click(next);
+    await createSlackSource();
+    await saveSigningSecret();
+    await chooseEventAndContinue();
     fireEvent.click(screen.getByRole('radio', { name: 'Coder' }));
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
@@ -541,12 +599,9 @@ describe('chat command kind', () => {
     fireEvent.click(screen.getByRole('button', { name: /Create trigger/ }));
 
     await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(2));
-    expect(onCreate.mock.calls[0]![0].source).toEqual({
-      newName: 'acme-slack',
-      provider: 'slack',
-      signingSecret: 'sig',
-    });
+    expect(onCreate.mock.calls[0]![0].source).toEqual({ existingId: 'src-new' });
     expect(onCreate.mock.calls[1]![0].source).toEqual({ existingId: 'src-new' });
+    expect(api.createSource).toHaveBeenCalledTimes(1);
   });
 });
 

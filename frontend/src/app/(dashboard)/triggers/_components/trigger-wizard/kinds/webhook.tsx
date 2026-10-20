@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 /** @tier 3 · triggers-scoped. The webhook and chat command kinds: an external
  * system posts a signed event to a kora endpoint. One module, two registry
@@ -8,6 +8,8 @@ import { useEffect } from 'react';
  * rows, draft, done block. */
 
 import {
+  Alert,
+  Button,
   CodeBlock,
   CopyButton,
   FormField,
@@ -45,6 +47,7 @@ import { FilterRowsEditor } from '../../filter-rows-editor';
 import { SenderRestrictionEditor } from '../../sender-restriction-editor';
 import { useProviderCategories, useSourceCatalog } from '../../use-source-catalog';
 import { endpointFor } from '../../../_lib/endpoints';
+import { createSource, updateSource } from '../../../_services/triggers-api';
 import {
   chatConversationKey,
   chatEventLabel,
@@ -209,7 +212,11 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
                 onSelect={(v) => patch({ sourceChoice: v, ...RESET_EVENT })}
                 icon={definition.icon}
                 title={s.name}
-                description={providerName(s.provider)}
+                description={
+                  s.signingSecretSet === false
+                    ? `${providerName(s.provider)} · waiting for signing secret`
+                    : providerName(s.provider)
+                }
               />
             ))}
             <RadioCard
@@ -222,11 +229,12 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
             />
           </Grid>
         </RadioGroup>
-        <Text size="micro" mono color="subtle" truncate>
-          {state.sourceChoice === NEW_SOURCE || !state.sourceChoice
-            ? `https://${ingestHost}/api/v1/webhooks/<issued on create>`
-            : endpointFor(ingestHost, state.sourceChoice)}
-        </Text>
+        {/* A source that does not exist yet has no request URL to show. */}
+        {state.sourceChoice !== NEW_SOURCE && state.sourceChoice !== '' && (
+          <Text size="micro" mono color="subtle" truncate>
+            {endpointFor(ingestHost, state.sourceChoice)}
+          </Text>
+        )}
       </Stack>
 
       {state.sourceChoice === NEW_SOURCE && (
@@ -241,6 +249,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
               id="wizard-source-name"
               value={state.newSourceName}
               onChange={(e) => patch({ newSourceName: e.target.value })}
+              disabled={state.newSourceCreated !== null}
               placeholder={copy.sourceNamePlaceholder}
               maxLength={128}
             />
@@ -251,6 +260,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
               value={state.newSourceProvider}
               onValueChange={(v) => patch({ newSourceProvider: v, ...RESET_EVENT })}
               aria-label={copy.providerLabel}
+              disabled={state.newSourceCreated !== null}
             >
               <Grid cols={category === 'chat' ? 3 : 2} gap="cozy">
                 {providers.map((p) => (
@@ -295,10 +305,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
             )}
           </Stack>
           {state.newSourceProvider === SLACK_PROVIDER && (
-            <SlackAppSetup
-              secret={state.newSourceSecret}
-              onSecretChange={(newSourceSecret) => patch({ newSourceSecret })}
-            />
+            <SlackAppSetup state={state} patch={patch} ingestHost={ingestHost} />
           )}
         </Stack>
       )}
@@ -388,8 +395,12 @@ function validateSource(category: SourceCategory) {
             valid: false,
             hint: category === 'chat' ? 'Choose a platform.' : 'Choose a provider.',
           };
-        if (s.newSourceProvider === SLACK_PROVIDER && !s.newSourceSecret.trim())
-          return { valid: false, hint: 'Paste the signing secret from your Slack app.' };
+        if (s.newSourceProvider === SLACK_PROVIDER) {
+          if (s.newSourceCreated === null)
+            return { valid: false, hint: 'Create the source to get its request URL.' };
+          if (!s.newSourceSecretSaved)
+            return { valid: false, hint: 'Save the signing secret from your Slack app.' };
+        }
       } else if (!s.sourceChoice) {
         return { valid: false, hint: `Choose where ${COPY[category].arrivals} come from.` };
       }
@@ -428,45 +439,136 @@ function validateChatFields(s: WizardState) {
 }
 
 /**
- * A new Slack source's setup: the app manifest to create the Slack app from,
- * and the signing secret Slack issues for it.
+ * A new Slack source's setup, in the order Slack needs. The source is created
+ * first, with no signing secret, so its request URL exists. The admin sets the
+ * URL in Slack, which checks it, and then saves the signing secret Slack issued.
  */
 function SlackAppSetup({
-  secret,
-  onSecretChange,
+  state,
+  patch,
+  ingestHost,
 }: {
-  secret: string;
-  onSecretChange: (secret: string) => void;
+  state: WizardState;
+  patch: (next: Partial<WizardState>) => void;
+  ingestHost: string;
 }) {
   const { productName } = useBrand();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const created = state.newSourceCreated;
+
+  const create = async () => {
+    setPending(true);
+    setError(null);
+    const name = state.newSourceName.trim();
+    const made = await createSource({ name, provider: SLACK_PROVIDER });
+    setPending(false);
+    if (made.error !== null || made.source === null) {
+      setError(made.error ?? 'Failed to create the source.');
+      return;
+    }
+    patch({
+      newSourceCreated: { id: made.source.id, name, provider: SLACK_PROVIDER },
+      newSourceSecretSaved: false,
+    });
+  };
+
+  const saveSecret = async () => {
+    if (created === null) return;
+    setPending(true);
+    setError(null);
+    const saved = await updateSource(created.id, { signing_secret: state.newSourceSecret.trim() });
+    setPending(false);
+    if (saved.error !== null) {
+      setError(saved.error);
+      return;
+    }
+    patch({ newSourceSecretSaved: true, newSourceSecret: '' });
+  };
+
+  if (created === null) {
+    return (
+      <Stack gap="cozy">
+        <Stack gap="tight">
+          <SectionLabel>Slack app</SectionLabel>
+          <Text size="caption" color="subtle">
+            Create the source first. Slack needs its request URL to finish setting up events.
+          </Text>
+        </Stack>
+        {error !== null && <Alert variant="error">{error}</Alert>}
+        <Stack direction="horizontal" justify="end">
+          <Button
+            size="xs"
+            disabled={pending || !state.newSourceName.trim()}
+            onClick={() => void create()}
+          >
+            {pending ? 'Creating…' : 'Create source'}
+          </Button>
+        </Stack>
+      </Stack>
+    );
+  }
+
+  const requestUrl = endpointFor(ingestHost, created.id);
   return (
     <Stack gap="cozy">
       <Stack gap="tight">
         <SectionLabel>Slack app</SectionLabel>
         <Text size="caption" color="subtle">
-          Create a Slack app from this manifest, then paste the signing secret from its Basic
-          Information page. Once the source exists, you set its request URL under Event
-          Subscriptions.
+          Create a Slack app from this manifest. Its request URL is already set. For an existing
+          app, set the request URL below under Event Subscriptions instead. Then paste the signing
+          secret from the app&apos;s Basic Information page.
         </Text>
       </Stack>
       <CodeBlock
-        text={JSON.stringify(slackAppManifest(productName), null, 2)}
+        text={JSON.stringify(slackAppManifest(productName, requestUrl), null, 2)}
         filename="manifest.json"
         language="json"
         density="compact"
       />
-      <FormField label="Signing secret" id="wizard-source-secret" required>
-        <Input
-          id="wizard-source-secret"
-          type="password"
-          autoComplete="off"
-          mono
-          value={secret}
-          onChange={(e) => onSecretChange(e.target.value)}
-          placeholder="From Basic Information in your Slack app"
-          maxLength={256}
-        />
-      </FormField>
+      <FieldRow
+        leading={
+          <Text as="span" size="caption" mono color="subtle">
+            request URL
+          </Text>
+        }
+        actions={<CopyButton value={requestUrl} label="Copy request URL" />}
+      >
+        <Text as="span" size="caption" mono truncate>
+          {requestUrl}
+        </Text>
+      </FieldRow>
+      {state.newSourceSecretSaved ? (
+        <Text size="caption" color="status-healthy">
+          Signing secret saved.
+        </Text>
+      ) : (
+        <Stack gap="snug">
+          <FormField label="Signing secret" id="wizard-source-secret" required>
+            <Input
+              id="wizard-source-secret"
+              type="password"
+              autoComplete="off"
+              mono
+              value={state.newSourceSecret}
+              disabled={pending}
+              onChange={(e) => patch({ newSourceSecret: e.target.value })}
+              placeholder="From Basic Information in your Slack app"
+              maxLength={256}
+            />
+          </FormField>
+          {error !== null && <Alert variant="error">{error}</Alert>}
+          <Stack direction="horizontal" justify="end">
+            <Button
+              size="xs"
+              disabled={pending || !state.newSourceSecret.trim()}
+              onClick={() => void saveSecret()}
+            >
+              {pending ? 'Saving…' : 'Save secret'}
+            </Button>
+          </Stack>
+        </Stack>
+      )}
     </Stack>
   );
 }
@@ -479,7 +581,7 @@ function ChatDoneContent({ state, context, endpoint }: DoneContentProps) {
   const note =
     provider === SLACK_PROVIDER
       ? isNew
-        ? 'Set this request URL under Event Subscriptions in your Slack app, and Slack checks it once. Then install the app and invite the bot to the channels it should hear.'
+        ? 'This source’s request URL is set up in your Slack app. Install the app and invite the bot to the channels this trigger should hear.'
         : 'This source’s request URL, set under Event Subscriptions in its Slack app. Invite the bot to the channels this trigger should hear.'
       : `Set this request URL in your ${providerName(provider)} app’s event settings.`;
   return (
@@ -609,15 +711,12 @@ function sourceKind(
       const coalesce = state.overflow === 'wait' ? coalesceFrom(coalesceDraftOf(state)) : undefined;
       return {
         source:
-          state.sourceChoice === NEW_SOURCE
-            ? {
-                newName: state.newSourceName.trim(),
-                provider: state.newSourceProvider,
-                ...(state.newSourceProvider === SLACK_PROVIDER && {
-                  signingSecret: state.newSourceSecret.trim(),
-                }),
-              }
-            : { existingId: state.sourceChoice },
+          state.sourceChoice !== NEW_SOURCE
+            ? { existingId: state.sourceChoice }
+            : state.newSourceCreated !== null
+              ? // The source step already created it.
+                { existingId: state.newSourceCreated.id }
+              : { newName: state.newSourceName.trim(), provider: state.newSourceProvider },
         eventType: state.eventType,
         ...(matchCondition ? { matchCondition } : {}),
         ...(matchContains ? { matchContains } : {}),

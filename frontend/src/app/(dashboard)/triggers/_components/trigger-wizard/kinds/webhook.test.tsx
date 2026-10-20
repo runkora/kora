@@ -64,7 +64,7 @@ describe('chat DoneContent', () => {
   const DoneContent = chatKind.doneContent;
   const endpoint = 'https://orbit.local/api/v1/webhooks/src-9';
 
-  it('shows a new Slack source the request URL to set under Event Subscriptions', () => {
+  it('shows a new Slack source its request URL and the next steps in Slack', () => {
     const state = {
       ...initialState(chatKind, CONTEXT.sources),
       sourceChoice: NEW_SOURCE,
@@ -73,7 +73,7 @@ describe('chat DoneContent', () => {
     render(<DoneContent state={state} context={CONTEXT} triggerId="trg-1" endpoint={endpoint} />);
     expect(screen.getByText(endpoint)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Copy request URL' })).toBeInTheDocument();
-    expect(screen.getByText(/Event Subscriptions in your Slack app/)).toBeInTheDocument();
+    expect(screen.getByText(/request URL is set up in your Slack app/)).toBeInTheDocument();
     expect(screen.queryByText('application/json')).toBeNull();
     expect(screen.queryByText(/secret/)).toBeNull();
   });
@@ -174,7 +174,7 @@ describe('chat validation, review and draft', () => {
     ).toEqual({ valid: false, hint: 'Choose a platform.' });
   });
 
-  it('requires the signing secret for a new Slack source and puts it on the draft', () => {
+  it('holds a new Slack source until it is created and its signing secret is saved', () => {
     const slack = {
       ...ready,
       eventType: 'mention',
@@ -184,15 +184,19 @@ describe('chat validation, review and draft', () => {
     };
     expect(validate(slack, CONTEXT)).toEqual({
       valid: false,
-      hint: 'Paste the signing secret from your Slack app.',
+      hint: 'Create the source to get its request URL.',
     });
-    const withSecret = { ...slack, newSourceSecret: ' slack-secret ' };
-    expect(validate(withSecret, CONTEXT).valid).toBe(true);
-    expect(chatKind.draftPatch(withSecret).source).toEqual({
-      newName: 'acme',
-      provider: 'slack',
-      signingSecret: 'slack-secret',
+    const created = {
+      ...slack,
+      newSourceCreated: { id: 'src-1', name: 'acme', provider: 'slack' },
+    };
+    expect(validate(created, CONTEXT)).toEqual({
+      valid: false,
+      hint: 'Save the signing secret from your Slack app.',
     });
+    const saved = { ...created, newSourceSecretSaved: true };
+    expect(validate(saved, CONTEXT).valid).toBe(true);
+    expect(chatKind.draftPatch(saved).source).toEqual({ existingId: 'src-1' });
   });
 
   it('shows the event by its label and the platform by name on review', () => {

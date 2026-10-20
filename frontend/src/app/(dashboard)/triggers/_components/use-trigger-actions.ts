@@ -90,12 +90,17 @@ export function useTriggerActions({ refresh, notify }: TriggerActionsOptions) {
   /**
    * Rotates a webhook trigger's source secret; the drawer shows it once. A
    * provider that issues the secret takes `signingSecret` and returns none, so
-   * success resolves with an empty string.
+   * success resolves with an empty string. `firstSecret` sets the first secret
+   * of a source that is waiting for one, which needs no rotation.
    */
   const rotateSecret = useCallback(
-    async (row: TriggerRow, signingSecret?: string): Promise<string | null> => {
+    async (
+      row: TriggerRow,
+      signingSecret?: string,
+      firstSecret = false,
+    ): Promise<string | null> => {
       const result = await updateSource(row.sourceId, {
-        rotate_secret: true,
+        ...(!firstSecret && { rotate_secret: true }),
         ...(signingSecret !== undefined && { signing_secret: signingSecret }),
       });
       if (result.error || (signingSecret === undefined && !result.source?.secret)) {

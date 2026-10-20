@@ -86,6 +86,8 @@ export function baseState(sources: readonly { id: string }[]): WizardState {
     newSourceName: '',
     newSourceProvider: 'github',
     newSourceSecret: '',
+    newSourceCreated: null,
+    newSourceSecretSaved: false,
     eventType: '',
     eventFields: null,
     eventFieldsFailed: false,

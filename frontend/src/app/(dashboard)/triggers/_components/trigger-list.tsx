@@ -61,6 +61,7 @@ function firesOn(t: TriggerRow, kind: ConsoleKind): string {
 
 function makeColumns(
   sourceName: (id: string) => string,
+  sourceWaiting: (id: string) => boolean,
   onToggle: (t: TriggerRow) => void,
   canWrite: boolean,
   canRunAgent: (agentTypeId: string) => boolean,
@@ -85,6 +86,11 @@ function makeColumns(
               {row.autoPausedAt !== null && (
                 <Badge variant="degraded" size="sm" shape="pill">
                   Auto-paused
+                </Badge>
+              )}
+              {row.kind === 'webhook' && sourceWaiting(row.sourceId) && (
+                <Badge variant="degraded" size="sm" shape="pill">
+                  Waiting for signing secret
                 </Badge>
               )}
               {row.failures > 0 && (
@@ -222,6 +228,7 @@ function triggerMatchesSearch(row: TriggerDisplayRow, q: string): boolean {
 
 /** Used when the caller does not know source categories: every source reads as a webhook source. */
 const noCategory = (): SourceCategory | undefined => undefined;
+const notWaiting = (): boolean => false;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -232,6 +239,8 @@ interface TriggerListProps {
   sourceName: (id: string) => string;
   /** Resolves a source id to its category, so a trigger on a chat source shows as a chat command. */
   sourceCategory?: (id: string) => SourceCategory | undefined;
+  /** Whether a source is still waiting for its signing secret; such a trigger cannot fire yet. */
+  sourceWaiting?: (id: string) => boolean;
   onOpen: (t: TriggerRow) => void;
   onToggle: (t: TriggerRow) => void;
   /** Whether the caller may run an agent; the on or off switch needs it. */
@@ -254,6 +263,7 @@ export function TriggerList({
   deliveries,
   sourceName,
   sourceCategory = noCategory,
+  sourceWaiting = notWaiting,
   onOpen,
   onToggle,
   canRunAgent,
@@ -287,8 +297,8 @@ export function TriggerList({
 
   const canWrite = useHasScope('triggers:write');
   const columns = useMemo(
-    () => makeColumns(sourceName, onToggle, canWrite, canRunAgent),
-    [sourceName, onToggle, canWrite, canRunAgent],
+    () => makeColumns(sourceName, sourceWaiting, onToggle, canWrite, canRunAgent),
+    [sourceName, sourceWaiting, onToggle, canWrite, canRunAgent],
   );
 
   return (
