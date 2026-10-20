@@ -140,6 +140,7 @@ func TestSlackAdapter_EventType(t *testing.T) {
 		{name: "direct message from an app", body: `{"type":"event_callback","event":{"type":"message","channel_type":"im","bot_id":"B1","user":"U2"}}`},
 		{name: "app message with a non-string bot_id", body: `{"type":"event_callback","event":{"type":"app_mention","bot_id":123}}`},
 		{name: "mention from an app", body: `{"type":"event_callback","event":{"type":"app_mention","bot_id":"B1"}}`},
+		{name: "mention with the bot_message subtype", body: `{"type":"event_callback","event":{"type":"app_mention","subtype":"bot_message","user":"U1"}}`},
 		{name: "bot message", body: `{"type":"event_callback","event":{"type":"message","subtype":"bot_message","channel_type":"im"}}`},
 		{name: "url verification", body: `{"type":"url_verification","challenge":"c"}`},
 		{name: "app rate limited", body: `{"type":"app_rate_limited","team_id":"T1"}`},
@@ -304,6 +305,40 @@ func TestIngest_Slack(t *testing.T) {
 	for k, v := range want {
 		if got := deps.repo.pendingFor(tr.ID)[0].Fields[k]; got != v {
 			t.Errorf("%s = %q, want %q", k, got, v)
+		}
+	}
+}
+
+// A Slack sender restriction compares uppercased user ids and names no roles.
+func TestIngest_SlackSenderRestriction(t *testing.T) {
+	svc, deps := newTestService(t)
+	ctx := context.Background()
+	const secret = "slack-signing-secret"
+	resp, err := deps.sources.CreateSource(ctx, testTenant, CreateSourceRequest{Name: "slack", Provider: ProviderSlack, SigningSecret: secret})
+	if err != nil {
+		t.Fatalf("CreateSource: %v", err)
+	}
+	req := CreateTriggerRequest{SourceID: resp.ID, Name: "t", AgentTypeID: "at-1", EventType: "mention", PromptTemplate: "{{ text }}",
+		SenderRestriction: &SenderRestriction{Roles: []string{"MEMBER"}}}
+	if _, err := deps.triggers.CreateTrigger(ctx, testTenant, req); !errors.Is(err, ErrValidation) {
+		t.Errorf("a Slack restriction with a role: err = %v, want ErrValidation", err)
+	}
+	req.SenderRestriction = &SenderRestriction{IDs: []string{"u1"}}
+	tr, err := deps.triggers.CreateTrigger(ctx, testTenant, req)
+	if err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+
+	for _, tc := range []struct{ id, user string }{{"Ev1", "U2"}, {"Ev2", "U1"}} {
+		body := []byte(`{"type":"event_callback","team_id":"T1","event_id":"` + tc.id + `","event":{"type":"app_mention","user":"` + tc.user + `","text":"hi","ts":"1","channel":"C1"}}`)
+		if res, err := svc.Ingest(ctx, resp.ID, slackHeaders(secret, time.Now().Unix(), body), body); err != nil || res.Outcome != IngestAccepted {
+			t.Fatalf("%s = (%+v, %v), want accepted", tc.id, res, err)
+		}
+	}
+	waitFor(t, func() bool { return len(deps.repo.pendingFor(tr.ID)) == 1 })
+	for _, d := range deps.repo.allDeliveries() {
+		if d.ProviderDeliveryID == "Ev1" {
+			waitFor(t, func() bool { return slices.Equal(deps.repo.outcomeStatuses(d.ID), []string{RunStatusFiltered}) })
 		}
 	}
 }
