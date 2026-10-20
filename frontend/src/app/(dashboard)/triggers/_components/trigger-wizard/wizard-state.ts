@@ -7,6 +7,7 @@
 import type { ModelObject, TriggerRoutingCandidate } from '@runkora/shared/api';
 import { resolveBrowserZone, timezoneOptions } from './cron';
 import { LIMITS } from '../../_types';
+import { firstUnknownChatField, placeholderKeys } from '../../_lib/chat';
 import type { Senders, TriggerCoalesce, TriggerRoutingRow } from '../../_types';
 import type { SenderRestrictionDraft } from '../sender-restriction-editor';
 import type { FilterOperator, FilterRow } from '../filter-rows-editor';
@@ -25,6 +26,7 @@ import type {
   WizardField,
   WizardState,
 } from './types';
+import { NEW_SOURCE } from './types';
 
 export const VALID: StepValidation = { valid: true };
 
@@ -85,6 +87,7 @@ export function baseState(sources: readonly { id: string }[]): WizardState {
     newSourceProvider: 'github',
     newSourceSecret: '',
     eventType: '',
+    eventFields: null,
     filters: [],
     senders: { ids: '', roles: [] },
 
@@ -129,7 +132,8 @@ export function initialState(
     def.sourceCategory === undefined
       ? sources
       : sources.filter((s) => s.category === def.sourceCategory);
-  return { ...baseState(own), ...def.defaults };
+  const state = { ...baseState(own), ...def.defaults };
+  return own.length === 0 && def.newSourceWhenNone ? { ...state, sourceChoice: NEW_SOURCE } : state;
 }
 
 /** Splits a filter row's values on `|`, dropping blanks. */
@@ -197,6 +201,11 @@ export function senderRestrictionFrom(draft: SenderRestrictionDraft): Senders | 
   const ids = splitIds(draft.ids);
   const { roles } = draft;
   return ids.length > 0 || roles.length > 0 ? { ids, roles } : undefined;
+}
+
+/** The hint for a placeholder or filter field the trigger cannot read. */
+export function unknownFieldHint(key: string): string {
+  return `${key} is not a field of this message. Use one listed under Insert field.`;
 }
 
 /** Renders the composed condition for the review step. */
@@ -363,6 +372,12 @@ export function validateDelivery(state: WizardState): StepValidation {
   // Coalescing needs `wait`; under any other overflow the section is hidden and ignored.
   const coalesce = state.overflow === 'wait' ? validateCoalesce(coalesceDraftOf(state)) : undefined;
   if (coalesce !== undefined) return { valid: false, hint: coalesce };
+  // eventFields is set only for a kind whose backend refuses unknown fields,
+  // so a bad key is caught here rather than after a new source exists.
+  if (state.overflow === 'wait' && state.coalesceEnabled && state.eventFields !== null) {
+    const unknown = firstUnknownChatField(placeholderKeys(state.coalesceKey), state.eventFields);
+    if (unknown !== undefined) return { valid: false, hint: unknownFieldHint(unknown) };
+  }
   return VALID;
 }
 

@@ -30,6 +30,8 @@ export interface SourceCatalog {
   identifiesSenders: boolean;
   /** Fields of the chosen event type; empty until one is chosen. */
   fields: TriggerField[];
+  /** Whether `fields` is the answer for the chosen event type. */
+  fieldsReady: boolean;
   error: string | null;
 }
 
@@ -86,6 +88,7 @@ export function useSourceCatalog(
     roles: currentTypes?.value?.senders?.roles ?? [],
     identifiesSenders: currentTypes?.value?.senders !== undefined,
     fields: currentFields?.value ?? [],
+    fieldsReady: currentFields !== null && currentFields.error === null,
     error: currentTypes?.error ?? currentFields?.error ?? null,
   };
 }

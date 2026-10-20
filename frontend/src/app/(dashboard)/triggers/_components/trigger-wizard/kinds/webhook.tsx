@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect } from 'react';
+
 /** @tier 3 · triggers-scoped. The webhook and chat command kinds: an external
  * system posts a signed event to a kora endpoint. One module, two registry
  * entries told apart by the source category the API reports. Step, review
@@ -29,6 +31,8 @@ import {
   coalesceFrom,
   senderRestrictionFrom,
   splitIds,
+  unknownFieldHint,
+  VALID,
   validateFilters,
   validateNamedPromptStep,
 } from '../wizard-state';
@@ -41,7 +45,13 @@ import { FilterRowsEditor } from '../../filter-rows-editor';
 import { SenderRestrictionEditor } from '../../sender-restriction-editor';
 import { useProviderCategories, useSourceCatalog } from '../../use-source-catalog';
 import { endpointFor } from '../../../_lib/endpoints';
-import { chatConversationKey, chatEventLabel, LATER_CHAT_PLATFORMS } from '../../../_lib/chat';
+import {
+  chatConversationKey,
+  chatEventLabel,
+  firstUnknownChatField,
+  LATER_CHAT_PLATFORMS,
+  placeholderKeys,
+} from '../../../_lib/chat';
 import { PROVIDER_IDS, PROVIDERS, providerName, SENDER_ID_EXAMPLE } from '../../../_lib/providers';
 import { SLACK_PROVIDER, slackAppManifest } from '../../../_lib/slack-app-manifest';
 import { NEW_SOURCE } from '../types';
@@ -54,7 +64,12 @@ import type {
 } from '../types';
 
 // A new source or provider has its own events, fields and senders.
-const RESET_EVENT = { eventType: '', filters: [], senders: { ids: '', roles: [] } };
+const RESET_EVENT = {
+  eventType: '',
+  eventFields: null,
+  filters: [],
+  senders: { ids: '', roles: [] },
+};
 
 /** The copy that differs between the two kinds. */
 interface SourceKindCopy {
@@ -134,6 +149,30 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
     state.eventType,
   );
   const fields = schemaCatalog(catalog.fields);
+  const loadedPaths = catalog.fieldsReady ? catalog.fields.map((f) => f.path).join('\n') : null;
+
+  // A chat trigger's fields are checked before create, since the backend
+  // refuses any other field once a new source may already exist.
+  useEffect(() => {
+    if (category !== 'chat' || loadedPaths === null) return;
+    patch({ eventFields: loadedPaths.split('\n') });
+  }, [category, loadedPaths, patch]);
+
+  // With one platform to pick, picking it is not a decision worth asking for.
+  const onlyProvider =
+    providerCategories.pending.length === 0 && providers.length === 1
+      ? providers[0]?.id
+      : undefined;
+  useEffect(() => {
+    if (
+      category === 'chat' &&
+      onlyProvider !== undefined &&
+      state.sourceChoice === NEW_SOURCE &&
+      !state.newSourceProvider
+    )
+      patch({ newSourceProvider: onlyProvider });
+  }, [category, onlyProvider, state.sourceChoice, state.newSourceProvider, patch]);
+
   const eventName = category === 'chat' ? chatEventLabel(state.eventType) : state.eventType;
 
   return (
@@ -270,7 +309,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
             <ChatEventPicker
               events={catalog.declared}
               value={state.eventType}
-              onChange={(eventType) => patch({ eventType, filters: [] })}
+              onChange={(eventType) => patch({ eventType, eventFields: null, filters: [] })}
             />
           </>
         ) : (
@@ -354,8 +393,24 @@ function validateSource(category: SourceCategory) {
               ? 'Choose the message this trigger listens for.'
               : 'Choose the event this trigger listens for.',
         };
-      return validateFilters(s.filters);
+      const filters = validateFilters(s.filters);
+      if (!filters.valid || category !== 'chat') return filters;
+      return validateChatFields(s);
     });
+}
+
+/**
+ * Every field a chat trigger names on its source step: prompt placeholders
+ * and filter fields. The backend refuses anything else at create.
+ */
+function validateChatFields(s: WizardState) {
+  if (s.eventFields === null) return { valid: false, hint: 'Loading the message fields…' };
+  const keys = [
+    ...placeholderKeys(s.promptTemplate),
+    ...s.filters.map((row) => row.field.trim()).filter(Boolean),
+  ];
+  const unknown = firstUnknownChatField(keys, s.eventFields);
+  return unknown === undefined ? VALID : { valid: false, hint: unknownFieldHint(unknown) };
 }
 
 /**
@@ -584,4 +639,5 @@ export const chatKind: TriggerKindDefinition = {
   ...sourceKind('chat'),
   doneContent: ChatDoneContent,
   coalesceKeyExample: chatConversationKey,
+  newSourceWhenNone: true,
 };

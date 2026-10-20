@@ -51,3 +51,25 @@ export const LATER_CHAT_PLATFORMS: { name: string; icon: IconName }[] = [
   { name: 'Discord', icon: 'send' },
   { name: 'Microsoft Teams', icon: 'send' },
 ];
+
+/** The placeholder syntax the backend reads, so the console names the same keys it does. */
+const PLACEHOLDER = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
+
+/** The distinct keys a template's placeholders name. */
+export function placeholderKeys(template: string): string[] {
+  return [...new Set([...template.matchAll(PLACEHOLDER)].map((m) => m[1] ?? ''))];
+}
+
+/**
+ * The first key a chat trigger may not read, or undefined when all are fields.
+ * Mirrors the backend's check: a key must be a field path, and never a parent
+ * such as `user`, which would render every key a platform puts under it.
+ */
+export function firstUnknownChatField(
+  keys: readonly string[],
+  fields: readonly string[],
+): string | undefined {
+  return keys.find(
+    (key) => !fields.includes(key) || fields.some((path) => path.startsWith(`${key}.`)),
+  );
+}

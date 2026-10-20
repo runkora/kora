@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { TriggerEventTypes, TriggerField } from '@runkora/shared/api';
 
@@ -361,12 +361,44 @@ describe('chat command kind', () => {
     expect(screen.queryByText('acme/widgets')).toBeNull();
   });
 
-  it('lists no webhook source and chooses no platform when there is no chat source', () => {
+  it('starts on New source with Slack chosen when there is no chat source', async () => {
     renderWizard('chat', CONTEXT.sources);
     expect(screen.queryByText('acme/widgets')).toBeNull();
-    expect(screen.queryByText('Platform')).toBeNull();
-    fireEvent.click(screen.getByText('New source'));
     expect(screen.getByText('Platform')).toBeTruthy();
+    expect(await screen.findByText('manifest.json')).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /^Slack/ })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('chooses no platform when Slack could not be loaded', async () => {
+    api.fetchProviderEventTypes.mockImplementation(async (provider: string) =>
+      provider === 'slack'
+        ? { eventTypes: null, error: 'unavailable' }
+        : { eventTypes: PROVIDER_EVENT_TYPES[provider], error: null },
+    );
+    renderWizard('chat', []);
+    expect(await screen.findByText(/Could not load Slack/)).toBeTruthy();
+    expect(screen.queryByText('manifest.json')).toBeNull();
+  });
+
+  it('names a prompt placeholder that is not a chat field before Continue', async () => {
+    renderWizard('chat', [SLACK]);
+    fireEvent.change(screen.getByLabelText(/Trigger name/), { target: { value: 'ask' } });
+    const prompt = screen.getByRole('textbox', { name: 'Prompt' });
+    prompt.textContent = 'Answer {{ event.text }} for {{ user }}';
+    fireEvent.input(prompt);
+    fireEvent.click(await screen.findByRole('radio', { name: /Mention/ }));
+    expect(
+      await screen.findByText(
+        'event.text is not a field of this message. Use one listed under Insert field.',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true);
+
+    prompt.textContent = 'Answer {{ text }} for {{ user.id }}';
+    fireEvent.input(prompt);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false),
+    );
   });
 
   it('offers Slack, and shows Discord and Microsoft Teams as planned', async () => {
@@ -427,14 +459,14 @@ describe('chat command kind', () => {
     const onCreate = vi.fn().mockResolvedValue({ ok: true, triggerId: 'trg-1' });
     renderWizard('chat', [], onCreate);
     fillNameAndPrompt();
-    fireEvent.click(screen.getByText('New source'));
     fireEvent.change(screen.getByLabelText(/Source name/), { target: { value: 'acme-slack' } });
-    fireEvent.click(await screen.findByText('Slack'));
-    expect(screen.getByText('Paste the signing secret from your Slack app.')).toBeTruthy();
+    expect(await screen.findByText('Paste the signing secret from your Slack app.')).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/Signing secret/), { target: { value: 'sig' } });
     fireEvent.click(await screen.findByRole('radio', { name: /Direct message/ }));
 
-    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    const next = screen.getByRole('button', { name: /Continue/ });
+    await waitFor(() => expect(next.hasAttribute('disabled')).toBe(false));
+    fireEvent.click(next);
     fireEvent.click(screen.getByRole('radio', { name: 'Coder' }));
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }));

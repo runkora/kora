@@ -197,6 +197,11 @@ export interface WizardState {
   /** The signing secret the provider issued, for a new source whose provider issues it. */
   newSourceSecret: string;
   eventType: string;
+  /**
+   * The chosen event's field paths, for a kind that checks placeholders
+   * before create. Null until they load, and for every other kind.
+   */
+  eventFields: string[] | null;
   /** Match-condition rows. Empty means every delivery of the event qualifies. */
   filters: FilterRow[];
   senders: SenderRestrictionDraft;
@@ -356,6 +361,8 @@ export interface TriggerKindDefinition {
   doneContent: React.ComponentType<DoneContentProps>;
   /** An example coalesce key for the chosen event, in the kind's own fields. */
   coalesceKeyExample?: (eventType: string) => string;
+  /** Starts on a new source when no source of the kind's category exists. */
+  newSourceWhenNone?: boolean;
 }
 
 /**

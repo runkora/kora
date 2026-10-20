@@ -513,3 +513,37 @@ describe('coalesce in the wizard state', () => {
     expect('coalesce' in toDraft(TRIGGER_KINDS.manual, state(set))).toBe(false);
   });
 });
+
+describe('validateDelivery chat coalesce key', () => {
+  const chat = {
+    coalesceEnabled: true,
+    coalesceWindow: '10',
+    eventFields: ['text', 'conversation.id', 'thread.id', 'meta.source'],
+  };
+
+  it('names a coalesce key placeholder that is not a chat field', () => {
+    expect(
+      validateDelivery(state({ ...chat, coalesceKey: '{{ channel }}:{{ thread.id }}' })),
+    ).toEqual({
+      valid: false,
+      hint: 'channel is not a field of this message. Use one listed under Insert field.',
+    });
+  });
+
+  it('passes a key of chat fields', () => {
+    expect(
+      validateDelivery(state({ ...chat, coalesceKey: '{{ conversation.id }}:{{ thread.id }}' }))
+        .valid,
+    ).toBe(true);
+  });
+
+  it('ignores the key when coalescing is off or the kind does not check fields', () => {
+    expect(
+      validateDelivery(state({ ...chat, coalesceEnabled: false, coalesceKey: '{{ channel }}' }))
+        .valid,
+    ).toBe(true);
+    expect(
+      validateDelivery(state({ ...chat, eventFields: null, coalesceKey: '{{ channel }}' })).valid,
+    ).toBe(true);
+  });
+});

@@ -41,6 +41,18 @@ describe('webhook DoneContent', () => {
   });
 });
 
+const CHAT_PATHS = [
+  'text',
+  'platform',
+  'user.id',
+  'conversation.id',
+  'thread.id',
+  'workspace.id',
+  'meta.event_type',
+  'meta.delivery_id',
+  'meta.source',
+];
+
 const SLACK_SOURCE: TriggerWizardSource = {
   id: 'src-9',
   name: 'acme-slack',
@@ -94,6 +106,7 @@ describe('chat validation, review and draft', () => {
     ...initialState(chatKind, [SLACK_SOURCE]),
     name: 'ask',
     promptTemplate: 'Answer {{ text }}',
+    eventFields: CHAT_PATHS,
   };
 
   it('asks for the message to listen for', () => {
@@ -102,6 +115,48 @@ describe('chat validation, review and draft', () => {
       hint: 'Choose the message this trigger listens for.',
     });
     expect(validate({ ...ready, eventType: 'mention' }, CONTEXT).valid).toBe(true);
+  });
+
+  it('waits for the message fields before it lets the step pass', () => {
+    expect(validate({ ...ready, eventType: 'mention', eventFields: null }, CONTEXT)).toEqual({
+      valid: false,
+      hint: 'Loading the message fields…',
+    });
+  });
+
+  it('names the first placeholder or filter field that is not a chat field', () => {
+    const at = (overrides: Partial<typeof ready>) =>
+      validate({ ...ready, eventType: 'mention', ...overrides }, CONTEXT);
+    expect(at({ promptTemplate: 'Answer {{ event.text }}' })).toEqual({
+      valid: false,
+      hint: 'event.text is not a field of this message. Use one listed under Insert field.',
+    });
+    // A parent renders every key under it, so the backend refuses it too.
+    expect(at({ promptTemplate: 'From {{ user }}' }).hint).toMatch(/^user is not a field/);
+    expect(at({ filters: [{ field: 'channel', values: 'C1' }] }).hint).toMatch(
+      /^channel is not a field/,
+    );
+    expect(
+      at({
+        promptTemplate: '{{ text }} {{user.id}} {{ meta.event_type }}',
+        filters: [{ field: 'conversation.id', values: 'C1' }],
+      }).valid,
+    ).toBe(true);
+  });
+
+  it('never checks a webhook trigger against the chat fields', () => {
+    const webhook = webhookKind.steps[0]!.validate;
+    expect(
+      webhook(
+        {
+          ...initialState(webhookKind, CONTEXT.sources),
+          name: 'gh',
+          eventType: 'push',
+          promptTemplate: '{{ anything.at.all }}',
+        },
+        CONTEXT,
+      ).valid,
+    ).toBe(true);
   });
 
   it('asks for a platform for a new source', () => {

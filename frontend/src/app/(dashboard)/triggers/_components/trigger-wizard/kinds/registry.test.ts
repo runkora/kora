@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { KIND_ORDER, PLANNED_KINDS, TRIGGER_KINDS } from './index';
 import { SHARED_STEPS } from '../shared-steps';
 import { initialState, stepsFor } from '../wizard-state';
+import { NEW_SOURCE } from '../types';
 import type { ConsoleKind, WizardContext } from '../types';
 
 const CONTEXT: WizardContext = {
@@ -35,7 +36,10 @@ describe('TRIGGER_KINDS', () => {
   it('starts each source kind on the first source of its own category', () => {
     expect(initialState(TRIGGER_KINDS.webhook, CONTEXT.sources).sourceChoice).toBe('src-1');
     expect(initialState(TRIGGER_KINDS.chat, CONTEXT.sources).sourceChoice).toBe('src-2');
-    expect(initialState(TRIGGER_KINDS.chat, CONTEXT.sources.slice(0, 1)).sourceChoice).toBe('');
+    expect(initialState(TRIGGER_KINDS.chat, CONTEXT.sources.slice(0, 1)).sourceChoice).toBe(
+      NEW_SOURCE,
+    );
+    expect(initialState(TRIGGER_KINDS.webhook, CONTEXT.sources.slice(1)).sourceChoice).toBe('');
   });
 
   it('gives every kind the copy the picker renders', () => {
