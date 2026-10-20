@@ -93,8 +93,10 @@ func (s *TriggerService) resolveRouting(ctx context.Context, src WebhookSource, 
 }
 
 // applyRoutingUpdate applies a routing replacement to a routed trigger and
-// replaces the grant when the candidates or the model changed (ADR Decision
-// 16). When the update changes what runs or when (checkCaller), the caller must
+// replaces the grant when the scopes it holds differ from routedGrantScopes
+// (ADR Decision 16). The stored grant is read from policy-service, so a grant
+// written before a scope was added is replaced by any update, not only one that
+// changes the candidates or the model. When the update changes what runs or when (checkCaller), the caller must
 // also hold the decision model's scopes (ADR Decision 17); the candidates'
 // can_run is checked before this, or as a replacement resolves them. replaced
 // reports a new grant on t; oldGrant is the one it replaces, deleted once the
@@ -106,12 +108,11 @@ func (s *TriggerService) applyRoutingUpdate(ctx context.Context, t *Trigger, cla
 	if t.Routing == nil {
 		return false, nil, errNoRouting
 	}
-	previous := t.Routing
-	var src *WebhookSource
+	src, err := s.repo.GetSource(ctx, t.TenantID, t.SourceID)
+	if err != nil {
+		return false, nil, err
+	}
 	if raw != nil {
-		if src, err = s.repo.GetSource(ctx, t.TenantID, t.SourceID); err != nil {
-			return false, nil, err
-		}
 		if t.Routing, err = s.resolveRouting(ctx, *src, raw); err != nil {
 			return false, nil, err
 		}
@@ -125,7 +126,11 @@ func (s *TriggerService) applyRoutingUpdate(ctx context.Context, t *Trigger, cla
 			return false, nil, err
 		}
 	}
-	if raw == nil || sameGrant(previous, t.Routing) {
+	current, err := s.grantHolds(ctx, t.GrantID, scopes)
+	if err != nil {
+		return false, nil, err
+	}
+	if current {
 		return false, nil, nil
 	}
 	grantID, err := s.policy.CreateGrant(ctx, t.TenantID, string(token.PrincipalTypeService), src.PrincipalID, scopes, nil, false)
@@ -134,6 +139,22 @@ func (s *TriggerService) applyRoutingUpdate(ctx context.Context, t *Trigger, cla
 	}
 	oldGrant, t.GrantID = t.GrantID, &grantID
 	return true, oldGrant, nil
+}
+
+// grantHolds reports whether the stored grant holds exactly the given scopes.
+// A trigger without a grant, or whose grant is gone, holds nothing.
+func (s *TriggerService) grantHolds(ctx context.Context, grantID *string, scopes []string) (bool, error) {
+	if grantID == nil {
+		return false, nil
+	}
+	g, err := s.policy.GetGrant(ctx, *grantID)
+	if errors.Is(err, policyclient.ErrGrantNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read trigger grant: %w", err)
+	}
+	return sameScopes(g.Scopes, scopes), nil
 }
 
 // authorizeCaller fails unless the caller holds every given scope, listing the ones missing.

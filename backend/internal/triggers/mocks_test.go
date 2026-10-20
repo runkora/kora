@@ -581,8 +581,9 @@ type policyStub struct {
 	server *httptest.Server
 
 	mu         sync.Mutex
-	created    map[string]string // grantID → principalID
-	lastScopes []string          // scopes of the most recent create
+	created    map[string]string   // grantID → principalID
+	scopes     map[string][]string // grantID → scopes
+	lastScopes []string            // scopes of the most recent create
 	deleted    []string
 	counter    int
 	failCreate bool
@@ -594,7 +595,7 @@ type policyStub struct {
 }
 
 func newPolicyStub() *policyStub {
-	ps := &policyStub{created: map[string]string{}}
+	ps := &policyStub{created: map[string]string{}, scopes: map[string][]string{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/policy/grants", func(w http.ResponseWriter, r *http.Request) {
 		ps.mu.Lock()
@@ -620,6 +621,7 @@ func newPolicyStub() *policyStub {
 		ps.counter++
 		id := fmt.Sprintf("grant-%d", ps.counter)
 		ps.created[id] = req.PrincipalID
+		ps.scopes[id] = req.Scopes
 		ps.lastScopes = req.Scopes
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -637,6 +639,19 @@ func newPolicyStub() *policyStub {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"grants":[%s]}`, strings.Join(grants, ","))
+	})
+	mux.HandleFunc("GET /api/v1/policy/grants/{id}", func(w http.ResponseWriter, r *http.Request) {
+		ps.mu.Lock()
+		defer ps.mu.Unlock()
+		id := r.PathValue("id")
+		pid, ok := ps.created[id]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		body, _ := json.Marshal(map[string]any{"id": id, "principal_id": pid, "scopes": ps.scopes[id]})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
 	})
 	mux.HandleFunc("DELETE /api/v1/policy/grants/{id}", func(w http.ResponseWriter, r *http.Request) {
 		ps.mu.Lock()

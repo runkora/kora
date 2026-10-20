@@ -230,9 +230,9 @@ func routedCallerScopes(r *RoutingConfig) []string {
 	return []string{"inference:invoke", modelScope}
 }
 
-// sameGrant reports whether two routing objects need the same grant.
-func sameGrant(a, b *RoutingConfig) bool {
-	return a.Model == b.Model && slices.Equal(slices.Sorted(slices.Values(a.Candidates)), slices.Sorted(slices.Values(b.Candidates)))
+// sameScopes reports whether two scope lists hold the same scopes, ignoring order.
+func sameScopes(a, b []string) bool {
+	return slices.Equal(slices.Sorted(slices.Values(a)), slices.Sorted(slices.Values(b)))
 }
 
 // renderJoinKey renders a routed trigger's join key for one delivery. ok is
