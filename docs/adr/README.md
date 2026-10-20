@@ -133,6 +133,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Agent Run Guardrails](2026-09-29-agent-run-guardrails.md) — `Accepted (Amended 2026-09-30)` · 2026-09-29
 - [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) — `Accepted` · 2026-10-13
 - [Trigger Routing](2026-10-19-trigger-routing.md) — `Accepted` · 2026-10-19
+- [Chat Command Triggers](2026-10-20-chat-command-triggers.md) — `Accepted` · 2026-10-20
 
 ### MCP / Tool Gateway
 
@@ -310,4 +311,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-13 | [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) | Accepted | — |
 | 2026-10-15 | [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) | Accepted | — |
 | 2026-10-19 | [Trigger Routing](2026-10-19-trigger-routing.md) | Accepted | — |
+| 2026-10-20 | [Chat Command Triggers](2026-10-20-chat-command-triggers.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
