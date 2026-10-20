@@ -2,9 +2,9 @@
 
 /**
  * @tier 3 — triggers-scoped. Limits who can fire a webhook trigger: named
- * logins, or anyone whose relationship to the repository is ticked. Used by
+ * senders, or anyone with a ticked relationship the provider reports. Used by
  * the wizard and the drawer. Renders nothing for providers that identify no
- * sender.
+ * sender, and no relationships for providers that report none.
  */
 
 import { useId, type ReactNode } from 'react';
@@ -24,7 +24,9 @@ const ROLE_TEXT: Record<string, { title: string; description: string }> = {
 };
 
 interface SenderRestrictionEditorProps {
-  /** The association values the provider reports; empty hides the control. */
+  /** Whether the provider says who caused an event; false renders nothing. */
+  identifiesSenders: boolean;
+  /** The association values the provider reports; empty hides the relationship cards. */
   available: string[];
   value: SenderRestrictionDraft;
   onChange: (next: SenderRestrictionDraft) => void;
@@ -34,6 +36,7 @@ interface SenderRestrictionEditorProps {
 }
 
 export function SenderRestrictionEditor({
+  identifiesSenders,
   available,
   value,
   onChange,
@@ -41,7 +44,7 @@ export function SenderRestrictionEditor({
   actions,
 }: SenderRestrictionEditorProps) {
   const loginsId = useId();
-  if (available.length === 0) return null;
+  if (!identifiesSenders) return null;
   const toggle = (association: string, on: boolean) =>
     onChange({
       ...value,
@@ -55,67 +58,69 @@ export function SenderRestrictionEditor({
       <Stack gap="tight">
         <SectionLabel>Senders</SectionLabel>
         <Text size="caption" color="subtle">
-          Leave empty to accept events from anyone. Otherwise a sender must be listed or have a
-          ticked relationship to the repository.
+          Leave empty to accept events from anyone. Otherwise a sender must be listed
+          {available.length > 0 && ' or have a ticked relationship'}.
         </Text>
       </Stack>
-      <FormField label="Logins" id={loginsId}>
+      <FormField label="Allowed senders" id={loginsId}>
         <Input
           id={loginsId}
           mono
           value={value.logins}
           disabled={disabled}
           onChange={(e) => onChange({ ...value, logins: e.target.value })}
-          placeholder="octocat, hubot"
+          placeholder="Separate senders with commas"
         />
       </FormField>
-      <Grid cols={3} gap="cozy">
-        {available.map((association) => {
-          const checked = value.associations.includes(association);
-          const text = ROLE_TEXT[association] ?? {
-            title: association.toLowerCase(),
-            description: '',
-          };
-          return (
-            <Card
-              key={association}
-              interactive={!disabled}
-              selected={checked}
-              selectedVariant="outline"
-            >
-              <Stack
-                direction="horizontal"
-                align="start"
-                justify="between"
-                gap="cozy"
-                padding="cozy"
-                onClick={() => !disabled && toggle(association, !checked)}
+      {available.length > 0 && (
+        <Grid cols={3} gap="cozy">
+          {available.map((association) => {
+            const checked = value.associations.includes(association);
+            const text = ROLE_TEXT[association] ?? {
+              title: association.toLowerCase(),
+              description: '',
+            };
+            return (
+              <Card
+                key={association}
+                interactive={!disabled}
+                selected={checked}
+                selectedVariant="outline"
               >
-                <Stack gap="none">
-                  <Text as="span" weight="strong">
-                    {text.title}
-                  </Text>
-                  {text.description && (
-                    <Text as="span" size="caption" color="subtle">
-                      {text.description}
+                <Stack
+                  direction="horizontal"
+                  align="start"
+                  justify="between"
+                  gap="cozy"
+                  padding="cozy"
+                  onClick={() => !disabled && toggle(association, !checked)}
+                >
+                  <Stack gap="none">
+                    <Text as="span" weight="strong">
+                      {text.title}
                     </Text>
-                  )}
+                    {text.description && (
+                      <Text as="span" size="caption" color="subtle">
+                        {text.description}
+                      </Text>
+                    )}
+                  </Stack>
+                  {/* The card's click toggles; stop the checkbox's own click from toggling twice. */}
+                  <Stack onClick={(e) => e.stopPropagation()}>
+                    <Checkbox
+                      size="lg"
+                      checked={checked}
+                      disabled={disabled}
+                      onChange={(on) => toggle(association, on)}
+                      aria-label={text.title}
+                    />
+                  </Stack>
                 </Stack>
-                {/* The card's click toggles; stop the checkbox's own click from toggling twice. */}
-                <Stack onClick={(e) => e.stopPropagation()}>
-                  <Checkbox
-                    size="lg"
-                    checked={checked}
-                    disabled={disabled}
-                    onChange={(on) => toggle(association, on)}
-                    aria-label={text.title}
-                  />
-                </Stack>
-              </Stack>
-            </Card>
-          );
-        })}
-      </Grid>
+              </Card>
+            );
+          })}
+        </Grid>
+      )}
       {actions}
     </Stack>
   );

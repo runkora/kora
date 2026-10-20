@@ -2,8 +2,9 @@
 
 /**
  * @tier 3 — triggers-scoped. Loads what a webhook trigger can listen for and
- * read: the schema event types, sender associations and the chosen event's
- * fields, plus the event types an existing source has actually sent.
+ * read: the schema event types, whether senders are identified and their
+ * associations, the chosen event's fields, plus the event types an existing
+ * source has actually sent.
  */
 
 import { useEffect, useState } from 'react';
@@ -17,8 +18,10 @@ import {
 export interface SourceCatalog {
   declared: string[];
   observed: string[];
-  /** Empty when the provider identifies no sender. */
+  /** Empty when the provider has no sender associations. */
   associations: string[];
+  /** Whether the provider says who caused an event, so a sender restriction applies. */
+  identifiesSenders: boolean;
   /** Fields of the chosen event type; empty until one is chosen. */
   fields: TriggerField[];
   error: string | null;
@@ -75,6 +78,7 @@ export function useSourceCatalog(
     declared: currentTypes?.value?.declared ?? [],
     observed: currentTypes?.value?.observed ?? [],
     associations: currentTypes?.value?.associations ?? [],
+    identifiesSenders: currentTypes?.value?.identifies_senders ?? false,
     fields: currentFields?.value ?? [],
     error: currentTypes?.error ?? currentFields?.error ?? null,
   };

@@ -540,6 +540,7 @@ export const GITHUB_EVENT_TYPES: TriggerEventTypes = {
   ],
   observed: ['pull_request', 'push', 'check_run', 'issue_comment'],
   associations: ['OWNER', 'MEMBER', 'COLLABORATOR', 'CONTRIBUTOR', 'NONE'],
+  identifies_senders: true,
 };
 
 export const PULL_REQUEST_FIELDS: TriggerField[] = [

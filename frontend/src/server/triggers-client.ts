@@ -105,7 +105,8 @@ export async function deleteSource(accessToken: string, id: string): Promise<voi
 }
 
 // GET /api/v1/trigger-sources/{id}/event-types: the provider's declared event
-// types, the ones this source has sent, and the sender associations it knows.
+// types, the ones this source has sent, the sender associations it knows and
+// whether it identifies senders.
 export async function sourceEventTypes(
   accessToken: string,
   id: string,
@@ -115,11 +116,13 @@ export async function sourceEventTypes(
     declared: body?.declared ?? [],
     observed: body?.observed ?? [],
     associations: body?.associations ?? [],
+    identifies_senders: body?.identifies_senders ?? false,
   };
 }
 
 // GET /api/v1/trigger-providers/{provider}/event-types: the event types in the
-// provider's schema, and the sender associations it knows.
+// provider's schema, the sender associations it knows and whether it
+// identifies senders.
 export async function providerEventTypes(
   accessToken: string,
   provider: string,
@@ -128,7 +131,11 @@ export async function providerEventTypes(
     `/trigger-providers/${encodeURIComponent(provider)}/event-types`,
     accessToken,
   );
-  return { declared: body?.declared ?? [], associations: body?.associations ?? [] };
+  return {
+    declared: body?.declared ?? [],
+    associations: body?.associations ?? [],
+    identifies_senders: body?.identifies_senders ?? false,
+  };
 }
 
 // GET /api/v1/trigger-providers/{provider}/fields: one event type's fields,

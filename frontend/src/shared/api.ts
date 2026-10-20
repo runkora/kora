@@ -755,7 +755,7 @@ export interface WebhookSource {
 export interface WebhookSourceResponse extends WebhookSource {
   /** Inbound path to configure on the provider; combine with the public base URL. */
   webhook_path: string;
-  /** HMAC signing secret — shown once; never returned on reads. */
+  /** HMAC signing secret, shown once. Never returned on reads, nor when the provider issued it. */
   secret?: string;
 }
 
@@ -764,12 +764,16 @@ export interface WebhookSourceCreateRequest {
   name: string;
   provider: string;
   config?: Record<string, unknown>;
+  /** Write-only. Required for a provider that issues its own secret, e.g. Slack; refused otherwise. */
+  signing_secret?: string;
 }
 
 /** Request body for PATCH /api/trigger-sources/:id. */
 export interface WebhookSourceUpdateRequest {
   enabled?: boolean;
   rotate_secret?: boolean;
+  /** Write-only. The new secret when rotating a source whose provider issues it. */
+  signing_secret?: string;
 }
 
 /** Trigger kind discriminant. */
@@ -844,8 +848,10 @@ export interface SenderRestriction {
 export interface TriggerEventTypes {
   declared: string[];
   observed?: string[];
-  /** Association values a sender restriction may name; empty when the provider identifies no sender. */
+  /** Association values a sender restriction may name; empty when the provider has none. */
   associations: string[];
+  /** Whether the provider reports who caused an event, so a sender restriction applies. */
+  identifies_senders: boolean;
 }
 
 /** One field of a provider event, from its schema. Mirrors Go: triggers.Field. */

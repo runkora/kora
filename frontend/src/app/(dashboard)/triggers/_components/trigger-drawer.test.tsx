@@ -13,7 +13,11 @@ vi.mock('../_services/triggers-api', () => api);
 beforeEach(() => {
   vi.clearAllMocks();
   api.fetchProviderEventTypes.mockResolvedValue({
-    eventTypes: { declared: ['push', 'issue_comment'], associations: ['OWNER', 'MEMBER'] },
+    eventTypes: {
+      declared: ['push', 'issue_comment'],
+      associations: ['OWNER', 'MEMBER'],
+      identifies_senders: true,
+    },
     error: null,
   });
   api.fetchEventTypes.mockResolvedValue({
@@ -21,6 +25,7 @@ beforeEach(() => {
       declared: ['push', 'issue_comment'],
       observed: ['custom'],
       associations: ['OWNER', 'MEMBER'],
+      identifies_senders: true,
     },
     error: null,
   });
@@ -177,7 +182,7 @@ describe('sender restriction editing', () => {
   it('saves the logins and associations as the replacement restriction', async () => {
     const onEdit = vi.fn().mockResolvedValue(null);
     renderDrawer(trigger(), onEdit);
-    fireEvent.change(await screen.findByLabelText('Logins'), {
+    fireEvent.change(await screen.findByLabelText('Allowed senders'), {
       target: { value: 'octocat, hubot' },
     });
     fireEvent.click(screen.getByText('Member'));
@@ -190,12 +195,14 @@ describe('sender restriction editing', () => {
 
   it('seeds from the stored restriction', async () => {
     renderDrawer(trigger({ senderRestriction: { logins: ['octocat'], associations: ['OWNER'] } }));
-    expect(((await screen.findByLabelText('Logins')) as HTMLInputElement).value).toBe('octocat');
+    expect(((await screen.findByLabelText('Allowed senders')) as HTMLInputElement).value).toBe(
+      'octocat',
+    );
   });
 
   it('is absent when the provider identifies no sender', async () => {
     api.fetchEventTypes.mockResolvedValue({
-      eventTypes: { declared: ['alert.firing'], associations: [] },
+      eventTypes: { declared: ['alert.firing'], associations: [], identifies_senders: false },
       error: null,
     });
     renderDrawer(trigger());
@@ -461,5 +468,53 @@ describe('permissions', () => {
     ).toBeTruthy();
     expect(screen.getByRole('switch')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled();
+  });
+});
+
+describe('a source whose provider issues the secret', () => {
+  const SLACK: SourceRow[] = [{ ...SOURCES[0]!, name: 'acme slack', provider: 'slack' }];
+
+  function renderSlack(onRotateSecret: (t: TriggerRow, secret?: string) => Promise<string | null>) {
+    renderWithProviders(
+      <TriggerDrawer
+        canRunAgent
+        trigger={trigger()}
+        sources={SLACK}
+        deliveries={[]}
+        ingestHost="orbit.local.clearroute.io:8443"
+        onClose={vi.fn()}
+        onToggleEnabled={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn().mockResolvedValue(null)}
+        onRotateSecret={onRotateSecret}
+      />,
+    );
+  }
+
+  it('asks for the new secret instead of generating one', async () => {
+    const onRotateSecret = vi.fn().mockResolvedValue('');
+    renderSlack(onRotateSecret);
+    expect(screen.queryByRole('button', { name: 'Rotate' })).toBeNull();
+
+    fireEvent.change(screen.getByLabelText(/Signing secret/), {
+      target: { value: ' new-secret ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace secret' }));
+
+    expect(onRotateSecret).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't1' }),
+      'new-secret',
+    );
+    expect(await screen.findByText(/The new secret is stored/)).toBeTruthy();
+    expect((screen.getByLabelText(/Signing secret/) as HTMLInputElement).value).toBe('');
+  });
+
+  it('keeps the typed secret when the rotation fails', async () => {
+    renderSlack(vi.fn().mockResolvedValue(null));
+    fireEvent.change(screen.getByLabelText(/Signing secret/), { target: { value: 'new-secret' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace secret' }));
+    expect(await screen.findByRole('button', { name: 'Replace secret' })).toBeTruthy();
+    expect((screen.getByLabelText(/Signing secret/) as HTMLInputElement).value).toBe('new-secret');
+    expect(screen.queryByText(/The new secret is stored/)).toBeNull();
   });
 });

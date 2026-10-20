@@ -99,7 +99,8 @@ export interface TriggerDraft {
   kind: TriggerKind;
   name: string;
   promptTemplate: string;
-  source?: { existingId: string } | { newName: string; provider: string };
+  /** `signingSecret` is set for a provider that issues its own secret, e.g. Slack. */
+  source?: { existingId: string } | { newName: string; provider: string; signingSecret?: string };
   /** Webhook only. */
   eventType?: string;
   /**
@@ -184,6 +185,8 @@ export interface WizardState {
   sourceChoice: string;
   newSourceName: string;
   newSourceProvider: string;
+  /** The signing secret the provider issued, for a new source whose provider issues it. */
+  newSourceSecret: string;
   eventType: string;
   /** Match-condition rows. Empty means every delivery of the event qualifies. */
   filters: FilterRow[];

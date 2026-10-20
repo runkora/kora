@@ -8,6 +8,7 @@ function renderEditor(associations: string[] = [], disabled = false) {
   const onChange = vi.fn();
   render(
     <SenderRestrictionEditor
+      identifiesSenders
       available={AVAILABLE}
       value={{ logins: '', associations }}
       onChange={onChange}
@@ -50,14 +51,29 @@ describe('SenderRestrictionEditor', () => {
     expect(screen.getByText('Owner').closest('[data-interactive]')).toBeNull();
   });
 
-  it('renders nothing when the provider reports no relationships', () => {
+  it('renders nothing when the provider identifies no sender', () => {
     const { container } = render(
       <SenderRestrictionEditor
-        available={[]}
+        identifiesSenders={false}
+        available={AVAILABLE}
         value={{ logins: '', associations: [] }}
         onChange={vi.fn()}
       />,
     );
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('offers sender ids without relationship cards when the provider reports none', () => {
+    render(
+      <SenderRestrictionEditor
+        identifiesSenders
+        available={[]}
+        value={{ logins: '', associations: [] }}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText('Allowed senders')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByText(/relationship/)).toBeNull();
   });
 });

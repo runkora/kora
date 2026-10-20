@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import type { TriggerField } from '@runkora/shared/api';
+import type { TriggerEventTypes, TriggerField } from '@runkora/shared/api';
 
 // The wizard reads each provider's schema catalogue from the API.
 const GITHUB_FIELDS: Record<string, TriggerField[]> = {
@@ -36,24 +36,30 @@ const CONTEXT: WizardContext = {
   ingestHost: 'orbit.local.clearroute.io:8443',
 };
 
+/** Slack identifies senders by user id and reports no associations. */
+const PROVIDER_EVENT_TYPES: Record<string, TriggerEventTypes> = {
+  github: {
+    declared: ['issue_comment', 'push'],
+    associations: ['OWNER', 'MEMBER'],
+    identifies_senders: true,
+  },
+  alertmanager: { declared: ['alert.firing'], associations: [], identifies_senders: false },
+  slack: { declared: ['app_mention', 'message.im'], associations: [], identifies_senders: true },
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   api.fetchProviderEventTypes.mockImplementation(async (provider: string) => ({
-    eventTypes:
-      provider === 'alertmanager'
-        ? { declared: ['alert.firing'], associations: [] }
-        : { declared: ['issue_comment', 'push'], associations: ['OWNER', 'MEMBER'] },
+    eventTypes: PROVIDER_EVENT_TYPES[provider] ?? PROVIDER_EVENT_TYPES.github,
     error: null,
   }));
   api.fetchEventTypes.mockImplementation(async (sourceId: string) => ({
     eventTypes:
       sourceId === 'src-2'
-        ? { declared: ['alert.firing'], associations: [] }
-        : {
-            declared: ['issue_comment', 'push'],
-            observed: ['custom'],
-            associations: ['OWNER', 'MEMBER'],
-          },
+        ? PROVIDER_EVENT_TYPES.alertmanager
+        : sourceId === 'src-3'
+          ? PROVIDER_EVENT_TYPES.slack
+          : { ...PROVIDER_EVENT_TYPES.github, observed: ['custom'] },
     error: null,
   }));
   api.fetchProviderFields.mockImplementation(async (provider: string, eventType: string) => ({
@@ -232,19 +238,21 @@ describe('filters and prompt fields', () => {
         onClose={vi.fn()}
       />,
     );
-    fireEvent.change(await screen.findByLabelText('Logins'), { target: { value: 'octocat' } });
+    fireEvent.change(await screen.findByLabelText('Allowed senders'), {
+      target: { value: 'octocat' },
+    });
     fireEvent.click(screen.getByText('Member'));
 
     fireEvent.click(screen.getByText('prod alerts'));
     fireEvent.click(screen.getByText('acme/widgets'));
-    expect(((await screen.findByLabelText('Logins')) as HTMLInputElement).value).toBe('');
+    expect(((await screen.findByLabelText('Allowed senders')) as HTMLInputElement).value).toBe('');
     expect(screen.getByRole('checkbox', { name: 'Member' })).not.toBeChecked();
   });
 
   it('offers a sender restriction only when the provider identifies senders', async () => {
     const view = renderWizard('webhook');
     expect(await screen.findByText('Senders')).toBeTruthy();
-    expect(screen.getByLabelText('Logins')).toBeTruthy();
+    expect(screen.getByLabelText('Allowed senders')).toBeTruthy();
     expect(screen.getByText('Member')).toBeTruthy();
     view.unmount();
 
@@ -260,6 +268,43 @@ describe('filters and prompt fields', () => {
     );
     await screen.findByRole('button', { name: 'Event type' });
     expect(screen.queryByText('Senders')).toBeNull();
+  });
+
+  it('offers sender ids without relationships when the provider reports none', async () => {
+    render(
+      <TriggerWizard
+        initialKind="webhook"
+        agents={CONTEXT.agents}
+        sources={[{ id: 'src-3', name: 'acme slack', provider: 'slack' }]}
+        ingestHost={CONTEXT.ingestHost}
+        onCreate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText('Senders')).toBeTruthy();
+    expect(screen.getByLabelText('Allowed senders')).toBeTruthy();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+  });
+
+  it('shows the Slack app manifest and asks for the signing secret', async () => {
+    render(
+      <TriggerWizard
+        initialKind="webhook"
+        agents={CONTEXT.agents}
+        sources={[]}
+        ingestHost={CONTEXT.ingestHost}
+        onCreate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByText('New source'));
+    fireEvent.click(screen.getByText('Slack'));
+    expect(screen.getByText('manifest.json')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Copy code' })).toBeTruthy();
+    expect(screen.getByLabelText(/Signing secret/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Event type' }));
+    expect(await screen.findByText('app_mention')).toBeTruthy();
+    expect(api.fetchProviderEventTypes).toHaveBeenCalledWith('slack');
   });
 
   it("reads a new source's catalogue from the provider being created", async () => {

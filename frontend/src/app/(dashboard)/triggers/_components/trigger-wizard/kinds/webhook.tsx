@@ -4,6 +4,7 @@
  * signed event to a kora endpoint. Step, review rows, draft, done block. */
 
 import {
+  CodeBlock,
   CopyButton,
   FormField,
   Grid,
@@ -37,6 +38,7 @@ import { FilterRowsEditor } from '../../filter-rows-editor';
 import { SenderRestrictionEditor } from '../../sender-restriction-editor';
 import { useSourceCatalog } from '../../use-source-catalog';
 import { endpointFor } from '../../../_lib/endpoints';
+import { SLACK_PROVIDER, slackAppManifest } from '../../../_lib/slack-app-manifest';
 import { NEW_SOURCE } from '../types';
 import type {
   DoneContentProps,
@@ -61,6 +63,12 @@ const PROVIDERS: { id: string; name: string; description: string; icon: IconName
     name: 'Prometheus Alertmanager',
     description: 'Alert notifications, verified by bearer token.',
     icon: 'bell',
+  },
+  {
+    id: SLACK_PROVIDER,
+    name: 'Slack',
+    description: 'Mentions and direct messages to a Slack app, verified by its signing secret.',
+    icon: 'send',
   },
 ];
 
@@ -120,7 +128,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
               onSelect={(v) => patch({ sourceChoice: v, ...RESET_EVENT })}
               icon="plus"
               title="New source"
-              description="Register a new origin and get its signing secret."
+              description="Register a new origin that posts to this endpoint."
             />
           </Grid>
         </RadioGroup>
@@ -169,6 +177,13 @@ function StepSource({ state, patch, context }: StepComponentProps) {
               </Grid>
             </RadioGroup>
           </Stack>
+          {state.newSourceProvider === SLACK_PROVIDER && (
+            <SlackAppSetup
+              ingestHost={ingestHost}
+              secret={state.newSourceSecret}
+              onSecretChange={(newSourceSecret) => patch({ newSourceSecret })}
+            />
+          )}
         </Stack>
       )}
 
@@ -203,6 +218,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
       </Stack>
 
       <SenderRestrictionEditor
+        identifiesSenders={catalog.identifiesSenders}
         available={catalog.associations}
         value={state.senders}
         onChange={(senders) => patch({ senders })}
@@ -231,6 +247,8 @@ function validateSource(state: WizardState) {
       if (!s.newSourceName.trim())
         return { valid: false, hint: 'Name the source you are creating.' };
       if (!s.newSourceProvider) return { valid: false, hint: 'Choose a provider.' };
+      if (s.newSourceProvider === SLACK_PROVIDER && !s.newSourceSecret.trim())
+        return { valid: false, hint: 'Paste the signing secret from your Slack app.' };
     } else if (!s.sourceChoice) {
       return { valid: false, hint: 'Choose where deliveries come from.' };
     }
@@ -239,8 +257,70 @@ function validateSource(state: WizardState) {
   });
 }
 
-function DoneContent({ context, endpoint, secret }: DoneContentProps) {
+/**
+ * A new Slack source's setup: the app manifest to create the Slack app from,
+ * and the signing secret Slack issues for it.
+ */
+function SlackAppSetup({
+  ingestHost,
+  secret,
+  onSecretChange,
+}: {
+  ingestHost: string;
+  secret: string;
+  onSecretChange: (secret: string) => void;
+}) {
+  const { productName } = useBrand();
+  return (
+    <Stack gap="cozy">
+      <Stack gap="tight">
+        <SectionLabel>Slack app</SectionLabel>
+        <Text size="caption" color="subtle">
+          Create a Slack app from this manifest, then paste the signing secret from its Basic
+          Information page. Once the source exists, set its request URL under Event Subscriptions.
+        </Text>
+      </Stack>
+      <CodeBlock
+        text={JSON.stringify(slackAppManifest(productName, ingestHost), null, 2)}
+        filename="manifest.json"
+        language="json"
+        density="compact"
+      />
+      <FormField label="Signing secret" id="wizard-source-secret" required>
+        <Input
+          id="wizard-source-secret"
+          type="password"
+          autoComplete="off"
+          mono
+          value={secret}
+          onChange={(e) => onSecretChange(e.target.value)}
+          maxLength={256}
+        />
+      </FormField>
+    </Stack>
+  );
+}
+
+function DoneContent({ state, context, endpoint, secret }: DoneContentProps) {
   if (!endpoint) return null;
+  if (catalogProvider(state, context.sources) === SLACK_PROVIDER) {
+    return (
+      <Stack gap="snug" minWidth="prose" maxWidth="prose">
+        <FieldRow
+          leading={<Icon name="lock" size="2xs" color="status-healthy" label="" />}
+          actions={<CopyButton value={endpoint} label="Copy request URL" />}
+        >
+          <Text as="span" size="caption" mono truncate>
+            {endpoint}
+          </Text>
+        </FieldRow>
+        <Text size="caption" color="subtle" align="center">
+          Set this request URL under Event Subscriptions in your Slack app. Slack checks it once;
+          then install the app and invite the bot to the channels it should hear.
+        </Text>
+      </Stack>
+    );
+  }
   return (
     <Stack gap="snug" minWidth="prose" maxWidth="prose">
       <FieldRow
@@ -298,7 +378,7 @@ export const webhookKind: TriggerKindDefinition = {
   title: 'Webhook',
   description: (productName) =>
     `An external service posts a signed event to your ${productName} endpoint.`,
-  example: 'GitHub · Alertmanager',
+  example: 'GitHub · Alertmanager · Slack',
   steps: [
     {
       id: 'source',
@@ -339,7 +419,13 @@ export const webhookKind: TriggerKindDefinition = {
     return {
       source:
         state.sourceChoice === NEW_SOURCE
-          ? { newName: state.newSourceName.trim(), provider: state.newSourceProvider }
+          ? {
+              newName: state.newSourceName.trim(),
+              provider: state.newSourceProvider,
+              ...(state.newSourceProvider === SLACK_PROVIDER && {
+                signingSecret: state.newSourceSecret.trim(),
+              }),
+            }
           : { existingId: state.sourceChoice },
       eventType: state.eventType,
       ...(matchCondition ? { matchCondition } : {}),

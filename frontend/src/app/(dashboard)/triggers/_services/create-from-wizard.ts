@@ -40,6 +40,9 @@ export async function createFromWizardDraft(
       const made = await createSource({
         name: draft.source.newName,
         provider: draft.source.provider,
+        ...(draft.source.signingSecret !== undefined && {
+          signing_secret: draft.source.signingSecret,
+        }),
       });
       if (made.error !== null || made.source === null) {
         return { ok: false, error: made.error ?? 'Failed to create the source.' };

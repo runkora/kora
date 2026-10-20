@@ -129,6 +129,26 @@ describe('webhook drafts', () => {
     });
   });
 
+  it('sends the signing secret a provider issued, and shows none back', async () => {
+    mockCreateSource.mockResolvedValue({ source: { id: 'src-slack' }, error: null } as never);
+
+    const result = await createFromWizardDraft(
+      draft({ source: { newName: 'acme', provider: 'slack', signingSecret: 'slack-secret' } }),
+      OPTIONS,
+    );
+
+    expect(mockCreateSource).toHaveBeenCalledWith({
+      name: 'acme',
+      provider: 'slack',
+      signing_secret: 'slack-secret',
+    });
+    expect(result).toEqual({
+      ok: true,
+      triggerId: 't1',
+      endpoint: 'https://api.orbit.example.com/api/v1/webhooks/src-slack',
+    });
+  });
+
   it('stops at a failed source and never creates a trigger pointing nowhere', async () => {
     mockCreateSource.mockResolvedValue({ source: null, error: 'name already taken' } as never);
 

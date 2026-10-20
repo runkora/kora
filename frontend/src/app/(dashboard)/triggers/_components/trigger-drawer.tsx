@@ -10,7 +10,7 @@
  * Everything about one trigger, in one place.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useId, useMemo, useState } from 'react';
 import {
   CopyButton,
   Alert,
@@ -19,6 +19,7 @@ import {
   CardContent,
   DangerZone,
   FieldRow,
+  FormField,
   Grid,
   Icon,
   IconTile,
@@ -45,6 +46,7 @@ import { KIND_ICON, LIMITS } from '../_types';
 import type { DeliveryRow, Senders, SourceRow, TriggerCoalesce, TriggerRow } from '../_types';
 import { isStartedOutcome, recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
+import { SLACK_PROVIDER } from '../_lib/slack-app-manifest';
 import { CatalogPicker } from './catalog-picker';
 import { CoalesceEditor } from './coalesce-editor';
 import type { CoalesceDraft } from './coalesce-editor';
@@ -138,9 +140,11 @@ interface TriggerDrawerProps {
   ) => Promise<{ deliveryId: string | null; error: string | null }>;
   /**
    * Rotates the webhook source's signing secret and resolves with the new one,
-   * which is shown once here and never again. Absent for read-only callers.
+   * which is shown once here and never again, or null on failure. For a
+   * provider that issues the secret, it stores `signingSecret` and resolves
+   * with an empty string. Absent for read-only callers.
    */
-  onRotateSecret?: (t: TriggerRow) => Promise<string | null>;
+  onRotateSecret?: (t: TriggerRow, signingSecret?: string) => Promise<string | null>;
   /** Fire a manual trigger now. Absent for kinds that fire on their own. */
   onFire?: (t: TriggerRow) => void;
   firing?: boolean;
@@ -259,6 +263,64 @@ function EditActions({
           {pending ? 'Saving…' : saveLabel}
         </Button>
       </Stack>
+    </Stack>
+  );
+}
+
+/**
+ * The secret row for a source whose provider issues the signing secret. The
+ * admin regenerates it in Slack and pastes the new value here; nothing is
+ * shown back.
+ */
+function IssuedSecretRow({ onReplace }: { onReplace?: (secret: string) => Promise<boolean> }) {
+  const id = useId();
+  const [value, setValue] = useState('');
+  const [pending, setPending] = useState(false);
+  const [replaced, setReplaced] = useState(false);
+
+  const save = () => {
+    if (onReplace === undefined) return;
+    setPending(true);
+    void onReplace(value.trim()).then((ok) => {
+      setPending(false);
+      if (!ok) return;
+      setValue('');
+      setReplaced(true);
+    });
+  };
+
+  return (
+    <Stack gap="snug">
+      <FormField
+        label="Signing secret"
+        id={id}
+        hint="Regenerate it in your Slack app, then paste the new secret here."
+      >
+        <Input
+          id={id}
+          type="password"
+          autoComplete="off"
+          mono
+          value={value}
+          disabled={onReplace === undefined || pending}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Stored. Paste a new secret to replace it."
+          maxLength={256}
+        />
+      </FormField>
+      {replaced && (
+        <Text size="caption" color="subtle">
+          The new secret is stored. Requests signed with the old one are rejected.
+        </Text>
+      )}
+      <EditActions
+        dirty={value.trim() !== ''}
+        pending={pending}
+        error={null}
+        saveLabel="Replace secret"
+        onSave={save}
+        onDiscard={() => setValue('')}
+      />
     </Stack>
   );
 }
@@ -591,48 +653,62 @@ export function TriggerDrawer({
                     </Text>
                   </FieldRow>
 
-                  <FieldRow
-                    leading={
-                      <Text mono size="micro" color="subtle">
-                        secret
-                      </Text>
-                    }
-                    actions={
-                      rotatedSecret !== null ? (
-                        <CopyButton value={rotatedSecret} label="Copy" />
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          disabled={onRotateSecret === undefined || rotating}
-                          onClick={() => {
-                            if (!rotateArmed) {
-                              setRotateArmed(true);
-                              return;
-                            }
-                            setRotating(true);
-                            void onRotateSecret?.(trigger).then((secret) => {
-                              setRotating(false);
-                              setRotateArmed(false);
-                              if (secret !== null) setRotatedSecret(secret);
-                            });
-                          }}
-                        >
-                          {rotating
-                            ? 'Rotating…'
-                            : rotateArmed
-                              ? 'Break the old secret?'
-                              : 'Rotate'}
-                        </Button>
-                      )
-                    }
-                  >
-                    <Text mono size="caption" color={rotatedSecret !== null ? undefined : 'muted'}>
-                      {/* The stored secret is write-once and never returned on
+                  {source?.provider === SLACK_PROVIDER ? (
+                    <IssuedSecretRow
+                      key={trigger.id}
+                      onReplace={
+                        onRotateSecret &&
+                        ((secret) => onRotateSecret(trigger, secret).then((r) => r !== null))
+                      }
+                    />
+                  ) : (
+                    <FieldRow
+                      leading={
+                        <Text mono size="micro" color="subtle">
+                          secret
+                        </Text>
+                      }
+                      actions={
+                        rotatedSecret !== null ? (
+                          <CopyButton value={rotatedSecret} label="Copy" />
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            disabled={onRotateSecret === undefined || rotating}
+                            onClick={() => {
+                              if (!rotateArmed) {
+                                setRotateArmed(true);
+                                return;
+                              }
+                              setRotating(true);
+                              void onRotateSecret?.(trigger).then((secret) => {
+                                setRotating(false);
+                                setRotateArmed(false);
+                                if (secret !== null) setRotatedSecret(secret);
+                              });
+                            }}
+                          >
+                            {rotating
+                              ? 'Rotating…'
+                              : rotateArmed
+                                ? 'Break the old secret?'
+                                : 'Rotate'}
+                          </Button>
+                        )
+                      }
+                    >
+                      <Text
+                        mono
+                        size="caption"
+                        color={rotatedSecret !== null ? undefined : 'muted'}
+                      >
+                        {/* The stored secret is write-once and never returned on
                           reads; only a rotation mints something to show. */}
-                      {rotatedSecret ?? 'shown once at creation'}
-                    </Text>
-                  </FieldRow>
+                        {rotatedSecret ?? 'shown once at creation'}
+                      </Text>
+                    </FieldRow>
+                  )}
                   {rotatedSecret !== null && (
                     <Text size="caption" color="subtle">
                       Update your provider with this secret now. It is shown once and cannot be
@@ -846,6 +922,7 @@ export function TriggerDrawer({
               {/* Senders: who may fire it, when the provider says who caused an event. */}
               {trigger.kind === 'webhook' && (
                 <SenderRestrictionEditor
+                  identifiesSenders={sourceCatalog.identifiesSenders}
                   available={sourceCatalog.associations}
                   value={senders.value}
                   onChange={senders.setValue}

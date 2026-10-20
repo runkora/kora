@@ -82,6 +82,7 @@ export function baseState(sources: { id: string }[]): WizardState {
     sourceChoice: sources[0]?.id ?? '',
     newSourceName: '',
     newSourceProvider: 'github',
+    newSourceSecret: '',
     eventType: '',
     filters: [],
     senders: { logins: '', associations: [] },
