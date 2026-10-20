@@ -49,7 +49,7 @@ A trigger cannot choose among agents or send a delivery to a run that is already
 
 ### Which of the Three Questions This Touches
 
-**What can it access?** A routing trigger holds run scopes for every candidate agent and the use scope of its decision model. Create and update require the creator to hold each of those scopes. A delivery can start or join only a run of one of the routing trigger's candidate agents, under the routing trigger's own token.
+**What can it access?** A routing trigger holds run scopes for every candidate agent and the use scope of its decision model. Create requires the creator to be able to run each candidate and to hold inference:invoke and the model's use scope. An update that changes what runs or when requires the same. A delivery can start or join only a run of one of the routing trigger's candidate agents, under the routing trigger's own token.
 
 **Who is this agent?** A joined run keeps its identity. A run started by a routing trigger runs under the routing trigger's principal like any trigger run. The decision call is attributed to that principal.
 
@@ -156,7 +156,7 @@ A trigger cannot choose among agents or send a delivery to a run that is already
 
     An update that changes the candidates or the model replaces the grant.
 
-17. **Creation authority:** Create and update of a routed trigger evaluate each scope of the grant against the caller's claims with the policy evaluator orbit-triggers already holds (`policy.NewEvaluator` in `backend/cmd/orbit-triggers/main.go`). A missing scope rejects the request with 403 and lists the missing scopes. `CreateTrigger` and `UpdateTrigger` gain the caller's claims as a parameter.
+17. **Creation authority:** Create reads each candidate from orbit-agents with the caller's bearer and delegation. Each candidate must report `can_run`. A candidate without it rejects the request with 403 and names the agent. The policy evaluator orbit-triggers already holds (`policy.NewEvaluator` in `backend/cmd/orbit-triggers/main.go`) checks `inference:invoke` and the model's use scope against the caller's claims. A missing scope rejects the request with 403 and lists the missing scopes. An update that changes what runs or when applies the same checks. Those updates change the candidates, the model, the fallback agent, the join settings, the event, the filters, the prompt template or enablement. A rename or a description change needs only `triggers:write`. A replay or a source change requires `can_run` on every candidate of a routed trigger on the source. `CreateTrigger` and `UpdateTrigger` gain the caller's claims as a parameter.
 18. **Delegated agents:** `refuseDelegatedBinding` applies to every candidate and to the fallback agent.
 
 ### Data Model
@@ -298,7 +298,7 @@ The API does not return `question_version`.
 
 ### Console
 
-The target step and the delivery detail follow the stories under `Pages/Triggers (proposed)`. The model list reads `GET /api/models` and keeps models whose `capabilities` include `decision`. orbit-triggers adds `GET /api/v1/triggers/routing/candidates` to return the tenant's agent types with a `runnable` flag evaluated against the caller's claims. The wizard lists non-runnable and delegated agents as disabled with their reason.
+The target step and the delivery detail follow the stories under `Pages/Triggers (proposed)`. The model list reads `GET /api/models` and keeps models whose `capabilities` include `decision`. orbit-triggers adds `GET /api/v1/triggers/routing/candidates` to return the tenant's agent types with a `runnable` flag from orbit-agents' `can_run` for the caller. The list holds the agent types the caller may read. The wizard lists non-runnable and delegated agents as disabled with their reason.
 
 ---
 
@@ -333,7 +333,7 @@ The target step and the delivery detail follow the stories under `Pages/Triggers
 3.  `backend/internal/agents/server.go` and `backend/internal/agents/postgres.go`: the `started_by=trigger` and repeated `agent_type_id` filters on `GET /api/v1/runs`, and a `reason` detail on the 409 of `POST /api/v1/runs/{id}/messages` that tells a starting run apart from a closed one.
 4.  `backend/internal/agents/idle_timeout.go` and `backend/internal/agents/run_service.go`: the attribution fields, the idle timeout and the event for trigger messages.
 5.  `backend/cmd/orbit-triggers/migrations/`: the `add_trigger_routing` migration.
-6.  `backend/internal/triggers/`: the `routing` model and validation, `routing_questions.go`, the routing step in `DispatchPending`, the repository methods for routes, candidates, decisions and the key lookup, and the caller-claims check on create and update.
+6.  `backend/internal/triggers/`: the `routing` model and validation, `routing_questions.go`, the routing step in `DispatchPending`, the repository methods for routes, candidates, decisions and the key lookup, and the caller checks on create and on updates that change what runs or when.
 7.  `backend/cmd/orbit-triggers/config/base.yaml`, `backend/cmd/orbit-triggers/main.go` and `charts/orbit/`: the inference gateway URL, the client and the mesh wiring.
 8.  `frontend/src/app/(dashboard)/triggers/`: the target step and the Routing section of the delivery detail built from the proposed components.
 
@@ -347,7 +347,7 @@ Unit tests cover:
 - Key-first joining: a match on an open run, a match on a closed run, a match on a starting run until it opens and until the holds run out, no `join_key`, a key that renders empty or too long, and the same key on another trigger.
 - Failure accounting: a configuration error and a platform fault from the gateway, each with and without a fallback agent.
 - The lost race between the decision and `SendRunMessage`.
-- Creation authority: a caller missing one candidate's run scope, the model use scope, or neither.
+- Creation authority: a caller who cannot run one candidate, a caller missing inference:invoke or the model use scope, a creator without explicit run scopes, and a rename without run access.
 - Validation of candidate counts, a fallback outside the candidates, and a delegated candidate.
 
 `TestPostgres_*` tests cover the join-key lookup on `trigger_routing_decisions` (newest row with a run, scoped to the trigger), the routing decision write and the hold that returns a fire to the queue.
