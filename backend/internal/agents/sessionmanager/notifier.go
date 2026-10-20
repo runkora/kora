@@ -109,7 +109,7 @@ func NewHTTPNotifier(baseURL string, logger logging.Logger) *HTTPNotifier {
 		baseURL:         baseURL,
 		client:          httpclient.New("orbit.sessionmanager-notifier", logger, 2*time.Second),
 		lifecycleClient: httpclient.New("orbit.sessionmanager-notifier-lifecycle", logger, 15*time.Second),
-		sandboxClient:   httpclient.New("orbit.sessionmanager-notifier-sandbox", logger, 300*time.Second),
+		sandboxClient:   httpclient.New("orbit.sessionmanager-notifier-sandbox", logger, 720*time.Second),
 	}
 }
 

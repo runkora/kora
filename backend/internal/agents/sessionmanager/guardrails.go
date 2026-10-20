@@ -41,7 +41,7 @@ func DefaultGuardrails() Guardrails {
 	return Guardrails{
 		SandboxProvisionAttempts: 3,
 		SandboxProvisionBackoff:  5 * time.Second,
-		SandboxProvisionBudget:   5 * time.Minute,
+		SandboxProvisionBudget:   10 * time.Minute,
 		RepeatedCallWarn:         4,
 		RepeatedCallPause:        8,
 		WaitRearmWarn:            6,

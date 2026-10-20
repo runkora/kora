@@ -61,7 +61,7 @@ agents:
   guardrails:
     sandboxProvisionAttempts: 3
     sandboxProvisionBackoffSecs: 5
-    sandboxProvisionBudgetSecs: 300
+    sandboxProvisionBudgetSecs: 600
   # Idle timeouts by how the run started. See the chart's agents.idleTimeout.
   idleTimeout:
     manualSecs: 1200

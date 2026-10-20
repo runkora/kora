@@ -3,8 +3,8 @@ orbit-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md)
 */}}
 {{- define "orbit.agents.configModules" -}}
 {{- $guardrails := .Values.agents.guardrails }}
-{{- if or (lt (int $guardrails.sandboxProvisionAttempts) 1) (lt (int $guardrails.sandboxProvisionBackoffSecs) 1) (lt (int $guardrails.sandboxProvisionBudgetSecs) 1) (gt (int $guardrails.sandboxProvisionBudgetSecs) 320) }}
-  {{- fail "agents.guardrails: sandboxProvisionAttempts, sandboxProvisionBackoffSecs and sandboxProvisionBudgetSecs must be at least 1, and sandboxProvisionBudgetSecs at most 320" }}
+{{- if or (lt (int $guardrails.sandboxProvisionAttempts) 1) (lt (int $guardrails.sandboxProvisionBackoffSecs) 1) (lt (int $guardrails.sandboxProvisionBudgetSecs) 1) (gt (int $guardrails.sandboxProvisionBudgetSecs) 600) }}
+  {{- fail "agents.guardrails: sandboxProvisionAttempts, sandboxProvisionBackoffSecs and sandboxProvisionBudgetSecs must be at least 1, and sandboxProvisionBudgetSecs at most 600" }}
 {{- end }}
 {{- $scheduling := .Values.agents.scheduling }}
 {{- if or (lt (int $scheduling.workerConcurrency) 1) (lt (int $scheduling.pollIntervalSecs) 1) (lt (int $scheduling.startBudgetSecs) 1) }}
