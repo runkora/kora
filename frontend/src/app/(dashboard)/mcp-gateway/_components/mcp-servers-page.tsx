@@ -2,7 +2,7 @@
 
 /** @tier 3 — mcp-gateway-scoped. MCP server catalog: cards / table, multi-select, config builder. */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -43,6 +43,17 @@ interface McpServersPageProps {
 }
 
 const FILTER_LABELS: Record<Filter, string> = { all: 'All', global: 'Global', tenant: 'Tenant' };
+
+// The table needs room, so phones always get cards and no toggle. This matches the width at which
+// the sidebar collapses. The server snapshot is false, so the first paint is the card view.
+const DESKTOP_QUERY = '(min-width: 768px)';
+const subscribeDesktop = (onChange: () => void) => {
+  const mq = window.matchMedia(DESKTOP_QUERY);
+  mq.addEventListener('change', onChange);
+  return () => mq.removeEventListener('change', onChange);
+};
+const getDesktop = () => window.matchMedia(DESKTOP_QUERY).matches;
+const getServerDesktop = () => false;
 
 function matchesQuery(s: McpServer, q: string): boolean {
   return (
@@ -95,7 +106,9 @@ function CapabilityList({ domains, maxRows }: { domains: string[]; maxRows?: num
 export function McpServersPage({ servers, error }: McpServersPageProps) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const [preferredView, setViewMode] = useState<ViewMode>('cards');
+  const isDesktop = useSyncExternalStore(subscribeDesktop, getDesktop, getServerDesktop);
+  const viewMode: ViewMode = isDesktop ? preferredView : 'cards';
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [panelOpen, setPanelOpen] = useState(false);
@@ -178,7 +191,7 @@ export function McpServersPage({ servers, error }: McpServersPageProps) {
                 onChange={(e) => setQuery(e.target.value)}
               />
             </Stack>
-            <ViewToggle viewMode={viewMode} onToggle={setViewMode} />
+            {isDesktop ? <ViewToggle viewMode={viewMode} onToggle={setViewMode} /> : null}
           </Stack>
 
           <Stack direction="horizontal" align="center" justify="between">
