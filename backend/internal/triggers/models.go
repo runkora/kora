@@ -34,6 +34,7 @@ const (
 const (
 	ProviderGitHub       = "github"
 	ProviderAlertmanager = "alertmanager"
+	ProviderSlack        = "slack"
 )
 
 // Delivery statuses recorded in trigger_deliveries — what happened to the
