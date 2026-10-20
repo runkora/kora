@@ -7,9 +7,13 @@ import (
 )
 
 // outcomeStore is the two writes recording an outcome takes.
+//
+// DeriveDeliveryStatus takes excludePendingID so a caller finishing its own
+// pending-queue row can tell the finality check apart from a sibling trigger's
+// fire still in flight for the same delivery: see derive's doc.
 type outcomeStore interface {
 	InsertDeliveryRun(ctx context.Context, r *DeliveryRun) error
-	DeriveDeliveryStatus(ctx context.Context, deliveryID string) (string, error)
+	DeriveDeliveryStatus(ctx context.Context, deliveryID, excludePendingID string) (status string, final bool, err error)
 }
 
 // outcomeRecorder writes the per-trigger outcome rows that make up a delivery's
@@ -35,8 +39,19 @@ type outcomeRecorder struct {
 // use insert plus derive only when writing a whole fan-out, where one derive at
 // the end is both cheaper and more accurate than one per row.
 func (o outcomeRecorder) record(ctx context.Context, dr *DeliveryRun) {
+	o.recordSettling(ctx, dr, "")
+}
+
+// recordSettling is record for an outcome whose own pending-queue row has not
+// yet been released. DispatchPending runs before the worker calls
+// ReleasePending (worker.go's drain loop releases only after DispatchPending
+// returns), so the claim for the trigger run finishing right now is still a
+// live row in trigger_pending_deliveries when this fires. ownPendingID names
+// it so the finality check below can tell "my own not-yet-released claim" apart
+// from "a sibling trigger's fire still genuinely outstanding" — see derive.
+func (o outcomeRecorder) recordSettling(ctx context.Context, dr *DeliveryRun, ownPendingID string) {
 	if o.insert(ctx, dr) {
-		o.derive(ctx, dr.DeliveryID, dr.TenantID)
+		o.deriveSettling(ctx, dr.DeliveryID, dr.TenantID, ownPendingID)
 	}
 }
 
@@ -64,14 +79,39 @@ func (o outcomeRecorder) insert(ctx context.Context, dr *DeliveryRun) bool {
 	return true
 }
 
-// derive recomputes a delivery's summary status from its per-trigger outcomes,
-// and records the outcome this call actually wrote: a delivery left untouched
-// (already arrival-level, or no such row) reports "" and is not counted.
+// derive recomputes a delivery's summary status from its per-trigger outcomes.
 // tenantID is carried by the caller rather than read back from the row: every
 // caller already has the delivery's or trigger's tenant in scope, and a second
 // read here would only duplicate it.
 func (o outcomeRecorder) derive(ctx context.Context, deliveryID, tenantID string) {
-	status, err := o.repo.DeriveDeliveryStatus(ctx, deliveryID)
+	o.deriveSettling(ctx, deliveryID, tenantID, "")
+}
+
+// deriveSettling is derive for the same not-yet-released situation
+// recordSettling handles: the caller's own pending-queue row, named by
+// ownPendingID, is excluded from the finality check because the caller IS that
+// row settling, not an outstanding sibling. Every other caller passes "".
+//
+// A single delivery can legitimately pass through several DISTINCT computed
+// statuses as its fan-out resolves over time — e.g. skipped (only a filtered
+// outcome recorded so far) then failed (a dispatch attempt errored) then
+// dispatched (a later trigger on the same delivery succeeds) — because derive
+// runs again after every per-trigger outcome. Counting each of those
+// transitions, as a naive "did the status change" guard would, over-counts one
+// delivery under several labels. The metric is recorded only when the status
+// both changed AND the delivery is final: no trigger match still has an
+// outcome outstanding. "Outstanding" is read off trigger_pending_deliveries —
+// every matched trigger that has not yet produced a terminal/dispatched
+// DeliveryRun still owns a row there (waiting or claimed), and every one that
+// has does not (ReleasePending deletes it, and the DB-side eviction paths —
+// TrimPending, Drain, SupersedeAndEnqueue, EnqueueCoalescing's replace — all
+// delete the row in the same statement that reports it, before the outcome is
+// even recorded). ownPendingID is the one exception that check cannot resolve
+// on its own: DispatchPending calls this before the worker releases its own
+// claim, so without naming it, a delivery would never read as final until
+// whichever sibling trigger happens to be released last.
+func (o outcomeRecorder) deriveSettling(ctx context.Context, deliveryID, tenantID, ownPendingID string) {
+	status, final, err := o.repo.DeriveDeliveryStatus(ctx, deliveryID, ownPendingID)
 	if err != nil {
 		o.logger.Error(ctx, "failed to derive delivery status",
 			logging.Field{Key: "delivery_id", Value: deliveryID},
@@ -79,7 +119,7 @@ func (o outcomeRecorder) derive(ctx context.Context, deliveryID, tenantID string
 		)
 		return
 	}
-	if status != "" {
+	if status != "" && final {
 		o.metrics.recordDeliveryOutcome(ctx, status, tenantID)
 	}
 }

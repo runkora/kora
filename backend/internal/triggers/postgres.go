@@ -1002,7 +1002,13 @@ func scheduledAtMinute(t time.Time) time.Time {
 //
 // Deliveries that never reached matching (duplicate, missed) have no runs and
 // are left untouched: their status describes the arrival, not a fan-out.
-func (r *postgresRepository) DeriveDeliveryStatus(ctx context.Context, deliveryID string) (string, error) {
+//
+// final tells the caller whether this is the delivery's last word: every
+// matched trigger has either produced a terminal/dispatched outcome row or
+// still owns a waiting or claimed row in trigger_pending_deliveries.
+// excludePendingID discounts the caller's own pending-queue row from that
+// check — see the Repository interface doc.
+func (r *postgresRepository) DeriveDeliveryStatus(ctx context.Context, deliveryID, excludePendingID string) (status string, final bool, err error) {
 	// 'filtered' is deliberately not a failure. A trigger that declined an event
 	// via its own match_condition worked exactly as configured, so a delivery
 	// whose only outcomes are filtered is 'skipped' — nothing was ever going to
@@ -1010,8 +1016,7 @@ func (r *postgresRepository) DeriveDeliveryStatus(ctx context.Context, deliveryI
 	// computed is the status this delivery's outcomes resolve to today, worked
 	// out once in a CTE so the UPDATE below can both apply it and compare
 	// against it without repeating the CASE expression.
-	var status string
-	err := r.pool.QueryRow(ctx, `
+	queryErr := r.pool.QueryRow(ctx, `
 		WITH computed AS (
 			SELECT CASE
 					WHEN EXISTS (
@@ -1032,20 +1037,24 @@ func (r *postgresRepository) DeriveDeliveryStatus(ctx context.Context, deliveryI
 		WHERE d.id = $1
 		  AND d.status NOT IN ('duplicate', 'missed')
 		  AND d.status IS DISTINCT FROM computed.status
-		RETURNING d.status
-	`, deliveryID).Scan(&status)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		RETURNING d.status,
+			NOT EXISTS (
+				SELECT 1 FROM trigger_pending_deliveries p
+				WHERE p.delivery_id = $1 AND p.id <> $2
+			)
+	`, deliveryID, excludePendingID).Scan(&status, &final)
+	if queryErr != nil {
+		if errors.Is(queryErr, pgx.ErrNoRows) {
 			// Nothing to derive: the delivery is already arrival-level
 			// ('duplicate'/'missed') or does not exist, or the computed status
 			// matches what is already stored — a repeat derive after an
 			// unchanged outcome must not recount the delivery. Not an error —
 			// the caller's metric simply has nothing to attribute.
-			return "", nil
+			return "", false, nil
 		}
-		return "", fmt.Errorf("derive delivery status: %w", err)
+		return "", false, fmt.Errorf("derive delivery status: %w", queryErr)
 	}
-	return status, nil
+	return status, final, nil
 }
 
 // RecordSourceRejection counts a request that failed authentication against its

@@ -7,6 +7,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/runkora/kora/backend/internal/platform/metrics/buckets"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
@@ -65,7 +66,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	if m.costTotal, err = meter.Float64Counter(
 		"orbit.inference_gateway.cost_usd",
 		metric.WithDescription("Estimated inference cost"),
-		metric.WithUnit("USD"),
+		metric.WithUnit("{USD}"),
 	); err != nil {
 		return nil, fmt.Errorf("create cost counter: %w", err)
 	}
@@ -74,6 +75,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 		"orbit.inference_gateway.request_duration",
 		metric.WithDescription("Inference request latency"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(buckets.Default...),
 	); err != nil {
 		return nil, fmt.Errorf("create request-duration histogram: %w", err)
 	}
@@ -92,6 +94,15 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 
 	return m, nil
+}
+
+// Close is a no-op: this Metrics type registers no observable-gauge
+// callback to unregister (the budget-utilization gauge is synchronous, set
+// at each check call site rather than via a callback). It exists so every
+// service's main.go can defer Close uniformly across its domain metrics,
+// nil-safe like every other service's Close.
+func (m *Metrics) Close() error {
+	return nil
 }
 
 // observeUsage records the per-request usage instruments — outcome, tokens by

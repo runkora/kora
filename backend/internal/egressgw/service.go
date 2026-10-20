@@ -103,10 +103,13 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, errResolveConnection.Error())
-		// No adapter or action is resolved yet, so neither can label this
-		// failure; the mint-failures counter still needs the sample so
-		// ErrConnectionNotFound is reachable in mintFailureReason.
-		b.metrics.recordMint(ctx, credentials.AdapterType("unknown"), "unknown", tenantID, 0, err)
+		// ErrConnectionNotFound never reaches here: resolveConnection maps it
+		// to the passthrough outcome below, not an error. What does reach
+		// here is a genuine registry failure (e.g. the backing store is
+		// down), before any adapter or action is known — a real problem for
+		// an operator, not a mint attempt, so it belongs on the decisions
+		// counter's error outcome, not on mint_failures.
+		b.metrics.recordDecision(ctx, decisionError, unknownAdapter, tenantID)
 		return Decision{}, err
 	}
 	span.SetAttributes(
@@ -115,6 +118,10 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		attribute.Bool("kora.connection.registered", registered),
 	)
 	if conn.TenantID != tenantID {
+		// Cross-tenant access is already impossible via ListByHost's
+		// tenant-scoped lookup; reaching this branch at all means something
+		// is inconsistent upstream of policy, not a normal deny.
+		b.metrics.recordDecision(ctx, decisionError, unknownAdapter, tenantID)
 		return Decision{}, ErrTenantMismatch
 	}
 
@@ -125,6 +132,12 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	if registered {
 		known, ok := b.adapters.Lookup(conn.Adapter)
 		if !ok {
+			// conn.Adapter names no registered implementation: a genuine
+			// configuration problem, not a caller-facing deny, and nothing
+			// has been opened or classified yet, let alone minted. The
+			// declared adapter value is admin-authored free text (see
+			// AdapterType), so it is not a safe label value here.
+			b.metrics.recordDecision(ctx, decisionError, unknownAdapter, tenantID)
 			return Decision{}, fmt.Errorf("%w: %q", credentials.ErrUnsupportedAdapter, conn.Adapter)
 		}
 		adapter = known
@@ -136,10 +149,12 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		// A connection kora cannot read is an operator error, not a caller
 		// one. It still denies, but reporting it as forbidden sends whoever
 		// reads the audit log hunting a grant that was never the problem.
-		// The adapter is known here even though classification (and so the
-		// action) is not, so ErrInvalidConfig becomes reachable in
-		// mintFailureReason with a sentinel action.
-		b.metrics.recordMint(ctx, adapter.Type(), "unknown", tenantID, 0, err)
+		// Open runs before classification and before any Mint attempt, so
+		// this is a decisions-counter error, not a mint failure: the real
+		// Mint call this connection would have made never happens. The
+		// adapter is known (Lookup already resolved it), so it labels the
+		// sample instead of falling back to unknown.
+		b.metrics.recordDecision(ctx, decisionError, string(adapter.Type()), tenantID)
 		return Decision{}, err
 	}
 
@@ -170,7 +185,12 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		attribute.StringSlice("kora.also_authorized", also),
 	)
 
-	// Mint.
+	// Mint. For a registered connection this is the real credential mint the
+	// mint instruments exist to describe. For passthrough (registered is
+	// false) connector.Mint is a documented no-op (see
+	// credentials/adapters/passthrough) that never produces a credential:
+	// that is a different outcome entirely, not a mint attempt, and must not
+	// feed credentials_minted, mint_duration, or mint_failures.
 	identity := credentials.CallerIdentity{
 		TenantID:       tenantID,
 		PrincipalID:    claims.Subject,
@@ -181,7 +201,9 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	}
 	mintStart := time.Now()
 	cred, err := connector.Mint(ctx, identity)
-	b.metrics.recordMint(ctx, adapter.Type(), action, tenantID, time.Since(mintStart), err)
+	if registered {
+		b.metrics.recordMint(ctx, adapter.Type(), action, tenantID, time.Since(mintStart), err)
+	}
 	if err != nil {
 		// The upstream refusing to issue a credential for this scope (e.g. the
 		// GitHub App installation lacks the permission kora authorized) is a
@@ -196,10 +218,18 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 				logging.Field{Key: "tenant_id", Value: tenantID},
 				logging.Field{Key: "principal_id", Value: claims.Subject},
 			)
+			b.metrics.recordDecision(ctx, decisionDeny, string(adapter.Type()), tenantID)
 			refused := credentials.Classification{Action: action, Qualifier: cls.Qualifier}
 			return Decision{}, deny(DenialCredentialRefused, req.Host, conn, refused, err)
 		}
+		b.metrics.recordDecision(ctx, decisionError, string(adapter.Type()), tenantID)
 		return Decision{}, fmt.Errorf("mint credential: %w", err)
+	}
+
+	if registered {
+		b.metrics.recordDecision(ctx, decisionAllow, string(adapter.Type()), tenantID)
+	} else {
+		b.metrics.recordDecision(ctx, decisionPassthrough, string(adapter.Type()), tenantID)
 	}
 
 	b.logger.Info(ctx, "egress authorized",
@@ -257,6 +287,10 @@ func (b *Broker) policyDenied(ctx context.Context, span trace.Span, claims *toke
 	if denial != nil && denial.decision != "" {
 		b.logDenial(ctx, claims, req, denial)
 	}
+	// Reaching here means the policy evaluator itself failed (fail-closed),
+	// not that a grant declined the call: an operational problem for the
+	// decisions counter's error outcome, not a normal deny.
+	b.metrics.recordDecision(ctx, decisionError, string(conn.Adapter), claims.Kora.TenantID)
 	return Decision{}, perr
 }
 
@@ -273,6 +307,7 @@ func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claim
 	if conn.Adapter != credentials.AdapterGitHubApp || !isRead(req) || !b.ownEgressAllows(ctx, claims, req.Host) {
 		span.SetStatus(codes.Error, ErrForbidden.Error())
 		b.logDenial(ctx, claims, req, denial)
+		b.metrics.recordDecision(ctx, decisionDeny, string(conn.Adapter), claims.Kora.TenantID)
 		return Decision{}, denial
 	}
 
@@ -280,6 +315,7 @@ func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claim
 		attribute.Bool("kora.allowed", true),
 		attribute.String("kora.action", anonymousReadAction),
 	)
+	b.metrics.recordDecision(ctx, decisionPassthrough, string(conn.Adapter), claims.Kora.TenantID)
 	b.logger.Info(ctx, "egress authorized: anonymous read",
 		logging.Field{Key: "decision", Value: anonymousReadAction},
 		logging.Field{Key: "connection", Value: conn.Name},

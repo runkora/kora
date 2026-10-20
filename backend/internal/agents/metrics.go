@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/metrics/buckets"
 )
 
 // Metrics is the orbit-agents feature's instrument set
@@ -76,6 +77,7 @@ func NewMetrics(meter metric.Meter, runs runStateReader, sessions sessionCounter
 		"orbit.agents.run_duration",
 		metric.WithDescription("Wall time of a run from start to a terminal state"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(buckets.Long...),
 	); err != nil {
 		return nil, fmt.Errorf("create run-duration histogram: %w", err)
 	}
@@ -92,6 +94,7 @@ func NewMetrics(meter metric.Meter, runs runStateReader, sessions sessionCounter
 		"orbit.agents.session_duration",
 		metric.WithDescription("Wall time of a browser's live SSE connection to a run"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(buckets.Long...),
 	); err != nil {
 		return nil, fmt.Errorf("create session-duration histogram: %w", err)
 	}

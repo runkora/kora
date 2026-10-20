@@ -525,8 +525,11 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, environ
 	s, ok := reg.sessions[runID]
 	reg.mu.RUnlock()
 	if !ok {
-		// No session means no tenant_id/agent_id to label this with yet.
-		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, time.Now(), ErrSessionNotFound.Error(), "", "")
+		// No session means no real run to attach a durable sandbox_status
+		// event to, and no tenant_id/agent_id to label this with yet: record
+		// the failure metric only, without pushing an event into a run's
+		// stream that doesn't exist.
+		reg.metrics.recordSandboxPhase(ctx, SandboxPhaseFailed, 0, "", "")
 		return "", ErrSessionNotFound
 	}
 	// One provision per run at a time: parallel Bash calls that all find the
@@ -544,7 +547,10 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, environ
 	runDir, pathsOK := reg.runDir(runID)
 	if !pathsOK {
 		err := fmt.Errorf("run id %q is not a single path segment", runID)
-		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, time.Now(), err.Error(), s.tenantID, s.agentTypeID)
+		// A malformed run ID never reaches a real provision attempt: record
+		// the failure metric only, rather than pushing a durable event for a
+		// run that was never going to get a sandbox.
+		reg.metrics.recordSandboxPhase(ctx, SandboxPhaseFailed, 0, s.tenantID, s.agentTypeID)
 		return "", err
 	}
 
@@ -682,11 +688,16 @@ func writeSandboxDescriptor(runDir string, sandbox Sandbox) error {
 	return nil
 }
 
-// sandboxStatus reports a provisioning phase to kora-agents. Best-effort, and
-// detached from ctx so a caller that gave up still leaves the phase recorded.
+// sandboxStatus records a provisioning phase metric and pushes a durable
+// sandbox_status event into the run's own stream. Best-effort, and detached
+// from ctx so a caller that gave up still leaves the phase recorded.
 //
-// tenantID and agentTypeID are metric labels only (docs/adr/2026-10-07-domain-metrics-instrumentation.md);
-// both are empty when called before the run's session is found (e.g. ErrSessionNotFound).
+// Only call this once a real session/run is in scope: a run that was never
+// going to get a sandbox (ErrSessionNotFound, a malformed run ID) has no
+// stream worth polluting with a failure event, so those callers record the
+// metric directly via reg.metrics.recordSandboxPhase instead.
+//
+// tenantID and agentTypeID are metric labels only (docs/adr/2026-10-07-domain-metrics-instrumentation.md).
 func (reg *Registry) sandboxStatus(ctx context.Context, runID, phase string, started time.Time, message string, tenantID, agentTypeID string) {
 	elapsed := time.Since(started)
 	reg.metrics.recordSandboxPhase(ctx, phase, elapsed, tenantID, agentTypeID)

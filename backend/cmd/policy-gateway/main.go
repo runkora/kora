@@ -61,14 +61,18 @@ func realMain() error {
 	// Failing to register these instruments is not fatal — a gateway that
 	// refuses to start because a metric could not be registered has turned
 	// its own observability into an outage — but it is loud, because
-	// unmeasured is not the state anyone signed up for. Mirrors
-	// policy-service's NewMetrics handling (cmd/policy-service/main.go).
-	policygwMetrics, err := policygw.NewMetrics(metrics.Meter())
-	if err != nil {
-		logger.Error(ctx, "failed to register policy-gateway metrics; running uninstrumented",
-			logging.Field{Key: "error", Value: err.Error()})
-		policygwMetrics = nil
-	}
+	// unmeasured is not the state anyone signed up for. RegisterDomain is the
+	// shared helper every service's main.go uses for this.
+	policygwMetrics := platformmetrics.RegisterDomain(ctx, logger, "policy-gateway", func() (*policygw.Metrics, error) {
+		return policygw.NewMetrics(metrics.Meter())
+	})
+	// Close is nil-safe (see (*policygw.Metrics).Close), so this runs
+	// unconditionally.
+	defer func() {
+		if closeErr := policygwMetrics.Close(); closeErr != nil {
+			logger.Error(ctx, "Error shutting down policy-gateway metrics", logging.Field{Key: "error", Value: closeErr.Error()})
+		}
+	}()
 
 	svc := policygw.NewService(eval, logger, policygwMetrics)
 

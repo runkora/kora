@@ -2,11 +2,20 @@ package toolgateway
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mcpkit "github.com/runkora/kora/backend/internal/platform/mcp"
+	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // fakeSnapshots is a snapshotReader stub returning a fixed set of server
@@ -131,6 +140,94 @@ func TestMetrics_InvocationCarriesServerAndDecision(t *testing.T) {
 	if !ok || len(hist.DataPoints) != 3 {
 		t.Fatalf("invocation duration = %+v, want one series per (server,decision,tenant_id)",
 			metrics["orbit.tool_gateway.invocation_duration"].Data)
+	}
+}
+
+// TestHandleToolsCall_RecordsInvocationMetric drives the real HTTP handler
+// (MCPController.handleMCP → handleToolsCall), not recordInvocation
+// directly, so a future regression that removes the recording call from
+// handleToolsCall itself would fail this test. It covers: an allowed call
+// through a real upstream (the sleep proves the recorded duration now spans
+// the upstream round trip, not just the policy decision), a policy-denied
+// call, and the two early-return paths — malformed params and a missing
+// tool name — that must record as "error" rather than being invisible to
+// the metric.
+func TestHandleToolsCall_RecordsInvocationMetric(t *testing.T) {
+	const upstreamDelay = 20 * time.Millisecond
+
+	upstream := mcpkit.NewServer("upstream", "v0")
+	upstream.AddTool(&sdk.Tool{Name: "agents.list", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+			time.Sleep(upstreamDelay)
+			return &sdk.CallToolResult{}, nil
+		})
+	ts := httptest.NewServer(mcpkit.NewController("/mcp", upstream).Handler())
+	defer ts.Close()
+
+	reg := &Registry{
+		servers: []Server{{TenantID: "", Name: "orbit", Endpoint: ts.URL + "/mcp"}},
+		loaded:  true,
+	}
+	cat := &memCatalog{tools: []CatalogTool{{ServerSlug: "orbit", ToolName: "agents.list", Scope: "mcp:orbit:agents:list:use"}}}
+	eval := &fakeEval{checkOK: true}
+
+	m, reader := newTestMetrics(t, nil)
+	c := NewMCPController(nil, eval, cat, reg, NewProxy("test", logging.NewLogger()), nil, "/v1", m, logging.NewLogger())
+
+	claims := &platformtoken.PlatformClaims{}
+	claims.Kora.TenantID = "acme"
+	claims.Subject = "agent-1"
+	ctx := platformtoken.WithClaims(context.Background(), claims)
+
+	call := func(body string) {
+		req := httptest.NewRequest(http.MethodPost, "/v1/mcp/orbit", strings.NewReader(body)).WithContext(ctx)
+		req.SetPathValue("server", "orbit")
+		c.handleMCP(httptest.NewRecorder(), req)
+	}
+
+	call(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agents.list","arguments":{}}}`) // allow
+	eval.checkOK = false
+	call(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"agents.list","arguments":{}}}`) // deny
+	call(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"","arguments":{}}}`)            // missing tool name
+	call(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":"bad"}`)                                 // malformed params
+
+	metrics := collect(t, reader)
+	sum, ok := metrics["orbit.tool_gateway.invocations"].Data.(metricdata.Sum[int64])
+	if !ok {
+		t.Fatalf("invocations counter is %T, want a sum", metrics["orbit.tool_gateway.invocations"].Data)
+	}
+	counts := map[string]int64{}
+	for _, dp := range sum.DataPoints {
+		decision, _ := dp.Attributes.Value("decision")
+		counts[decision.AsString()] += dp.Value
+	}
+	if counts["allow"] != 1 {
+		t.Errorf("allow invocations = %d, want 1", counts["allow"])
+	}
+	if counts["deny"] != 1 {
+		t.Errorf("deny invocations = %d, want 1", counts["deny"])
+	}
+	if counts["error"] != 2 {
+		t.Errorf("error invocations (missing tool name + malformed params) = %d, want 2", counts["error"])
+	}
+
+	hist, ok := metrics["orbit.tool_gateway.invocation_duration"].Data.(metricdata.Histogram[float64])
+	if !ok {
+		t.Fatalf("invocation duration is %T, want a histogram", metrics["orbit.tool_gateway.invocation_duration"].Data)
+	}
+	var allowSum float64
+	var sawAllow bool
+	for _, dp := range hist.DataPoints {
+		decision, _ := dp.Attributes.Value("decision")
+		if decision.AsString() == "allow" {
+			allowSum, sawAllow = dp.Sum, true
+		}
+	}
+	if !sawAllow {
+		t.Fatalf("no allow data point recorded, got %+v", hist.DataPoints)
+	}
+	if allowSum < upstreamDelay.Seconds() {
+		t.Errorf("allow duration = %v, want it to include the upstream call's %v sleep (timer must span the proxy call, not stop at the policy decision)", allowSum, upstreamDelay)
 	}
 }
 

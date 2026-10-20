@@ -249,11 +249,13 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 	start := time.Now()
 	var params callParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
+		c.metrics.recordInvocation(ctx, server, "error", claims.Kora.TenantID, time.Since(start))
 		c.writeRPCError(ctx, w, req.ID, -32602, "invalid params")
 		return
 	}
 	tool := params.Name
 	if tool == "" {
+		c.metrics.recordInvocation(ctx, server, "error", claims.Kora.TenantID, time.Since(start))
 		c.writeRPCError(ctx, w, req.ID, -32602, "tool name is required")
 		return
 	}
@@ -299,14 +301,21 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 		return
 	}
 	span.SetAttributes(attribute.String("mcp.decision", "allow"))
-	c.metrics.recordInvocation(ctx, server, "allow", claims.Kora.TenantID, time.Since(start))
 	c.logger.Info(ctx, "tools/call allowed",
 		logging.Field{Key: "server", Value: server},
 		logging.Field{Key: "tool", Value: tool},
 		logging.Field{Key: "principal", Value: claims.Subject})
 
 	caller := &Caller{Bearer: bearerFromRequest(r), Delegation: r.Header.Get(mw.DelegationTokenHeader)}
+	// The timer runs through this call: an allowed invocation's recorded
+	// duration is end-to-end (policy check + upstream round trip), which is
+	// the number worth alerting on — "how long did this tool call actually
+	// take" — not just how fast the policy decided. recordInvocation fires
+	// once we have that full elapsed time, whether or not the upstream call
+	// itself succeeded; the policy decision stays "allow" either way, since
+	// that label describes the authorization outcome, not the upstream result.
 	result, err := c.proxy.CallTool(ctx, srv, tool, params.Arguments, caller)
+	c.metrics.recordInvocation(ctx, server, "allow", claims.Kora.TenantID, time.Since(start))
 	if err != nil {
 		span.RecordError(err)
 		c.logger.Error(ctx, "upstream tools/call failed",

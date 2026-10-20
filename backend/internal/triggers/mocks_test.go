@@ -1134,14 +1134,14 @@ func (m *mockRepository) InsertScheduledDelivery(_ context.Context, d *Delivery)
 // asynchronous fan-out has finished. Returning "" (rather than a guessed
 // status) means tests built on this mock never see the delivery-outcomes
 // metric fire off a value this file invented.
-func (m *mockRepository) DeriveDeliveryStatus(_ context.Context, deliveryID string) (string, error) {
+func (m *mockRepository) DeriveDeliveryStatus(_ context.Context, deliveryID, _ string) (string, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.derived == nil {
 		m.derived = map[string]int{}
 	}
 	m.derived[deliveryID]++
-	return "", nil
+	return "", false, nil
 }
 
 // derivedCount is how many times the service re-derived this delivery.

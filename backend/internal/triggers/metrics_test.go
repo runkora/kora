@@ -274,6 +274,16 @@ func TestMetrics_AdmissionOutcomesCountedByResult(t *testing.T) {
 		t.Fatalf("Admit (replace, displaces d-3): %v", err)
 	}
 
+	// A database fault must not read as a normal ceiling refusal: the two
+	// have the same caller-visible shape (EnqueueWithinCeiling returns
+	// false-ish), but one is "nothing is wrong, the trigger is just full"
+	// and the other is "admission couldn't even decide."
+	repo.refuseAdmission = false
+	repo.admissionErr = errTest("db exploded")
+	if _, err := admission.Admit(ctx, trig, "d-5", nil); err == nil {
+		t.Fatal("Admit (db error): want an error, got nil")
+	}
+
 	got, ok := collect(t, reader)["orbit.triggers.admission_outcomes"]
 	if !ok {
 		t.Fatal("admission-outcomes counter not exported")
@@ -291,8 +301,42 @@ func TestMetrics_AdmissionOutcomesCountedByResult(t *testing.T) {
 		byOutcome[outcome.AsString()] += dp.Value
 	}
 	// enqueued: d-1, d-3, and d-4 (the replacement that stays enqueued).
-	if byOutcome["enqueued"] != 3 || byOutcome["dropped"] != 1 || byOutcome["superseded"] != 1 {
-		t.Errorf("admission outcomes = %v, want enqueued:3 dropped:1 superseded:1", byOutcome)
+	if byOutcome["enqueued"] != 3 || byOutcome["dropped"] != 1 || byOutcome["superseded"] != 1 || byOutcome["error"] != 1 {
+		t.Errorf("admission outcomes = %v, want enqueued:3 dropped:1 superseded:1 error:1", byOutcome)
+	}
+}
+
+// TrimPending and Drain evict fires outside Admit's own return path (the
+// return value describes the fire being admitted, never one displaced to
+// make room for it), so each eviction needs its own recorded outcome or it
+// would never show up on the counter at all.
+func TestMetrics_BacklogEvictionsAreCountedDropped(t *testing.T) {
+	repo := newMockRepository()
+	m, reader := newTestMetrics(t, repo)
+	admission := NewAdmission(repo, silentLogger(), m)
+	ctx := context.Background()
+
+	trig := Trigger{ID: "t-trim", TenantID: testTenant, Overflow: OverflowWait, MaxQueueDepth: 1}
+	if _, err := admission.Admit(ctx, trig, "d-1", nil); err != nil {
+		t.Fatalf("Admit (first, nothing to trim): %v", err)
+	}
+	// MaxQueueDepth=1 trims everything already waiting before this one enqueues.
+	if _, err := admission.Admit(ctx, trig, "d-2", nil); err != nil {
+		t.Fatalf("Admit (second, trims d-1): %v", err)
+	}
+
+	if _, err := admission.Drain(ctx, trig, "trigger disabled"); err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+
+	byOutcome := map[string]int64{}
+	for _, dp := range collect(t, reader)["orbit.triggers.admission_outcomes"].Data.(metricdata.Sum[int64]).DataPoints {
+		outcome, _ := dp.Attributes.Value("outcome")
+		byOutcome[outcome.AsString()] += dp.Value
+	}
+	// enqueued: d-1, d-2. dropped: d-1 (trimmed) + d-2 (drained).
+	if byOutcome["enqueued"] != 2 || byOutcome["dropped"] != 2 {
+		t.Errorf("admission outcomes = %v, want enqueued:2 dropped:2", byOutcome)
 	}
 }
 
@@ -301,23 +345,29 @@ func TestMetrics_AdmissionOutcomesCountedByResult(t *testing.T) {
 // TestPostgres_DeriveDeliveryStatus's job, and repeating it here would only
 // show this file agrees with itself. What this pins is narrower: that derive
 // forwards exactly what the store wrote to the metric, and nothing when the
-// store wrote nothing.
-type fakeOutcomeStore struct{ status string }
+// store wrote nothing or said the delivery is not yet final.
+type fakeOutcomeStore struct {
+	status string
+	final  bool
+}
 
 func (f fakeOutcomeStore) InsertDeliveryRun(context.Context, *DeliveryRun) error { return nil }
-func (f fakeOutcomeStore) DeriveDeliveryStatus(context.Context, string) (string, error) {
-	return f.status, nil
+func (f fakeOutcomeStore) DeriveDeliveryStatus(context.Context, string, string) (string, bool, error) {
+	return f.status, f.final, nil
 }
 
 // The delivery-outcomes counter attributes to whatever DeriveDeliveryStatus
 // actually wrote, not to a status the caller merely requested — it must stay
-// silent when nothing was written (already arrival-level, or no such row).
+// silent when nothing was written (already arrival-level, or no such row) or
+// when the delivery changed status but is not yet final (a sibling trigger's
+// fire is still outstanding).
 func TestMetrics_DeliveryOutcomeRecordsWhatDeriveWrote(t *testing.T) {
 	m, reader := newTestMetrics(t, newMockRepository())
 	ctx := context.Background()
 
-	outcomeRecorder{repo: fakeOutcomeStore{status: StatusDispatched}, logger: silentLogger(), metrics: m}.derive(ctx, "d-1", testTenant)
+	outcomeRecorder{repo: fakeOutcomeStore{status: StatusDispatched, final: true}, logger: silentLogger(), metrics: m}.derive(ctx, "d-1", testTenant)
 	outcomeRecorder{repo: fakeOutcomeStore{status: ""}, logger: silentLogger(), metrics: m}.derive(ctx, "d-2", testTenant)
+	outcomeRecorder{repo: fakeOutcomeStore{status: StatusFailed, final: false}, logger: silentLogger(), metrics: m}.derive(ctx, "d-3", testTenant)
 
 	got, ok := collect(t, reader)["orbit.triggers.delivery_outcomes"]
 	if !ok {
@@ -328,7 +378,7 @@ func TestMetrics_DeliveryOutcomeRecordsWhatDeriveWrote(t *testing.T) {
 		t.Fatalf("delivery-outcomes counter is %T, want a sum", got.Data)
 	}
 	if len(sum.DataPoints) != 1 {
-		t.Fatalf("data points = %d, want 1 (the untouched derive must not count)", len(sum.DataPoints))
+		t.Fatalf("data points = %d, want 1 (the untouched derive and the non-final derive must not count)", len(sum.DataPoints))
 	}
 	if outcome, present := sum.DataPoints[0].Attributes.Value("outcome"); !present || outcome.AsString() != StatusDispatched {
 		t.Errorf("outcome = %v, want %q", outcome, StatusDispatched)
@@ -375,10 +425,10 @@ func TestMetrics_DuplicateDeliveryRecordsOutcome(t *testing.T) {
 	body := prBody("opened", "main")
 	h := sign(src.Secret, body)
 
-	if out, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil || out != IngestAccepted {
+	if out, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil || out.Outcome != IngestAccepted {
 		t.Fatalf("first delivery: out=%v err=%v", out, err)
 	}
-	if out, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil || out != IngestDuplicate {
+	if out, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil || out.Outcome != IngestDuplicate {
 		t.Fatalf("duplicate delivery: out=%v err=%v", out, err)
 	}
 

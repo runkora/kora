@@ -305,7 +305,7 @@ func (s *Service) fanOut(
 	doc, readable := chatDocument(adapter, eventType, doc)
 	if !readable {
 		// A chat payload kora cannot read must never start or join a run.
-		s.outcomes.derive(ctx, deliveryID)
+		s.outcomes.derive(ctx, deliveryID, src.TenantID)
 		return
 	}
 

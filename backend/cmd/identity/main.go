@@ -165,13 +165,11 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// paths. Failing to build them is not fatal — a service that refuses to
 	// start because a gauge could not be registered has turned its own
 	// observability into an outage — but it is loud, because unmeasured is not
-	// the state anyone signed up for.
-	metrics, err := identity.NewMetrics(meter, sessionRepo, logger)
-	if err != nil {
-		logger.Error(ctx, "failed to register identity metrics; running uninstrumented",
-			logging.Field{Key: "error", Value: err.Error()})
-		metrics = nil
-	}
+	// the state anyone signed up for. RegisterDomain is the shared helper every
+	// service's main.go uses for this.
+	metrics := platformmetrics.RegisterDomain(ctx, logger, "identity", func() (*identity.Metrics, error) {
+		return identity.NewMetrics(meter, sessionRepo, logger)
+	})
 	refreshRepo := identity.NewPostgresRefreshTokenRepository(db.Pool())
 	blocklist := identity.NewRedisJTIBlocklistRepository(redis)
 	authCodeRepo := identity.NewRedisAuthCodeRepository(redis.Client())

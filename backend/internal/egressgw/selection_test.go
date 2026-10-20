@@ -215,7 +215,7 @@ func TestAuthorize_UnresolvedRootReadLogsAtDebug(t *testing.T) {
 			logger := logging.NewLoggerWithOutput(&logs)
 			adapters := NewAdapterRegistry()
 			adapters.Register(githubapp.New(nil, nil, logger))
-			b := NewBroker(&selectionPolicy{}, both, adapters, passthrough.New(), logger)
+			b := NewBroker(&selectionPolicy{}, both, adapters, passthrough.New(), logger, nil)
 
 			claims := claimsFor("acme", "agent", "run-1")
 			_, err := b.Authorize(context.Background(), claims, egressRequest(tc.method, tc.url))
