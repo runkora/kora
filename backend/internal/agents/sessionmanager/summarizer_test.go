@@ -264,3 +264,39 @@ func TestSummarizer_ThinkingRetryLimits(t *testing.T) {
 		t.Errorf("requests on 403 = %d, want 1", calls)
 	}
 }
+
+// A thinking-enabled retry shares max_tokens with the thinking block, so it
+// needs room for both or the response has no text block.
+func TestSummarizer_ThinkingRetryHasRoomForText(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			MaxTokens int `json:"max_tokens"`
+			Thinking  *struct {
+				Type string `json:"type"`
+			} `json:"thinking"`
+		}
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &body)
+		w.Header().Set("Content-Type", "application/json")
+		if body.Thinking != nil && body.Thinking.Type == "disabled" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		if body.MaxTokens < 500 {
+			w.Write([]byte(`{"stop_reason":"max_tokens","content":[{"type":"thinking","thinking":"hm"}]}`)) //nolint:errcheck
+			return
+		}
+		w.Write([]byte(`{"stop_reason":"end_turn","content":[{"type":"thinking","thinking":"hm"},{"type":"text","text":"Label"}]}`)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	s := newSummarizer(logging.NewLogger())
+	got, err := s.Summarize(context.Background(), srv.URL, "m", "x")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "Label" {
+		t.Errorf("summary = %q, want %q", got, "Label")
+	}
+}

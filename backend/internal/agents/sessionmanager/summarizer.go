@@ -16,7 +16,10 @@ const (
 	summarizerTracerName = "orbit.run-summarizer"
 	summarizerTimeout    = 15 * time.Second
 	summaryMaxTokens     = 60
-	summaryMaxChars      = 120
+	// summaryThinkingMaxTokens is the limit when the request may let the model
+	// think. The thinking block shares max_tokens with the label.
+	summaryThinkingMaxTokens = 1024
+	summaryMaxChars          = 120
 
 	// The model is given the user's first message to an *agent* — which usually
 	// reads as a direct command ("build X", "audit Y"). Left alone it will try to
@@ -87,7 +90,8 @@ type messagesMessage struct {
 }
 
 type messagesResponse struct {
-	Content []messagesContentBlock `json:"content"`
+	StopReason string                 `json:"stop_reason"`
+	Content    []messagesContentBlock `json:"content"`
 }
 
 // messagesContentBlock is one block of a Messages API response. A reasoning
@@ -117,6 +121,9 @@ func (s *summarizer) Summarize(ctx context.Context, baseURL, model, initialMessa
 
 	text := firstText(result.Content)
 	if text == "" {
+		s.Logger().Warn(ctx, "Inference gateway response has no text block",
+			logging.Field{Key: "stop_reason", Value: result.StopReason},
+			logging.Field{Key: "block_types", Value: blockTypes(result.Content)})
 		return "", fmt.Errorf("inference gateway returned empty summary")
 	}
 
@@ -126,9 +133,13 @@ func (s *summarizer) Summarize(ctx context.Context, baseURL, model, initialMessa
 // send makes one summary request. retry is true when the gateway answered 400,
 // meaning the model may reject this thinking setting.
 func (s *summarizer) send(ctx context.Context, baseURL, model, initialMessage string, thinking *messagesThinking) (result messagesResponse, retry bool, err error) {
+	maxTokens := summaryMaxTokens
+	if thinking == nil || thinking.Type != "disabled" {
+		maxTokens = summaryThinkingMaxTokens
+	}
 	payload := messagesRequest{
 		Model:     model,
-		MaxTokens: summaryMaxTokens,
+		MaxTokens: maxTokens,
 		System:    summarizerSystemPrompt,
 		Thinking:  thinking,
 		Messages: []messagesMessage{
@@ -170,6 +181,15 @@ func firstText(blocks []messagesContentBlock) string {
 		}
 	}
 	return ""
+}
+
+// blockTypes lists the type of each content block, in order.
+func blockTypes(blocks []messagesContentBlock) []string {
+	types := make([]string, len(blocks))
+	for i, block := range blocks {
+		types[i] = block.Type
+	}
+	return types
 }
 
 // truncateSummary trims whitespace and caps the result at summaryMaxChars
