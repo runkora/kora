@@ -2,7 +2,7 @@
 
 **Status:** Approved  
 **Created:** 2026-10-20  
-**Last Updated:** 2026-10-20 ([#656](https://github.com/runkora/kora/issues/656))  
+**Last Updated:** 2026-10-20  
 **Owner:** Justin Wilkin  
 **Stakeholders:** Platform Team, trigger authors across engineering teams
 
