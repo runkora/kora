@@ -38,28 +38,31 @@ const jsonRPCVersion = "2.0"
 
 // MCPController implements the governing MCP proxy.
 type MCPController struct {
-	verifier *platformtoken.Verifier
-	eval     policy.Evaluator
-	catalog  CatalogRepository
-	registry *Registry
-	proxy    *Proxy
-	basePath string // the gateway base path (e.g. /v1), used to form the per-server resource
-	logger   logging.Logger
-	tracer   trace.Tracer
+	verifier  *platformtoken.Verifier
+	blocklist mw.JTIBlocklist
+	eval      policy.Evaluator
+	catalog   CatalogRepository
+	registry  *Registry
+	proxy     *Proxy
+	basePath  string // the gateway base path (e.g. /v1), used to form the per-server resource
+	logger    logging.Logger
+	tracer    trace.Tracer
 }
 
 // NewMCPController constructs the request-path controller. basePath forms the
 // per-server resource in the 401 challenge (host derived per request).
-func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, catalog CatalogRepository, registry *Registry, proxy *Proxy, basePath string, logger logging.Logger) *MCPController {
+// blocklist holds revoked delegation JTIs.
+func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, catalog CatalogRepository, registry *Registry, proxy *Proxy, blocklist mw.JTIBlocklist, basePath string, logger logging.Logger) *MCPController {
 	return &MCPController{
-		verifier: verifier,
-		eval:     eval,
-		catalog:  catalog,
-		registry: registry,
-		proxy:    proxy,
-		basePath: basePath,
-		logger:   logger,
-		tracer:   otel.Tracer("orbit.tool-gateway"),
+		verifier:  verifier,
+		blocklist: blocklist,
+		eval:      eval,
+		catalog:   catalog,
+		registry:  registry,
+		proxy:     proxy,
+		basePath:  basePath,
+		logger:    logger,
+		tracer:    otel.Tracer("orbit.tool-gateway"),
 	}
 }
 
@@ -67,15 +70,18 @@ func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, c
 // under the server base path).
 func (c *MCPController) GroupedBy() string { return "" }
 
-// Middleware enforces platform JWT auth. The coarse mcp:invoke gate is enforced
-// at the Envoy sidecar (the registered route); this app-level PEP does the
-// per-tool Check.
+// Middleware enforces platform JWT auth and verifies the optional delegation
+// token. The coarse mcp:invoke gate is enforced at the Envoy sidecar (the
+// registered route); this app-level PEP does the per-tool Check.
 func (c *MCPController) Middleware() mw.MiddlewareHandler {
 	// challengeMiddleware runs first so its writer wraps AuthMiddleware's 401,
 	// adding the RFC 9728 WWW-Authenticate pointer to the protected-resource metadata.
+	// The delegation middleware puts the run's verified delegator into context
+	// for every tool decision below and refuses a revoked delegation.
 	return mw.MiddlewareChain(
 		challengeMiddleware(c.basePath),
 		mw.AuthMiddleware(c.verifier, c.logger),
+		mw.DelegationMiddlewareWithBlocklist(c.logger, c.verifier, c.blocklist),
 	)
 }
 
@@ -202,6 +208,7 @@ func (c *MCPController) handleToolsList(ctx context.Context, w http.ResponseWrit
 
 	allowed, err := c.eval.Query(ctx, policy.QueryInput{
 		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
 		ResourceType: "mcp",
 		Action:       scopeAction,
 		Candidates:   candidates,
@@ -256,9 +263,11 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 
 	res, err := c.eval.Check(ctx, policy.CheckInput{
 		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
 		ResourceType: "mcp",
 		PathSegments: toolScopePath(server, tool),
 		Action:       scopeAction,
+		RunID:        mw.RunIDFromContext(ctx),
 	})
 	if err != nil {
 		span.SetAttributes(attribute.String("mcp.decision", "error"))

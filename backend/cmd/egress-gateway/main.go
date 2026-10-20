@@ -46,6 +46,7 @@ import (
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
 
 	"github.com/runkora/kora/backend/internal/credentials"
@@ -150,6 +151,14 @@ func realMain() error {
 
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 
+	// The shared revoked-JTI blocklist rejects a revoked delegation before its
+	// token expires (docs/adr/2026-07-23-delegated-agent-identity.md).
+	redis, err := initRedis(ctx, logger)
+	if err != nil {
+		return fmt.Errorf("init redis: %w", err)
+	}
+	defer func() { _ = redis.Close() }()
+
 	// ── Scope publisher ──────────────────────────────────────────────────────
 	selfToken := identityclient.NewClient(egc.Current.Identity.InternalURL, logger).SelfTokenSource()
 	registerScopes := initScopeRegistration(logger, selfToken, connRegistry, registry)
@@ -187,8 +196,13 @@ func realMain() error {
 	// CONNECT bypasses the admin server's middleware, because the request body
 	// of a CONNECT is a TLS stream that logging and tracing must not touch. It
 	// still flows through AuthMiddleware so the broker sees verified claims.
+	// The delegation middleware adds the run's verified delegator, which every
+	// connection check intersects with, and refuses a revoked delegation.
 	// ConnectHandler itself rejects any non-CONNECT verb with an error response.
-	connectChain := mw.MiddlewareChain(mw.AuthMiddleware(verifier, logger))
+	connectChain := mw.MiddlewareChain(
+		mw.AuthMiddleware(verifier, logger),
+		mw.DelegationMiddlewareWithBlocklist(logger, verifier, storage.NewJTIBlocklist(redis)),
+	)
 	authedConnect := connectChain(connectHandler)
 
 	connectSrv := &http.Server{
@@ -308,4 +322,17 @@ func initLogger() logging.Logger {
 		return logging.NewDevelopmentLogger()
 	}
 	return logging.NewLogger()
+}
+
+func initRedis(ctx context.Context, logger logging.Logger) (*storage.RedisClient, error) {
+	cfg, err := storage.LoadRedisConfig()
+	if err != nil {
+		return nil, err
+	}
+	rc, err := storage.NewRedis(ctx, cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info(ctx, "Redis initialized successfully")
+	return rc, nil
 }

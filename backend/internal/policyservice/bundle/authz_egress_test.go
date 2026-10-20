@@ -191,3 +191,37 @@ func TestEgress_OwnPostureLayer2(t *testing.T) {
 		})
 	}
 }
+
+// TestEgress_OwnPostureLayer2_Delegated locks the gateway's fallback check under
+// delegation: the agent's own posture answers it and the delegator is never
+// intersected on egress (delegated-agent-identity ADR, Decision 5).
+func TestEgress_OwnPostureLayer2_Delegated(t *testing.T) {
+	cases := []struct {
+		name     string
+		agent    []string
+		delegate []string
+		host     string
+		want     bool
+		reason   string
+	}{
+		{"open", []string{"egress:connect"}, nil, "github.com", true, "egress_delegated:github.com"},
+		{"exact whitelist", []string{"egress:github.com:connect"}, nil, "github.com", true, "egress_delegated:github.com"},
+		{"wildcard whitelist", []string{"egress:*.githubusercontent.com:connect"}, nil, "objects.githubusercontent.com", true, "egress_delegated:objects.githubusercontent.com"},
+		{"delegator also holds egress", []string{"egress:github.com:connect"}, []string{"egress:github.com:connect"}, "github.com", true, "egress_delegated:github.com"},
+		{"connector only", []string{"egress:github.com:connector"}, nil, "github.com", false, "deny:no_matching_grant"},
+		{"delegator egress never widens", nil, []string{"egress:github.com:connect"}, "github.com", false, "deny:no_agent_grant"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gs := []*grants.Grant{delegatedAgentGrant(testAgentID, tc.agent...)}
+			if tc.delegate != nil {
+				gs = append(gs, humanGrant(testDelegateID, tc.delegate...))
+			}
+			pq := compileAndPrepare(t, bundleOpts{grants: gs})
+			allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), humanDelegation(testDelegateID), "egress", []string{tc.host}, "connect")
+			if allow != tc.want || reason != tc.reason {
+				t.Errorf("delegated egress %s with %v = (%v, %q), want (%v, %q)", tc.host, tc.agent, allow, reason, tc.want, tc.reason)
+			}
+		})
+	}
+}

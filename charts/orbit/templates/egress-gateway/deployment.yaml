@@ -46,6 +46,7 @@ spec:
           configMap:
             name: {{ .Values.egressGateway.tenantConnectionsConfigMapName }}
             optional: true
+        {{- include "orbit.redisCAVolume" . | nindent 8 }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "egressGateway") | nindent 8 }}
       containers:
         - name: orbit-egress-gateway
@@ -53,10 +54,8 @@ spec:
           imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "egressGateway") }}
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
-          {{- with .Values.egressGateway.extraEnv }}
           env:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- include "orbit.platformEnv" (dict "root" $ "name" "egressGateway" "keys" (list "REDIS_PASSWORD")) | nindent 12 }}
           ports:
             - name: connect
               containerPort: {{ .Values.egressGateway.connectPort }}
@@ -88,6 +87,7 @@ spec:
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             {{- include "orbit.configVolumeMount" . | nindent 12 }}
+            {{- include "orbit.redisCAVolumeMount" . | nindent 12 }}
             - name: tenant-cas
               mountPath: /var/run/orbit/tenant-ca
               readOnly: true

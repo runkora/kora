@@ -71,8 +71,8 @@ func TestChartRedisTLSDisabled(t *testing.T) {
 	}
 }
 
-// With TLS and a CA secret, only the three Redis clients mount the secret and
-// read the CA file from it.
+// With TLS and a CA secret, only the Redis clients mount the secret and read
+// the CA file from it. The tool-gateway publisher opens no Redis client.
 func TestChartRedisTLSWithCA(t *testing.T) {
 	out := renderChart(t, "config:\n  redis:\n    tls: {caSecret: redis-ca, serverName: redis.internal}\n")
 	r := loadRendered[storage.StorageConfig](t, out, "internal/platform/storage").Redis
@@ -85,10 +85,10 @@ func TestChartRedisTLSWithCA(t *testing.T) {
 			t.Errorf("%s mounts the CA at %s", name, path)
 		}
 	}
-	if names := slices.Sorted(maps.Keys(mounts)); strings.Join(names, ",") != "orbit-identity,orbit-inference-gateway,orbit-triggers" {
-		t.Errorf("Redis CA mounted in %v, want identity, inference-gateway and triggers", names)
+	if names := slices.Sorted(maps.Keys(mounts)); strings.Join(names, ",") != "orbit-egress-gateway,orbit-identity,orbit-inference-gateway,orbit-tool-gateway,orbit-triggers" {
+		t.Errorf("Redis CA mounted in %v, want egress-gateway, identity, inference-gateway, tool-gateway and triggers", names)
 	}
-	if strings.Join(cfgs, ",") != "orbit-identity-config,orbit-inference-gateway-config,orbit-triggers-config" {
-		t.Errorf("caFile rendered in %v, want identity, inference-gateway and triggers", cfgs)
+	if strings.Join(cfgs, ",") != "orbit-egress-gateway-config,orbit-identity-config,orbit-inference-gateway-config,orbit-tool-gateway-config,orbit-triggers-config" {
+		t.Errorf("caFile rendered in %v, want egress-gateway, identity, inference-gateway, tool-gateway and triggers", cfgs)
 	}
 }

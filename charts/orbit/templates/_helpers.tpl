@@ -341,7 +341,8 @@ data:
 
 {{/*
 Volume and mount for the Redis CA bundle from config.redis.tls.caSecret, for the
-workloads that open a Redis client: identity, inference-gateway and triggers.
+workloads that open a Redis client: identity, inference-gateway, triggers,
+the tool-gateway proxy and egress-gateway.
 Take the root context.
 */}}
 {{- define "orbit.redisCAVolume" -}}

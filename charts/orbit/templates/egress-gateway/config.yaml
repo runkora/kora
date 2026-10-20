@@ -12,6 +12,7 @@ cmd/egress-gateway:
     bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}
     policyServiceInternalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
 {{ include "orbit.observabilityConfigModule" . }}
+{{ include "orbit.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "orbit.tokenConfigModule" . }}
 {{ include "orbit.brandConfigModule" . }}
 {{- end }}

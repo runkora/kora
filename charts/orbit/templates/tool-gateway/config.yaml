@@ -16,7 +16,7 @@ cmd/tool-gateway:
     policyServiceInternalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
     bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}
 {{ include "orbit.observabilityConfigModule" . }}
-{{ include "orbit.storageConfigModule" . }}
+{{ include "orbit.storageConfigModule" (dict "root" . "redisClient" (eq $.mode "proxy")) }}
 {{ include "orbit.tokenConfigModule" . }}
 {{- end }}
 {{- end }}

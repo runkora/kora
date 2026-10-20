@@ -85,17 +85,10 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	ctx, span := tracer.Start(ctx, "egress.authorize", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 
-	if claims == nil {
-		span.SetStatus(codes.Error, ErrUnauthenticated.Error())
-		return Decision{}, ErrUnauthenticated
+	if err := b.validateCaller(ctx, span, claims, req); err != nil {
+		return Decision{}, err
 	}
 	tenantID := claims.Kora.TenantID
-	if tenantID == "" {
-		return Decision{}, ErrUnauthenticated
-	}
-	if req.Host == "" {
-		return Decision{}, ErrMissingHost
-	}
 
 	conn, registered, err := b.resolveConnection(ctx, claims, req)
 	var unresolved *Denial
@@ -210,6 +203,30 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	return Decision{Connection: conn, Action: action, Qualifier: cls.Qualifier, Credential: cred}, nil
 }
 
+// validateCaller rejects a request with no usable caller or host before any
+// lookup. A delegation must be bound to the run the caller attests, and only a
+// per-run sandbox identity attests one.
+func (b *Broker) validateCaller(ctx context.Context, span trace.Span, claims *token.PlatformClaims, req EgressRequest) error {
+	switch {
+	case claims == nil:
+		span.SetStatus(codes.Error, ErrUnauthenticated.Error())
+		return ErrUnauthenticated
+	case claims.Kora.TenantID == "":
+		return ErrUnauthenticated
+	case req.Host == "":
+		return ErrMissingHost
+	case policy.DelegationFromContext(ctx) != nil && attestedRunID(claims) == "":
+		span.SetStatus(codes.Error, ErrDelegationRunUnattested.Error())
+		b.logger.Info(ctx, "egress denied: delegated call without a per-run sandbox identity",
+			logging.Field{Key: "host", Value: req.Host},
+			logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
+			logging.Field{Key: "principal_id", Value: claims.Subject},
+		)
+		return fmt.Errorf("%w: %w", ErrForbidden, ErrDelegationRunUnattested)
+	}
+	return nil
+}
+
 // policyDenied handles a policy refusal. A denial the grant could explain may
 // still be served by the anonymous fallback; a failed evaluation never is.
 func (b *Broker) policyDenied(ctx context.Context, span trace.Span, claims *token.PlatformClaims, conn *credentials.Connection, req EgressRequest, perr error) (Decision, error) {
@@ -310,6 +327,7 @@ func (b *Broker) logDenial(ctx context.Context, tenantID string, req EgressReque
 func (b *Broker) ownEgressAllows(ctx context.Context, claims *token.PlatformClaims, host string) bool {
 	res, err := b.policy.Check(ctx, policy.CheckInput{
 		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
 		ResourceType: "egress",
 		PathSegments: []string{hostWithoutPort(host)},
 		Action:       "connect",
@@ -441,10 +459,17 @@ func (b *Broker) checkAction(ctx context.Context, claims *token.PlatformClaims, 
 	segments, verb := scopePath(conn, action, qualifier)
 	return b.policy.Check(ctx, policy.CheckInput{
 		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
 		ResourceType: resourceType,
 		PathSegments: segments,
 		Action:       verb,
 	})
+}
+
+// attestedRunID is the run named by the caller's per-run sandbox SVID, or ""
+// for any other workload. The engine binds a delegation to this claim.
+func attestedRunID(claims *token.PlatformClaims) string {
+	return claims.Kora.Claims["run_id"]
 }
 
 // scopePath returns the policy path segments and verb for one action on a
