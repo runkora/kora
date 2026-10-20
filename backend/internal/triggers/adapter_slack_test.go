@@ -8,6 +8,7 @@ import (
 	"errors"
 	"maps"
 	"net/http"
+	"reflect"
 	"slices"
 	"strconv"
 	"testing"
@@ -130,10 +131,11 @@ func TestSlackAdapter_EventType(t *testing.T) {
 		body string
 		want string
 	}{
-		{name: "mention", body: `{"type":"event_callback","event":{"type":"app_mention","user":"U1","text":"<@U0> hi","channel":"C1"}}`, want: "app_mention"},
-		{name: "direct message", body: `{"type":"event_callback","event":{"type":"message","channel_type":"im","user":"U1","text":"hi"}}`, want: "message.im"},
-		{name: "direct message with a file", body: `{"type":"event_callback","event":{"type":"message","subtype":"file_share","channel_type":"im","user":"U1"}}`, want: "message.im"},
+		{name: "mention", body: `{"type":"event_callback","event":{"type":"app_mention","user":"U1","text":"<@U0> hi","channel":"C1"}}`, want: "mention"},
+		{name: "direct message", body: `{"type":"event_callback","event":{"type":"message","channel_type":"im","user":"U1","text":"hi"}}`, want: "direct_message"},
+		{name: "direct message with a file", body: `{"type":"event_callback","event":{"type":"message","subtype":"file_share","channel_type":"im","user":"U1"}}`, want: "direct_message"},
 		{name: "edited direct message", body: `{"type":"event_callback","event":{"type":"message","subtype":"message_changed","channel_type":"im"}}`},
+		{name: "direct message broadcast from a thread", body: `{"type":"event_callback","event":{"type":"message","subtype":"thread_broadcast","channel_type":"im","user":"U1"}}`},
 		{name: "channel message", body: `{"type":"event_callback","event":{"type":"message","channel_type":"channel","user":"U1"}}`},
 		{name: "direct message from an app", body: `{"type":"event_callback","event":{"type":"message","channel_type":"im","bot_id":"B1","user":"U2"}}`},
 		{name: "app message with a non-string bot_id", body: `{"type":"event_callback","event":{"type":"app_mention","bot_id":123}}`},
@@ -167,23 +169,45 @@ func TestSlackAdapter_Sender(t *testing.T) {
 	}
 }
 
-func TestSlackAdapter_DerivedFields(t *testing.T) {
+func TestSlackAdapter_ChatEvent(t *testing.T) {
 	a := &slackAdapter{}
 	cases := []struct {
 		name string
 		body string
-		want map[string]string
+		want map[string]any // nil means not mapped
 	}{
-		{name: "top-level message", body: `{"event":{"ts":"1700000000.000100"}}`, want: map[string]string{"thread": "1700000000.000100"}},
-		{name: "thread reply", body: `{"event":{"ts":"1700000000.000200","thread_ts":"1700000000.000100"}}`, want: map[string]string{"thread": "1700000000.000100"}},
-		{name: "no timestamps", body: `{"event":{}}`},
+		{name: "top-level mention is its own thread",
+			body: `{"team_id":"T1","event":{"type":"app_mention","user":"u1","text":"<@U0> hi","channel":"C1","ts":"1700000000.000100"}}`,
+			want: chatDoc("<@U0> hi", "U1", "C1", "1700000000.000100", "T1")},
+		{name: "thread reply joins its parent",
+			body: `{"team_id":"T1","event":{"type":"app_mention","user":"U1","text":"more","channel":"C1","ts":"1700000000.000200","thread_ts":"1700000000.000100"}}`,
+			want: chatDoc("more", "U1", "C1", "1700000000.000100", "T1")},
+		{name: "direct message with only a file",
+			body: `{"team_id":"T1","event":{"type":"message","subtype":"file_share","channel_type":"im","user":"U1","channel":"D1","ts":"1700000000.000300"}}`,
+			want: chatDoc("", "U1", "D1", "1700000000.000300", "T1")},
+		{name: "missing user", body: `{"team_id":"T1","event":{"channel":"C1","ts":"1"}}`},
+		{name: "missing channel", body: `{"team_id":"T1","event":{"user":"U1","ts":"1"}}`},
+		{name: "missing ts and thread_ts", body: `{"team_id":"T1","event":{"user":"U1","channel":"C1"}}`},
+		{name: "no event", body: `{"type":"event_callback"}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := a.DerivedFields("app_mention", decodeBody([]byte(tc.body))); !maps.Equal(got, tc.want) {
-				t.Errorf("DerivedFields = %v, want %v", got, tc.want)
+			got, ok := a.ChatEvent("mention", decodeBody([]byte(tc.body)))
+			if ok != (tc.want != nil) || !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("ChatEvent = (%v, %v), want %v", got, ok, tc.want)
 			}
 		})
+	}
+}
+
+func chatDoc(text, user, conversation, thread, workspace string) map[string]any {
+	return map[string]any{
+		"text":         text,
+		"user":         map[string]any{"id": user},
+		"conversation": map[string]any{"id": conversation},
+		"thread":       map[string]any{"id": thread},
+		"workspace":    map[string]any{"id": workspace},
+		"platform":     "slack",
 	}
 }
 
@@ -199,23 +223,11 @@ func TestSlackAdapter_Registered(t *testing.T) {
 	if _, ok := a.(issuedSecret); !ok {
 		t.Error("Slack issues its own signing secret")
 	}
-	if got := reg.Catalog(ProviderSlack).EventTypes(); !slices.Equal(got, []string{"app_mention", "message.im"}) {
-		t.Errorf("event types = %v", got)
+	if categoryOf(a) != CategoryChat {
+		t.Error("Slack is a chat adapter")
 	}
-	fields := map[string]Field{}
-	for _, f := range reg.Catalog(ProviderSlack).Fields("message.im") {
-		fields[f.Path] = f
-	}
-	for _, path := range []string{"team_id", "thread", "event.user", "event.text", "event.thread_ts", "event.channel"} {
-		if _, ok := fields[path]; !ok {
-			t.Errorf("message.im is missing %s", path)
-		}
-	}
-	if got := fields["event.channel_type"].Enum; !slices.Equal(got, []string{"im"}) {
-		t.Errorf("event.channel_type enum = %v, want [im]", got)
-	}
-	if fields["thread"].Description == "" {
-		t.Error("thread must say it is derived")
+	if got := reg.Catalog(ProviderSlack).EventTypes(); !slices.Equal(got, []string{"direct_message", "mention"}) {
+		t.Errorf("event types = %v, want the chat event types", got)
 	}
 }
 
@@ -242,12 +254,12 @@ func TestSlackSource_SecretAndSenders(t *testing.T) {
 	}
 	types, err := deps.sources.ProviderEventTypes(ProviderSlack)
 	if err != nil || types.Senders == nil || len(types.Senders.Roles) != 0 {
-		t.Errorf("event types = (%+v, %v), want identifies_senders with no roles", types, err)
+		t.Errorf("event types = (%+v, %v), want senders with no roles", types, err)
 	}
 }
 
 // A signed Slack request goes through Ingest: the URL check is answered and
-// records nothing, and a mention is recorded and queued with its thread.
+// records nothing, and a mention is recorded and queued with its chat document.
 func TestIngest_Slack(t *testing.T) {
 	svc, deps := newTestService(t)
 	ctx := context.Background()
@@ -257,11 +269,16 @@ func TestIngest_Slack(t *testing.T) {
 		t.Fatalf("CreateSource: %v", err)
 	}
 	tr, err := deps.triggers.CreateTrigger(ctx, testTenant, CreateTriggerRequest{
-		SourceID: resp.ID, Name: "mention", AgentTypeID: "at-1", EventType: "app_mention",
-		PromptTemplate: "{{ event.text }} in {{ thread }}",
+		SourceID: resp.ID, Name: "mention", AgentTypeID: "at-1", EventType: "mention",
+		PromptTemplate: "{{ text }} from {{ user.id }} in {{ conversation.id }}:{{ thread.id }} on {{ platform }}",
 	})
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
+	}
+	if _, err := deps.triggers.CreateTrigger(ctx, testTenant, CreateTriggerRequest{
+		SourceID: resp.ID, Name: "raw", AgentTypeID: "at-1", EventType: "mention", PromptTemplate: "{{ event.text }}",
+	}); !errors.Is(err, ErrValidation) {
+		t.Errorf("a trigger on a raw Slack path: err = %v, want ErrValidation", err)
 	}
 
 	handshake := []byte(`{"token":"x","challenge":"abc123","type":"url_verification"}`)
@@ -273,17 +290,20 @@ func TestIngest_Slack(t *testing.T) {
 		t.Fatal("a handshake must record no delivery")
 	}
 
-	body := []byte(`{"type":"event_callback","team_id":"T1","event_id":"Ev1","event":{"type":"app_mention","user":"U1","text":"<@U0> hi","ts":"1700000000.000200","thread_ts":"1700000000.000100","channel":"C1"}}`)
+	body := []byte(`{"type":"event_callback","team_id":"T1","event_id":"Ev1","event":{"type":"app_mention","user":"u1","text":"<@U0> hi","ts":"1700000000.000200","thread_ts":"1700000000.000100","channel":"C1"}}`)
 	res, err = svc.Ingest(ctx, resp.ID, slackHeaders(secret, time.Now().Unix(), body), body)
 	if err != nil || res.Outcome != IngestAccepted {
 		t.Fatalf("mention = (%+v, %v), want accepted", res, err)
 	}
 	d := deps.repo.lastDelivery()
-	if d.ProviderDeliveryID != "Ev1" || d.EventType != "app_mention" {
-		t.Errorf("delivery id %q event %q, want Ev1 and app_mention", d.ProviderDeliveryID, d.EventType)
+	if d.ProviderDeliveryID != "Ev1" || d.EventType != "mention" {
+		t.Errorf("delivery id %q event %q, want Ev1 and mention", d.ProviderDeliveryID, d.EventType)
 	}
 	waitFor(t, func() bool { return len(deps.repo.pendingFor(tr.ID)) == 1 })
-	if got := deps.repo.pendingFor(tr.ID)[0].Fields["thread"]; got != "1700000000.000100" {
-		t.Errorf("thread = %q, want the parent ts", got)
+	want := map[string]string{"text": "<@U0> hi", "user.id": "U1", "conversation.id": "C1", "thread.id": "1700000000.000100", "platform": "slack"}
+	for k, v := range want {
+		if got := deps.repo.pendingFor(tr.ID)[0].Fields[k]; got != v {
+			t.Errorf("%s = %q, want %q", k, got, v)
+		}
 	}
 }

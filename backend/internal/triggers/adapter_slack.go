@@ -3,7 +3,6 @@ package triggers
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -17,7 +16,7 @@ import (
 const slackSignatureWindow = 5 * time.Minute
 
 // slackAdapter receives Slack's HTTP Events API. See
-// docs/adr/2026-10-20-slack-trigger-source.md.
+// docs/adr/2026-10-20-chat-command-triggers.md.
 type slackAdapter struct {
 	// now is the clock for the timestamp window; nil means time.Now.
 	now func() time.Time
@@ -84,8 +83,8 @@ func (a *slackAdapter) DeliveryID(_ http.Header, body []byte) string {
 	return parseSlackEnvelope(body).EventID
 }
 
-// EventType names the two subscribed events and returns "" for anything else,
-// including every message an app posted, so the agent's own replies never match a trigger.
+// EventType maps the two subscribed events to the chat event types and returns
+// "" for anything else, including every app message, so the agent's own replies never match.
 func (a *slackAdapter) EventType(_ http.Header, body []byte) string {
 	e := parseSlackEnvelope(body)
 	if e.Type != "event_callback" || e.Event.BotID != nil || e.Event.Subtype == "bot_message" {
@@ -93,33 +92,38 @@ func (a *slackAdapter) EventType(_ http.Header, body []byte) string {
 	}
 	switch {
 	case e.Event.Type == "app_mention":
-		return "app_mention"
+		return "mention"
 	case e.Event.Type == "message" && e.Event.ChannelType == "im" &&
 		(e.Event.Subtype == "" || e.Event.Subtype == "file_share"):
-		return "message.im"
+		return "direct_message"
 	}
 	return ""
 }
 
-//go:embed schemas/slack.json
-var slackSchema []byte
-
-// Schema returns the hand-written Slack Events API schema.
-func (a *slackAdapter) Schema() []byte { return slackSchema }
+// Schema is empty: the registry gives a chat adapter the shared chat catalog.
+func (a *slackAdapter) Schema() []byte { return nil }
 
 func (a *slackAdapter) providerIssuesSecret() {}
 
-// DerivedFields returns thread: event.thread_ts for a reply, else event.ts,
-// so a routing join_key can name a thread from either kind of message.
-func (a *slackAdapter) DerivedFields(_ string, doc any) map[string]string {
+// ChatEvent maps a Slack event to the chat document. A top-level message is its own thread.
+func (a *slackAdapter) ChatEvent(_ string, doc any) (map[string]any, bool) {
+	user := a.NormalizeID(resolvePath(doc, "event.user"))
+	conversation := resolvePath(doc, "event.channel")
 	thread := resolvePath(doc, "event.thread_ts")
 	if thread == "" {
 		thread = resolvePath(doc, "event.ts")
 	}
-	if thread == "" {
-		return nil
+	if user == "" || conversation == "" || thread == "" {
+		return nil, false
 	}
-	return map[string]string{"thread": thread}
+	return map[string]any{
+		"text":         resolvePath(doc, "event.text"),
+		"user":         map[string]any{"id": user},
+		"conversation": map[string]any{"id": conversation},
+		"thread":       map[string]any{"id": thread},
+		"workspace":    map[string]any{"id": resolvePath(doc, "team_id")},
+		"platform":     ProviderSlack,
+	}, true
 }
 
 // Sender reads event.user, the Slack user id.
