@@ -133,6 +133,11 @@ export function AgentTriggersTab() {
     return (id: string) => map.get(id) ?? id;
   }, [sources]);
 
+  const sourceCategory = useMemo(() => {
+    const map = new Map(sources.map((s) => [s.id, s.category]));
+    return (id: string) => map.get(id);
+  }, [sources]);
+
   /**
    * Creates from the wizard's draft, then reloads this page's lists.
    *
@@ -142,7 +147,7 @@ export function AgentTriggersTab() {
   const createTriggerForAgent = useCallback(
     async (draft: TriggerDraft): Promise<TriggerCreateResult> => {
       const result = await createFromWizardDraft(draft, { ingestHost });
-      if (result.ok) load();
+      if (result.ok || result.createdSource) load();
       return result;
     },
     [ingestHost, load],
@@ -228,6 +233,7 @@ export function AgentTriggersTab() {
           triggers={triggers}
           deliveries={agentDeliveries}
           sourceName={sourceName}
+          sourceCategory={sourceCategory}
           onOpen={setDrawerTrigger}
           onToggle={(t) => void toggleTrigger(t)}
           canRunAgent={canRunAgent}
@@ -301,7 +307,12 @@ export function AgentTriggersTab() {
               canRun: agent.canRun,
             },
           ]}
-          sources={sources.map((src) => ({ id: src.id, name: src.name, provider: src.provider }))}
+          sources={sources.map((src) => ({
+            id: src.id,
+            name: src.name,
+            provider: src.provider,
+            category: src.category,
+          }))}
           ingestHost={ingestHost}
           onCreate={createTriggerForAgent}
           onClose={() => {

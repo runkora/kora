@@ -40,6 +40,9 @@ export async function createFromWizardDraft(
       const made = await createSource({
         name: draft.source.newName,
         provider: draft.source.provider,
+        ...(draft.source.signingSecret !== undefined && {
+          signing_secret: draft.source.signingSecret,
+        }),
       });
       if (made.error !== null || made.source === null) {
         return { ok: false, error: made.error ?? 'Failed to create the source.' };
@@ -87,9 +90,13 @@ export async function createFromWizardDraft(
     autopause_enabled: draft.autopauseEnabled,
   });
   if (made.error !== null || made.trigger === null) {
-    // A just-created source outlives the failure on purpose: it is real, and
-    // the retry can pick it from the existing-sources list.
-    return { ok: false, error: made.error ?? 'Failed to create the trigger.' };
+    const error = made.error ?? 'Failed to create the trigger.';
+    // A just-created source outlives the failure: the wizard's retry reuses it.
+    if (draft.source !== undefined && 'newName' in draft.source && sourceId !== undefined) {
+      const { newName: name, provider } = draft.source;
+      return { ok: false, error, createdSource: { id: sourceId, name, provider, secret } };
+    }
+    return { ok: false, error };
   }
 
   return {

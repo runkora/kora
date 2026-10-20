@@ -15,6 +15,7 @@ import type { IconName } from '@runkora/hades';
 import type {
   InputField,
   SenderRestriction,
+  SourceCategory,
   Trigger,
   TriggerCoalesce as TriggerCoalesceWire,
   TriggerDelivery,
@@ -31,6 +32,7 @@ import type {
 
 export type {
   InputField,
+  SourceCategory,
   TriggerKind,
   TriggerOverflow,
   TriggerRouteOutcome,
@@ -44,7 +46,7 @@ export interface TriggerCoalesce {
   windowSeconds: number;
 }
 
-/** Who may fire a webhook trigger; both lists empty means anyone. */
+/** Who may fire a webhook or chat command trigger; both lists empty means anyone. */
 export type Senders = Required<SenderRestriction>;
 
 /** A routed trigger's candidates and settings. */
@@ -79,6 +81,23 @@ export function confidencePresetOf(threshold: number): TriggerRoutingConfidence 
   return found ?? null;
 }
 
+/**
+ * How the console groups triggers. A chat command trigger is stored as a
+ * `webhook` trigger on a chat source, so `chat` exists only in the console.
+ */
+export type ConsoleKind = TriggerKind | 'chat';
+
+/**
+ * A trigger's console kind: `chat` for a webhook trigger whose source is a
+ * chat source, else its stored kind.
+ */
+export function consoleKindOf(
+  t: Pick<TriggerRow, 'kind' | 'sourceId'>,
+  sourceCategory: (sourceId: string) => SourceCategory | undefined,
+): ConsoleKind {
+  return t.kind === 'webhook' && sourceCategory(t.sourceId) === 'chat' ? 'chat' : t.kind;
+}
+
 // ── Shared vocabulary ─────────────────────────────────────────────────────────
 //
 // Constants both the create surface (wizard) and the read/edit surfaces (list,
@@ -102,8 +121,9 @@ export const LIMITS = {
 };
 
 /** Icon per kind: what wakes this trigger up. One map, so every surface agrees. */
-export const KIND_ICON: Record<TriggerKind, IconName> = {
+export const KIND_ICON: Record<ConsoleKind, IconName> = {
   webhook: 'webhook',
+  chat: 'send',
   scheduled: 'clock',
   manual: 'play',
 };
@@ -112,6 +132,8 @@ export interface SourceRow {
   id: string;
   name: string;
   provider: string;
+  /** `chat` for a chat platform's source, else `webhook`. */
+  category: SourceCategory;
   enabled: boolean;
   createdAt: string;
   /**
@@ -140,7 +162,7 @@ export interface TriggerRow {
   matchCondition: Record<string, string[]>;
   /** Webhook triggers only. field → substrings, matched ignoring case. */
   matchContains: Record<string, string[]>;
-  /** Webhook triggers only. Both lists empty means anyone may fire it. */
+  /** Webhook and chat command triggers only. Both lists empty means anyone may fire it. */
   senderRestriction: Senders;
   /** Webhook triggers only. Null when bursts are not coalesced. */
   coalesce: TriggerCoalesce | null;
@@ -277,6 +299,8 @@ export function toSourceRow(s: WebhookSource): SourceRow {
     id: s.id,
     name: s.name,
     provider: s.provider,
+    // A backend that predates categories has only webhook sources.
+    category: s.category ?? 'webhook',
     enabled: s.enabled,
     createdAt: s.created_at,
     rejectionCount: s.rejection_count ?? 0,
@@ -299,8 +323,8 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     matchCondition: t.match_condition ?? {},
     matchContains: t.match_contains ?? {},
     senderRestriction: {
-      logins: t.sender_restriction?.logins ?? [],
-      associations: t.sender_restriction?.associations ?? [],
+      ids: t.sender_restriction?.ids ?? [],
+      roles: t.sender_restriction?.roles ?? [],
     },
     coalesce: t.coalesce ? { key: t.coalesce.key, windowSeconds: t.coalesce.window_seconds } : null,
     promptTemplate: t.prompt_template,

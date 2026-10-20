@@ -122,6 +122,22 @@ describe('validateTarget', () => {
     const offline: WizardContext = { agents: [], sources: [], ingestHost: 'h' };
     expect(validateTarget({ ...base, routing: CHOSEN }, offline).valid).toBe(false);
   });
+
+  it('refuses a chat join key that names a field outside the chat fields', () => {
+    const chat = {
+      ...initialState(TRIGGER_KINDS.chat, []),
+      eventFields: ['text', 'user.id', 'conversation.id', 'thread.id', 'meta.delivery_id'],
+    };
+    const withKey = (joinKey: string, joinOpenRuns = true) =>
+      validateTarget({ ...chat, routing: { ...CHOSEN, joinKey, joinOpenRuns } }, context);
+    expect(withKey('{{ conversation.id }}:{{ thread.id }}').valid).toBe(true);
+    expect(withKey('{{ meta.delivery_id }}').valid).toBe(true);
+    expect(withKey('{{ event.thread_ts }}').hint).toBe(
+      'event.thread_ts is not a field of this message. Use a chat field such as {{ conversation.id }}.',
+    );
+    expect(withKey('{{ thread }}').valid).toBe(false);
+    expect(withKey('{{ event.thread_ts }}', false).valid).toBe(true);
+  });
 });
 
 describe('the routing payload', () => {
@@ -153,6 +169,17 @@ describe('the routing payload', () => {
       fallback_agent_type_id: null,
       join_runs: false,
     });
+  });
+
+  it('routes a chat command, which the API stores as a webhook trigger', () => {
+    const state = {
+      ...initialState(TRIGGER_KINDS.chat, []),
+      routing: { ...CHOSEN, joinKey: '{{ conversation.id }}' },
+    };
+    const draft = toDraft(TRIGGER_KINDS.chat, state);
+    expect(draft.kind).toBe('webhook');
+    expect(draft.targetKind).toBe('routed');
+    expect(draft.routing?.joinKey).toBe('{{ conversation.id }}');
   });
 
   it('keeps one agent for every kind but webhook', () => {

@@ -73,6 +73,7 @@ export const SOURCES: SourceRow[] = [
     id: 'src_4d1f9a7c',
     name: 'acme-github',
     provider: 'github',
+    category: 'webhook',
     enabled: true,
     createdAt: ago(41 * DAY),
     rejectionCount: 0,
@@ -83,6 +84,7 @@ export const SOURCES: SourceRow[] = [
     id: 'src_b82e3016',
     name: 'sentry-prod',
     provider: 'sentry',
+    category: 'webhook',
     enabled: true,
     createdAt: ago(27 * DAY),
     rejectionCount: 3,
@@ -93,8 +95,20 @@ export const SOURCES: SourceRow[] = [
     id: 'src_0a6c57de',
     name: 'linear-workspace',
     provider: 'linear',
+    category: 'webhook',
     enabled: true,
     createdAt: ago(19 * DAY),
+    rejectionCount: 0,
+    lastRejectionAt: null,
+    lastRejectionReason: null,
+  },
+  {
+    id: 'src_7c3e51b9',
+    name: 'acme-slack',
+    provider: 'slack',
+    category: 'chat',
+    enabled: true,
+    createdAt: ago(6 * DAY),
     rejectionCount: 0,
     lastRejectionAt: null,
     lastRejectionReason: null,
@@ -116,7 +130,7 @@ function trigger(
     eventType: '',
     matchCondition: {},
     matchContains: {},
-    senderRestriction: { logins: [], associations: [] },
+    senderRestriction: { ids: [], roles: [] },
     coalesce: null,
     promptTemplate: '',
     enabled: true,
@@ -151,7 +165,7 @@ export const PR_REVIEW_TRIGGER = trigger({
   matchContains: {
     'payload.pull_request.head.repo.full_name': ['acme/'],
   },
-  senderRestriction: { logins: ['dependabot[bot]', 'jwilkin'], associations: ['MEMBER', 'OWNER'] },
+  senderRestriction: { ids: ['dependabot[bot]', 'jwilkin'], roles: ['MEMBER', 'OWNER'] },
   coalesce: {
     key: '{{payload.repository.full_name}}#{{payload.pull_request.number}}',
     windowSeconds: 30,
@@ -166,8 +180,40 @@ export const PR_REVIEW_TRIGGER = trigger({
   pendingCount: 2,
 });
 
+/**
+ * A chat command trigger: stored as a webhook trigger on the Slack source,
+ * limited to two channels and two people.
+ */
+export const SLACK_MENTION_TRIGGER = trigger({
+  id: 'trg_4b9e1d27',
+  name: 'answer-platform-questions',
+  kind: 'webhook',
+  agentSlug: 'triage-bot',
+  sourceId: 'src_7c3e51b9',
+  eventType: 'mention',
+  matchCondition: { 'conversation.id': ['C04PLATFORM', 'C07ONCALL'] },
+  senderRestriction: { ids: ['U012AB3CD', 'U045EF6GH'], roles: [] },
+  coalesce: { key: '{{ conversation.id }}:{{ thread.id }}', windowSeconds: 10 },
+  promptTemplate:
+    'Answer {{ text }} from {{ user.id }}. Reply in thread {{ thread.id }} of conversation {{ conversation.id }}.',
+  maxParallel: 4,
+  createdAt: ago(5 * DAY),
+});
+
 export const TRIGGERS: TriggerRow[] = [
   PR_REVIEW_TRIGGER,
+  SLACK_MENTION_TRIGGER,
+  trigger({
+    id: 'trg_d2a6f08e',
+    name: 'personal-dm-helper',
+    kind: 'webhook',
+    agentSlug: 'docs-writer',
+    sourceId: 'src_7c3e51b9',
+    eventType: 'direct_message',
+    promptTemplate:
+      'Help {{ user.id }} with {{ text }}. Reply in conversation {{ conversation.id }}.',
+    createdAt: ago(4 * DAY),
+  }),
   trigger({
     id: 'trg_7a29d5f1',
     name: 'ci-failed-fixer',
@@ -359,6 +405,8 @@ const CI_EXCERPT =
 const SENTRY_EXCERPT =
   '{"action":"created","data":{"issue":{"title":"TypeError: Cannot read properties of undefined (reading \'id\')","level":"error"}}}';
 
+const SLACK_EXCERPT =
+  '{"type":"event_callback","team_id":"T01ACME","event_id":"Ev08QX4","event":{"type":"app_mention","user":"U012AB3CD","channel":"C04PLATFORM","ts":"1792800000.000100","text":"<@U0BOT> why is the ledger deploy stuck?"}}';
 const START_RUN_ERROR =
   'start run: unexpected status from kora-agents: status 500: {"code":"internal","message":"failed to start run: sandbox pool exhausted"}';
 
@@ -371,6 +419,7 @@ const securitySweep = byName('weekly-security-sweep');
 const depAudit = byName('nightly-dependency-audit');
 const queueHealth = byName('queue-health-check');
 const releaseNotes = byName('draft-release-notes');
+const slackMention = byName('answer-platform-questions');
 const flaky = byName('rerun-flaky-tests');
 
 /** A pull request that fans out to two triggers, to show a multi-run delivery. */
@@ -435,6 +484,10 @@ export const DELIVERIES: DeliveryRow[] = [
     payloadBytes: 17_410,
   }),
   delivery(releaseNotes, 31 * MIN, 'dispatched', { firedBy: 'usr_42b7e9', payloadBytes: 64 }),
+  delivery(slackMention, 34 * MIN, 'dispatched', {
+    payloadExcerpt: SLACK_EXCERPT,
+    payloadBytes: 1_284,
+  }),
   delivery(incident, 38 * MIN, 'denied', {
     error: 'policy: agent docs-writer is not permitted to read alerts:read',
     payloadBytes: 4_982,
@@ -539,8 +592,66 @@ export const GITHUB_EVENT_TYPES: TriggerEventTypes = {
     'secret_scanning_alert',
   ],
   observed: ['pull_request', 'push', 'check_run', 'issue_comment'],
-  associations: ['OWNER', 'MEMBER', 'COLLABORATOR', 'CONTRIBUTOR', 'NONE'],
+  category: 'webhook',
+  senders: {
+    roles: [
+      { value: 'OWNER', label: 'Owner', description: 'Owns the repository' },
+      { value: 'MEMBER', label: 'Member', description: 'Member of the organization' },
+      { value: 'COLLABORATOR', label: 'Collaborator', description: 'Invited to the repository' },
+    ],
+  },
 };
+
+/** Alertmanager reports no sender, so its triggers have no sender restriction. */
+export const ALERTMANAGER_EVENT_TYPES: TriggerEventTypes = {
+  declared: ['alert.firing', 'alert.resolved'],
+  category: 'webhook',
+};
+
+/** Every chat source reads the chat schema. Slack identifies senders by id and reports no roles. */
+export const SLACK_EVENT_TYPES: TriggerEventTypes = {
+  declared: ['mention', 'direct_message'],
+  observed: ['mention'],
+  category: 'chat',
+  senders: { roles: [] },
+};
+
+/** The event types per provider, for the provider and source catalog routes. */
+export const EVENT_TYPES_BY_PROVIDER: Record<string, TriggerEventTypes> = {
+  github: GITHUB_EVENT_TYPES,
+  alertmanager: ALERTMANAGER_EVENT_TYPES,
+  slack: SLACK_EVENT_TYPES,
+};
+
+/** The fields of a chat event, from the chat schema, plus the meta fields. */
+export const CHAT_FIELDS: TriggerField[] = [
+  {
+    path: 'text',
+    group: 'event',
+    description:
+      'The message text as the platform sends it; empty for a message that carries only a file',
+  },
+  { path: 'platform', group: 'event', description: 'The chat platform, such as slack' },
+  { path: 'user.id', group: 'user', description: "The platform's id for the sender" },
+  {
+    path: 'conversation.id',
+    group: 'conversation',
+    description: "The platform's id for the conversation",
+  },
+  {
+    path: 'thread.id',
+    group: 'thread',
+    description: "The thread's id; a message outside a thread is its own thread",
+  },
+  { path: 'workspace.id', group: 'workspace', description: "The platform's id for the workspace" },
+  { path: 'meta.event_type', group: 'meta', description: 'The event type of the delivery' },
+  { path: 'meta.delivery_id', group: 'meta', description: "The provider's ID for the delivery" },
+  {
+    path: 'meta.source',
+    group: 'meta',
+    description: 'The name of the source the delivery arrived on',
+  },
+];
 
 export const PULL_REQUEST_FIELDS: TriggerField[] = [
   { path: 'payload.action', group: 'Event', enum: ['opened', 'reopened', 'closed', 'synchronize'] },

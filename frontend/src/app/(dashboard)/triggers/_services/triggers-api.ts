@@ -162,7 +162,7 @@ export async function fetchEventTypes(
   return { eventTypes: res.data, error: res.error };
 }
 
-/** The event types in a provider's schema, and the sender associations it knows. */
+/** The event types in a provider's schema, its category and the sender roles it reports. */
 export async function fetchProviderEventTypes(
   provider: string,
 ): Promise<{ eventTypes: TriggerEventTypes | null; error: string | null }> {

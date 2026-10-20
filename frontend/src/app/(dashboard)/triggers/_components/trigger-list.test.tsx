@@ -152,3 +152,40 @@ describe('run authority', () => {
     expect(screen.getByLabelText('Disable routed').hasAttribute('disabled')).toBe(false);
   });
 });
+
+describe('chat command triggers', () => {
+  const chat = makeTrigger({
+    id: 'c1',
+    name: 'answer-mentions',
+    sourceId: 'slack-src',
+    eventType: 'mention',
+  });
+  const hook = makeTrigger({ id: 'w1', name: 'on-push', sourceId: 'gh-src', eventType: 'push' });
+  const category = (id: string) => (id === 'slack-src' ? 'chat' : 'webhook') as 'chat' | 'webhook';
+
+  it('shows the chat event by its label and a webhook event as its type', () => {
+    render(list({ triggers: [chat, hook], sourceCategory: category }));
+    expect(screen.getByText('Mention')).toBeTruthy();
+    expect(screen.getByText('push')).toBeTruthy();
+  });
+
+  it('finds a chat command by the label it shows', () => {
+    const dm = makeTrigger({
+      id: 'c2',
+      name: 'dm-helper',
+      sourceId: 'slack-src',
+      eventType: 'direct_message',
+    });
+    render(list({ triggers: [dm, hook], sourceCategory: category }));
+    fireEvent.change(screen.getByPlaceholderText('Search triggers…'), {
+      target: { value: 'direct message' },
+    });
+    expect(screen.getByText('dm-helper')).toBeTruthy();
+    expect(screen.queryByText('on-push')).toBeNull();
+  });
+
+  it('reads every trigger as a webhook when the caller knows no categories', () => {
+    render(list({ triggers: [chat] }));
+    expect(screen.getByText('mention')).toBeTruthy();
+  });
+});

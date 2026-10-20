@@ -87,18 +87,25 @@ export function useTriggerActions({ refresh, notify }: TriggerActionsOptions) {
     [fireManualTrigger],
   );
 
-  /** Rotates a webhook trigger's source secret; the drawer shows it once. */
+  /**
+   * Rotates a webhook trigger's source secret; the drawer shows it once. A
+   * provider that issues the secret takes `signingSecret` and returns none, so
+   * success resolves with an empty string.
+   */
   const rotateSecret = useCallback(
-    async (row: TriggerRow): Promise<string | null> => {
-      const result = await updateSource(row.sourceId, { rotate_secret: true });
-      if (result.error || !result.source?.secret) {
+    async (row: TriggerRow, signingSecret?: string): Promise<string | null> => {
+      const result = await updateSource(row.sourceId, {
+        rotate_secret: true,
+        ...(signingSecret !== undefined && { signing_secret: signingSecret }),
+      });
+      if (result.error || (signingSecret === undefined && !result.source?.secret)) {
         notify({
           ok: false,
           message: `${row.name}: ${result.error ?? 'rotation returned no secret'}`,
         });
         return null;
       }
-      return result.source.secret;
+      return result.source?.secret ?? '';
     },
     [notify],
   );

@@ -8,7 +8,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('../_services/triggers-api', () => api);
 
-import { useSourceCatalog } from './use-source-catalog';
+import { useProviderCategories, useSourceCatalog } from './use-source-catalog';
 
 /** A promise the test resolves by hand, to control response order. */
 function deferred<T>() {
@@ -38,16 +38,39 @@ describe('useSourceCatalog', () => {
 
     await act(async () => {
       alertmanager.resolve({
-        eventTypes: { declared: ['alert.firing'], associations: [] },
+        eventTypes: { declared: ['alert.firing'], category: 'webhook' },
         error: null,
       });
     });
     await act(async () => {
-      github.resolve({ eventTypes: { declared: ['push'], associations: ['OWNER'] }, error: null });
+      github.resolve({
+        eventTypes: {
+          declared: ['push'],
+          category: 'webhook',
+          senders: { roles: [{ value: 'OWNER', label: 'Owner', description: '' }] },
+        },
+        error: null,
+      });
     });
 
     expect(result.current.declared).toEqual(['alert.firing']);
-    expect(result.current.associations).toEqual([]);
+    expect(result.current.roles).toEqual([]);
+    expect(result.current.identifiesSenders).toBe(false);
+  });
+
+  it('reads the sender roles and whether senders are identified', async () => {
+    api.fetchEventTypes.mockResolvedValue({
+      eventTypes: {
+        declared: ['mention', 'direct_message'],
+        category: 'chat',
+        senders: { roles: [] },
+      },
+      error: null,
+    });
+    const { result } = renderHook(() => useSourceCatalog('slack', 'src-slack', ''));
+    await act(async () => {});
+    expect(result.current.identifiesSenders).toBe(true);
+    expect(result.current.roles).toEqual([]);
   });
 
   it("ignores a late answer for an event's fields after the event changes", async () => {
@@ -84,5 +107,37 @@ describe('useSourceCatalog', () => {
     renderHook(() => useSourceCatalog('github', 'src-1', ''));
     expect(api.fetchEventTypes).toHaveBeenCalledWith('src-1');
     expect(api.fetchProviderEventTypes).not.toHaveBeenCalled();
+  });
+});
+
+describe('useProviderCategories', () => {
+  it('maps each provider to the category its event types report', async () => {
+    api.fetchProviderEventTypes.mockImplementation(async (provider: string) => ({
+      eventTypes: { declared: [], category: provider === 'slack' ? 'chat' : 'webhook' },
+      error: null,
+    }));
+    const { result } = renderHook(() => useProviderCategories(['github', 'slack']));
+    expect(result.current.pending).toEqual(['github', 'slack']);
+    await act(async () => {});
+    expect(result.current).toEqual({
+      categories: { github: 'webhook', slack: 'chat' },
+      pending: [],
+      failed: [],
+    });
+  });
+
+  it('reports a provider whose request failed', async () => {
+    api.fetchProviderEventTypes.mockImplementation(async (provider: string) =>
+      provider === 'slack'
+        ? { eventTypes: null, error: 'unavailable' }
+        : { eventTypes: { declared: [], category: 'webhook' }, error: null },
+    );
+    const { result } = renderHook(() => useProviderCategories(['github', 'slack']));
+    await act(async () => {});
+    expect(result.current).toEqual({
+      categories: { github: 'webhook' },
+      pending: [],
+      failed: ['slack'],
+    });
   });
 });

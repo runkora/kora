@@ -11,7 +11,8 @@ export const GET = withAuth(async (_req, session) => {
 });
 
 // POST /api/trigger-sources — register a webhook source (201). The response
-// carries the one-time signing secret and webhook path.
+// carries the webhook path and, unless the provider issued the secret the
+// request supplied, the one-time signing secret.
 export const POST = withAuth(async (req: NextRequest, session) => {
   const body = (await req.json()) as WebhookSourceCreateRequest;
   if (!body.name?.trim()) {
@@ -30,6 +31,7 @@ export const POST = withAuth(async (req: NextRequest, session) => {
     name: body.name,
     provider: body.provider,
     config: body.config ?? {},
+    ...(body.signing_secret !== undefined && { signing_secret: body.signing_secret }),
   });
   return NextResponse.json({ data: created }, { status: 201 });
 });

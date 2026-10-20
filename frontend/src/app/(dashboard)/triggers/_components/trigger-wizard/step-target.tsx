@@ -82,7 +82,7 @@ function confidenceOptions(productName: string): {
 }
 
 export function StepTarget(props: StepComponentProps) {
-  const { state, patch, context } = props;
+  const { state, patch, context, definition } = props;
   const { productName } = useBrand();
   const options = context.routing;
   if (options === undefined) return <AgentPicker {...props} />;
@@ -117,7 +117,12 @@ export function StepTarget(props: StepComponentProps) {
       {routing.mode === 'one' ? (
         <AgentPicker {...props} />
       ) : (
-        <ChooseSettings routing={routing} onRouting={onRouting} options={options} />
+        <ChooseSettings
+          routing={routing}
+          onRouting={onRouting}
+          options={options}
+          joinKeyExample={definition.coalesceKeyExample?.(state.eventType)}
+        />
       )}
     </Stack>
   );
@@ -309,7 +314,12 @@ interface ChooseProps {
   options: RoutingOptions;
 }
 
-function ChooseSettings({ routing, onRouting, options }: ChooseProps) {
+function ChooseSettings({
+  routing,
+  onRouting,
+  options,
+  joinKeyExample = '{{ repository.full_name }}#{{ issue.number }}',
+}: ChooseProps & { joinKeyExample?: string }) {
   const { productName } = useBrand();
   // With no decision model the mode cannot work, so nothing else is offered.
   if (noDecisionModels(options)) {
@@ -441,7 +451,7 @@ function ChooseSettings({ routing, onRouting, options }: ChooseProps) {
                   mono
                   value={routing.joinKey}
                   onChange={(e) => onRouting({ joinKey: e.target.value })}
-                  placeholder="{{ repository.full_name }}#{{ issue.number }}"
+                  placeholder={joinKeyExample}
                 />
               </FormField>
             </CardContent>

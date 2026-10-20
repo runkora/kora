@@ -6,6 +6,8 @@ import {
   toTriggerUpdateRequest,
   toDeliveryRow,
   toTriggerRow,
+  toSourceRow,
+  consoleKindOf,
   coalesceKeyText,
   coalesceKeysFor,
   supersededRuns,
@@ -24,6 +26,7 @@ import {
   failureSummary,
   matchesStatusFilter,
   type DeliveryRow,
+  type SourceCategory,
 } from './index';
 import { makeDelivery } from './fixtures';
 import type { Trigger, TriggerDelivery } from '@runkora/shared/api';
@@ -533,9 +536,9 @@ describe('toTriggerUpdateRequest', () => {
   });
 
   it('sends a sender restriction whole', () => {
-    expect(
-      toTriggerUpdateRequest({ senderRestriction: { logins: [], associations: ['MEMBER'] } }),
-    ).toEqual({ sender_restriction: { logins: [], associations: ['MEMBER'] } });
+    expect(toTriggerUpdateRequest({ senderRestriction: { ids: [], roles: ['MEMBER'] } })).toEqual({
+      sender_restriction: { ids: [], roles: ['MEMBER'] },
+    });
   });
 
   it('defaults catch-up rather than sending undefined', () => {
@@ -584,6 +587,61 @@ describe('toTriggerRow coalesce', () => {
 
   it('is null when the trigger has none', () => {
     expect(toTriggerRow(API_TRIGGER).coalesce).toBeNull();
+  });
+});
+
+describe('toTriggerRow sender restriction', () => {
+  it('reads ids and roles from the API shape', () => {
+    const row = toTriggerRow({
+      ...API_TRIGGER,
+      sender_restriction: { ids: ['octocat'], roles: ['MEMBER'] },
+    });
+    expect(row.senderRestriction).toEqual({ ids: ['octocat'], roles: ['MEMBER'] });
+  });
+
+  it('is two empty lists when the trigger has none', () => {
+    expect(toTriggerRow(API_TRIGGER).senderRestriction).toEqual({ ids: [], roles: [] });
+  });
+});
+
+describe('toSourceRow category', () => {
+  const SOURCE = {
+    id: 's1',
+    tenant_id: 'ten',
+    name: 'acme-slack',
+    provider: 'slack',
+    enabled: true,
+    created_at: '2026-07-01T00:00:00Z',
+    updated_at: '2026-07-01T00:00:00Z',
+  };
+
+  it('keeps the category the API reports', () => {
+    expect(toSourceRow({ ...SOURCE, category: 'chat' }).category).toBe('chat');
+  });
+
+  it('reads a source without a category as a webhook source', () => {
+    expect(toSourceRow(SOURCE).category).toBe('webhook');
+  });
+});
+
+describe('consoleKindOf', () => {
+  const category = (id: string): SourceCategory => (id === 'chat-src' ? 'chat' : 'webhook');
+
+  it('reads a webhook trigger on a chat source as a chat command', () => {
+    expect(consoleKindOf({ kind: 'webhook', sourceId: 'chat-src' }, category)).toBe('chat');
+  });
+
+  it('keeps a webhook trigger on a webhook source as a webhook', () => {
+    expect(consoleKindOf({ kind: 'webhook', sourceId: 'gh-src' }, category)).toBe('webhook');
+  });
+
+  it('keeps a webhook trigger whose source is unknown as a webhook', () => {
+    expect(consoleKindOf({ kind: 'webhook', sourceId: 'gone' }, () => undefined)).toBe('webhook');
+  });
+
+  it('never reads a scheduled or manual trigger as chat', () => {
+    expect(consoleKindOf({ kind: 'scheduled', sourceId: '' }, () => 'chat')).toBe('scheduled');
+    expect(consoleKindOf({ kind: 'manual', sourceId: '' }, () => 'chat')).toBe('manual');
   });
 });
 

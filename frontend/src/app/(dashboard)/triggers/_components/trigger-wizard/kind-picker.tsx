@@ -6,10 +6,10 @@
 import { Badge, Grid, RadioCard, RadioGroup, Stack, Text } from '@runkora/hades';
 import { useBrand } from '@runkora/theme/brand-provider';
 import { KIND_ORDER, PLANNED_KINDS, TRIGGER_KINDS } from './kinds';
-import { brandedCopy, type TriggerKind } from './types';
+import { brandedCopy, type ConsoleKind } from './types';
 
 export interface KindPickerProps {
-  onSelect: (kind: TriggerKind) => void;
+  onSelect: (kind: ConsoleKind) => void;
 }
 
 /**
@@ -34,7 +34,7 @@ export function KindPicker({ onSelect }: KindPickerProps) {
                   <RadioCard
                     value={def.id}
                     selected={false}
-                    onSelect={(v) => onSelect(v as TriggerKind)}
+                    onSelect={(v) => onSelect(v as ConsoleKind)}
                     icon={def.icon}
                     title={def.title}
                     description={brandedCopy(def.description, productName)}

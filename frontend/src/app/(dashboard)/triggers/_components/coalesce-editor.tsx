@@ -20,9 +20,18 @@ interface CoalesceEditorProps {
   note?: string;
   /** Rendered under the setting, e.g. the drawer's save and discard buttons. */
   actions?: ReactNode;
+  /** An example key in the trigger's own fields. */
+  keyPlaceholder?: string;
 }
 
-export function CoalesceEditor({ value, onChange, disabled, note, actions }: CoalesceEditorProps) {
+export function CoalesceEditor({
+  value,
+  onChange,
+  disabled,
+  note,
+  actions,
+  keyPlaceholder = '{{ repository.full_name }}#{{ pull_request.number }}',
+}: CoalesceEditorProps) {
   const keyId = useId();
   const windowId = useId();
   // Inline errors show only for values that are set. A missing value is
@@ -55,7 +64,7 @@ export function CoalesceEditor({ value, onChange, disabled, note, actions }: Coa
                   value={value.key}
                   disabled={disabled}
                   onChange={(e) => onChange({ ...value, key: e.target.value })}
-                  placeholder="{{ repository.full_name }}#{{ pull_request.number }}"
+                  placeholder={keyPlaceholder}
                 />
               </FormField>
               <Grid cols={2} gap="comfortable">

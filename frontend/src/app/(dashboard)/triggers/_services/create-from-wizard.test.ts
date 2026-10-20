@@ -60,12 +60,12 @@ describe('webhook drafts', () => {
 
   it('sends the sender restriction when the draft carries one, and omits it otherwise', async () => {
     await createFromWizardDraft(
-      draft({ senderRestriction: { logins: ['octocat'], associations: ['MEMBER'] } }),
+      draft({ senderRestriction: { ids: ['octocat'], roles: ['MEMBER'] } }),
       OPTIONS,
     );
     expect(mockCreateTrigger).toHaveBeenCalledWith(
       expect.objectContaining({
-        sender_restriction: { logins: ['octocat'], associations: ['MEMBER'] },
+        sender_restriction: { ids: ['octocat'], roles: ['MEMBER'] },
       }),
     );
 
@@ -126,6 +126,26 @@ describe('webhook drafts', () => {
       triggerId: 't1',
       endpoint: 'https://api.orbit.example.com/api/v1/webhooks/src-new',
       secret: 'whsec_abc',
+    });
+  });
+
+  it('sends the signing secret a provider issued, and shows none back', async () => {
+    mockCreateSource.mockResolvedValue({ source: { id: 'src-slack' }, error: null } as never);
+
+    const result = await createFromWizardDraft(
+      draft({ source: { newName: 'acme', provider: 'slack', signingSecret: 'slack-secret' } }),
+      OPTIONS,
+    );
+
+    expect(mockCreateSource).toHaveBeenCalledWith({
+      name: 'acme',
+      provider: 'slack',
+      signing_secret: 'slack-secret',
+    });
+    expect(result).toEqual({
+      ok: true,
+      triggerId: 't1',
+      endpoint: 'https://api.orbit.example.com/api/v1/webhooks/src-slack',
     });
   });
 
@@ -253,10 +273,13 @@ describe('failures', () => {
       OPTIONS,
     );
 
-    // The source is real and the retry can pick it from the existing list, so
-    // it is deliberately not rolled back.
+    // The source is real and is not rolled back; the wizard's retry reuses it.
     expect(mockCreateSource).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({ ok: false, error: 'agent not found' });
+    expect(result).toEqual({
+      ok: false,
+      error: 'agent not found',
+      createdSource: { id: 'src-new', name: 'acme', provider: 'github', secret: 'whsec_abc' },
+    });
   });
 
   it('falls back to a sentence when the API gives no message', async () => {

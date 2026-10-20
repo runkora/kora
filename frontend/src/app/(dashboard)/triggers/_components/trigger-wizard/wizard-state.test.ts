@@ -12,6 +12,8 @@ import {
   parallelWord,
   previewBody,
   resolvedFields,
+  senderRestrictionFrom,
+  splitIds,
   splitFilterValues,
   stepsFor,
   toDraft,
@@ -23,9 +25,11 @@ import {
 import { SHARED_STEPS } from './shared-steps';
 import { TRIGGER_KINDS } from './kinds';
 import { NEW_SOURCE } from './types';
-import type { WizardContext, WizardField, WizardState } from './types';
+import type { TriggerWizardSource, WizardContext, WizardField, WizardState } from './types';
 
-const SOURCES = [{ id: 'src-1', name: 'acme/widgets', provider: 'github' }];
+const SOURCES: TriggerWizardSource[] = [
+  { id: 'src-1', name: 'acme/widgets', provider: 'github', category: 'webhook' },
+];
 const AGENTS = [{ id: 'at-1', slug: 'coder', name: 'Coder' }];
 
 const CONTEXT: WizardContext = {
@@ -225,10 +229,38 @@ describe('toDraft', () => {
     });
   });
 
+  it('stores a chat command as a webhook trigger', () => {
+    const draft = toDraft(
+      TRIGGER_KINDS.chat,
+      state({ sourceChoice: 'src-chat', eventType: 'mention' }),
+    );
+    expect(draft.kind).toBe('webhook');
+    expect(draft.source).toEqual({ existingId: 'src-chat' });
+    expect(draft.eventType).toBe('mention');
+  });
+
   it('omits matchCondition entirely when no filter is set', () => {
     const draft = toDraft(TRIGGER_KINDS.webhook, state({ filters: [] }));
     expect(draft.matchCondition).toBeUndefined();
     expect('matchCondition' in draft).toBe(false);
+  });
+});
+
+describe('sender restriction', () => {
+  it('splits the ids on commas and whitespace, dropping blanks and repeats', () => {
+    expect(splitIds(' octocat, hubot\noctocat,, ')).toEqual(['octocat', 'hubot']);
+  });
+
+  it('sends ids and roles, and nothing when both are empty', () => {
+    expect(senderRestrictionFrom({ ids: 'U012AB3CD', roles: [] })).toEqual({
+      ids: ['U012AB3CD'],
+      roles: [],
+    });
+    expect(senderRestrictionFrom({ ids: '', roles: ['OWNER'] })).toEqual({
+      ids: [],
+      roles: ['OWNER'],
+    });
+    expect(senderRestrictionFrom({ ids: ' ', roles: [] })).toBeUndefined();
   });
 });
 
@@ -479,5 +511,39 @@ describe('coalesce in the wizard state', () => {
     const set = { coalesceEnabled: true, coalesceKey: 'k', coalesceWindow: '30' };
     expect('coalesce' in toDraft(TRIGGER_KINDS.scheduled, state(set))).toBe(false);
     expect('coalesce' in toDraft(TRIGGER_KINDS.manual, state(set))).toBe(false);
+  });
+});
+
+describe('validateDelivery chat coalesce key', () => {
+  const chat = {
+    coalesceEnabled: true,
+    coalesceWindow: '10',
+    eventFields: ['text', 'conversation.id', 'thread.id', 'meta.source'],
+  };
+
+  it('names a coalesce key placeholder that is not a chat field', () => {
+    expect(
+      validateDelivery(state({ ...chat, coalesceKey: '{{ channel }}:{{ thread.id }}' })),
+    ).toEqual({
+      valid: false,
+      hint: 'channel is not a field of this message. Use a chat field such as {{ conversation.id }}.',
+    });
+  });
+
+  it('passes a key of chat fields', () => {
+    expect(
+      validateDelivery(state({ ...chat, coalesceKey: '{{ conversation.id }}:{{ thread.id }}' }))
+        .valid,
+    ).toBe(true);
+  });
+
+  it('ignores the key when coalescing is off or the kind does not check fields', () => {
+    expect(
+      validateDelivery(state({ ...chat, coalesceEnabled: false, coalesceKey: '{{ channel }}' }))
+        .valid,
+    ).toBe(true);
+    expect(
+      validateDelivery(state({ ...chat, eventFields: null, coalesceKey: '{{ channel }}' })).valid,
+    ).toBe(true);
   });
 });

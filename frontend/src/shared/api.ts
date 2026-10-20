@@ -733,6 +733,8 @@ export interface WebhookSource {
   name: string;
   /** Source adapter id, e.g. "github". */
   provider: string;
+  /** Read-only, set from the provider's adapter: `chat` for a chat platform, else `webhook`. */
+  category?: SourceCategory;
   config?: Record<string, unknown>;
   enabled: boolean;
   created_at: string;
@@ -755,7 +757,7 @@ export interface WebhookSource {
 export interface WebhookSourceResponse extends WebhookSource {
   /** Inbound path to configure on the provider; combine with the public base URL. */
   webhook_path: string;
-  /** HMAC signing secret — shown once; never returned on reads. */
+  /** HMAC signing secret, shown once. Never returned on reads, nor when the provider issued it. */
   secret?: string;
 }
 
@@ -764,12 +766,16 @@ export interface WebhookSourceCreateRequest {
   name: string;
   provider: string;
   config?: Record<string, unknown>;
+  /** Write-only. Required for a provider that issues its own secret, e.g. Slack; refused otherwise. */
+  signing_secret?: string;
 }
 
 /** Request body for PATCH /api/trigger-sources/:id. */
 export interface WebhookSourceUpdateRequest {
   enabled?: boolean;
   rotate_secret?: boolean;
+  /** Write-only. The new secret when rotating a source whose provider issues it. */
+  signing_secret?: string;
 }
 
 /** Trigger kind discriminant. */
@@ -827,13 +833,30 @@ export interface SchedulePreviewResponse {
   timezone: string;
 }
 
+/** What kind of source a provider's adapter makes. Mirrors Go: triggers.CategoryChat, CategoryWebhook. */
+export type SourceCategory = 'chat' | 'webhook';
+
 /**
- * Who may fire a webhook trigger. A sender passes when its login or its
- * association is listed; both lists empty means anyone.
+ * Who may fire a webhook or chat command trigger. A sender passes when its id
+ * or any of its roles is listed; both lists empty means anyone. The API
+ * refuses any other key.
  */
 export interface SenderRestriction {
-  logins?: string[];
-  associations?: string[];
+  ids?: string[];
+  roles?: string[];
+}
+
+/** A role a provider reports for a sender, with the text the console shows. Mirrors Go: triggers.SenderRole. */
+export interface SenderRole {
+  value: string;
+  label: string;
+  description: string;
+}
+
+/** What a sender restriction on a provider's triggers may name. Mirrors Go: triggers.Senders. */
+export interface TriggerSenders {
+  /** Empty when the provider reports no roles. */
+  roles: SenderRole[];
 }
 
 /**
@@ -844,8 +867,9 @@ export interface SenderRestriction {
 export interface TriggerEventTypes {
   declared: string[];
   observed?: string[];
-  /** Association values a sender restriction may name; empty when the provider identifies no sender. */
-  associations: string[];
+  category: SourceCategory;
+  /** Present when the provider reports who caused an event, so a sender restriction applies. */
+  senders?: TriggerSenders;
 }
 
 /** One field of a provider event, from its schema. Mirrors Go: triggers.Field. */

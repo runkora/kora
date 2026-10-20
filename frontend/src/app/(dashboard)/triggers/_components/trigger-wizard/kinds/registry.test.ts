@@ -3,11 +3,15 @@ import { describe, expect, it } from 'vitest';
 import { KIND_ORDER, PLANNED_KINDS, TRIGGER_KINDS } from './index';
 import { SHARED_STEPS } from '../shared-steps';
 import { initialState, stepsFor } from '../wizard-state';
-import type { TriggerKind, WizardContext } from '../types';
+import { NEW_SOURCE } from '../types';
+import type { ConsoleKind, WizardContext } from '../types';
 
 const CONTEXT: WizardContext = {
   agents: [{ id: 'at-1', slug: 'coder', name: 'Coder' }],
-  sources: [{ id: 'src-1', name: 'acme/widgets', provider: 'github' }],
+  sources: [
+    { id: 'src-1', name: 'acme/widgets', provider: 'github', category: 'webhook' },
+    { id: 'src-2', name: 'acme-slack', provider: 'slack', category: 'chat' },
+  ],
   ingestHost: 'orbit.local.clearroute.io:8443',
 };
 
@@ -16,8 +20,26 @@ const KINDS = Object.values(TRIGGER_KINDS);
 describe('TRIGGER_KINDS', () => {
   it('keys every definition by its own id, so lookups cannot drift', () => {
     for (const [key, def] of Object.entries(TRIGGER_KINDS)) {
-      expect(def.id).toBe(key as TriggerKind);
+      expect(def.id).toBe(key as ConsoleKind);
     }
+  });
+
+  it('stores the chat command kind as a webhook trigger on chat sources', () => {
+    expect(TRIGGER_KINDS.chat.apiKind).toBe('webhook');
+    expect(TRIGGER_KINDS.chat.sourceCategory).toBe('chat');
+    expect(TRIGGER_KINDS.webhook.apiKind).toBe('webhook');
+    expect(TRIGGER_KINDS.webhook.sourceCategory).toBe('webhook');
+    expect(TRIGGER_KINDS.scheduled.apiKind).toBe('scheduled');
+    expect(TRIGGER_KINDS.manual.apiKind).toBe('manual');
+  });
+
+  it('starts each source kind on the first source of its own category', () => {
+    expect(initialState(TRIGGER_KINDS.webhook, CONTEXT.sources).sourceChoice).toBe('src-1');
+    expect(initialState(TRIGGER_KINDS.chat, CONTEXT.sources).sourceChoice).toBe('src-2');
+    expect(initialState(TRIGGER_KINDS.chat, CONTEXT.sources.slice(0, 1)).sourceChoice).toBe(
+      NEW_SOURCE,
+    );
+    expect(initialState(TRIGGER_KINDS.webhook, CONTEXT.sources.slice(1)).sourceChoice).toBe('');
   });
 
   it('gives every kind the copy the picker renders', () => {
@@ -76,6 +98,7 @@ describe('fieldCatalog', () => {
     expect(TRIGGER_KINDS.scheduled.fieldCatalog).toBeTypeOf('function');
     expect(TRIGGER_KINDS.manual.fieldCatalog).toBeTypeOf('function');
     expect(TRIGGER_KINDS.webhook.fieldCatalog).toBeUndefined();
+    expect(TRIGGER_KINDS.chat.fieldCatalog).toBeUndefined();
   });
 
   it('describes every token it offers', () => {
@@ -114,6 +137,11 @@ describe('KIND_ORDER', () => {
 });
 
 describe('PLANNED_KINDS', () => {
+  it('no longer lists the chat command, which is built', () => {
+    expect(PLANNED_KINDS.map((k) => k.title)).not.toContain('Chat command');
+    expect(KIND_ORDER).toContain('chat');
+  });
+
   it('names kinds that are not in the registry yet', () => {
     const built = new Set(KINDS.map((d) => d.title));
     for (const planned of PLANNED_KINDS) {

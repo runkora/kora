@@ -223,6 +223,7 @@ function DoneContent({ triggerId }: DoneContentProps) {
 
 export const manualKind: TriggerKindDefinition = {
   id: 'manual',
+  apiKind: 'manual',
   icon: 'play',
   title: 'Manual',
   description: 'A form in the console, and the same schema as a REST endpoint.',
