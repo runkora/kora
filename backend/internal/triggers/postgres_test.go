@@ -110,6 +110,24 @@ func TestPostgres_SourceCRUD(t *testing.T) {
 	}
 }
 
+func TestPostgres_SourceNameTaken(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	first := seedSource(t, r, tenant)
+
+	dup := *first
+	dup.ID = uuid.NewString()
+	if err := r.CreateSource(ctx, &dup); !errors.Is(err, ErrSourceNameTaken) {
+		t.Errorf("create with a taken name = %v, want ErrSourceNameTaken", err)
+	}
+
+	second := seedSource(t, r, tenant)
+	second.Name = first.Name
+	if err := r.UpdateSource(ctx, second); !errors.Is(err, ErrSourceNameTaken) {
+		t.Errorf("rename to a taken name = %v, want ErrSourceNameTaken", err)
+	}
+}
+
 func TestPostgres_TriggerCRUD(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()

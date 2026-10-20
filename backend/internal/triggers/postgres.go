@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/runkora/kora/backend/internal/platform/storage"
@@ -90,9 +91,22 @@ func (r *postgresRepository) CreateSource(ctx context.Context, s *WebhookSource)
 			($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
 	`, s.ID, s.TenantID, s.Name, s.Provider, s.PrincipalID, s.GrantID, s.SecretCiphertext, configJSON, s.Enabled)
 	if err != nil {
-		return fmt.Errorf("create webhook source: %w", err)
+		return sourceWriteError("create webhook source", err)
 	}
 	return nil
+}
+
+// sourceNameKey is the unique constraint on a source's name within its tenant.
+const sourceNameKey = "webhook_sources_tenant_id_name_key"
+
+// sourceWriteError maps a duplicate source name to ErrSourceNameTaken and
+// wraps any other error with what.
+func sourceWriteError(what string, err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == sourceNameKey {
+		return ErrSourceNameTaken
+	}
+	return fmt.Errorf("%s: %w", what, err)
 }
 
 const sourceColumns = `id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, created_at, updated_at, rejection_count, last_rejection_at, last_rejection_reason, accepted_count, secret_rotated_at`
@@ -152,7 +166,7 @@ func (r *postgresRepository) UpdateSource(ctx context.Context, s *WebhookSource)
 		WHERE  id = $6 AND tenant_id = $7
 	`, s.Name, s.SecretCiphertext, s.GrantID, configJSON, s.Enabled, s.ID, s.TenantID)
 	if err != nil {
-		return fmt.Errorf("update webhook source: %w", err)
+		return sourceWriteError("update webhook source", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrSourceNotFound

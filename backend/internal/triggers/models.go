@@ -99,6 +99,8 @@ var (
 	// ErrSourceNotFound is returned when a webhook source does not exist (or is
 	// not visible to the caller's tenant).
 	ErrSourceNotFound = errors.New("webhook source not found")
+	// ErrSourceNameTaken is returned when the tenant already has a source with the name.
+	ErrSourceNameTaken = errors.New("a webhook source with this name already exists")
 	// ErrTriggerNotFound is returned when a trigger does not exist.
 	ErrTriggerNotFound = errors.New("trigger not found")
 	// ErrSourceDisabled is returned when a delivery targets a disabled source.

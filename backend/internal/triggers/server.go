@@ -579,6 +579,8 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 		// 'resource_already_exists' — nothing was being created, and a client
 		// branching on the code was being told the opposite of what happened.
 		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
+	case errors.Is(err, ErrSourceNameTaken):
+		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeResourceExists, err.Error(), nil), nil)
 	case errors.Is(err, ErrNotRedeliverable):
 		// 400: the delivery exists and the caller may see it, but replaying this
 		// one is not a thing that can be done. The message says which reason.
