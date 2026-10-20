@@ -114,10 +114,11 @@ _principal_roles := [] if {
 # Layer 2: required_scope is pre-computed by buildOPAInput from the resource
 #          attributes and action provided by the calling service handler.
 #
-# Layer 1: derived by matching the request path prefix and HTTP method against
-#          data.routes.route_scopes (compiled into every bundle by the policy-service).
-#          This is a coarse service-level scope — Layer 2 enforces the resource-
-#          specific scope from the request payload.
+# Layer 1: derived by matching the request path and HTTP method against the
+#          global data.routes.route_scopes, then the tenant's
+#          data.routes.tenant_route_scopes. This is a coarse service-level
+#          scope — Layer 2 enforces the resource-specific scope from the request
+#          payload.
 
 _required_scope := input.required_scope if not _is_envoy
 
@@ -137,29 +138,33 @@ _route_path := m[0][1] if {
 	count(m) == 1
 }
 
-_required_scope := route.required_scope if {
+# Route matching mirrors middleware.ResolveRequiredScope (see _route_match).
+# Global routes take precedence over the tenant's own registrations, so a
+# tenant service cannot shadow a platform route with a longer prefix.
+# A route registered with authenticated_only needs a valid token and no scope.
+_request_path := split(_route_path, "?")[0]
+
+_global_route := _route_match(data.routes.route_scopes, input.attributes.request.http.method, _request_path) if _is_envoy
+
+_tenant_route := _route_match(data.routes.tenant_route_scopes, input.attributes.request.http.method, _request_path) if _is_envoy
+
+_route := _global_route
+
+_route := _tenant_route if not _global_covers
+
+_global_covers if {
 	_is_envoy
 	some route in data.routes.route_scopes
-	startswith(_route_path, route.path_prefix)
-	route.method == input.attributes.request.http.method
+	route.method in {input.attributes.request.http.method, "*"}
+	_path_covered(_request_path, route.path_prefix)
 }
 
-# Wildcard method match — only applies when no exact method route matches,
-# preventing a conflict if both an exact and a wildcard route cover the same path.
-_has_exact_method_route if {
-	_is_envoy
-	some route in data.routes.route_scopes
-	startswith(_route_path, route.path_prefix)
-	route.method == input.attributes.request.http.method
+_authenticated_route if {
+	_route.authenticated_only == true
+	_route.required_scope == ""
 }
 
-_required_scope := route.required_scope if {
-	_is_envoy
-	not _has_exact_method_route
-	some route in data.routes.route_scopes
-	startswith(_route_path, route.path_prefix)
-	route.method == "*"
-}
+_required_scope := _route.required_scope if not _authenticated_route
 
 # ══ NORMALISED DELEGATION ════════════════════════════════════════════════════
 #
@@ -410,6 +415,27 @@ allow if {
 	_delegation_scope_satisfied
 	delegator_covers_required_scope
 }
+
+# Authenticated-only route: a valid token is enough here. A delegated request
+# must still pass its binding checks, and a delegation-required principal must
+# present a delegation.
+_authenticated_allowed if {
+	not _is_connect
+	_authenticated_route
+	_layer1_claims
+	not _is_delegated
+	not _principal_requires_delegation
+}
+
+_authenticated_allowed if {
+	not _is_connect
+	_authenticated_route
+	_layer1_claims
+	_is_delegated
+	not _delegation_binding_failed
+}
+
+allow if _authenticated_allowed
 
 # HUMAN principals with an OIDC admin role (PAP access, bootstrapping).
 # Must not fire for delegated requests — delegation constrains the effective
@@ -724,6 +750,19 @@ reason := "deny:delegation_required" if {
 	_principal_egress_allows
 }
 
+reason := "allow:authenticated" if {
+	not _is_platform_internal_path
+	_authenticated_allowed
+}
+
+reason := "deny:delegation_required" if {
+	not _is_platform_internal_path
+	_authenticated_route
+	_layer1_claims
+	not _is_delegated
+	_principal_requires_delegation
+}
+
 # matched_role_scopes collects all role+scope pairs that cover the required scope.
 # Using a partial set + min() mirrors matched_grant_scope for determinism.
 matched_roles contains role_match if {
@@ -810,7 +849,7 @@ reason := "deny:no_route_match" if {
 	not _is_connect
 	not _delegation_binding_failed
 	_layer1_claims
-	not _required_scope
+	not _route
 }
 
 # ══ PRINCIPAL SCOPE PROJECTION ═══════════════════════════════════════════════
@@ -853,6 +892,43 @@ principal_role_detail contains {"role": role, "scopes": role_scopes} if {
 	some role in _principal_roles
 	role_scopes := data.roles.role_scopes[role]
 }
+
+# ══ ROUTE MATCHING ═══════════════════════════════════════════════════════════
+#
+# Identical to authz_gateway.rego. An exact-method route beats a "*" route,
+# then the longest prefix wins. A prefix matches on a path segment boundary
+# only.
+
+_route_match(routes, method, path) := _longest_route(exact) if {
+	exact := [r | some r in routes; r.method == method; _path_covered(path, r.path_prefix)]
+	count(exact) > 0
+}
+
+_route_match(routes, method, path) := _longest_route(wild) if {
+	count([r | some r in routes; r.method == method; _path_covered(path, r.path_prefix)]) == 0
+	wild := [r | some r in routes; r.method == "*"; _path_covered(path, r.path_prefix)]
+	count(wild) > 0
+}
+
+# Equally long prefixes must resolve to the same route, or none is matched.
+_longest_route(rs) := route if {
+	longest := max({count(r.path_prefix) | some r in rs})
+	best := {{"required_scope": r.required_scope, "authenticated_only": object.get(r, "authenticated_only", false)} |
+		some r in rs
+		count(r.path_prefix) == longest
+	}
+	count(best) == 1
+	some route in best
+}
+
+_path_covered(path, prefix) if path == prefix
+
+_path_covered(path, prefix) if {
+	endswith(prefix, "/")
+	startswith(path, prefix)
+}
+
+_path_covered(path, prefix) if startswith(path, concat("", [prefix, "/"]))
 
 # ══ SCOPE HIERARCHY ══════════════════════════════════════════════════════════
 #

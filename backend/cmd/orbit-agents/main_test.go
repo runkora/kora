@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"testing"
 	"time"
 
@@ -69,11 +68,11 @@ func newAgentTypeService() *agents.AgentTypeService {
 	return agents.NewAgentTypeService(nil, nil, nil, nil, agents.AgentTypeServiceConfig{}, logging.NewLogger())
 }
 
-// TestInitScopeRegistrationPublishesScopedRoutesAndSlugScopes asserts the
-// register function orbit-agents hands to KeepRegistered sends the right
-// payload: only routes carrying a required scope, and a vocabulary covering
-// both the static scopes and the per-agent-type ones.
-func TestInitScopeRegistrationPublishesScopedRoutesAndSlugScopes(t *testing.T) {
+// TestInitScopeRegistrationPublishesRoutesAndSlugScopes asserts the register
+// function orbit-agents hands to KeepRegistered sends the right payload: the
+// whole route table, authenticated-only routes included, and a vocabulary
+// covering both the static scopes and the per-agent-type ones.
+func TestInitScopeRegistrationPublishesRoutesAndSlugScopes(t *testing.T) {
 	got := make(chan registration, 1)
 	srv := capturingPolicyService(t, got)
 	defer srv.Close()
@@ -97,13 +96,8 @@ func TestInitScopeRegistrationPublishesScopedRoutesAndSlugScopes(t *testing.T) {
 	if reg.Service != "orbit-agents" {
 		t.Errorf("registered as %q, want orbit-agents", reg.Service)
 	}
-	if len(reg.Routes) == 0 {
-		t.Fatal("registered an empty route table")
-	}
-	for _, r := range reg.Routes {
-		if r.RequiredScope == "" {
-			t.Errorf("authenticated-only route was registered: %+v", r)
-		}
+	if want := len(agentRoutes()); len(reg.Routes) != want {
+		t.Fatalf("registered %d routes, want %d", len(reg.Routes), want)
 	}
 
 	declared := make(map[string]struct{}, len(reg.Scopes))
@@ -111,8 +105,12 @@ func TestInitScopeRegistrationPublishesScopedRoutesAndSlugScopes(t *testing.T) {
 		declared[s.Scope] = struct{}{}
 	}
 	// Every route's required scope must be in the vocabulary, or the policy
-	// service rejects a tenant registration outright.
+	// service rejects a tenant registration outright. Authenticated-only routes
+	// carry no scope.
 	for _, r := range reg.Routes {
+		if r.RequiredScope == "" {
+			continue
+		}
 		if _, ok := declared[r.RequiredScope]; !ok {
 			t.Errorf("route %s %s requires undeclared scope %q", r.Method, r.PathPrefix, r.RequiredScope)
 		}
@@ -125,24 +123,6 @@ func TestInitScopeRegistrationPublishesScopedRoutesAndSlugScopes(t *testing.T) {
 	for _, want := range []string{"agents:usage:read", "agents:delegated:read"} {
 		if _, ok := declared[want]; !ok {
 			t.Errorf("scope %q missing from the registration", want)
-		}
-	}
-}
-
-// TestAgentRoutesFilterDropsOnlyUnscopedRoutes guards the route table itself:
-// the authenticated-only writes must stay out of the policy registration, and
-// every read route must stay in.
-func TestAgentRoutesFilterDropsOnlyUnscopedRoutes(t *testing.T) {
-	all := agentRoutes()
-	scoped := routescopes.FilterScopedRoutes(all)
-
-	if len(scoped) >= len(all) {
-		t.Fatalf("expected the filter to drop the authenticated-only routes: %d of %d kept", len(scoped), len(all))
-	}
-	for _, r := range all {
-		kept := slices.Contains(scoped, r)
-		if want := r.RequiredScope != ""; kept != want {
-			t.Errorf("route %+v: kept=%v, want %v", r, kept, want)
 		}
 	}
 }

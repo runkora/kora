@@ -48,7 +48,7 @@ Building Layer 2 in handler code repeatedly is fragile. The route→scope vocabu
 ### Goals
 
 - A single platform middleware that performs Layer 1 enforcement in-process for any service that declares its routes via `[]routescopes.RouteScope`.
-- Behavior matches the OPA `_required_scope` rule in `bundle/authz.rego` exactly — path-prefix match + exact method match, with `"*"` method wildcard fallback. Unmatched routes deny-close.
+- Behavior matches the route matching in `bundle/authz.rego` and `bundle/authz_gateway.rego` exactly: an exact-method route beats a `"*"` route, the longest prefix wins, and a prefix matches on a path segment boundary. Unmatched routes deny-close.
 - Zero per-handler code; the only per-service change is one extra middleware in the chain.
 - Per-resource fine-grained decisions (`checkRun`, `filterAgentTypes`) remain in service code; this middleware handles the coarse "do you have the scope at all" check.
 - Internal endpoints (mTLS-protected callbacks) and liveness probes bypass cleanly.

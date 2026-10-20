@@ -214,8 +214,7 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 	register := func(registerCtx context.Context) error {
 		catalogScopes := router.CatalogScopes()
 		scopeDecls := inferenceScopes(catalogScopes)
-		scopedRoutes := routescopes.FilterScopedRoutes(inferenceRoutes())
-		if err := client.Register(registerCtx, "inference-gateway", scopedRoutes, scopeDecls); err != nil {
+		if err := client.Register(registerCtx, "inference-gateway", publishedInferenceRoutes(), scopeDecls); err != nil {
 			return fmt.Errorf("register routes: %w", err)
 		}
 		return nil
@@ -237,12 +236,11 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 // Used at startup for policy-service route registration (docs/adr/2026-04-14-dynamic-route-scope-registration.md) and at
 // request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Entries with empty
 // RequiredScope require authentication but no specific scope; the middleware
-// passes them through after AuthMiddleware. They are filtered out of the
-// policy registration by routescopes.FilterScopedRoutes.
+// passes them through after AuthMiddleware. The policy service registers them
+// as authenticated-only routes.
 //
-// Order matters: ScopeEnforcementMiddleware iterates this slice and prefers
-// the more-specific (sub-path) entry over the broader prefix for the same
-// method, so list narrower paths before broader ones.
+// Order does not matter: the longest matching prefix wins, in
+// ScopeEnforcementMiddleware and in the rego.
 func inferenceRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		{PathPrefix: "/v1/chat/completions", Method: "POST", RequiredScope: "inference:invoke"},
@@ -271,10 +269,8 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// GET /v1/usage/budget is personal — any authenticated caller may check
 		// their own budget. Listed before /v1/usage so the more-specific path wins.
 		{PathPrefix: "/v1/usage/budget", Method: "GET", RequiredScope: ""},
-		// GET /v1/usage/run/{id} is the run chat usage meter — any authenticated
-		// caller in the tenant; spend is tenant-scoped in the query. More-specific
-		// than /v1/usage, so listed before it.
-		{PathPrefix: "/v1/usage/run", Method: "GET", RequiredScope: ""},
+		// The run chat usage meter. publishedInferenceRoutes gives the OPA layers a stricter scope.
+		{PathPrefix: runUsagePath, Method: "GET", RequiredScope: ""},
 		// GET /v1/usage/stats is personal — per-PAT aggregates for the calling
 		// principal only.
 		{PathPrefix: "/v1/usage/stats", Method: "GET", RequiredScope: ""},
@@ -289,6 +285,22 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// The platform:budgets:* scopes are declared by the policy-service.
 		{PathPrefix: "/v1/budgets", Method: "GET", RequiredScope: "platform:budgets:read"},
 	}
+}
+
+// runUsagePath is the run chat usage meter. The dashboard calls it in-mesh, where only the
+// in-process check runs, so any authenticated caller in the tenant passes.
+const runUsagePath = "/v1/usage/run"
+
+// publishedInferenceRoutes is the route table registered with the policy service.
+// Callers that pass the edge or sidecar OPA need the tenant-wide analytics scope for runUsagePath.
+func publishedInferenceRoutes() []routescopes.RouteScope {
+	routes := inferenceRoutes()
+	for i := range routes {
+		if routes[i].PathPrefix == runUsagePath {
+			routes[i].RequiredScope = "platform:analytics:read"
+		}
+	}
+	return routes
 }
 
 // inferenceScopes builds the full scope declaration list from the current catalog.

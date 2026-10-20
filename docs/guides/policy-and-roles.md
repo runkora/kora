@@ -297,6 +297,14 @@ go routescopes.KeepRegistered(ctx, logger, "my-service", register)
 
 The service name must match the pod's `spiffe.io/component` label.
 
+### Authenticated-Only Routes
+
+A route with an empty `required_scope` needs a valid token and no scope. The service behind it holds the real check, typically because the governing scope depends on the request body or a stored row. Register these routes with the rest of the table. The policy service marks them `authenticated_only`, and the edge and sidecar OPA admit any valid token on them. Only global (platform) registrations can carry them: the policy service refuses a tenant route with an empty scope or an empty path prefix, and an empty scope declaration from any service. A path that matches no registered route is denied. A route that must stay closed to agents and north-south callers is left out of the registration: identity registers no routes, and the policy service publishes only its scoped routes.
+
+### Route Matching
+
+The edge OPA, the sidecar OPA and the in-process `ScopeEnforcementMiddleware` resolve a request to a route the same way. An exact-method route beats a `"*"` route, then the longest matching prefix wins. A prefix matches on a path segment boundary: `/api/v1/runs` covers `/api/v1/runs/r1` but not `/api/v1/runs-export`. Global routes take precedence over a tenant's own routes, so a tenant service cannot shadow a platform route with a longer prefix on a path and method that route covers. In the OPA layers, two equally specific routes that disagree match nothing, and the request is denied.
+
 ### Inspecting Registered Routes
 
 SYSTEM principals can see all currently registered route→scope mappings:

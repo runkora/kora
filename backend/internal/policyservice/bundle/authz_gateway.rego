@@ -279,66 +279,40 @@ _is_self_enforced_path if {
 
 # ══ REQUIRED SCOPE ════════════════════════════════════════════════════════════
 #
-# Two-table route matching: global routes (SYSTEM principal registrations) and
-# per-tenant routes (SERVICE principal registrations for tenant-deployed services).
+# Route matching mirrors middleware.ResolveRequiredScope, so the edge and the
+# in-process check resolve a request to the same route. Within a table an
+# exact-method route beats a "*" route, and the longest matching prefix wins.
 #
-# Exact method > wildcard "*", consistent with authz.rego.
+# Global routes (SYSTEM registrations) take precedence over the tenant's
+# routes (SERVICE registrations). A tenant service cannot shadow a platform
+# route by registering a longer prefix under it.
 #
-# C1 — Conflict risk: if a global route and a tenant route both register the
-# same exact (path_prefix, method) with *different* required scopes, both
-# _required_scope bodies fire → OPA raises a complete-rule conflict →
-# _required_scope is undefined → deny:no_route_match. Fail-closed, but the
-# route is silently unenforceable with no diagnostic. Avoid registering the
-# same exact (path, method) in both the global and tenant tables.
-#
-# M1 — Cross-table wildcard suppression: _has_exact_method_route checks BOTH
-# tables. A global exact match suppresses wildcards in the tenant table (and
-# vice-versa). If a global service registers GET /v1/foo (exact) and a tenant
-# service registers * /v1/foo (wildcard), the tenant wildcard is suppressed.
-# This crosses table boundaries and may be surprising; prefer explicit method
-# registrations over wildcards to avoid this interaction.
+# A route registered with authenticated_only needs a valid token and no scope.
+# The service behind it holds the real check. Two equally specific routes that
+# disagree leave _route undefined and the request is denied.
 
-_has_exact_method_route if {
+_request_path := split(input.attributes.request.http.path, "?")[0]
+
+_global_route := _route_match(data.routes.route_scopes, input.attributes.request.http.method, _request_path)
+
+_tenant_route := _route_match(data.tenants[_tenant_id].routes.route_scopes, input.attributes.request.http.method, _request_path)
+
+_route := _global_route
+
+_route := _tenant_route if not _global_covers
+
+_global_covers if {
 	some route in data.routes.route_scopes
-	startswith(input.attributes.request.http.path, route.path_prefix)
-	route.method == input.attributes.request.http.method
+	route.method in {input.attributes.request.http.method, "*"}
+	_path_covered(_request_path, route.path_prefix)
 }
 
-_has_exact_method_route if {
-	some route in data.tenants[_tenant_id].routes.route_scopes
-	startswith(input.attributes.request.http.path, route.path_prefix)
-	route.method == input.attributes.request.http.method
+_authenticated_route if {
+	_route.authenticated_only == true
+	_route.required_scope == ""
 }
 
-# Global exact match.
-_required_scope := route.required_scope if {
-	some route in data.routes.route_scopes
-	startswith(input.attributes.request.http.path, route.path_prefix)
-	route.method == input.attributes.request.http.method
-}
-
-# Global wildcard (only when no exact match in either table).
-_required_scope := route.required_scope if {
-	not _has_exact_method_route
-	some route in data.routes.route_scopes
-	startswith(input.attributes.request.http.path, route.path_prefix)
-	route.method == "*"
-}
-
-# Tenant exact match.
-_required_scope := route.required_scope if {
-	some route in data.tenants[_tenant_id].routes.route_scopes
-	startswith(input.attributes.request.http.path, route.path_prefix)
-	route.method == input.attributes.request.http.method
-}
-
-# Tenant wildcard (only when no exact match in either table).
-_required_scope := route.required_scope if {
-	not _has_exact_method_route
-	some route in data.tenants[_tenant_id].routes.route_scopes
-	startswith(input.attributes.request.http.path, route.path_prefix)
-	route.method == "*"
-}
+_required_scope := _route.required_scope if not _authenticated_route
 
 # ══ GRANT EVALUATION ══════════════════════════════════════════════════════════
 #
@@ -453,6 +427,25 @@ allow if {
 	delegator_covers_required_scope
 }
 
+# Authenticated-only route: a valid token is enough here. A delegated request
+# must still pass its binding checks, and a delegation-required principal must
+# present a delegation.
+_authenticated_allowed if {
+	_authenticated_route
+	_claims
+	not _is_delegated
+	not _principal_requires_delegation
+}
+
+_authenticated_allowed if {
+	_authenticated_route
+	_claims
+	_is_delegated
+	not _delegation_binding_failed
+}
+
+allow if _authenticated_allowed
+
 # HUMAN principals with an OIDC admin role (grants:read/write, bootstrapping).
 # Not available for delegated requests — delegation constrains effective permissions.
 allow if {
@@ -500,6 +493,23 @@ reason := "deny:delegation_required" if {
 	not _is_delegated
 	_principal_requires_delegation
 	principal_has_required_scope
+}
+
+reason := "allow:authenticated" if {
+	not _is_frontend_request
+	not _is_platform_internal_path
+	not _is_self_enforced_path
+	_authenticated_allowed
+}
+
+reason := "deny:delegation_required" if {
+	not _is_frontend_request
+	not _is_platform_internal_path
+	not _is_self_enforced_path
+	_authenticated_route
+	_claims
+	not _is_delegated
+	_principal_requires_delegation
 }
 
 matched_roles contains role_match if {
@@ -591,8 +601,44 @@ reason := "deny:no_route_match" if {
 	not _is_self_enforced_path
 	not _delegation_binding_failed
 	_claims
-	not _required_scope
+	not _route
 }
+
+# ══ ROUTE MATCHING ════════════════════════════════════════════════════════════
+#
+# Identical to authz.rego. An exact-method route beats a "*" route, then the
+# longest prefix wins. A prefix matches on a path segment boundary only.
+
+_route_match(routes, method, path) := _longest_route(exact) if {
+	exact := [r | some r in routes; r.method == method; _path_covered(path, r.path_prefix)]
+	count(exact) > 0
+}
+
+_route_match(routes, method, path) := _longest_route(wild) if {
+	count([r | some r in routes; r.method == method; _path_covered(path, r.path_prefix)]) == 0
+	wild := [r | some r in routes; r.method == "*"; _path_covered(path, r.path_prefix)]
+	count(wild) > 0
+}
+
+# Equally long prefixes must resolve to the same route, or none is matched.
+_longest_route(rs) := route if {
+	longest := max({count(r.path_prefix) | some r in rs})
+	best := {{"required_scope": r.required_scope, "authenticated_only": object.get(r, "authenticated_only", false)} |
+		some r in rs
+		count(r.path_prefix) == longest
+	}
+	count(best) == 1
+	some route in best
+}
+
+_path_covered(path, prefix) if path == prefix
+
+_path_covered(path, prefix) if {
+	endswith(prefix, "/")
+	startswith(path, prefix)
+}
+
+_path_covered(path, prefix) if startswith(path, concat("", [prefix, "/"]))
 
 # ══ SCOPE HIERARCHY ═══════════════════════════════════════════════════════════
 #

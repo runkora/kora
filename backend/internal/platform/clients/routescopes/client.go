@@ -32,10 +32,7 @@
 //
 //	client := routescopes.NewClient("http://orbit-policy-service.orbit-system.svc", identityClient.SelfTokenSource(), logger)
 //	register := func(ctx context.Context) error {
-//	    return client.Register(ctx, "inference-gateway",
-//	        routescopes.FilterScopedRoutes(inferenceRoutes()),
-//	        inferenceScopes(),
-//	    )
+//	    return client.Register(ctx, "inference-gateway", inferenceRoutes(), inferenceScopes())
 //	}
 //	go routescopes.KeepRegistered(ctx, logger, "inference-gateway", register)
 //

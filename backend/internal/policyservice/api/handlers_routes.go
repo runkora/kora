@@ -108,6 +108,9 @@ func routesErrorResponse(err error) *platformapi.APIError {
 	if errors.Is(err, ErrTenantScopeDeclaration) {
 		return platformapi.ForbiddenError(platformapi.ErrCodeForbidden, ErrTenantScopeDeclaration.Error(), nil)
 	}
+	if errors.Is(err, ErrInvalidRegistration) {
+		return platformapi.ValidationError(platformapi.ErrCodeInvalidField, err.Error(), nil)
+	}
 	var scopeErr *ScopeVocabularyError
 	if isScopeVocabularyError(err, &scopeErr) {
 		return platformapi.ValidationError(platformapi.ErrCodeInvalidField,

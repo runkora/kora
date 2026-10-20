@@ -365,7 +365,7 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 		if err != nil {
 			return fmt.Errorf("list agent type slugs for scope registration: %w", err)
 		}
-		if err := client.Register(registerCtx, "orbit-agents", routescopes.FilterScopedRoutes(agentRoutes()), agentScopes(slugs)); err != nil {
+		if err := client.Register(registerCtx, "orbit-agents", agentRoutes(), agentScopes(slugs)); err != nil {
 			return fmt.Errorf("register routes: %w", err)
 		}
 		return nil
@@ -384,10 +384,9 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 // agentRoutes returns the static route→scope bindings for orbit-agents.
 //
 // Registered with policy-service at startup (docs/adr/2026-05-11-orbit-agents-route-scope-registration.md) and also consumed at
-// request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Order matters:
-// resolveRequiredScope iterates this slice and prefers exact-method matches,
-// so methods that are subsets of broader prefixes (e.g. PATCH on /agent-types/)
-// must have their own explicit entry.
+// request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Exact-method
+// routes beat "*" and the longest prefix wins, so a method under a broader
+// prefix (e.g. PATCH on /agent-types/) needs its own explicit entry.
 func agentRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		// Agent-type WRITE routes are authenticated-only at the route layer:
@@ -395,10 +394,8 @@ func agentRoutes() []routescopes.RouteScope {
 		// delegated-agent-identity ADR Decision 1) and the mode comes from the
 		// request body on create and the stored row on update/delete — neither
 		// is visible to a static route map. The authoritative check lives in
-		// AgentTypeService via Authz.checkAgentTypeModeWrite. Empty-scope
-		// routes are excluded from policy-service registration (see
-		// routescopes.FilterScopedRoutes), the established pattern for locally
-		// enforced routes.
+		// AgentTypeService via Authz.checkAgentTypeModeWrite. The policy
+		// service registers empty-scope routes as authenticated-only.
 		{PathPrefix: "/api/v1/agent-types", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/agent-types", Method: "GET", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/api/v1/agent-types/", Method: "GET", RequiredScope: "agents:types:read"},

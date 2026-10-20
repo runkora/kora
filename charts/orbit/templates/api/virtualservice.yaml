@@ -102,6 +102,51 @@ spec:
             host: orbit-identity.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
             port:
               number: 80
+    # ── orbit-agents: agent types, drafts, runs, environments ──────────────────
+    - match:
+        - uri:
+            prefix: /api/v1/agent-types
+        - uri:
+            prefix: /api/v1/agent-type-drafts
+        - uri:
+            prefix: /api/v1/runs
+        - uri:
+            prefix: /api/v1/run-outcomes
+        - uri:
+            prefix: /api/v1/run-stats/
+        - uri:
+            prefix: /api/v1/environments
+        - uri:
+            prefix: /api/v1/sandbox-images
+        - uri:
+            prefix: /api/v1/environment-sizes
+      timeout: 3600s # Run event streams stay open for the life of a run.
+      {{- include "orbit.forceHttpsHeaders" . | nindent 6 }}
+      route:
+        - destination:
+            host: orbit-agents.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
+            port:
+              number: 80
+    # ── orbit-triggers: trigger management and manual fire ─────────────────────
+    - match:
+        - uri:
+            prefix: /api/v1/triggers
+        - uri:
+            prefix: /api/v1/trigger-sources
+        - uri:
+            prefix: /api/v1/trigger-deliveries
+        - uri:
+            prefix: /api/v1/trigger-providers
+        - uri:
+            prefix: /api/v1/trigger-retention
+        - uri:
+            prefix: /api/v1/trigger-fires/
+      {{- include "orbit.forceHttpsHeaders" . | nindent 6 }}
+      route:
+        - destination:
+            host: orbit-triggers.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
+            port:
+              number: 80
     # ── Inference gateway (OpenAI-compatible API), the API-host default ────────
     - timeout: 3600s # Long timeout; inference streams can run for many minutes.
       {{- include "orbit.forceHttpsHeaders" . | nindent 6 }}

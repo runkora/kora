@@ -476,7 +476,7 @@ spec:
           protocol: TCP
         - port: 8096
           protocol: TCP
-        # Public webhook ingestion (/api/v1/webhooks on the api. host).
+        # orbit-triggers: public webhook ingestion and the trigger API.
         - port: 8097
           protocol: TCP
         - port: 9090

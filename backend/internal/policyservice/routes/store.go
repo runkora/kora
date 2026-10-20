@@ -14,6 +14,10 @@ type RouteScope struct {
 	PathPrefix    string `json:"path_prefix"`
 	Method        string `json:"method"`
 	RequiredScope string `json:"required_scope"`
+	// AuthenticatedOnly marks a route that needs a valid token and no scope.
+	// The service behind it holds the real check. Set from an empty
+	// RequiredScope at registration.
+	AuthenticatedOnly bool `json:"authenticated_only,omitempty"`
 }
 
 // ScopeDeclaration declares a scope that this service owns. The policy service
@@ -158,21 +162,24 @@ func (s *Store) RouteTenantIDs() []string {
 	return result
 }
 
-// RoutesForTenant returns the merged route scopes for a tenant:
-// all global registrations (tenant_id == "") plus all registrations for that
-// specific tenant. Always returns a non-nil slice so it marshals to JSON []
-// rather than null when there are no registrations.
-func (s *Store) RoutesForTenant(tenantID string) []RouteScope {
+// RoutesForTenant returns the global route scopes (tenant_id == "") and the
+// route scopes registered for that tenant, kept apart so a global route can
+// take precedence. Both slices are non-nil so they marshal to JSON [] rather
+// than null.
+func (s *Store) RoutesForTenant(tenantID string) (global, tenant []RouteScope) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	result := make([]RouteScope, 0)
+	global, tenant = make([]RouteScope, 0), make([]RouteScope, 0)
 	for key, reg := range s.registrations {
-		if key.tenantID == "" || key.tenantID == tenantID {
-			result = append(result, reg.Routes...)
+		switch key.tenantID {
+		case "":
+			global = append(global, reg.Routes...)
+		case tenantID:
+			tenant = append(tenant, reg.Routes...)
 		}
 	}
-	return result
+	return global, tenant
 }
 
 // sameScopeDeclaration compares two declarations by value. ScopeDeclaration

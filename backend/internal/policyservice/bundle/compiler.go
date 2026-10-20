@@ -143,8 +143,12 @@ type rolesDocument struct {
 // It maps HTTP method + path prefix to the required OAuth scope.
 // The OPA Envoy plugin sidecar (Layer 1) reads this to derive the required
 // scope for a request without any Go code involvement.
+//
+// In a tenant bundle RouteScopes holds the global routes and TenantRouteScopes
+// the tenant's own. The gateway bundle keeps tenant routes under tenants/.
 type routesDocument struct {
-	RouteScopes []routes.RouteScope `json:"route_scopes"`
+	RouteScopes       []routes.RouteScope `json:"route_scopes"`
+	TenantRouteScopes []routes.RouteScope `json:"tenant_route_scopes,omitempty"`
 }
 
 // configDocument is the JSON structure of data/config/data.json.
@@ -359,8 +363,9 @@ func NewCompiler(cfg Config, routeStore *routes.Store) *Compiler {
 // user carries roles). The result is cached and replaces any prior bundle for
 // that tenant. Returns the compiled bundle bytes.
 func (c *Compiler) Compile(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantBudget *tenantbudget.TenantBudget, principalRoles map[string][]string) (*CachedBundle, error) {
-	tenantRoutes := c.routes.RoutesForTenant(tenantID)
-	data, revision, err := buildBundle(tenantID, tenantGrants, vocabEntries, roleEntries, tenantBudget, principalRoles, tenantRoutes, c.cfg)
+	globalRoutes, tenantRoutes := c.routes.RoutesForTenant(tenantID)
+	routesDoc := routesDocument{RouteScopes: globalRoutes, TenantRouteScopes: tenantRoutes}
+	data, revision, err := buildBundle(tenantID, tenantGrants, vocabEntries, roleEntries, tenantBudget, principalRoles, routesDoc, c.cfg)
 	if err != nil {
 		return nil, fmt.Errorf("build bundle for tenant %s: %w", tenantID, err)
 	}
@@ -544,7 +549,7 @@ func marshalPrincipalRoles(principalRoles map[string][]string) ([]byte, error) {
 	return out, nil
 }
 
-func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantBudget *tenantbudget.TenantBudget, principalRoles map[string][]string, tenantRoutes []routes.RouteScope, cfg Config) ([]byte, string, error) {
+func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantBudget *tenantbudget.TenantBudget, principalRoles map[string][]string, routesDoc routesDocument, cfg Config) ([]byte, string, error) {
 	revision := fmt.Sprintf("%s-%d", tenantID, time.Now().UnixNano())
 
 	// Build grants data document, expanding each grant's scopes with their
@@ -600,8 +605,6 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 	}
 
 	// Build routes data document (method+path → required scope for OPA Envoy plugin).
-	// Routes are the merged set of global registrations and tenant-specific registrations.
-	routesDoc := routesDocument{RouteScopes: tenantRoutes}
 	routesJSON, err := json.Marshal(routesDoc)
 	if err != nil {
 		return nil, "", fmt.Errorf("marshal routes: %w", err)
