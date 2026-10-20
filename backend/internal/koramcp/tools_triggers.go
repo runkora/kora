@@ -2,6 +2,7 @@ package koramcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -23,7 +24,7 @@ func registerTriggerTools(srv *sdk.Server, b Backends, jc *korajson.Client, prod
 
 	registerTriggerSourceTools(srv, sources, jc)
 	registerTriggerProviderTools(srv, base+"/trigger-providers", jc)
-	registerTriggerBindingTools(srv, base, triggers, jc, product)
+	registerTriggerBindingTools(srv, base, triggers, b.Agents+"/api/v1/agent-types", jc, product)
 }
 
 // registerTriggerProviderTools wires each provider's schema catalog: the event
@@ -119,7 +120,7 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 
 // registerTriggerBindingTools wires the triggers themselves (source→agent-run
 // bindings) and the delivery history.
-func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *korajson.Client, product string) {
+func registerTriggerBindingTools(srv *sdk.Server, base, triggers, agentTypes string, jc *korajson.Client, product string) {
 	addTool(srv, "triggers.list",
 		"List the triggers in the caller's tenant — each binds a source event to an agent run.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
@@ -159,6 +160,9 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 		map[string][]any{"kind": triggerKinds},
 		func(ctx context.Context, a createTriggerArgs) (*sdk.CallToolResult, error) {
 			if err := validateCreateTrigger(&a); err != nil {
+				return toolError(err), nil
+			}
+			if err := resolveAgentSlug(ctx, jc, agentTypes, &a); err != nil {
 				return toolError(err), nil
 			}
 			return jsonResult(jc.Post(ctx, caller(ctx), triggers, a))
@@ -226,6 +230,34 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 		})
 }
 
+// resolveAgentSlug sets AgentTypeID from AgentSlug when only the slug is given.
+// The triggers API binds by id and ignores the slug, so every kind needs the id.
+func resolveAgentSlug(ctx context.Context, jc *korajson.Client, agentTypes string, a *createTriggerArgs) error {
+	if a.AgentTypeID != "" || a.AgentSlug == "" {
+		return nil
+	}
+	body, err := jc.Get(ctx, caller(ctx), agentTypes, nil)
+	if err != nil {
+		return fmt.Errorf("resolve agent_slug %q: %w", a.AgentSlug, err)
+	}
+	var list struct {
+		AgentTypes []struct {
+			ID   string `json:"id"`
+			Slug string `json:"slug"`
+		} `json:"agent_types"`
+	}
+	if err := json.Unmarshal(body, &list); err != nil {
+		return fmt.Errorf("resolve agent_slug %q: decode agent types: %w", a.AgentSlug, err)
+	}
+	for _, at := range list.AgentTypes {
+		if at.Slug == a.AgentSlug {
+			a.AgentTypeID = at.ID
+			return nil
+		}
+	}
+	return fmt.Errorf("agent_slug %q matches no agent in this tenant", a.AgentSlug)
+}
+
 // updateTriggerBody carries only the fields the caller supplied.
 func updateTriggerBody(a updateTriggerArgs) map[string]any {
 	body := map[string]any{}
@@ -261,6 +293,9 @@ func updateTriggerBody(a updateTriggerArgs) map[string]any {
 	}
 	if a.Enabled != nil {
 		body["enabled"] = *a.Enabled
+	}
+	if a.MaxParallel != nil {
+		body["max_parallel"] = *a.MaxParallel
 	}
 	return body
 }
@@ -330,6 +365,7 @@ type createTriggerArgs struct {
 	Routing           *routingConfig      `json:"routing,omitempty" jsonschema:"the candidates and settings of a routed trigger; required when target_kind is routed"`
 	ScheduleConfig    *scheduleConfig     `json:"schedule_config,omitempty" jsonschema:"the cron schedule (scheduled triggers only; required for them)"`
 	ManualConfig      *manualConfig       `json:"manual_config,omitempty" jsonschema:"the inputs the caller supplies when firing (manual triggers only)"`
+	MaxParallel       *int                `json:"max_parallel,omitempty" jsonschema:"most runs of this trigger in flight at once; omitted, the platform default of 4"`
 }
 
 type updateTriggerArgs struct {
@@ -345,6 +381,7 @@ type updateTriggerArgs struct {
 	ScheduleConfig    *scheduleConfig     `json:"schedule_config,omitempty" jsonschema:"replaces a scheduled trigger's schedule (cron_expression, timezone, catch_up)"`
 	ManualConfig      *manualConfig       `json:"manual_config,omitempty" jsonschema:"replaces a manual trigger's inputs"`
 	Enabled           *bool               `json:"enabled,omitempty" jsonschema:"enable or disable the trigger"`
+	MaxParallel       *int                `json:"max_parallel,omitempty" jsonschema:"new cap on runs of this trigger in flight at once"`
 }
 
 type coalesceConfig struct {

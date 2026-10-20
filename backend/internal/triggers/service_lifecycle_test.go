@@ -807,3 +807,18 @@ func TestUpdateTrigger_RunBehaviourNeedsRunAccess(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateTrigger_ProvisioningAgentIsValidationError(t *testing.T) {
+	_, deps := newTestService(t)
+	deps.policy.unknownScopes = map[string]bool{}
+	for _, sc := range triggerRunScopes("code-reviewer") {
+		deps.policy.unknownScopes[sc] = true
+	}
+	for _, kind := range []string{KindScheduled, KindManual} {
+		req := validReq(kind)
+		_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
+		if !errors.Is(err, ErrValidation) || !strings.Contains(err.Error(), "still provisioning") {
+			t.Errorf("%s: got %v, want a validation error naming provisioning", kind, err)
+		}
+	}
+}
