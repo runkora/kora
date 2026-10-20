@@ -269,14 +269,14 @@ func TestIngest_Slack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSource: %v", err)
 	}
-	tr, err := deps.triggers.CreateTrigger(ctx, testTenant, CreateTriggerRequest{
+	tr, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, CreateTriggerRequest{
 		SourceID: resp.ID, Name: "mention", AgentTypeID: "at-1", EventType: "mention",
 		PromptTemplate: "{{ text }} from {{ user.id }} in {{ conversation.id }}:{{ thread.id }} on {{ platform }}",
 	})
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
-	if _, err := deps.triggers.CreateTrigger(ctx, testTenant, CreateTriggerRequest{
+	if _, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, CreateTriggerRequest{
 		SourceID: resp.ID, Name: "raw", AgentTypeID: "at-1", EventType: "mention", PromptTemplate: "{{ event.text }}",
 	}); !errors.Is(err, ErrValidation) {
 		t.Errorf("a trigger on a raw Slack path: err = %v, want ErrValidation", err)
@@ -320,11 +320,11 @@ func TestIngest_SlackSenderRestriction(t *testing.T) {
 	}
 	req := CreateTriggerRequest{SourceID: resp.ID, Name: "t", AgentTypeID: "at-1", EventType: "mention", PromptTemplate: "{{ text }}",
 		SenderRestriction: &SenderRestriction{Roles: []string{"MEMBER"}}}
-	if _, err := deps.triggers.CreateTrigger(ctx, testTenant, req); !errors.Is(err, ErrValidation) {
+	if _, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, req); !errors.Is(err, ErrValidation) {
 		t.Errorf("a Slack restriction with a role: err = %v, want ErrValidation", err)
 	}
 	req.SenderRestriction = &SenderRestriction{IDs: []string{"u1"}}
-	tr, err := deps.triggers.CreateTrigger(ctx, testTenant, req)
+	tr, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, req)
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
