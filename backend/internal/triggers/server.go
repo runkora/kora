@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
@@ -74,7 +75,10 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //
 //	POST /api/v1/webhooks/{sourceID}          Inbound webhook delivery.
 //
-// Management (platform-admin; triggers:read / triggers:write):
+// Management (platform-admin; triggers:read / triggers:write). Creating a
+// trigger, editing what it runs or when, replaying a delivery, and rotating, enabling
+// or disabling a source also need orbit-agents to report can_run for the caller
+// on each agent involved:
 //
 //	POST   /api/v1/trigger-sources            Register a webhook source.
 //	GET    /api/v1/trigger-sources            List webhook sources.
@@ -95,10 +99,10 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	PUT    /api/v1/trigger-retention          Shorten this tenant's payload retention window.
 //	POST   /api/v1/triggers/schedule-preview  Preview a schedule's upcoming fires.
 //
-// Fire (requires the per-trigger trigger:{id}:fire scope, checked in the
-// handler because RouteScope cannot express a path-dependent scope):
+// Fire (authenticated-only route; the handler requires trigger:fire or
+// trigger:{id}:fire because RouteScope cannot express a path-dependent scope):
 //
-//	POST   /api/v1/triggers/{id}/fire         Fire a manual trigger.
+//	POST   /api/v1/trigger-fires/{id}         Fire a manual trigger.
 func (c *Controller) Boot(mux *api.Mux) {
 	// Public inbound webhook — authenticated by the per-source adapter (HMAC
 	// signature for GitHub, bearer token for Alertmanager), not a platform
@@ -108,6 +112,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	auth := mw.MiddlewareChain(
 		c.authMW,
 		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
+		keepBearer,
 	)
 
 	mux.HandleWithMiddleware("POST /trigger-sources", auth, c.handleCreateSource)
@@ -128,11 +133,8 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.HandleWithMiddleware("PATCH /triggers/{id}", auth, c.handleUpdateTrigger)
 	mux.HandleWithMiddleware("DELETE /triggers/{id}", auth, c.handleDeleteTrigger)
 
-	// The fire endpoint shares the management auth chain for authentication,
-	// then checks trigger:{id}:fire in the handler. Route-level enforcement
-	// cannot do it: RouteScope matches static prefixes, so this path is
-	// indistinguishable from POST /api/v1/triggers (creation).
-	mux.HandleWithMiddleware("POST /triggers/{id}/fire", auth, c.handleFireTrigger)
+	// Fire has its own prefix with an authenticated-only route entry. authorizeFire is the authority.
+	mux.HandleWithMiddleware("POST /trigger-fires/{id}", auth, c.handleFireTrigger)
 
 	// Schedule preview for the creation wizard. Read-only and computed from the
 	// request alone: it touches no stored trigger and writes nothing.
@@ -149,9 +151,8 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.HandleWithMiddleware("GET /trigger-deliveries", auth, c.handleListDeliveries)
 
 	// Replaying a delivery starts real work, so it takes triggers:write like
-	// every other route that changes something. It is not per-trigger authorized
-	// the way firing is: a webhook replay has no single trigger to name, and it
-	// starts exactly what the original arrival would start today.
+	// every other route that changes something. The service also requires run
+	// authority on every agent the replay would start.
 	mux.HandleWithMiddleware("POST /trigger-deliveries/{id}/redeliver", auth, c.handleRedeliver)
 
 	// Payload retention is a tenant-level setting, so it has no id in its path:
@@ -324,13 +325,12 @@ func (c *Controller) handleDeleteTrigger(w http.ResponseWriter, r *http.Request)
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
-// handleFireTrigger handles POST /api/v1/triggers/{id}/fire.
+// handleFireTrigger handles POST /api/v1/trigger-fires/{id}.
 //
 // Firing is authorized per trigger, here rather than on the route.
 // ScopeEnforcementMiddleware matches static path prefixes, so it cannot express
-// a scope containing the trigger id; the route-level check it does apply
-// (triggers:write, shared with trigger creation) would mean anyone who can
-// manage triggers can fire any trigger.
+// a scope containing the trigger id. The route entry is authenticated-only, so
+// triggers:write neither grants nor is needed for a fire.
 //
 // The caller's permission does not narrow what the run can do. The run executes
 // under the trigger's own principal, so a caller with narrow permissions firing
@@ -538,6 +538,8 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 		// 400: the delivery exists and the caller may see it, but replaying this
 		// one is not a thing that can be done. The message says which reason.
 		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeValidationFailed, err.Error(), nil), nil)
+	case errors.Is(err, ErrBindForbidden):
+		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil), nil)
 	case errors.Is(err, ErrWrongKind):
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidField, err.Error(), nil), nil)
 	case errors.As(err, &ive):
@@ -554,6 +556,22 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	default:
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "request failed", nil), err)
 	}
+}
+
+type bearerKey struct{}
+
+// keepBearer stores the caller's bearer so the service can ask orbit-agents about the caller's own access.
+var keepBearer = mw.NewMiddleware(func(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bearer := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), bearerKey{}, bearer)))
+	})
+})
+
+// callerBearer returns the bearer keepBearer stored, or "" outside a management request.
+func callerBearer(ctx context.Context) string {
+	b, _ := ctx.Value(bearerKey{}).(string)
+	return b
 }
 
 func tenantFromCtx(ctx context.Context) string {

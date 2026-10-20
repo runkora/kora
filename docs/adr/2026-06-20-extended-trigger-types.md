@@ -333,7 +333,7 @@ The fire endpoint requires `triggers:write` today, so trigger-management permiss
 
 #### 6A: Explicit in-handler policy evaluation against a qualified scope (**chosen**)
 
-The route keeps its static registration for authentication; the handler evaluates a per-trigger scope through the policy evaluator it already holds, before the service is called.
+Fire lives under its own prefix, `POST /api/v1/trigger-fires/{id}`, with an authenticated-only route entry. `triggers:write` neither grants nor is needed for a fire. The handler evaluates a per-trigger scope through the policy evaluator it already holds, before the service is called.
 
 The scope literal follows the platform's qualified-scope convention (`type:path...:action`, hierarchy by prefix `covers`, unbounded dimension deepest):
 
@@ -711,7 +711,7 @@ if err := c.eval.Require(ctx, scope); err != nil {
 }
 ```
 
-Granting it uses the existing grant path with no new vocabulary shape:
+Granting it uses the existing grant path. The vocabulary holds only `trigger:fire`; grant validation accepts `trigger:<trigger-id>:fire` structurally when the identifier is a canonical lowercase UUID. Roles hold vocabulary scopes only:
 
 ```json
 POST /api/v1/policy/grants
@@ -731,7 +731,7 @@ Everything is under `/api/v1`. Ingestion is the only unauthenticated route; the 
 | `POST`/`GET`/`PATCH`/`DELETE /trigger-sources[/{id}]` | Source registration and management |
 | `GET /trigger-sources/{id}/event-types` | Event catalogue: `declared` from the adapter, `observed` from this source's history (Decision 7) |
 | `POST`/`GET`/`PATCH`/`DELETE /triggers[/{id}]` | Trigger management |
-| `POST /triggers/{id}/fire` | Fire a manual trigger. Authorized against `trigger:{id}:fire` (Decision 6) |
+| `POST /trigger-fires/{id}` | Fire a manual trigger. Authorized against `trigger:{id}:fire` or `trigger:fire` (Decision 6) |
 | `POST /triggers/schedule-preview` | Next fire times for a cron expression and timezone, before the trigger is saved |
 | `GET /trigger-deliveries` | The cross-trigger deliveries feed |
 | `POST /trigger-deliveries/{id}/redeliver` | Replay a past delivery as a new one |

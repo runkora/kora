@@ -71,6 +71,8 @@ type AgentType struct {
 	// server) reads as autonomous. Triggers refuse to bind delegated agents:
 	// only a person may start their runs.
 	IdentityMode string `json:"identity_mode"`
+	// CanRun reports whether the bearer that read the type may start its runs. Absent reads as false.
+	CanRun bool `json:"can_run"`
 }
 
 // IdentityModeDelegated is the AgentType.IdentityMode value marking an agent

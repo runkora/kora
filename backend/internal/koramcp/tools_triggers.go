@@ -15,7 +15,7 @@ import (
 // that fire agent runs off them, and the delivery history. Served by the
 // orbit-triggers binary (these endpoints moved out of identity; pointing them at
 // b.Identity made every trigger tool 404). Reads require triggers:read, writes
-// triggers:write.
+// triggers:write. Creating a trigger, or editing what it runs or when, also needs the run scope for the bound agent.
 func registerTriggerTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 	base := b.Triggers + "/api/v1"
 	sources := base + "/trigger-sources"
@@ -83,7 +83,8 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 
 	addTool(srv, "triggers.sources.update",
 		"Update a webhook trigger source: enable/disable it, or rotate its signing secret (rotate_secret=true "+
-			"returns a new secret and invalidates the old one).",
+			"returns a new secret and invalidates the old one). Rotating, enabling or disabling needs permission to run every "+
+			"agent the source's triggers start.",
 		func(ctx context.Context, a updateSourceArgs) (*sdk.CallToolResult, error) {
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
@@ -128,6 +129,7 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 
 	addEnumTool(srv, "triggers.create",
 		"Create a trigger that starts a run of the target agent (by agent_type_id or agent_slug) using prompt_template. "+
+			"The caller must be allowed to run that agent. "+
 			"kind picks what fires it; omitted, it is webhook. "+
 			"webhook: fires when source_id delivers an event of event_type matching match_condition; source_id, name and "+
 			"event_type are required. Call triggers.sources.list for source ids and triggers.providers.fields for the field "+
@@ -162,7 +164,8 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 	addTool(srv, "triggers.update",
 		"Update a trigger by id. Only the fields you supply are changed. schedule_config replaces a scheduled trigger's "+
 			"schedule and manual_config replaces a manual trigger's inputs; coalesce replaces a webhook trigger's coalescing "+
-			"and an empty object removes it; the trigger's kind cannot be changed.",
+			"and an empty object removes it; the trigger's kind cannot be changed. "+
+			"Changing the prompt, manual inputs, schedule, event filters, sender restriction or enabled needs permission to run the trigger's agent.",
 		func(ctx context.Context, a updateTriggerArgs) (*sdk.CallToolResult, error) {
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil

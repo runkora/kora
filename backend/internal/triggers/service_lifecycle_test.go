@@ -3,7 +3,9 @@ package triggers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -167,6 +169,70 @@ func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
 			}
 			if len(deps.policy.created) != grantsBefore {
 				t.Errorf("no trigger grant should be created for a delegated agent (grants %d → %d)", grantsBefore, len(deps.policy.created))
+			}
+		})
+	}
+}
+
+// Binding hands the trigger principal the agent's run scopes. orbit-agents must say the caller can run the agent first.
+func TestCreateTrigger_RequiresCallerRunAccess(t *testing.T) {
+	tests := []struct {
+		name         string
+		kind         string
+		noRun        bool
+		callerStatus int
+		wantErr      bool
+	}{
+		{"webhook allowed", KindWebhook, false, 0, false},
+		{"webhook refused", KindWebhook, true, 0, true},
+		{"scheduled allowed", KindScheduled, false, 0, false},
+		{"scheduled refused", KindScheduled, true, 0, true},
+		{"manual allowed", KindManual, false, 0, false},
+		{"manual refused", KindManual, true, 0, true},
+		{"caller cannot read the type", KindManual, false, http.StatusNotFound, true},
+		{"caller forbidden", KindManual, false, http.StatusForbidden, true},
+		{"orbit-agents failure fails closed", KindManual, false, http.StatusInternalServerError, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, deps := newTestService(t)
+			deps.agents.atSlug = "real-slug"
+			deps.agents.atNoRun, deps.agents.callerStatus = tc.noRun, tc.callerStatus
+			req := validReq(tc.kind)
+			if tc.kind == KindWebhook {
+				req.SourceID = mustSource(t, deps.sources).ID
+			}
+			grantsBefore := len(deps.policy.created)
+
+			_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
+
+			if got := deps.agents.callerReadIDs(); !slices.Equal(got, []string{req.AgentTypeID}) {
+				t.Errorf("caller reads = %v, want one read of %s", got, req.AgentTypeID)
+			}
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("CreateTrigger: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("CreateTrigger succeeded, want a refusal")
+			}
+			want := ErrBindForbidden
+			if tc.callerStatus == http.StatusNotFound {
+				want = ErrValidation
+			}
+			if tc.callerStatus != http.StatusInternalServerError && !errors.Is(err, want) {
+				t.Fatalf("got %v, want %v", err, want)
+			}
+			if slices.Contains(deps.policy.lastScopes, "agents:runs:real-slug:write") {
+				t.Error("the run grant must not be created before the caller is checked")
+			}
+			if len(deps.repo.triggers) != 0 {
+				t.Error("no trigger should be persisted")
+			}
+			if len(deps.policy.created) != grantsBefore {
+				t.Errorf("no grant should outlive a refused bind (grants %d → %d)", grantsBefore, len(deps.policy.created))
 			}
 		})
 	}
@@ -680,5 +746,64 @@ func TestUpdateTrigger_RenameDoesNotClobberConcurrentAutoPause(t *testing.T) {
 	}
 	if stored.Name != "renamed" {
 		t.Errorf("the rename itself should still apply, got %q", stored.Name)
+	}
+}
+
+// Edits that change what the bound agent is told or when it runs need run authority on it. Other edits do not.
+func TestUpdateTrigger_RunBehaviourNeedsRunAccess(t *testing.T) {
+	newPrompt, newName, off, on := "rewritten", "renamed", false, true
+	tests := []struct {
+		name      string
+		kind      string
+		req       UpdateTriggerRequest
+		wantCheck bool
+	}{
+		{"prompt", KindManual, UpdateTriggerRequest{PromptTemplate: &newPrompt}, true},
+		{"schedule", KindScheduled, UpdateTriggerRequest{ScheduleConfig: &ScheduleConfig{CronExpression: "* * * * *", Timezone: "UTC"}}, true},
+		{"sender restriction", KindWebhook, UpdateTriggerRequest{SenderRestriction: &SenderRestriction{}}, true},
+		{"manual inputs", KindManual, UpdateTriggerRequest{ManualConfig: &ManualConfig{}}, true},
+		{"event type", KindWebhook, UpdateTriggerRequest{EventType: &newName}, true},
+		{"match condition", KindWebhook, UpdateTriggerRequest{MatchCondition: map[string][]string{}}, true},
+		{"disable", KindManual, UpdateTriggerRequest{Enabled: &off}, true},
+		{"enabled unchanged", KindManual, UpdateTriggerRequest{Enabled: &on}, false},
+		{"rename", KindManual, UpdateTriggerRequest{Name: &newName}, false},
+	}
+	for _, tc := range tests {
+		for _, allow := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/allow=%v", tc.name, allow), func(t *testing.T) {
+				_, deps := newTestService(t)
+				deps.agents.atSlug = "real-slug"
+				req := validReq(tc.kind)
+				if tc.kind == KindWebhook {
+					req.SourceID = mustSource(t, deps.sources).ID
+				}
+				tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
+				if err != nil {
+					t.Fatalf("CreateTrigger: %v", err)
+				}
+				deps.agents.atNoRun = !allow
+				deps.agents.callerReadIDs()
+				before, _ := deps.repo.GetTrigger(context.Background(), testTenant, tr.ID)
+				snapshot := *before
+
+				_, err = deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, tc.req)
+
+				if reads := deps.agents.callerReadIDs(); tc.wantCheck != slices.Equal(reads, []string{tr.AgentTypeID}) {
+					t.Fatalf("caller reads %v, want check=%v", reads, tc.wantCheck)
+				}
+				if tc.wantCheck && !allow {
+					if !errors.Is(err, ErrBindForbidden) {
+						t.Fatalf("got %v, want ErrBindForbidden", err)
+					}
+					if stored, _ := deps.repo.GetTrigger(context.Background(), testTenant, tr.ID); !reflect.DeepEqual(*stored, snapshot) {
+						t.Error("a refused edit must leave the trigger unchanged")
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("UpdateTrigger: %v", err)
+				}
+			})
+		}
 	}
 }

@@ -55,7 +55,7 @@ const TYPE_HINT: Record<WizardFieldType, string> = {
 
 /** The trigger id is minted on create, so the path is only exact afterwards. */
 function firePath(triggerId: string): string {
-  return `POST /api/v1/triggers/${triggerId}/fire`;
+  return `POST /api/v1/trigger-fires/${triggerId}`;
 }
 
 function StepInputs({ state, patch }: StepComponentProps) {
@@ -226,7 +226,7 @@ export const manualKind: TriggerKindDefinition = {
   icon: 'play',
   title: 'Manual',
   description: 'A form in the console, and the same schema as a REST endpoint.',
-  example: 'POST /api/v1/triggers/{id}/fire',
+  example: 'POST /api/v1/trigger-fires/{id}',
   steps: [
     {
       id: 'inputs',

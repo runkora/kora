@@ -89,7 +89,7 @@ function makeColumns(
                 ? sourceName(row.sourceId)
                 : row.kind === 'scheduled'
                   ? (row.scheduleConfig?.timezone ?? 'schedule')
-                  : `POST /api/v1/triggers/${row.id}/fire`}
+                  : `POST /api/v1/trigger-fires/${row.id}`}
             </Text>
           </Stack>
         </Stack>

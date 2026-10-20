@@ -181,15 +181,15 @@ func initController(
 		metrics,
 	)
 
-	// Creating a trigger provisions its principal and grant, then resolves the
-	// agent it binds by asking orbit-agents as that principal. Enabling or
-	// disabling one moves work already in the queue.
+	// Creating a trigger reads the agent it binds from orbit-agents as the
+	// caller, who must be able to run it, then provisions the trigger's
+	// principal and grants. Enabling or disabling one moves work already in
+	// the queue.
 	lifecycle := triggers.NewTriggerService(
 		repo,
 		registry,
 		policyClient,
 		agentsClient,
-		identityClient,
 		admission,
 		logger,
 	)
@@ -201,6 +201,7 @@ func initController(
 		registry,
 		cipher,
 		policyClient,
+		agentsClient,
 		tc.Current.Server.BasePath+"/webhooks/",
 		logger,
 	)
@@ -245,9 +246,9 @@ func initController(
 
 // routeScopes binds each management route to the scope it requires.
 //
-// The fire endpoint shares the POST /api/v1/triggers prefix with trigger
-// creation because RouteScope matches static prefixes only. Per-trigger fire
-// authorization is enforced in the handler instead — see ADR Decision 6.
+// Fire lives under its own prefix with an authenticated-only entry. The handler
+// checks trigger:fire or trigger:<id>:fire itself, since a static prefix cannot
+// name the trigger (ADR Decision 6).
 func routeScopes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		{PathPrefix: "/api/v1/trigger-sources", Method: "POST", RequiredScope: "triggers:write"},
@@ -259,6 +260,7 @@ func routeScopes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/triggers", Method: "GET", RequiredScope: "triggers:read"},
 		{PathPrefix: "/api/v1/triggers", Method: "PATCH", RequiredScope: "triggers:write"},
 		{PathPrefix: "/api/v1/triggers", Method: "DELETE", RequiredScope: "triggers:write"},
+		{PathPrefix: "/api/v1/trigger-fires", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/trigger-deliveries", Method: "GET", RequiredScope: "triggers:read"},
 		// Replaying a delivery starts real work, so it sits with the write
 		// scope rather than with reading history.

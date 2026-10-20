@@ -322,3 +322,41 @@ func TestCreateAgentType_RepublishesScopesBeforeProvisioning(t *testing.T) {
 		t.Errorf("hook calls before CreateAgentType returned = %d, want 1", got)
 	}
 }
+
+// can_run on the detail read answers with the run-start check, so triggers can ask it for the caller.
+func TestGetAgentType_CanRun(t *testing.T) {
+	tests := []struct {
+		name    string
+		granted []string
+		caller  string
+		want    bool
+	}{
+		{"per-agent write", []string{"agents:types:read", "agents:runs:mine:write"}, "bob", true},
+		{"parent write", []string{"agents:types:read", "agents:runs:write"}, "bob", true},
+		{"read only", []string{"agents:types:read", "agents:runs:mine:read"}, "bob", false},
+		{"another agent's write", []string{"agents:types:read", "agents:runs:other:write"}, "bob", false},
+		{"owner with the mode write scope", []string{"agents:types:autonomous:write"}, "alice", true},
+	}
+	// The detail read itself needs read access, so run write alone reads nothing.
+	t.Run("run write without read", func(t *testing.T) {
+		svc, repo, _, _ := newTestServiceWithEval(t, coversEvaluator{granted: []string{"agents:runs:mine:write"}})
+		seedAgentType(t, repo, AgentType{ID: "at-mine", TenantID: "t1", Slug: "mine", CreatedBy: "alice"})
+		if _, err := svc.at.GetAgentType(withRunCallerCtx(context.Background(), "t1", "bob"), "at-mine"); !errors.Is(err, ErrNotFound) {
+			t.Errorf("GetAgentType = %v, want ErrNotFound", err)
+		}
+	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, repo, _, _ := newTestServiceWithEval(t, coversEvaluator{granted: tt.granted})
+			seedAgentType(t, repo, AgentType{ID: "at-mine", TenantID: "t1", Slug: "mine", CreatedBy: "alice"})
+
+			got, err := svc.at.GetAgentType(withRunCallerCtx(context.Background(), "t1", tt.caller), "at-mine")
+			if err != nil {
+				t.Fatalf("GetAgentType: %v", err)
+			}
+			if got.CanRun == nil || *got.CanRun != tt.want {
+				t.Errorf("can_run = %v, want %v", got.CanRun, tt.want)
+			}
+		})
+	}
+}

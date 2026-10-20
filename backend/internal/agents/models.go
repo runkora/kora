@@ -229,6 +229,9 @@ type AgentType struct {
 	// written to the agent_types table; populated on detail reads and carried
 	// as the desired state during grant reconciliation.
 	Budget *AgentBudget `json:"budget,omitempty"`
+	// CanRun reports whether the caller may start runs of this type, by the run-start check.
+	// Transient: populated on detail reads only.
+	CanRun *bool `json:"can_run,omitempty"`
 }
 
 // ConnectorScopes compiles the attached connectors into the connection scope set

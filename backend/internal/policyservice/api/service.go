@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/policyservice/bundle"
 	"github.com/runkora/kora/backend/internal/policyservice/grants"
@@ -96,6 +98,21 @@ func qualifiedConnectionScopeBase(scope string) (string, bool) {
 	base = append(base, parts[:len(parts)-2]...)
 	base = append(base, parts[len(parts)-1])
 	return strings.Join(base, ":"), true
+}
+
+// isTriggerFireScope reports whether scope is trigger:<trigger-id>:fire for a canonical UUID trigger id.
+// Trigger ids are data, so the vocabulary holds only trigger:fire and grants accept the per-trigger form by shape.
+func isTriggerFireScope(scope string) bool {
+	rest, ok := strings.CutPrefix(scope, "trigger:")
+	if !ok {
+		return false
+	}
+	id, ok := strings.CutSuffix(rest, ":fire")
+	if !ok {
+		return false
+	}
+	parsed, err := uuid.Parse(id)
+	return err == nil && parsed.String() == id
 }
 
 // recompileDebounce is the delay before a bundle recompilation fires. Multiple
@@ -204,7 +221,7 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 		// vocabulary (there is no finite set of hostnames to pre-register).
 		// See ADR 2026-06-06-jit-credential-brokering-egress-gateway
 		// (Amendment 2026-06-07).
-		if isStructurallyValidEgressScope(scope) {
+		if isStructurallyValidEgressScope(scope) || isTriggerFireScope(scope) {
 			continue
 		}
 		exists, err := s.vocabRepo.Exists(ctx, scope)

@@ -745,7 +745,7 @@ export function TriggerDrawer({
                     ))}
                     <Stack direction="horizontal" justify="between" align="center" padding="cozy">
                       <Text mono size="micro" color="accent" truncate>
-                        POST /api/v1/triggers/{trigger.id}/fire
+                        POST /api/v1/trigger-fires/{trigger.id}
                       </Text>
                       {onFire !== undefined && (
                         <Button

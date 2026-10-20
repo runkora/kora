@@ -24,10 +24,9 @@ const (
 )
 
 // sourceRunScopes are granted to every source/trigger principal at provisioning
-// time, before any agent is bound. It is deliberately only the agent-type read:
-// CreateTrigger looks the agent type up under the principal's own
-// (tenant-scoped) identity to derive its canonical slug, and nothing else here
-// happens before a binding exists.
+// time, before any agent is bound. It is deliberately only the agent-type read.
+// CreateTrigger now reads the agent type as the caller, so nothing in this
+// package uses this grant.
 //
 // The broad agents:runs:read/write pair is NOT granted. Scope hierarchy is by
 // prefix, so agents:runs:write covers every agents:runs:<slug>:write — granting

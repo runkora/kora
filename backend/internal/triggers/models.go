@@ -134,6 +134,9 @@ var (
 	// trigger cannot be borrowed by a narrowly-scoped caller.
 	ErrFireForbidden = errors.New("not authorized to fire this trigger")
 
+	// ErrBindForbidden is returned when the caller cannot start runs of the agent a trigger would bind.
+	ErrBindForbidden = errors.New("not authorized to run the agent this trigger binds")
+
 	// ErrTriggerAtCapacity is returned when a manual fire is refused because
 	// the trigger is already at its concurrency ceiling.
 	ErrTriggerAtCapacity = errors.New("trigger is at its concurrency limit; try again shortly")
@@ -320,7 +323,7 @@ func (m *ManualConfig) ApplyDefaults(values map[string]string) map[string]string
 // Trigger binds a firing condition to (agent, prompt template).
 // For KindWebhook: source_id, event_type, and match_condition drive firing.
 // For KindScheduled: kind_config carries the cron schedule; source_id is empty.
-// For KindManual: firing is driven by POST /triggers/{id}/fire; source_id is empty.
+// For KindManual: firing is driven by POST /trigger-fires/{id}; source_id is empty.
 // Scheduled and manual triggers have their own principal_id (not inherited from a source).
 type Trigger struct {
 	ID       string `json:"id"`
@@ -596,13 +599,13 @@ type UpdateTriggerRequest struct {
 	AdmissionSettings
 }
 
-// FireTriggerRequest is the body for POST /api/v1/triggers/{id}/fire.
+// FireTriggerRequest is the body for POST /api/v1/trigger-fires/{id}.
 // Variables are substituted into {{ var.key }} placeholders in the prompt template.
 type FireTriggerRequest struct {
 	Variables map[string]string `json:"variables,omitempty"`
 }
 
-// FireTriggerResponse is returned from POST /api/v1/triggers/{id}/fire.
+// FireTriggerResponse is returned from POST /api/v1/trigger-fires/{id}.
 //
 // The delivery id and nothing else. There is deliberately no run id: the fire is
 // durably queued and the run starts moments later, so at the moment of the

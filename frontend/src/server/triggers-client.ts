@@ -172,14 +172,14 @@ export async function deleteTrigger(accessToken: string, id: string): Promise<vo
   await request<void>(`/triggers/${id}`, accessToken, { method: 'DELETE' });
 }
 
-// POST /api/v1/triggers/:id/fire — fire a manual trigger. The run executes
+// POST /api/v1/trigger-fires/:id — fire a manual trigger. The run executes
 // under the trigger's own SERVICE principal, not the caller's identity.
 export async function fireTrigger(
   accessToken: string,
   id: string,
   payload: TriggerFireRequest,
 ): Promise<TriggerFireResponse | undefined> {
-  return request<TriggerFireResponse>(`/triggers/${id}/fire`, accessToken, {
+  return request<TriggerFireResponse>(`/trigger-fires/${id}`, accessToken, {
     method: 'POST',
     body: payload,
   });

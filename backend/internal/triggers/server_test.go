@@ -10,11 +10,14 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -175,6 +178,98 @@ func TestHandleIngest_UnknownSource(t *testing.T) {
 	// Missing source is reported as 404 (does not leak existence vs. disabled).
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+// scopeSetEvaluator allows exactly the scopes it holds.
+type scopeSetEvaluator struct {
+	policy.Evaluator
+	held map[string]bool
+}
+
+func (e scopeSetEvaluator) Check(_ context.Context, in policy.CheckInput) (policy.Result, error) {
+	scope := strings.Join(append(append([]string{in.ResourceType}, in.PathSegments...), in.Action), ":")
+	return policy.Result{Allow: e.held[scope]}, nil
+}
+
+// The fire route carries no route scope. triggers:write must neither be needed nor be enough.
+func TestBoot_FireIsAuthorizedByTriggerScopeAlone(t *testing.T) {
+	routes := []routescopes.RouteScope{
+		{PathPrefix: "/api/v1/triggers", Method: http.MethodPost, RequiredScope: "triggers:write"},
+		{PathPrefix: "/api/v1/trigger-fires", Method: http.MethodPost, RequiredScope: ""},
+	}
+	tests := []struct {
+		name     string
+		held     []string
+		path     string
+		wantCode int
+	}{
+		{"per-trigger scope fires", []string{"trigger:{id}:fire"}, "/trigger-fires/{id}", http.StatusAccepted},
+		{"triggers:write alone cannot fire", []string{"triggers:write"}, "/trigger-fires/{id}", http.StatusForbidden},
+		{"per-trigger scope cannot create", []string{"trigger:{id}:fire"}, "/triggers", http.StatusForbidden},
+		{"old fire path is gone", []string{"trigger:{id}:fire", "triggers:write"}, "/triggers/{id}/fire", http.StatusNotFound},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, deps := newTestService(t)
+			trig, err := deps.triggers.CreateTrigger(context.Background(), testTenant, validReq(KindManual))
+			if err != nil {
+				t.Fatalf("CreateTrigger: %v", err)
+			}
+			held := map[string]bool{}
+			for _, sc := range tc.held {
+				held[strings.ReplaceAll(sc, "{id}", trig.ID)] = true
+			}
+			passthrough := mw.NewMiddleware(func(next http.Handler) http.Handler { return next })
+			c := NewController(svc, deps.sources, deps.triggers, passthrough, scopeSetEvaluator{held: held}, routes, "/api/v1", silentLogger())
+			mux := api.NewMux(context.Background(), silentLogger())
+			mux.SetBasePath("")
+			c.Boot(mux)
+
+			req := withTenant(newRequest(t, http.MethodPost, strings.ReplaceAll(tc.path, "{id}", trig.ID), nil, []byte(`{}`)))
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, req)
+
+			if w.Code != tc.wantCode {
+				t.Fatalf("status = %d (body %s), want %d", w.Code, w.Body.String(), tc.wantCode)
+			}
+		})
+	}
+}
+
+// The run-access question goes to orbit-agents with the caller's own bearer, never the trigger principal's.
+func TestBoot_CreateAsksWithCallerBearer(t *testing.T) {
+	svc, deps := newTestService(t)
+	routes := []routescopes.RouteScope{{PathPrefix: "/api/v1/triggers", Method: http.MethodPost, RequiredScope: "triggers:write"}}
+	passthrough := mw.NewMiddleware(func(next http.Handler) http.Handler { return next })
+	c := NewController(svc, deps.sources, deps.triggers, passthrough, scopeSetEvaluator{held: map[string]bool{"triggers:write": true}}, routes, "/api/v1", silentLogger())
+	mux := api.NewMux(context.Background(), silentLogger())
+	mux.SetBasePath("")
+	c.Boot(mux)
+
+	req := withTenant(newRequest(t, http.MethodPost, "/triggers", nil, validReq(KindManual)))
+	req.Header.Set("Authorization", "Bearer caller-tok")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d (body %s), want 201", w.Code, w.Body.String())
+	}
+	deps.agents.mu.Lock()
+	defer deps.agents.mu.Unlock()
+	if !slices.Equal(deps.agents.callerBearers, []string{"Bearer caller-tok"}) {
+		t.Errorf("caller bearers = %v, want the caller's own", deps.agents.callerBearers)
+	}
+}
+
+func TestHandleCreateTrigger_BindForbidden(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.atNoRun = true
+
+	w := call(t, c.handleCreateTrigger, http.MethodPost, "/triggers", nil, validReq(KindManual))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body: %s)", w.Code, w.Body.String())
 	}
 }
 
@@ -476,7 +571,7 @@ func newFireController(t *testing.T, allow bool, evalErr error) (*Controller, *m
 func TestHandleFireTrigger_DeniedWithoutPerTriggerScope(t *testing.T) {
 	c, eval, _, _ := newFireController(t, false, nil)
 
-	w := call(t, c.handleFireTrigger, http.MethodPost, "/triggers/trig-1/fire",
+	w := call(t, c.handleFireTrigger, http.MethodPost, "/trigger-fires/trig-1",
 		map[string]string{"id": "trig-1"}, []byte(`{}`))
 
 	if w.Code != http.StatusForbidden {
@@ -492,7 +587,7 @@ func TestHandleFireTrigger_DeniedWithoutPerTriggerScope(t *testing.T) {
 func TestHandleFireTrigger_EvaluatorErrorFailsClosed(t *testing.T) {
 	c, _, _, _ := newFireController(t, true, errors.New("bundle unavailable"))
 
-	w := call(t, c.handleFireTrigger, http.MethodPost, "/triggers/trig-1/fire",
+	w := call(t, c.handleFireTrigger, http.MethodPost, "/trigger-fires/trig-1",
 		map[string]string{"id": "trig-1"}, []byte(`{}`))
 
 	if w.Code != http.StatusForbidden {
@@ -504,7 +599,7 @@ func TestHandleFireTrigger_EvaluatorErrorFailsClosed(t *testing.T) {
 func TestHandleFireTrigger_NilEvaluatorFailsClosed(t *testing.T) {
 	c, _, _ := newTestController(t) // built with a nil evaluator
 
-	w := call(t, c.handleFireTrigger, http.MethodPost, "/triggers/trig-1/fire",
+	w := call(t, c.handleFireTrigger, http.MethodPost, "/trigger-fires/trig-1",
 		map[string]string{"id": "trig-1"}, []byte(`{}`))
 
 	if w.Code != http.StatusForbidden {
@@ -516,7 +611,7 @@ func TestHandleFireTrigger_NilEvaluatorFailsClosed(t *testing.T) {
 func TestHandleFireTrigger_NoClaimsDenied(t *testing.T) {
 	c, _, _, _ := newFireController(t, true, nil)
 
-	w := invoke(c.handleFireTrigger, newRequest(t, http.MethodPost, "/triggers/trig-1/fire",
+	w := invoke(c.handleFireTrigger, newRequest(t, http.MethodPost, "/trigger-fires/trig-1",
 		map[string]string{"id": "trig-1"}, []byte(`{}`)))
 
 	if w.Code != http.StatusForbidden {
@@ -532,7 +627,7 @@ func TestHandleFireTrigger_AllowedWithPerTriggerScope(t *testing.T) {
 	trig := mustTrigger(t, deps.triggers, src.ID, nil, "p")
 	deps.minter.reset()
 
-	w := call(t, c.handleFireTrigger, http.MethodPost, "/triggers/"+trig.ID+"/fire",
+	w := call(t, c.handleFireTrigger, http.MethodPost, "/trigger-fires/"+trig.ID,
 		map[string]string{"id": trig.ID}, []byte(`{}`))
 
 	if w.Code == http.StatusForbidden {

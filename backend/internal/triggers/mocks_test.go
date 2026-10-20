@@ -590,6 +590,20 @@ type agentsStub struct {
 	atTenant       string // tenant to return; "" → testTenant
 	atIdentityMode string // identity_mode to return; "" → autonomous-by-default
 	atStatus       int    // response status; 0 → 200
+	// Caller reads: any bearer other than the minted principal token is a caller asking can_run.
+	atNoRun       bool     // answer can_run false to callers
+	callerStatus  int      // response status for caller reads; 0 → atStatus
+	callerReads   []string // agent type ids callers read
+	callerBearers []string // Authorization headers callers sent
+}
+
+// callerReadIDs returns the agent type ids callers have read, and forgets them.
+func (as *agentsStub) callerReadIDs() []string {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+	ids := as.callerReads
+	as.callerReads = nil
+	return ids
 }
 
 func newAgentsStub() *agentsStub {
@@ -598,6 +612,14 @@ func newAgentsStub() *agentsStub {
 	mux.HandleFunc("GET /api/v1/agent-types/{id}", func(w http.ResponseWriter, r *http.Request) {
 		as.mu.Lock()
 		status, slug, tenant, identityMode := as.atStatus, as.atSlug, as.atTenant, as.atIdentityMode
+		canRun := !as.atNoRun
+		if auth := r.Header.Get("Authorization"); auth != "Bearer minted-token" {
+			as.callerReads = append(as.callerReads, r.PathValue("id"))
+			as.callerBearers = append(as.callerBearers, auth)
+			if as.callerStatus != 0 {
+				status = as.callerStatus
+			}
+		}
 		as.mu.Unlock()
 		if status == 0 {
 			status = http.StatusOK
@@ -611,7 +633,7 @@ func newAgentsStub() *agentsStub {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		if status < 300 {
-			fmt.Fprintf(w, `{"id":%q,"tenant_id":%q,"slug":%q,"identity_mode":%q}`, r.PathValue("id"), tenant, slug, identityMode)
+			fmt.Fprintf(w, `{"id":%q,"tenant_id":%q,"slug":%q,"identity_mode":%q,"can_run":%t}`, r.PathValue("id"), tenant, slug, identityMode, canRun)
 		}
 	})
 	mux.HandleFunc("POST /api/v1/runs", func(w http.ResponseWriter, r *http.Request) {
@@ -683,15 +705,15 @@ type testDeps struct {
 }
 
 // newTestSourceService builds the sources half against the same stubs. It takes
-// a sourceStore, so a test that only exercises sources can pass any six-method
+// a sourceStore, so a test that only exercises sources can pass any seven-method
 // fake rather than the whole mockRepository.
-func newTestSourceService(t *testing.T, repo sourceStore, policy *policyclient.Client) *SourceService {
+func newTestSourceService(t *testing.T, repo sourceStore, policy *policyclient.Client, agents agentTypeReader) *SourceService {
 	t.Helper()
 	cipher, err := newSecretCipher(testCipherKey)
 	if err != nil {
 		t.Fatalf("newSecretCipher: %v", err)
 	}
-	return NewSourceService(repo, mustRegistry(), cipher, policy, "/api/v1/webhooks/", silentLogger())
+	return NewSourceService(repo, mustRegistry(), cipher, policy, agents, "/api/v1/webhooks/", silentLogger())
 }
 
 func newTestService(t *testing.T) (*Service, *testDeps) {
@@ -715,8 +737,8 @@ func newTestService(t *testing.T) (*Service, *testDeps) {
 	admission := NewAdmission(repo, silentLogger())
 	svc := NewService(repo, mustRegistry(), cipher, pc, ac, minter, admission, silentLogger(), nil)
 	deps := &testDeps{repo: repo, policy: ps, agents: as, minter: minter, policyClnt: pc}
-	deps.sources = newTestSourceService(t, repo, pc)
-	deps.triggers = NewTriggerService(repo, mustRegistry(), pc, ac, minter, admission, silentLogger())
+	deps.sources = newTestSourceService(t, repo, pc, ac)
+	deps.triggers = NewTriggerService(repo, mustRegistry(), pc, ac, admission, silentLogger())
 	return svc, deps
 }
 
