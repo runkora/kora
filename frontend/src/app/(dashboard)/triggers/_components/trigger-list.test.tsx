@@ -169,6 +169,21 @@ describe('chat command triggers', () => {
     expect(screen.getByText('push')).toBeTruthy();
   });
 
+  it('finds a chat command by the label it shows', () => {
+    const dm = makeTrigger({
+      id: 'c2',
+      name: 'dm-helper',
+      sourceId: 'slack-src',
+      eventType: 'direct_message',
+    });
+    render(list({ triggers: [dm, hook], sourceCategory: category }));
+    fireEvent.change(screen.getByPlaceholderText('Search triggers…'), {
+      target: { value: 'direct message' },
+    });
+    expect(screen.getByText('dm-helper')).toBeTruthy();
+    expect(screen.queryByText('on-push')).toBeNull();
+  });
+
   it('reads every trigger as a webhook when the caller knows no categories', () => {
     render(list({ triggers: [chat] }));
     expect(screen.getByText('mention')).toBeTruthy();

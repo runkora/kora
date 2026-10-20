@@ -215,7 +215,8 @@ function triggerMatchesSearch(row: TriggerDisplayRow, q: string): boolean {
   return (
     row.name.toLowerCase().includes(q) ||
     row.agentSlug.toLowerCase().includes(q) ||
-    row.eventType.toLowerCase().includes(q)
+    row.eventType.toLowerCase().includes(q) ||
+    row.firesOnLabel.toLowerCase().includes(q)
   );
 }
 

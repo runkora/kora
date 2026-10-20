@@ -58,7 +58,7 @@ describe('useSourceCatalog', () => {
     expect(result.current.identifiesSenders).toBe(false);
   });
 
-  it('reads the category, the sender roles and whether senders are identified', async () => {
+  it('reads the sender roles and whether senders are identified', async () => {
     api.fetchEventTypes.mockResolvedValue({
       eventTypes: {
         declared: ['mention', 'direct_message'],
@@ -69,7 +69,6 @@ describe('useSourceCatalog', () => {
     });
     const { result } = renderHook(() => useSourceCatalog('slack', 'src-slack', ''));
     await act(async () => {});
-    expect(result.current.category).toBe('chat');
     expect(result.current.identifiesSenders).toBe(true);
     expect(result.current.roles).toEqual([]);
   });
@@ -118,11 +117,16 @@ describe('useProviderCategories', () => {
       error: null,
     }));
     const { result } = renderHook(() => useProviderCategories(['github', 'slack']));
+    expect(result.current.pending).toEqual(['github', 'slack']);
     await act(async () => {});
-    expect(result.current).toEqual({ github: 'webhook', slack: 'chat' });
+    expect(result.current).toEqual({
+      categories: { github: 'webhook', slack: 'chat' },
+      pending: [],
+      failed: [],
+    });
   });
 
-  it('leaves out a provider whose request failed', async () => {
+  it('reports a provider whose request failed', async () => {
     api.fetchProviderEventTypes.mockImplementation(async (provider: string) =>
       provider === 'slack'
         ? { eventTypes: null, error: 'unavailable' }
@@ -130,6 +134,10 @@ describe('useProviderCategories', () => {
     );
     const { result } = renderHook(() => useProviderCategories(['github', 'slack']));
     await act(async () => {});
-    expect(result.current).toEqual({ github: 'webhook' });
+    expect(result.current).toEqual({
+      categories: { github: 'webhook' },
+      pending: [],
+      failed: ['slack'],
+    });
   });
 });

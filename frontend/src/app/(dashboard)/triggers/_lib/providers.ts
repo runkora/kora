@@ -5,6 +5,7 @@
  */
 
 import type { IconName } from '@runkora/hades';
+import type { SourceCategory } from '../_types';
 import { SLACK_PROVIDER } from './slack-app-manifest';
 
 export const PROVIDERS: { id: string; name: string; description: string; icon: IconName }[] = [
@@ -29,6 +30,12 @@ export const PROVIDERS: { id: string; name: string; description: string; icon: I
 ];
 
 export const PROVIDER_IDS = PROVIDERS.map((p) => p.id);
+
+/** An example of sender ids, per source category, for the sender restriction field. */
+export const SENDER_ID_EXAMPLE: Record<SourceCategory, string> = {
+  webhook: 'octocat, hubot',
+  chat: 'U012AB3CD, U045EF6GH',
+};
 
 /** A provider's display name; an unknown provider shows its id. */
 export function providerName(id: string): string {

@@ -361,7 +361,7 @@ describe('chat command kind', () => {
     expect(screen.queryByText('acme/widgets')).toBeNull();
   });
 
-  it('starts on New source when there is no chat source, with no platform chosen', () => {
+  it('lists no webhook source and chooses no platform when there is no chat source', () => {
     renderWizard('chat', CONTEXT.sources);
     expect(screen.queryByText('acme/widgets')).toBeNull();
     expect(screen.queryByText('Platform')).toBeNull();
@@ -379,6 +379,18 @@ describe('chat command kind', () => {
       true,
     );
     expect(screen.queryByText('GitHub')).toBeNull();
+  });
+
+  it('says so when a platform could not be loaded', async () => {
+    api.fetchProviderEventTypes.mockImplementation(async (provider: string) =>
+      provider === 'slack'
+        ? { eventTypes: null, error: 'unavailable' }
+        : { eventTypes: PROVIDER_EVENT_TYPES[provider], error: null },
+    );
+    renderWizard('chat', []);
+    fireEvent.click(screen.getByText('New source'));
+    expect(await screen.findByText(/Could not load Slack/)).toBeTruthy();
+    expect(screen.queryByRole('radio', { name: /^Slack/ })).toBeNull();
   });
 
   it('shows the Slack app manifest without a request URL and asks for the signing secret', async () => {

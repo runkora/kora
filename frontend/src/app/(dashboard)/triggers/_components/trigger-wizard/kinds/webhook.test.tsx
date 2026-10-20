@@ -66,7 +66,7 @@ describe('chat DoneContent', () => {
     expect(screen.queryByText(/secret/)).toBeNull();
   });
 
-  it('shows the request URL for an existing Slack source as already set', () => {
+  it('shows the request URL for an existing Slack source', () => {
     const sources = [SLACK_SOURCE];
     render(
       <DoneContent
@@ -77,7 +77,7 @@ describe('chat DoneContent', () => {
       />,
     );
     expect(screen.getByRole('button', { name: 'Copy request URL' })).toBeInTheDocument();
-    expect(screen.getByText(/already set under Event Subscriptions/)).toBeInTheDocument();
+    expect(screen.getByText(/set under Event Subscriptions in its Slack app/)).toBeInTheDocument();
   });
 
   it('renders nothing without an endpoint', () => {

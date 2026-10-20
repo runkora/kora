@@ -48,7 +48,7 @@ import { isStartedOutcome, recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
 import { SLACK_PROVIDER } from '../_lib/slack-app-manifest';
 import { chatConversationKey, chatEventLabel } from '../_lib/chat';
-import { providerName } from '../_lib/providers';
+import { providerName, SENDER_ID_EXAMPLE } from '../_lib/providers';
 import { ChatEventPicker } from './chat-event-picker';
 import { CatalogPicker } from './catalog-picker';
 import { CoalesceEditor } from './coalesce-editor';
@@ -953,7 +953,7 @@ export function TriggerDrawer({
                 <SenderRestrictionEditor
                   identifiesSenders={sourceCatalog.identifiesSenders}
                   roles={sourceCatalog.roles}
-                  idPlaceholder={kind === 'chat' ? 'U012AB3CD, U045EF6GH' : undefined}
+                  idPlaceholder={SENDER_ID_EXAMPLE[kind === 'chat' ? 'chat' : 'webhook']}
                   value={senders.value}
                   onChange={senders.setValue}
                   disabled={!runEditable}
@@ -1006,7 +1006,7 @@ export function TriggerDrawer({
                   placeholder="What this trigger asks the agent to do."
                   catalogLabel={
                     trigger.kind === 'webhook' && filters.value.eventType
-                      ? `Fields for ${eventName} deliveries`
+                      ? `Fields for ${eventName} ${kind === 'chat' ? 'messages' : 'deliveries'}`
                       : undefined
                   }
                 />

@@ -42,7 +42,7 @@ import { SenderRestrictionEditor } from '../../sender-restriction-editor';
 import { useProviderCategories, useSourceCatalog } from '../../use-source-catalog';
 import { endpointFor } from '../../../_lib/endpoints';
 import { chatConversationKey, chatEventLabel, LATER_CHAT_PLATFORMS } from '../../../_lib/chat';
-import { PROVIDER_IDS, PROVIDERS, providerName } from '../../../_lib/providers';
+import { PROVIDER_IDS, PROVIDERS, providerName, SENDER_ID_EXAMPLE } from '../../../_lib/providers';
 import { SLACK_PROVIDER, slackAppManifest } from '../../../_lib/slack-app-manifest';
 import { NEW_SOURCE } from '../types';
 import type {
@@ -68,7 +68,8 @@ interface SourceKindCopy {
   providerLabel: string;
   filtersHelp: string;
   promptPlaceholder: string;
-  senderIdPlaceholder: string;
+  /** What arrives on the source, in prompt and validation copy. */
+  arrivals: string;
 }
 
 const COPY: Record<SourceCategory, SourceKindCopy> = {
@@ -84,7 +85,7 @@ const COPY: Record<SourceCategory, SourceKindCopy> = {
     providerLabel: 'Provider',
     filtersHelp: 'Only deliveries matching every filter start a run. Values are alternatives.',
     promptPlaceholder: 'Answer the question in {{ comment.body }} on {{ issue.html_url }}.',
-    senderIdPlaceholder: 'octocat, hubot',
+    arrivals: 'deliveries',
   },
   chat: {
     namePlaceholder: 'answer-mentions',
@@ -100,7 +101,7 @@ const COPY: Record<SourceCategory, SourceKindCopy> = {
       'Only messages matching every filter start a run. A filter on conversation.id limits it to chosen channels. Values are alternatives.',
     promptPlaceholder:
       'Answer {{ text }} from {{ user.id }}. Reply in thread {{ thread.id }} of conversation {{ conversation.id }}.',
-    senderIdPlaceholder: 'U012AB3CD, U045EF6GH',
+    arrivals: 'messages',
   },
 };
 
@@ -126,7 +127,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
   const sources = ownSources(context, category);
   const { productName } = useBrand();
   const providerCategories = useProviderCategories(PROVIDER_IDS);
-  const providers = PROVIDERS.filter((p) => providerCategories[p.id] === category);
+  const providers = PROVIDERS.filter((p) => providerCategories.categories[p.id] === category);
   const catalog = useSourceCatalog(
     catalogProvider(state, sources),
     state.sourceChoice === NEW_SOURCE ? '' : state.sourceChoice,
@@ -236,6 +237,19 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
                   ))}
               </Grid>
             </RadioGroup>
+            {providerCategories.failed.length > 0 ? (
+              <Text size="caption" color="status-error">
+                Could not load {providerCategories.failed.map(providerName).join(', ')}. Close the
+                wizard and open it again to retry.
+              </Text>
+            ) : (
+              providers.length === 0 &&
+              providerCategories.pending.length > 0 && (
+                <Text size="caption" color="subtle">
+                  Loading…
+                </Text>
+              )
+            )}
           </Stack>
           {state.newSourceProvider === SLACK_PROVIDER && (
             <SlackAppSetup
@@ -296,7 +310,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
         roles={catalog.roles}
         value={state.senders}
         onChange={(senders) => patch({ senders })}
-        idPlaceholder={copy.senderIdPlaceholder}
+        idPlaceholder={SENDER_ID_EXAMPLE[category]}
       />
 
       <PromptField
@@ -306,7 +320,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
         catalog={fields}
         catalogLabel={
           state.eventType
-            ? `Fields on ${eventName} deliveries.`
+            ? `Fields on ${eventName} ${copy.arrivals}.`
             : 'Choose an event to see its fields.'
         }
         placeholder={copy.promptPlaceholder}
@@ -330,7 +344,7 @@ function validateSource(category: SourceCategory) {
         if (s.newSourceProvider === SLACK_PROVIDER && !s.newSourceSecret.trim())
           return { valid: false, hint: 'Paste the signing secret from your Slack app.' };
       } else if (!s.sourceChoice) {
-        return { valid: false, hint: 'Choose where deliveries come from.' };
+        return { valid: false, hint: `Choose where ${COPY[category].arrivals} come from.` };
       }
       if (!s.eventType)
         return {
@@ -397,7 +411,7 @@ function ChatDoneContent({ state, context, endpoint }: DoneContentProps) {
     provider === SLACK_PROVIDER
       ? isNew
         ? 'Set this request URL under Event Subscriptions in your Slack app, and Slack checks it once. Then install the app and invite the bot to the channels it should hear.'
-        : 'This source’s request URL is already set under Event Subscriptions in its Slack app. Invite the bot to the channels this trigger should hear.'
+        : 'This source’s request URL, set under Event Subscriptions in its Slack app. Invite the bot to the channels this trigger should hear.'
       : `Set this request URL in your ${providerName(provider)} app’s event settings.`;
   return (
     <Stack gap="snug" minWidth="prose" maxWidth="prose">

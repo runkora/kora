@@ -21,7 +21,7 @@ export function ChatEventPicker({ events, value, onChange, disabled }: ChatEvent
   if (events.length === 0) {
     return (
       <Text size="caption" color="subtle">
-        Choose a source to see its events.
+        The events appear once the source or platform is known.
       </Text>
     );
   }
