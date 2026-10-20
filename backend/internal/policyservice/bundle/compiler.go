@@ -21,6 +21,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 	"time"
@@ -42,7 +43,7 @@ var authzGatewayRego string
 //go:embed budget.rego
 var budgetRego string
 
-// PlatformAdminRole is the one reserved role. Its scopes are not stored: they
+// PlatformAdminRole is the reserved admin role. Its scopes are not stored: they
 // are the vocabulary's covering set, derived at every compile, so a scope a
 // service registers is held by the admin with no further edit.
 const PlatformAdminRole = "platform-admin"
@@ -194,8 +195,8 @@ func buildRoleBudgets(roleEntries []*roles.RoleEntry) roleBudgetsDocument {
 		if e.Budget == nil {
 			continue
 		}
-		if e.Role == PlatformAdminRole {
-			continue // the reserved role cannot carry a budget
+		if IsReservedRole(e.Role) {
+			continue // reserved roles cannot carry a budget
 		}
 		doc.RoleBudgets[e.Role] = roleBudgetEntry{
 			LimitUSD:     e.Budget.LimitUSD,
@@ -510,6 +511,25 @@ func expandRequires(scopes []string, requiresMap map[string][]string) []string {
 	return out
 }
 
+// mergeRoles builds the roles document: the derived reserved roles plus the
+// tenant's stored roles. A stored row under a reserved name cannot override a
+// reserved role. Every role except the built-ins takes its transitive requires,
+// as grants do, for a role bundling an MCP tool scope to confer the tool's upstream scope.
+func mergeRoles(reserved map[string][]string, stored []*roles.RoleEntry, requiresMap map[string][]string) map[string][]string {
+	merged := maps.Clone(reserved)
+	for _, e := range stored {
+		if !IsReservedRole(e.Role) {
+			merged[e.Role] = e.Scopes
+		}
+	}
+	for role, scopes := range merged {
+		if !IsBuiltinRole(role) {
+			merged[role] = expandRequires(scopes, requiresMap)
+		}
+	}
+	return merged
+}
+
 // marshalVocabulary builds the vocabulary data document, carrying the requires
 // edges so both rego layers can resolve the delegator-leg scope projection.
 func marshalVocabulary(vocabEntries []*vocabulary.ScopeEntry) ([]byte, error) {
@@ -580,19 +600,7 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 		return nil, "", err
 	}
 
-	// Roles data document: the derived admin role plus tenant-managed roles.
-	// The admin role is set first and skipped below so it cannot be overridden.
-	mergedRoles := map[string][]string{PlatformAdminRole: AdminScopes(vocabEntries)}
-	for _, e := range roleEntries {
-		if e.Role != PlatformAdminRole {
-			mergedRoles[e.Role] = e.Scopes
-		}
-	}
-	// Expand each role's scopes with their transitive requires, exactly like grants.
-	for role, scopes := range mergedRoles {
-		mergedRoles[role] = expandRequires(scopes, requiresMap)
-	}
-	rolesDoc := rolesDocument{RoleScopes: mergedRoles}
+	rolesDoc := rolesDocument{RoleScopes: mergeRoles(ReservedRoles(vocabEntries), roleEntries, requiresMap)}
 	rolesJSON, err := json.Marshal(rolesDoc)
 	if err != nil {
 		return nil, "", fmt.Errorf("marshal roles: %w", err)
@@ -746,7 +754,7 @@ func buildGatewayBundle(
 	// Expand requires here as the per-tenant bundle does; edge and sidecar
 	// must authorize on the same effective set.
 	requiresMap := requiresFromVocab(vocabEntries)
-	adminScopes := AdminScopes(vocabEntries)
+	reservedRoles := ReservedRoles(vocabEntries)
 	for _, tenantID := range tenantIDs {
 		grantDoc := grantsDocument{Grants: make([]grantEntry, 0)}
 		for _, g := range allGrants[tenantID] {
@@ -764,16 +772,7 @@ func buildGatewayBundle(
 			return nil, "", fmt.Errorf("marshal grants for tenant %s: %w", tenantID, err)
 		}
 
-		mergedRoles := map[string][]string{PlatformAdminRole: adminScopes}
-		for _, e := range allRoles[tenantID] {
-			if e.Role != PlatformAdminRole {
-				mergedRoles[e.Role] = e.Scopes
-			}
-		}
-		for role, scopes := range mergedRoles {
-			mergedRoles[role] = expandRequires(scopes, requiresMap)
-		}
-		rolesJSON, err = json.Marshal(rolesDocument{RoleScopes: mergedRoles})
+		rolesJSON, err = json.Marshal(rolesDocument{RoleScopes: mergeRoles(reservedRoles, allRoles[tenantID], requiresMap)})
 		if err != nil {
 			return nil, "", fmt.Errorf("marshal roles for tenant %s: %w", tenantID, err)
 		}

@@ -62,6 +62,10 @@ export interface RoleEntry {
   scopes: string[];
   budget?: BudgetAssignment | null;
   created_at: string;
+  /** Set on platform-derived roles (platform-admin and the built-in kora-* roles). */
+  reserved?: boolean;
+  /** Built-in role scopes no service has registered yet. */
+  unregistered_scopes?: string[];
 }
 
 export interface RolesListResponse {

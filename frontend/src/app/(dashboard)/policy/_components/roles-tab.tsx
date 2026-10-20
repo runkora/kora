@@ -40,10 +40,6 @@ import { ScopeChipList, scopeColumnFilter } from '@runkora/components';
 import { ScopePicker } from '@runkora/components';
 import { ViewToggle } from './view-toggle';
 
-// ── Reserved roles (cannot be modified via UI) ───────────────────────────────
-
-const RESERVED_ROLES = new Set(['platform-admin']);
-
 // ── Props ────────────────────────────────────────────────────────────────────
 
 interface RolesTabProps {
@@ -246,7 +242,7 @@ function RoleCardGrid({
   return (
     <Grid cols={{ base: 1, sm: 2 }} gap="comfortable">
       {roles.map((role) => {
-        const isReserved = RESERVED_ROLES.has(role.role);
+        const isReserved = role.reserved === true;
         const scopes = role.scopes ?? [];
         return (
           <Card key={role.id} column>
@@ -347,7 +343,7 @@ function RoleTable({
         sortable: true,
         sortAccessor: (r) => r.role,
         cell: (r) => {
-          const isReserved = RESERVED_ROLES.has(r.role);
+          const isReserved = r.reserved === true;
           return (
             <Stack direction="horizontal" align="center" gap="tight">
               <Text size="caption" mono weight="emphasis">
@@ -397,7 +393,7 @@ function RoleTable({
         sortable: true,
         sortAccessor: (r) => r.created_at ?? '',
         cell: (r) => {
-          const isReserved = RESERVED_ROLES.has(r.role);
+          const isReserved = r.reserved === true;
           return (
             <Text size="caption" color="subtle">
               {!isReserved && r.created_at ? fmtDate(r.created_at) : '—'}
@@ -412,7 +408,7 @@ function RoleTable({
         locked: true,
         gridWidth: '5rem',
         cell: (r) => {
-          const isReserved = RESERVED_ROLES.has(r.role);
+          const isReserved = r.reserved === true;
           if (isReserved || (!onEdit && !onDelete)) return null;
           return (
             <Stack direction="horizontal" gap="tight">

@@ -170,6 +170,7 @@ export const ROLES: RoleEntry[] = [
     role: 'platform-admin',
     scopes: AVAILABLE_SCOPES,
     created_at: daysAgo(40),
+    reserved: true,
   },
   {
     id: 'rol_01j7a2',

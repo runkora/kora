@@ -21,9 +21,6 @@ import { updateRoleBudgetAction } from '../../../policy/_actions/roles';
 import type { RoleEntry } from '../../../policy/_types/api';
 import { BudgetEditModal } from './budget-edit-modal';
 
-// Reserved roles cannot carry budgets — the bundle compiler skips them.
-const RESERVED_ROLES = new Set(['platform-admin']);
-
 interface BudgetRolesTabProps {
   roles: RoleEntry[];
 }
@@ -49,7 +46,7 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
             <Text size="caption" mono weight="emphasis">
               {r.role}
             </Text>
-            {RESERVED_ROLES.has(r.role) && (
+            {r.reserved && (
               <Badge variant="secondary" size="sm">
                 not budgetable
               </Badge>
@@ -101,7 +98,8 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
         locked: true,
         gridWidth: '4rem',
         cell: (r) => {
-          if (!canWrite || RESERVED_ROLES.has(r.role)) return null;
+          // Reserved roles cannot carry budgets: the bundle compiler skips them.
+          if (!canWrite || r.reserved) return null;
           return (
             <Button
               variant="ghost"
