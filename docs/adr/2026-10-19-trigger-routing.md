@@ -157,6 +157,8 @@ A trigger cannot choose among agents or send a delivery to a run that is already
 
     An update that changes the candidates or the model replaces the grant.
 
+    A grant is computed when the trigger is created or updated and `sameGrant` compares only the candidates and the model, so a routed trigger created before the read scope was added keeps its old grant. Removing and re-adding a candidate, or changing the model, replaces it.
+
 17. **Creation authority:** Create reads each candidate from orbit-agents with the caller's bearer and delegation. Each candidate must report `can_run`. A candidate without it rejects the request with 403 and names the agent. A candidate the caller cannot read is rejected with 400 as not found in the tenant, as for a single-agent trigger, so the response does not reveal that it exists. The policy evaluator orbit-triggers already holds (`policy.NewEvaluator` in `backend/cmd/orbit-triggers/main.go`) checks `inference:invoke` and the model's use scope against the caller's claims. A missing scope rejects the request with 403 and lists the missing scopes. An update that changes what runs or when applies the same checks to the current candidates, and a candidate change applies them to the new ones as well. Those updates change the candidates, the model, the fallback agent, the join settings, the event, the filters, the prompt template or enablement. A rename or a description change needs only `triggers:write`. A replay or a source change requires `can_run` on every candidate of a routed trigger on the source. `CreateTrigger` and `UpdateTrigger` gain the caller's claims as a parameter.
 18. **Delegated agents:** `refuseDelegatedBinding` applies to every candidate and to the fallback agent.
 

@@ -116,9 +116,7 @@ describe('DeliveryRouting', () => {
     );
     expect(screen.getByText('fallback')).toBeTruthy();
     expect(
-      screen.getByText(
-        'The routing decision failed, so the delivery went to the fallback agent.',
-      ),
+      screen.getByText('The routing decision failed, so the delivery went to the fallback agent.'),
     ).toBeTruthy();
     expect(screen.getByText('decision model: context deadline exceeded')).toBeTruthy();
   });
