@@ -292,11 +292,13 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 }
 
 // createSourceRules checks a new trigger against its source's provider: the
-// chat schema, then the sender restriction, which it returns normalized.
+// chat schema, the routing join key included, then the sender restriction,
+// which it returns normalized.
 func createSourceRules(registry *Registry, provider string, req CreateTriggerRequest, coalesce *CoalesceConfig) (*SenderRestriction, error) {
 	if err := validateChatTrigger(registry, provider, Trigger{
 		EventType: strings.TrimSpace(req.EventType), PromptTemplate: req.PromptTemplate,
 		MatchCondition: req.MatchCondition, MatchContains: req.MatchContains, Coalesce: coalesce,
+		Routing: req.Routing,
 	}); err != nil {
 		return nil, err
 	}

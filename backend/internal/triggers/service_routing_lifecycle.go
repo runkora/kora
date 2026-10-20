@@ -116,6 +116,10 @@ func (s *TriggerService) applyRoutingUpdate(ctx context.Context, t *Trigger, cla
 		if t.Routing, err = s.resolveRouting(ctx, *src, raw); err != nil {
 			return false, nil, err
 		}
+		// A chat trigger's join key reads only chat and meta fields.
+		if err = validateChatTrigger(s.registry, src.Provider, *t); err != nil {
+			return false, nil, err
+		}
 	}
 	scopes, err := routedGrantScopes(t.Routing)
 	if err != nil {

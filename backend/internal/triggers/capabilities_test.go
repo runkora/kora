@@ -621,3 +621,81 @@ func TestChatTrigger_UpdateValidation(t *testing.T) {
 		})
 	}
 }
+
+// routedChat is a routed mention trigger on a chat source with the given join key.
+func routedChat(t *testing.T, joinKey string) (*Service, *testDeps, WebhookSource, *Trigger, error) {
+	t.Helper()
+	svc, deps, _, _ := routedHarness(t)
+	withCapAdapter(t, svc, deps)
+	src := capSource(t, deps)
+	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, routingClaims, routedReq(src.ID, func(r *CreateTriggerRequest) {
+		r.EventType, r.PromptTemplate = "mention", "{{ text }}"
+		r.Routing.JoinKey = joinKey
+	}))
+	return svc, deps, src, tr, err
+}
+
+func TestChatTrigger_RoutingJoinKey(t *testing.T) {
+	cases := []struct {
+		name    string
+		key     string
+		wantErr bool
+	}{
+		{name: "thread key", key: "{{ conversation.id }}:{{ thread.id }}"},
+		{name: "meta field", key: "{{ meta.delivery_id }}"},
+		{name: "raw path", key: "{{ event.thread_ts }}", wantErr: true},
+		{name: "parent object", key: "{{ thread }}", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run("create/"+tc.name, func(t *testing.T) {
+			_, _, _, _, err := routedChat(t, tc.key)
+			if tc.wantErr != errors.Is(err, ErrValidation) || (!tc.wantErr && err != nil) {
+				t.Errorf("err = %v, want validation error %v", err, tc.wantErr)
+			}
+		})
+		t.Run("update/"+tc.name, func(t *testing.T) {
+			_, deps, _, tr, err := routedChat(t, "")
+			if err != nil {
+				t.Fatalf("CreateTrigger: %v", err)
+			}
+			_, err = deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, routingClaims, UpdateTriggerRequest{
+				Routing: routingReq(func(r *RoutingConfig) { r.JoinKey = tc.key }),
+			})
+			if tc.wantErr != errors.Is(err, ErrValidation) || (!tc.wantErr && err != nil) {
+				t.Errorf("err = %v, want validation error %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// A chat payload that does not map queues nothing, so no join key is ever rendered from it.
+func TestFanOut_ChatJoinKeyFailsClosed(t *testing.T) {
+	cases := []struct {
+		name       string
+		body       string
+		wantQueued bool
+	}{
+		{name: "mapped", body: `{"user":"u1","channel":"C1","ts":"101","thread_ts":"100","text":"hi"}`, wantQueued: true},
+		{name: "unmapped", body: `{"unmapped":true,"user":"u1","channel":"C1","ts":"100"}`},
+		{name: "missing thread", body: `{"user":"u1","channel":"C1","text":"hi"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, deps, src, tr, err := routedChat(t, "{{ conversation.id }}:{{ thread.id }}")
+			if err != nil {
+				t.Fatalf("CreateTrigger: %v", err)
+			}
+			capDispatch(svc, deps, src, tc.body, false)
+			pending := deps.repo.pendingFor(tr.ID)
+			if !tc.wantQueued {
+				if len(pending) != 0 {
+					t.Fatalf("queued %d fires, want none", len(pending))
+				}
+				return
+			}
+			if len(pending) != 1 || pending[0].Fields["conversation.id"] != "C1" || pending[0].Fields["thread.id"] != "100" {
+				t.Fatalf("pending = %+v, want one fire with the chat join key fields", pending)
+			}
+		})
+	}
+}
