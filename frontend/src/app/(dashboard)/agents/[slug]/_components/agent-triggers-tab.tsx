@@ -147,7 +147,7 @@ export function AgentTriggersTab() {
   const createTriggerForAgent = useCallback(
     async (draft: TriggerDraft): Promise<TriggerCreateResult> => {
       const result = await createFromWizardDraft(draft, { ingestHost });
-      if (result.ok) load();
+      if (result.ok || result.createdSource) load();
       return result;
     },
     [ingestHost, load],

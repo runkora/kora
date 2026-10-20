@@ -178,7 +178,7 @@ export function TriggersPage({
   const createFromWizard = useCallback(
     async (draft: TriggerDraft): Promise<TriggerCreateResult> => {
       const result = await createFromWizardDraft(draft, { ingestHost });
-      if (result.ok) router.refresh();
+      if (result.ok || result.createdSource) router.refresh();
       return result;
     },
     [router, ingestHost],

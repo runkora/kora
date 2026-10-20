@@ -512,6 +512,40 @@ describe('chat command kind', () => {
       }),
     );
   });
+
+  it('reuses the source a failed attempt created when Create is retried', async () => {
+    const onCreate = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        error: 'agent type not found',
+        createdSource: { id: 'src-new', name: 'acme-slack', provider: 'slack' },
+      })
+      .mockResolvedValueOnce({ ok: true, triggerId: 'trg-1' });
+    renderWizard('chat', [], onCreate);
+    fillNameAndPrompt();
+    fireEvent.change(screen.getByLabelText(/Source name/), { target: { value: 'acme-slack' } });
+    fireEvent.change(await screen.findByLabelText(/Signing secret/), { target: { value: 'sig' } });
+    fireEvent.click(await screen.findByRole('radio', { name: /Direct message/ }));
+    const next = screen.getByRole('button', { name: /Continue/ });
+    await waitFor(() => expect(next.hasAttribute('disabled')).toBe(false));
+    fireEvent.click(next);
+    fireEvent.click(screen.getByRole('radio', { name: 'Coder' }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Create trigger/ }));
+    expect(await screen.findByText('agent type not found')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Create trigger/ }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(2));
+    expect(onCreate.mock.calls[0]![0].source).toEqual({
+      newName: 'acme-slack',
+      provider: 'slack',
+      signingSecret: 'sig',
+    });
+    expect(onCreate.mock.calls[1]![0].source).toEqual({ existingId: 'src-new' });
+  });
 });
 
 describe('shared steps', () => {

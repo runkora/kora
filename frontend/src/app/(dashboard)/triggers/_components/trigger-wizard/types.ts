@@ -148,7 +148,18 @@ export interface TriggerDraft {
 /** What the parent reports back once creation has been attempted. */
 export type TriggerCreateResult =
   | { ok: true; triggerId: string; endpoint?: string; secret?: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; createdSource?: CreatedSource };
+
+/**
+ * A source created by an attempt whose trigger then failed. The retry reuses
+ * it, and the secret is shown once the trigger exists.
+ */
+export interface CreatedSource {
+  id: string;
+  name: string;
+  provider: string;
+  secret?: string;
+}
 
 export interface TriggerWizardProps {
   /**

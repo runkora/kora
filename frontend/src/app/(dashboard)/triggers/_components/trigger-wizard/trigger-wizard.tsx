@@ -16,6 +16,8 @@ import { useRoutingOptions } from './use-routing-options';
 import {
   brandedCopy,
   type ConsoleKind,
+  type CreatedSource,
+  type TriggerDraft,
   type TriggerWizardProps,
   type WizardContext,
   type WizardState,
@@ -47,6 +49,7 @@ export function TriggerWizard({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<Created | null>(null);
+  const [createdSource, setCreatedSource] = useState<CreatedSource | null>(null);
 
   // Only a webhook trigger can be routed.
   const routing = useRoutingOptions(allowRouting && kind === 'webhook');
@@ -112,18 +115,19 @@ export function TriggerWizard({
     }
     setPending(true);
     setError(null);
-    const result = await onCreate(toDraft(definition, state));
+    const result = await onCreate(reuseCreatedSource(toDraft(definition, state), createdSource));
     setPending(false);
     if (!result.ok) {
       setError(result.error);
+      if (result.createdSource) setCreatedSource(result.createdSource);
       return;
     }
     setCreated({
       triggerId: result.triggerId,
       endpoint: result.endpoint,
-      secret: result.secret,
+      secret: result.secret ?? createdSource?.secret,
     });
-  }, [definition, state, validation.valid, pending, isLast, step, onCreate]);
+  }, [definition, state, validation.valid, pending, isLast, step, onCreate, createdSource]);
 
   const StepBody = currentStep?.Component;
   const hasKind = definition !== null && state !== null;
@@ -248,4 +252,15 @@ function PolicyCheckedInfo() {
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * Points a retry at the source an earlier attempt created, while the draft
+ * still asks for that same new source.
+ */
+function reuseCreatedSource(draft: TriggerDraft, made: CreatedSource | null): TriggerDraft {
+  const source = draft.source;
+  if (made === null || source === undefined || !('newName' in source)) return draft;
+  if (source.newName !== made.name || source.provider !== made.provider) return draft;
+  return { ...draft, source: { existingId: made.id } };
 }

@@ -273,10 +273,13 @@ describe('failures', () => {
       OPTIONS,
     );
 
-    // The source is real and the retry can pick it from the existing list, so
-    // it is deliberately not rolled back.
+    // The source is real and is not rolled back; the wizard's retry reuses it.
     expect(mockCreateSource).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({ ok: false, error: 'agent not found' });
+    expect(result).toEqual({
+      ok: false,
+      error: 'agent not found',
+      createdSource: { id: 'src-new', name: 'acme', provider: 'github', secret: 'whsec_abc' },
+    });
   });
 
   it('falls back to a sentence when the API gives no message', async () => {
