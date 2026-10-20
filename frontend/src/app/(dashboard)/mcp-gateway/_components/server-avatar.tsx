@@ -1,4 +1,4 @@
-/** @tier 3 — mcp-gateway-scoped. The square initial tile for an MCP server. */
+/** @tier 3 — mcp-gateway-scoped. The square tile showing the initial of an MCP server's display name. */
 'use client';
 
 import { Text } from '@runkora/hades';
@@ -7,6 +7,7 @@ const SIZES = { xs: 22, sm: 28, md: 38, lg: 56 } as const;
 const FONT = { xs: 10, sm: 13, md: 15, lg: 22 } as const;
 
 interface ServerAvatarProps {
+  /** The server's display name; its first letter is the tile's glyph. */
   name: string;
   /** The first-party kora server gets the accent tile; everything else neutral. */
   accent?: boolean;
@@ -26,7 +27,6 @@ export function ServerAvatar({ name, accent = false, size = 'md' }: ServerAvatar
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontFamily: 'var(--font-mono)',
         fontWeight: 700,
         fontSize: FONT[size],
         lineHeight: 1,

@@ -1,7 +1,9 @@
 import 'server-only';
 
 import type { McpCatalogTool, McpServer } from '@runkora/shared/api';
+import { ApiError } from '@runkora/server/api-error';
 import { listMcpServers, listMcpTools } from '@runkora/server/mcp-client';
+import { loadErrorMessage } from '@runkora/lib/load-error';
 
 export type McpServersResult = { ok: true; servers: McpServer[] } | { ok: false; message: string };
 
@@ -12,8 +14,9 @@ export type McpToolsResult =
 export async function fetchMcpServers(accessToken: string): Promise<McpServersResult> {
   try {
     return { ok: true, servers: await listMcpServers(accessToken) };
-  } catch {
-    return { ok: false, message: 'Failed to load MCP servers' };
+  } catch (err) {
+    const status = err instanceof ApiError ? err.status : 0;
+    return { ok: false, message: loadErrorMessage(status, 'MCP servers') };
   }
 }
 

@@ -25,7 +25,7 @@ import {
 } from '@runkora/hades';
 import type { ScopeEntryWithUsage } from '../_types';
 import { ScopeChip } from '@runkora/components';
-import { FilterChip } from './filter-chip';
+import { FilterChip } from '@runkora/components';
 
 interface VocabularyTabProps {
   initialScopes: ScopeEntryWithUsage[];

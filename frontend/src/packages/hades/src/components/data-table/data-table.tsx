@@ -843,9 +843,9 @@ function DataTableToolbar({
   title,
 }: ToolbarProps) {
   return (
-    <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3 min-h-[52px]">
+    <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-4 py-3 min-h-[52px]">
       {/* Left: optional title, then quick filters, then columns button */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {title}
         {quickFilters}
         {columnItems.length > 0 && (
@@ -854,7 +854,7 @@ function DataTableToolbar({
       </div>
 
       {/* Right: search input then action buttons */}
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex flex-wrap items-center gap-2">
         {hasSearch && (
           <div className="relative">
             <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-subtle">

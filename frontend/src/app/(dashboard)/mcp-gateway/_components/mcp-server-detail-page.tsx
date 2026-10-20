@@ -65,7 +65,7 @@ export function McpServerDetailPage({
     <Stack gap="relaxed">
       {/* Identity header */}
       <Stack direction="horizontal" align="start" gap="comfortable">
-        <ServerAvatar name={server.name} accent={accent} size="lg" />
+        <ServerAvatar name={server.display_name} accent={accent} size="lg" />
         <Stack grow gap="none" style={{ minWidth: 0 }}>
           <Stack direction="horizontal" align="center" style={{ gap: 10 }} wrap>
             <Text as="span" weight="heavy" style={{ fontSize: 26, letterSpacing: '-0.02em' }}>
