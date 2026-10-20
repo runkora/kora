@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -409,7 +410,8 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusCreated, run)
 }
 
-// handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&created_after=&created_before=&limit=&cursor=, clamping limit to maxRunsLimit.
+// handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&started_by=&created_after=&created_before=&limit=&cursor=, clamping limit to maxRunsLimit.
+// agent_type_id and state may repeat; started_by=trigger keeps runs a trigger started.
 func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
@@ -453,7 +455,18 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page, err := c.runs.ListRuns(ctx, q.Get("agent_type_id"), p)
+	switch q.Get("started_by") {
+	case "":
+	case startedByTrigger:
+		p.StartedByTrigger = true
+	default:
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "started_by must be trigger", map[string]any{"field": "started_by"})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+	agentTypeIDs := slices.DeleteFunc(slices.Clone(q["agent_type_id"]), func(id string) bool { return id == "" })
+
+	page, err := c.runs.ListRuns(ctx, agentTypeIDs, p)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list runs", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
@@ -573,15 +586,11 @@ func (c *Controller) handleTerminateRun(w http.ResponseWriter, r *http.Request) 
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
-type sendMessageRequest struct {
-	Content string `json:"content"`
-}
-
 func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	var req sendMessageRequest
+	var req SendMessageRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
@@ -591,9 +600,21 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := c.runs.SendMessage(ctx, id, req.Content); err != nil {
+	if err := c.runs.SendMessage(ctx, id, req); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrTriggerAttributionRefused) {
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden,
+				"only a service principal may send a message as a trigger", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrTriggerAttributionIncomplete) {
+			apiErr := api.ValidationError(api.ErrCodeMissingField,
+				"trigger_id is required when attributing a message to a trigger", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
@@ -604,13 +625,15 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		// The reason detail tells a caller that can wait for a starting run
+		// apart from one that should give up on a closed run.
 		if errors.Is(err, ErrRunStarting) {
-			apiErr := api.ConflictError(api.ErrCodeConflict, "run is starting", nil)
+			apiErr := api.ConflictError(api.ErrCodeConflict, "run is starting", map[string]any{"reason": "run_starting"})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
 		if errors.Is(err, ErrRunNotAcceptingMessages) {
-			apiErr := api.ConflictError(api.ErrCodeConflict, "run is not accepting messages", nil)
+			apiErr := api.ConflictError(api.ErrCodeConflict, "run is not accepting messages", map[string]any{"reason": "run_closed"})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}

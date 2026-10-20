@@ -96,9 +96,15 @@ func (s *RunService) authorizeAttribution(ctx context.Context, span trace.Span, 
 // the alternative is a trigger id stamped into the minted token's claims, which
 // is the durable fix (see the ADR's Future Work).
 func authorizeTriggerAttribution(ctx context.Context, req StartRunRequest) (*StartedByTrigger, error) {
-	triggerID := strings.TrimSpace(req.TriggerID)
-	deliveryID := strings.TrimSpace(req.DeliveryID)
-	name := strings.TrimSpace(req.TriggerName)
+	return authorizeTriggerClaim(ctx, req.TriggerID, req.TriggerName, req.DeliveryID)
+}
+
+// authorizeTriggerClaim applies the rules above to one trigger claim, for a run
+// start or a message. It returns nil when the claim is empty.
+func authorizeTriggerClaim(ctx context.Context, triggerID, name, deliveryID string) (*StartedByTrigger, error) {
+	triggerID = strings.TrimSpace(triggerID)
+	deliveryID = strings.TrimSpace(deliveryID)
+	name = strings.TrimSpace(name)
 
 	if triggerID == "" {
 		if deliveryID != "" || name != "" {
@@ -142,4 +148,34 @@ func triggerPrincipalMayClaim(principal, triggerID string) error {
 	default:
 		return fmt.Errorf("%w (principal %q may not claim trigger %q)", ErrTriggerAttributionRefused, principal, triggerID)
 	}
+}
+
+// messageTrigger reports the trigger a message comes from, or nil for any other
+// sender (trigger routing ADR, Decision 14). Only a trigger's or a webhook
+// source's SERVICE principal is a trigger, and the trigger it names passes the
+// same check as a run start. Any other caller that names a trigger is refused.
+func messageTrigger(ctx context.Context, req SendMessageRequest) (*StartedByTrigger, error) {
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil || !isTriggerPrincipal(claims) {
+		if req.TriggerID != "" || req.TriggerName != "" || req.DeliveryID != "" {
+			return nil, ErrTriggerAttributionRefused
+		}
+		return nil, nil
+	}
+	triggerID := req.TriggerID
+	if own, isTrigger := strings.CutPrefix(claims.Subject, triggerPrincipalPrefix); triggerID == "" && isTrigger {
+		// A trigger's own principal names its trigger.
+		triggerID = own
+	}
+	from, err := authorizeTriggerClaim(ctx, triggerID, req.TriggerName, req.DeliveryID)
+	if err != nil || from != nil {
+		return from, err
+	}
+	return &StartedByTrigger{}, nil
+}
+
+// isTriggerPrincipal reports whether the caller is a trigger's or a webhook source's SERVICE principal.
+func isTriggerPrincipal(claims *token.PlatformClaims) bool {
+	return claims.Kora.PrincipalType == token.PrincipalTypeService &&
+		(strings.HasPrefix(claims.Subject, triggerPrincipalPrefix) || strings.HasPrefix(claims.Subject, triggerSourcePrincipalPrefix))
 }

@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/runkora/kora/backend/internal/platform/token"
@@ -70,14 +71,62 @@ func TestStartRun_SendsIdleTimeoutByOrigin(t *testing.T) {
 	})
 }
 
-func TestSendMessage_SwitchesTriggerRunToManualTimeout(t *testing.T) {
+func TestSendMessage_IdleTimeoutAndEventBySender(t *testing.T) {
+	trig := &StartedByTrigger{TriggerID: "trig-1"}
 	tests := []struct {
-		name      string
-		startedBy *StartedByTrigger
-		want      int
+		name           string
+		principal      token.PrincipalType
+		subject        string
+		startedBy      *StartedByTrigger
+		req            SendMessageRequest
+		wantTimeout    int
+		wantFromPerson bool
+		wantEvent      string
+		wantPayload    string
 	}{
-		{name: "a trigger run moves to the manual timeout", startedBy: &StartedByTrigger{TriggerID: "trig-1"}, want: 1200},
-		{name: "a manual run keeps its timeout", startedBy: nil, want: 0},
+		{
+			name: "a person moves a trigger run to the manual timeout", principal: token.PrincipalTypeHuman, subject: "user:1",
+			startedBy: trig, req: SendMessageRequest{Content: "keep going"},
+			wantTimeout: 1200, wantFromPerson: true, wantEvent: "human_message", wantPayload: `{"content":"keep going"}`,
+		},
+		{
+			name: "a person keeps a manual run's timeout", principal: token.PrincipalTypeHuman, subject: "user:1",
+			req:         SendMessageRequest{Content: "keep going"},
+			wantTimeout: 0, wantFromPerson: true, wantEvent: "human_message", wantPayload: `{"content":"keep going"}`,
+		},
+		{
+			name: "a PAT is a person", principal: token.PrincipalTypePAT, subject: "pat:1",
+			startedBy: trig, req: SendMessageRequest{Content: "keep going"},
+			wantTimeout: 1200, wantFromPerson: true, wantEvent: "human_message", wantPayload: `{"content":"keep going"}`,
+		},
+		{
+			name: "a trigger keeps the trigger run's timeout", principal: token.PrincipalTypeService, subject: "trigger-source:github",
+			startedBy:   trig,
+			req:         SendMessageRequest{Content: "new comment", TriggerID: "trig-2", TriggerName: "PR comments", DeliveryID: "del-9"},
+			wantTimeout: 0, wantFromPerson: false, wantEvent: "trigger_message",
+			wantPayload: `{"content":"new comment","trigger_id":"trig-2","trigger_name":"PR comments","delivery_id":"del-9"}`,
+		},
+		{
+			name: "a trigger principal naming its trigger", principal: token.PrincipalTypeService, subject: "trigger:trig-1",
+			startedBy: trig, req: SendMessageRequest{Content: "new comment", TriggerID: "trig-1", TriggerName: "Nightly"},
+			wantTimeout: 0, wantFromPerson: false, wantEvent: "trigger_message",
+			wantPayload: `{"content":"new comment","trigger_id":"trig-1","trigger_name":"Nightly"}`,
+		},
+		{
+			name: "a trigger principal without a trigger id is attributed to itself", principal: token.PrincipalTypeService, subject: "trigger:trig-1",
+			startedBy: trig, req: SendMessageRequest{Content: "new comment"},
+			wantTimeout: 0, wantFromPerson: false, wantEvent: "trigger_message", wantPayload: `{"content":"new comment","trigger_id":"trig-1"}`,
+		},
+		{
+			name: "a source principal without attribution is a trigger", principal: token.PrincipalTypeService, subject: "trigger-source:github",
+			startedBy: trig, req: SendMessageRequest{Content: "new comment"},
+			wantTimeout: 0, wantFromPerson: false, wantEvent: "trigger_message", wantPayload: `{"content":"new comment"}`,
+		},
+		{
+			name: "another service principal keeps the pre-routing behaviour", principal: token.PrincipalTypeService, subject: "session-manager",
+			startedBy: trig, req: SendMessageRequest{Content: "keep going"},
+			wantTimeout: 1200, wantFromPerson: true, wantEvent: "human_message", wantPayload: `{"content":"keep going"}`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -86,16 +135,74 @@ func TestSendMessage_SwitchesTriggerRunToManualTimeout(t *testing.T) {
 			at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
 			seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateIdle, StartedBy: tt.startedBy})
 
-			if err := svc.SendMessage(context.Background(), "run-1", "keep going"); err != nil {
+			ctx := withPrincipalCtx(context.Background(), "t-1", tt.principal, tt.subject)
+			if err := svc.run.SendMessage(ctx, "run-1", tt.req); err != nil {
 				t.Fatalf("SendMessage: %v", err)
 			}
 			sm.mu.Lock()
 			defer sm.mu.Unlock()
-			if len(sm.sentIdleTimeouts) != 1 || sm.sentIdleTimeouts[0] != tt.want {
-				t.Errorf("idle timeouts sent = %v, want [%d]", sm.sentIdleTimeouts, tt.want)
+			if len(sm.sentIdleTimeouts) != 1 || sm.sentIdleTimeouts[0] != tt.wantTimeout {
+				t.Errorf("idle timeouts sent = %v, want [%d]", sm.sentIdleTimeouts, tt.wantTimeout)
 			}
-			if len(sm.sentFromPerson) != 1 || !sm.sentFromPerson[0] {
-				t.Errorf("from_person sent = %v, want [true]", sm.sentFromPerson)
+			if len(sm.sentFromPerson) != 1 || sm.sentFromPerson[0] != tt.wantFromPerson {
+				t.Errorf("from_person sent = %v, want [%v]", sm.sentFromPerson, tt.wantFromPerson)
+			}
+			events, err := repo.ListRunEvents(ctx, "run-1", 0)
+			if err != nil || len(events) == 0 {
+				t.Fatalf("ListRunEvents = %v, %v; want events", events, err)
+			}
+			// The idle run's move to active is recorded first; the message event comes last.
+			last := events[len(events)-1]
+			if last.EventType != tt.wantEvent || string(last.Payload) != tt.wantPayload {
+				t.Errorf("last event = %s %s, want %s %s", last.EventType, last.Payload, tt.wantEvent, tt.wantPayload)
+			}
+		})
+	}
+}
+
+func TestSendMessage_RefusesTriggerAttribution(t *testing.T) {
+	tests := []struct {
+		name      string
+		principal token.PrincipalType
+		subject   string
+		req       SendMessageRequest
+		wantErr   error
+	}{
+		{
+			name: "a person may not send as a trigger", principal: token.PrincipalTypeHuman, subject: "user:1",
+			req: SendMessageRequest{Content: "hi", TriggerID: "trig-1"}, wantErr: ErrTriggerAttributionRefused,
+		},
+		{
+			name: "another service principal may not send as a trigger", principal: token.PrincipalTypeService, subject: "session-manager",
+			req: SendMessageRequest{Content: "hi", TriggerID: "trig-1"}, wantErr: ErrTriggerAttributionRefused,
+		},
+		{
+			name: "a PAT may not send as a trigger", principal: token.PrincipalTypePAT, subject: "pat:1",
+			req: SendMessageRequest{Content: "hi", TriggerName: "Nightly"}, wantErr: ErrTriggerAttributionRefused,
+		},
+		{
+			name: "a trigger may not send as another trigger", principal: token.PrincipalTypeService, subject: "trigger:trig-1",
+			req: SendMessageRequest{Content: "hi", TriggerID: "trig-2"}, wantErr: ErrTriggerAttributionRefused,
+		},
+		{
+			name: "a delivery without a trigger is incomplete", principal: token.PrincipalTypeService, subject: "trigger-source:github",
+			req: SendMessageRequest{Content: "hi", DeliveryID: "del-1"}, wantErr: ErrTriggerAttributionIncomplete,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, repo, _, sm := newTestService(t)
+			at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+			seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateIdle})
+
+			ctx := withPrincipalCtx(context.Background(), "t-1", tt.principal, tt.subject)
+			if err := svc.run.SendMessage(ctx, "run-1", tt.req); !errors.Is(err, tt.wantErr) {
+				t.Fatalf("SendMessage err = %v, want %v", err, tt.wantErr)
+			}
+			sm.mu.Lock()
+			defer sm.mu.Unlock()
+			if len(sm.sentMessages) != 0 {
+				t.Errorf("sent %v, want nothing sent", sm.sentMessages)
 			}
 		})
 	}

@@ -127,6 +127,17 @@ type StartRunRequest struct {
 	DeliveryID  string `json:"delivery_id,omitempty"`
 }
 
+// SendMessageRequest is the body of POST /api/v1/runs/{id}/messages.
+type SendMessageRequest struct {
+	Content string `json:"content"`
+	// TriggerID, TriggerName and DeliveryID name the trigger and delivery that
+	// sent the message. Only a SERVICE principal may set them, under the same
+	// check as a run start's attribution.
+	TriggerID   string `json:"trigger_id,omitempty"`
+	TriggerName string `json:"trigger_name,omitempty"`
+	DeliveryID  string `json:"delivery_id,omitempty"`
+}
+
 // EffectiveAccessPreviewRequest is a draft connectivity config resolved without
 // persisting — backs the live "Effective access" preview as the user edits.
 type EffectiveAccessPreviewRequest struct {

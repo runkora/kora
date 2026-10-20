@@ -14,6 +14,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // flushRecorder wraps httptest.ResponseRecorder and implements http.Flusher,
@@ -379,6 +380,37 @@ func TestHandleSendMessage_Accepted(t *testing.T) {
 	}
 }
 
+func TestHandleSendMessage_TriggerAttribution(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		principal token.PrincipalType
+		subject   string
+		body      string
+		want      int
+	}{
+		{"a trigger names itself", token.PrincipalTypeService, "trigger:trig-1", `{"content":"hi","trigger_id":"trig-1","trigger_name":"PR comments"}`, http.StatusAccepted},
+		{"a person may not name a trigger", token.PrincipalTypeHuman, "user:1", `{"content":"hi","trigger_id":"trig-1"}`, http.StatusForbidden},
+		{"a delivery needs a trigger", token.PrincipalTypeService, "trigger-source:github", `{"content":"hi","delivery_id":"del-1"}`, http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, repo, _, _ := newTestController(t)
+			at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+			run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/run-1/messages", bytes.NewBufferString(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			req.SetPathValue("id", run.ID)
+			req = req.WithContext(withPrincipalCtx(req.Context(), "t-1", tc.principal, tc.subject))
+			w := httptest.NewRecorder()
+			c.handleSendMessage(w, req)
+
+			if w.Code != tc.want {
+				t.Errorf("status = %d, want %d; body: %s", w.Code, tc.want, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestHandleSendMessage_RunStarting(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
@@ -392,7 +424,8 @@ func TestHandleSendMessage_RunStarting(t *testing.T) {
 	w := httptest.NewRecorder()
 	c.handleSendMessage(w, req)
 
-	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "run is starting") || !strings.Contains(w.Body.String(), `"code":"conflict"`) {
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "run is starting") || !strings.Contains(w.Body.String(), `"code":"conflict"`) ||
+		!strings.Contains(w.Body.String(), `"reason":"run_starting"`) {
 		t.Errorf("status = %d, body = %s, want 409 run is starting", w.Code, w.Body.String())
 	}
 }

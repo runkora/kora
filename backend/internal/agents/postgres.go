@@ -289,6 +289,10 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q Ru
 		args = append(args, stateStrings(q.States))
 		query += fmt.Sprintf(" AND r.state = ANY($%d)", len(args))
 	}
+	if q.StartedByTrigger {
+		// Matches scanRun, which reads a run as trigger-started only when trigger_id is non-empty.
+		query += " AND r.trigger_id <> ''"
+	}
 	if !q.CreatedAfter.IsZero() {
 		args = append(args, q.CreatedAfter)
 		query += fmt.Sprintf(" AND r.created_at >= $%d", len(args))

@@ -356,17 +356,17 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
 }
 
 // ListRuns returns a page of the runs the caller may read, newest first, with both visibility rules applied in SQL.
-func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, p RunListQuery) (RunPage, error) {
+func (s *RunService) ListRuns(ctx context.Context, agentTypeIDs []string, p RunListQuery) (RunPage, error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListRuns",
 		trace.WithAttributes(
 			attribute.String("tenant_id", tenantID),
-			attribute.String("agent_type_id", agentTypeID),
+			attribute.StringSlice("agent_type_ids", agentTypeIDs),
 			attribute.Int("limit", p.Limit),
 		),
 	)
 	defer span.End()
-	page, err := s.listRuns(ctx, tenantID, agentTypeID, p)
+	page, err := s.listRuns(ctx, tenantID, agentTypeIDs, p)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list runs")
@@ -374,12 +374,12 @@ func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, p RunList
 	return page, err
 }
 
-func (s *RunService) listRuns(ctx context.Context, tenantID, agentTypeID string, p RunListQuery) (RunPage, error) {
+func (s *RunService) listRuns(ctx context.Context, tenantID string, agentTypeIDs []string, p RunListQuery) (RunPage, error) {
 	scope, err := s.readableRunScope(ctx, tenantID)
 	if err != nil {
 		return RunPage{}, err
 	}
-	scope.AgentTypeID = agentTypeID
+	scope.OnlyAgentTypeIDs = agentTypeIDs
 	q := p
 	q.Scope = scope
 	// One row past the page says whether another page follows.
@@ -605,14 +605,23 @@ func (s *RunService) SubscribeRun(runID string) (<-chan PushedEvent, func()) {
 	return s.pubsub.Subscribe(runID)
 }
 
-// SendMessage relays a user message to the active session-manager for this run.
-// Enforces tenant scoping and authz write on the run's agent type.
-func (s *RunService) SendMessage(ctx context.Context, runID, content string) error {
+// SendMessage relays a message to the active session-manager for this run.
+// Enforces tenant scoping and authz write on the run's agent type. A message
+// from a trigger's SERVICE principal leaves the run's idle timeout and is
+// recorded as a trigger_message (trigger routing ADR, Decision 14).
+func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMessageRequest) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.SendMessage",
 		trace.WithAttributes(attribute.String("run_id", runID)),
 	)
 	defer span.End()
 
+	content := req.Content
+	from, err := messageTrigger(ctx, req)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "authorize trigger attribution")
+		return err
+	}
 	run, at, err := s.loadRunForAction(ctx, runID, "write")
 	if err != nil {
 		return err
@@ -652,12 +661,21 @@ func (s *RunService) SendMessage(ctx context.Context, runID, content string) err
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
 	podURL := sessionmanager.PodURL(at.Slug, run.PodOrdinal, namespace)
 	// A person's message makes the turn manual: a trigger run takes the manual idle timeout from here on.
-	if err := s.sm.SendMessage(ctx, podURL, runID, content, s.cfg.IdleTimeouts.ForPersonMessage(run.StartedBy), true); err != nil {
+	// A trigger's message sends zero, which leaves the run's timeout as it is.
+	idleTimeout, fromPerson := 0, false
+	if from == nil {
+		idleTimeout, fromPerson = s.cfg.IdleTimeouts.ForPersonMessage(run.StartedBy), true
+	}
+	if err := s.sm.SendMessage(ctx, podURL, runID, content, idleTimeout, fromPerson); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "forward message to session-manager")
 		return fmt.Errorf("forward message to pod %d: %w", run.PodOrdinal, err)
 	}
 
+	if from != nil {
+		s.emitTriggerMessage(ctx, runID, content, *from)
+		return nil
+	}
 	s.emitHumanMessage(ctx, runID, content)
 	return nil
 }
@@ -683,28 +701,57 @@ func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID, msg s
 	s.emitHumanMessage(ctx, runID, msg)
 }
 
+// Event types for a message sent to a run: a person's, or a trigger's.
+const (
+	eventHumanMessage   = "human_message"
+	eventTriggerMessage = "trigger_message"
+)
+
+// triggerMessagePayload is a trigger_message event: the content and the trigger that sent it.
+type triggerMessagePayload struct {
+	Content     string `json:"content"`
+	TriggerID   string `json:"trigger_id,omitempty"`
+	TriggerName string `json:"trigger_name,omitempty"`
+	DeliveryID  string `json:"delivery_id,omitempty"`
+}
+
 // emitHumanMessage persists a human message to run_events and fans it out via
 // PubSub so live SSE subscribers and future replays both see it.
 func (s *RunService) emitHumanMessage(ctx context.Context, runID, content string) {
-	payload, err := json.Marshal(map[string]string{"content": content})
+	s.emitMessage(ctx, runID, eventHumanMessage, map[string]string{"content": content})
+}
+
+// emitTriggerMessage records a message a trigger sent to a run that is already working.
+func (s *RunService) emitTriggerMessage(ctx context.Context, runID, content string, from StartedByTrigger) {
+	s.emitMessage(ctx, runID, eventTriggerMessage, triggerMessagePayload{
+		Content:     content,
+		TriggerID:   from.TriggerID,
+		TriggerName: from.TriggerName,
+		DeliveryID:  from.DeliveryID,
+	})
+}
+
+func (s *RunService) emitMessage(ctx context.Context, runID, eventType string, body any) {
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return
 	}
 	at := eventTime()
 	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{
 		RunID:     runID,
-		EventType: "human_message",
+		EventType: eventType,
 		Payload:   payload,
 		CreatedAt: at,
 	})
 	if err != nil {
-		s.logger.Warn(ctx, "Failed to persist human_message event",
+		s.logger.Warn(ctx, "Failed to persist message event",
 			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "event_type", Value: eventType},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 		return
 	}
-	s.pubsub.Publish(runID, PushedEvent{Type: "human_message", Payload: payload, SequenceNo: seqNo, At: at})
+	s.pubsub.Publish(runID, PushedEvent{Type: eventType, Payload: payload, SequenceNo: seqNo, At: at})
 }
 
 // InterruptRun signals the session-manager to send SIGINT to the Claude subprocess.
