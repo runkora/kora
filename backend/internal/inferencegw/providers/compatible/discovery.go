@@ -100,16 +100,68 @@ func (c *Connector) listDecisionModels(ctx context.Context) ([]inferencegw.Provi
 	return models, nil
 }
 
-// declaresDecisions reports whether a /models entry lists decisions among its
-// architecture.output_modalities. An endpoint that ignores the query returns
-// entries without that metadata, and none of them counts.
-func declaresDecisions(raw json.RawMessage) bool {
+// allModalitiesQuery asks an endpoint that supports it for every model,
+// whatever its output modality. OpenRouter's default listing is text only.
+const allModalitiesQuery = "?output_modalities=all"
+
+// Output modalities OpenRouter declares for the models classified here.
+const (
+	embeddingsModality = "embeddings"
+	rerankModality     = "rerank"
+)
+
+// outputModalities reads architecture.output_modalities from a /models entry.
+// An endpoint without that metadata yields nil.
+func outputModalities(raw json.RawMessage) []string {
 	var e struct {
 		Architecture struct {
 			OutputModalities []string `json:"output_modalities"`
 		} `json:"architecture"`
 	}
-	return json.Unmarshal(raw, &e) == nil && slices.Contains(e.Architecture.OutputModalities, decisionsModality)
+	if json.Unmarshal(raw, &e) != nil {
+		return nil
+	}
+	return e.Architecture.OutputModalities
+}
+
+// mergeNonTextModels adds the embedding and rerank models the default listing
+// leaves out, and corrects the capability of a listed model that declares one.
+// Only an entry that publishes architecture.output_modalities counts, so an
+// endpoint that ignores the query adds nothing. Image, speech, video and
+// transcription models are skipped. A failed request keeps the models and logs
+// a warning.
+func (c *Connector) mergeNonTextModels(ctx context.Context, models []inferencegw.ProviderModel) []inferencegw.ProviderModel {
+	entries, err := c.getModels(ctx, allModalitiesQuery)
+	if err != nil {
+		c.logger.Warn(ctx, "non-text model listing failed; keeping the default models", logging.Field{Key: "provider", Value: string(c.name)}, logging.Field{Key: "error", Value: err.Error()})
+		return models
+	}
+	for _, raw := range entries {
+		var l listedModel
+		if json.Unmarshal(raw, &l) != nil || l.ID == "" {
+			continue
+		}
+		out := outputModalities(raw)
+		var m inferencegw.ProviderModel
+		switch {
+		case slices.Contains(out, embeddingsModality):
+			m = c.describeEmbedding(l.ID)
+		case slices.Contains(out, rerankModality):
+			m = c.describeRerank(l.ID)
+		default:
+			continue
+		}
+		m.Price = parsePrice(string(raw))
+		models = upsertModel(models, m)
+	}
+	return models
+}
+
+// declaresDecisions reports whether a /models entry lists decisions among its
+// architecture.output_modalities. An endpoint that ignores the query returns
+// entries without that metadata, and none of them counts.
+func declaresDecisions(raw json.RawMessage) bool {
+	return slices.Contains(outputModalities(raw), decisionsModality)
 }
 
 // mergeDecisionModels adds the models a mixed endpoint declares as decision
