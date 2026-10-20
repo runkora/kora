@@ -282,6 +282,7 @@ func initWebhooks(mgr ctrl.Manager) {
 				OPAPullPolicy:           corev1.PullPolicy(install.Injection.OPAPullPolicy),
 				OPALogLevel:             install.Injection.OPALogLevel,
 				OPAResources:            install.Injection.OPAResources,
+				StartupProbeSeconds:     install.Injection.StartupProbeSeconds,
 				SandboxSidecars: operator.SandboxSidecars{
 					IstioProxy:    install.Injection.SandboxSidecars.IstioProxy,
 					IdentityProxy: install.Injection.SandboxSidecars.IdentityProxy,

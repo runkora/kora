@@ -6,6 +6,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
 	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
+	"github.com/runkora/kora/backend/internal/platform/probes"
 )
 
 // stubConns is a connectionResolver whose registry can be empty (nothing
@@ -162,5 +163,36 @@ func TestSandboxContainer_WorkspaceMountScopedToRunID(t *testing.T) {
 	}
 	if gotWorkspace != wantMountPath {
 		t.Errorf("WORKSPACE env = %q, want %q", gotWorkspace, wantMountPath)
+	}
+}
+
+// The sandbox reports Ready as soon as its port opens. A startup probe checks
+// every second until then, and the readiness probe has no initial delay.
+func TestSandboxContainer_StartupProbe(t *testing.T) {
+	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "orbit-system"}
+	c, err := sandboxContainer(cfg, testSandboxSpec(), "run-1", "token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp, rp := c.StartupProbe, c.ReadinessProbe
+	if sp == nil || sp.TCPSocket == nil || sp.TCPSocket.Port.IntValue() != 50051 {
+		t.Fatalf("startup probe = %+v, want a TCP check on the gRPC port", sp)
+	}
+	if sp.PeriodSeconds != 1 || sp.InitialDelaySeconds != 0 {
+		t.Errorf("startup period/delay = %d/%d, want 1/0", sp.PeriodSeconds, sp.InitialDelaySeconds)
+	}
+	if got := sp.FailureThreshold * sp.PeriodSeconds; got != probes.DefaultStartupSeconds {
+		t.Errorf("startup allows %ds, want the default %ds", got, probes.DefaultStartupSeconds)
+	}
+	cfg.SandboxStartupSeconds = 300
+	c, err = sandboxContainer(cfg, testSandboxSpec(), "run-1", "token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.StartupProbe.FailureThreshold * c.StartupProbe.PeriodSeconds; got != 300 {
+		t.Errorf("startup allows %ds with an override of 300s", got)
+	}
+	if rp.InitialDelaySeconds != 0 {
+		t.Errorf("readiness initial delay = %d, want 0", rp.InitialDelaySeconds)
 	}
 }

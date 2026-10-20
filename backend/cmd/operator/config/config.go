@@ -110,6 +110,9 @@ type Injection struct {
 	BundlePollingMaxDelay int                         `yaml:"bundlePollingMaxDelay"`
 	OPAResources          corev1.ResourceRequirements `yaml:"opaResources"`
 
+	// StartupProbeSeconds is the startup probe budget of both sidecars. Zero takes the default.
+	StartupProbeSeconds int `yaml:"startupProbeSeconds"`
+
 	// SandboxSidecars pins each sidecar on sandbox pods: its requests equal its limits.
 	SandboxSidecars SandboxSidecars `yaml:"sandboxSidecars"`
 }

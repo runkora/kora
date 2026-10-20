@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 
+	"github.com/runkora/kora/backend/internal/platform/probes"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
@@ -84,6 +85,10 @@ type InjectionConfig struct {
 	OPAPullPolicy corev1.PullPolicy
 	OPALogLevel   string
 	OPAResources  corev1.ResourceRequirements
+
+	// StartupProbeSeconds is how long a sidecar may take to start before its
+	// startup probe restarts it. Zero uses probes.DefaultStartupSeconds.
+	StartupProbeSeconds int
 
 	// SandboxSidecars pins the sidecars on sandbox pods. An empty list keeps that sidecar's usual resources.
 	SandboxSidecars SandboxSidecars
@@ -287,14 +292,23 @@ func (m *PodMutator) identityProxyContainer(otlpEndpoint string) corev1.Containe
 		},
 		Ports:           []corev1.ContainerPort{{Name: "health", ContainerPort: 9090, Protocol: corev1.ProtocolTCP}},
 		SecurityContext: restrictedContainerSecurityContext(1000, true),
+		// Checked every second until the first success, so Ready is not held
+		// back by the readiness period. The budget is the ceiling for a stuck container.
+		StartupProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromInt32(9090)},
+			},
+			PeriodSeconds:    probes.StartupPeriodSeconds,
+			TimeoutSeconds:   3,
+			FailureThreshold: probes.StartupFailureThreshold(m.Config.StartupProbeSeconds),
+		},
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromInt32(9090)},
 			},
-			InitialDelaySeconds: 5,
-			PeriodSeconds:       5,
-			TimeoutSeconds:      3,
-			FailureThreshold:    10,
+			PeriodSeconds:    5,
+			TimeoutSeconds:   3,
+			FailureThreshold: 10,
 		},
 		Resources: m.Config.IdentityProxyResources,
 		VolumeMounts: []corev1.VolumeMount{
@@ -334,13 +348,21 @@ func (m *PodMutator) opaContainer() corev1.Container {
 			{Name: "opa-diag", ContainerPort: 8282, Protocol: corev1.ProtocolTCP},
 		},
 		SecurityContext: restrictedContainerSecurityContext(1337, true),
+		// Checked every second until bundles load. The liveness probe restarts a
+		// hung opa once this succeeds, so the budget only bounds a stuck start.
+		StartupProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{Path: "/health?bundles=true", Port: intstr.FromInt32(8282)},
+			},
+			PeriodSeconds:    probes.StartupPeriodSeconds,
+			FailureThreshold: probes.StartupFailureThreshold(m.Config.StartupProbeSeconds),
+		},
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{Path: "/health?bundles=true", Port: intstr.FromInt32(8282)},
 			},
-			InitialDelaySeconds: 3,
-			PeriodSeconds:       5,
-			FailureThreshold:    12,
+			PeriodSeconds:    5,
+			FailureThreshold: 12,
 		},
 		LivenessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{

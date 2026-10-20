@@ -48,6 +48,7 @@ import (
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/ports"
+	"github.com/runkora/kora/backend/internal/platform/probes"
 	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
@@ -82,6 +83,9 @@ type K8sProvisionerConfig struct {
 	// SandboxReadyWait bounds the wait for a sandbox pod to become ready. Zero uses defaultSandboxReadyWait.
 	SandboxReadyWait time.Duration
 	SandboxGRPCPort  int32
+	// SandboxStartupSeconds is how long sandbox-exec may take to start before its
+	// startup probe restarts it. Zero uses probes.DefaultStartupSeconds.
+	SandboxStartupSeconds int
 	// GitAuthorName/GitAuthorEmail set the git identity for commits the agent
 	// makes in the sandbox (GIT_AUTHOR_*/GIT_COMMITTER_*). Empty = leave unset.
 	GitAuthorName  string
@@ -1278,17 +1282,26 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 		Env:             sandboxContainerEnv(cfg, spec.KubeClusters, workspaceDir, execToken),
 		VolumeMounts:    mounts,
 		WorkingDir:      workspaceDir,
+		// The startup probe checks every second so the pod is Ready soon after
+		// the port opens. Its budget is the ceiling for a stuck container, not
+		// the expected start time. The readiness probe keeps its steady-state period.
+		StartupProbe: &corev1.Probe{
+			ProbeHandler:     sandboxProbeHandler(cfg.SandboxGRPCPort),
+			PeriodSeconds:    probes.StartupPeriodSeconds,
+			FailureThreshold: probes.StartupFailureThreshold(cfg.SandboxStartupSeconds),
+		},
 		ReadinessProbe: &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				TCPSocket: &corev1.TCPSocketAction{
-					Port: intstr.FromInt32(cfg.SandboxGRPCPort),
-				},
-			},
-			InitialDelaySeconds: 2,
-			PeriodSeconds:       3,
+			ProbeHandler:  sandboxProbeHandler(cfg.SandboxGRPCPort),
+			PeriodSeconds: 3,
 		},
 		Resources: resources,
 	}, nil
+}
+
+func sandboxProbeHandler(port int32) corev1.ProbeHandler {
+	return corev1.ProbeHandler{
+		TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)},
+	}
 }
 
 // sandboxResources reserves the environment's size for the sandbox, with requests equal to limits.

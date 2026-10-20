@@ -584,6 +584,10 @@ agents:
   # follow the Go config structs; an unknown key fails startup.
   # e.g. {cmd/orbit-agents: {drafts: {retentionDays: 7}}}
   configOverrides: {}
+  # -- Seconds a sandbox container (sandbox-exec, identity-proxy, opa) may take to
+  # start before its startup probe restarts it. A ceiling for a stuck container,
+  # well above a normal start. Probes check every second, so a healthy start is not delayed.
+  sandboxStartupSeconds: 120
   # Sandbox provisioning guardrails, applied to every run
   # (docs/adr/2026-09-29-agent-run-guardrails.md). After the last attempt the
   # run records sandbox_lost until the user replies. Loop-guard thresholds are

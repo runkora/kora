@@ -23,6 +23,7 @@ install:
     opaLogLevel: info
     bundlePollingMinDelay: 30
     bundlePollingMaxDelay: 60
+    startupProbeSeconds: 120
   podSecurity:
     enforce: restricted
     warn: restricted
