@@ -46,6 +46,26 @@ type senderIdentifier interface {
 	Associations() []string
 }
 
+// issuedSecret is implemented by adapters whose provider issues the signing
+// secret. Their sources take the secret from the admin at create and rotate.
+type issuedSecret interface {
+	providerIssuesSecret()
+}
+
+// handshaker is implemented by adapters whose provider sends a verification
+// request that expects a reply and is not a delivery.
+type handshaker interface {
+	// Handshake returns the reply for a handshake request. ok is false for a delivery.
+	Handshake(body []byte) (reply map[string]string, ok bool)
+}
+
+// fieldDeriver is implemented by adapters that compute fields no single
+// payload path holds.
+type fieldDeriver interface {
+	// DerivedFields returns field key to value. Keys never start with "meta.".
+	DerivedFields(eventType string, doc any) map[string]string
+}
+
 // Sender is who caused an event, as the provider reports it.
 type Sender struct {
 	Login       string

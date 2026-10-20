@@ -525,13 +525,17 @@ type CreateSourceRequest struct {
 	Name     string         `json:"name"`
 	Provider string         `json:"provider"`
 	Config   map[string]any `json:"config,omitempty"`
+	// SigningSecret is write-only and accepted only for a provider that issues its own secret.
+	SigningSecret string `json:"signing_secret,omitempty"`
 }
 
 // UpdateSourceRequest is the body for PATCH /api/v1/trigger-sources/{id}.
-// Only the enabled flag is mutable in v1; rotating the secret regenerates it.
+// Only the enabled flag is mutable; rotating the secret regenerates it, or for
+// a provider that issues its own secret, stores SigningSecret.
 type UpdateSourceRequest struct {
-	Enabled      *bool `json:"enabled,omitempty"`
-	RotateSecret bool  `json:"rotate_secret,omitempty"`
+	Enabled       *bool  `json:"enabled,omitempty"`
+	RotateSecret  bool   `json:"rotate_secret,omitempty"`
+	SigningSecret string `json:"signing_secret,omitempty"`
 }
 
 // SourceResponse is the API view of a webhook source. The signing secret and the
@@ -687,11 +691,13 @@ type UpdateRetentionRequest struct {
 // source has sent, including events newer than the schema; a provider's catalog
 // has none.
 // Associations are the values a sender restriction may name, empty when the
-// provider identifies no sender.
+// provider identifies no sender or has no associations. IdentifiesSenders is
+// true when the provider reports who caused an event, so a sender restriction applies.
 type EventTypesResponse struct {
-	Declared     []string `json:"declared"`
-	Observed     []string `json:"observed,omitempty"`
-	Associations []string `json:"associations"`
+	Declared          []string `json:"declared"`
+	Observed          []string `json:"observed,omitempty"`
+	Associations      []string `json:"associations"`
+	IdentifiesSenders bool     `json:"identifies_senders"`
 }
 
 // FieldsResponse lists the fields a trigger on one event type can reference.

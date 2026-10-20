@@ -61,16 +61,18 @@ func placeholderKeys(tmpl string) []string {
 	return keys
 }
 
-// triggerFields builds one trigger's field map: the meta fields plus every
-// delivery path the trigger references, resolved against the decoded body.
-func triggerFields(t Trigger, doc any, meta map[string]string) map[string]string {
-	fields := make(map[string]string, len(meta))
+// triggerFields builds one trigger's field map: the meta fields, every delivery
+// path the trigger references resolved against the decoded body, then the
+// adapter's derived fields, which win over a payload path with the same key.
+func triggerFields(t Trigger, doc any, meta, derived map[string]string) map[string]string {
+	fields := make(map[string]string, len(meta)+len(derived))
 	maps.Copy(fields, meta)
 	for _, key := range referencedKeys(t) {
 		if !strings.HasPrefix(key, metaFieldsPrefix) {
 			fields[key] = resolvePath(doc, key)
 		}
 	}
+	maps.Copy(fields, derived)
 	return fields
 }
 

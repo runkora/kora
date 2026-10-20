@@ -180,7 +180,7 @@ func (c *Controller) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	outcome, err := c.svc.Ingest(ctx, sourceID, r.Header, body)
+	result, err := c.svc.Ingest(ctx, sourceID, r.Header, body)
 	if err != nil {
 		switch {
 		// One answer for every way an unauthenticated caller can be refused:
@@ -201,11 +201,14 @@ func (c *Controller) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if outcome == IngestDuplicate {
+	switch result.Outcome {
+	case IngestHandshake:
+		api.JSON(ctx, w, c.logger, http.StatusOK, result.Reply)
+	case IngestDuplicate:
 		api.JSON(ctx, w, c.logger, http.StatusOK, map[string]string{"status": "duplicate"})
-		return
+	default:
+		api.JSON(ctx, w, c.logger, http.StatusAccepted, map[string]string{"status": "accepted"})
 	}
-	api.JSON(ctx, w, c.logger, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
 // ─── Sources ──────────────────────────────────────────────────────────────────

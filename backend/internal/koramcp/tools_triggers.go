@@ -72,8 +72,10 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 		})
 
 	addTool(srv, "triggers.sources.create",
-		"Create a webhook trigger source. Returns the source including its signing secret (shown once). "+
-			"provider selects the payload format (e.g. github, generic); config holds provider-specific settings.",
+		"Create a webhook trigger source. Returns the source and, when the platform generates the signing secret, "+
+			"that secret (shown once). provider selects the payload format (e.g. github, generic); config holds "+
+			"provider-specific settings. A provider that issues its own signing secret cannot be created here: a secret "+
+			"must not pass through a tool call, so create it in the console or through the REST API.",
 		func(ctx context.Context, a createSourceArgs) (*sdk.CallToolResult, error) {
 			if a.Name == "" || a.Provider == "" {
 				return toolError(errors.New("name and provider are required")), nil
@@ -84,7 +86,8 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 	addTool(srv, "triggers.sources.update",
 		"Update a webhook trigger source: enable/disable it, or rotate its signing secret (rotate_secret=true "+
 			"returns a new secret and invalidates the old one). Rotating, enabling or disabling needs permission to run every "+
-			"agent the source's triggers start.",
+			"agent the source's triggers start. A provider that issues its own signing secret is rotated in the console "+
+			"or through the REST API.",
 		func(ctx context.Context, a updateSourceArgs) (*sdk.CallToolResult, error) {
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
@@ -301,7 +304,7 @@ type createSourceArgs struct {
 type updateSourceArgs struct {
 	ID           string `json:"id" jsonschema:"the source id"`
 	Enabled      *bool  `json:"enabled,omitempty" jsonschema:"enable or disable the source"`
-	RotateSecret bool   `json:"rotate_secret,omitempty" jsonschema:"rotate the signing secret (returns a new one)"`
+	RotateSecret bool   `json:"rotate_secret,omitempty" jsonschema:"rotate the platform-generated signing secret (returns a new one)"`
 }
 
 type createTriggerArgs struct {

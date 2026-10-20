@@ -213,6 +213,51 @@ func TestTriggerToolsUseTriggersBackend(t *testing.T) {
 	}
 }
 
+// TestTriggerSourceToolsNeverCarryASigningSecret keeps a secret out of a model's
+// context: the source tools neither advertise nor forward signing_secret.
+func TestTriggerSourceToolsNeverCarryASigningSecret(t *testing.T) {
+	var bodies []map[string]any
+	triggers := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		bodies = append(bodies, b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer triggers.Close()
+
+	srv := NewServer(Backends{Triggers: triggers.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	tools, _ := call("tools/list", map[string]any{})["result"].(map[string]any)["tools"].([]any)
+	for _, tt := range tools {
+		m, _ := tt.(map[string]any)
+		if m["name"] != "triggers.sources.create" && m["name"] != "triggers.sources.update" {
+			continue
+		}
+		props, _ := m["inputSchema"].(map[string]any)["properties"].(map[string]any)
+		if _, ok := props["signing_secret"]; ok {
+			t.Errorf("%s advertises signing_secret", m["name"])
+		}
+	}
+
+	for name, args := range map[string]map[string]any{
+		"triggers.sources.create": {"name": "s", "provider": "github", "signing_secret": "leak"},
+		"triggers.sources.update": {"id": "src-1", "rotate_secret": true, "signing_secret": "leak"},
+	} {
+		res, _ := call("tools/call", map[string]any{"name": name, "arguments": args})["result"].(map[string]any)
+		if res["isError"] != true {
+			t.Errorf("%s accepted signing_secret: %v", name, res)
+		}
+	}
+	if len(bodies) != 0 {
+		t.Errorf("a source tool carrying signing_secret reached the backend: %v", bodies)
+	}
+}
+
 // TestTriggerProviderToolsAndSenderRestriction covers the provider catalog
 // tools and sender_restriction forwarding on trigger create and update.
 func TestTriggerProviderToolsAndSenderRestriction(t *testing.T) {

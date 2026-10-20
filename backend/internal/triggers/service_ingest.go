@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,27 +20,28 @@ import (
 // ─── Ingest (webhook) ─────────────────────────────────────────────────────────
 
 // Ingest verifies an inbound delivery, records it, and queues asynchronous
-// dispatch. It returns IngestAccepted for a new, verified delivery and
-// IngestDuplicate for a redelivery. Signature/visibility failures are returned as
+// dispatch. It returns IngestAccepted for a new, verified delivery,
+// IngestDuplicate for a redelivery and IngestHandshake with the reply for a
+// verified provider handshake. Signature/visibility failures are returned as
 // sentinel errors and produce no delivery row (so unauthenticated callers cannot
 // flood the audit log).
-func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Header, body []byte) (IngestOutcome, error) {
+func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Header, body []byte) (IngestResult, error) {
 	src, err := s.repo.GetSourceByID(ctx, sourceID)
 	if err != nil {
-		return 0, err
+		return IngestResult{}, err
 	}
 	if !src.Enabled {
 		s.recordSourceRejection(ctx, src.ID, "source is disabled")
-		return 0, ErrSourceDisabled
+		return IngestResult{}, ErrSourceDisabled
 	}
 	adapter, ok := s.registry.Get(src.Provider)
 	if !ok {
-		return 0, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
+		return IngestResult{}, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
 	}
 
 	secret, err := s.cipher.decrypt(src.SecretCiphertext)
 	if err != nil {
-		return 0, fmt.Errorf("decrypt signing secret: %w", err)
+		return IngestResult{}, fmt.Errorf("decrypt signing secret: %w", err)
 	}
 
 	if verifyErr := adapter.Verify(secret, headers, body); verifyErr != nil {
@@ -47,7 +50,16 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		// recorded as a delivery: this request is unauthenticated, so a row per
 		// request would be an attacker-controlled write (ADR Decision 4).
 		s.recordSourceRejection(ctx, src.ID, "invalid signature")
-		return 0, ErrSignatureInvalid
+		return IngestResult{}, ErrSignatureInvalid
+	}
+
+	// A handshake is not a delivery: it writes no row, takes no replay key and
+	// moves no counter. It is answered only after Verify, so an unsigned caller
+	// cannot tell a real source id from an unknown one.
+	if hs, ok := adapter.(handshaker); ok {
+		if reply, isHandshake := hs.Handshake(body); isHandshake {
+			return IngestResult{Outcome: IngestHandshake, Reply: reply}, nil
+		}
 	}
 
 	deliveryID := adapter.DeliveryID(headers, body)
@@ -59,7 +71,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		// captured-and-replayed delivery whose id was stripped or unparseable
 		// would otherwise re-dispatch unbounded. Reject fail-closed.
 		s.recordSourceRejection(ctx, src.ID, "missing provider delivery id")
-		return 0, ErrMissingDeliveryID
+		return IngestResult{}, ErrMissingDeliveryID
 	}
 	// Replay defense that does not depend on the delivery id being honest. The id
 	// is not part of what a provider signs (GitHub puts it in a plain header), so
@@ -80,7 +92,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		)
 	} else if !fresh {
 		s.recordSourceRejection(ctx, src.ID, "payload already delivered under a different delivery id")
-		return 0, ErrReplayedPayload
+		return IngestResult{}, ErrReplayedPayload
 	}
 
 	eventType := adapter.EventType(headers, body)
@@ -99,7 +111,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 	}
 	inserted, err := s.repo.InsertDelivery(ctx, delivery)
 	if err != nil {
-		return 0, err
+		return IngestResult{}, err
 	}
 	if !inserted {
 		// The sender retried something already handled. The retry is recorded
@@ -107,7 +119,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		// delivery history has to be able to answer, and until now the repeats
 		// left nothing behind at all.
 		s.recordDuplicate(ctx, *src, adapter, delivery, body)
-		return IngestDuplicate, nil
+		return IngestResult{Outcome: IngestDuplicate}, nil
 	}
 
 	s.recordAccepted(ctx, src.ID)
@@ -124,7 +136,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		deliveryID: delivery.ID, providerDeliveryID: deliveryID, eventType: eventType, body: body,
 	})
 
-	return IngestAccepted, nil
+	return IngestResult{Outcome: IngestAccepted}, nil
 }
 
 // replayWindow is how long a source remembers the bodies it has handled.
@@ -266,6 +278,7 @@ func (s *Service) fanOut(
 	}
 	meta := map[string]string{metaEventType: eventType, metaDeliveryID: a.providerDeliveryID, metaSource: src.Name}
 	sender, hasSender := identifySender(adapter, eventType, doc)
+	derived := deriveFields(adapter, eventType, doc)
 
 	triggers, err := s.repo.ListMatchableTriggersForSource(ctx, src.ID)
 	if err != nil {
@@ -305,7 +318,7 @@ func (s *Service) fanOut(
 			})
 			continue
 		}
-		fields := triggerFields(t, doc, meta)
+		fields := triggerFields(t, doc, meta, derived)
 		if !matchesCondition(t.MatchCondition, fields) || !matchesContains(t.MatchContains, fields) {
 			// Insert without deriving: the summary is computed once, below,
 			// after the whole fan-out is written.
@@ -351,6 +364,18 @@ func identifySender(adapter SourceAdapter, eventType string, doc any) (Sender, b
 		return Sender{}, false
 	}
 	return si.Sender(eventType, doc)
+}
+
+// deriveFields asks the adapter for the fields no single payload path holds. A
+// meta key is dropped so an adapter cannot overwrite what the platform reports.
+func deriveFields(adapter SourceAdapter, eventType string, doc any) map[string]string {
+	fd, ok := adapter.(fieldDeriver)
+	if !ok || doc == nil {
+		return nil
+	}
+	derived := fd.DerivedFields(eventType, doc)
+	maps.DeleteFunc(derived, func(k, _ string) bool { return strings.HasPrefix(k, metaFieldsPrefix) })
+	return derived
 }
 
 // senderAllowed applies a trigger's sender restriction. Stored logins are

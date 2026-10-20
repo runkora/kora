@@ -62,7 +62,15 @@ const (
 	IngestAccepted IngestOutcome = iota
 	// IngestDuplicate means the delivery id was already processed (redelivery).
 	IngestDuplicate
+	// IngestHandshake means the request was a provider handshake and recorded nothing.
+	IngestHandshake
 )
+
+// IngestResult is what Ingest returns: the outcome, and for a handshake the reply.
+type IngestResult struct {
+	Outcome IngestOutcome
+	Reply   map[string]string
+}
 
 // pipelineStore is the storage a delivery passes through from arrival to
 // dispatch: recording it, finding the triggers that match, and the counters
