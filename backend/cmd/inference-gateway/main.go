@@ -274,10 +274,11 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// GET /v1/usage/stats is personal — per-PAT aggregates for the calling
 		// principal only.
 		{PathPrefix: "/v1/usage/stats", Method: "GET", RequiredScope: ""},
-		// Agent usage needs agents:usage:read; a per-agent scope does not cover it. A new
-		// /v1/usage route needs its own entry or it falls to the open one below.
-		{PathPrefix: "/v1/usage/agent-insights", Method: "GET", RequiredScope: "agents:usage:read"},
-		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: "agents:usage:read"},
+		// Agent usage is authenticated-only at the route layer. The governing scope is
+		// per-agent (agents:usage:<slug>:read) and Service.ReadableAgents narrows the
+		// response to the agents the caller may read. agents:usage:read covers every agent.
+		{PathPrefix: "/v1/usage/agent-insights", Method: "GET", RequiredScope: ""},
+		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: ""},
 		// GET /v1/usage is the caller's own inference usage log; tenant and
 		// principal come from the verified claims.
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},

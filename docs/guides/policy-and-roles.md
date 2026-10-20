@@ -42,6 +42,27 @@ The vocabulary is the finite registered set of valid scopes. It is global: every
 
 The vocabulary is populated as a side effect of route registration: a service declares its `required_scope`s when it registers its routes (see [Route Registration](#route-registration)), and those scope declarations are upserted into the vocabulary. There is no standalone write API: the vocabulary is read-only over HTTP (`GET /policy/vocabulary`). Platform-level scopes (`platform:grants:write`, `platform:roles:write`, …) are self-registered by the policy service at startup.
 
+### Agent Scopes
+
+Access to agents, runs and agent usage is granted per agent. orbit-agents registers these scopes for every agent slug:
+
+| Scope | Grants |
+|---|---|
+| `agents:types:<slug>:read` | View the agent's definition |
+| `agents:runs:<slug>:read` | View the agent's runs and events |
+| `agents:runs:<slug>:write` | Start, message, interrupt and terminate the agent's runs |
+| `agents:usage:<slug>:read` | View the agent's usage, spend and budget |
+
+The parents `agents:types:read`, `agents:runs:read`, `agents:runs:write` and `agents:usage:read` cover every agent. `agents:runs:delegated:write` starts runs of any delegated agent. Messaging and interrupting a delegated run stay with its starter. Terminating another person's delegated run also needs `agents:delegated:read`. It does not cover autonomous agents. Lists return only the agents and runs the caller may read.
+
+Three rules apply without a per-agent scope:
+
+- A person in an interactive session sees the runs they started. A PAT, agent or service needs a read scope.
+- The creator of an agent sees it and can view, start and act on its runs while they hold `agents:types:<mode>:write` for the agent's identity mode. An agent created under delegation belongs to the person behind the delegation.
+- A delegated run is visible only to its starter, unless the caller holds `agents:delegated:read`. Only the starter can message or interrupt it.
+
+The agent slugs `delegated` and `autonomous` are reserved.
+
 ### Grants
 
 A grant asserts that a named principal within a tenant holds a set of scopes.

@@ -55,6 +55,11 @@ func NewAuthz(eval policy.Evaluator) *Authz { return &Authz{eval: eval} }
 // authorized by checkAgentTypeModeWrite, whose required scope is qualified by
 // identity mode rather than slug.
 func (a *Authz) checkAgentType(ctx context.Context, at AgentType, action string) error {
+	if action == "read" {
+		if owner, err := a.ownerAllowed(ctx, at); err != nil || owner {
+			return err
+		}
+	}
 	r, err := a.eval.Check(ctx, policy.CheckInput{
 		Claims:       claimsFromContext(ctx),
 		Delegation:   policy.DelegationFromContext(ctx),
@@ -71,7 +76,8 @@ func (a *Authz) checkAgentType(ctx context.Context, at AgentType, action string)
 	return nil
 }
 
-// filterAgentTypes returns the subset of agent types the principal may "read".
+// filterAgentTypes returns the subset of agent types the principal may "read":
+// agents:types:<slug>:read, or the caller created the type.
 // A single Query call evaluates all candidates against the per-tenant bundle.
 //
 // The input slice is mutated in place for efficiency (zero allocations on the
@@ -100,7 +106,13 @@ func (a *Authz) filterAgentTypes(ctx context.Context, ats []AgentType) ([]AgentT
 	set := stringSet(allowed)
 	out := ats[:0]
 	for _, at := range ats {
-		if _, ok := set[at.ID]; ok {
+		_, ok := set[at.ID]
+		if !ok {
+			if ok, err = a.ownerAllowed(ctx, at); err != nil {
+				return nil, err
+			}
+		}
+		if ok {
 			out = append(out, at)
 		}
 	}
@@ -166,21 +178,17 @@ func (a *Authz) checkAnyAgentTypeWrite(ctx context.Context) error {
 
 // ── Runs ──────────────────────────────────────────────────────────────────────
 
-// checkRun returns nil if the principal may perform action on the given run.
-// The agent type is required because run-level scopes are keyed by agent slug,
-// not by run ID (the vocabulary in docs/adr/2026-05-11-orbit-agents-route-scope-registration.md registers `agents:runs:{slug}:…`).
+// checkRun returns nil if the principal may perform action on runs of the agent type.
+// Run scopes are keyed by agent slug, not run ID. The type's creator passes for both actions.
 func (a *Authz) checkRun(ctx context.Context, at AgentType, action string) error {
-	r, err := a.eval.Check(ctx, policy.CheckInput{
-		Claims:       claimsFromContext(ctx),
-		Delegation:   policy.DelegationFromContext(ctx),
-		ResourceType: "agents",
-		PathSegments: []string{"runs", at.Slug},
-		Action:       action,
-	})
-	if err != nil {
-		return fmt.Errorf("authz check run: %w", err)
+	if owner, err := a.ownerAllowed(ctx, at); err != nil || owner {
+		return err
 	}
-	if !r.Allow {
+	allowed, err := policy.AgentRunAllowed(ctx, a.eval, at.Slug, at.IsDelegated(), action)
+	if err != nil {
+		return err
+	}
+	if !allowed {
 		return ErrForbidden
 	}
 	return nil
@@ -201,7 +209,8 @@ func (a *Authz) canReadDelegatedRuns(ctx context.Context) (bool, error) {
 	return r.Allow, nil
 }
 
-// readableRunAgentTypes returns the IDs of the agent types in ats whose runs the principal may read (agents:runs:<slug>:read).
+// readableRunAgentTypes returns the IDs of the agent types in ats whose runs the
+// principal may read: agents:runs:<slug>:read, or the caller created the type.
 func (a *Authz) readableRunAgentTypes(ctx context.Context, ats []AgentType) ([]string, error) {
 	if len(ats) == 0 {
 		return nil, nil
@@ -220,7 +229,38 @@ func (a *Authz) readableRunAgentTypes(ctx context.Context, ats []AgentType) ([]s
 	if err != nil {
 		return nil, fmt.Errorf("authz query runs: %w", err)
 	}
+	set := stringSet(allowed)
+	for _, at := range ats {
+		if _, ok := set[at.ID]; ok {
+			continue
+		}
+		owner, err := a.ownerAllowed(ctx, at)
+		if err != nil {
+			return nil, err
+		}
+		if owner {
+			allowed = append(allowed, at.ID)
+		}
+	}
 	return allowed, nil
+}
+
+// ownerAllowed reports whether a person (HUMAN or PAT) created the agent type and
+// still holds agents:types:<mode>:write for its mode. The scope keeps owner access
+// revocable through policy and bounded by a PAT's scopes.
+func (a *Authz) ownerAllowed(ctx context.Context, at AgentType) (bool, error) {
+	claims := claimsFromContext(ctx)
+	if claims == nil || claims.Subject == "" || at.CreatedBy != claims.Subject || at.TenantID != claims.Kora.TenantID {
+		return false, nil
+	}
+	if pt := claims.Kora.PrincipalType; pt != token.PrincipalTypeHuman && pt != token.PrincipalTypePAT {
+		return false, nil
+	}
+	err := a.checkAgentTypeModeWrite(ctx, at.IdentityMode.OrDefault())
+	if errors.Is(err, ErrIdentityModeWriteForbidden) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

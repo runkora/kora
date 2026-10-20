@@ -1,10 +1,13 @@
 package inferencegw
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -62,9 +65,68 @@ type AgentBudgetSpend struct {
 	Month     float64
 }
 
-// Insights returns the window's usage, models, trend, previous total and budgets,
-// for one agent when slug is set.
-func (s *Service) Insights(ctx context.Context, tenantID string, period usagewindow.Period, slug string, now time.Time) (AgentInsights, error) {
+// ErrAgentUsageForbidden is returned when the caller may not read the named agent's usage.
+var ErrAgentUsageForbidden = errors.New("agent usage requires agents:usage:<slug>:read or agents:usage:read")
+
+// AgentFilter selects the agents a usage read covers: every agent when All is
+// set, otherwise only Slugs. An empty Slugs selects none.
+type AgentFilter struct {
+	All   bool
+	Slugs []string
+}
+
+func (f AgentFilter) includes(slug string) bool { return f.All || slices.Contains(f.Slugs, slug) }
+
+// ReadableAgents returns the agents whose usage the caller may read, narrowed to
+// slug when it is set. agents:usage:read selects every agent. Otherwise the
+// candidates are the caller's agents:usage:<slug>:read scopes, confirmed by one
+// policy query. A named slug the caller may not read is ErrAgentUsageForbidden.
+func (s *Service) ReadableAgents(ctx context.Context, slug string) (AgentFilter, error) {
+	claims, _ := token.ClaimsFromContext(ctx)
+	delegation := policy.DelegationFromContext(ctx)
+	check := func(segments ...string) (bool, error) {
+		r, err := s.policy.Check(ctx, policy.CheckInput{Claims: claims, Delegation: delegation, ResourceType: "agents", PathSegments: segments, Action: "read"})
+		if err != nil {
+			return false, fmt.Errorf("authz check agent usage: %w", err)
+		}
+		return r.Allow, nil
+	}
+	if slug != "" {
+		allowed, err := check("usage", slug)
+		if err != nil || !allowed {
+			return AgentFilter{}, cmp.Or(err, ErrAgentUsageForbidden)
+		}
+		return AgentFilter{Slugs: []string{slug}}, nil
+	}
+	all, err := check("usage")
+	if err != nil || all {
+		return AgentFilter{All: all}, err
+	}
+	held, err := s.policy.Scopes(ctx, policy.ScopesInput{Claims: claims})
+	if err != nil {
+		return AgentFilter{}, fmt.Errorf("agent usage scopes: %w", err)
+	}
+	var candidates []policy.Candidate
+	for _, sc := range held {
+		if rest, ok := strings.CutPrefix(sc, "agents:usage:"); ok {
+			if one, ok := strings.CutSuffix(rest, ":read"); ok && !strings.Contains(one, ":") {
+				candidates = append(candidates, policy.Candidate{ID: one, PathSegments: []string{"usage", one}})
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return AgentFilter{Slugs: []string{}}, nil
+	}
+	slugs, err := s.policy.Query(ctx, policy.QueryInput{Claims: claims, Delegation: delegation, ResourceType: "agents", Action: "read", Candidates: candidates})
+	if err != nil {
+		return AgentFilter{}, fmt.Errorf("authz query agent usage: %w", err)
+	}
+	return AgentFilter{Slugs: slugs}, nil
+}
+
+// Insights returns the window's usage, models, trend, previous total and budgets
+// for the agents f selects.
+func (s *Service) Insights(ctx context.Context, tenantID string, period usagewindow.Period, f AgentFilter, now time.Time) (AgentInsights, error) {
 	w := usagewindow.For(period, now)
 
 	var (
@@ -74,14 +136,14 @@ func (s *Service) Insights(ctx context.Context, tenantID string, period usagewin
 		budgets  []AgentBudgetRow
 	)
 	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() (err error) { rows, err = s.usage.AgentUsage(gctx, tenantID, w, slug); return err })
+	g.Go(func() (err error) { rows, err = s.usage.AgentUsage(gctx, tenantID, w, f); return err })
 	g.Go(func() (err error) {
-		previous, buckets, err = s.usage.AgentSpendBuckets(gctx, tenantID, w, slug)
+		previous, buckets, err = s.usage.AgentSpendBuckets(gctx, tenantID, w, f)
 		return err
 	})
 	g.Go(func() error {
 		// Budgets are an extra: a failure leaves them out and does not fail the page.
-		budgets = s.agentBudgets(gctx, tenantID, slug, now)
+		budgets = s.agentBudgets(gctx, tenantID, f, now)
 		return nil
 	})
 	if err := g.Wait(); err != nil {
@@ -139,17 +201,14 @@ func foldUsage(rows []AgentModelUsage) ([]AgentTypeUsage, []AnalyticsCostByModel
 }
 
 // agentBudgets builds a row per agent with a window limit from the policy bundle,
-// delegated agents included, or only the row of slug when it is set.
-func (s *Service) agentBudgets(ctx context.Context, tenantID, slug string, now time.Time) []AgentBudgetRow {
+// delegated agents included, for the agents f selects.
+func (s *Service) agentBudgets(ctx context.Context, tenantID string, f AgentFilter, now time.Time) []AgentBudgetRow {
 	principals, _, err := s.policy.ListBudgets(ctx, tenantID)
 	if err != nil {
 		s.logger.Warn(ctx, "agent budgets unavailable", logging.Field{Key: "error", Value: err.Error()})
 		return nil
 	}
-	rows := budgetRowsFromBundle(principals, now)
-	if slug != "" {
-		rows = slices.DeleteFunc(rows, func(r AgentBudgetRow) bool { return r.AgentSlug != slug })
-	}
+	rows := slices.DeleteFunc(budgetRowsFromBundle(principals, now), func(r AgentBudgetRow) bool { return !f.includes(r.AgentSlug) })
 	if len(rows) == 0 {
 		return nil
 	}

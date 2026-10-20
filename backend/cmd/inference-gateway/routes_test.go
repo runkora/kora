@@ -12,15 +12,13 @@ import (
 	"github.com/runkora/kora/backend/internal/inferencegw"
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/logging"
-	"github.com/runkora/kora/backend/internal/platform/policy"
 
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 )
 
-// TestInferenceRoutesUsageScopes pins the personal-vs-privileged split across the
-// /v1/usage tree. The agent reads report spend per agent, so they require
-// agents:usage:read; the rest are derived from the caller's own claims and need
-// authentication only.
+// TestInferenceRoutesUsageScopes pins the route scopes across the /v1/usage tree.
+// The agent reads are authenticated-only and filter per agent in the service; the
+// rest are derived from the caller's own claims.
 //
 // It resolves through mw.ResolveRequiredScope, the function the enforcement
 // middleware itself calls, rather than a local reimplementation of the matching
@@ -39,8 +37,8 @@ func TestInferenceRoutesUsageScopes(t *testing.T) {
 		{name: "usage stats is personal", path: "/v1/usage/stats", scope: ""},
 		{name: "personal budget", path: "/v1/usage/budget", scope: ""},
 		{name: "run usage meter", path: "/v1/usage/run/run-123", scope: ""},
-		{name: "agent type usage needs the usage scope", path: "/v1/usage/agent-type/token-probe", scope: "agents:usage:read"},
-		{name: "agent insights need the usage scope", path: "/v1/usage/agent-insights", scope: "agents:usage:read"},
+		{name: "agent type usage filters in the service", path: "/v1/usage/agent-type/token-probe", scope: ""},
+		{name: "agent insights filter in the service", path: "/v1/usage/agent-insights", scope: ""},
 		{name: "personal analytics", path: "/v1/analytics/me", scope: ""},
 		{name: "tenant analytics", path: "/v1/analytics", scope: "platform:analytics:read"},
 	}
@@ -78,19 +76,9 @@ func (r *routeRecorder) Info(_ context.Context, msg string, fields ...logging.Fi
 	}
 }
 
-// Scope covering runs from the broad scope down, so a per-agent scope opens nothing.
-func TestPerAgentUsageScopeDoesNotOpenTheUsageRoutes(t *testing.T) {
-	required, _ := mw.ResolveRequiredScope(inferenceRoutes(), "GET", "/v1/usage/agent-insights")
-	if policy.ScopeCovers("agents:usage:coder:read", required) {
-		t.Errorf("agents:usage:coder:read must not cover %s", required)
-	}
-	if !policy.ScopeCovers(required, "agents:usage:coder:read") {
-		t.Errorf("%s must cover the per-agent scope", required)
-	}
-}
-
 // TestUsageRoutesAreScopedUnlessPersonal fails on a /v1/usage route that falls to the
 // open entry, which would expose tenant-wide spend to any authenticated caller.
+// The listed routes are authenticated-only and scope their own response.
 func TestUsageRoutesAreScopedUnlessPersonal(t *testing.T) {
 	rec := &routeRecorder{Logger: logging.NewLoggerWithOutput(io.Discard)}
 	mux := api.NewMux(context.Background(), rec)
@@ -102,6 +90,9 @@ func TestUsageRoutesAreScopedUnlessPersonal(t *testing.T) {
 		"/v1/usage/stats":       true,
 		"/v1/usage/budget":      true,
 		"/v1/usage/run/{runID}": true,
+		// Filtered per agent by Service.ReadableAgents.
+		"/v1/usage/agent-insights":    true,
+		"/v1/usage/agent-type/{slug}": true,
 	}
 	seenPersonal := map[string]bool{}
 	wildcard := regexp.MustCompile(`\{[^}]*\}`)

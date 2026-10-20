@@ -218,11 +218,13 @@ type AgentType struct {
 	Environments            []AgentEnvironment `json:"environments"`
 	MaxConcurrentRunsPerPod int                `json:"max_concurrent_runs_per_pod"`
 	// Guardrails are the loop-guard thresholds; unset fields take the platform defaults.
-	Guardrails Guardrails     `json:"guardrails"`
-	State      AgentTypeState `json:"state"`
-	CreatedAt  time.Time      `json:"created_at"`
-	UpdatedAt  time.Time      `json:"updated_at"`
-	ModelID    *string        `json:"model_id,omitempty"`
+	Guardrails Guardrails `json:"guardrails"`
+	// CreatedBy is the token subject that created the type; the owner check in Authz reads it.
+	CreatedBy string         `json:"created_by,omitempty"`
+	State     AgentTypeState `json:"state"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	ModelID   *string        `json:"model_id,omitempty"`
 	// Budget mirrors the budget on the agent's policy grant. Transient: never
 	// written to the agent_types table; populated on detail reads and carried
 	// as the desired state during grant reconciliation.

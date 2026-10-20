@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
@@ -34,8 +35,24 @@ func validateAgentSlug(slug string) error {
 		return fmt.Errorf("%w %q: slug must be lowercase letters, digits and hyphens, start with a letter, end with a letter or digit, and be at most %d characters",
 			ErrInvalidSlug, slug, maxAgentSlugLength)
 	}
+	if slices.Contains(reservedAgentSlugs, slug) {
+		return fmt.Errorf("%w %q: the identity mode names %q are reserved", ErrInvalidSlug, slug, reservedAgentSlugs)
+	}
 	return nil
 }
+
+// creatorSubject is the person behind the create (D37). Under delegation it is
+// the delegator, so owner access goes to the person and never to the acting agent.
+func creatorSubject(ctx context.Context) string {
+	if d := policy.DelegationFromContext(ctx); d != nil && d.Sub != "" {
+		return d.Sub
+	}
+	return callerSubject(ctx)
+}
+
+// reservedAgentSlugs are the identity mode names. Mode-qualified scopes such as
+// agents:runs:delegated:write sit where a per-agent scope's slug would.
+var reservedAgentSlugs = []string{string(IdentityModeDelegated), string(IdentityModeAutonomous)}
 
 // AgentTypeServiceConfig holds the runtime parameters used by AgentTypeService.
 type AgentTypeServiceConfig struct {
@@ -375,6 +392,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		ModelID:                 req.ModelID,
 		Budget:                  req.Budget,
 		State:                   AgentTypeStateProvisioning,
+		CreatedBy:               creatorSubject(ctx),
 	}
 	if err := s.checkCeiling(ctx, at, s.scopeResolver()); err != nil {
 		return nil, err
@@ -389,6 +407,12 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		return nil, fmt.Errorf("create agent type: %w", err)
 	}
 	span.SetAttributes(attribute.String("agent_type_id", at.ID))
+
+	// Publish the new slug's scopes now. A trigger bound seconds after create
+	// needs agents:runs:<slug>:* in the vocabulary before provisioning ends.
+	if s.hook != nil {
+		s.hook()
+	}
 
 	// Return immediately with state=provisioning; K8s resource creation runs in
 	// the background so the caller can redirect to the detail page and poll.

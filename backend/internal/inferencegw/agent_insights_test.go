@@ -3,9 +3,11 @@ package inferencegw
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -20,6 +22,31 @@ import (
 type fakeBundle struct {
 	policy.Evaluator
 	principals map[string]policy.PrincipalBudget
+	// granted answers Check, Query and Scopes with the platform covers rule.
+	granted []string
+}
+
+func (f fakeBundle) allows(resource string, segments []string, action string) bool {
+	required := policy.DeriveRequiredScope(resource, segments, action)
+	return slices.ContainsFunc(f.granted, func(g string) bool { return policy.ScopeCovers(g, required) })
+}
+
+func (f fakeBundle) Check(_ context.Context, in policy.CheckInput) (policy.Result, error) {
+	return policy.Result{Allow: f.allows(in.ResourceType, in.PathSegments, in.Action)}, nil
+}
+
+func (f fakeBundle) Query(_ context.Context, in policy.QueryInput) ([]string, error) {
+	out := []string{}
+	for _, c := range in.Candidates {
+		if f.allows(in.ResourceType, c.PathSegments, in.Action) {
+			out = append(out, c.ID)
+		}
+	}
+	return out, nil
+}
+
+func (f fakeBundle) Scopes(context.Context, policy.ScopesInput) ([]string, error) {
+	return f.granted, nil
 }
 
 func (f fakeBundle) ListBudgets(context.Context, string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
@@ -50,7 +77,7 @@ func TestInsights_FoldsUsageAndBuckets(t *testing.T) {
 		agentBuckets:  buckets,
 	}
 
-	out, err := newInsights(repo, nil).Insights(context.Background(), "t1", usagewindow.Period7d, "", testEnd)
+	out, err := newInsights(repo, nil).Insights(context.Background(), "t1", usagewindow.Period7d, AgentFilter{All: true}, testEnd)
 	if err != nil {
 		t.Fatalf("Insights: %v", err)
 	}
@@ -71,7 +98,7 @@ func TestInsights_FoldsUsageAndBuckets(t *testing.T) {
 	}
 
 	// An empty window must encode arrays, which the page reads.
-	empty, _ := newInsights(&mockInferenceUsageRepository{agentBuckets: make([]float64, 7)}, nil).Insights(context.Background(), "t1", usagewindow.Period7d, "", testEnd)
+	empty, _ := newInsights(&mockInferenceUsageRepository{agentBuckets: make([]float64, 7)}, nil).Insights(context.Background(), "t1", usagewindow.Period7d, AgentFilter{All: true}, testEnd)
 	raw, _ := json.Marshal(empty)
 	if strings.Contains(string(raw), `"usage":null`) || strings.Contains(string(raw), `"models":null`) {
 		t.Errorf("empty usage and models must encode as arrays: %s", raw)
@@ -88,7 +115,7 @@ func TestAgentBudgets(t *testing.T) {
 	}}
 	repo := &mockInferenceUsageRepository{agentBuckets: make([]float64, 7), agentSpend: []AgentBudgetSpend{{AgentSlug: "coder", Week: 7, Month: 40}}}
 
-	out, err := newInsights(repo, bundle).Insights(context.Background(), "t1", usagewindow.Period7d, "", testEnd)
+	out, err := newInsights(repo, bundle).Insights(context.Background(), "t1", usagewindow.Period7d, AgentFilter{All: true}, testEnd)
 	if err != nil {
 		t.Fatalf("Insights: %v", err)
 	}
@@ -122,7 +149,7 @@ func TestInsights_OneAgentKeepsOnlyItsBudget(t *testing.T) {
 	}}
 	repo := &mockInferenceUsageRepository{agentBuckets: make([]float64, 7)}
 
-	out, err := newInsights(repo, bundle).Insights(context.Background(), "t1", usagewindow.Period7d, "idle", testEnd)
+	out, err := newInsights(repo, bundle).Insights(context.Background(), "t1", usagewindow.Period7d, AgentFilter{Slugs: []string{"idle"}}, testEnd)
 	if err != nil {
 		t.Fatalf("Insights: %v", err)
 	}
@@ -133,7 +160,7 @@ func TestInsights_OneAgentKeepsOnlyItsBudget(t *testing.T) {
 
 func TestAgentInsightsHandlers(t *testing.T) {
 	c := &Controller{
-		svc:    newInsights(&mockInferenceUsageRepository{agentBuckets: make([]float64, 7)}, nil),
+		svc:    newInsights(&mockInferenceUsageRepository{agentBuckets: make([]float64, 7)}, fakeBundle{granted: []string{"agents:usage:token-probe:read"}}),
 		logger: logging.NewLoggerWithOutput(io.Discard),
 	}
 	claims := func(tenant string) *token.PlatformClaims {
@@ -149,7 +176,9 @@ func TestAgentInsightsHandlers(t *testing.T) {
 	}{
 		{"a token with no tenant", c.handleAgentInsights, "/usage/agent-insights", "", "", http.StatusUnauthorized},
 		{"a bad period", c.handleAgentInsights, "/usage/agent-insights?period=1y", "t1", "", http.StatusBadRequest},
-		{"a valid slug", c.handleAgentInsights, "/usage/agent-type/x", "t1", "token-probe", http.StatusOK},
+		{"a readable slug", c.handleAgentInsights, "/usage/agent-type/x", "t1", "token-probe", http.StatusOK},
+		{"an unreadable slug", c.handleAgentInsights, "/usage/agent-type/x", "t1", "coder", http.StatusForbidden},
+		{"every agent narrows instead of refusing", c.handleAgentInsights, "/usage/agent-insights", "t1", "", http.StatusOK},
 		{"a slug with a symbol", c.handleAgentInsights, "/usage/agent-type/x", "t1", "probe%", http.StatusBadRequest},
 		{"a slug with a path", c.handleAgentInsights, "/usage/agent-type/x", "t1", "a/b", http.StatusBadRequest},
 	} {
@@ -163,5 +192,36 @@ func TestAgentInsightsHandlers(t *testing.T) {
 				t.Errorf("status %d, want %d", w.Code, tc.want)
 			}
 		})
+	}
+}
+
+func TestReadableAgents(t *testing.T) {
+	tests := []struct {
+		name    string
+		granted []string
+		slug    string
+		want    AgentFilter
+		wantErr error
+	}{
+		{"parent reads every agent", []string{"agents:usage:read"}, "", AgentFilter{All: true}, nil},
+		{"parent reads a named agent", []string{"agents:usage:read"}, "coder", AgentFilter{Slugs: []string{"coder"}}, nil},
+		{"per-agent scopes select their agents", []string{"agents:usage:coder:read", "agents:usage:notes:read", "agents:runs:other:read"}, "", AgentFilter{Slugs: []string{"coder", "notes"}}, nil},
+		{"per-agent scope reads its agent", []string{"agents:usage:coder:read"}, "coder", AgentFilter{Slugs: []string{"coder"}}, nil},
+		{"per-agent scope refuses another agent", []string{"agents:usage:coder:read"}, "notes", AgentFilter{}, ErrAgentUsageForbidden},
+		{"no scope selects none", nil, "", AgentFilter{Slugs: []string{}}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := newInsights(&mockInferenceUsageRepository{}, fakeBundle{granted: tt.granted}).ReadableAgents(context.Background(), tt.slug)
+			if !errors.Is(err, tt.wantErr) || !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ReadableAgents = %+v, %v; want %+v, %v", got, err, tt.want, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestAgentFilterIncludes(t *testing.T) {
+	if !(AgentFilter{All: true}).includes("x") || !(AgentFilter{Slugs: []string{"x"}}).includes("x") || (AgentFilter{Slugs: []string{}}).includes("x") {
+		t.Error("AgentFilter.includes disagrees with its fields")
 	}
 }

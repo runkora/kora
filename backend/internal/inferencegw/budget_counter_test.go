@@ -128,11 +128,11 @@ func (s *stubUsageRepo) GetRunUsage(_ context.Context, _, _ string) (float64, in
 	return s.runSpend, 0, s.err
 }
 
-func (s *stubUsageRepo) AgentUsage(_ context.Context, _ string, _ usagewindow.Window, _ string) ([]AgentModelUsage, error) {
+func (s *stubUsageRepo) AgentUsage(_ context.Context, _ string, _ usagewindow.Window, _ AgentFilter) ([]AgentModelUsage, error) {
 	return nil, nil
 }
 
-func (s *stubUsageRepo) AgentSpendBuckets(_ context.Context, _ string, _ usagewindow.Window, _ string) (float64, []float64, error) {
+func (s *stubUsageRepo) AgentSpendBuckets(_ context.Context, _ string, _ usagewindow.Window, _ AgentFilter) (float64, []float64, error) {
 	return 0, nil, nil
 }
 

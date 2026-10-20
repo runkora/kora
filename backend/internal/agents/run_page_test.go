@@ -293,7 +293,7 @@ func TestTenantRunStats_ScopeIsReadableAgentsUnderVisibility(t *testing.T) {
 		t.Fatalf("stats %+v, %v; want the repository result", got, err)
 	}
 	slices.Sort(repo.statsScope.AgentTypeIDs)
-	want := RunScope{AgentTypeIDs: []string{"at-auto", "at-del"}, Vis: RunVisibility{Subject: "alice"}}
+	want := RunScope{AgentTypeIDs: []string{"at-auto", "at-del"}, Vis: RunVisibility{Subject: "alice"}, Own: true}
 	if !reflect.DeepEqual(repo.statsScope, want) {
 		t.Errorf("scope = %+v, want %+v", repo.statsScope, want)
 	}

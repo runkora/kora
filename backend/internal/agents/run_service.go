@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -192,8 +191,9 @@ func (s *RunService) authorizeStart(ctx context.Context, span trace.Span, req St
 // derived from the verified platform claims in ctx; request-body values are
 // ignored.
 //
-// Returns ErrForbidden if the principal lacks the agents:runs:{slug}:write
-// scope. The handler maps that to 403, not 404 and not 500: a refusal is the
+// Returns ErrForbidden if Authz.checkRun refuses the write: no
+// agents:runs:{slug}:write, no agents:runs:delegated:write for a delegated
+// agent, and no owner access. The handler maps that to 403, not 404 and not 500: a refusal is the
 // caller's answer, and orbit-triggers relies on being able to tell it apart
 // from a broken service — it retries a 403 while a freshly created trigger's
 // grant propagates into the policy bundle, which it cannot do if a refusal
@@ -319,11 +319,13 @@ func (s *RunService) loadRunForAction(ctx context.Context, runID, action string)
 		span.SetStatus(codes.Error, "get agent type")
 		return nil, nil, fmt.Errorf("get agent type: %w", err)
 	}
-	if err = s.authz.checkRun(ctx, *at, action); err != nil {
-		if errors.Is(err, ErrForbidden) {
-			return nil, nil, ErrNotFound
+	if action != "read" || !readsOwnRuns(ctx) || !isRunStarter(ctx, run) {
+		if err = s.authz.checkRun(ctx, *at, action); err != nil {
+			if errors.Is(err, ErrForbidden) {
+				return nil, nil, ErrNotFound
+			}
+			return nil, nil, err
 		}
-		return nil, nil, err
 	}
 	// The delegated:read check runs only for a delegated run the caller did not start.
 	seeAll := false
@@ -377,9 +379,7 @@ func (s *RunService) listRuns(ctx context.Context, tenantID, agentTypeID string,
 	if err != nil {
 		return RunPage{}, err
 	}
-	if agentTypeID != "" {
-		scope.AgentTypeIDs = slices.DeleteFunc(scope.AgentTypeIDs, func(id string) bool { return id != agentTypeID })
-	}
+	scope.AgentTypeID = agentTypeID
 	q := p
 	q.Scope = scope
 	// One row past the page says whether another page follows.
@@ -398,7 +398,7 @@ func (s *RunService) listRuns(ctx context.Context, tenantID, agentTypeID string,
 }
 
 // readableRunScope is every agent type in the tenant whose runs the caller may
-// read, under the caller's delegated-run visibility.
+// read, plus the caller's own runs (readsOwnRuns), under the caller's delegated-run visibility.
 func (s *RunService) readableRunScope(ctx context.Context, tenantID string) (RunScope, error) {
 	ats, err := s.atRepo.ListAgentTypes(ctx, tenantID)
 	if err != nil {
@@ -412,7 +412,7 @@ func (s *RunService) readableRunScope(ctx context.Context, tenantID string) (Run
 	if err != nil {
 		return RunScope{}, err
 	}
-	return RunScope{AgentTypeIDs: ids, Vis: vis}, nil
+	return RunScope{AgentTypeIDs: ids, Vis: vis, Own: readsOwnRuns(ctx)}, nil
 }
 
 // RunOutcomes counts the caller's visible completed and failed runs in [from, to).

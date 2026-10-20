@@ -234,12 +234,12 @@ Amendment 1 left the usage reads on `agents:types:read` with a fixed 7-day windo
 
 ### Decision
 
-- Agent usage is gated by the route scope `agents:usage:read`. `agents:usage:{slug}:read` covers one agent and does not open the routes. Both scopes are siblings of `agents:types` and `agents:runs` in the orbit-agents vocabulary. No role is evaluated.
+- Agent usage is read with `agents:usage:read` for every agent or `agents:usage:{slug}:read` for one agent. The routes are authenticated-only and `Service.ReadableAgents` narrows each response to the agents the caller may read. Both scopes are siblings of `agents:types` and `agents:runs` in the orbit-agents vocabulary. No role is evaluated.
 - `GET /v1/usage/agent-insights` and `GET /v1/usage/agent-type/{slug}` return aggregates per agent: totals, spend by model, spend over time, the previous window's total and budgets. The responses carry no per-person data.
 - The predicate is the verified tenant, `agent_slug IS NOT NULL` and the window, with the slug when one is asked for. Delegated rows and the rows of deleted agents count for every caller.
 - The window is 24h, 7d, 30d or 90d, ends at the server's now, and defaults to 7d. Both services parse it through `internal/platform/usagewindow`.
 - Budget rows come from the policy bundle's agent principals: one row per agent with a window limit, delegated agents included. Spend follows the same predicate. The tenant cap is not part of the page.
-- `GET /api/v1/run-outcomes` in orbit-agents counts completed and failed runs by `completed_at` under the run list visibility rule. It requires `agents:runs:read` and uses the index `idx_runs_tenant_completed`.
+- `GET /api/v1/run-outcomes` in orbit-agents counts completed and failed runs by `completed_at` under the run list visibility rule. It counts runs of the agents the caller may read plus the caller's own runs, and uses the index `idx_runs_tenant_completed`.
 - The rollups run in `pgx.QueryExecModeExec`. The generic plan of a prepared statement reads most of the table through an index and took 2 s at 90 days and 150 agents, against 0.3 s with the actual window.
 - The trend query sums one `FILTER` aggregate per bucket in a single scan. A plain `GROUP BY` on the bucket measured 1.35 to 3.5 times slower. The `FILTER` clauses use generated `$N` placeholders and no value is formatted into the SQL.
 - `GET /v1/usage/agent-types` is removed.
@@ -262,8 +262,8 @@ The agent detail Overview needs one agent's run counts, run durations, tokens, s
 
 ### Decision
 
-- `GET /v1/usage/agent-type/{slug}?period=24h|7d|30d|90d` returns the `GET /v1/usage/agent-insights` shape for one slug. The route scope stays `agents:usage:read`. The flat `AgentTypeUsage` response gives way to the insights shape, where `AgentTypeUsage` is the element of `usage`.
-- `GET /api/v1/run-stats/{slug}?period=24h|7d|30d|90d` in orbit-agents requires `agents:runs:read` and the caller's `agents:runs:{slug}:read`. A caller without `agents:delegated:read` sees autonomous runs and their own delegated runs.
+- `GET /v1/usage/agent-type/{slug}?period=24h|7d|30d|90d` returns the `GET /v1/usage/agent-insights` shape for one slug. It requires `agents:usage:{slug}:read` or `agents:usage:read`. The flat `AgentTypeUsage` response gives way to the insights shape, where `AgentTypeUsage` is the element of `usage`.
+- `GET /api/v1/run-stats/{slug}?period=24h|7d|30d|90d` in orbit-agents requires `agents:runs:{slug}:read`, covered by `agents:runs:read`. A caller without `agents:delegated:read` sees autonomous runs and their own delegated runs.
 - It returns `total`, `triggered`, `completed`, `failed` and `durations`. `total` counts runs created in the window and `triggered` those with a trigger attribution. `completed` and `failed` count runs finished in the window by `completed_at`. `durations` carries `median_ms`, `p95_ms`, `p99_ms`, `longest_ms`, `capped`, ten `buckets` and `overflow`, all computed in SQL.
 - From 20 finished runs the buckets span 0 to p99, runs above p99 count in `overflow` and `capped` is true. Below 20 they span 0 to the longest run, `overflow` is 0 and `capped` is false. The client shows the p95 marker only when `capped` is true.
 - The BFF composes both reads at `GET /api/agents/types/overview/{slug}?period=` under the caller's token. A part the caller may not read, a 403 or 404, is left out. A part that errors or times out is named in `failed` and its card reads Could not load.

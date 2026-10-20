@@ -99,12 +99,12 @@ type InferenceUsageRepository interface {
 	GetPrincipalRoles(ctx context.Context, tenantID, principalID string) ([]string, error)
 
 	// AgentUsage returns the tenant's agent usage per agent and model over the
-	// window, or for one agent when slug is set. Powers the Agents page.
-	AgentUsage(ctx context.Context, tenantID string, w usagewindow.Window, slug string) ([]AgentModelUsage, error)
+	// window, for the agents f selects. Powers the Agents page.
+	AgentUsage(ctx context.Context, tenantID string, w usagewindow.Window, f AgentFilter) ([]AgentModelUsage, error)
 
 	// AgentSpendBuckets returns the previous window's total agent spend and the
-	// spend in each bucket of the window, for one agent when slug is set.
-	AgentSpendBuckets(ctx context.Context, tenantID string, w usagewindow.Window, slug string) (previous float64, buckets []float64, err error)
+	// spend in each bucket of the window, for the agents f selects.
+	AgentSpendBuckets(ctx context.Context, tenantID string, w usagewindow.Window, f AgentFilter) (previous float64, buckets []float64, err error)
 
 	// AgentBudgetSpend returns each listed agent's spend since the start of the
 	// current week and month.

@@ -49,12 +49,12 @@ type mockInferenceUsageRepository struct {
 	agentSpendFor []string // slugs of the last budget spend read
 }
 
-func (m *mockInferenceUsageRepository) AgentUsage(_ context.Context, tenantID string, _ usagewindow.Window, _ string) ([]AgentModelUsage, error) {
+func (m *mockInferenceUsageRepository) AgentUsage(_ context.Context, tenantID string, _ usagewindow.Window, _ AgentFilter) ([]AgentModelUsage, error) {
 	m.agentTenant = tenantID
 	return m.agentRows, nil
 }
 
-func (m *mockInferenceUsageRepository) AgentSpendBuckets(context.Context, string, usagewindow.Window, string) (float64, []float64, error) {
+func (m *mockInferenceUsageRepository) AgentSpendBuckets(context.Context, string, usagewindow.Window, AgentFilter) (float64, []float64, error) {
 	return m.agentPrevious, m.agentBuckets, nil
 }
 

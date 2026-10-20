@@ -399,8 +399,12 @@ func agentRoutes() []routescopes.RouteScope {
 		// AgentTypeService via Authz.checkAgentTypeModeWrite. The policy
 		// service registers empty-scope routes as authenticated-only.
 		{PathPrefix: "/api/v1/agent-types", Method: "POST", RequiredScope: ""},
-		{PathPrefix: "/api/v1/agent-types", Method: "GET", RequiredScope: "agents:types:read"},
-		{PathPrefix: "/api/v1/agent-types/", Method: "GET", RequiredScope: "agents:types:read"},
+		// Agent-type reads are authenticated-only too. The governing scope is
+		// per-agent (agents:types:{slug}:read) and the creator may read their own
+		// type (Authz.ownerAllowed). AgentTypeService filters lists and checks single reads through
+		// Authz.filterAgentTypes and Authz.checkAgentType.
+		{PathPrefix: "/api/v1/agent-types", Method: "GET", RequiredScope: ""},
+		{PathPrefix: "/api/v1/agent-types/", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/api/v1/agent-types/", Method: "PATCH", RequiredScope: ""},
 		{PathPrefix: "/api/v1/agent-types/", Method: "DELETE", RequiredScope: ""},
 		// Drafts: sibling prefix (ServeMux ambiguity — see server.go Boot).
@@ -434,15 +438,19 @@ func agentRoutes() []routescopes.RouteScope {
 		// The parent scope still covers the per-agent check for the admin roles
 		// that legitimately hold it.
 		{PathPrefix: "/api/v1/runs", Method: "POST", RequiredScope: ""},
-		{PathPrefix: "/api/v1/runs", Method: "GET", RequiredScope: "agents:runs:read"},
-		// Run outcome counts: the same scope and delegated-run rule as GET /runs.
-		{PathPrefix: "/api/v1/run-outcomes", Method: "GET", RequiredScope: "agents:runs:read"},
-		// One agent's run counts and durations. A sibling prefix: under /api/v1/agent-types/ the
-		// longer match would conflict with the agents:types:read binding.
-		{PathPrefix: "/api/v1/run-stats/", Method: "GET", RequiredScope: "agents:runs:read"},
-		{PathPrefix: "/api/v1/runs/", Method: "GET", RequiredScope: "agents:runs:read"},
-		{PathPrefix: "/api/v1/runs/", Method: "DELETE", RequiredScope: "agents:runs:write"},
-		{PathPrefix: "/api/v1/runs/", Method: "POST", RequiredScope: "agents:runs:write"},
+		// Every other run route is authenticated-only for the same reason: the
+		// governing scope is per-agent and the agent comes from the stored run.
+		// RunService checks single runs through Authz.checkRun and scopes lists,
+		// outcomes and stats through Authz.readableRunAgentTypes, plus the
+		// caller's own runs. A route-level parent scope would lock out every
+		// per-agent holder.
+		{PathPrefix: "/api/v1/runs", Method: "GET", RequiredScope: ""},
+		{PathPrefix: "/api/v1/run-outcomes", Method: "GET", RequiredScope: ""},
+		// One agent's run counts and durations. A sibling prefix of /api/v1/agent-types/.
+		{PathPrefix: "/api/v1/run-stats/", Method: "GET", RequiredScope: ""},
+		{PathPrefix: "/api/v1/runs/", Method: "GET", RequiredScope: ""},
+		{PathPrefix: "/api/v1/runs/", Method: "DELETE", RequiredScope: ""},
+		{PathPrefix: "/api/v1/runs/", Method: "POST", RequiredScope: ""},
 	}
 }
 
@@ -450,7 +458,7 @@ func agentRoutes() []routescopes.RouteScope {
 // Static top-level scopes are always included; per-slug scopes are added dynamically.
 func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 	decls := []routescopes.ScopeDeclaration{
-		{Scope: "agents:types:read", ResourceType: "agents", PathSegments: []string{"types"}, Action: "read", Description: "View and list agent type definitions"},
+		{Scope: "agents:types:read", ResourceType: "agents", PathSegments: []string{"types"}, Action: "read", Description: "View and list every agent type definition (prefix-covers the per-agent type scopes)"},
 		{Scope: "agents:types:write", ResourceType: "agents", PathSegments: []string{"types"}, Action: "write", Description: "Create and mutate agent type definitions of any identity mode (prefix-covers the delegated and autonomous child scopes)"},
 		// Mode-qualified creation scopes (delegated-agent-identity ADR,
 		// Decision 1): creating an agent confers its authority, so the two
@@ -461,6 +469,10 @@ func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 		{Scope: "agents:types:autonomous:write", ResourceType: "agents", PathSegments: []string{"types", "autonomous"}, Action: "write", Description: "Create and mutate autonomous agent types (higher privilege: confers standing authority the agent holds on its own, whoever starts it)"},
 		{Scope: "agents:runs:read", ResourceType: "agents", PathSegments: []string{"runs"}, Action: "read", Description: "View runs and stream agent events"},
 		{Scope: "agents:runs:write", ResourceType: "agents", PathSegments: []string{"runs"}, Action: "write", Description: "Start, message, and terminate runs"},
+		// Not a prefix cover of the per-agent run scopes. Authz.checkRun accepts it
+		// by name for delegated agents only. The slugs delegated and autonomous are
+		// reserved so no agent's scope can take this path.
+		{Scope: "agents:runs:delegated:write", ResourceType: "agents", PathSegments: []string{"runs", "delegated"}, Action: "write", Description: "Start runs of any delegated agent and message, interrupt and terminate the runs you started (each run acts with the starter's own access; autonomous agents are not included)"},
 		{Scope: "agents:usage:read", ResourceType: "agents", PathSegments: []string{"usage"}, Action: "read", Description: "View every agent's usage, spend and budgets (prefix-covers the per-agent usage scopes)"},
 		{Scope: "agents:delegated:read", ResourceType: "agents", PathSegments: []string{"delegated"}, Action: "read", Description: "View the runs of delegated agents that other people started, with their messages, events and outputs"},
 		{Scope: "agents:environments:read", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "read", Description: "View and list sandbox environments and the registered sandbox images"},
@@ -468,6 +480,13 @@ func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 	}
 	for _, slug := range slugs {
 		decls = append(decls,
+			routescopes.ScopeDeclaration{
+				Scope:        "agents:types:" + slug + ":read",
+				ResourceType: "agents",
+				PathSegments: []string{"types", slug},
+				Action:       "read",
+				Description:  "View the " + slug + " agent type definition",
+			},
 			routescopes.ScopeDeclaration{
 				Scope:        "agents:runs:" + slug + ":read",
 				ResourceType: "agents",

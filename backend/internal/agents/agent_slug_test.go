@@ -30,6 +30,9 @@ func TestValidateAgentSlug(t *testing.T) {
 		{"trailing hyphen", "sales-", false},
 		{"leading digit", "1sales", false},
 		{"too long", "a" + strings.Repeat("b", maxAgentSlugLength), false},
+		{"reserved delegated", "delegated", false},
+		{"reserved autonomous", "autonomous", false},
+		{"reserved word as a prefix", "delegated-helper", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
