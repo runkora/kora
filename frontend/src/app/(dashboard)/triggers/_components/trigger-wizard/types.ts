@@ -100,6 +100,8 @@ export interface TriggerWizardSource {
   provider: string;
   /** Read from the API; a kind lists only the sources of its own category. */
   category: SourceCategory;
+  /** False for a source still waiting for the signing secret its provider issues. */
+  signingSecretSet?: boolean;
 }
 
 /** What the parent needs in order to create the source and the trigger. */
@@ -108,8 +110,7 @@ export interface TriggerDraft {
   kind: TriggerKind;
   name: string;
   promptTemplate: string;
-  /** `signingSecret` is set for a provider that issues its own secret, e.g. Slack. */
-  source?: { existingId: string } | { newName: string; provider: string; signingSecret?: string };
+  source?: { existingId: string } | { newName: string; provider: string };
   /** Webhook only. */
   eventType?: string;
   /**
@@ -205,8 +206,16 @@ export interface WizardState {
   sourceChoice: string;
   newSourceName: string;
   newSourceProvider: string;
-  /** The signing secret the provider issued, for a new source whose provider issues it. */
+  /** The signing secret typed for the created source, until it is saved. */
   newSourceSecret: string;
+  /**
+   * The new source once the source step has created it. A provider that
+   * issues its own secret, e.g. Slack, creates the source before the secret
+   * exists so its request URL can be set in the provider's app.
+   */
+  newSourceCreated: { id: string; name: string; provider: string } | null;
+  /** Whether the created source holds its signing secret. */
+  newSourceSecretSaved: boolean;
   eventType: string;
   /**
    * The chosen event's field paths, for a kind that checks placeholders

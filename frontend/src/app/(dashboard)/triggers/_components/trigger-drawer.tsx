@@ -14,6 +14,7 @@ import { useCallback, useId, useMemo, useState } from 'react';
 import {
   CopyButton,
   Alert,
+  Badge,
   Button,
   Card,
   CardContent,
@@ -145,9 +146,14 @@ interface TriggerDrawerProps {
    * Rotates the webhook source's signing secret and resolves with the new one,
    * which is shown once here and never again, or null on failure. For a
    * provider that issues the secret, it stores `signingSecret` and resolves
-   * with an empty string. Absent for read-only callers.
+   * with an empty string. `firstSecret` sets the first secret of a source that
+   * is waiting for one, without rotating. Absent for read-only callers.
    */
-  onRotateSecret?: (t: TriggerRow, signingSecret?: string) => Promise<string | null>;
+  onRotateSecret?: (
+    t: TriggerRow,
+    signingSecret?: string,
+    firstSecret?: boolean,
+  ) => Promise<string | null>;
   /** Fire a manual trigger now. Absent for kinds that fire on their own. */
   onFire?: (t: TriggerRow) => void;
   firing?: boolean;
@@ -277,16 +283,20 @@ function EditActions({
  */
 function IssuedSecretRow({
   providerName,
+  waiting = false,
   onReplace,
 }: {
   /** The provider's display name, e.g. "Slack". */
   providerName: string;
+  /** The source has no secret yet: the first one is set, not replaced. */
+  waiting?: boolean;
   onReplace?: (secret: string) => Promise<boolean>;
 }) {
   const id = useId();
   const [value, setValue] = useState('');
   const [pending, setPending] = useState(false);
-  const [replaced, setReplaced] = useState(false);
+  // What the last save did, fixed at save time: the source stops waiting once it is saved.
+  const [saved, setSaved] = useState<'first' | 'replaced' | null>(null);
 
   const save = () => {
     if (onReplace === undefined) return;
@@ -295,7 +305,7 @@ function IssuedSecretRow({
       setPending(false);
       if (!ok) return;
       setValue('');
-      setReplaced(true);
+      setSaved(waiting ? 'first' : 'replaced');
     });
   };
 
@@ -304,7 +314,11 @@ function IssuedSecretRow({
       <FormField
         label="Signing secret"
         id={id}
-        hint={`Regenerate it in your ${providerName} app, then paste the new secret here.`}
+        hint={
+          waiting
+            ? `Waiting for the signing secret. Copy it from your ${providerName} app's Basic Information page and paste it here.`
+            : `Regenerate it in your ${providerName} app, then paste the new secret here.`
+        }
       >
         <Input
           id={id}
@@ -314,20 +328,24 @@ function IssuedSecretRow({
           value={value}
           disabled={onReplace === undefined || pending}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="Stored. Paste a new secret to replace it."
+          placeholder={
+            waiting ? 'Paste the signing secret' : 'Stored. Paste a new secret to replace it.'
+          }
           maxLength={256}
         />
       </FormField>
-      {replaced && (
+      {saved !== null && (
         <Text size="caption" color="subtle">
-          The new secret is stored. Requests signed with the old one are rejected.
+          {saved === 'first'
+            ? 'The signing secret is stored. The source now accepts events.'
+            : 'The new secret is stored. Requests signed with the old one are rejected.'}
         </Text>
       )}
       <EditActions
         dirty={value.trim() !== ''}
         pending={pending}
         error={null}
-        saveLabel="Replace secret"
+        saveLabel={waiting ? 'Set secret' : 'Replace secret'}
         onSave={save}
         onDiscard={() => setValue('')}
       />
@@ -660,7 +678,14 @@ export function TriggerDrawer({
                   that proves deliveries came from it. */}
               {trigger.kind === 'webhook' && (
                 <Stack gap="snug">
-                  <SectionLabel>{kind === 'chat' ? 'Request URL' : 'Endpoint'}</SectionLabel>
+                  <Stack direction="horizontal" gap="snug" align="center">
+                    <SectionLabel>{kind === 'chat' ? 'Request URL' : 'Endpoint'}</SectionLabel>
+                    {source !== undefined && !source.signingSecretSet && (
+                      <Badge variant="degraded" size="sm" shape="pill">
+                        Waiting for signing secret
+                      </Badge>
+                    )}
+                  </Stack>
                   <FieldRow
                     leading={<Icon name="lock" size="2xs" color="status-healthy" />}
                     actions={<CopyButton value={endpoint} label="Copy" />}
@@ -674,9 +699,13 @@ export function TriggerDrawer({
                     <IssuedSecretRow
                       key={trigger.id}
                       providerName={providerName(source.provider)}
+                      waiting={!source.signingSecretSet}
                       onReplace={
                         onRotateSecret &&
-                        ((secret) => onRotateSecret(trigger, secret).then((r) => r !== null))
+                        ((secret) =>
+                          onRotateSecret(trigger, secret, !source.signingSecretSet).then(
+                            (r) => r !== null,
+                          ))
                       }
                     />
                   ) : (

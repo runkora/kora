@@ -101,6 +101,11 @@ type Story = StoryObj<typeof TriggersShell>;
 // Decorators stack across meta and story, so each story installs its own frame once.
 const frame = [dashboardPage(catalogRoutes)];
 
+/** The mock fleet with its Slack source still waiting for the signing secret. */
+const WAITING_SOURCES = SOURCES.map((s) =>
+  s.provider === 'slack' ? { ...s, signingSecretSet: false } : s,
+);
+
 /** A busy fleet: healthy, degraded and failing triggers of every kind, with a day of deliveries. */
 export const Default: Story = { decorators: frame };
 
@@ -467,21 +472,46 @@ async function openKind(canvasElement: HTMLElement, kind: RegExp) {
   await userEvent.click(await within(document.body).findByRole('radio', { name: kind }));
 }
 
-/** The chat command kind's source step: a new Slack source with its manifest and signing secret. */
+/** Names a new Slack source in the chat command wizard and creates it. */
+async function createSlackSource(canvasElement: HTMLElement) {
+  await openKind(canvasElement, /Chat command/);
+  const body = within(document.body);
+  await userEvent.type(await body.findByLabelText(/Trigger name/), 'answer-platform-questions');
+  await userEvent.click(await body.findByText('New source'));
+  await userEvent.type(await body.findByLabelText(/Source name/), 'acme-slack-ops');
+  await userEvent.click(await body.findByRole('radio', { name: /Slack/ }));
+  await userEvent.click(await body.findByRole('button', { name: 'Create source' }));
+  await body.findByText('manifest.json');
+  return body;
+}
+
+/** Pastes the signing secret Slack issued and saves it. */
+async function saveSigningSecret(body: ReturnType<typeof within>) {
+  await userEvent.type(
+    await body.findByLabelText(/Signing secret/),
+    '8f14e45fceea167a5a36dedd4bea2543',
+  );
+  await userEvent.click(await body.findByRole('button', { name: 'Save secret' }));
+  await body.findByText('Signing secret saved.');
+}
+
+/** The chat command source step before the secret: the source exists, with the manifest, the request URL and the secret field. */
 export const WizardChatCommand: Story = {
   decorators: frame,
   play: async ({ canvasElement }) => {
-    await openKind(canvasElement, /Chat command/);
-    const body = within(document.body);
-    await userEvent.type(await body.findByLabelText(/Trigger name/), 'answer-platform-questions');
-    await userEvent.click(await body.findByText('New source'));
-    await userEvent.type(await body.findByLabelText(/Source name/), 'acme-slack-ops');
-    await userEvent.click(await body.findByRole('radio', { name: /Slack/ }));
-    await userEvent.type(
-      await body.findByLabelText(/Signing secret/),
-      '8f14e45fceea167a5a36dedd4bea2543',
-    );
-    (await body.findByText('Platform')).scrollIntoView({ block: 'start' });
+    const body = await createSlackSource(canvasElement);
+    await body.findByLabelText(/Signing secret/);
+    (await body.findByText('Slack app')).scrollIntoView({ block: 'start' });
+  },
+};
+
+/** The chat command source step after the secret is saved: the wizard can continue. */
+export const WizardChatCommandSecretSaved: Story = {
+  decorators: frame,
+  play: async ({ canvasElement }) => {
+    const body = await createSlackSource(canvasElement);
+    await saveSigningSecret(body);
+    (await body.findByText('Slack app')).scrollIntoView({ block: 'start' });
   },
 };
 
@@ -502,20 +532,12 @@ export const WizardChatEvent: Story = {
   },
 };
 
-/** The done step for a new Slack source: the real request URL to set under Event Subscriptions. */
+/** The done step for a new Slack source, set up before the trigger. */
 export const WizardChatDone: Story = {
   decorators: frame,
   play: async ({ canvasElement }) => {
-    await openKind(canvasElement, /Chat command/);
-    const body = within(document.body);
-    await userEvent.type(await body.findByLabelText(/Trigger name/), 'answer-platform-questions');
-    await userEvent.click(await body.findByText('New source'));
-    await userEvent.type(await body.findByLabelText(/Source name/), 'acme-slack-ops');
-    await userEvent.click(await body.findByRole('radio', { name: /Slack/ }));
-    await userEvent.type(
-      await body.findByLabelText(/Signing secret/),
-      '8f14e45fceea167a5a36dedd4bea2543',
-    );
+    const body = await createSlackSource(canvasElement);
+    await saveSigningSecret(body);
     await userEvent.click(await body.findByRole('radio', { name: /Mention/ }));
     await userEvent.type(
       await body.findByLabelText('Prompt'),
@@ -542,6 +564,31 @@ export const DrawerChatTrigger: Story = {
     );
     await userEvent.click(await body.findByRole('button', { name: 'Replace secret' }));
     await body.findByText(/The new secret is stored/);
+  },
+};
+
+/** The triggers page with a chat source still waiting for its signing secret. */
+export const ChatSourceWaitingForSecret: Story = {
+  decorators: frame,
+  args: { sources: WAITING_SOURCES },
+  play: async ({ canvasElement }) => {
+    await within(canvasElement).findAllByText('Waiting for signing secret');
+  },
+};
+
+/** The drawer of a trigger on a waiting chat source, with the way to set its secret. */
+export const DrawerChatTriggerWaiting: Story = {
+  decorators: frame,
+  args: { sources: WAITING_SOURCES },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByText('answer-platform-questions'));
+    const body = within(document.body);
+    await userEvent.type(
+      await body.findByLabelText(/Signing secret/),
+      'c9f0f895fb98ab9159f51fd0297e236d',
+    );
+    await userEvent.click(await body.findByRole('button', { name: 'Set secret' }));
+    await body.findByText(/The signing secret is stored/);
   },
 };
 

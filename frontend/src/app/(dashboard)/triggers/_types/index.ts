@@ -135,6 +135,8 @@ export interface SourceRow {
   /** `chat` for a chat platform's source, else `webhook`. */
   category: SourceCategory;
   enabled: boolean;
+  /** False for a source whose provider issues its secret and that is still waiting for it. */
+  signingSecretSet: boolean;
   createdAt: string;
   /**
    * Requests that failed authentication. Never deliveries, since those are
@@ -302,6 +304,7 @@ export function toSourceRow(s: WebhookSource): SourceRow {
     // A backend that predates categories has only webhook sources.
     category: s.category ?? 'webhook',
     enabled: s.enabled,
+    signingSecretSet: s.signing_secret_set ?? true,
     createdAt: s.created_at,
     rejectionCount: s.rejection_count ?? 0,
     lastRejectionAt: s.last_rejection_at ?? null,

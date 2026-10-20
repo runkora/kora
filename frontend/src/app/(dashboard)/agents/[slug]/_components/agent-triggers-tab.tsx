@@ -138,6 +138,11 @@ export function AgentTriggersTab() {
     return (id: string) => map.get(id);
   }, [sources]);
 
+  const sourceWaiting = useMemo(() => {
+    const waiting = new Set(sources.filter((s) => !s.signingSecretSet).map((s) => s.id));
+    return (id: string) => waiting.has(id);
+  }, [sources]);
+
   /**
    * Creates from the wizard's draft, then reloads this page's lists.
    *
@@ -234,6 +239,7 @@ export function AgentTriggersTab() {
           deliveries={agentDeliveries}
           sourceName={sourceName}
           sourceCategory={sourceCategory}
+          sourceWaiting={sourceWaiting}
           onOpen={setDrawerTrigger}
           onToggle={(t) => void toggleTrigger(t)}
           canRunAgent={canRunAgent}

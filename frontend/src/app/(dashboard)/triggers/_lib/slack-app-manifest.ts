@@ -6,7 +6,8 @@
 
 /**
  * The Slack provider id. A new Slack source is set up from this manifest, and
- * Slack issues its signing secret, so the console asks for it.
+ * Slack issues its signing secret, so the source is created without one and
+ * the console takes the secret once the request URL is set.
  */
 export const SLACK_PROVIDER = 'slack';
 
@@ -21,7 +22,7 @@ export interface SlackAppManifest {
   };
   oauth_config: { scopes: { bot: string[] } };
   settings: {
-    event_subscriptions: { bot_events: string[] };
+    event_subscriptions: { request_url: string; bot_events: string[] };
     org_deploy_enabled: boolean;
     socket_mode_enabled: boolean;
     token_rotation_enabled: boolean;
@@ -48,10 +49,10 @@ export function slackBotDisplayName(productName: string): string {
 }
 
 /**
- * The manifest has no request URL: the source id is known only once the source
- * exists, so the done step shows the URL to set under Event Subscriptions.
+ * The manifest carries the source's request URL: Slack rejects event
+ * subscriptions with neither a request URL nor Socket Mode.
  */
-export function slackAppManifest(productName: string): SlackAppManifest {
+export function slackAppManifest(productName: string, requestUrl: string): SlackAppManifest {
   return {
     display_information: {
       // Cut by code point so a name is never split inside a character.
@@ -77,7 +78,7 @@ export function slackAppManifest(productName: string): SlackAppManifest {
       },
     },
     settings: {
-      event_subscriptions: { bot_events: ['app_mention', 'message.im'] },
+      event_subscriptions: { request_url: requestUrl, bot_events: ['app_mention', 'message.im'] },
       org_deploy_enabled: false,
       socket_mode_enabled: false,
       token_rotation_enabled: false,

@@ -129,19 +129,13 @@ describe('webhook drafts', () => {
     });
   });
 
-  it('sends the signing secret a provider issued, and shows none back', async () => {
-    mockCreateSource.mockResolvedValue({ source: { id: 'src-slack' }, error: null } as never);
-
+  it('does not create a source the source step already created', async () => {
     const result = await createFromWizardDraft(
-      draft({ source: { newName: 'acme', provider: 'slack', signingSecret: 'slack-secret' } }),
+      draft({ source: { existingId: 'src-slack' } }),
       OPTIONS,
     );
 
-    expect(mockCreateSource).toHaveBeenCalledWith({
-      name: 'acme',
-      provider: 'slack',
-      signing_secret: 'slack-secret',
-    });
+    expect(mockCreateSource).not.toHaveBeenCalled();
     expect(result).toEqual({
       ok: true,
       triggerId: 't1',

@@ -105,9 +105,20 @@ export function TriggersPage({
     return (id: string) => map.get(id);
   }, [sources]);
 
+  const sourceWaiting = useMemo(() => {
+    const waiting = new Set(sources.filter((s) => !s.signingSecretSet).map((s) => s.id));
+    return (id: string) => waiting.has(id);
+  }, [sources]);
+
   const wizardSources = useMemo(
     () =>
-      sources.map((s) => ({ id: s.id, name: s.name, provider: s.provider, category: s.category })),
+      sources.map((s) => ({
+        id: s.id,
+        name: s.name,
+        provider: s.provider,
+        category: s.category,
+        signingSecretSet: s.signingSecretSet,
+      })),
     [sources],
   );
 
@@ -277,6 +288,7 @@ export function TriggersPage({
               deliveries={deliveries}
               sourceName={sourceName}
               sourceCategory={sourceCategory}
+              sourceWaiting={sourceWaiting}
               onOpen={setDrawerTrigger}
               onToggle={(t) => void toggleTrigger(t)}
               canRunAgent={canRunAgent}
