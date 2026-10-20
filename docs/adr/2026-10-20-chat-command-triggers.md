@@ -5,7 +5,8 @@
 **Status:** Accepted  
 **Date:** 2026-10-20  
 **Deciders:** Justin Wilkin  
-**Technical Story:** [Chat Command Triggers PRD](../prd/chat-command-triggers.md)
+**Technical Story:** [Chat Command Triggers PRD](../prd/chat-command-triggers.md)  
+**Amended:** 2026-10-20 ([#656](https://github.com/runkora/kora/issues/656)): the request URL is issued before the signing secret. Decisions 3, 5 and 7, the Handshake Placement option and the setup flow changed.
 
 ---
 
@@ -20,6 +21,7 @@ A trigger reads fields by dotted path from the decoded provider payload (`trigge
 Three parts of the pipeline do not fit Slack's HTTP Events API:
 
 - `CreateSource` always generates the signing secret, and `UpdateSource` regenerates it on rotation (`service_sources.go`). Slack issues the signing secret for an app, and the secret cannot be set.
+- Slack needs a working request URL before the admin can finish the app's event subscriptions, and kora issues the URL only when the source exists. A wizard that asks for the signing secret first sends the admin to Slack, back to kora and to Slack again.
 - Slack confirms a request URL with a `url_verification` request that expects the `challenge` value back in an HTTP 200 ([url_verification](https://docs.slack.dev/reference/events/url_verification)). The request carries no `event_id`. `Service.Ingest` rejects it with `ErrMissingDeliveryID`, and `handleIngest` answers 404.
 - A Slack thread is `event.thread_ts` for a reply and `event.ts` for a top-level message ([Retrieving messages](https://docs.slack.dev/messaging/retrieving-messages)). Templates have no fallback syntax (`template.go`).
 
@@ -86,9 +88,11 @@ How should kora add a "Chat command" trigger kind whose triggers work on every c
 
 ### Handshake Placement
 
-**Option 4a (chosen):** Answer the handshake inside `Service.Ingest` after `Verify` succeeds.
+**Option 4a (rejected after amendment):** Answer the handshake inside `Service.Ingest` after `Verify` succeeds for every source. A source cannot pass `Verify` before it holds a signing secret, and the secret can be copied only after Slack accepts the request URL.
 
-**Option 4b (rejected):** Answer it in `handleIngest` before `Ingest`. An unsigned request would get a 200 for a real source id and a 404 for an unknown one.
+**Option 4b (rejected):** Answer it in `handleIngest` before `Ingest` for every source. An unsigned request would get a 200 for a real source id and a 404 for an unknown one.
+
+**Option 4c (chosen):** Answer the handshake after `Verify` for a source with a signing secret. For a source without one, answer only the handshake, unsigned, and reject every other request. This accepts the trade-off recorded under Decision 5.
 
 ### Dropping App Messages
 
@@ -102,7 +106,7 @@ How should kora add a "Chat command" trigger kind whose triggers work on every c
 
 ## Decision
 
-**Chosen Options:** 1a, 2a, 3b, 4a and 5a. The sub-decisions follow.
+**Chosen Options:** 1a, 2a, 3b, 4c and 5a. The sub-decisions follow.
 
 ### 1. Chat Command Kind
 
@@ -144,8 +148,8 @@ type chatAdapter interface {
 
 `issuedSecret` and `handshaker` are optional interfaces in `adapter.go`:
 
-- **Issued secret:** `CreateSourceRequest` and `UpdateSourceRequest` carry a write-only `signing_secret`. It is valid only for an adapter that implements `issuedSecret`, on create and on an update that sets `rotate_secret`. Every other request that carries it fails with `ErrValidation`, including updates to GitHub and Alertmanager sources. For an issued-secret provider, create and rotate require it. The value is trimmed and must be non-empty and at most 256 bytes. `SourceResponse.Secret` stays empty for an issued secret, and the rotation cutoff in `redeliverWebhook` (`service_fire.go`) applies unchanged.
-- **Handshake:** In `Service.Ingest`, between `Verify` and `DeliveryID`, a `handshaker` adapter whose `Handshake` returns ok ends the request. It writes no delivery row, takes no replay key and leaves the source counters unchanged. `Ingest` returns an `IngestResult` that sits beside `IngestOutcome` in `service.go`, and `IngestHandshake` makes `handleIngest` answer 200 with the reply through `api.JSON`.
+- **Issued secret:** `CreateSourceRequest` and `UpdateSourceRequest` carry a write-only `signing_secret`. It is valid only for an adapter that implements `issuedSecret`. Every other request that carries it fails with `ErrValidation`, including updates to GitHub and Alertmanager sources. For an issued-secret provider, create may omit it, and the source is stored without a secret. `UpdateSource` sets the first secret on a source that has none without `rotate_secret`. Once a secret is set, a change needs `rotate_secret` and the new value. `SourceResponse` carries a read-only `signing_secret_set` that tells the console a source is waiting for its secret. The value is trimmed and must be non-empty and at most 256 bytes. `SourceResponse.Secret` stays empty for an issued secret, and the rotation cutoff in `redeliverWebhook` (`service_fire.go`) applies unchanged.
+- **Handshake:** In `Service.Ingest`, between `Verify` and `DeliveryID`, a `handshaker` adapter whose `Handshake` returns ok ends the request. A source without a signing secret skips `Verify` and takes the unsigned path in Decision 5. It writes no delivery row, takes no replay key and leaves the source counters unchanged. `Ingest` returns an `IngestResult` that sits beside `IngestOutcome` in `service.go`, and `IngestHandshake` makes `handleIngest` answer 200 with the reply through `api.JSON`.
 
 The kora MCP tools `triggers.sources.create` and `triggers.sources.update` do not accept `signing_secret`. A secret must not pass through a model's context. An admin creates and rotates a Slack source in the console or through the REST API.
 
@@ -189,6 +193,8 @@ type SenderRole struct {
 Every failure returns `ErrSignatureInvalid` and the same 404 as today. The adapter takes its clock as a field and uses `time.Now` when the field is nil.
 
 - **Handshake:** A body whose `type` is `url_verification` returns `{"challenge": <challenge>}` with status 200.
+- **Source without a signing secret:** `Verify` cannot run. Such a source answers only the `handshaker` handshake, and only with the echo the handshake returns. It writes no delivery row, takes no replay key and moves no counter. It rejects every other request and records the reason "signing secret not set". A source with a secret keeps the order `Verify`, then the handshake.
+- **Trade-off:** The handshake on a source without a secret is unsigned. The reply echoes the caller's challenge and carries nothing else, and the source id is an unguessable UUID. A caller who knows the id learns that the source exists and gets its own challenge back. The source runs no trigger and stores nothing until an admin sets the secret.
 - **Delivery id:** `DeliveryID` returns the body's `event_id`, and the Events API documents it as globally unique. `app_rate_limited` carries no `event_id` and fails the existing `ErrMissingDeliveryID` guard, and that rejection is accepted.
 - **Event type:** `EventType` returns `""` unless the body's `type` is `event_callback`. It returns `""` when `event.bot_id` is set or `event.subtype` is `bot_message`. `event.type` `app_mention` maps to `mention`. `event.type` `message` with `event.channel_type` `im` and no subtype or the `file_share` subtype maps to `direct_message`. Every other event returns `""`, including `thread_broadcast` and edits in a direct message.
 - **Retries:** Slack retries a delivery up to three times and marks each retry with `X-Slack-Retry-Num`. A retry carries the same `event_id`, and the partial unique index on `trigger_deliveries` records it as a duplicate. The adapter does not read the retry headers.
@@ -214,10 +220,17 @@ A Slack `ts` is unique within one conversation only. A mention trigger's routing
 - `features.bot_user.display_name` is a slug of the product name in the characters Slack allows: `a-z`, `0-9`, `-`, `_` and `.`.
 - `features.app_home.messages_tab_enabled` is true and `messages_tab_read_only_enabled` is false. People can then send the bot direct messages.
 - `oauth_config.scopes.bot` lists `app_mentions:read` and `im:history` for the chat source. It lists `chat:write`, `channels:history`, `groups:history` and `users:read` for the agent to read the thread and reply.
-- `settings.event_subscriptions.bot_events` lists `app_mention` and `message.im`, and the manifest has no `request_url`.
+- `settings.event_subscriptions.request_url` is the source's request URL, and `bot_events` lists `app_mention` and `message.im`. Socket Mode is off, so Slack rejects a manifest without a `request_url` with `invalid_manifest`.
 - `settings.socket_mode_enabled`, `org_deploy_enabled` and `token_rotation_enabled` are false.
 
-The Slack MCP server uses this app's bot token (`xoxb-`) to post, and the admin adds any further scopes that server needs. The source step of the chat kind shows the manifest with a copy button and a signing secret field. The done step shows the real request URL to set under Event Subscriptions, and Slack's check of that URL is the handshake.
+The Slack MCP server uses this app's bot token (`xoxb-`) to post, and the admin adds any further scopes that server needs. The wizard issues the request URL first and takes the signing secret last, in one pass:
+
+1.  The admin picks Slack and names a new source. The wizard creates the source at once, with no signing secret.
+2.  The source step shows the manifest with the real `request_url` and the request URL with a copy button. An admin with an existing Slack app sets the URL under Event Subscriptions instead. No placeholder URL is shown for a source that does not exist.
+3.  Slack sends `url_verification` and kora answers it.
+4.  The admin pastes the signing secret from Slack's Basic Information page into the same screen. The wizard does not continue until the secret is saved.
+
+The retry path in `create-from-wizard.ts` reuses the source it created. The triggers page and the trigger drawer show a chat source without a secret as waiting for its signing secret, with a way to set it.
 
 ### 8. Acknowledgement Time
 
@@ -245,6 +258,7 @@ A Teams adapter would implement `chatAdapter` for Bot Framework activities. Team
 - A channel follow-up reaches kora only when it mentions the bot. `message.channels` is not subscribed.
 - `fanOut` bounds the inline enqueue with `dispatchTimeout` (60 seconds, `service.go`). A slow database past three seconds makes Slack retry, and the retry records as a duplicate.
 - A Slack trigger with dedupe disabled starts a run for every Slack retry (`dispatchDuplicate` in `service_ingest.go`).
+- The handshake on a source without a signing secret is unsigned, so a caller who knows the source id can get a challenge echoed.
 - Slack's signing secret regeneration has no grace window. Deliveries between the regeneration in Slack and the rotation in kora get 404, and Slack drops them after its retries.
 - An admin configures two things for one Slack app: the chat source and the Slack MCP server.
 - Storage and the API use different names for the sender restriction keys.
@@ -260,7 +274,7 @@ A Teams adapter would implement `chatAdapter` for Bot Framework activities. Team
 
 1.  **`feat/slack-trigger-capabilities` (#641):** `chatAdapter`, `schemas/chat.json` and its registry assignment, the fail-closed match in `fanOut`, `category` on source and event types responses, chat field validation on trigger create and update, the generic `Sender`, `SenderRole` and `SenderRestriction`, the GitHub roles, the storage mapping in `postgres.go`, the refusal of keys other than `ids` and `roles`, the chat filter on `observed`, `senders` on `EventTypesResponse`, and the kora MCP arguments and descriptions. Fake-adapter tests cover the capability call sites.
 2.  **`feat/slack-trigger-adapter` (#643):** the Slack `ChatEvent` mapping, the `mention` and `direct_message` event types and the Slack `senderIdentifier`.
-3.  **`feat/slack-trigger-frontend` (#644):** the chat registry entry with `apiKind`, category-driven provider and source lists, the Chat command filter on the triggers page, the sender editor reading `senders`, the manifest without `request_url` and the request URL on the done step, chat placeholders, and Storybook mocks and stories for the chat source setup and done step. The BFF passthroughs (`frontend/src/app/api/trigger-sources/route.ts`, `frontend/src/app/api/trigger-sources/[id]/route.ts`, `frontend/src/shared/api.ts` and `@runkora/server/triggers-client`) carry `signing_secret`, `category`, `senders` and the `sender_restriction` keys.
+3.  **`feat/slack-trigger-frontend` (#644):** the chat registry entry with `apiKind`, category-driven provider and source lists, the Chat command filter on the triggers page, the sender editor reading `senders`, the manifest with `request_url`, the source-first wizard order with the signing secret saved last, the waiting-for-secret state, chat placeholders, and Storybook mocks and stories for the chat source setup and done step. The BFF passthroughs (`frontend/src/app/api/trigger-sources/route.ts`, `frontend/src/app/api/trigger-sources/[id]/route.ts`, `frontend/src/shared/api.ts` and `@runkora/server/triggers-client`) carry `signing_secret`, `category`, `senders` and the `sender_restriction` keys.
 
 ---
 
@@ -276,6 +290,8 @@ Unit tests cover:
 - Sender restrictions by id and role for GitHub and Slack, the storage mapping, and a request with `logins`, `associations` or a misspelt key refused.
 - The `observed` filter on a chat source.
 - Create and rotate with and without `signing_secret` for Slack, GitHub and Alertmanager.
+- Create without a secret, setting the first secret without `rotate_secret`, and a second set refused without `rotate_secret`.
+- A source without a secret: the unsigned handshake echo, no delivery row, replay key or counter, every other request rejected with "signing secret not set", and the unchanged order for a source with a secret.
 
 ---
 
