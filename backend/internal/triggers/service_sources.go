@@ -310,7 +310,7 @@ func (s *SourceService) SourceEventTypes(ctx context.Context, tenantID, sourceID
 	resp := eventTypes(adapter, catalog)
 	resp.Observed = observed
 	if resp.Category == CategoryChat {
-		// A chat trigger reads only the chat document, so an event outside it is not one a trigger can name.
+		// A chat trigger can use only the chat.json event types.
 		resp.Observed = slices.DeleteFunc(observed, func(e string) bool { return !slices.Contains(resp.Declared, e) })
 	}
 	return resp, nil

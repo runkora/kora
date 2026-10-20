@@ -580,7 +580,7 @@ func TestHandleTrigger_UnknownSenderKeys(t *testing.T) {
 		body := []byte(`{"source_id":"` + src.ID + `","name":"t","agent_type_id":"at-1","event_type":"issue_comment",` +
 			`"prompt_template":"p","sender_restriction":{"` + key + `":["x"]}}`)
 		w := call(t, c.handleCreateTrigger, http.MethodPost, "/triggers", nil, body)
-		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "takes ids and roles") {
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "takes only ids and roles") {
 			t.Errorf("create with %s: status = %d (%s), want 400 naming ids and roles", key, w.Code, w.Body.String())
 		}
 	}

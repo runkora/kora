@@ -723,7 +723,7 @@ type SenderRestriction struct {
 
 // errSenderRestrictionKeys refuses any key but ids and roles, which a plain
 // decode would drop: a typo or a legacy key would then clear a stored restriction.
-var errSenderRestrictionKeys = errors.New("sender_restriction takes ids and roles only; logins and associations are no longer accepted")
+var errSenderRestrictionKeys = errors.New("sender_restriction takes only ids and roles")
 
 // UnmarshalJSON decodes ids and roles and refuses every other key.
 func (r *SenderRestriction) UnmarshalJSON(b []byte) error {
