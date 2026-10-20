@@ -114,6 +114,8 @@ func TestSandboxGuardrails_ReadyWait(t *testing.T) {
 		{SandboxGuardrails{ProvisionAttempts: 3, ProvisionBackoffSecs: 5, ProvisionBudgetSecs: 300}, 90 * time.Second},
 		{SandboxGuardrails{ProvisionAttempts: 3, ProvisionBackoffSecs: 30, ProvisionBudgetSecs: 300}, 65 * time.Second},
 		{SandboxGuardrails{ProvisionAttempts: 1, ProvisionBackoffSecs: 5, ProvisionBudgetSecs: 320}, 315 * time.Second},
+		{SandboxGuardrails{ProvisionAttempts: 3, ProvisionBackoffSecs: 5, ProvisionBudgetSecs: 600}, 190 * time.Second},
+		{SandboxGuardrails{ProvisionAttempts: 1, ProvisionBackoffSecs: 5, ProvisionBudgetSecs: 600}, 595 * time.Second},
 		{SandboxGuardrails{ProvisionAttempts: 4, ProvisionBudgetSecs: 8}, 2 * time.Second},
 		{SandboxGuardrails{ProvisionAttempts: 3, ProvisionBackoffSecs: 200, ProvisionBudgetSecs: 300}, 0},
 		{SandboxGuardrails{ProvisionBudgetSecs: 300}, 0},

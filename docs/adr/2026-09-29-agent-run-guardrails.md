@@ -66,7 +66,7 @@ Nothing stops a run that has stopped making progress.
 
 ### G1 sandbox loss
 
-- An agent's provision request tries up to `sandboxProvisionAttempts` times (default 3), backing off from `sandboxProvisionBackoffSecs` (default 5) and doubling, within `sandboxProvisionBudgetSecs` (default 300). Each attempt gets an equal share of the budget, so one hung call to orbit-agents cannot use every retry. Pre-provisioning at run start keeps its single attempt.
+- An agent's provision request tries up to `sandboxProvisionAttempts` times (default 3), backing off from `sandboxProvisionBackoffSecs` (default 5) and doubling, within `sandboxProvisionBudgetSecs` (default 600). Each attempt gets an equal share of the budget, so one hung call to orbit-agents cannot use every retry. Pre-provisioning at run start keeps its single attempt.
 - Provisioning is serialised per run, so parallel shell calls that all find the sandbox dead share one replacement.
 - The retries are bound to the session, not the caller: a runtime kills a shell call at its own timeout and the outcome must still be recorded, and ending the session stops them so no sandbox is created for a finished run. A resumed session keeps the run's sandbox descriptor and its lost state.
 - On final failure the run records one `run_error` with code `sandbox_lost`, and every later provision request fails at once with HTTP 503 `sandbox_lost` and the same message. The message names the run workspace by its concrete path (`/workspaces/<run-id>`), says whether files under it are intact, says that files outside it are lost, and says that shell commands and `provision_sandbox` will fail until the user replies. The next user message or answer to a question clears the state, and a retry that fails after the user replied does not re-block them.
@@ -132,7 +132,7 @@ Each threshold is set at the level that owns it.
 |---|---|---|---|
 | `sandboxProvisionAttempts` | install | 3 | chart values, `agents.guardrails` |
 | `sandboxProvisionBackoffSecs` | install | 5 | chart values, `agents.guardrails` |
-| `sandboxProvisionBudgetSecs` | install | 300 | chart values, `agents.guardrails` |
+| `sandboxProvisionBudgetSecs` | install | 600 | chart values, `agents.guardrails` |
 | `repeated_call_warn`, `repeated_call_pause` | agent type | 4, 8 | agent type `guardrails` |
 | `wait_rearm_warn`, `wait_rearm_pause` | agent type | 6, 12 | agent type `guardrails` |
 

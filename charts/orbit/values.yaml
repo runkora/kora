@@ -593,8 +593,8 @@ agents:
     sandboxProvisionAttempts: 3
     # -- Seconds before the second attempt; doubles for each attempt after.
     sandboxProvisionBackoffSecs: 5
-    # -- Seconds across all attempts. At most 320, so the agent's tools still hear the outcome.
-    sandboxProvisionBudgetSecs: 300
+    # -- Seconds across all attempts. At most 600, so the agent's tools still hear the outcome.
+    sandboxProvisionBudgetSecs: 600
   # How long a run may sit idle after the agent's last turn before its session
   # closes and the run completes. The run's origin picks the value; a person
   # who messages a trigger run moves it to the manual one.

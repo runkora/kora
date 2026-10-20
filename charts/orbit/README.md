@@ -40,7 +40,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.extraVolumes | list | `[]` |  |
 | agents.guardrails.sandboxProvisionAttempts | int | `3` | Re-provisioning attempts when a run's sandbox dies. |
 | agents.guardrails.sandboxProvisionBackoffSecs | int | `5` | Seconds before the second attempt; doubles for each attempt after. |
-| agents.guardrails.sandboxProvisionBudgetSecs | int | `300` | Seconds across all attempts. At most 320, so the agent's tools still hear the outcome. |
+| agents.guardrails.sandboxProvisionBudgetSecs | int | `600` | Seconds across all attempts. At most 600, so the agent's tools still hear the outcome. |
 | agents.idleTimeout.manualSecs | int | `1200` | Seconds a run a person started (dashboard or API) may stay idle. |
 | agents.idleTimeout.triggerSecs | int | `300` | Seconds a run a trigger started may stay idle. Shorter, because nobody is watching it. |
 | agents.image.digest | string | `""` |  |

@@ -22,9 +22,9 @@ import (
 
 // provisionTimeout sits above the session-manager's worst case for a provision:
 // its retry budget (the chart caps agents.guardrails.sandboxProvisionBudgetSecs
-// at 320) plus the egress canary (90s, egressCanaryMaxWait). Timing out first
+// at 600) plus the egress canary (90s, egressCanaryMaxWait). Timing out first
 // reports a sandbox that the session-manager then goes on to hand over.
-const provisionTimeout = 420 * time.Second
+const provisionTimeout = 720 * time.Second
 
 func main() {
 	srv := &mcpServer{
