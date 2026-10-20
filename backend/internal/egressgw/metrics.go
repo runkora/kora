@@ -69,18 +69,24 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 // recordMint records one connector.Mint call: its outcome, latency, and —
 // on failure — the classified reason. adapter and action are both
 // enum-backed (AdapterType values, and the adapter's declared action
-// vocabulary), so neither opens a cardinality hole.
-func (m *Metrics) recordMint(ctx context.Context, adapter credentials.AdapterType, action string, took time.Duration, err error) {
+// vocabulary), so neither opens a cardinality hole. tenantID is safe as a
+// general-purpose label per the 2026-10-20 ADR amendment (tenant count is
+// confirmed small — single digits to low tens per cluster).
+func (m *Metrics) recordMint(ctx context.Context, adapter credentials.AdapterType, action string, tenantID string, took time.Duration, err error) {
 	if m == nil {
 		return
 	}
 	attrs := metric.WithAttributes(
 		attribute.String("adapter", string(adapter)),
 		attribute.String("action", action),
+		attribute.String("tenant_id", tenantID),
 	)
 	m.mintDuration.Record(ctx, took.Seconds(), attrs)
 	if err != nil {
-		m.mintFailures.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", mintFailureReason(err))))
+		m.mintFailures.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("reason", mintFailureReason(err)),
+			attribute.String("tenant_id", tenantID),
+		))
 		return
 	}
 	m.minted.Add(ctx, 1, attrs)

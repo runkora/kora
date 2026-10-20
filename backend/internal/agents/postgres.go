@@ -575,18 +575,19 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 	return out, rows.Err()
 }
 
-// runsActiveByStateFrameworkQuery aggregates every pod-occupying run by state
-// and its agent type's framework, across all tenants, for the
-// orbit_agents_runs_active gauge. Scoped to the OccupiesPod states the same
-// way activeRunsPerPodQuery is: a "runs active" gauge counting every run that
-// ever reached a terminal state would not be a gauge, it would be a growing
-// total.
+// runsActiveByStateFrameworkQuery aggregates every pod-occupying run by state,
+// its agent type's framework, tenant, and agent type, across all tenants, for
+// the orbit_agents_runs_active gauge. Scoped to the OccupiesPod states the
+// same way activeRunsPerPodQuery is: a "runs active" gauge counting every run
+// that ever reached a terminal state would not be a gauge, it would be a
+// growing total. tenant_id/agent_type_id grouping added by the 2026-10-20
+// amendment to docs/adr/2026-10-07-domain-metrics-instrumentation.md.
 var runsActiveByStateFrameworkQuery = fmt.Sprintf(`
-	SELECT r.state, a.framework, COUNT(*)
+	SELECT r.state, a.framework, r.tenant_id, r.agent_type_id, COUNT(*)
 	FROM runs r
 	JOIN agent_types a ON a.id = r.agent_type_id
 	WHERE r.state IN (%s)
-	GROUP BY r.state, a.framework`, podOccupancySQLList())
+	GROUP BY r.state, a.framework, r.tenant_id, r.agent_type_id`, podOccupancySQLList())
 
 // CountRunsByStateAndFramework aggregates currently-active runs by state and
 // agent framework. Read only by the orbit_agents_runs_active observable gauge
@@ -603,13 +604,19 @@ func (r *PostgresRepository) CountRunsByStateAndFramework(ctx context.Context) (
 	var out []RunStateFrameworkCount
 	for rows.Next() {
 		var (
-			state, framework string
-			count            int64
+			state, framework, tenantID, agentTypeID string
+			count                                   int64
 		)
-		if err := rows.Scan(&state, &framework, &count); err != nil {
+		if err := rows.Scan(&state, &framework, &tenantID, &agentTypeID, &count); err != nil {
 			return nil, err
 		}
-		out = append(out, RunStateFrameworkCount{State: RunState(state), Framework: AgentFramework(framework), Count: count})
+		out = append(out, RunStateFrameworkCount{
+			State:       RunState(state),
+			Framework:   AgentFramework(framework),
+			TenantID:    tenantID,
+			AgentTypeID: agentTypeID,
+			Count:       count,
+		})
 	}
 	return out, rows.Err()
 }

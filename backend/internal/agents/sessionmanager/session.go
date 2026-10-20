@@ -102,7 +102,12 @@ type SessionConfig struct {
 
 // session represents one active run backed by a CLI subprocess.
 type session struct {
-	runID            string
+	runID string
+	// tenantID and agentTypeID are this run's owning tenant and AgentType, used
+	// only as metric labels (docs/adr/2026-10-07-domain-metrics-instrumentation.md).
+	// Both are bounded, admin-curated catalogs per that ADR's cardinality policy.
+	tenantID         string
+	agentTypeID      string
 	runner           Runner
 	runCtx           context.Context // canceled when the session closes
 	cancel           context.CancelFunc
@@ -230,6 +235,8 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 
 	s := &session{
 		runID:        cfg.RunID,
+		tenantID:     cfg.TenantID,
+		agentTypeID:  cfg.AgentTypeID,
 		runner:       cfg.Runner,
 		runCtx:       runCtx,
 		cancel:       cancel,
@@ -463,6 +470,21 @@ func (reg *Registry) ActiveCount() int {
 	return len(reg.sessions)
 }
 
+// ActiveCountByTenant returns the number of currently active sessions, grouped
+// by tenant_id (docs/adr/2026-10-07-domain-metrics-instrumentation.md's
+// 2026-10-20 amendment: tenant_id is a safe label, tenant count is bounded).
+// A session's tenantID is always populated from SessionConfig.TenantID at
+// Create, so this never needs a fallback bucket for "no tenant".
+func (reg *Registry) ActiveCountByTenant() map[string]int {
+	reg.mu.RLock()
+	defer reg.mu.RUnlock()
+	counts := make(map[string]int, len(reg.sessions))
+	for _, s := range reg.sessions {
+		counts[s.tenantID]++
+	}
+	return counts
+}
+
 // Sandbox is what orbit-agents returns for a provisioned pod: where its exec
 // server listens, and the token that server requires.
 type Sandbox struct {
@@ -503,7 +525,8 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, environ
 	s, ok := reg.sessions[runID]
 	reg.mu.RUnlock()
 	if !ok {
-		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, time.Now(), ErrSessionNotFound.Error())
+		// No session means no tenant_id/agent_id to label this with yet.
+		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, time.Now(), ErrSessionNotFound.Error(), "", "")
 		return "", ErrSessionNotFound
 	}
 	// One provision per run at a time: parallel Bash calls that all find the
@@ -521,12 +544,12 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, environ
 	runDir, pathsOK := reg.runDir(runID)
 	if !pathsOK {
 		err := fmt.Errorf("run id %q is not a single path segment", runID)
-		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, time.Now(), err.Error())
+		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, time.Now(), err.Error(), s.tenantID, s.agentTypeID)
 		return "", err
 	}
 
 	started := time.Now()
-	reg.sandboxStatus(ctx, runID, SandboxPhaseProvisioning, started, "")
+	reg.sandboxStatus(ctx, runID, SandboxPhaseProvisioning, started, "", s.tenantID, s.agentTypeID)
 	sandbox, err := reg.provision(ctx, s, environment, replace)
 	if err != nil {
 		// The error names in-cluster addresses, and anyone who can read the run reads the event.
@@ -538,14 +561,14 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, environ
 		if reason := unschedulableReason(err); reason != "" {
 			msg = reason
 		}
-		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, msg)
+		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, msg, s.tenantID, s.agentTypeID)
 		return "", err
 	}
 
-	reg.sandboxStatus(ctx, runID, SandboxPhasePodReady, started, "")
+	reg.sandboxStatus(ctx, runID, SandboxPhasePodReady, started, "", s.tenantID, s.agentTypeID)
 
 	// The agent's file tools reach the sandbox folder only once the node agent has mounted it.
-	if err := reg.awaitFolderOrFail(ctx, runID, sandbox.Folder, started); err != nil {
+	if err := reg.awaitFolderOrFail(ctx, runID, sandbox.Folder, started, s.tenantID, s.agentTypeID); err != nil {
 		return "", err
 	}
 
@@ -572,12 +595,12 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, environ
 		// on its own if they fail.
 	}
 	if err := writeSandboxDescriptor(runDir, sandbox); err != nil {
-		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, "sandbox provisioning failed")
+		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, "sandbox provisioning failed", s.tenantID, s.agentTypeID)
 		return "", err
 	}
 	// Recorded only once the agent can use the sandbox, so the log never ends
 	// on a success phase for a provision that failed.
-	reg.sandboxStatus(ctx, runID, egressPhase, started, egressNote)
+	reg.sandboxStatus(ctx, runID, egressPhase, started, egressNote, s.tenantID, s.agentTypeID)
 	reg.rememberSandbox(runID, sandbox)
 	return sandbox.Endpoint, nil
 }
@@ -661,9 +684,12 @@ func writeSandboxDescriptor(runDir string, sandbox Sandbox) error {
 
 // sandboxStatus reports a provisioning phase to orbit-agents. Best-effort, and
 // detached from ctx so a caller that gave up still leaves the phase recorded.
-func (reg *Registry) sandboxStatus(ctx context.Context, runID, phase string, started time.Time, message string) {
+//
+// tenantID and agentTypeID are metric labels only (docs/adr/2026-10-07-domain-metrics-instrumentation.md);
+// both are empty when called before the run's session is found (e.g. ErrSessionNotFound).
+func (reg *Registry) sandboxStatus(ctx context.Context, runID, phase string, started time.Time, message string, tenantID, agentTypeID string) {
 	elapsed := time.Since(started)
-	reg.metrics.recordSandboxPhase(ctx, phase, elapsed)
+	reg.metrics.recordSandboxPhase(ctx, phase, elapsed, tenantID, agentTypeID)
 	ev, err := newEvent(EventTypeSandboxStatus, SandboxStatusPayload{
 		Phase:     phase,
 		ElapsedMs: elapsed.Milliseconds(),
@@ -1070,7 +1096,7 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 					logging.Field{Key: "error", Value: startErr.Error()},
 				)
 			} else {
-				newS := &session{runID: s.runID, runner: newRunner, runCtx: newCtx, cancel: newCancel, done: make(chan struct{}), wake: make(chan wakeKind, 1)}
+				newS := &session{runID: s.runID, tenantID: s.tenantID, agentTypeID: s.agentTypeID, runner: newRunner, runCtx: newCtx, cancel: newCancel, done: make(chan struct{}), wake: make(chan wakeKind, 1)}
 				newS.idleTimeout.Store(s.idleTimeout.Load())
 				newS.triggered.Store(s.triggered.Load())
 				newS.isIdle.Store(true)

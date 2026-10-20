@@ -56,13 +56,23 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 // recordSandboxPhase records how long a sandbox provision has been running
 // when it reaches phase (one of the SandboxPhase* consts), and counts a
 // failure when phase is SandboxPhaseFailed.
-func (m *Metrics) recordSandboxPhase(ctx context.Context, phase string, elapsed time.Duration) {
+//
+// tenantID and agentTypeID (the AgentType ID) are safe labels under the
+// 2026-10-20 amendment to docs/adr/2026-10-07-domain-metrics-instrumentation.md
+// (both bounded, admin-curated catalogs). Either may be empty — e.g. a
+// provision request for a run this pod has no session for yet.
+func (m *Metrics) recordSandboxPhase(ctx context.Context, phase string, elapsed time.Duration, tenantID, agentTypeID string) {
 	if m == nil {
 		return
 	}
-	m.sandboxProvisionDuration.Record(ctx, elapsed.Seconds(), metric.WithAttributes(attribute.String("phase", phase)))
+	attrs := metric.WithAttributes(
+		attribute.String("phase", phase),
+		attribute.String("tenant_id", tenantID),
+		attribute.String("agent_id", agentTypeID),
+	)
+	m.sandboxProvisionDuration.Record(ctx, elapsed.Seconds(), attrs)
 	if phase == SandboxPhaseFailed {
-		m.sandboxProvisionFailures.Add(ctx, 1, metric.WithAttributes(attribute.String("phase", phase)))
+		m.sandboxProvisionFailures.Add(ctx, 1, attrs)
 	}
 }
 
@@ -71,12 +81,15 @@ func (m *Metrics) recordSandboxPhase(ctx context.Context, phase string, elapsed 
 // kind is one of the bounded loopKind* consts; the tool name is deliberately
 // not a label here (docs/adr/2026-10-07-domain-metrics-instrumentation.md's
 // cardinality rule): it is copied from the agent-emitted ToolUsePayload.Name
-// and is not enum-backed, so it can grow without bound.
-func (m *Metrics) recordGuardrailWarning(ctx context.Context, kind string) {
+// and is not enum-backed, so it can grow without bound. tenantID and
+// agentTypeID are safe labels under that ADR's 2026-10-20 amendment.
+func (m *Metrics) recordGuardrailWarning(ctx context.Context, kind, tenantID, agentTypeID string) {
 	if m == nil {
 		return
 	}
 	m.guardrailWarnings.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("kind", kind),
+		attribute.String("tenant_id", tenantID),
+		attribute.String("agent_id", agentTypeID),
 	))
 }

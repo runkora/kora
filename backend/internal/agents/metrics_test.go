@@ -21,6 +21,15 @@ func (stubRunStateReader) CountRunsByStateAndFramework(context.Context) ([]RunSt
 	return nil, nil
 }
 
+// stubAgentTypeLister is a no-op agentTypeLister: these tests exercise
+// recordRunDuration via RunService.Transition, not the agent_info gauge
+// callback, so ListActiveAgentTypes is never expected to be called.
+type stubAgentTypeLister struct{}
+
+func (stubAgentTypeLister) ListActiveAgentTypes(context.Context) ([]AgentType, error) {
+	return nil, nil
+}
+
 // newTestMetrics builds the real instrument set on an SDK meter with a manual
 // reader, so tests assert on what a collector would actually receive rather
 // than on a mock of the OTel API.
@@ -28,7 +37,7 @@ func newTestMetrics(t *testing.T, sessions sessionCounter) (*Metrics, *sdkmetric
 	t.Helper()
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-	m, err := NewMetrics(provider.Meter("test"), stubRunStateReader{}, sessions, logging.NewLoggerWithOutput(io.Discard))
+	m, err := NewMetrics(provider.Meter("test"), stubRunStateReader{}, sessions, stubAgentTypeLister{}, logging.NewLoggerWithOutput(io.Discard))
 	if err != nil {
 		t.Fatalf("NewMetrics: %v", err)
 	}

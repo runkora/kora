@@ -527,11 +527,16 @@ func PodOccupyingRunStates() []RunState {
 
 // RunStateFrameworkCount is one row of the runs-by-state-and-framework
 // aggregate the orbit_agents_runs_active gauge callback reads: how many
-// currently-active runs are in State, for agent types running Framework.
+// currently-active runs are in State, for agent types running Framework,
+// further broken down by TenantID and AgentTypeID
+// (docs/adr/2026-10-07-domain-metrics-instrumentation.md's 2026-10-20
+// amendment).
 type RunStateFrameworkCount struct {
-	State     RunState
-	Framework AgentFramework
-	Count     int64
+	State       RunState
+	Framework   AgentFramework
+	TenantID    string
+	AgentTypeID string
+	Count       int64
 }
 
 // Run is the durable unit of work. It outlives browser connections and persists

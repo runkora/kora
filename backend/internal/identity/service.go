@@ -572,7 +572,9 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 		if errors.Is(err, ErrRefreshTokenNotFound) {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "refresh_token not found")
-			s.metrics.recordAuthFailure(ctx, authFailureReasonRefreshTokenNotFound)
+			// No tenant is resolvable yet: the hash lookup itself failed, so
+			// there is no refresh-token or session record to read one from.
+			s.metrics.recordAuthFailure(ctx, authFailureReasonRefreshTokenNotFound, "")
 			return nil, ErrRefreshTokenNotFound
 		}
 		span.RecordError(err)
@@ -583,13 +585,16 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 	if rt.RevokedAt != nil {
 		span.RecordError(ErrRefreshTokenRevoked)
 		span.SetStatus(codes.Error, "refresh_token revoked")
-		s.metrics.recordAuthFailure(ctx, authFailureReasonRefreshTokenRevoked)
+		// RefreshToken carries no tenant_id (only session_id), and the
+		// backing session isn't looked up on this failing path.
+		s.metrics.recordAuthFailure(ctx, authFailureReasonRefreshTokenRevoked, "")
 		return nil, ErrRefreshTokenRevoked
 	}
 	if time.Now().After(rt.ExpiresAt) {
 		span.RecordError(ErrRefreshTokenExpired)
 		span.SetStatus(codes.Error, "refresh_token expired")
-		s.metrics.recordAuthFailure(ctx, authFailureReasonRefreshTokenExpired)
+		// Same reason as above: no tenant naturally in scope here.
+		s.metrics.recordAuthFailure(ctx, authFailureReasonRefreshTokenExpired, "")
 		return nil, ErrRefreshTokenExpired
 	}
 
@@ -607,7 +612,7 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 	if session.RevokedAt != nil {
 		span.RecordError(ErrTokenRevoked)
 		span.SetStatus(codes.Error, "session revoked")
-		s.metrics.recordAuthFailure(ctx, authFailureReasonTokenRevoked)
+		s.metrics.recordAuthFailure(ctx, authFailureReasonTokenRevoked, session.TenantID)
 		return nil, ErrTokenRevoked
 	}
 
@@ -721,7 +726,9 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid token")
-		s.metrics.recordAuthFailure(ctx, authFailureReasonInvalidToken)
+		// Parsing/verification itself failed, so there are no claims to read
+		// a tenant from.
+		s.metrics.recordAuthFailure(ctx, authFailureReasonInvalidToken, "")
 		return ErrInvalidToken
 	}
 
@@ -729,7 +736,9 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 	if jti == "" {
 		span.RecordError(ErrInvalidToken)
 		span.SetStatus(codes.Error, "missing jti")
-		s.metrics.recordAuthFailure(ctx, authFailureReasonInvalidToken)
+		// claims parsed and verified successfully here, so the tenant is
+		// genuinely in scope even though this request is rejected.
+		s.metrics.recordAuthFailure(ctx, authFailureReasonInvalidToken, claims.Kora.TenantID)
 		return ErrInvalidToken
 	}
 

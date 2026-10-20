@@ -56,7 +56,7 @@ func collect(t *testing.T, reader *sdkmetric.ManualReader) map[string]metricdata
 func TestMetrics_NilIsSafe(t *testing.T) {
 	var m *Metrics
 	ctx := context.Background()
-	m.recordInvocation(ctx, "orbit", "allow", time.Millisecond)
+	m.recordInvocation(ctx, "orbit", "allow", "acme", time.Millisecond)
 	if err := m.Close(); err != nil {
 		t.Errorf("Close on nil = %v", err)
 	}
@@ -69,7 +69,7 @@ func TestMetrics_NilSnapshotReaderSkipsServerGauge(t *testing.T) {
 	m, reader := newTestMetrics(t, nil)
 	ctx := context.Background()
 
-	m.recordInvocation(ctx, "orbit", "allow", 10*time.Millisecond)
+	m.recordInvocation(ctx, "orbit", "allow", "acme", 10*time.Millisecond)
 
 	got := collect(t, reader)
 	if _, exported := got["orbit.tool_gateway.servers"]; exported {
@@ -80,19 +80,20 @@ func TestMetrics_NilSnapshotReaderSkipsServerGauge(t *testing.T) {
 	}
 }
 
-// The invocation counter and duration histogram both carry server and
-// decision — the two dimensions an operator needs to tell "this server keeps
-// getting denied" from "the gateway's policy check is slow for everyone" —
-// and deliberately no raw tool label (unbounded cardinality; see
+// The invocation counter and duration histogram both carry server, decision,
+// and tenant_id — the dimensions an operator needs to tell "this server
+// keeps getting denied" from "the gateway's policy check is slow for
+// everyone", filterable per tenant per the ADR's 2026-10-20 amendment — and
+// deliberately no raw tool label (unbounded cardinality; see
 // recordInvocation).
 func TestMetrics_InvocationCarriesServerAndDecision(t *testing.T) {
 	m, reader := newTestMetrics(t, nil)
 	ctx := context.Background()
 
-	m.recordInvocation(ctx, "orbit", "allow", 5*time.Millisecond)
-	m.recordInvocation(ctx, "orbit", "allow", 5*time.Millisecond)
-	m.recordInvocation(ctx, "orbit", "deny", 5*time.Millisecond)
-	m.recordInvocation(ctx, "github", "error", 5*time.Millisecond)
+	m.recordInvocation(ctx, "orbit", "allow", "acme", 5*time.Millisecond)
+	m.recordInvocation(ctx, "orbit", "allow", "acme", 5*time.Millisecond)
+	m.recordInvocation(ctx, "orbit", "deny", "acme", 5*time.Millisecond)
+	m.recordInvocation(ctx, "github", "error", "globex", 5*time.Millisecond)
 
 	metrics := collect(t, reader)
 
@@ -101,7 +102,7 @@ func TestMetrics_InvocationCarriesServerAndDecision(t *testing.T) {
 		t.Fatalf("invocations counter is %T, want a sum", metrics["orbit.tool_gateway.invocations"].Data)
 	}
 	if len(sum.DataPoints) != 3 {
-		t.Fatalf("data points = %d, want one per (server,decision)", len(sum.DataPoints))
+		t.Fatalf("data points = %d, want one per (server,decision,tenant_id)", len(sum.DataPoints))
 	}
 	for _, dp := range sum.DataPoints {
 		if _, hasTool := dp.Attributes.Value("tool"); hasTool {
@@ -109,14 +110,26 @@ func TestMetrics_InvocationCarriesServerAndDecision(t *testing.T) {
 		}
 		server, _ := dp.Attributes.Value("server")
 		decision, _ := dp.Attributes.Value("decision")
-		if server.AsString() == "orbit" && decision.AsString() == "allow" && dp.Value != 2 {
-			t.Errorf("orbit/allow = %d, want 2", dp.Value)
+		tenantID, hasTenant := dp.Attributes.Value("tenant_id")
+		if !hasTenant {
+			t.Errorf("invocations counter must carry tenant_id, got attrs %v", dp.Attributes)
+		}
+		if server.AsString() == "orbit" && decision.AsString() == "allow" {
+			if dp.Value != 2 {
+				t.Errorf("orbit/allow = %d, want 2", dp.Value)
+			}
+			if tenantID.AsString() != "acme" {
+				t.Errorf("orbit/allow tenant_id = %q, want acme", tenantID.AsString())
+			}
+		}
+		if server.AsString() == "github" && tenantID.AsString() != "globex" {
+			t.Errorf("github/error tenant_id = %q, want globex", tenantID.AsString())
 		}
 	}
 
 	hist, ok := metrics["orbit.tool_gateway.invocation_duration"].Data.(metricdata.Histogram[float64])
 	if !ok || len(hist.DataPoints) != 3 {
-		t.Fatalf("invocation duration = %+v, want one series per (server,decision)",
+		t.Fatalf("invocation duration = %+v, want one series per (server,decision,tenant_id)",
 			metrics["orbit.tool_gateway.invocation_duration"].Data)
 	}
 }

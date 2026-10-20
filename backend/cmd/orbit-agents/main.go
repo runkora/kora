@@ -283,10 +283,11 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	}
 
 	// Domain metrics (docs/adr/2026-10-07-domain-metrics-instrumentation.md):
-	// run transitions/duration/reaped counts and browser-session (SSE
-	// subscription) duration. repo satisfies the narrow runStateReader
-	// interface structurally; pubsub satisfies sessionCounter the same way.
-	agentsMetrics, err := agents.NewMetrics(metrics.Meter(), repo, pubsub, logger)
+	// run transitions/duration/reaped counts, browser-session (SSE
+	// subscription) duration, and the agent_info info-metric. repo satisfies
+	// the narrow runStateReader and agentTypeLister interfaces structurally;
+	// pubsub satisfies sessionCounter the same way.
+	agentsMetrics, err := agents.NewMetrics(metrics.Meter(), repo, pubsub, repo, logger)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("create agents metrics: %w", err)
 	}

@@ -161,7 +161,7 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 
 	span.SetAttributes(attribute.String("jti", issuance.JTI))
 	span.SetStatus(codes.Ok, "delegation issuance created")
-	s.metrics.recordDelegationIssued(ctx)
+	s.metrics.recordDelegationIssued(ctx, claims.Kora.TenantID)
 	return issuance, nil
 }
 
@@ -229,7 +229,7 @@ func (s *Service) RevokeDelegation(ctx context.Context, claims *PlatformClaims, 
 	}
 
 	span.SetStatus(codes.Ok, "delegation revoked")
-	s.metrics.recordDelegationRevoked(ctx)
+	s.metrics.recordDelegationRevoked(ctx, claims.Kora.TenantID)
 	return nil
 }
 

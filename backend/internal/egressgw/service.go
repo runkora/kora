@@ -106,7 +106,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		// No adapter or action is resolved yet, so neither can label this
 		// failure; the mint-failures counter still needs the sample so
 		// ErrConnectionNotFound is reachable in mintFailureReason.
-		b.metrics.recordMint(ctx, credentials.AdapterType("unknown"), "unknown", 0, err)
+		b.metrics.recordMint(ctx, credentials.AdapterType("unknown"), "unknown", tenantID, 0, err)
 		return Decision{}, err
 	}
 	span.SetAttributes(
@@ -139,7 +139,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		// The adapter is known here even though classification (and so the
 		// action) is not, so ErrInvalidConfig becomes reachable in
 		// mintFailureReason with a sentinel action.
-		b.metrics.recordMint(ctx, adapter.Type(), "unknown", 0, err)
+		b.metrics.recordMint(ctx, adapter.Type(), "unknown", tenantID, 0, err)
 		return Decision{}, err
 	}
 
@@ -181,7 +181,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	}
 	mintStart := time.Now()
 	cred, err := connector.Mint(ctx, identity)
-	b.metrics.recordMint(ctx, adapter.Type(), action, time.Since(mintStart), err)
+	b.metrics.recordMint(ctx, adapter.Type(), action, tenantID, time.Since(mintStart), err)
 	if err != nil {
 		// The upstream refusing to issue a credential for this scope (e.g. the
 		// GitHub App installation lacks the permission kora authorized) is a
