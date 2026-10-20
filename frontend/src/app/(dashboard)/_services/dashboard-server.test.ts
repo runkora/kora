@@ -8,7 +8,11 @@ const client = vi.hoisted(() => ({
 
 vi.mock('@runkora/server/environments-client', () => client);
 vi.mock('../agents/_services/agents-server', () => ({
-  fetchAgentsFromBFF: vi.fn().mockResolvedValue({ ok: false }),
+  fetchAgentsFromBFF: vi.fn().mockResolvedValue({
+    agentTypes: { ok: false, status: 403, message: 'You do not have access to agents.' },
+    runs: { ok: false, status: 403, message: 'You do not have access to runs.' },
+    runStats: null,
+  }),
 }));
 vi.mock('../connections/_services/connections-server', () => ({
   fetchConnections: vi.fn().mockResolvedValue({ ok: false }),
@@ -20,6 +24,7 @@ vi.mock('../model-gateway/_services/budgets-server', () => ({
   fetchBudgetPrincipalsFromGateway: vi.fn().mockResolvedValue({ ok: false }),
 }));
 
+import { ApiError } from '@runkora/server/api-error';
 import { fetchDashboardData } from './dashboard-server';
 
 const ENV = {
@@ -50,5 +55,14 @@ describe('fetchDashboardData', () => {
     client.listEnvironments.mockRejectedValue(new Error('down'));
     const data = await fetchDashboardData('token', 't-1');
     expect(data.environments).toEqual([]);
+    expect(data.environmentsError).toBe('Could not load environments. Try again.');
+  });
+
+  it('reports a refused section as no access, not as empty', async () => {
+    client.listEnvironments.mockRejectedValue(new ApiError(403, 'forbidden', 'forbidden'));
+    const data = await fetchDashboardData('token', 't-1');
+    expect(data.environmentsError).toBe('You do not have access to environments.');
+    expect(data.agentsError).toBe('You do not have access to agents.');
+    expect(data.runsError).toBe('You do not have access to runs.');
   });
 });

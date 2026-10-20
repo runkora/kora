@@ -1,6 +1,7 @@
 import 'server-only';
 import { config } from '@runkora/server/config';
 import type { McpCatalogTool, McpServer } from '@runkora/shared/api';
+import { ApiError } from './api-error';
 
 /**
  * Lists the MCP servers visible to the caller's tenant (its own + global),
@@ -17,7 +18,11 @@ export async function listMcpServers(accessToken: string): Promise<McpServer[]> 
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) {
-    throw new Error(`tool-gateway list servers failed: ${res.status}`);
+    throw new ApiError(
+      res.status,
+      'UPSTREAM_ERROR',
+      `tool-gateway list servers failed: ${res.status}`,
+    );
   }
   const body = (await res.json()) as { servers?: McpServer[] };
   return body.servers ?? [];
@@ -43,7 +48,11 @@ export async function listMcpTools(accessToken: string): Promise<McpCatalogTool[
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) {
-    throw new Error(`tool-gateway list catalog failed: ${res.status}`);
+    throw new ApiError(
+      res.status,
+      'UPSTREAM_ERROR',
+      `tool-gateway list catalog failed: ${res.status}`,
+    );
   }
   const body = (await res.json()) as { tools?: McpCatalogTool[] };
   return body.tools ?? [];

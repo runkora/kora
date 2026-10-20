@@ -86,11 +86,14 @@ export function McpToolTree({
   catalog,
   granted,
   onChange,
+  disabled = false,
 }: {
   servers: McpServer[];
   catalog: McpCatalogTool[];
   granted: string[];
   onChange: (scopes: string[]) => void;
+  /** Read-only, for callers who may not change the agent. */
+  disabled?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -122,6 +125,7 @@ export function McpToolTree({
               <CardContent flush>
                 <Stack direction="horizontal" align="center" gap="cozy" padding="cozy">
                   <Checkbox
+                    disabled={disabled}
                     size="md"
                     checked={whole}
                     indeterminate={on && !whole}
@@ -175,6 +179,7 @@ export function McpToolTree({
                     <Button
                       variant="outline-muted"
                       size="xs"
+                      disabled={disabled}
                       onClick={() => toggleMany(server.scopes, true)}
                     >
                       Select all
@@ -182,6 +187,7 @@ export function McpToolTree({
                     <Button
                       variant="outline-muted"
                       size="xs"
+                      disabled={disabled}
                       onClick={() => toggleMany(server.scopes, false)}
                     >
                       Clear
@@ -198,6 +204,7 @@ export function McpToolTree({
                         <Separator />
                         <Stack direction="horizontal" align="center" gap="cozy" padding="cozy">
                           <Checkbox
+                            disabled={disabled}
                             checked={domainAll}
                             indeterminate={domainSome}
                             onChange={(checked) => toggleMany(domainScopes, checked)}
@@ -227,6 +234,7 @@ export function McpToolTree({
                                 paddingInline="relaxed"
                               >
                                 <Checkbox
+                                  disabled={disabled}
                                   checked={toolOn}
                                   onChange={(checked) => toggleMany([tool.scope], checked)}
                                   aria-label={`Grant ${tool.name}`}

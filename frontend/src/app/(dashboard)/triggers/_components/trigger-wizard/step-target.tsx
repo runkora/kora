@@ -20,6 +20,7 @@ import {
   Text,
 } from '@runkora/hades';
 import type { StepComponentProps, TriggerWizardAgent } from './types';
+import { permissionHintText } from '@runkora/components';
 
 function initial(agent: TriggerWizardAgent): string {
   const source = agent.name?.trim() || agent.slug;
@@ -58,7 +59,8 @@ export function StepTarget({ state, patch, context }: StepComponentProps) {
         <SectionLabel>Agent to run</SectionLabel>
         {agents.length === 0 && (
           <Callout variant="warning">
-            No agents are available to bind. Create an autonomous agent first.
+            {context.agentsError ??
+              'No agents are available to bind. Create an autonomous agent first.'}
           </Callout>
         )}
         {agents.length > AGENT_SEARCH_THRESHOLD && (
@@ -93,13 +95,15 @@ export function StepTarget({ state, patch, context }: StepComponentProps) {
             )}
             {visibleAgents.map((a) => {
               const delegated = a.identityMode === 'delegated';
+              const unrunnable = a.canRun === false;
+              const blocked = delegated || unrunnable;
               return (
                 <Card
                   key={a.id}
-                  interactive={!delegated}
-                  subtle={delegated}
+                  interactive={!blocked}
+                  subtle={blocked}
                   selected={state.agentTypeId === a.id}
-                  onClick={delegated ? undefined : () => patch({ agentTypeId: a.id })}
+                  onClick={blocked ? undefined : () => patch({ agentTypeId: a.id })}
                 >
                   <CardContent padded compact>
                     <Stack direction="horizontal" align="center" gap="cozy">
@@ -119,6 +123,10 @@ export function StepTarget({ state, patch, context }: StepComponentProps) {
                       {delegated ? (
                         <Text as="span" size="micro" color="subtle">
                           delegated · started by people
+                        </Text>
+                      ) : unrunnable ? (
+                        <Text as="span" size="micro" color="subtle">
+                          {permissionHintText('run this agent')}
                         </Text>
                       ) : (
                         <RadioGroupItem value={a.id} aria-label={a.name?.trim() || a.slug} />

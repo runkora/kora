@@ -78,6 +78,8 @@ import {
 } from './trigger-wizard/cron';
 import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
 import { useEditableSection } from './use-editable-section';
+import { useHasScope } from '../../_components/permissions-provider';
+import { PermissionHint, permissionHintText } from '@runkora/components';
 
 /**
  * A correction to a stored trigger. Every field is optional: a section saves
@@ -127,7 +129,7 @@ interface TriggerDrawerProps {
   onEdit?: (t: TriggerRow, patch: TriggerEditPatch) => Promise<string | null>;
   /**
    * Replays a delivery, resolving with the new delivery's id or an error.
-   * Absent for read-only callers, where no Redeliver is offered.
+   * Shown disabled with the reason when the caller may not replay.
    */
   onRedeliver?: (
     delivery: DeliveryRow,
@@ -140,6 +142,12 @@ interface TriggerDrawerProps {
   /** Fire a manual trigger now. Absent for kinds that fire on their own. */
   onFire?: (t: TriggerRow) => void;
   firing?: boolean;
+  /**
+   * Whether the caller may run the bound agent. Changing what a trigger runs
+   * or when (prompt, filters, senders, schedule, on or off, redeliver, secret
+   * rotation) needs it on top of triggers:write.
+   */
+  canRunAgent: boolean;
 }
 
 /** How many deliveries the tab shows before it stops. */
@@ -303,13 +311,23 @@ export function TriggerDrawer({
   onClose,
   onToggleEnabled,
   onDelete,
-  onUpdateSafety,
-  onEdit,
-  onRedeliver,
-  onRotateSecret,
-  onFire,
+  onUpdateSafety: updateSafetyAction,
+  onEdit: editAction,
+  onRedeliver: redeliverAction,
+  onRotateSecret: rotateSecretAction,
+  onFire: fireAction,
   firing = false,
+  canRunAgent,
 }: TriggerDrawerProps) {
+  // Without triggers:write every write handler is dropped, which disables its
+  // control. Run-shaping edits also need run authority on the bound agent.
+  // Firing has its own per-trigger answer from the API.
+  const canWrite = useHasScope('triggers:write');
+  const canShapeRuns = canWrite && canRunAgent;
+  const onUpdateSafety = canWrite ? updateSafetyAction : undefined;
+  const onEdit = canWrite ? editAction : undefined;
+  const onRotateSecret = canShapeRuns ? rotateSecretAction : undefined;
+  const canFire = !!trigger?.canFire;
   const [expanded, setExpanded] = useState<string | null>(null);
   // Rotation is destructive (the provider's configured secret stops working the
   // moment it lands), so the button asks once before doing it.
@@ -332,6 +350,7 @@ export function TriggerDrawer({
   // trigger cannot inherit half-typed edits from the last one.
   const editKey = trigger?.id ?? '';
   const editable = onEdit !== undefined && trigger !== null;
+  const runEditable = editable && canRunAgent;
 
   const savePatch = useCallback(
     async (patch: TriggerEditPatch): Promise<string | null> => {
@@ -515,6 +534,7 @@ export function TriggerDrawer({
           <Toggle
             checked={trigger.enabled}
             onChange={(next) => onToggleEnabled(trigger, next)}
+            disabled={!canShapeRuns}
             aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} ${trigger.name}`}
           />
         }
@@ -530,6 +550,17 @@ export function TriggerDrawer({
         </TabsList>
 
         <SidePanelBody padding="compact">
+          {/* One notice covers every disabled edit control in the drawer. */}
+          {!canWrite ? (
+            <Alert variant="info">{permissionHintText('edit triggers')}</Alert>
+          ) : (
+            !canRunAgent && (
+              <Alert variant="info">
+                {permissionHintText("run this trigger's agent")} Its prompt, filters, schedule and
+                on or off state are read only.
+              </Alert>
+            )
+          )}
           {/* ── Overview: what this is and how it fires ─────────────────── */}
           <TabsContent value="overview">
             <Stack gap="comfortable">
@@ -685,8 +716,13 @@ export function TriggerDrawer({
                           <Text mono size="micro" color="subtle">
                             {trigger.scheduleConfig.timezone}
                           </Text>
-                          {editable && (
-                            <Button variant="ghost" size="xs" onClick={() => setScheduleOpen(true)}>
+                          {editAction !== undefined && (
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              disabled={!runEditable}
+                              onClick={() => setScheduleOpen(true)}
+                            >
                               Edit
                             </Button>
                           )}
@@ -747,14 +783,16 @@ export function TriggerDrawer({
                       <Text mono size="micro" color="accent" truncate>
                         POST /api/v1/trigger-fires/{trigger.id}
                       </Text>
-                      {onFire !== undefined && (
-                        <Button
-                          size="sm"
-                          disabled={!trigger.enabled || firing}
-                          onClick={() => onFire(trigger)}
-                        >
-                          {firing ? 'Queueing…' : 'Run now'}
-                        </Button>
+                      {fireAction !== undefined && (
+                        <PermissionHint allowed={canFire} action="fire this trigger">
+                          <Button
+                            size="sm"
+                            disabled={!canFire || !trigger.enabled || firing}
+                            onClick={() => fireAction(trigger)}
+                          >
+                            {firing ? 'Queueing…' : 'Run now'}
+                          </Button>
+                        </PermissionHint>
                       )}
                     </Stack>
                   </Card>
@@ -771,7 +809,7 @@ export function TriggerDrawer({
                     placeholder="Choose an event"
                     catalog={eventTypeCatalog(sourceCatalog.declared, sourceCatalog.observed)}
                     searchPlaceholder="Search events…"
-                    disabled={!editable}
+                    disabled={!runEditable}
                     onSelect={(eventType) => filters.setValue({ ...filters.value, eventType })}
                   />
 
@@ -779,7 +817,7 @@ export function TriggerDrawer({
                     rows={filters.value.filters}
                     fields={webhookFields}
                     onChange={setFilterRows}
-                    canAdd={editable}
+                    disabled={!runEditable}
                   />
 
                   <Text size="caption" color="subtle">
@@ -805,7 +843,7 @@ export function TriggerDrawer({
                   available={sourceCatalog.associations}
                   value={senders.value}
                   onChange={senders.setValue}
-                  disabled={!editable}
+                  disabled={!runEditable}
                   actions={
                     <EditActions
                       dirty={senders.dirty}
@@ -848,7 +886,7 @@ export function TriggerDrawer({
                   value={prompt.value}
                   onChange={prompt.setValue}
                   catalog={promptCatalog}
-                  disabled={!editable}
+                  disabled={!runEditable}
                   placeholder="What this trigger asks the agent to do."
                   catalogLabel={
                     trigger.kind === 'webhook' && filters.value.eventType
@@ -936,7 +974,8 @@ export function TriggerDrawer({
                     triggerId={trigger.id}
                     expandedId={expanded}
                     onToggleExpanded={setExpanded}
-                    onRedeliver={onRedeliver}
+                    onRedeliver={redeliverAction}
+                    redeliverAllowed={canShapeRuns}
                   />
                 </>
               )}
@@ -1090,7 +1129,12 @@ export function TriggerDrawer({
                 title="Delete trigger"
                 description="Stops all future deliveries. Anything still waiting is recorded as dropped, and history is retained."
                 action={
-                  <Button variant="destructive" size="sm" onClick={() => onDelete(trigger)}>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={!canWrite}
+                    onClick={() => onDelete(trigger)}
+                  >
                     Delete
                   </Button>
                 }

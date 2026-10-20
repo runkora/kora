@@ -15,10 +15,12 @@ interface DeliveryListProps {
   /** Which delivery's payload is open, if any. */
   expandedId: string | null;
   onToggleExpanded: (id: string | null) => void;
-  /** Replays a delivery. Absent for read-only callers. */
+  /** Replays a delivery. */
   onRedeliver?: (
     delivery: DeliveryRow,
   ) => Promise<{ deliveryId: string | null; error: string | null }>;
+  /** False when the caller may not replay; Redeliver shows disabled with the reason. */
+  redeliverAllowed?: boolean;
 }
 
 /** Compact relative time, so a column of these stays scannable. */
@@ -38,6 +40,7 @@ export function DeliveryList({
   expandedId,
   onToggleExpanded,
   onRedeliver,
+  redeliverAllowed = true,
 }: DeliveryListProps) {
   return (
     <Stack gap="snug">
@@ -105,7 +108,12 @@ export function DeliveryList({
               <>
                 <Separator />
                 <Stack padding="cozy">
-                  <DeliveryDetail delivery={d} triggerId={triggerId} onRedeliver={onRedeliver} />
+                  <DeliveryDetail
+                    delivery={d}
+                    triggerId={triggerId}
+                    onRedeliver={onRedeliver}
+                    redeliverAllowed={redeliverAllowed}
+                  />
                 </Stack>
               </>
             )}

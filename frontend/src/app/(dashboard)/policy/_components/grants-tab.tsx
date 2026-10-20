@@ -51,14 +51,14 @@ function budgetSummary(budget: BudgetAssignment): string {
   return parts.join(' · ');
 }
 import { createGrantAction, deleteGrantAction, searchUsersAction } from '../_actions/grants';
-import { usePermissions } from '../../_components/permissions-provider';
-import { hasScope } from '@runkora/lib/permissions';
+import { useHasScope } from '../../_components/permissions-provider';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { PrincipalBadge, ScopeChip, ScopeChipList, scopeColumnFilter } from '@runkora/components';
 import { ScopePicker } from '@runkora/components';
 import { FilterChip } from './filter-chip';
 import { GrantDetailModal } from './grant-detail-modal';
 import { ViewToggle } from './view-toggle';
+import { PermissionHint } from '@runkora/components';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -86,8 +86,7 @@ export function GrantsTab({
   total,
 }: GrantsTabProps) {
   const router = useRouter();
-  const { scopes: sessionScopes } = usePermissions();
-  const canWrite = hasScope(sessionScopes, 'platform:grants:write');
+  const canWrite = useHasScope('platform:grants:write');
   const [grants, setGrants] = useState(initialGrants);
   const [error, setError] = useState(initialError);
 
@@ -164,12 +163,12 @@ export function GrantsTab({
         title="Grants"
         description="Permission grants assigned to principals in your tenant."
         action={
-          canWrite ? (
-            <Button size="sm" onClick={() => setCreating(true)}>
+          <PermissionHint allowed={canWrite} action="create grants">
+            <Button size="sm" disabled={!canWrite} onClick={() => setCreating(true)}>
               <Icon name="plus" />
               Create Grant
             </Button>
-          ) : undefined
+          </PermissionHint>
         }
       />
 
@@ -244,12 +243,12 @@ export function GrantsTab({
               title="No grants yet"
               description="Grants assign scopes directly to principals. Create your first grant to give an agent, human, or service access to specific operations."
               action={
-                canWrite ? (
-                  <Button size="sm" onClick={() => setCreating(true)}>
+                <PermissionHint allowed={canWrite} action="create grants">
+                  <Button size="sm" disabled={!canWrite} onClick={() => setCreating(true)}>
                     <Icon name="plus" />
                     Create Grant
                   </Button>
-                ) : undefined
+                </PermissionHint>
               }
             />
           )
@@ -258,7 +257,8 @@ export function GrantsTab({
             grants={filtered}
             patAttribution={patAttribution}
             userAttribution={userAttribution}
-            onDelete={canWrite ? setDeleteCandidate : undefined}
+            onDelete={setDeleteCandidate}
+            canWrite={canWrite}
           />
         )
       ) : (
@@ -267,7 +267,8 @@ export function GrantsTab({
           patAttribution={patAttribution}
           userAttribution={userAttribution}
           onSelect={setSelectedGrant}
-          onDelete={canWrite ? setDeleteCandidate : undefined}
+          onDelete={setDeleteCandidate}
+          canWrite={canWrite}
           viewToggle={<ViewToggle viewMode={viewMode} onToggle={setViewMode} />}
         />
       )}
@@ -383,11 +384,13 @@ function GrantCardGrid({
   patAttribution,
   userAttribution,
   onDelete,
+  canWrite,
 }: {
   grants: Grant[];
   patAttribution: Record<string, PATGrantAttribution>;
   userAttribution: Record<string, PATAttributionEntry>;
-  onDelete?: (grant: Grant) => void;
+  onDelete: (grant: Grant) => void;
+  canWrite: boolean;
 }) {
   return (
     <Grid cols={{ base: 1, sm: 2 }} gap="comfortable">
@@ -444,16 +447,17 @@ function GrantCardGrid({
                 <Text size="caption" color="subtle">
                   Created {fmtDate(grant.created_at)}
                 </Text>
-                {onDelete && (
+                <PermissionHint allowed={canWrite} action="delete grants">
                   <Button
                     variant="ghost"
                     size="icon-sm"
+                    disabled={!canWrite}
                     onClick={() => onDelete(grant)}
                     aria-label="Delete grant"
                   >
                     <Icon name="trash" size="2xs" />
                   </Button>
-                )}
+                </PermissionHint>
               </Stack>
             </CardFooter>
           </Card>
@@ -478,13 +482,15 @@ function GrantTable({
   userAttribution,
   onSelect,
   onDelete,
+  canWrite,
   viewToggle,
 }: {
   grants: Grant[];
   patAttribution: Record<string, PATGrantAttribution>;
   userAttribution: Record<string, PATAttributionEntry>;
   onSelect: (grant: Grant) => void;
-  onDelete?: (grant: Grant) => void;
+  onDelete: (grant: Grant) => void;
+  canWrite: boolean;
   viewToggle: React.ReactNode;
 }) {
   const columns = useMemo<DataTableColumn<Grant>[]>(
@@ -597,11 +603,12 @@ function GrantTable({
         pinEnd: true,
         locked: true,
         gridWidth: '3rem',
-        cell: (g) =>
-          onDelete ? (
+        cell: (g) => (
+          <PermissionHint allowed={canWrite} action="delete grants">
             <Button
               variant="ghost"
               size="icon-sm"
+              disabled={!canWrite}
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete(g);
@@ -610,10 +617,11 @@ function GrantTable({
             >
               <Icon name="trash" size="2xs" />
             </Button>
-          ) : null,
+          </PermissionHint>
+        ),
       },
     ],
-    [onDelete, patAttribution, userAttribution, grants],
+    [onDelete, canWrite, patAttribution, userAttribution, grants],
   );
 
   return (

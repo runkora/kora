@@ -32,6 +32,11 @@ type callerScopeSource interface {
 // the caller does not. orbit-agents provisions the grant as SYSTEM, which the
 // policy service exempts from its own ceiling.
 func (s *AgentTypeService) checkCeiling(ctx context.Context, at AgentType, r *ScopeResolver) error {
+	return s.checkCeilingWith(ctx, at, r, s.callers)
+}
+
+// checkCeilingWith is checkCeiling reading the caller's scopes from callers.
+func (s *AgentTypeService) checkCeilingWith(ctx context.Context, at AgentType, r *ScopeResolver, callers callerScopeSource) error {
 	if claims := claimsFromContext(ctx); claims != nil && claims.Kora.PrincipalType == token.PrincipalTypeSystem {
 		return nil
 	}
@@ -49,10 +54,10 @@ func (s *AgentTypeService) checkCeiling(ctx context.Context, at AgentType, r *Sc
 	if policy.DelegationFromContext(ctx) != nil {
 		return fmt.Errorf("%w: %w", ErrScopeCeiling, errDelegatedCaller)
 	}
-	if s.callers == nil {
+	if callers == nil {
 		return errNoCallerScopes
 	}
-	held, err := s.callers.CallerEffectiveScopes(ctx, callerBearerFromContext(ctx))
+	held, err := callers.CallerEffectiveScopes(ctx, callerBearerFromContext(ctx))
 	if err != nil {
 		return fmt.Errorf("resolve caller scopes: %w", err)
 	}
@@ -107,4 +112,21 @@ func uncoveredAgentScopes(held, agentScopes []string) []string {
 // isConnectorEgress reports whether s is an egress:<host>:connector scope.
 func isConnectorEgress(s string) bool {
 	return strings.HasPrefix(s, "egress:") && strings.HasSuffix(s, ":connector")
+}
+
+// onceCallerScopes resolves the caller's scopes on first use and reuses them,
+// so checking many agents for one request asks the policy service once.
+type onceCallerScopes struct {
+	src  callerScopeSource
+	done bool
+	held []string
+	err  error
+}
+
+func (o *onceCallerScopes) CallerEffectiveScopes(ctx context.Context, bearer string) ([]string, error) {
+	if !o.done {
+		o.held, o.err = o.src.CallerEffectiveScopes(ctx, bearer)
+		o.done = true
+	}
+	return o.held, o.err
 }

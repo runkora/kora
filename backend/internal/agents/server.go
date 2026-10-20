@@ -216,7 +216,8 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 func (c *Controller) handleListAgentTypes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// Tenant is derived from the verified platform claims; query-string is ignored.
-	types, err := c.agentTypes.ListAgentTypes(ctx)
+	// The bearer lets can_edit resolve the caller's scopes for the ceiling check.
+	types, err := c.agentTypes.ListAgentTypes(withCallerBearerFrom(ctx, r))
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list agent types", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
@@ -230,7 +231,7 @@ func (c *Controller) handleGetAgentType(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	at, err := c.agentTypes.GetAgentType(ctx, id)
+	at, err := c.agentTypes.GetAgentType(withCallerBearerFrom(ctx, r), id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)

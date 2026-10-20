@@ -13,12 +13,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@runkora/hades';
-import { SmartTable } from '@runkora/components';
+import { PermissionHint, SmartTable } from '@runkora/components';
 import type { DataTableColumn } from '@runkora/components';
 import { fmtCost } from '@runkora/utils';
 import type { VirtualModel } from '../_types/catalog';
 import { providerTitle } from '../_utils/catalog-constants';
 import { StrategyBadge } from './strategy-badge';
+import { useHasScope } from '../../../_components/permissions-provider';
 
 interface VirtualModelsSectionProps {
   models: VirtualModel[];
@@ -88,6 +89,7 @@ const NEW_VIRTUAL_MODEL: VirtualModel = {
 };
 
 export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionProps) {
+  const canWrite = useHasScope('platform:catalog:write');
   const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
 
   const statusCounts = useMemo(
@@ -223,10 +225,12 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
         />
       }
       toolbarActions={
-        <Button size="sm" onClick={() => onSelect(NEW_VIRTUAL_MODEL)}>
-          <Icon name="plus" size="2xs" />
-          New Virtual Model
-        </Button>
+        <PermissionHint allowed={canWrite} action="change the model catalog">
+          <Button size="sm" disabled={!canWrite} onClick={() => onSelect(NEW_VIRTUAL_MODEL)}>
+            <Icon name="plus" size="2xs" />
+            New Virtual Model
+          </Button>
+        </PermissionHint>
       }
     />
   );

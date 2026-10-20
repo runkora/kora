@@ -20,14 +20,14 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
-import { usePermissions } from '../../../_components/permissions-provider';
-import { hasScope } from '@runkora/lib/permissions';
+import { useHasScope } from '../../../_components/permissions-provider';
 import { fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import {
   upsertTenantBudgetAction,
   deleteTenantBudgetAction,
 } from '../../../policy/_actions/tenant-budget';
 import type { TenantCapStatus } from '../../_types';
+import { PermissionHint } from '@runkora/components';
 
 interface TenantCapCardProps {
   cap: TenantCapStatus | null;
@@ -35,8 +35,7 @@ interface TenantCapCardProps {
 
 export function TenantCapCard({ cap }: TenantCapCardProps) {
   const router = useRouter();
-  const { scopes: sessionScopes } = usePermissions();
-  const canWrite = hasScope(sessionScopes, 'platform:budgets:write');
+  const canWrite = useHasScope('platform:budgets:write');
   const [editing, setEditing] = useState(false);
 
   const pct = cap && cap.limit_usd > 0 ? (cap.spend_usd / cap.limit_usd) * 100 : 0;
@@ -52,11 +51,11 @@ export function TenantCapCard({ cap }: TenantCapCardProps) {
               Tenant Cap
             </Text>
           </Stack>
-          {canWrite && (
-            <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+          <PermissionHint allowed={canWrite} action="change the tenant cap">
+            <Button variant="ghost" size="sm" disabled={!canWrite} onClick={() => setEditing(true)}>
               {cap ? 'Edit' : 'Set cap'}
             </Button>
-          )}
+          </PermissionHint>
         </Stack>
       </CardHeader>
       <CardContent>

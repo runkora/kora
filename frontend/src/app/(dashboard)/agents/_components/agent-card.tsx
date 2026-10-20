@@ -15,7 +15,7 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
-import { StatusBadge } from '@runkora/components';
+import { PermissionHint, StatusBadge } from '@runkora/components';
 import { fmtUsd } from '@runkora/utils';
 import type { AgentTypeUsage } from '@runkora/shared/api';
 import { APP_ROUTES } from '@runkora/lib/routing';
@@ -58,7 +58,7 @@ export function AgentCard({
   const router = useRouter();
   const cost = usage?.estimated_cost_usd ?? 0;
   const share = totalCost > 0 ? (cost / totalCost) * 100 : 0;
-  const canRun = agent.state === 'active';
+  const runnable = agent.state === 'active';
 
   return (
     // The whole card is a mouse target; the settings link is the keyboard route to the same page,
@@ -134,10 +134,16 @@ export function AgentCard({
                   : 'Idle'}
             </Text>
             <Stack direction="horizontal" align="center" gap="tight">
-              <Button size="sm" disabled={!canRun} onClick={() => onRun(agent)}>
-                <Icon name="play" size="xs" />
-                Run
-              </Button>
+              <PermissionHint allowed={agent.canRun} action="start runs of this agent">
+                <Button
+                  size="sm"
+                  disabled={!runnable || !agent.canRun}
+                  onClick={() => onRun(agent)}
+                >
+                  <Icon name="play" size="xs" />
+                  Run
+                </Button>
+              </PermissionHint>
               <Button
                 variant="ghost"
                 size="icon-sm"

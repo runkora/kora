@@ -124,6 +124,8 @@ export interface TriggerRow {
    * rather than a wrong number.
    */
   pendingCount: number;
+  /** Whether the caller may fire this trigger. */
+  canFire: boolean;
 }
 
 export interface DeliveryRow {
@@ -188,6 +190,8 @@ export interface AgentOption {
    * (they only run on behalf of a person), so the picker disables them.
    */
   identityMode: 'autonomous' | 'delegated';
+  /** Whether the caller may run this agent; binding and run-shaping edits need it. */
+  canRun: boolean;
 }
 
 // ── Transformers ──────────────────────────────────────────────────────────────
@@ -243,6 +247,7 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     // Zero until the backend reports it, so a console deployed ahead of the
     // API shows nothing rather than a wrong number.
     pendingCount: t.pending_count ?? 0,
+    canFire: t.can_fire ?? false,
   };
 }
 

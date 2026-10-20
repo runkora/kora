@@ -16,7 +16,7 @@ import {
 
 import { DelegatedRunNotice } from '../../_components/motif/delegated-run-notice';
 import type { DataTableColumn } from '@runkora/hades';
-import { StatusBadge } from '@runkora/components';
+import { PermissionHint, StatusBadge } from '@runkora/components';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import type { RunStateCounts } from '@runkora/shared/api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
@@ -217,17 +217,20 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
             >
               Open
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setDeleteError(null);
-                setDeleteTarget(row);
-              }}
-            >
-              Delete
-            </Button>
+            <PermissionHint allowed={!!agent?.canRun} action="delete runs of this agent">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!agent?.canRun}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteError(null);
+                  setDeleteTarget(row);
+                }}
+              >
+                Delete
+              </Button>
+            </PermissionHint>
           </Stack>
         ),
       },
@@ -252,9 +255,11 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
           title="No runs yet"
           description="Start your first run to execute tasks with this agent."
           action={
-            <Button onClick={onStartRun} disabled={agent?.state !== 'active'}>
-              Start your first run
-            </Button>
+            <PermissionHint allowed={!!agent?.canRun} action="start runs of this agent">
+              <Button onClick={onStartRun} disabled={!agent?.canRun || agent.state !== 'active'}>
+                Start your first run
+              </Button>
+            </PermissionHint>
           }
         />
       ) : (

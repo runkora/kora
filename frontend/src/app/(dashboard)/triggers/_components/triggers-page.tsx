@@ -34,12 +34,15 @@ import { DeliveryGrid } from './delivery-grid';
 import { matchesStatusFilter } from '../_types';
 import { ingestHostFromWindow } from '../_lib/endpoints';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
+import { useHasScope } from '../../_components/permissions-provider';
+import { PermissionHint } from '@runkora/components';
 
 interface TriggersPageProps {
   sources: SourceRow[];
   triggers: TriggerRow[];
   deliveries: DeliveryRow[];
   agents: AgentOption[];
+  agentsError?: string | null;
   error: string | null;
 }
 
@@ -54,9 +57,24 @@ const DELIVERY_STATUS_OPTIONS = [
   { value: 'missed', label: 'Missed' },
 ];
 
-export function TriggersPage({ sources, triggers, deliveries, agents, error }: TriggersPageProps) {
+export function TriggersPage({
+  sources,
+  triggers,
+  deliveries,
+  agents,
+  agentsError = null,
+  error,
+}: TriggersPageProps) {
   const router = useRouter();
+  const canWrite = useHasScope('triggers:write');
   const ingestHost = ingestHostFromWindow();
+
+  const canRunAgent = useCallback(
+    (agentTypeId: string) => agents.some((a) => a.id === agentTypeId && a.canRun),
+    [agents],
+  );
+  const canRunOwner = (triggerId: string | null) =>
+    canRunAgent(triggers.find((t) => t.id === triggerId)?.agentTypeId ?? '');
 
   const sourceName = useMemo(() => {
     const map = new Map<string, string>();
@@ -207,10 +225,12 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
                 />
               }
               toolbarActions={
-                <Button size="sm" onClick={() => setWizardOpen(true)}>
-                  <Icon name="plus" size="xs" />
-                  New trigger
-                </Button>
+                <PermissionHint allowed={canWrite} action="create triggers">
+                  <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
+                    <Icon name="plus" size="xs" />
+                    New trigger
+                  </Button>
+                </PermissionHint>
               }
               resetKey={kindFilter}
               triggers={visibleTriggers}
@@ -218,6 +238,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
               sourceName={sourceName}
               onOpen={setDrawerTrigger}
               onToggle={(t) => void toggleTrigger(t)}
+              canRunAgent={canRunAgent}
               emptyMessage={
                 triggers.length === 0
                   ? 'No triggers yet.'
@@ -264,6 +285,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           delivery={detailDelivery}
           onClose={() => setDetailDelivery(null)}
           onRedeliver={redeliver}
+          redeliverAllowed={canRunOwner(detailDelivery.triggerId)}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);
@@ -275,6 +297,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       {/* Modals */}
       <TriggerDrawer
         trigger={drawerRow}
+        canRunAgent={drawerRow !== null && canRunAgent(drawerRow.agentTypeId)}
         sources={sources}
         deliveries={deliveries}
         ingestHost={ingestHost}
@@ -302,6 +325,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       {wizardOpen && (
         <TriggerWizard
           agents={agents}
+          agentsError={agentsError}
           sources={formSources.map((f) => ({
             ...f,
             provider: sources.find((x) => x.id === f.id)?.provider ?? 'github',

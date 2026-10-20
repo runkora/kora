@@ -19,7 +19,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@runkora/hades';
-import { SmartTable } from '@runkora/components';
+import { PermissionHint, SmartTable } from '@runkora/components';
 import type { DataTableColumn } from '@runkora/components';
 import { BadgeList } from '../../_components/badge-list';
 import { fmtCost, fmtDate } from '@runkora/utils';
@@ -27,6 +27,7 @@ import { ApiRoute } from '@runkora/lib/routing';
 import type { ProviderModel, PricingEntry } from '../_types/catalog';
 import { ProviderBadge } from './provider-badge';
 import { providerTitle } from '../_utils/catalog-constants';
+import { useHasScope } from '../../../_components/permissions-provider';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -168,6 +169,7 @@ function PricingOverlay({
   onModelChange,
   onToggleEnabled,
 }: PricingOverlayProps) {
+  const canWrite = useHasScope('platform:catalog:write');
   const [inputOverride, setInputOverride] = useState(
     model.pricing?.override_input_cost_per_1m != null
       ? String(model.pricing.override_input_cost_per_1m)
@@ -428,24 +430,29 @@ function PricingOverlay({
             <Text size="supporting" color="muted">
               Enabled
             </Text>
-            <Toggle
-              checked={model.enabled}
-              onChange={(v) => void onToggleEnabled(model.provider, model.modelId, v)}
-            />
+            <PermissionHint allowed={canWrite} action="change the model catalog">
+              <Toggle
+                checked={model.enabled}
+                onChange={(v) => void onToggleEnabled(model.provider, model.modelId, v)}
+                disabled={!canWrite}
+              />
+            </PermissionHint>
           </Stack>
         </Stack>
       </ModalBody>
       <ModalFooter>
         <Stack direction="horizontal" gap="snug" justify="between" grow>
           {p?.has_override ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void handleClearOverride()}
-              disabled={clearing || saving}
-            >
-              {clearing ? 'Clearing…' : 'Clear override'}
-            </Button>
+            <PermissionHint allowed={canWrite} action="change the model catalog">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleClearOverride()}
+                disabled={!canWrite || clearing || saving}
+              >
+                {clearing ? 'Clearing…' : 'Clear override'}
+              </Button>
+            </PermissionHint>
           ) : (
             <Stack />
           )}
@@ -453,14 +460,16 @@ function PricingOverlay({
             <Button variant="outline" size="sm" onClick={onClose} disabled={saving || clearing}>
               Cancel
             </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => void handleSaveOverride()}
-              disabled={saving || clearing || !p}
-            >
-              {saving ? 'Saving…' : 'Save override'}
-            </Button>
+            <PermissionHint allowed={canWrite} action="change the model catalog">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => void handleSaveOverride()}
+                disabled={!canWrite || saving || clearing || !p}
+              >
+                {saving ? 'Saving…' : 'Save override'}
+              </Button>
+            </PermissionHint>
           </Stack>
         </Stack>
       </ModalFooter>
@@ -471,6 +480,7 @@ function PricingOverlay({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ProviderCatalogSection({ models: initialModels }: ProviderCatalogSectionProps) {
+  const canWrite = useHasScope('platform:catalog:write');
   const [localModels, setLocalModels] = useState(initialModels);
   const [detailModel, setDetailModel] = useState<ProviderModel | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
@@ -688,12 +698,18 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
         locked: true,
         cell: (m) => (
           <Stack onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-            <Toggle checked={m.enabled} onChange={(v) => void toggle(m.provider, m.modelId, v)} />
+            <PermissionHint allowed={canWrite} action="change the model catalog">
+              <Toggle
+                checked={m.enabled}
+                onChange={(v) => void toggle(m.provider, m.modelId, v)}
+                disabled={!canWrite}
+              />
+            </PermissionHint>
           </Stack>
         ),
       },
     ],
-    [toggle, providerOptions, familyOptions, capabilityOptions],
+    [toggle, providerOptions, familyOptions, capabilityOptions, canWrite],
   );
 
   return (

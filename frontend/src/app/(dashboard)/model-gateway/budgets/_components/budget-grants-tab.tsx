@@ -6,14 +6,14 @@ import { useRouter } from 'next/navigation';
 import { Button, Callout, DataTable, Icon, PageSectionHeader, Stack, Text } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
 import { PrincipalBadge } from '@runkora/components';
-import { usePermissions } from '../../../_components/permissions-provider';
-import { hasScope } from '@runkora/lib/permissions';
+import { useHasScope } from '../../../_components/permissions-provider';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { updateGrantBudgetAction } from '../../../policy/_actions/grants';
 import type { Grant } from '../../../policy/_types/api';
 import type { PrincipalIdentity } from '../../_types';
 import { BudgetEditModal } from './budget-edit-modal';
 import { principalDisplay } from './principal-display';
+import { PermissionHint } from '@runkora/components';
 
 interface BudgetGrantsTabProps {
   grants: Grant[];
@@ -22,8 +22,7 @@ interface BudgetGrantsTabProps {
 
 export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
   const router = useRouter();
-  const { scopes: sessionScopes } = usePermissions();
-  const canWrite = hasScope(sessionScopes, 'platform:budgets:write');
+  const canWrite = useHasScope('platform:budgets:write');
   const [editing, setEditing] = useState<Grant | null>(null);
 
   const columns = useMemo<DataTableColumn<Grant>[]>(
@@ -122,19 +121,21 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
         locked: true,
         gridWidth: '4rem',
         cell: (g) => {
-          if (!canWrite) return null;
           return (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditing(g);
-              }}
-              aria-label={`Edit budget for ${g.principal_id}`}
-            >
-              <Icon name="edit" size="2xs" />
-            </Button>
+            <PermissionHint allowed={canWrite} action="change grant budgets">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canWrite}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditing(g);
+                }}
+                aria-label={`Edit budget for ${g.principal_id}`}
+              >
+                <Icon name="edit" size="2xs" />
+              </Button>
+            </PermissionHint>
           );
         },
       },

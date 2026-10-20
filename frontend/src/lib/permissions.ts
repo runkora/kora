@@ -1,29 +1,13 @@
 /**
  * Permission helpers for scope-based UI gating.
  *
- * `hasScope` / `hasAnyScope` / `hasAllScopes` perform set membership checks
- * only. `scopeCovers` / `hasScopeCovering` additionally apply the platform's
- * prefix-covers hierarchy (mirroring the backend `scope_covers` rego rule and
- * Go `policy.ScopeCovers`), for required scopes that a broader granted scope
- * satisfies, e.g. `agents:types:write` covers `agents:types:delegated:write`.
- * The scope set is projected by the policy gateway's OPA evaluation and
- * cached in the session. None of these evaluate policy rules.
+ * `scopeCovers` / `hasScopeCovering` apply the platform's prefix-covers
+ * hierarchy, mirroring the backend `scope_covers` rego rule and Go
+ * `policy.ScopeCovers`: `agents:types:write` covers `agents:types:delegated:write`.
+ * There is no exact-match helper. An exact match denies controls to a principal
+ * holding a broader scope that the backend accepts. None of these evaluate
+ * policy rules; per-resource answers come from the API (`can_run`, `can_fire`).
  */
-
-/** Returns `true` if `scopes` contains the required scope. */
-export function hasScope(scopes: string[], required: string): boolean {
-  return scopes.includes(required);
-}
-
-/** Returns `true` if `scopes` contains at least one of the required scopes. */
-export function hasAnyScope(scopes: string[], required: string[]): boolean {
-  return required.some((s) => scopes.includes(s));
-}
-
-/** Returns `true` if `scopes` contains all of the required scopes. */
-export function hasAllScopes(scopes: string[], required: string[]): boolean {
-  return required.every((s) => scopes.includes(s));
-}
 
 /**
  * Returns `true` if the `granted` scope covers the `required` scope under the

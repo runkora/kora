@@ -35,10 +35,13 @@ export function ModelPicker({
   models,
   value,
   onChange,
+  disabled = false,
 }: {
   models: ModelObject[];
   value: string;
   onChange: (id: string) => void;
+  /** Read-only, for callers who may not change the model. */
+  disabled?: boolean;
 }) {
   const [modelSearch, setModelSearch] = useState('');
 
@@ -70,17 +73,23 @@ export function ModelPicker({
           onChange={(e) => setModelSearch(e.target.value)}
           placeholder="Filter models by name, id, or provider…"
           aria-label="Filter models"
+          disabled={disabled}
         />
       )}
 
-      <RadioGroup value={value} onValueChange={onChange} aria-label="Model">
+      <RadioGroup value={value} onValueChange={onChange} aria-label="Model" disabled={disabled}>
         <Stack gap="cozy">
           {modelFamilies.map(([family, familyModels]) => (
             <Stack key={family} gap="snug">
               <Text as="span" size="micro" weight="heavy" color="subtle" transform="uppercase">
                 {family}
               </Text>
-              <ModelRows models={familyModels} selectedId={value} onSelect={onChange} />
+              <ModelRows
+                models={familyModels}
+                selectedId={value}
+                onSelect={onChange}
+                disabled={disabled}
+              />
             </Stack>
           ))}
           {modelFamilies.length === 0 && models.length > 0 && (
@@ -98,10 +107,12 @@ function ModelRows({
   models,
   selectedId,
   onSelect,
+  disabled,
 }: {
   models: ModelObject[];
   selectedId: string;
   onSelect: (id: string) => void;
+  disabled: boolean;
 }) {
   return (
     <Stack gap="snug">
@@ -109,7 +120,12 @@ function ModelRows({
         const selected = selectedId === m.id;
         const price = formatPrice(m.pricing);
         return (
-          <Card key={m.id} interactive selected={selected} onClick={() => onSelect(m.id)}>
+          <Card
+            key={m.id}
+            interactive={!disabled}
+            selected={selected}
+            onClick={disabled ? undefined : () => onSelect(m.id)}
+          >
             <CardContent padded compact>
               <Stack direction="horizontal" align="center" gap="cozy">
                 <Icon
@@ -139,7 +155,11 @@ function ModelRows({
                     {price}
                   </Text>
                 )}
-                <RadioGroupItem value={m.id} aria-label={m.display_name || m.id} />
+                <RadioGroupItem
+                  value={m.id}
+                  aria-label={m.display_name || m.id}
+                  disabled={disabled}
+                />
               </Stack>
             </CardContent>
           </Card>

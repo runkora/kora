@@ -25,6 +25,8 @@ import { deleteEnvironment } from '../_services/environments-api';
 import { EnvironmentWizard } from './environment-wizard';
 import { imageProblem, sizeLabel } from '@runkora/lib/environments';
 import type { EnvironmentRow } from '../_types';
+import { useHasScope } from '../../_components/permissions-provider';
+import { PermissionHint } from '@runkora/components';
 
 interface EnvironmentsPageProps {
   rows: EnvironmentRow[];
@@ -64,6 +66,7 @@ export function EnvironmentsPage({
 
   // null = closed; { environment: null } = create; { environment: row } = edit.
   const [formState, setFormState] = useState<{ environment: EnvironmentRow | null } | null>(null);
+  const canWrite = useHasScope('agents:environments:write');
   const [deleteCandidate, setDeleteCandidate] = useState<EnvironmentRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -216,33 +219,39 @@ export function EnvironmentsPage({
         gridWidth: '5rem',
         cell: (row) => (
           <Stack direction="horizontal" gap="tight" justify="end">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setFormState({ environment: row });
-              }}
-              aria-label={`Edit ${row.name}`}
-            >
-              <Icon name="edit" size="2xs" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setDeleteCandidate(row);
-              }}
-              aria-label={`Delete ${row.name}`}
-            >
-              <Icon name="trash" size="2xs" />
-            </Button>
+            <PermissionHint allowed={canWrite} action="edit environments">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canWrite}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFormState({ environment: row });
+                }}
+                aria-label={`Edit ${row.name}`}
+              >
+                <Icon name="edit" size="2xs" />
+              </Button>
+            </PermissionHint>
+            <PermissionHint allowed={canWrite} action="delete environments">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canWrite}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteCandidate(row);
+                }}
+                aria-label={`Delete ${row.name}`}
+              >
+                <Icon name="trash" size="2xs" />
+              </Button>
+            </PermissionHint>
           </Stack>
         ),
       },
     ],
-    [rows, images],
+    [rows, images, canWrite],
   );
 
   return (
@@ -257,10 +266,16 @@ export function EnvironmentsPage({
             configuration page.
           </Text>
         </Stack>
-        <Button size="sm" onClick={() => setFormState({ environment: null })}>
-          <Icon name="plus" size="xs" />
-          New environment
-        </Button>
+        <PermissionHint allowed={canWrite} action="create environments">
+          <Button
+            size="sm"
+            disabled={!canWrite}
+            onClick={() => setFormState({ environment: null })}
+          >
+            <Icon name="plus" size="xs" />
+            New environment
+          </Button>
+        </PermissionHint>
       </Stack>
 
       {error ? (
@@ -271,10 +286,16 @@ export function EnvironmentsPage({
           title="No environments"
           description={`Agents without an environment run on the ${productName} base image. Create an environment to give them a registered image, a size and access.`}
           action={
-            <Button size="sm" onClick={() => setFormState({ environment: null })}>
-              <Icon name="plus" size="xs" />
-              New environment
-            </Button>
+            <PermissionHint allowed={canWrite} action="create environments">
+              <Button
+                size="sm"
+                disabled={!canWrite}
+                onClick={() => setFormState({ environment: null })}
+              >
+                <Icon name="plus" size="xs" />
+                New environment
+              </Button>
+            </PermissionHint>
           }
         />
       ) : (

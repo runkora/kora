@@ -33,28 +33,34 @@ import { SmartTable } from '@runkora/components';
 import type { DataTableColumn } from '@runkora/components';
 import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
-import { usePermissions } from '../../_components/permissions-provider';
-import { hasScope } from '@runkora/lib/permissions';
+import { useHasScope } from '../../_components/permissions-provider';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { ScopeChipList, scopeColumnFilter } from '@runkora/components';
 import { ScopePicker } from '@runkora/components';
 import { ViewToggle } from './view-toggle';
+import { PermissionHint } from '@runkora/components';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
 interface RolesTabProps {
   initialRoles: RoleEntry[];
   availableScopes: string[];
+  /** Set when the scope vocabulary failed to load. The editor shows it in place of a full picker. */
+  scopesError?: string | null;
   initialError: string | null;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function RolesTab({ initialRoles, availableScopes, initialError }: RolesTabProps) {
+export function RolesTab({
+  initialRoles,
+  availableScopes,
+  scopesError = null,
+  initialError,
+}: RolesTabProps) {
   const router = useRouter();
   const { productName } = useBrand();
-  const { scopes: sessionScopes } = usePermissions();
-  const canWrite = hasScope(sessionScopes, 'platform:roles:write');
+  const canWrite = useHasScope('platform:roles:write');
   const [roles, setRoles] = useState(initialRoles);
   const [error, setError] = useState(initialError);
 
@@ -108,12 +114,12 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
         title="Roles"
         description="Map OIDC role names to platform scopes."
         action={
-          canWrite ? (
-            <Button size="sm" onClick={() => setCreating(true)}>
+          <PermissionHint allowed={canWrite} action="create roles">
+            <Button size="sm" disabled={!canWrite} onClick={() => setCreating(true)}>
               <Icon name="plus" />
               Create Role
             </Button>
-          ) : undefined
+          </PermissionHint>
         }
       />
 
@@ -163,27 +169,29 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
               title="No roles yet"
               description="Roles map OIDC role claims to platform scopes. Create a role to define what permissions a role name grants."
               action={
-                canWrite ? (
-                  <Button size="sm" onClick={() => setCreating(true)}>
+                <PermissionHint allowed={canWrite} action="create roles">
+                  <Button size="sm" disabled={!canWrite} onClick={() => setCreating(true)}>
                     <Icon name="plus" />
                     Create Role
                   </Button>
-                ) : undefined
+                </PermissionHint>
               }
             />
           )
         ) : (
           <RoleCardGrid
             roles={filtered}
-            onEdit={canWrite ? setEditingRole : undefined}
-            onDelete={canWrite ? setDeleteCandidate : undefined}
+            onEdit={setEditingRole}
+            onDelete={setDeleteCandidate}
+            canWrite={canWrite}
           />
         )
       ) : (
         <RoleTable
           roles={roles}
-          onEdit={canWrite ? setEditingRole : undefined}
-          onDelete={canWrite ? setDeleteCandidate : undefined}
+          onEdit={setEditingRole}
+          onDelete={setDeleteCandidate}
+          canWrite={canWrite}
           viewToggle={<ViewToggle viewMode={viewMode} onToggle={setViewMode} />}
         />
       )}
@@ -214,6 +222,7 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
         open={creating || editingRole !== null}
         editingRole={editingRole}
         availableScopes={availableScopes}
+        scopesError={scopesError}
         onClose={() => {
           setCreating(false);
           setEditingRole(null);
@@ -234,10 +243,12 @@ function RoleCardGrid({
   roles,
   onEdit,
   onDelete,
+  canWrite,
 }: {
   roles: RoleEntry[];
-  onEdit?: (role: RoleEntry) => void;
-  onDelete?: (role: RoleEntry) => void;
+  onEdit: (role: RoleEntry) => void;
+  onDelete: (role: RoleEntry) => void;
+  canWrite: boolean;
 }) {
   return (
     <Grid cols={{ base: 1, sm: 2 }} gap="comfortable">
@@ -289,26 +300,28 @@ function RoleCardGrid({
                       Created {fmtDate(role.created_at)}
                     </Text>
                   )}
-                  {onEdit && (
+                  <PermissionHint allowed={canWrite} action="edit roles">
                     <Button
                       variant="ghost"
                       size="icon-sm"
+                      disabled={!canWrite}
                       onClick={() => onEdit(role)}
                       aria-label="Edit role"
                     >
                       <Icon name="edit" size="2xs" />
                     </Button>
-                  )}
-                  {onDelete && (
+                  </PermissionHint>
+                  <PermissionHint allowed={canWrite} action="delete roles">
                     <Button
                       variant="ghost"
                       size="icon-sm"
+                      disabled={!canWrite}
                       onClick={() => onDelete(role)}
                       aria-label="Delete role"
                     >
                       <Icon name="trash" size="2xs" />
                     </Button>
-                  )}
+                  </PermissionHint>
                 </Stack>
               )}
             </CardFooter>
@@ -325,11 +338,13 @@ function RoleTable({
   roles,
   onEdit,
   onDelete,
+  canWrite,
   viewToggle,
 }: {
   roles: RoleEntry[];
-  onEdit?: (role: RoleEntry) => void;
-  onDelete?: (role: RoleEntry) => void;
+  onEdit: (role: RoleEntry) => void;
+  onDelete: (role: RoleEntry) => void;
+  canWrite: boolean;
   viewToggle: React.ReactNode;
 }) {
   const columns = useMemo<DataTableColumn<RoleEntry>[]>(
@@ -408,14 +423,15 @@ function RoleTable({
         locked: true,
         gridWidth: '5rem',
         cell: (r) => {
-          const isReserved = r.reserved === true;
-          if (isReserved || (!onEdit && !onDelete)) return null;
+          // Reserved roles are never editable, so they offer no controls at all.
+          if (r.reserved === true) return null;
           return (
             <Stack direction="horizontal" gap="tight">
-              {onEdit && (
+              <PermissionHint allowed={canWrite} action="edit roles">
                 <Button
                   variant="ghost"
                   size="icon-sm"
+                  disabled={!canWrite}
                   onClick={(e) => {
                     e.stopPropagation();
                     onEdit(r);
@@ -424,11 +440,12 @@ function RoleTable({
                 >
                   <Icon name="edit" size="2xs" />
                 </Button>
-              )}
-              {onDelete && (
+              </PermissionHint>
+              <PermissionHint allowed={canWrite} action="delete roles">
                 <Button
                   variant="ghost"
                   size="icon-sm"
+                  disabled={!canWrite}
                   onClick={(e) => {
                     e.stopPropagation();
                     onDelete(r);
@@ -437,13 +454,13 @@ function RoleTable({
                 >
                   <Icon name="trash" size="2xs" />
                 </Button>
-              )}
+              </PermissionHint>
             </Stack>
           );
         },
       },
     ],
-    [onEdit, onDelete, roles],
+    [onEdit, onDelete, canWrite, roles],
   );
 
   return (
@@ -473,12 +490,14 @@ function UpsertRoleModal({
   open,
   editingRole,
   availableScopes,
+  scopesError,
   onClose,
   onSaved,
 }: {
   open: boolean;
   editingRole: RoleEntry | null;
   availableScopes: string[];
+  scopesError: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -540,8 +559,13 @@ function UpsertRoleModal({
                 ({selectedScopes.length} selected)
               </Text>
             </Stack>
+            {scopesError && (
+              <Text size="caption" color="subtle">
+                {scopesError} Only the role&apos;s current scopes are listed.
+              </Text>
+            )}
             <ScopePicker
-              scopes={availableScopes}
+              scopes={scopesError ? (editingRole?.scopes ?? []) : availableScopes}
               selected={selectedScopes}
               onChange={setSelectedScopes}
             />

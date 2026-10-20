@@ -1,6 +1,7 @@
 import 'server-only';
 import { config } from '@runkora/server/config';
 import type { ConnectionCatalogEntry, ConnectionQualifierEntry } from '@runkora/shared/api';
+import { ApiError } from './api-error';
 
 /** The slice of the gateway's connection record the catalog picker needs. */
 interface GatewayConnection {
@@ -35,7 +36,11 @@ export async function listConnections(accessToken: string): Promise<ConnectionCa
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) {
-    throw new Error(`orbit-agents list connections failed: ${res.status}`);
+    throw new ApiError(
+      res.status,
+      'UPSTREAM_ERROR',
+      `orbit-agents list connections failed: ${res.status}`,
+    );
   }
   const body = (await res.json()) as { connections?: GatewayConnection[] };
   return (body.connections ?? []).map((c) => ({

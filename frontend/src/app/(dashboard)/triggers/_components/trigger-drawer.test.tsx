@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
+import { renderWithProviders } from '@runkora/test-utils';
 
 // The drawer reads the source's schema catalogue from the API.
 const api = vi.hoisted(() => ({
@@ -56,8 +57,9 @@ const SOURCES: SourceRow[] = [
 ];
 
 function renderDrawer(row: TriggerRow, onEdit?: () => Promise<string | null>) {
-  return render(
+  return renderWithProviders(
     <TriggerDrawer
+      canRunAgent
       trigger={row}
       sources={SOURCES}
       deliveries={[]}
@@ -337,8 +339,9 @@ describe('schedule editing', () => {
 
 describe('read-only callers', () => {
   it('offers no edit affordances without onEdit', () => {
-    render(
+    renderWithProviders(
       <TriggerDrawer
+        canRunAgent
         trigger={trigger({
           kind: 'scheduled',
           scheduleConfig: { cronExpression: '0 2 * * *', timezone: 'UTC', catchUp: false },
@@ -359,8 +362,9 @@ describe('read-only callers', () => {
 describe('ephemeral state is scoped to the open trigger', () => {
   it('does not carry a rotated secret from one trigger into the next', async () => {
     const onRotateSecret = vi.fn().mockResolvedValue('secret-for-A');
-    const { rerender } = render(
+    const { rerender } = renderWithProviders(
       <TriggerDrawer
+        canRunAgent
         trigger={trigger({ id: 'trg-A', name: 'trigger-a' })}
         sources={SOURCES}
         deliveries={[]}
@@ -382,6 +386,7 @@ describe('ephemeral state is scoped to the open trigger', () => {
     // shows the placeholder and the Rotate button, never A's live secret.
     rerender(
       <TriggerDrawer
+        canRunAgent
         trigger={trigger({ id: 'trg-B', name: 'trigger-b' })}
         sources={SOURCES}
         deliveries={[]}
@@ -397,5 +402,64 @@ describe('ephemeral state is scoped to the open trigger', () => {
     expect(screen.queryByText('secret-for-A')).toBeNull();
     expect(screen.getByText('shown once at creation')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Rotate' })).toBeTruthy();
+  });
+});
+
+describe('permissions', () => {
+  function renderWith(scopes: string[], row: TriggerRow, canRunAgent = true) {
+    return renderWithProviders(
+      <TriggerDrawer
+        canRunAgent={canRunAgent}
+        trigger={row}
+        sources={SOURCES}
+        deliveries={[]}
+        ingestHost="orbit.local.clearroute.io:8443"
+        onClose={vi.fn()}
+        onToggleEnabled={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn().mockResolvedValue(null)}
+        onFire={vi.fn()}
+      />,
+      { scopes },
+    );
+  }
+  const manual = (canFire: boolean) => trigger({ kind: 'manual', canFire });
+  const scheduled = trigger({
+    kind: 'scheduled',
+    scheduleConfig: { cronExpression: '0 2 * * *', timezone: 'UTC', catchUp: false },
+  });
+
+  it('offers Run now only when the API says the caller may fire', () => {
+    renderWith(['triggers:read'], manual(true));
+    expect(screen.getByRole('button', { name: 'Run now' })).toBeTruthy();
+  });
+
+  it('disables Run now with a hint without fire access, even with triggers:write', () => {
+    renderWith(['triggers:read', 'triggers:write'], manual(false));
+    expect(screen.getByRole('button', { name: 'Run now' })).toBeDisabled();
+    expect(screen.getByLabelText("You don't have permission to fire this trigger.")).toBeTruthy();
+  });
+
+  it('disables the enable switch and edits for a read-only caller, under one notice', () => {
+    renderWith(['triggers:read'], scheduled);
+    expect(screen.getByRole('switch')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled();
+    expect(screen.getByText("You don't have permission to edit triggers.")).toBeTruthy();
+  });
+
+  it('keeps the switch and edits for a caller with triggers:write', () => {
+    renderWith(['triggers:read', 'triggers:write'], scheduled);
+    expect(screen.getByRole('switch')).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled();
+    expect(screen.queryByText("You don't have permission to edit triggers.")).toBeNull();
+  });
+
+  it('keeps run-shaping edits read only without run authority on the agent', () => {
+    renderWith(['triggers:read', 'triggers:write'], scheduled, false);
+    expect(
+      screen.getByText(/You don't have permission to run this trigger's agent\./),
+    ).toBeTruthy();
+    expect(screen.getByRole('switch')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled();
   });
 });

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
+import { hasScopeCovering } from '@runkora/lib/permissions';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -87,6 +88,21 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 
+/** Supplies a fixed, loaded scope set. For tests and stories, where no BFF session exists. */
+export function StaticPermissionsProvider({
+  scopes,
+  children,
+}: {
+  scopes: string[];
+  children: ReactNode;
+}) {
+  return (
+    <SessionContext.Provider value={{ scopes, user: null, loaded: true }}>
+      {children}
+    </SessionContext.Provider>
+  );
+}
+
 // ── Hooks ────────────────────────────────────────────────────────────────────
 
 /** Returns the current principal's permission set and user identity. */
@@ -98,4 +114,13 @@ export function useSession(): SessionContextValue {
 export function usePermissions(): { scopes: string[]; loaded: boolean } {
   const { scopes, loaded } = useContext(SessionContext);
   return { scopes, loaded };
+}
+
+/**
+ * Returns whether the caller holds a scope covering `required`. False until the
+ * session loads, so a write control never flashes for a caller who lacks it.
+ */
+export function useHasScope(required: string): boolean {
+  const { scopes, loaded } = useContext(SessionContext);
+  return loaded && hasScopeCovering(scopes, required);
 }

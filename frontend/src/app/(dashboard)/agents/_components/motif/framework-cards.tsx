@@ -24,9 +24,12 @@ const FRAMEWORKS: { id: AgentFramework; name: string; desc: string }[] = [
 export function FrameworkCards({
   value,
   onChange,
+  disabled = false,
 }: {
   value: AgentFramework;
   onChange: (v: AgentFramework) => void;
+  /** Read-only, for callers who may not change the agent. */
+  disabled?: boolean;
 }) {
   return (
     <RadioGroup
@@ -44,6 +47,7 @@ export function FrameworkCards({
             icon="square-terminal"
             title={f.name}
             description={f.desc}
+            disabled={disabled}
           />
         ))}
       </Grid>

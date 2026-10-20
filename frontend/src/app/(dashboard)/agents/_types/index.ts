@@ -62,6 +62,12 @@ export interface AgentTypeRow {
   budget: AgentBudget | null;
   /** Attached environments. One is the default. Empty means the kora base image. */
   environments: AgentEnvironment[];
+  /** Whether the caller may start a run of this agent. */
+  canRun: boolean;
+  /** Whether the caller may change this agent. */
+  canEdit: boolean;
+  /** Whether the caller may delete this agent. */
+  canDelete: boolean;
 }
 
 export interface RunRow {
@@ -122,6 +128,9 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     modelId: a.model_id ?? '',
     budget: a.budget ?? null,
     environments: a.environments ?? [],
+    canRun: a.can_run ?? false,
+    canEdit: a.can_edit ?? false,
+    canDelete: a.can_delete ?? false,
   };
 }
 

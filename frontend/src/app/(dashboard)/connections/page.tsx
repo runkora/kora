@@ -14,5 +14,11 @@ export default async function ConnectionsPage() {
   const initialRows = result?.ok ? result.rows : [];
   const initialError = result && !result.ok ? result.message : null;
 
-  return <ConnectionsShell initialRows={initialRows} initialError={initialError} />;
+  return (
+    <ConnectionsShell
+      initialRows={initialRows}
+      initialError={initialError}
+      usedByError={result?.ok ? result.usedByError : null}
+    />
+  );
 }

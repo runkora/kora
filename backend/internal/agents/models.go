@@ -229,9 +229,15 @@ type AgentType struct {
 	// written to the agent_types table; populated on detail reads and carried
 	// as the desired state during grant reconciliation.
 	Budget *AgentBudget `json:"budget,omitempty"`
-	// CanRun reports whether the caller may start runs of this type, by the run-start check.
-	// Transient: populated on detail reads only.
-	CanRun *bool `json:"can_run,omitempty"`
+	// CanRun and CanEdit are the caller's own permissions on this agent, set per
+	// request on reads: CanRun by the run-start check, CanEdit by the mode write
+	// check. Triggers ask CanRun for a caller before binding. Absent means not
+	// computed: write responses leave them unset. Never stored.
+	CanRun  *bool `json:"can_run,omitempty"`
+	CanEdit *bool `json:"can_edit,omitempty"`
+	// CanDelete is set like CanEdit but by the delete check: mode write, and no
+	// delegated caller on an autonomous agent. The scope ceiling does not apply.
+	CanDelete *bool `json:"can_delete,omitempty"`
 }
 
 // ConnectorScopes compiles the attached connectors into the connection scope set

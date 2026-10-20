@@ -9,7 +9,7 @@
  */
 
 // Rendering
-export { renderWithProviders } from './render';
+export { renderWithProviders, ALL_TEST_SCOPES } from './render';
 
 // MSW server — exposed so tests can call `server.use(...)` for overrides
 export { server } from './msw/server';

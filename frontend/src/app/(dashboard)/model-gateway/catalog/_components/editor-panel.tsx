@@ -26,6 +26,8 @@ import type { VirtualModel, ProviderModel, Provider } from '../_types/catalog';
 import type { VirtualModel as ApiVirtualModel } from '../../_services/catalog-server';
 import { vmFullId, vmPolicyScope, vmToApiPayload, toVirtualModel } from '../_utils/catalog-api';
 import { RoutesTab } from './routes-tab';
+import { useHasScope } from '../../../_components/permissions-provider';
+import { PermissionHint } from '@runkora/components';
 
 interface EditorPanelProps {
   model: VirtualModel | null;
@@ -44,6 +46,7 @@ export function EditorPanel({
   providerModels,
   providers,
 }: EditorPanelProps) {
+  const canWrite = useHasScope('platform:catalog:write');
   const [draft, setDraft] = useState<VirtualModel | null>(model);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -244,17 +247,25 @@ export function EditorPanel({
       <SidePanelFooter justify="between">
         <Stack direction="horizontal" align="center" gap="snug">
           {!isNew && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setDeleteOpen(true)}
-              disabled={saving || deleting}
-            >
-              <Icon name="trash" size="2xs" color="subtle" />
-              Delete
-            </Button>
+            <PermissionHint allowed={canWrite} action="change the model catalog">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDeleteOpen(true)}
+                disabled={!canWrite || saving || deleting}
+              >
+                <Icon name="trash" size="2xs" color="subtle" />
+                Delete
+              </Button>
+            </PermissionHint>
           )}
-          <Toggle checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} />
+          <PermissionHint allowed={canWrite} action="change the model catalog">
+            <Toggle
+              checked={draft.enabled}
+              onChange={(v) => setDraft({ ...draft, enabled: v })}
+              disabled={!canWrite}
+            />
+          </PermissionHint>
           <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
             {draft.enabled ? 'Enabled' : 'Disabled'}
           </Text>
@@ -263,9 +274,11 @@ export function EditorPanel({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={() => void handleSave()} disabled={saving}>
-            {saving ? 'Saving…' : 'Save Changes'}
-          </Button>
+          <PermissionHint allowed={canWrite} action="change the model catalog">
+            <Button onClick={() => void handleSave()} disabled={!canWrite || saving}>
+              {saving ? 'Saving…' : 'Save Changes'}
+            </Button>
+          </PermissionHint>
         </Stack>
       </SidePanelFooter>
 

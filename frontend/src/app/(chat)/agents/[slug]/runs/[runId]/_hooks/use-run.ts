@@ -14,6 +14,7 @@ import type {
   LiveActivity,
 } from '../_types';
 import { describeTool } from '../_lib/tool-activity';
+import { loadErrorMessage } from '@runkora/lib/load-error';
 
 // ── In-progress turn accumulator ─────────────────────────────────────────────
 
@@ -154,6 +155,9 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   // True when the agent is delegated: the run acts on the starter's behalf and
   // is private to them + tenant admins.
   const [delegated, setDelegated] = useState(false);
+  const [canSteer, setCanSteer] = useState<boolean | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [stopError, setStopError] = useState<string | null>(null);
   const [committedTurns, setCommittedTurns] = useState<Turn[]>([]);
   const [inProgressTurn, setInProgressTurn] = useState<AgentTurn | null>(null);
   const [isPending, setIsPending] = useState(false);
@@ -275,9 +279,19 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   useEffect(() => {
     if (!runId) return;
     void fetch(`/api/agents/runs/${runId}`)
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (r.ok) return r.json();
+        // A run the caller may not read answers 404, so its existence does not leak.
+        setLoadError(
+          r.status === 404
+            ? 'This run does not exist, or you do not have access to it.'
+            : loadErrorMessage(r.status, 'this run'),
+        );
+        return {};
+      })
       .then(
         (body: {
+          can_steer?: boolean | null;
           data?: {
             state: RunState;
             summary?: string | null;
@@ -291,6 +305,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
             budget?: { per_run_limit_usd?: number };
           };
         }) => {
+          setCanSteer(typeof body.can_steer === 'boolean' ? body.can_steer : null);
           if (body.data?.state) {
             runStateRef.current = body.data.state;
             setRunState(body.data.state);
@@ -310,7 +325,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
           }
         },
       )
-      .catch(() => undefined);
+      .catch(() => setLoadError('Could not load this run: the server could not be reached.'));
     loadUsage();
   }, [runId, loadUsage]);
 
@@ -910,7 +925,18 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   }
 
   function interruptRun(): void {
-    void fetch(`/api/agents/runs/${runId}/interrupt`, { method: 'POST' }).catch(() => undefined);
+    setStopError(null);
+    void fetch(`/api/agents/runs/${runId}/interrupt`, { method: 'POST' })
+      .then(async (res) => {
+        if (res.ok) return;
+        const body = (await res.json().catch(() => ({}))) as { message?: string };
+        setStopError(
+          res.status === 403
+            ? 'You cannot stop this run.'
+            : (body.message ?? `The run was not stopped (${res.status}).`),
+        );
+      })
+      .catch(() => setStopError('The run was not stopped: the server could not be reached.'));
   }
 
   const allTurns: Turn[] = inProgressTurn ? [...committedTurns, inProgressTurn] : committedTurns;
@@ -925,6 +951,9 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     summary,
     startedBy,
     delegated,
+    canSteer,
+    loadError,
+    stopError,
     runState,
     turns: allTurns,
     isStreaming: inProgressTurn !== null,

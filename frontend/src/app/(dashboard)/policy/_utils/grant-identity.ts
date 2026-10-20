@@ -23,7 +23,7 @@ export function resolveGrantIdentity(
     if (u) {
       return {
         primary: u.display_name || u.email,
-        email: u.display_name ? u.email : undefined,
+        email: u.display_name ? u.email || undefined : undefined,
         rawId: grant.principal_id,
       };
     }

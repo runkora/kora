@@ -29,6 +29,7 @@ interface Created {
 export function TriggerWizard({
   initialKind,
   agents,
+  agentsError = null,
   sources,
   ingestHost,
   onCreate,
@@ -46,8 +47,8 @@ export function TriggerWizard({
   const [created, setCreated] = useState<Created | null>(null);
 
   const context = useMemo<WizardContext>(
-    () => ({ agents, sources, ingestHost }),
-    [agents, sources, ingestHost],
+    () => ({ agents, agentsError, sources, ingestHost }),
+    [agents, agentsError, sources, ingestHost],
   );
 
   const definition = kind ? TRIGGER_KINDS[kind] : null;

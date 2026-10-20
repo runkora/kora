@@ -30,7 +30,8 @@ const { DEFAULT_SESSION, pushMock } = vi.hoisted(() => ({
   pushMock: vi.fn(),
 }));
 
-vi.mock('./permissions-provider', () => ({
+vi.mock('./permissions-provider', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./permissions-provider')>()),
   useSession: vi.fn().mockReturnValue(DEFAULT_SESSION),
 }));
 

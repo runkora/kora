@@ -63,11 +63,13 @@ function ResourceScopeBlock({
   qualifier,
   resources,
   onResourcesChange,
+  disabled,
 }: {
   connection: string;
   qualifier: ConnectionQualifierEntry;
   resources: string[];
   onResourcesChange: (resources: string[]) => void;
+  disabled: boolean;
 }) {
   // "Selected" chosen explicitly while the chip list is still empty. An empty
   // selection compiles identically to "All", so this is pure UI state.
@@ -104,6 +106,7 @@ function ResourceScopeBlock({
       >
         <Grid cols={2} gap="cozy">
           <RadioCard
+            disabled={disabled}
             value="all"
             selected={mode === 'all'}
             onSelect={() => {
@@ -115,6 +118,7 @@ function ResourceScopeBlock({
             description={`Everything the connection reaches, including ${plural(qualifier.name)} added later`}
           />
           <RadioCard
+            disabled={disabled}
             value="selected"
             selected={mode === 'selected'}
             onSelect={() => setSelectedMode(true)}
@@ -134,6 +138,7 @@ function ResourceScopeBlock({
                   variant="outline"
                   size="xs"
                   onClick={() => onResourcesChange(resources.filter((x) => x !== r))}
+                  disabled={disabled}
                   aria-label={`Remove ${qualifier.name} ${r}`}
                 >
                   <Text as="span" size="micro" mono>
@@ -147,6 +152,7 @@ function ResourceScopeBlock({
           <Stack direction="horizontal" align="center" gap="snug">
             <Stack maxWidth="card" grow>
               <Input
+                disabled={disabled}
                 compact
                 mono
                 value={draft}
@@ -176,10 +182,13 @@ export function ConnectionCards({
   available,
   value,
   onChange,
+  disabled = false,
 }: {
   available: ConnectionCatalogEntry[];
   value: Connector[];
   onChange: (connectors: Connector[]) => void;
+  /** Read-only, for callers who may not change the grants. Cards still expand. */
+  disabled?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   // Resource picks made before any action is selected. A connector with zero
@@ -247,6 +256,7 @@ export function ConnectionCards({
               <CardContent flush>
                 <Stack direction="horizontal" align="center" gap="cozy" padding="cozy">
                   <Checkbox
+                    disabled={disabled}
                     size="md"
                     checked={whole}
                     indeterminate={on && !whole}
@@ -298,6 +308,7 @@ export function ConnectionCards({
                         qualifier={qualifier}
                         resources={resources}
                         onResourcesChange={(next) => setConnectorResources(conn.name, next)}
+                        disabled={disabled}
                       />
                     </Stack>
                   )}
@@ -314,6 +325,7 @@ export function ConnectionCards({
                           paddingInline="relaxed"
                         >
                           <Checkbox
+                            disabled={disabled}
                             checked={actionOn}
                             onChange={(checked) =>
                               setConnectorActions(

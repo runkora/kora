@@ -74,7 +74,13 @@ function fmtBudgetUsd(n: number): string {
 // ─── Spend vs budget ──────────────────────────────────────────────────────────
 
 /** Exported for unit testing of its empty-state and threshold logic. */
-export function SpendBudgetCard({ cap }: { cap: TenantCapStatus | null }) {
+export function SpendBudgetCard({
+  cap,
+  error = null,
+}: {
+  cap: TenantCapStatus | null;
+  error?: string | null;
+}) {
   return (
     <Card column>
       <CardHeader>
@@ -89,7 +95,7 @@ export function SpendBudgetCard({ cap }: { cap: TenantCapStatus | null }) {
         {cap == null || cap.limit_usd <= 0 ? (
           <Stack align="center" justify="center" paddingBlock="spacious" gap="snug">
             <Icon name="dollar-sign" size="lg" color="subtle" aria-hidden />
-            <Text color="subtle">No tenant budget configured.</Text>
+            <Text color="subtle">{error ?? 'No tenant budget configured.'}</Text>
           </Stack>
         ) : (
           <Stack gap="relaxed">
@@ -141,6 +147,12 @@ export interface DashboardPageProps {
   environments: EnvironmentRow[];
   analytics: AnalyticsResponse | null;
   tenantCap: TenantCapStatus | null;
+  /** Why a section could not be read; shown in place of its empty message. */
+  agentsError?: string | null;
+  runsError?: string | null;
+  environmentsError?: string | null;
+  connectionsError?: string | null;
+  budgetError?: string | null;
   windowDays?: number;
 }
 
@@ -154,6 +166,11 @@ export function DashboardPage({
   environments,
   analytics,
   tenantCap,
+  agentsError = null,
+  runsError = null,
+  environmentsError = null,
+  connectionsError = null,
+  budgetError = null,
   windowDays = 7,
 }: DashboardPageProps) {
   const { productName } = useBrand();
@@ -171,8 +188,8 @@ export function DashboardPage({
         <StatCard
           icon={<Icon name="bot" size="xs" aria-hidden />}
           label="Agent Types"
-          value={String(agentTypes.length)}
-          delta={{ text: 'registered', positive: true }}
+          value={agentsError ? 'Unavailable' : String(agentTypes.length)}
+          delta={{ text: agentsError ? 'not loaded' : 'registered', positive: !agentsError }}
           footer={<Link href={APP_ROUTES.agents.list}>View all →</Link>}
         />
         <StatCard
@@ -188,15 +205,21 @@ export function DashboardPage({
         <StatCard
           icon={<Icon name="network" size="xs" aria-hidden />}
           label="Connections"
-          value={String(connections.length)}
-          delta={{ text: 'configured', positive: true }}
+          value={connectionsError ? 'Unavailable' : String(connections.length)}
+          delta={{
+            text: connectionsError ? 'not loaded' : 'configured',
+            positive: !connectionsError,
+          }}
           footer={<Link href={APP_ROUTES.connections}>View all →</Link>}
         />
         <StatCard
           icon={<Icon name="layers" size="xs" aria-hidden />}
           label="Environments"
-          value={String(environments.length)}
-          delta={{ text: 'configured', positive: true }}
+          value={environmentsError ? 'Unavailable' : String(environments.length)}
+          delta={{
+            text: environmentsError ? 'not loaded' : 'configured',
+            positive: !environmentsError,
+          }}
           footer={<Link href={APP_ROUTES.environments}>View all →</Link>}
         />
       </Grid>
@@ -223,7 +246,7 @@ export function DashboardPage({
           {agentTypes.length === 0 ? (
             <Stack align="center" justify="center" paddingBlock="spacious">
               <Icon name="bot" size="lg" color="subtle" aria-hidden />
-              <Text color="subtle">No agent types registered yet.</Text>
+              <Text color="subtle">{agentsError ?? 'No agent types registered yet.'}</Text>
             </Stack>
           ) : (
             <TableRoot>
@@ -325,7 +348,7 @@ export function DashboardPage({
             {recentRuns.length === 0 ? (
               <Stack align="center" justify="center" paddingBlock="spacious">
                 <Icon name="activity" size="lg" color="subtle" aria-hidden />
-                <Text color="subtle">No runs yet.</Text>
+                <Text color="subtle">{runsError ?? 'No runs yet.'}</Text>
               </Stack>
             ) : (
               <List separator>
@@ -353,7 +376,7 @@ export function DashboardPage({
         </Card>
 
         {/* Spend vs budget */}
-        <SpendBudgetCard cap={tenantCap} />
+        <SpendBudgetCard cap={tenantCap} error={budgetError} />
       </Grid>
     </Stack>
   );

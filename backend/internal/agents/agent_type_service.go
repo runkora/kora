@@ -550,12 +550,9 @@ func (s *AgentTypeService) GetAgentType(ctx context.Context, id string) (*AgentT
 		}
 		return nil, err
 	}
-	runErr := s.authz.checkRun(ctx, *at, "write")
-	if runErr != nil && !errors.Is(runErr, ErrForbidden) {
-		return nil, runErr
-	}
-	canRun := runErr == nil
-	at.CanRun = &canRun
+	withAccess := []AgentType{*at}
+	s.setCallerAccess(ctx, withAccess)
+	at = &withAccess[0]
 
 	// Enrich with the budget carried by the agent's grant — the grant is the
 	// source of truth for budget configuration. Best-effort: a policy-service
@@ -587,7 +584,64 @@ func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, err
 		span.SetStatus(codes.Error, "list agent types")
 		return nil, err
 	}
-	return s.authz.filterAgentTypes(ctx, types)
+	types, err = s.authz.filterAgentTypes(ctx, types)
+	if err != nil {
+		return nil, err
+	}
+	s.setCallerAccess(ctx, types)
+	return types, nil
+}
+
+// setCallerAccess fills CanRun and CanEdit on each agent type for the caller in
+// ctx. Run uses checkRun, the run-start check. Edit uses the mode-qualified check
+// update and delete use, once per mode, plus the scope ceiling for autonomous
+// agents. Delete is the mode check without the ceiling. The flags only drive the UI, which disables what they deny, so an
+// evaluator error leaves them false and the read succeeds.
+func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType) {
+	canEdit := map[IdentityMode]bool{}
+	var callers callerScopeSource
+	if s.callers != nil {
+		callers = &onceCallerScopes{src: s.callers}
+	}
+	for i := range ats {
+		mode := ats[i].IdentityMode.OrDefault()
+		edit, seen := canEdit[mode]
+		if !seen {
+			err := s.authz.checkAgentTypeModeWrite(ctx, mode)
+			if err != nil && !errors.Is(err, ErrIdentityModeWriteForbidden) {
+				s.logger.Warn(ctx, "agent type edit access check failed", logging.Field{Key: "error", Value: err.Error()})
+			}
+			edit = err == nil
+			canEdit[mode] = edit
+		}
+		runErr := s.authz.checkRun(ctx, ats[i], "write")
+		if runErr != nil && !errors.Is(runErr, ErrForbidden) {
+			s.logger.Warn(ctx, "agent type run access check failed",
+				logging.Field{Key: "agent_type_id", Value: ats[i].ID},
+				logging.Field{Key: "error", Value: runErr.Error()})
+		}
+		run := runErr == nil
+		editThis := edit && s.withinCeiling(ctx, ats[i], callers)
+		// Delete runs the same refusal of delegated callers on autonomous agents (D36).
+		deleteThis := edit && refuseDelegatedAutonomousWrite(ctx, ats[i]) == nil
+		ats[i].CanEdit, ats[i].CanRun, ats[i].CanDelete = &editThis, &run, &deleteThis
+	}
+}
+
+// withinCeiling reports whether the caller holds everything an autonomous agent
+// holds, the ceiling every update checks. A delegated agent's grant only caps
+// its runners, so it passes. An evaluator error reads as no.
+func (s *AgentTypeService) withinCeiling(ctx context.Context, at AgentType, callers callerScopeSource) bool {
+	if at.IsDelegated() {
+		return true
+	}
+	err := s.checkCeilingWith(ctx, at, s.scopeResolver(), callers)
+	if err != nil && !errors.Is(err, ErrScopeCeiling) {
+		s.logger.Warn(ctx, "agent type ceiling check failed",
+			logging.Field{Key: "agent_type_id", Value: at.ID},
+			logging.Field{Key: "error", Value: err.Error()})
+	}
+	return err == nil
 }
 
 // UpdateAgentType applies partial updates to an existing agent type. Enforces

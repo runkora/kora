@@ -30,7 +30,8 @@ vi.mock('next/navigation', () => ({
   usePathname: vi.fn().mockReturnValue('/'),
 }));
 
-vi.mock('./permissions-provider', () => ({
+vi.mock('./permissions-provider', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./permissions-provider')>()),
   useSession: vi.fn().mockReturnValue({ scopes: [], user: null, loaded: false }),
 }));
 
@@ -111,6 +112,35 @@ describe('DashboardSidebar', () => {
       );
     });
 
+    it('hides Agents without agents:types:read', () => {
+      renderSidebar();
+      expect(screen.queryByRole('link', { name: /agents/i })).not.toBeInTheDocument();
+    });
+
+    it('a broader scope covers a nav scope', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['agents:read'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.getByRole('link', { name: /agents/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /environments/i })).toBeInTheDocument();
+    });
+
+    it('shows Roles to a roles-only admin', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['platform:roles:read'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.getByRole('link', { name: /roles/i })).toHaveAttribute(
+        'href',
+        APP_ROUTES.policy.roles,
+      );
+    });
+
     it('shows Models when the user holds inference:list', () => {
       vi.mocked(useSession).mockReturnValueOnce({
         scopes: ['inference:list'],
@@ -145,6 +175,11 @@ describe('DashboardSidebar', () => {
     });
 
     it('Agents link points to APP_ROUTES.agents.list', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['agents:types:read'],
+        user: null,
+        loaded: true,
+      });
       renderSidebar();
       expect(screen.getByRole('link', { name: /agents/i })).toHaveAttribute(
         'href',

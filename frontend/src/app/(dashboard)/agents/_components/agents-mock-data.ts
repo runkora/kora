@@ -56,6 +56,9 @@ function agentType(
     updated_at: ago(2 * DAY),
     model_id: 'anthropic/claude-sonnet-4-6',
     environments: [],
+    can_run: true,
+    can_edit: true,
+    can_delete: true,
     ...partial,
   };
 }

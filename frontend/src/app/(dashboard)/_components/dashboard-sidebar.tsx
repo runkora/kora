@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
 import { Icon, NavItem, Navigation, Stack, Text } from '@runkora/hades';
-import { hasScope } from '@runkora/lib/permissions';
+import { hasScopeCovering } from '@runkora/lib/permissions';
 import { NAV_GROUPS } from '../_utils';
 import { useSession } from './permissions-provider';
 
@@ -29,7 +29,7 @@ export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
         {NAV_GROUPS.map(({ label, items }) => {
           // Filter out entries that require a scope the user doesn't have.
           const visibleItems = items.filter(
-            (entry) => !entry.requiredScope || hasScope(scopes, entry.requiredScope),
+            (entry) => !entry.requiredScope || hasScopeCovering(scopes, entry.requiredScope),
           );
           if (visibleItems.length === 0) return null;
 

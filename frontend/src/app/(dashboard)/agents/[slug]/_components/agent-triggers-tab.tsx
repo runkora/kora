@@ -42,6 +42,8 @@ import { toDeliveryRow, toSourceRow, toTriggerRow } from '../../../triggers/_typ
 import type { DeliveryRow, SourceRow, TriggerRow } from '../../../triggers/_types';
 import { ingestHostFromWindow } from '../../../triggers/_lib/endpoints';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
+import { useHasScope } from '../../../_components/permissions-provider';
+import { PermissionHint } from '@runkora/components';
 
 export function AgentTriggersTab() {
   const { agent } = useAgentDetailContext();
@@ -54,6 +56,7 @@ export function AgentTriggersTab() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [wizardOpen, setWizardOpen] = useState(false);
+  const canWrite = useHasScope('triggers:write');
   const [notice, setNotice] = useState<TriggerNotice | null>(null);
   const [drawerTrigger, setDrawerTrigger] = useState<TriggerRow | null>(null);
   const [detailDelivery, setDetailDelivery] = useState<DeliveryRow | null>(null);
@@ -176,10 +179,12 @@ export function AgentTriggersTab() {
             Managed by platform admins.
           </Text>
         </Stack>
-        <Button size="sm" onClick={() => setWizardOpen(true)}>
-          <Icon name="plus" size="xs" />
-          New trigger
-        </Button>
+        <PermissionHint allowed={canWrite} action="create triggers">
+          <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
+            <Icon name="plus" size="xs" />
+            New trigger
+          </Button>
+        </PermissionHint>
       </Stack>
 
       {loadError && <Alert variant="error">{loadError}</Alert>}
@@ -187,16 +192,18 @@ export function AgentTriggersTab() {
 
       {loading ? (
         <TriggerListSkeleton />
-      ) : triggers.length === 0 ? (
+      ) : loadError ? null : triggers.length === 0 ? (
         <EmptyState
           icon="zap"
           title="No triggers for this agent"
           description="Create a trigger to run this agent automatically from a webhook event, a schedule, or a manual fire."
           action={
-            <Button size="sm" onClick={() => setWizardOpen(true)}>
-              <Icon name="plus" size="xs" />
-              New trigger
-            </Button>
+            <PermissionHint allowed={canWrite} action="create triggers">
+              <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
+                <Icon name="plus" size="xs" />
+                New trigger
+              </Button>
+            </PermissionHint>
           }
         />
       ) : (
@@ -206,6 +213,7 @@ export function AgentTriggersTab() {
           sourceName={sourceName}
           onOpen={setDrawerTrigger}
           onToggle={(t) => void toggleTrigger(t)}
+          canRunAgent={() => agent.canRun}
           emptyMessage="No triggers for this agent."
         />
       )}
@@ -226,6 +234,7 @@ export function AgentTriggersTab() {
           same surface, byte for byte, as configuring it there. */}
       <TriggerDrawer
         trigger={drawerRow}
+        canRunAgent={agent.canRun}
         sources={sources}
         deliveries={agentDeliveries}
         ingestHost={ingestHost}
@@ -253,6 +262,7 @@ export function AgentTriggersTab() {
           delivery={detailDelivery}
           onClose={() => setDetailDelivery(null)}
           onRedeliver={redeliver}
+          redeliverAllowed={agent.canRun}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);
@@ -264,7 +274,13 @@ export function AgentTriggersTab() {
       {wizardOpen && (
         <TriggerWizard
           agents={[
-            { id: agent.id, slug: agent.slug, name: agent.name, identityMode: agent.identityMode },
+            {
+              id: agent.id,
+              slug: agent.slug,
+              name: agent.name,
+              identityMode: agent.identityMode,
+              canRun: agent.canRun,
+            },
           ]}
           sources={sources.map((src) => ({ id: src.id, name: src.name, provider: src.provider }))}
           ingestHost={ingestHost}

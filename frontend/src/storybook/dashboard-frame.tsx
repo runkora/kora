@@ -23,13 +23,20 @@ import { PreferencesProvider } from '../app/(dashboard)/_preferences/preferences
 import { PREFERENCE_DEFAULTS } from '../app/(dashboard)/_preferences/preferences.schema';
 import { mockApi, type MockRoutes } from './mock-api';
 
-/** Enough scopes to show every navigation entry. */
+/**
+ * Enough scopes to show every navigation entry and control. Two-part scopes
+ * cover every scope of the same type and action.
+ */
 export const ALL_NAV_SCOPES = [
+  'agents:read',
+  'agents:write',
   'triggers:read',
-  'platform:grants:read',
-  'platform:roles:read',
-  'platform:routes:read',
-  'platform:vocabulary:read',
+  'triggers:write',
+  'trigger:fire',
+  'platform:read',
+  'platform:write',
+  'inference:list',
+  'inference:use',
 ];
 
 export const MOCK_USER = { sub: 'usr_42b7e9', email: 'dev@kora.example', name: 'Dev Operator' };
@@ -45,7 +52,7 @@ export function sessionRoutes(scopes: string[] = ALL_NAV_SCOPES): MockRoutes {
   };
 }
 
-/** A route layout, such as `policy/layout.tsx`, that adds a scope guard. */
+/** A route layout, such as `policy/grants/layout.tsx`, that adds a scope guard. */
 export type RouteLayout = React.ComponentType<{ children: React.ReactNode }>;
 
 export function DashboardFrame({

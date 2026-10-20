@@ -7,6 +7,7 @@
 
 import { useState, useCallback } from 'react';
 import { Stack, Text, Button, InputSurface, Textarea } from '@runkora/hades';
+import { PermissionHint, permissionHintText } from '@runkora/components';
 import { useRunContext } from '../_context/run-context';
 
 // Context tools — toggleable pills that annotate the message with context sources
@@ -122,7 +123,16 @@ function StopIcon() {
 }
 
 export function InputArea() {
-  const { agentName, runState, isStarting, addHumanMessage, interruptRun } = useRunContext();
+  const {
+    agentName,
+    runState,
+    isStarting,
+    addHumanMessage,
+    interruptRun,
+    canSteer,
+    delegated,
+    stopError,
+  } = useRunContext();
   const [value, setValue] = useState('');
   const [active, setActive] = useState<Set<ContextToolId>>(new Set());
   const isEnded =
@@ -130,12 +140,13 @@ export function InputArea() {
   // A starting run takes no messages. The API would answer "run is starting".
   // Typing is never blocked while the agent works: a message sent mid-turn is
   // read at the agent's next tool boundary.
-  const isDisabled = isEnded || isStarting;
+  const isDisabled = isEnded || isStarting || canSteer === false;
   const canSend = !!value.trim() && !isDisabled;
   // Only show Stop when the run is actually interruptible. The backend rejects an
   // interrupt unless the run is 'active' (and interruptRun swallows that error), so
   // showing Stop during 'starting'/pending made the button a silent no-op.
   const showStop = runState === 'active';
+  const mayStop = canSteer !== false;
 
   function toggle(id: ContextToolId) {
     if (isDisabled) return;
@@ -186,11 +197,15 @@ export function InputArea() {
                 ? `${agentName} run stopped: budget exhausted`
                 : isEnded
                   ? `${agentName} run has ended`
-                  : isStarting
-                    ? `${agentName} is ${runState === 'pending' ? 'queued' : 'starting'}…`
-                    : showStop
-                      ? `Message ${agentName}. It reads this at its next step.`
-                      : `Reply to ${agentName}…`
+                  : canSteer === false
+                    ? delegated
+                      ? 'Only the person who started this run can message it.'
+                      : permissionHintText('message this run')
+                    : isStarting
+                      ? `${agentName} is ${runState === 'pending' ? 'queued' : 'starting'}…`
+                      : showStop
+                        ? `Message ${agentName}. It reads this at its next step.`
+                        : `Reply to ${agentName}…`
             }
             disabled={isDisabled}
             rows={2}
@@ -224,27 +239,30 @@ export function InputArea() {
             <Stack direction="horizontal" align="center" style={{ gap: 6 }}>
               {showStop && (
                 /* Stop button — interrupts the active turn */
-                <Button
-                  type="button"
-                  onClick={interruptRun}
-                  aria-label="Stop agent"
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 9,
-                    flexShrink: 0,
-                    background: 'var(--color-surface-overlay)',
-                    border: '1px solid var(--color-border)',
-                    color: 'var(--color-foreground)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'background 0.15s, color 0.15s',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <StopIcon />
-                </Button>
+                <PermissionHint allowed={mayStop} action="stop this run">
+                  <Button
+                    type="button"
+                    onClick={interruptRun}
+                    disabled={!mayStop}
+                    aria-label="Stop agent"
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 9,
+                      flexShrink: 0,
+                      background: 'var(--color-surface-overlay)',
+                      border: '1px solid var(--color-border)',
+                      color: 'var(--color-foreground)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'background 0.15s, color 0.15s',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <StopIcon />
+                  </Button>
+                </PermissionHint>
               )}
               {
                 /* Accent rounded-square send button */
@@ -299,6 +317,11 @@ export function InputArea() {
             newline
           </Text>
         </Stack>
+        {stopError && (
+          <Text as="span" size="caption" color="status-error" role="alert">
+            {stopError}
+          </Text>
+        )}
       </Stack>
     </Stack>
   );

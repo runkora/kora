@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { fetchAgentsFromBFF } from '../agents/_services/agents-server';
+import { loadFailure } from '@runkora/server/load-failure';
 import { fetchConnections } from '../connections/_services/connections-server';
 import { listEnvironments } from '@runkora/server/environments-client';
 import { toEnvironmentRow } from '../environments/_types';
@@ -30,6 +31,12 @@ export interface DashboardData {
   analytics: AnalyticsResponse | null;
   /** Tenant-wide spend cap, or null when no cap is configured / the call fails. */
   tenantCap: TenantCapStatus | null;
+  /** Why a section could not be read, so the page says so instead of showing it empty. */
+  agentsError: string | null;
+  runsError: string | null;
+  environmentsError: string | null;
+  connectionsError: string | null;
+  budgetError: string | null;
 }
 
 /** The shape returned when there is no valid session — every section empty. */
@@ -41,6 +48,11 @@ export const EMPTY_DASHBOARD_DATA: DashboardData = {
   environments: [],
   analytics: null,
   tenantCap: null,
+  agentsError: null,
+  runsError: null,
+  environmentsError: null,
+  connectionsError: null,
+  budgetError: null,
 };
 
 /**
@@ -61,8 +73,8 @@ export async function fetchDashboardData(
       ),
       fetchConnections(accessToken, tenantId),
       listEnvironments(accessToken)
-        .then((envs) => envs.map(toEnvironmentRow))
-        .catch(() => []),
+        .then((envs) => ({ ok: true as const, data: envs.map(toEnvironmentRow) }))
+        .catch((err: unknown) => loadFailure(err, 'environments')),
       fetchAnalyticsFromGateway(accessToken, {
         days: ANALYTICS_WINDOW_DAYS,
         granularity: 'daily',
@@ -70,13 +82,19 @@ export async function fetchDashboardData(
       fetchBudgetPrincipalsFromGateway(accessToken),
     ]);
 
+  const { agentTypes, runs } = agentsResult;
   return {
-    agentTypes: agentsResult.ok ? agentsResult.agentTypes : [],
-    recentRuns: agentsResult.ok ? agentsResult.runs : [],
-    runCounts: agentsResult.ok ? (agentsResult.runStats?.current ?? null) : null,
+    agentTypes: agentTypes.ok ? agentTypes.data : [],
+    recentRuns: runs.ok ? runs.data : [],
+    runCounts: agentsResult.runStats?.current ?? null,
     connections: connectionsResult.ok ? connectionsResult.rows : [],
-    environments,
+    environments: environments.ok ? environments.data : [],
     analytics: analyticsResult.ok ? analyticsResult.data : null,
     tenantCap: budgetResult.ok ? (budgetResult.data.tenant_cap ?? null) : null,
+    agentsError: agentTypes.ok ? null : agentTypes.message,
+    runsError: runs.ok ? null : runs.message,
+    environmentsError: environments.ok ? null : environments.message,
+    connectionsError: connectionsResult.ok ? null : connectionsResult.message,
+    budgetError: budgetResult.ok ? null : budgetResult.message,
   };
 }

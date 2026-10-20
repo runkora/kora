@@ -1,6 +1,7 @@
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
+import { renderWithProviders as render } from '@runkora/test-utils';
 
 import { TriggerList } from './trigger-list';
 import type { TriggerRow } from '../_types';
@@ -21,6 +22,7 @@ function list(overrides: Partial<ComponentProps<typeof TriggerList>> = {}) {
       sourceName={(id) => id}
       onOpen={vi.fn()}
       onToggle={vi.fn()}
+      canRunAgent={() => true}
       emptyMessage="No triggers yet."
       resetKey="all|"
       {...overrides}

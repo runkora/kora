@@ -2,6 +2,7 @@ import 'server-only';
 
 import { config } from '@runkora/server/config';
 import type { BudgetPrincipalsResponse } from '../_types';
+import { loadErrorMessage } from '@runkora/lib/load-error';
 
 type BudgetPrincipalsResult =
   { ok: true; data: BudgetPrincipalsResponse } | { ok: false; status: number; message: string };
@@ -27,9 +28,8 @@ export async function fetchBudgetPrincipalsFromGateway(
   }
 
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
     console.error(`[fetchBudgetPrincipals] responded ${res.status} ${res.statusText}`);
-    return { ok: false, status: res.status, message: body || res.statusText };
+    return { ok: false, status: res.status, message: loadErrorMessage(res.status, 'budgets') };
   }
 
   try {

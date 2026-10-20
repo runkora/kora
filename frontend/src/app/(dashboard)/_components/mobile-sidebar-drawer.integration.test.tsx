@@ -21,7 +21,8 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
-vi.mock('./permissions-provider', () => ({
+vi.mock('./permissions-provider', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./permissions-provider')>()),
   useSession: vi.fn().mockReturnValue({
     scopes: [],
     user: { sub: 'user-test-123', email: 'dev@orbit.local', name: 'Dev User' },

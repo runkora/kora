@@ -22,17 +22,13 @@ export default async function AgentsPage() {
       ])
     : [null, null];
 
-  const initialAgentTypes = result?.ok ? result.agentTypes : [];
-  const initialLiveRuns = result?.ok ? result.runs : [];
-  const initialRunStats = result?.ok ? result.runStats : null;
-  const initialError = result && !result.ok ? result.message : null;
-
   return (
     <AgentsShell
-      initialAgentTypes={initialAgentTypes}
-      initialLiveRuns={initialLiveRuns}
-      initialRunStats={initialRunStats}
-      initialError={initialError}
+      initialAgentTypes={result?.agentTypes.ok ? result.agentTypes.data : []}
+      initialLiveRuns={result?.runs.ok ? result.runs.data : []}
+      initialRunStats={result?.runStats ?? null}
+      initialError={result && !result.agentTypes.ok ? result.agentTypes.message : null}
+      initialRunsError={result && !result.runs.ok ? result.runs.message : null}
       initialInsights={insights?.ok ? insights.data : null}
     />
   );

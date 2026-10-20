@@ -65,3 +65,16 @@ describe('GuardrailsFields loop thresholds', () => {
     );
   });
 });
+
+describe('GuardrailsFields read-only', () => {
+  it('disables every switch, input and button', () => {
+    render(<GuardrailsFields values={VALUES} onChange={vi.fn()} disabled />);
+    for (const control of [
+      ...screen.getAllByRole('switch'),
+      ...screen.getAllByRole('textbox'),
+      ...screen.getAllByRole('button'),
+    ]) {
+      expect(control).toBeDisabled();
+    }
+  });
+});
