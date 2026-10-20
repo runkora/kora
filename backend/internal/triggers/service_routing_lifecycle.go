@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
@@ -139,7 +140,7 @@ func (s *TriggerService) applyRoutingUpdate(ctx context.Context, t *Trigger, cla
 	}
 	grantID, err := s.policy.CreateGrant(ctx, t.TenantID, string(token.PrincipalTypeService), src.PrincipalID, scopes, nil, false)
 	if err != nil {
-		return false, nil, grantCreateError(err, t.Routing)
+		return false, nil, grantCreateError(err, t.Routing, t.AgentSlug)
 	}
 	oldGrant, t.GrantID = t.GrantID, &grantID
 	return true, oldGrant, nil
@@ -213,8 +214,10 @@ func scopeCheckInput(scope string) policy.CheckInput {
 
 // grantCreateError turns a scope the policy service does not know into a
 // validation error. On a routed trigger that scope is the decision model's use
-// scope, which is the one value the caller names freely.
-func grantCreateError(err error, r *RoutingConfig) error {
+// scope, which is the one value the caller names freely. On an agent trigger
+// the run scopes of agentSlug are registered once the agent's pods are ready,
+// so an unknown scope there means the agent is still provisioning.
+func grantCreateError(err error, r *RoutingConfig, agentSlug string) error {
 	var vocab *policyclient.ScopeNotInVocabularyError
 	if !errors.As(err, &vocab) {
 		return fmt.Errorf("create trigger grant: %w", err)
@@ -223,6 +226,9 @@ func grantCreateError(err error, r *RoutingConfig) error {
 		if modelScope, scopeErr := modelUseScope(r.Model); scopeErr == nil && modelScope == vocab.Scope {
 			return fmt.Errorf("%w: routing.model %q is not a model in this tenant's catalog", ErrValidation, r.Model)
 		}
+	}
+	if agentSlug != "" && slices.Contains(triggerRunScopes(agentSlug), vocab.Scope) {
+		return fmt.Errorf("%w: agent %q is still provisioning; retry once its pods are ready", ErrValidation, agentSlug)
 	}
 	return fmt.Errorf("%w: %w", ErrValidation, err)
 }

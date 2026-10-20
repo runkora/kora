@@ -267,7 +267,7 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 
 	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), src.PrincipalID, scopes, nil, false)
 	if err != nil {
-		return nil, grantCreateError(err, t.Routing)
+		return nil, grantCreateError(err, t.Routing, t.AgentSlug)
 	}
 	grants = append(grants, grantID)
 	t.GrantID = &grantID
@@ -350,7 +350,7 @@ func (s *TriggerService) createOwnedTrigger(ctx context.Context, tenantID string
 
 	runGrantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), principalID, triggerRunScopes(at.Slug), nil, false)
 	if err != nil {
-		return nil, fmt.Errorf("create trigger run grant: %w", err)
+		return nil, grantCreateError(err, nil, at.Slug)
 	}
 	grants = append(grants, runGrantID)
 

@@ -365,8 +365,13 @@ func TestTriggerKindsCreateUpdateAndPreview(t *testing.T) {
 		_, _ = w.Write([]byte(`{"next_fires":[{"at":"2026-01-01T09:00:00Z","label":"Thu 1 Jan 2026, 09:00"}]}`))
 	}))
 	defer triggers.Close()
+	agents := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"agent_types":[{"id":"at-rep","slug":"reporter"},{"id":"at-tri","slug":"triager"}]}`))
+	}))
+	defer agents.Close()
 
-	srv := NewServer(Backends{Triggers: triggers.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
+	srv := NewServer(Backends{Triggers: triggers.URL, Agents: agents.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 	call := mcpCaller(t, gw.URL)
@@ -435,6 +440,32 @@ func TestTriggerKindsCreateUpdateAndPreview(t *testing.T) {
 		}
 		if _, ok := gotBody["manual_config"]; ok {
 			t.Errorf("scheduled body carries manual_config: %v", gotBody)
+		}
+	})
+
+	t.Run("agent_slug resolves to agent_type_id", func(t *testing.T) {
+		result := callTool("triggers.create", map[string]any{
+			"kind": "scheduled", "name": "nightly", "agent_slug": "reporter", "schedule_config": schedule,
+		})
+		if isToolError(result) || gotBody["agent_type_id"] != "at-rep" {
+			t.Errorf("scheduled body = %v, result %v", gotBody, result)
+		}
+		result = callTool("triggers.create", map[string]any{"name": "n", "agent_slug": "ghost", "kind": "manual"})
+		if !isToolError(result) || gotPath != "" {
+			t.Errorf("unknown slug: want a tool error without a backend call, got %v (path %q)", result, gotPath)
+		}
+	})
+
+	t.Run("max_parallel is forwarded on create and update", func(t *testing.T) {
+		callTool("triggers.create", map[string]any{
+			"kind": "scheduled", "name": "n", "agent_type_id": "at-1", "schedule_config": schedule, "max_parallel": 1,
+		})
+		if gotBody["max_parallel"] != float64(1) {
+			t.Errorf("create body = %v", gotBody)
+		}
+		callTool("triggers.update", map[string]any{"id": "t-1", "max_parallel": 2})
+		if gotMethod != http.MethodPatch || gotBody["max_parallel"] != float64(2) {
+			t.Errorf("update hit %s with %v", gotMethod, gotBody)
 		}
 	})
 
