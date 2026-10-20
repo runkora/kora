@@ -743,6 +743,19 @@ describe('let kora choose', () => {
     expect(screen.getByText('Liquid d1')).toBeTruthy();
   });
 
+  it.each([
+    ['checkbox', () => screen.getByRole('checkbox', { name: 'Coder' })],
+    ['card', () => screen.getByText('Coder')],
+  ])('selects a candidate once when its %s is clicked', (_, target) => {
+    const p = props(routingContext([{ id: 'liquid/d1', name: 'Liquid d1' }]), 'choose');
+    render(<StepTarget {...p} />);
+    fireEvent.click(target());
+    expect(p.patch).toHaveBeenCalledTimes(1);
+    expect(p.patch).toHaveBeenCalledWith({
+      routing: expect.objectContaining({ candidateIds: ['at-1'] }),
+    });
+  });
+
   it('hides the routing settings when no decision model is enabled', () => {
     render(<StepTarget {...props(routingContext([]), 'choose')} />);
     expect(screen.getByText('No decision model is enabled for this workspace.')).toBeTruthy();
