@@ -622,6 +622,29 @@ func TestChatTrigger_UpdateValidation(t *testing.T) {
 	}
 }
 
+// A restriction-only PATCH must not re-check the chat schema: a stored trigger
+// the schema no longer accepts would otherwise be stuck with its restriction.
+func TestChatTrigger_RestrictionEditSkipsSchema(t *testing.T) {
+	_, deps := newCapService(t)
+	tr := capTrigger(t, deps, capSource(t, deps), nil)
+	deps.repo.mu.Lock()
+	deps.repo.triggers[tr.ID].PromptTemplate = "{{ event.user }}"
+	deps.repo.mu.Unlock()
+
+	_, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, nil, UpdateTriggerRequest{
+		SenderRestriction: &SenderRestriction{IDs: []string{"u1"}},
+	})
+	if err != nil {
+		t.Fatalf("restriction-only update: %v", err)
+	}
+	_, err = deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, nil, UpdateTriggerRequest{
+		PromptTemplate: new("{{ event.user }} again"),
+	})
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("prompt edit err = %v, want a validation error", err)
+	}
+}
+
 // routedChat is a routed mention trigger on a chat source with the given join key.
 func routedChat(t *testing.T, joinKey string) (*Service, *testDeps, WebhookSource, *Trigger, error) {
 	t.Helper()

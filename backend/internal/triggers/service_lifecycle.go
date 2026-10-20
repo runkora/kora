@@ -708,8 +708,10 @@ func (s *TriggerService) applySourceRules(ctx context.Context, t *Trigger, req U
 	if err != nil {
 		return err
 	}
-	if err = validateChatTrigger(s.registry, src.Provider, *t); err != nil {
-		return err
+	if edited {
+		if err = validateChatTrigger(s.registry, src.Provider, *t); err != nil {
+			return err
+		}
 	}
 	if req.SenderRestriction == nil {
 		return nil
