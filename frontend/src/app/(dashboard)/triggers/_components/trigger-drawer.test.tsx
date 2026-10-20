@@ -548,8 +548,9 @@ describe('a chat command trigger', () => {
   });
 
   function renderChat(row: TriggerRow, onEdit = vi.fn().mockResolvedValue(null)) {
-    render(
+    renderWithProviders(
       <TriggerDrawer
+        canRunAgent
         trigger={row}
         sources={CHAT_SOURCES}
         deliveries={[]}

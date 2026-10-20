@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
+import { renderWithProviders } from '@runkora/test-utils';
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
@@ -25,7 +26,7 @@ const TRIGGERS = [
 ];
 
 function renderPage() {
-  return render(
+  return renderWithProviders(
     <TriggersPage sources={SOURCES} triggers={TRIGGERS} deliveries={[]} agents={[]} error={null} />,
   );
 }
