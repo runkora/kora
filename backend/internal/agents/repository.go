@@ -30,6 +30,9 @@ type RunRepository interface {
 	GetRun(ctx context.Context, id string) (*Run, error)
 	// ListRuns returns up to q.Limit runs in q.Scope, newest first, after q.After.
 	ListRuns(ctx context.Context, tenantID string, q RunListQuery) ([]Run, error)
+	// RunUsageTotals returns the inference totals of the given runs in one
+	// query, keyed by run id. A run with no usage rows is absent from the map.
+	RunUsageTotals(ctx context.Context, tenantID string, runIDs []string) (map[string]RunUsage, error)
 	// CountRunOutcomes counts the completed and failed runs in scope that
 	// finished in [from, to).
 	CountRunOutcomes(ctx context.Context, tenantID string, scope RunScope, from, to time.Time) (RunOutcomes, error)

@@ -566,6 +566,19 @@ type Run struct {
 	// InitialMessage is the run's first message. Only a claimed run carries it, and
 	// the scheduling worker sends it when it creates the session.
 	InitialMessage string `json:"-"`
+	// Usage is the run's inference total so far. It is read from
+	// inference_usage when the run is served and is not a runs column. A run
+	// with no usage rows reads as zeros.
+	Usage RunUsage `json:"usage"`
+}
+
+// RunUsage is the sum of a run's inference_usage rows. A live run reports its
+// total so far.
+type RunUsage struct {
+	CostUSD      float64 `json:"cost_usd"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	RequestCount int64   `json:"request_count"`
 }
 
 // StartedByTrigger is the run's backlink to the trigger and delivery that

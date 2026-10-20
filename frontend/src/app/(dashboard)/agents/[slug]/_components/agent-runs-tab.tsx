@@ -18,6 +18,7 @@ import { DelegatedRunNotice } from '../../_components/motif/delegated-run-notice
 import type { DataTableColumn } from '@runkora/hades';
 import { PermissionHint, StatusBadge } from '@runkora/components';
 import { APP_ROUTES } from '@runkora/lib/routing';
+import { fmtUsd } from '@runkora/utils';
 import type { RunStateCounts } from '@runkora/shared/api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { RUN_FILTER_STATES } from '../_hooks/use-agent-detail';
@@ -194,6 +195,18 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         cell: (row) => (
           <Text mono size="supporting">
             {row.toolCalls !== null ? String(row.toolCalls) : '—'}
+          </Text>
+        ),
+      },
+      {
+        id: 'cost',
+        header: 'Cost',
+        gridWidth: '6rem',
+        minWidth: '4rem',
+        locked: true,
+        cell: (row) => (
+          <Text mono size="supporting">
+            {fmtUsd(row.costUsd)}
           </Text>
         ),
       },

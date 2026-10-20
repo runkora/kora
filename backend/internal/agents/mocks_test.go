@@ -32,6 +32,9 @@ type mockRepository struct {
 	agentTypes map[string]*AgentType
 	slugIndex  map[string]*AgentType // tenantID+":"+slug → AgentType
 	runs       map[string]*Run
+	// usage holds seeded run totals by run id and usageCalls counts RunUsageTotals calls.
+	usage      map[string]RunUsage
+	usageCalls int
 	envs       map[string]*Environment
 	events     map[string][]RunEvent
 	messages   []RunMessage
@@ -263,6 +266,21 @@ func (m *mockRepository) runIdentityModeLocked(r *Run) IdentityMode {
 		return at.IdentityMode.OrDefault()
 	}
 	return r.IdentityMode.OrDefault()
+}
+
+// RunUsageTotals returns the seeded totals and counts the calls, so a test can
+// assert a page costs one query.
+func (m *mockRepository) RunUsageTotals(_ context.Context, _ string, runIDs []string) (map[string]RunUsage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.usageCalls++
+	out := map[string]RunUsage{}
+	for _, id := range runIDs {
+		if u, ok := m.usage[id]; ok {
+			out[id] = u
+		}
+	}
+	return out, nil
 }
 
 func (m *mockRepository) CountRunOutcomes(_ context.Context, _ string, scope RunScope, _, _ time.Time) (RunOutcomes, error) {

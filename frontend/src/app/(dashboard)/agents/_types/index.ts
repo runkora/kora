@@ -94,6 +94,8 @@ export interface RunRow {
   durationMs: number | null;
   /** Number of tool calls made during this run, or null if not available. */
   toolCalls: number | null;
+  /** Estimated inference cost in USD, or null when the API did not return usage. */
+  costUsd?: number | null;
   /** LLM-generated one-sentence summary of the run's task intent, or null if not available. */
   summary: string | null;
 }
@@ -166,6 +168,7 @@ export function toRunRow(r: RunWithAttribution, agentTypeById: Map<string, Agent
     createdAt: r.created_at,
     durationMs,
     toolCalls: r.tool_calls ?? null,
+    costUsd: r.usage?.cost_usd ?? null,
     summary: r.summary ?? null,
   };
 }

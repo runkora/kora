@@ -440,6 +440,13 @@ export interface Run {
   updated_at: string;
   /** Number of tool calls made during this run, if available. */
   tool_calls?: number;
+  /** Inference totals summed over the run's requests; a live run reports its total so far. */
+  usage?: {
+    cost_usd: number;
+    input_tokens: number;
+    output_tokens: number;
+    request_count: number;
+  };
   /** LLM-generated one-sentence summary of the run's task intent, if available. */
   summary?: string | null;
   /**
