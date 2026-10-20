@@ -204,6 +204,9 @@ func (c *connector) Classify(req *http.Request) (credentials.Classification, err
 		return classifyAPI(req, "/graphql", owner)
 	}
 
+	if host == resultsReceiverHost {
+		return classifyResultsReceiver(req.Method, path)
+	}
 	if host == "codeload.github.com" || strings.HasSuffix(host, ".githubusercontent.com") {
 		return classifyContentHost(req.Method, path, owner)
 	}
@@ -577,6 +580,30 @@ var repoSubResolvers = map[string]func(sub []string) string{
 		}
 		return catRepo
 	},
+}
+
+// resultsReceiverHost serves Actions job logs over Twirp RPC.
+const resultsReceiverHost = "results-receiver.actions.githubusercontent.com"
+
+// classifyResultsReceiver maps the Actions results receiver to actions:read.
+// GET and HEAD are reads. A POST is a read only when it is a Twirp call to a
+// Get or List method. Everything else is denied. The repository is in the RPC
+// body, so the action is unqualified and needs an unqualified grant.
+func classifyResultsReceiver(method, path string) (credentials.Classification, error) {
+	read := false
+	if verb, err := verbClass(method); err == nil && verb == verbRead {
+		read = true
+	} else if strings.EqualFold(method, http.MethodPost) {
+		segs := pathSegments(path)
+		if len(segs) >= 3 && segs[0] == "twirp" {
+			rpc := segs[len(segs)-1]
+			read = strings.HasPrefix(rpc, "Get") || strings.HasPrefix(rpc, "List")
+		}
+	}
+	if !read {
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
+	}
+	return credentials.Classification{Action: catActions + ":" + verbRead}, nil
 }
 
 // classifyContentHost handles the read-only download family
