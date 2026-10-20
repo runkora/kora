@@ -331,3 +331,39 @@ func TestMutate_PinsSandboxSidecars(t *testing.T) {
 		t.Errorf("agent pod carries %s, want no istio-proxy pin", podAnnotationProxyCPU)
 	}
 }
+
+// Each sidecar gets a one-second startup probe so the pod becomes Ready soon
+// after the sidecar is up. The startup probe allows at least as long as the
+// old readiness probe did, so a slow start does not restart the container.
+func TestMutate_SidecarStartupProbes(t *testing.T) {
+	pod := sandboxLikePod()
+	if err := testMutator().mutate(pod, "example", ""); err != nil {
+		t.Fatal(err)
+	}
+	// Worst case of the previous readiness probe: delay plus period times threshold.
+	oldBudget := map[string]int32{containerIdentityProxy: 5 + 5*10, containerOPA: 3 + 5*12}
+	seen := 0
+	for _, c := range pod.Spec.InitContainers {
+		budget, ok := oldBudget[c.Name]
+		if !ok {
+			continue
+		}
+		seen++
+		sp, rp := c.StartupProbe, c.ReadinessProbe
+		if sp == nil || rp == nil || sp.HTTPGet == nil || rp.HTTPGet == nil {
+			t.Fatalf("%s: startup %+v readiness %+v, want HTTP probes", c.Name, sp, rp)
+		}
+		if sp.HTTPGet.Path != rp.HTTPGet.Path || sp.HTTPGet.Port != rp.HTTPGet.Port {
+			t.Errorf("%s: startup checks %+v, readiness checks %+v, want the same endpoint", c.Name, sp.HTTPGet, rp.HTTPGet)
+		}
+		if sp.PeriodSeconds != 1 || sp.InitialDelaySeconds != 0 || rp.InitialDelaySeconds != 0 {
+			t.Errorf("%s: startup period %d, startup delay %d, readiness delay %d, want 1/0/0", c.Name, sp.PeriodSeconds, sp.InitialDelaySeconds, rp.InitialDelaySeconds)
+		}
+		if got := sp.FailureThreshold * sp.PeriodSeconds; got < budget {
+			t.Errorf("%s: startup allows %ds, want at least %ds", c.Name, got, budget)
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("checked %d sidecars, want 2", seen)
+	}
+}

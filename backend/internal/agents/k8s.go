@@ -1278,17 +1278,26 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 		Env:             sandboxContainerEnv(cfg, spec.KubeClusters, workspaceDir, execToken),
 		VolumeMounts:    mounts,
 		WorkingDir:      workspaceDir,
+		// The startup probe checks every second so the pod is Ready soon after
+		// the port opens. It allows 60s before a restart. The readiness probe
+		// keeps its steady-state period.
+		StartupProbe: &corev1.Probe{
+			ProbeHandler:     sandboxProbeHandler(cfg.SandboxGRPCPort),
+			PeriodSeconds:    1,
+			FailureThreshold: 60,
+		},
 		ReadinessProbe: &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				TCPSocket: &corev1.TCPSocketAction{
-					Port: intstr.FromInt32(cfg.SandboxGRPCPort),
-				},
-			},
-			InitialDelaySeconds: 2,
-			PeriodSeconds:       3,
+			ProbeHandler:  sandboxProbeHandler(cfg.SandboxGRPCPort),
+			PeriodSeconds: 3,
 		},
 		Resources: resources,
 	}, nil
+}
+
+func sandboxProbeHandler(port int32) corev1.ProbeHandler {
+	return corev1.ProbeHandler{
+		TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(port)},
+	}
 }
 
 // sandboxResources reserves the environment's size for the sandbox, with requests equal to limits.

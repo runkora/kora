@@ -164,3 +164,27 @@ func TestSandboxContainer_WorkspaceMountScopedToRunID(t *testing.T) {
 		t.Errorf("WORKSPACE env = %q, want %q", gotWorkspace, wantMountPath)
 	}
 }
+
+// The sandbox reports Ready as soon as its port opens. A startup probe checks
+// every second until then, and the readiness probe has no initial delay.
+func TestSandboxContainer_StartupProbe(t *testing.T) {
+	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "orbit-system"}
+	c, err := sandboxContainer(cfg, testSandboxSpec(), "run-1", "token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp, rp := c.StartupProbe, c.ReadinessProbe
+	if sp == nil || sp.TCPSocket == nil || sp.TCPSocket.Port.IntValue() != 50051 {
+		t.Fatalf("startup probe = %+v, want a TCP check on the gRPC port", sp)
+	}
+	if sp.PeriodSeconds != 1 || sp.InitialDelaySeconds != 0 {
+		t.Errorf("startup period/delay = %d/%d, want 1/0", sp.PeriodSeconds, sp.InitialDelaySeconds)
+	}
+	// A slow start must not become a restart: cover at least 30s.
+	if sp.FailureThreshold*sp.PeriodSeconds < 30 {
+		t.Errorf("startup allows %ds, want at least 30s", sp.FailureThreshold*sp.PeriodSeconds)
+	}
+	if rp.InitialDelaySeconds != 0 {
+		t.Errorf("readiness initial delay = %d, want 0", rp.InitialDelaySeconds)
+	}
+}

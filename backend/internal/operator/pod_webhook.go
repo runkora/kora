@@ -287,14 +287,23 @@ func (m *PodMutator) identityProxyContainer(otlpEndpoint string) corev1.Containe
 		},
 		Ports:           []corev1.ContainerPort{{Name: "health", ContainerPort: 9090, Protocol: corev1.ProtocolTCP}},
 		SecurityContext: restrictedContainerSecurityContext(1000, true),
+		// Checked every second until the first success, so Ready is not held
+		// back by the readiness period. 60 failures cover the old 55s budget.
+		StartupProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromInt32(9090)},
+			},
+			PeriodSeconds:    1,
+			TimeoutSeconds:   3,
+			FailureThreshold: 60,
+		},
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromInt32(9090)},
 			},
-			InitialDelaySeconds: 5,
-			PeriodSeconds:       5,
-			TimeoutSeconds:      3,
-			FailureThreshold:    10,
+			PeriodSeconds:    5,
+			TimeoutSeconds:   3,
+			FailureThreshold: 10,
 		},
 		Resources: m.Config.IdentityProxyResources,
 		VolumeMounts: []corev1.VolumeMount{
@@ -334,13 +343,21 @@ func (m *PodMutator) opaContainer() corev1.Container {
 			{Name: "opa-diag", ContainerPort: 8282, Protocol: corev1.ProtocolTCP},
 		},
 		SecurityContext: restrictedContainerSecurityContext(1337, true),
+		// Checked every second until bundles load. 63 failures cover the old
+		// 63s budget of 3s delay plus 12 checks at 5s.
+		StartupProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{Path: "/health?bundles=true", Port: intstr.FromInt32(8282)},
+			},
+			PeriodSeconds:    1,
+			FailureThreshold: 63,
+		},
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{Path: "/health?bundles=true", Port: intstr.FromInt32(8282)},
 			},
-			InitialDelaySeconds: 3,
-			PeriodSeconds:       5,
-			FailureThreshold:    12,
+			PeriodSeconds:    5,
+			FailureThreshold: 12,
 		},
 		LivenessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
