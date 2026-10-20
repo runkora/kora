@@ -101,14 +101,19 @@ func TestCreateRoutedTrigger_GrantsCandidatesAndModel(t *testing.T) {
 	}
 }
 
-// ADR Decision 17: the caller must hold every scope the grant confers.
+// ADR Decision 17: the caller must be able to run every candidate and hold the decision model's scopes.
 func TestCreateRoutedTrigger_CreatorAuthority(t *testing.T) {
 	tests := []struct {
-		name string
-		deny []string
+		name        string
+		deny        []string
+		noRun       string
+		wantMissing []string
 	}{
-		{name: "missing one candidate's run scope", deny: []string{"agents:runs:security:write"}},
-		{name: "missing the model use scope", deny: []string{"inference:liquid:d1:use"}},
+		{name: "a candidate the caller cannot run", noRun: "at-c"},
+		{name: "missing the model use scope", deny: []string{"inference:liquid:d1:use"}, wantMissing: []string{"inference:liquid:d1:use"}},
+		{name: "missing inference:invoke", deny: []string{"inference:invoke"}, wantMissing: []string{"inference:invoke"}},
+		// can_run counts the agent's creator, so explicit run scopes are not asked for.
+		{name: "can run every candidate without the explicit run scopes", deny: []string{"agents:runs:coder:write", "agents:runs:security:write"}},
 		{name: "missing neither"},
 	}
 	for _, tt := range tests {
@@ -118,17 +123,29 @@ func TestCreateRoutedTrigger_CreatorAuthority(t *testing.T) {
 			for _, s := range tt.deny {
 				deps.eval.deny[s] = true
 			}
+			if tt.noRun != "" {
+				deps.agents.atNoRunIDs = map[string]bool{tt.noRun: true}
+			}
 			grantsBefore := deps.policy.counter
-			_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, routingClaims, routedReq(src.ID, nil))
-			if len(tt.deny) == 0 {
+			tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, routingClaims, routedReq(src.ID, nil))
+			switch {
+			case tt.noRun != "":
+				if !errors.Is(err, ErrBindForbidden) || !strings.Contains(err.Error(), tt.noRun) {
+					t.Fatalf("err = %v, want ErrBindForbidden naming %s", err, tt.noRun)
+				}
+			case tt.wantMissing != nil:
+				var mse *MissingScopesError
+				if !errors.As(err, &mse) || !errors.Is(err, ErrCallerLacksScopes) || !slices.Equal(mse.Scopes, tt.wantMissing) {
+					t.Fatalf("err = %v, want missing %v", err, tt.wantMissing)
+				}
+			default:
 				if err != nil {
 					t.Fatalf("CreateTrigger: %v", err)
 				}
+				if !slices.Contains(deps.policy.lastScopes, "agents:runs:security:write") || tr.GrantID == nil {
+					t.Errorf("grant scopes = %v, want every candidate's run scopes", deps.policy.lastScopes)
+				}
 				return
-			}
-			var mse *MissingScopesError
-			if !errors.As(err, &mse) || !errors.Is(err, ErrCallerLacksScopes) || !slices.Equal(mse.Scopes, tt.deny) {
-				t.Fatalf("err = %v, want missing %v", err, tt.deny)
 			}
 			if len(deps.repo.triggers) != 0 || deps.policy.counter != grantsBefore {
 				t.Error("a refused create must store nothing and grant nothing")
@@ -299,11 +316,73 @@ func TestUpdateRoutedTrigger(t *testing.T) {
 		}
 	})
 
-	t.Run("an update needs the caller's authority", func(t *testing.T) {
+	// D25: a rename changes neither what runs nor when, so triggers:write is enough.
+	t.Run("a routed rename is allowed without run access", func(t *testing.T) {
 		_, deps, _, src := routedHarness(t)
 		tr := mustRouted(t, deps, src.ID, nil)
+		deps.agents.atNoRun = true
+		deps.eval.deny = map[string]bool{"inference:invoke": true, "inference:liquid:d1:use": true}
+		deps.agents.callerReadIDs()
+		if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{Name: new("renamed")}); err != nil {
+			t.Fatalf("UpdateTrigger: %v", err)
+		}
+		if reads := deps.agents.callerReadIDs(); len(reads) != 0 {
+			t.Errorf("caller reads = %v, want none for a rename", reads)
+		}
+	})
+
+	t.Run("changing candidates without can_run on one is refused", func(t *testing.T) {
+		_, deps, _, src := routedHarness(t)
+		tr := mustRouted(t, deps, src.ID, nil)
+		deps.agents.atNoRunIDs = map[string]bool{"at-b": true}
+		_, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{
+			Routing: routingReq(func(r *RoutingConfig) { r.Candidates = []string{"at-a", "at-b"} }),
+		})
+		if !errors.Is(err, ErrBindForbidden) || !strings.Contains(err.Error(), "at-b") {
+			t.Fatalf("err = %v, want ErrBindForbidden naming at-b", err)
+		}
+	})
+
+	t.Run("changing the model without its use scope is refused", func(t *testing.T) {
+		_, deps, _, src := routedHarness(t)
+		tr := mustRouted(t, deps, src.ID, nil)
+		deps.eval.deny = map[string]bool{"inference:liquid:d2:use": true}
+		_, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{
+			Routing: routingReq(func(r *RoutingConfig) { r.Model = "liquid/d2" }),
+		})
+		var mse *MissingScopesError
+		if !errors.As(err, &mse) || !slices.Equal(mse.Scopes, []string{"inference:liquid:d2:use"}) {
+			t.Fatalf("err = %v, want missing inference:liquid:d2:use", err)
+		}
+	})
+
+	// D25: pausing changes when the agents run, so it needs run access on every candidate.
+	t.Run("pausing without can_run on a candidate is refused", func(t *testing.T) {
+		_, deps, _, src := routedHarness(t)
+		tr := mustRouted(t, deps, src.ID, nil)
+		deps.agents.atNoRunIDs = map[string]bool{"at-c": true}
+		deps.agents.callerReadIDs()
+		_, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{Enabled: new(false)})
+		if !errors.Is(err, ErrBindForbidden) || !strings.Contains(err.Error(), "at-c") {
+			t.Fatalf("err = %v, want ErrBindForbidden naming at-c", err)
+		}
+		if !deps.repo.triggers[tr.ID].Enabled {
+			t.Error("a refused pause must leave the trigger enabled")
+		}
+	})
+
+	t.Run("a prompt change checks every candidate and the model scopes", func(t *testing.T) {
+		_, deps, _, src := routedHarness(t)
+		tr := mustRouted(t, deps, src.ID, nil)
+		deps.agents.callerReadIDs()
+		if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{PromptTemplate: new("New {{ comment.body }}")}); err != nil {
+			t.Fatalf("UpdateTrigger: %v", err)
+		}
+		if reads := deps.agents.callerReadIDs(); !slices.Equal(slices.Sorted(slices.Values(reads)), []string{"at-a", "at-b", "at-c"}) {
+			t.Errorf("caller reads = %v, want every candidate", reads)
+		}
 		deps.eval.deny = map[string]bool{"inference:liquid:d1:use": true}
-		_, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{Name: new("renamed")})
+		_, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{PromptTemplate: new("Again {{ comment.body }}")})
 		if !errors.Is(err, ErrCallerLacksScopes) {
 			t.Fatalf("err = %v, want ErrCallerLacksScopes", err)
 		}
@@ -319,13 +398,16 @@ func TestUpdateRoutedTrigger(t *testing.T) {
 	})
 }
 
+// runnable is orbit-agents' can_run for the caller; delegated agents are never runnable.
 func TestRoutingCandidates(t *testing.T) {
 	_, deps, _, _ := routedHarness(t)
+	for i := range deps.agents.agentTypes {
+		deps.agents.agentTypes[i].CanRun = deps.agents.agentTypes[i].ID != "at-c"
+	}
 	deps.agents.agentTypes = append(deps.agents.agentTypes,
-		agentsclient.AgentType{ID: "at-d", Slug: "assistant", Name: "Assistant", IdentityMode: agentsclient.IdentityModeDelegated})
-	deps.eval.deny = map[string]bool{"agents:runs:security:write": true}
+		agentsclient.AgentType{ID: "at-d", Slug: "assistant", Name: "Assistant", IdentityMode: agentsclient.IdentityModeDelegated, CanRun: true})
 
-	got, err := deps.triggers.RoutingCandidates(context.Background(), routingClaims, "caller-token")
+	got, err := deps.triggers.RoutingCandidates(context.Background())
 	if err != nil {
 		t.Fatalf("RoutingCandidates: %v", err)
 	}
@@ -336,8 +418,8 @@ func TestRoutingCandidates(t *testing.T) {
 	if !byID["at-a"].Runnable || byID["at-a"].Description != "Implements changes." {
 		t.Errorf("at-a = %+v, want runnable", byID["at-a"])
 	}
-	if c := byID["at-c"]; c.Runnable || !strings.Contains(c.Reason, "agents:runs:security:write") {
-		t.Errorf("at-c = %+v, want not runnable for the missing scope", c)
+	if c := byID["at-c"]; c.Runnable || c.Reason != cannotRunCandidateReason {
+		t.Errorf("at-c = %+v, want not runnable without can_run", c)
 	}
 	if c := byID["at-d"]; c.Runnable || c.Reason != delegatedCandidateReason {
 		t.Errorf("at-d = %+v, want not runnable as delegated", c)
@@ -817,5 +899,41 @@ func TestWorker_KeepsAHeldFire(t *testing.T) {
 	}
 	if again, _ := deps.repo.ClaimPending(context.Background(), 10); len(again) != 0 {
 		t.Error("a held fire must not be claimable before its delay")
+	}
+}
+
+// A webhook replay can start any candidate of a routed trigger on the source, so the caller needs run access on each.
+func TestRedeliver_RoutedTriggerChecksEveryCandidate(t *testing.T) {
+	for _, allow := range []bool{true, false} {
+		t.Run(fmt.Sprintf("allow=%v", allow), func(t *testing.T) {
+			svc, deps, _, src := routedHarness(t)
+			body := prBody("opened", "main")
+			if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
+				t.Fatalf("Ingest: %v", err)
+			}
+			waitFor(t, deps.repo.anyDerived)
+			originalID := deps.repo.lastDelivery().ID
+			mustRouted(t, deps, src.ID, func(r *CreateTriggerRequest) { r.EventType = "pull_request" })
+			if !allow {
+				deps.agents.atNoRunIDs = map[string]bool{"at-b": true}
+			}
+			deps.agents.callerReadIDs()
+
+			_, err := svc.Redeliver(context.Background(), testTenant, originalID, "user:2")
+
+			reads := deps.agents.callerReadIDs()
+			if allow {
+				if err != nil {
+					t.Fatalf("Redeliver: %v", err)
+				}
+				if !slices.Equal(slices.Sorted(slices.Values(reads)), []string{"at-a", "at-b", "at-c"}) {
+					t.Errorf("caller reads = %v, want every candidate", reads)
+				}
+				return
+			}
+			if !errors.Is(err, ErrBindForbidden) || !strings.Contains(err.Error(), "at-b") {
+				t.Fatalf("err = %v, want ErrBindForbidden naming at-b", err)
+			}
+		})
 	}
 }

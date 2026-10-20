@@ -13,11 +13,8 @@ import (
 )
 
 // ErrCallerLacksScopes is returned when the caller creating or editing a routed
-// trigger does not hold every scope its grant would confer.
+// trigger does not hold the decision model's scopes its grant would confer.
 var ErrCallerLacksScopes = errors.New("caller does not hold the scopes this routed trigger would be granted")
-
-// ErrCannotListAgents is returned when the caller may not read the tenant's agent types.
-var ErrCannotListAgents = errors.New("caller may not list agent types")
 
 // MissingScopesError lists the scopes the caller lacks. It matches
 // ErrCallerLacksScopes under errors.Is.
@@ -46,31 +43,27 @@ type RoutingCandidate struct {
 // delegatedCandidateReason is shown for a delegated agent, which no trigger may start (ADR Decision 18).
 const delegatedCandidateReason = "delegated agents act for the person who runs them, so a trigger cannot start them"
 
+// cannotRunCandidateReason is shown for an agent the caller may not run.
+const cannotRunCandidateReason = "you cannot run this agent"
+
 // RoutingCandidates lists the tenant's agent types the caller may read, each
-// marked runnable when the caller holds its run scopes and it is not delegated.
-// bearer is the caller's own token, so the list is what the caller may see.
-func (s *TriggerService) RoutingCandidates(ctx context.Context, claims *token.PlatformClaims, bearer string) ([]RoutingCandidate, error) {
-	types, err := s.agents.ListAgentTypes(ctx, bearer)
-	if errors.Is(err, agentsclient.ErrForbidden) {
-		return nil, ErrCannotListAgents
-	}
+// marked runnable when orbit-agents reports can_run for the caller and it is
+// not delegated. The caller's own token reads them.
+func (s *TriggerService) RoutingCandidates(ctx context.Context) ([]RoutingCandidate, error) {
+	types, err := s.agents.ListAgentTypes(ctx, callerOf(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list agent types: %w", err)
 	}
 	out := make([]RoutingCandidate, 0, len(types))
 	for _, at := range types {
 		c := RoutingCandidate{ID: at.ID, Slug: at.Slug, Name: at.Name, Description: at.Description, IdentityMode: at.IdentityMode}
-		if at.IdentityMode == agentsclient.IdentityModeDelegated {
+		switch {
+		case at.IdentityMode == agentsclient.IdentityModeDelegated:
 			c.Reason = delegatedCandidateReason
-		} else {
-			missing, err := s.missingScopes(ctx, claims, triggerRunScopes(at.Slug))
-			if err != nil {
-				return nil, err
-			}
-			c.Runnable = len(missing) == 0
-			if !c.Runnable {
-				c.Reason = "you do not hold " + strings.Join(missing, " and ")
-			}
+		case !at.CanRun:
+			c.Reason = cannotRunCandidateReason
+		default:
+			c.Runnable = true
 		}
 		out = append(out, c)
 	}
@@ -99,12 +92,14 @@ func (s *TriggerService) resolveRouting(ctx context.Context, src WebhookSource, 
 	return r, nil
 }
 
-// applyRoutingUpdate applies a routing replacement to a routed trigger, checks
-// the caller holds the grant's scopes, and replaces the grant when the
-// candidates or the model changed (ADR Decisions 16 and 17). replaced reports a
-// new grant on t; oldGrant is the one it replaces, deleted once the row is
-// stored. A trigger that is not routed is left alone.
-func (s *TriggerService) applyRoutingUpdate(ctx context.Context, t *Trigger, claims *token.PlatformClaims, raw *RoutingConfig) (replaced bool, oldGrant *string, err error) {
+// applyRoutingUpdate applies a routing replacement to a routed trigger and
+// replaces the grant when the candidates or the model changed (ADR Decision
+// 16). When the update changes what runs or when (checkCaller), the caller must
+// also hold the decision model's scopes (ADR Decision 17); the candidates'
+// can_run is checked before this, or as a replacement resolves them. replaced
+// reports a new grant on t; oldGrant is the one it replaces, deleted once the
+// row is stored. A trigger that is not routed is left alone.
+func (s *TriggerService) applyRoutingUpdate(ctx context.Context, t *Trigger, claims *token.PlatformClaims, raw *RoutingConfig, checkCaller bool) (replaced bool, oldGrant *string, err error) {
 	if t.TargetKind != TargetKindRouted {
 		return false, nil, nil
 	}
@@ -125,8 +120,10 @@ func (s *TriggerService) applyRoutingUpdate(ctx context.Context, t *Trigger, cla
 	if err != nil {
 		return false, nil, err
 	}
-	if err = s.authorizeCaller(ctx, claims, scopes); err != nil {
-		return false, nil, err
+	if checkCaller {
+		if err = s.authorizeCaller(ctx, claims, routedCallerScopes(t.Routing)); err != nil {
+			return false, nil, err
+		}
 	}
 	if raw == nil || sameGrant(previous, t.Routing) {
 		return false, nil, nil
@@ -139,7 +136,7 @@ func (s *TriggerService) applyRoutingUpdate(ctx context.Context, t *Trigger, cla
 	return true, oldGrant, nil
 }
 
-// authorizeCaller fails unless the caller holds every scope, listing the ones missing.
+// authorizeCaller fails unless the caller holds every given scope, listing the ones missing.
 func (s *TriggerService) authorizeCaller(ctx context.Context, claims *token.PlatformClaims, scopes []string) error {
 	missing, err := s.missingScopes(ctx, claims, scopes)
 	if err != nil {

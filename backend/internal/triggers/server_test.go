@@ -837,7 +837,7 @@ func TestHandleRoutedTrigger_UnknownModel(t *testing.T) {
 
 func TestHandleRoutingCandidates(t *testing.T) {
 	c, deps, _ := newTestController(t)
-	deps.agents.agentTypes = []agentsclient.AgentType{{ID: "at-a", Slug: "coder", Name: "Coder"}}
+	deps.agents.agentTypes = []agentsclient.AgentType{{ID: "at-a", Slug: "coder", Name: "Coder", CanRun: true}}
 
 	req := withTenant(newRequest(t, http.MethodGet, "/triggers/routing/candidates", nil, nil))
 	req.Header.Set("Authorization", "Bearer caller-token")
@@ -851,20 +851,6 @@ func TestHandleRoutingCandidates(t *testing.T) {
 	}](t, w)
 	if len(got.AgentTypes) != 1 || !got.AgentTypes[0].Runnable || got.AgentTypes[0].Name != "Coder" {
 		t.Errorf("candidates = %+v", got.AgentTypes)
-	}
-}
-
-// A caller who may not list agent types gets a 403, not a 500.
-func TestHandleRoutingCandidates_CallerCannotListAgents(t *testing.T) {
-	c, deps, _ := newTestController(t)
-	deps.agents.agentTypesStatus = http.StatusForbidden
-
-	req := withTenant(newRequest(t, http.MethodGet, "/triggers/routing/candidates", nil, nil))
-	req.Header.Set("Authorization", "Bearer caller-token")
-	w := invoke(c.handleRoutingCandidates, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403 (body: %s)", w.Code, w.Body.String())
 	}
 }
 

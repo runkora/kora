@@ -219,6 +219,14 @@ func routedGrantScopes(r *RoutingConfig) ([]string, error) {
 	return append(scopes, "inference:invoke", modelScope), nil
 }
 
+// routedCallerScopes are the grant scopes the caller is checked for with the
+// evaluator: inference:invoke and the model's use scope. Each candidate's run
+// scopes are covered by the caller's can_run on it (ADR Decision 17).
+func routedCallerScopes(r *RoutingConfig) []string {
+	modelScope, _ := modelUseScope(r.Model)
+	return []string{"inference:invoke", modelScope}
+}
+
 // sameGrant reports whether two routing objects need the same grant.
 func sameGrant(a, b *RoutingConfig) bool {
 	return a.Model == b.Model && slices.Equal(slices.Sorted(slices.Values(a.Candidates)), slices.Sorted(slices.Values(b.Candidates)))

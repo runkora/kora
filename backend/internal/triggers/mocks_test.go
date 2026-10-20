@@ -690,11 +690,12 @@ type agentsStub struct {
 	atIdentityMode string // identity_mode to return; "" → autonomous-by-default
 	atStatus       int    // response status; 0 → 200
 	// Caller reads: any bearer other than the minted principal token is a caller asking can_run.
-	atNoRun       bool     // answer can_run false to callers
-	callerStatus  int      // response status for caller reads; 0 → atStatus
-	callerReads   []string // agent type ids callers read
-	callerBearers []string // Authorization headers callers sent
-	callerDelegs  []string // delegation headers callers sent
+	atNoRun       bool            // answer can_run false to callers
+	atNoRunIDs    map[string]bool // answer can_run false to callers for these agent type ids
+	callerStatus  int             // response status for caller reads; 0 → atStatus
+	callerReads   []string        // agent type ids callers read
+	callerBearers []string        // Authorization headers callers sent
+	callerDelegs  []string        // delegation headers callers sent
 
 	// atSlugs and atDelegated override the slug and identity of single agent
 	// types by id, so a routed trigger can name several distinct candidates.
@@ -702,8 +703,7 @@ type agentsStub struct {
 	atDelegated map[string]bool
 
 	// agentTypes is what GET /api/v1/agent-types lists.
-	agentTypes       []agentsclient.AgentType
-	agentTypesStatus int // non-zero fails the listing with this status
+	agentTypes []agentsclient.AgentType
 	// runs is what GET /api/v1/runs lists, and runsQuery the last query it got.
 	runs       []agentsclient.Run
 	runsQuery  string
@@ -735,7 +735,7 @@ func newAgentsStub() *agentsStub {
 	mux.HandleFunc("GET /api/v1/agent-types/{id}", func(w http.ResponseWriter, r *http.Request) {
 		as.mu.Lock()
 		status, slug, tenant, identityMode := as.atStatus, as.atSlug, as.atTenant, as.atIdentityMode
-		canRun := !as.atNoRun
+		canRun := !as.atNoRun && !as.atNoRunIDs[r.PathValue("id")]
 		if auth := r.Header.Get("Authorization"); auth != "Bearer minted-token" {
 			as.callerReads = append(as.callerReads, r.PathValue("id"))
 			as.callerBearers = append(as.callerBearers, auth)
@@ -769,13 +769,8 @@ func newAgentsStub() *agentsStub {
 	mux.HandleFunc("GET /api/v1/agent-types", func(w http.ResponseWriter, _ *http.Request) {
 		as.mu.Lock()
 		body, _ := json.Marshal(map[string]any{"agent_types": as.agentTypes})
-		status := as.agentTypesStatus
 		as.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		if status != 0 {
-			w.WriteHeader(status)
-			return
-		}
 		_, _ = w.Write(body)
 	})
 	mux.HandleFunc("GET /api/v1/runs", func(w http.ResponseWriter, r *http.Request) {

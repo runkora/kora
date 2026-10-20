@@ -418,12 +418,11 @@ func (c *Controller) authorizeFire(ctx context.Context, triggerID string) error 
 }
 
 // handleRoutingCandidates lists the agent types the caller may read, with
-// runnable evaluated against the caller's claims. The caller's own token reads
+// runnable from the caller's can_run on each. The caller's own token reads
 // them, so the list is what the caller may see.
 func (c *Controller) handleRoutingCandidates(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	bearer := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-	candidates, err := c.triggers.RoutingCandidates(ctx, claimsFromCtx(ctx), bearer)
+	candidates, err := c.triggers.RoutingCandidates(ctx)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -556,8 +555,6 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 		// 403 with the scopes, so the caller knows what to ask for.
 		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, err.Error(),
 			map[string]any{"missing_scopes": mse.Scopes}), nil)
-	case errors.Is(err, ErrCannotListAgents):
-		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil), nil)
 	case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrTriggerNotFound), errors.Is(err, ErrDeliveryNotFound),
 		errors.Is(err, ErrProviderNotFound):
 		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, err.Error(), nil), nil)

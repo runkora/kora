@@ -242,7 +242,7 @@ func (s *Service) decide(ctx context.Context, t Trigger, tok, prompt string) (ro
 	if s.decisions == nil {
 		return routeChoice{}, errNoDecisionClient
 	}
-	types, err := s.agents.ListAgentTypes(ctx, tok)
+	types, err := s.agents.ListAgentTypes(ctx, agentsclient.Caller{Bearer: tok})
 	if err != nil {
 		return routeChoice{}, fmt.Errorf("list candidate agents: %w", err)
 	}

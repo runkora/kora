@@ -42,7 +42,7 @@ type agentTypeReader interface {
 // Its collaborators are the ones creation actually needs. A trigger is
 // provisioned with a principal and a grant (policy), reads the agent it binds,
 // or each candidate of a routed trigger, from orbit-agents as the caller
-// (agents), checks that the caller holds what a routed trigger's grant confers
+// (agents), checks that the caller holds a routed trigger's decision model scopes
 // (eval), and enabling or disabling it moves work in the queue (admission).
 type TriggerService struct {
 	repo      triggerStore
@@ -151,6 +151,16 @@ func requireRunAccess(ctx context.Context, agents agentTypeReader, agentTypeID s
 	return err
 }
 
+// requireRunAccessForTrigger checks run access on every agent the trigger can start.
+func requireRunAccessForTrigger(ctx context.Context, agents agentTypeReader, t Trigger) error {
+	for _, agentTypeID := range runTargets(t) {
+		if err := requireRunAccess(ctx, agents, agentTypeID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // matchableLister lists the triggers a delivery on a source could start.
 type matchableLister interface {
 	ListMatchableTriggersForSource(ctx context.Context, sourceID string) ([]Trigger, error)
@@ -165,12 +175,14 @@ func requireRunAccessForSource(ctx context.Context, repo matchableLister, agents
 	}
 	checked := map[string]bool{}
 	for _, t := range matchable {
-		if checked[t.AgentTypeID] {
-			continue
-		}
-		checked[t.AgentTypeID] = true
-		if err := requireRunAccess(ctx, agents, t.AgentTypeID); err != nil {
-			return err
+		for _, agentTypeID := range runTargets(t) {
+			if checked[agentTypeID] {
+				continue
+			}
+			checked[agentTypeID] = true
+			if err := requireRunAccess(ctx, agents, agentTypeID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -230,8 +242,8 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 		if scopes, err = routedGrantScopes(t.Routing); err != nil {
 			return nil, err
 		}
-		// The routing trigger never holds access its creator lacks (ADR Decision 17).
-		if err = s.authorizeCaller(ctx, claims, scopes); err != nil {
+		// Each candidate passed can_run as it resolved; the caller must also hold the decision model's scopes (ADR Decision 17).
+		if err = s.authorizeCaller(ctx, claims, routedCallerScopes(t.Routing)); err != nil {
 			return nil, err
 		}
 	} else {
@@ -437,8 +449,10 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	if err = refuseRetarget(t, req); err != nil {
 		return nil, err
 	}
-	if t.TargetKind != TargetKindRouted && changesRunBehaviour(t, req) {
-		if err = requireRunAccess(ctx, s.agents, t.AgentTypeID); err != nil {
+	changesRun := changesRunBehaviour(t, req)
+	// A routing replacement checks its new candidates when it resolves them.
+	if changesRun && req.Routing == nil {
+		if err = requireRunAccessForTrigger(ctx, s.agents, *t); err != nil {
 			return nil, err
 		}
 	}
@@ -462,7 +476,7 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	} else if err = refuseWebhookOnly(req.SenderRestriction, req.MatchContains, req.Coalesce); err != nil {
 		return nil, err
 	}
-	replaced, oldGrant, err := s.applyRoutingUpdate(ctx, t, claims, req.Routing)
+	replaced, oldGrant, err := s.applyRoutingUpdate(ctx, t, claims, req.Routing, changesRun)
 	if err != nil {
 		return nil, err
 	}
@@ -482,12 +496,24 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	return s.readBackTrigger(ctx, t), nil
 }
 
-// changesRunBehaviour reports whether a PATCH changes what the bound agent is told or when it runs.
-// Those edits need run authority on the agent; renames, coalescing and admission tuning do not.
+// changesRunBehaviour reports whether a PATCH changes what runs, what the agent is told or when it runs.
+// Those edits need run authority on every agent the trigger can start; renames, coalescing and admission tuning do not.
+// A routing replacement changes the candidates, the decision model, the fallback or the join settings.
 func changesRunBehaviour(t *Trigger, req UpdateTriggerRequest) bool {
 	return req.PromptTemplate != nil || req.ManualConfig != nil || req.ScheduleConfig != nil ||
 		req.SenderRestriction != nil || req.EventType != nil || req.MatchCondition != nil || req.MatchContains != nil ||
-		(req.Enabled != nil && *req.Enabled != t.Enabled)
+		req.Routing != nil || (req.Enabled != nil && *req.Enabled != t.Enabled)
+}
+
+// runTargets are the agents a trigger can start: its bound agent, or every candidate of a routed trigger.
+func runTargets(t Trigger) []string {
+	if t.TargetKind == TargetKindRouted {
+		if t.Routing == nil {
+			return nil
+		}
+		return t.Routing.Candidates
+	}
+	return []string{t.AgentTypeID}
 }
 
 // refuseRetarget rejects a change of target kind, and routing on a trigger that is not routed.

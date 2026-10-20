@@ -193,9 +193,9 @@ func initController(
 
 	// Creating a trigger reads the agent it binds, or each candidate of a
 	// routed trigger, from orbit-agents as the caller, who must be able to run
-	// it, then provisions the trigger's principal and grants. A routed
-	// trigger's grant is first checked against the caller's claims with the
-	// evaluator. Enabling or disabling one moves work already in the queue.
+	// it, then provisions the trigger's principal and grants. The evaluator
+	// checks that the caller holds a routed trigger's decision model scopes.
+	// Enabling or disabling one moves work already in the queue.
 	lifecycle := triggers.NewTriggerService(
 		repo,
 		registry,

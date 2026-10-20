@@ -327,15 +327,15 @@ func TestSendRunMessage_ConflictReason(t *testing.T) {
 }
 
 func TestListAgentTypes(t *testing.T) {
-	c, cap := newTestClient(t, http.StatusOK, `{"agent_types":[{"id":"at-1","tenant_id":"t1","slug":"coder","name":"Coder","description":"Implements changes.","identity_mode":"autonomous"}]}`)
-	types, err := c.ListAgentTypes(context.Background(), "tok-123")
+	c, cap := newTestClient(t, http.StatusOK, `{"agent_types":[{"id":"at-1","tenant_id":"t1","slug":"coder","name":"Coder","description":"Implements changes.","identity_mode":"autonomous","can_run":true}]}`)
+	types, err := c.ListAgentTypes(context.Background(), Caller{Bearer: "tok-123", Delegation: "deleg"})
 	if err != nil {
 		t.Fatalf("ListAgentTypes: %v", err)
 	}
-	if cap.method != http.MethodGet || cap.path != "/api/v1/agent-types" || cap.auth != "Bearer tok-123" {
-		t.Errorf("request = %s %s (auth %q)", cap.method, cap.path, cap.auth)
+	if cap.method != http.MethodGet || cap.path != "/api/v1/agent-types" || cap.auth != "Bearer tok-123" || cap.delegation != "deleg" {
+		t.Errorf("request = %s %s (auth %q, delegation %q)", cap.method, cap.path, cap.auth, cap.delegation)
 	}
-	if len(types) != 1 || types[0].Name != "Coder" || types[0].Description != "Implements changes." || types[0].Slug != "coder" {
+	if len(types) != 1 || types[0].Name != "Coder" || types[0].Description != "Implements changes." || types[0].Slug != "coder" || !types[0].CanRun {
 		t.Errorf("types = %+v", types)
 	}
 }
@@ -352,7 +352,7 @@ func TestListAgentTypes_StatusMapping(t *testing.T) {
 	}
 	for _, tt := range tests {
 		c, _ := newTestClient(t, tt.status, `{"error":"x"}`)
-		if _, err := c.ListAgentTypes(context.Background(), "tok"); !errors.Is(err, tt.want) {
+		if _, err := c.ListAgentTypes(context.Background(), Caller{Bearer: "tok"}); !errors.Is(err, tt.want) {
 			t.Errorf("status %d: got %v, want %v", tt.status, err, tt.want)
 		}
 	}

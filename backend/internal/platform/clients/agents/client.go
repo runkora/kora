@@ -143,13 +143,17 @@ func (c *Client) GetAgentType(ctx context.Context, caller Caller, id string) (Ag
 	}
 }
 
-// ListAgentTypes returns the agent types the bearer may read in its tenant.
-func (c *Client) ListAgentTypes(ctx context.Context, bearer string) ([]AgentType, error) {
+// ListAgentTypes returns the agent types the caller may read in its tenant,
+// each with the caller's can_run. A delegation travels with the bearer.
+func (c *Client) ListAgentTypes(ctx context.Context, caller Caller) ([]AgentType, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/agent-types", nil)
 	if err != nil {
 		return nil, fmt.Errorf("build list agent types request: %w", err)
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+	httpReq.Header.Set("Authorization", "Bearer "+caller.Bearer)
+	if caller.Delegation != "" {
+		httpReq.Header.Set(mw.DelegationTokenHeader, caller.Delegation)
+	}
 
 	_, span, resp, err := c.Do(ctx, "agents.Client.ListAgentTypes", httpReq)
 	defer span.End()

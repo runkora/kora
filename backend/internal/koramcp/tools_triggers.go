@@ -140,7 +140,7 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 			"coalesce needs overflow wait, which is the webhook default. "+
 			"A webhook trigger with target_kind routed has no agent_type_id: routing.candidates lists 2 to 20 agent type ids, "+
 			"routing.model names a decision model (e.g. liquid/d1), and "+product+" picks the agent or an open run for each event; "+
-			"the caller must hold the run scopes of every candidate and the model's use scope. "+
+			"the caller must be able to run every candidate and hold inference:invoke and the model's use scope. "+
 			"scheduled: fires on a cron schedule; schedule_config (cron_expression, timezone, catch_up) is required and "+
 			"source_id and event_type are not used. Check it with triggers.schedule_preview first. "+
 			"manual: fires when someone runs it; source_id and event_type are not used, and manual_config.inputs declares the "+
