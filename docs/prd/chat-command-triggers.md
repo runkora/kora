@@ -1,6 +1,6 @@
 # Chat Command Triggers - Product Requirements Document
 
-**Status:** In Review  
+**Status:** Approved  
 **Created:** 2026-10-20  
 **Last Updated:** 2026-10-20  
 **Owner:** Justin Wilkin  

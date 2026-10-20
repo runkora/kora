@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-20-chat-command-triggers.md -->
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-10-20  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [Chat Command Triggers PRD](../prd/chat-command-triggers.md)
