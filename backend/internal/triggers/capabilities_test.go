@@ -6,13 +6,14 @@ import (
 	"errors"
 	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 )
 
-// providerCap is a test provider whose adapter implements issuedSecret,
-// handshaker and fieldDeriver, so the pipeline's call sites are exercised
-// without a real provider.
+// providerCap is a test chat provider whose adapter implements issuedSecret,
+// handshaker, chatAdapter and senderIdentifier, so the pipeline's call sites
+// are exercised without a real provider.
 const providerCap = "capabilities"
 
 type capAdapter struct{}
@@ -29,10 +30,8 @@ func (capAdapter) Verify(secret string, h http.Header, _ []byte) error {
 func (capAdapter) DeliveryID(h http.Header, _ []byte) string { return h.Get("X-Cap-Delivery") }
 func (capAdapter) EventType(h http.Header, _ []byte) string  { return h.Get("X-Cap-Event") }
 
-func (capAdapter) Schema() []byte {
-	return []byte(`{"events":{"note":{"type":"object","properties":{
-		"type":{"type":"string"},"text":{"type":"string"},"ts":{"type":"string"},"reply_to":{"type":"string"}}}}}`)
-}
+// Schema is never read: a chat adapter takes the shared chat catalog.
+func (capAdapter) Schema() []byte { return nil }
 
 func (capAdapter) providerIssuesSecret() {}
 
@@ -44,19 +43,35 @@ func (capAdapter) Handshake(body []byte) (map[string]string, bool) {
 	return map[string]string{"challenge": resolvePath(doc, "challenge")}, true
 }
 
-// DerivedFields returns a thread like Slack's, overrides text, and tries to
-// overwrite a meta field, which the pipeline must drop.
-func (capAdapter) DerivedFields(_ string, doc any) map[string]string {
-	if doc == nil {
-		// Matches the trigger, so only the pipeline's nil-doc guard keeps it from firing.
-		return map[string]string{"thread": "T1"}
+// ChatEvent maps a Slack-like payload. It reports ok even when an id is
+// missing, so the pipeline's own check is what keeps such a payload out.
+func (capAdapter) ChatEvent(_ string, doc any) (map[string]any, bool) {
+	if resolvePath(doc, "unmapped") == "true" {
+		return nil, false
 	}
-	thread := resolvePath(doc, "reply_to")
+	thread := resolvePath(doc, "thread_ts")
 	if thread == "" {
 		thread = resolvePath(doc, "ts")
 	}
-	return map[string]string{"thread": thread, "text": "derived text", metaEventType: "spoofed"}
+	return map[string]any{
+		"text":         resolvePath(doc, "text"),
+		"user":         map[string]any{"id": strings.ToUpper(resolvePath(doc, "user"))},
+		"conversation": map[string]any{"id": resolvePath(doc, "channel")},
+		"thread":       map[string]any{"id": thread},
+		"workspace":    map[string]any{"id": resolvePath(doc, "team")},
+		"platform":     providerCap,
+	}, true
 }
+
+func (capAdapter) Sender(_ string, doc any) (Sender, bool) {
+	id := resolvePath(doc, "user")
+	return Sender{ID: strings.ToUpper(id)}, id != ""
+}
+
+func (capAdapter) NormalizeID(id string) string { return strings.ToUpper(id) }
+
+// Roles is nil, as for a platform that reports none.
+func (capAdapter) Roles() []SenderRole { return nil }
 
 // withCapAdapter points every service at a registry that also holds capAdapter.
 // It copies the shared registry rather than mutating it.
@@ -64,12 +79,9 @@ func withCapAdapter(t *testing.T, svc *Service, deps *testDeps) {
 	t.Helper()
 	base := mustRegistry()
 	reg := &Registry{adapters: maps.Clone(base.adapters), catalogs: maps.Clone(base.catalogs)}
-	c, err := BuildCatalog(capAdapter{}.Schema())
-	if err != nil {
-		t.Fatalf("BuildCatalog: %v", err)
+	if err := reg.register(capAdapter{}); err != nil {
+		t.Fatalf("register: %v", err)
 	}
-	reg.adapters[providerCap] = capAdapter{}
-	reg.catalogs[providerCap] = c
 	svc.registry = reg
 	deps.sources.registry = reg
 	deps.triggers.registry = reg
@@ -218,7 +230,7 @@ func capSource(t *testing.T, deps *testDeps) WebhookSource {
 }
 
 func capHeaders(signature, deliveryID string) http.Header {
-	return http.Header{"X-Cap-Signature": {signature}, "X-Cap-Delivery": {deliveryID}, "X-Cap-Event": {"note"}}
+	return http.Header{"X-Cap-Signature": {signature}, "X-Cap-Delivery": {deliveryID}, "X-Cap-Event": {"mention"}}
 }
 
 func TestIngest_Handshake(t *testing.T) {
@@ -291,53 +303,83 @@ func TestHandleIngest_HandshakeReply(t *testing.T) {
 	}
 }
 
-func TestFanOut_DerivedFields(t *testing.T) {
+// capTrigger creates a mention trigger on the chat source.
+func capTrigger(t *testing.T, deps *testDeps, src WebhookSource, restriction *SenderRestriction) *Trigger {
+	t.Helper()
+	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+		SourceID: src.ID, Name: "t", AgentTypeID: "at-1", EventType: "mention",
+		PromptTemplate:    "{{ text }} {{ user.id }} {{ meta.event_type }}",
+		MatchCondition:    map[string][]string{"conversation.id": {"C1"}},
+		Coalesce:          &CoalesceConfig{Key: "{{ conversation.id }}:{{ thread.id }}", WindowSeconds: 60},
+		SenderRestriction: restriction,
+	})
+	if err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+	return tr
+}
+
+// capDispatch runs one chat delivery through the fan-out.
+func capDispatch(svc *Service, deps *testDeps, src WebhookSource, body string, truncated bool) {
+	_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
+		ID: "deliv-1", TenantID: testTenant, SourceID: src.ID, EventType: "mention", Status: StatusVerified,
+	})
+	svc.dispatch(context.Background(), src, capAdapter{}, arrival{
+		deliveryID: "deliv-1", providerDeliveryID: "d-1", eventType: "mention", body: []byte(body), truncated: truncated,
+	})
+}
+
+func TestFanOut_ChatDocument(t *testing.T) {
 	cases := []struct {
-		name       string
-		body       string
-		truncated  bool
-		wantQueued bool
-		wantFields map[string]string
-		wantKey    string
+		name         string
+		body         string
+		truncated    bool
+		wantKey      string // empty means nothing queued
+		wantFiltered bool
 	}{
-		{name: "thread derived from ts", body: `{"text":"payload text","ts":"T1"}`, wantQueued: true,
-			wantFields: map[string]string{"thread": "T1", "text": "derived text", metaEventType: "note"}, wantKey: "T1"},
-		{name: "thread derived from reply_to", body: `{"text":"payload text","ts":"T2","reply_to":"T1"}`, wantQueued: true,
-			wantFields: map[string]string{"thread": "T1", "text": "derived text", metaEventType: "note"}, wantKey: "T1"},
-		{name: "a non-matching thread is filtered", body: `{"ts":"T9"}`},
-		{name: "a truncated body derives nothing", body: `{"ts":"T1"}`, truncated: true},
+		{name: "top-level message is its own thread", body: `{"user":"u1","channel":"C1","ts":"100","text":"hi","team":"T1"}`,
+			wantKey: "C1:100"},
+		{name: "reply joins its thread", body: `{"user":"u1","channel":"C1","ts":"101","thread_ts":"100","text":"hi","team":"T1"}`,
+			wantKey: "C1:100"},
+		{name: "another conversation is filtered", body: `{"user":"u1","channel":"C9","ts":"100","text":"hi"}`,
+			wantFiltered: true},
+		{name: "an unmapped payload matches no trigger", body: `{"unmapped":true,"user":"u1","channel":"C1","ts":"100"}`},
+		{name: "a missing user matches no trigger", body: `{"channel":"C1","ts":"100","text":"hi"}`},
+		{name: "a missing conversation matches no trigger", body: `{"user":"u1","ts":"100","text":"hi"}`},
+		{name: "a missing thread matches no trigger", body: `{"user":"u1","channel":"C1","text":"hi"}`},
+		{name: "a truncated body matches no trigger", body: `{"user":"u1","channel":"C1","ts":"100"}`, truncated: true},
+		{name: "a body that is not JSON matches no trigger", body: `not json`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, deps := newCapService(t)
 			src := capSource(t, deps)
-			tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
-				SourceID: src.ID, Name: "t", AgentTypeID: "at-1", EventType: "note",
-				PromptTemplate: "{{ thread }} {{ text }} {{ meta.event_type }}",
-				MatchCondition: map[string][]string{"thread": {"T1"}},
-				Coalesce:       &CoalesceConfig{Key: "{{ thread }}", WindowSeconds: 60},
-			})
-			if err != nil {
-				t.Fatalf("CreateTrigger: %v", err)
-			}
-			_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
-				ID: "deliv-1", TenantID: testTenant, SourceID: src.ID, EventType: "note", Status: StatusVerified,
-			})
-			svc.dispatch(context.Background(), src, capAdapter{}, arrival{
-				deliveryID: "deliv-1", providerDeliveryID: "d-1", eventType: "note", body: []byte(tc.body), truncated: tc.truncated,
-			})
+			tr := capTrigger(t, deps, src, nil)
+			capDispatch(svc, deps, src, tc.body, tc.truncated)
 
 			pending := deps.repo.pendingFor(tr.ID)
-			if !tc.wantQueued {
+			outcomes := deps.repo.outcomeStatuses("deliv-1")
+			if tc.wantKey == "" {
 				if len(pending) != 0 {
-					t.Errorf("queued %d fires, want none", len(pending))
+					t.Fatalf("queued %d fires, want none", len(pending))
+				}
+				if tc.wantFiltered != (len(outcomes) == 1 && outcomes[0] == RunStatusFiltered) {
+					t.Errorf("outcomes = %v, want filtered %v", outcomes, tc.wantFiltered)
+				}
+				if !tc.wantFiltered && len(outcomes) != 0 {
+					t.Errorf("outcomes = %v, want none: the delivery matches no trigger", outcomes)
+				}
+				if deps.repo.derivedCount("deliv-1") == 0 {
+					t.Error("the delivery's status was never derived")
 				}
 				return
 			}
 			if len(pending) != 1 {
-				t.Fatalf("queued %d fires, want 1", len(pending))
+				t.Fatalf("queued %d fires, want 1 (outcomes %v)", len(pending), outcomes)
 			}
-			for k, v := range tc.wantFields {
+			// user.id comes from the chat document, uppercased, never the raw payload.
+			want := map[string]string{"text": "hi", "user.id": "U1", metaEventType: "mention", "conversation.id": "C1"}
+			for k, v := range want {
 				if got := pending[0].Fields[k]; got != v {
 					t.Errorf("%s = %q, want %q", k, got, v)
 				}
@@ -349,24 +391,213 @@ func TestFanOut_DerivedFields(t *testing.T) {
 	}
 }
 
-func TestEventTypes_IdentifiesSenders(t *testing.T) {
-	_, deps := newCapService(t)
-	for provider, want := range map[string]bool{ProviderGitHub: true, ProviderAlertmanager: false, providerCap: false} {
-		resp, err := deps.sources.ProviderEventTypes(provider)
-		if err != nil {
-			t.Fatalf("ProviderEventTypes(%s): %v", provider, err)
-		}
-		if resp.IdentifiesSenders != want {
-			t.Errorf("%s identifies_senders = %v, want %v", provider, resp.IdentifiesSenders, want)
-		}
+func TestFanOut_ChatSenderRestriction(t *testing.T) {
+	cases := []struct {
+		name       string
+		user       string
+		wantQueued bool
+	}{
+		{name: "listed id in another case", user: "u1", wantQueued: true},
+		{name: "unlisted id", user: "u2"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, deps := newCapService(t)
+			src := capSource(t, deps)
+			tr := capTrigger(t, deps, src, &SenderRestriction{IDs: []string{" u1 "}})
+			if got := tr.SenderRestriction.IDs; len(got) != 1 || got[0] != "U1" {
+				t.Fatalf("stored ids = %v, want [U1]", got)
+			}
+			capDispatch(svc, deps, src, `{"user":"`+tc.user+`","channel":"C1","ts":"100","text":"hi"}`, false)
+			if queued := len(deps.repo.pendingFor(tr.ID)) == 1; queued != tc.wantQueued {
+				t.Errorf("queued = %v, want %v", queued, tc.wantQueued)
+			}
+		})
 	}
 
-	src := mustSource(t, deps.sources)
-	resp, err := deps.sources.SourceEventTypes(context.Background(), testTenant, src.ID)
-	if err != nil {
-		t.Fatalf("SourceEventTypes: %v", err)
+	_, deps := newCapService(t)
+	src := capSource(t, deps)
+	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+		SourceID: src.ID, Name: "t", AgentTypeID: "at-1", EventType: "mention", PromptTemplate: "{{ text }}",
+		SenderRestriction: &SenderRestriction{Roles: []string{"OWNER"}},
+	})
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("a role on a provider with none: err = %v, want ErrValidation", err)
 	}
-	if !resp.IdentifiesSenders {
-		t.Error("a GitHub source identifies senders")
+}
+
+// roleValuesOf lists the values of declared roles, for assertions.
+func roleValuesOf(roles []SenderRole) []string {
+	out := make([]string, len(roles))
+	for i, r := range roles {
+		out[i] = r.Value
+	}
+	return out
+}
+
+func TestEventTypes_CategoryAndSenders(t *testing.T) {
+	cases := []struct {
+		provider     string
+		wantCategory string
+		wantDeclared []string
+		wantRoles    []string // nil means no senders
+	}{
+		{provider: ProviderGitHub, wantCategory: CategoryWebhook, wantRoles: []string{"OWNER", "MEMBER", "COLLABORATOR"}},
+		{provider: ProviderAlertmanager, wantCategory: CategoryWebhook, wantDeclared: []string{"alert.firing", "alert.resolved"}},
+		{provider: providerCap, wantCategory: CategoryChat, wantDeclared: []string{"direct_message", "mention"}, wantRoles: []string{}},
+	}
+	_, deps := newCapService(t)
+	for _, tc := range cases {
+		t.Run(tc.provider, func(t *testing.T) {
+			resp, err := deps.sources.ProviderEventTypes(tc.provider)
+			if err != nil {
+				t.Fatalf("ProviderEventTypes: %v", err)
+			}
+			if resp.Category != tc.wantCategory {
+				t.Errorf("category = %q, want %q", resp.Category, tc.wantCategory)
+			}
+			if tc.wantDeclared != nil && !slices.Equal(resp.Declared, tc.wantDeclared) {
+				t.Errorf("declared = %v, want %v", resp.Declared, tc.wantDeclared)
+			}
+			if (resp.Senders == nil) != (tc.wantRoles == nil) {
+				t.Fatalf("senders = %+v, want roles %v", resp.Senders, tc.wantRoles)
+			}
+			if resp.Senders != nil && !slices.Equal(roleValuesOf(resp.Senders.Roles), tc.wantRoles) {
+				t.Errorf("roles = %v, want %v", roleValuesOf(resp.Senders.Roles), tc.wantRoles)
+			}
+		})
+	}
+
+	// A provider with no roles still sends the list, so the console can tell
+	// "no roles" from "no sender restriction".
+	b, _ := json.Marshal(eventTypes(capAdapter{}, registryCatalog(t, deps, providerCap)))
+	if !strings.Contains(string(b), `"category":"chat"`) || !strings.Contains(string(b), `"senders":{"roles":[]}`) {
+		t.Errorf("chat event types JSON = %s", b)
+	}
+	b, _ = json.Marshal(eventTypes(&alertmanagerAdapter{}, registryCatalog(t, deps, ProviderAlertmanager)))
+	if strings.Contains(string(b), "senders") {
+		t.Errorf("alertmanager event types JSON = %s, want no senders", b)
+	}
+}
+
+func registryCatalog(t *testing.T, deps *testDeps, provider string) *Catalog {
+	t.Helper()
+	c := deps.sources.registry.Catalog(provider)
+	if c == nil {
+		t.Fatalf("no catalog for %s", provider)
+	}
+	return c
+}
+
+func TestChatCatalogFields(t *testing.T) {
+	_, deps := newCapService(t)
+	var paths []string
+	for _, f := range registryCatalog(t, deps, providerCap).Fields("mention") {
+		paths = append(paths, f.Path)
+	}
+	for _, want := range []string{"text", "user.id", "conversation.id", "thread.id", "workspace.id", "platform", metaEventType} {
+		if !slices.Contains(paths, want) {
+			t.Errorf("chat fields %v lack %s", paths, want)
+		}
+	}
+}
+
+func TestSources_Category(t *testing.T) {
+	_, deps := newCapService(t)
+	ctx := context.Background()
+	chat := capSource(t, deps)
+	gh := mustSource(t, deps.sources)
+	if gh.Category != CategoryWebhook {
+		t.Errorf("create github category = %q, want webhook", gh.Category)
+	}
+
+	want := map[string]string{chat.ID: CategoryChat, gh.ID: CategoryWebhook}
+	for id, category := range want {
+		got, err := deps.sources.GetSource(ctx, testTenant, id)
+		if err != nil || got.Category != category {
+			t.Errorf("get %s category = %q (%v), want %q", id, got.Category, err, category)
+		}
+	}
+	list, err := deps.sources.ListSources(ctx, testTenant)
+	if err != nil {
+		t.Fatalf("ListSources: %v", err)
+	}
+	for _, s := range list {
+		if s.Category != want[s.ID] || s.SecretCiphertext != "" {
+			t.Errorf("list %s category = %q, want %q, and no ciphertext", s.ID, s.Category, want[s.ID])
+		}
+	}
+	updated, err := deps.sources.UpdateSource(ctx, testTenant, chat.ID, UpdateSourceRequest{Enabled: new(false)})
+	if err != nil || updated.Category != CategoryChat {
+		t.Errorf("update category = %q (%v), want chat", updated.Category, err)
+	}
+}
+
+func TestChatTrigger_Validation(t *testing.T) {
+	base := func() CreateTriggerRequest {
+		return CreateTriggerRequest{Name: "t", AgentTypeID: "at-1", EventType: "mention", PromptTemplate: "{{ text }}"}
+	}
+	cases := []struct {
+		name    string
+		edit    func(*CreateTriggerRequest)
+		wantErr bool
+	}{
+		{name: "chat fields and meta fields", edit: func(r *CreateTriggerRequest) {
+			r.PromptTemplate = "{{ text }} {{ user.id }} {{ workspace.id }} {{ platform }} {{ meta.source }} {{ meta.delivery_id }}"
+			r.MatchCondition = map[string][]string{"conversation.id": {"C1"}, metaEventType: {"mention"}}
+		}},
+		{name: "direct message", edit: func(r *CreateTriggerRequest) { r.EventType = "direct_message" }},
+		{name: "event type outside the chat schema", edit: func(r *CreateTriggerRequest) { r.EventType = "app_mention" }, wantErr: true},
+		{name: "raw path in the prompt", edit: func(r *CreateTriggerRequest) { r.PromptTemplate = "{{ event.text }}" }, wantErr: true},
+		{name: "raw path in match_condition", edit: func(r *CreateTriggerRequest) {
+			r.MatchCondition = map[string][]string{"channel": {"C1"}}
+		}, wantErr: true},
+		{name: "raw path in match_contains", edit: func(r *CreateTriggerRequest) {
+			r.MatchContains = map[string][]string{"event.text": {"deploy"}}
+		}, wantErr: true},
+		{name: "parent object in the prompt", edit: func(r *CreateTriggerRequest) { r.PromptTemplate = "{{ user }}" }, wantErr: true},
+		{name: "raw path in the coalesce key", edit: func(r *CreateTriggerRequest) {
+			r.Coalesce = &CoalesceConfig{Key: "{{ event.thread_ts }}", WindowSeconds: 60}
+		}, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, deps := newCapService(t)
+			src := capSource(t, deps)
+			req := base()
+			req.SourceID = src.ID
+			tc.edit(&req)
+			_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
+			if tc.wantErr != errors.Is(err, ErrValidation) || (!tc.wantErr && err != nil) {
+				t.Errorf("err = %v, want validation error %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestChatTrigger_UpdateValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		req     UpdateTriggerRequest
+		wantErr bool
+	}{
+		{name: "chat event type", req: UpdateTriggerRequest{EventType: new("direct_message")}},
+		{name: "chat field in the prompt", req: UpdateTriggerRequest{PromptTemplate: new("{{ thread.id }}")}},
+		{name: "event type outside the chat schema", req: UpdateTriggerRequest{EventType: new("message")}, wantErr: true},
+		{name: "raw path in the prompt", req: UpdateTriggerRequest{PromptTemplate: new("{{ event.user }}")}, wantErr: true},
+		{name: "raw path in match_condition", req: UpdateTriggerRequest{MatchCondition: map[string][]string{"channel": {"C1"}}}, wantErr: true},
+		{name: "raw path in match_contains", req: UpdateTriggerRequest{MatchContains: map[string][]string{"event.text": {"x"}}}, wantErr: true},
+		{name: "parent object in match_condition", req: UpdateTriggerRequest{MatchCondition: map[string][]string{"conversation": {"C1"}}}, wantErr: true},
+		{name: "raw path in the coalesce key", req: UpdateTriggerRequest{Coalesce: &CoalesceConfig{Key: "{{ ts }}", WindowSeconds: 60}}, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, deps := newCapService(t)
+			tr := capTrigger(t, deps, capSource(t, deps), nil)
+			_, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, tc.req)
+			if tc.wantErr != errors.Is(err, ErrValidation) || (!tc.wantErr && err != nil) {
+				t.Errorf("err = %v, want validation error %v", err, tc.wantErr)
+			}
+		})
 	}
 }

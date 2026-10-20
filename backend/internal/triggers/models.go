@@ -14,6 +14,7 @@
 package triggers
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -173,10 +174,12 @@ var (
 // owns bounds the write no matter what an attacker sends, while still telling an
 // admin their signing secret is wrong (ADR Decision 4).
 type WebhookSource struct {
-	ID          string         `json:"id"`
-	TenantID    string         `json:"tenant_id"`
-	Name        string         `json:"name"`
-	Provider    string         `json:"provider"`
+	ID       string `json:"id"`
+	TenantID string `json:"tenant_id"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	// Category is "chat" or "webhook", set from the provider's adapter on reads; never stored.
+	Category    string         `json:"category,omitempty"`
 	PrincipalID string         `json:"-"`
 	GrantID     *string        `json:"-"`
 	Config      map[string]any `json:"config,omitempty"`
@@ -689,15 +692,19 @@ type UpdateRetentionRequest struct {
 //
 // Declared is every event type in the provider's schema. Observed is what a
 // source has sent, including events newer than the schema; a provider's catalog
-// has none.
-// Associations are the values a sender restriction may name, empty when the
-// provider identifies no sender or has no associations. IdentifiesSenders is
-// true when the provider reports who caused an event, so a sender restriction applies.
+// has none. Senders is present when the provider reports who caused an event,
+// so a sender restriction applies.
 type EventTypesResponse struct {
-	Declared          []string `json:"declared"`
-	Observed          []string `json:"observed,omitempty"`
-	Associations      []string `json:"associations"`
-	IdentifiesSenders bool     `json:"identifies_senders"`
+	Declared []string `json:"declared"`
+	Observed []string `json:"observed,omitempty"`
+	Category string   `json:"category"`
+	Senders  *Senders `json:"senders,omitempty"`
+}
+
+// Senders is what a sender restriction on a provider's triggers may name.
+type Senders struct {
+	// Roles is empty when the provider reports no roles.
+	Roles []SenderRole `json:"roles"`
 }
 
 // FieldsResponse lists the fields a trigger on one event type can reference.
@@ -708,15 +715,35 @@ type FieldsResponse struct {
 // ─── Sender restriction ─────────────────────────────────────────────────────
 
 // SenderRestriction limits which senders can fire a webhook trigger. A sender
-// passes when its login is listed or its association is listed.
+// passes when its id is listed or any of its roles is listed.
 type SenderRestriction struct {
-	Logins       []string `json:"logins,omitempty"`
-	Associations []string `json:"associations,omitempty"`
+	IDs   []string `json:"ids,omitempty"`
+	Roles []string `json:"roles,omitempty"`
+}
+
+// errLegacySenderKeys refuses the keys the API used before ids and roles, which
+// a plain decode would drop and so store an empty restriction.
+var errLegacySenderKeys = errors.New("sender_restriction takes ids and roles; logins and associations are no longer accepted")
+
+// UnmarshalJSON decodes ids and roles and refuses the legacy keys.
+func (r *SenderRestriction) UnmarshalJSON(b []byte) error {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(b, &keys); err != nil {
+		return err
+	}
+	// encoding/json matches keys case-insensitively, so the refusal does too.
+	for key := range keys {
+		if strings.EqualFold(key, "logins") || strings.EqualFold(key, "associations") {
+			return errLegacySenderKeys
+		}
+	}
+	type plain SenderRestriction
+	return json.Unmarshal(b, (*plain)(r))
 }
 
 // empty reports whether the restriction lets every sender through.
 func (r *SenderRestriction) empty() bool {
-	return r == nil || (len(r.Logins) == 0 && len(r.Associations) == 0)
+	return r == nil || (len(r.IDs) == 0 && len(r.Roles) == 0)
 }
 
 // CoalesceConfig makes a webhook trigger start one run for a burst of fires
@@ -734,9 +761,16 @@ type CoalesceConfig struct {
 
 // WebhookConfig is the kind_config for a webhook trigger.
 type WebhookConfig struct {
-	SenderRestriction *SenderRestriction  `json:"sender_restriction,omitempty"`
-	MatchContains     map[string][]string `json:"match_contains,omitempty"`
-	Coalesce          *CoalesceConfig     `json:"coalesce,omitempty"`
+	SenderRestriction *storedSenderRestriction `json:"sender_restriction,omitempty"`
+	MatchContains     map[string][]string      `json:"match_contains,omitempty"`
+	Coalesce          *CoalesceConfig          `json:"coalesce,omitempty"`
+}
+
+// storedSenderRestriction is a sender restriction as kind_config stores it. The
+// keys predate ids and roles and stay, so a rollback still reads every row.
+type storedSenderRestriction struct {
+	IDs   []string `json:"logins,omitempty"`
+	Roles []string `json:"associations,omitempty"`
 }
 
 // RedeliverResponse is returned from POST /api/v1/trigger-deliveries/{id}/redeliver.

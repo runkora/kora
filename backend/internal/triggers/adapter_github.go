@@ -58,28 +58,34 @@ func (a *githubAdapter) Schema() []byte { return githubSchema }
 // the order the sender's association is looked up.
 var associationObjects = []string{"comment", "review", "answer", "discussion", "issue", "pull_request"}
 
-// Sender reads sender.login. The association is the author_association of the
-// first object the sender authored; GitHub reports it for authors only.
+// Sender reads sender.login as the id. The role is the author_association of
+// the first object the sender authored; GitHub reports it for authors only.
 func (a *githubAdapter) Sender(_ string, body any) (Sender, bool) {
 	login := resolvePath(body, "sender.login")
 	if login == "" {
 		return Sender{}, false
 	}
-	s := Sender{Login: a.NormalizeLogin(login)}
+	s := Sender{ID: a.NormalizeID(login)}
 	for _, obj := range associationObjects {
 		author := resolvePath(body, obj+".user.login")
-		if author != "" && a.NormalizeLogin(author) == s.Login {
-			s.Association = resolvePath(body, obj+".author_association")
+		if author != "" && a.NormalizeID(author) == s.ID {
+			if association := resolvePath(body, obj+".author_association"); association != "" {
+				s.Roles = []string{association}
+			}
 			break
 		}
 	}
 	return s, true
 }
 
-// NormalizeLogin lowercases a login; GitHub logins are case-insensitive.
-func (a *githubAdapter) NormalizeLogin(login string) string { return strings.ToLower(login) }
+// NormalizeID lowercases a login; GitHub logins are case-insensitive.
+func (a *githubAdapter) NormalizeID(login string) string { return strings.ToLower(login) }
 
-// Associations are the repository relationships a restriction may name.
-func (a *githubAdapter) Associations() []string {
-	return []string{"OWNER", "MEMBER", "COLLABORATOR"}
+// Roles are the repository relationships a restriction may name.
+func (a *githubAdapter) Roles() []SenderRole {
+	return []SenderRole{
+		{Value: "OWNER", Label: "Owner", Description: "Owns the repository"},
+		{Value: "MEMBER", Label: "Member", Description: "Member of the organization"},
+		{Value: "COLLABORATOR", Label: "Collaborator", Description: "Invited to the repository"},
+	}
 }

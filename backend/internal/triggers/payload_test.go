@@ -67,7 +67,7 @@ func TestTriggerFields(t *testing.T) {
 		MatchCondition: map[string][]string{"action": {"created"}, "comment.user.login": {"alice"}},
 	}
 	doc := decodeBody([]byte(`{"action":"created","comment":{"body":"hi","user":{"login":"alice"}},"unreferenced":"x"}`))
-	got := triggerFields(tr, doc, map[string]string{metaEventType: "issue_comment", metaDeliveryID: "gh-1", metaSource: "gh-source"}, nil)
+	got := triggerFields(tr, doc, map[string]string{metaEventType: "issue_comment", metaDeliveryID: "gh-1", metaSource: "gh-source"})
 	want := map[string]string{
 		"comment.body":       "hi",
 		"action":             "created",
@@ -89,7 +89,7 @@ func TestTriggerFields(t *testing.T) {
 // A body that did not decode, such as a truncated one, resolves no delivery fields.
 func TestTriggerFields_NoDocument(t *testing.T) {
 	tr := Trigger{PromptTemplate: "{{ comment.body }}"}
-	got := triggerFields(tr, nil, map[string]string{metaEventType: "issue_comment", metaDeliveryID: "gh-1", metaSource: "src"}, nil)
+	got := triggerFields(tr, nil, map[string]string{metaEventType: "issue_comment", metaDeliveryID: "gh-1", metaSource: "src"})
 	if got["comment.body"] != "" || got[metaDeliveryID] != "gh-1" {
 		t.Errorf("fields = %v, want empty delivery fields and the meta fields", got)
 	}

@@ -125,7 +125,7 @@ func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req C
 	)
 
 	return &SourceResponse{
-		WebhookSource: *redactSecret(s.readBackSource(ctx, src)),
+		WebhookSource: *s.present(s.readBackSource(ctx, src)),
 		WebhookPath:   s.WebhookPath(id),
 		Secret:        returnedSecret(secret, issued),
 	}, nil
@@ -157,7 +157,7 @@ func (s *SourceService) ListSources(ctx context.Context, tenantID string) ([]Web
 		return nil, err
 	}
 	for i := range srcs {
-		srcs[i].SecretCiphertext = ""
+		srcs[i] = *s.present(&srcs[i])
 	}
 	return srcs, nil
 }
@@ -168,7 +168,18 @@ func (s *SourceService) GetSource(ctx context.Context, tenantID, id string) (*We
 	if err != nil {
 		return nil, err
 	}
-	return redactSecret(src), nil
+	return s.present(src), nil
+}
+
+// present is the API view of a stored source: the secret ciphertext removed and
+// the category set from the provider's adapter.
+func (s *SourceService) present(src *WebhookSource) *WebhookSource {
+	cp := *src
+	cp.SecretCiphertext = ""
+	if adapter, ok := s.registry.Get(src.Provider); ok {
+		cp.Category = categoryOf(adapter)
+	}
+	return &cp
 }
 
 // UpdateSource toggles enablement and optionally rotates the signing secret.
@@ -213,7 +224,7 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 	// are not on this struct: returning it reports the PREVIOUS rotation time to
 	// a caller who just rotated, which is the one moment that field is read.
 	return &SourceResponse{
-		WebhookSource: *redactSecret(s.readBackSource(ctx, src)),
+		WebhookSource: *s.present(s.readBackSource(ctx, src)),
 		WebhookPath:   s.WebhookPath(id),
 		Secret:        rotated,
 	}, nil
@@ -295,17 +306,19 @@ func (s *SourceService) SourceEventTypes(ctx context.Context, tenantID, sourceID
 	if err != nil {
 		return nil, err
 	}
-	return &EventTypesResponse{Declared: catalog.EventTypes(), Observed: observed, Associations: associationsOf(adapter), IdentifiesSenders: identifiesSenders(adapter)}, nil
+	resp := eventTypes(adapter, catalog)
+	resp.Observed = observed
+	return resp, nil
 }
 
-// ProviderEventTypes lists a provider's declared event types and the
-// associations a sender restriction may name.
+// ProviderEventTypes lists a provider's declared event types and what a sender
+// restriction may name.
 func (s *SourceService) ProviderEventTypes(provider string) (*EventTypesResponse, error) {
 	adapter, catalog, err := s.providerCatalog(provider)
 	if err != nil {
 		return nil, err
 	}
-	return &EventTypesResponse{Declared: catalog.EventTypes(), Associations: associationsOf(adapter), IdentifiesSenders: identifiesSenders(adapter)}, nil
+	return eventTypes(adapter, catalog), nil
 }
 
 // ProviderFields lists the fields a trigger on one of a provider's event types can reference.
@@ -330,17 +343,12 @@ func (s *SourceService) providerCatalog(provider string) (SourceAdapter, *Catalo
 	return adapter, catalog, nil
 }
 
-// associationsOf returns the associations a provider's sender restriction may
-// name, empty when it identifies no sender.
-func associationsOf(adapter SourceAdapter) []string {
+// eventTypes is a provider's declared event types, its category and, when it
+// identifies senders, the roles a sender restriction may name.
+func eventTypes(adapter SourceAdapter, catalog *Catalog) *EventTypesResponse {
+	resp := &EventTypesResponse{Declared: catalog.EventTypes(), Category: categoryOf(adapter)}
 	if si, ok := adapter.(senderIdentifier); ok {
-		return si.Associations()
+		resp.Senders = &Senders{Roles: append([]SenderRole{}, si.Roles()...)}
 	}
-	return []string{}
-}
-
-// identifiesSenders reports whether the provider says who caused an event.
-func identifiesSenders(adapter SourceAdapter) bool {
-	_, ok := adapter.(senderIdentifier)
-	return ok
+	return resp
 }

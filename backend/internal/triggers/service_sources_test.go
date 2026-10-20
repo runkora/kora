@@ -156,8 +156,8 @@ func TestSourceEventTypes_DeclaredAndObserved(t *testing.T) {
 			t.Errorf("declared = %v, want it to include %s from the schema", got.Declared, want)
 		}
 	}
-	if !slices.Equal(got.Associations, []string{"OWNER", "MEMBER", "COLLABORATOR"}) {
-		t.Errorf("associations = %v, want github's", got.Associations)
+	if got.Senders == nil || !slices.Equal(roleValuesOf(got.Senders.Roles), []string{"OWNER", "MEMBER", "COLLABORATOR"}) {
+		t.Errorf("senders = %+v, want github's roles", got.Senders)
 	}
 	if !slices.Equal(got.Observed, []string{"pull_request", "release"}) {
 		t.Errorf("observed = %v, want what this source actually sent", got.Observed)

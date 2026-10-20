@@ -278,6 +278,19 @@ func TestTriggerProviderToolsAndSenderRestriction(t *testing.T) {
 	call := mcpCaller(t, gw.URL)
 	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
 
+	tools, _ := call("tools/list", map[string]any{})["result"].(map[string]any)["tools"].([]any)
+	for _, tt := range tools {
+		m, _ := tt.(map[string]any)
+		if m["name"] != "triggers.create" && m["name"] != "triggers.update" {
+			continue
+		}
+		props, _ := m["inputSchema"].(map[string]any)["properties"].(map[string]any)
+		sr, _ := props["sender_restriction"].(map[string]any)["properties"].(map[string]any)
+		if len(sr) != 2 || sr["ids"] == nil || sr["roles"] == nil {
+			t.Errorf("%s sender_restriction properties = %v, want ids and roles", m["name"], sr)
+		}
+	}
+
 	call("tools/call", map[string]any{"name": "triggers.providers.event_types", "arguments": map[string]any{"provider": "github"}})
 	if gotPath != "/api/v1/trigger-providers/github/event-types" {
 		t.Errorf("event_types hit %q", gotPath)
@@ -294,20 +307,29 @@ func TestTriggerProviderToolsAndSenderRestriction(t *testing.T) {
 		t.Errorf("create without event_type reached the backend at %q", gotPath)
 	}
 
-	restriction := map[string]any{"logins": []any{"octocat"}, "associations": []any{"MEMBER"}}
+	restriction := map[string]any{"ids": []any{"octocat"}, "roles": []any{"MEMBER"}}
 	call("tools/call", map[string]any{"name": "triggers.create", "arguments": map[string]any{
 		"source_id": "src-1", "name": "t", "event_type": "issue_comment", "sender_restriction": restriction,
 	}})
 	if gotPath != "/api/v1/triggers" {
 		t.Errorf("create hit %q", gotPath)
 	}
-	if got, _ := gotBody["sender_restriction"].(map[string]any); got["associations"] == nil || got["logins"] == nil {
+	if got, _ := gotBody["sender_restriction"].(map[string]any); got["roles"] == nil || got["ids"] == nil {
 		t.Errorf("create did not forward sender_restriction: %v", gotBody["sender_restriction"])
 	}
 
 	call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "sender_restriction": restriction}})
-	if got, _ := gotBody["sender_restriction"].(map[string]any); got["logins"] == nil {
+	if got, _ := gotBody["sender_restriction"].(map[string]any); got["ids"] == nil {
 		t.Errorf("update did not forward sender_restriction: %v", gotBody["sender_restriction"])
+	}
+
+	// The legacy keys are refused before the backend, which would refuse them too.
+	for _, legacy := range []map[string]any{{"logins": []any{"octocat"}}, {"associations": []any{"MEMBER"}}} {
+		gotPath = ""
+		res, _ := call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "sender_restriction": legacy}})["result"].(map[string]any)
+		if res["isError"] != true || gotPath != "" {
+			t.Errorf("legacy sender_restriction %v was not refused: %v (backend hit %q)", legacy, res, gotPath)
+		}
 	}
 
 	contains := map[string]any{"comment.body": []any{"@kora-agent"}}

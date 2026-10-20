@@ -1,6 +1,7 @@
 package triggers
 
 import (
+	_ "embed"
 	"fmt"
 	"net/http"
 	"slices"
@@ -34,16 +35,50 @@ type SourceAdapter interface {
 }
 
 // senderIdentifier is implemented by adapters whose provider reports who
-// caused an event. The adapter owns its provider's rules: which associations
-// exist, and how logins compare.
+// caused an event. The adapter owns its provider's rules: which roles exist,
+// and how ids compare.
 type senderIdentifier interface {
-	// Sender reads the sender from the decoded body. Login is normalized;
-	// ok is false when this event carries no sender.
+	// Sender reads the sender from the decoded body. ok is false when the event carries no sender.
 	Sender(eventType string, body any) (s Sender, ok bool)
-	// NormalizeLogin puts a login in the form Sender returns, for comparison.
-	NormalizeLogin(login string) string
-	// Associations lists the association values a restriction may name.
-	Associations() []string
+	// NormalizeID puts an id in the form Sender returns, for comparison.
+	NormalizeID(id string) string
+	// Roles lists the roles a restriction may name, with their labels.
+	Roles() []SenderRole
+}
+
+// SenderRole is a role a provider reports, with the text the console shows.
+type SenderRole struct {
+	Value       string `json:"value"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}
+
+// chatAdapter is implemented by chat platform adapters. A trigger on a chat
+// source reads the document ChatEvent returns, in the shape of schemas/chat.json.
+type chatAdapter interface {
+	// ChatEvent maps a decoded payload to the chat document. ok is true only
+	// when user.id, conversation.id and thread.id are all non-empty.
+	ChatEvent(eventType string, doc any) (event map[string]any, ok bool)
+}
+
+// chatSchema is the catalog every chat adapter shares, so a chat trigger is
+// written once for every platform.
+//
+//go:embed schemas/chat.json
+var chatSchema []byte
+
+// Source categories, read by the console in place of a provider list.
+const (
+	CategoryChat    = "chat"
+	CategoryWebhook = "webhook"
+)
+
+// categoryOf reports whether an adapter's sources are chat or webhook sources.
+func categoryOf(a SourceAdapter) string {
+	if _, ok := a.(chatAdapter); ok {
+		return CategoryChat
+	}
+	return CategoryWebhook
 }
 
 // issuedSecret is implemented by adapters whose provider issues the signing
@@ -59,17 +94,10 @@ type handshaker interface {
 	Handshake(body []byte) (reply map[string]string, ok bool)
 }
 
-// fieldDeriver is implemented by adapters that compute fields no single
-// payload path holds.
-type fieldDeriver interface {
-	// DerivedFields returns field key to value. Keys never start with "meta.".
-	DerivedFields(eventType string, doc any) map[string]string
-}
-
 // Sender is who caused an event, as the provider reports it.
 type Sender struct {
-	Login       string
-	Association string
+	ID    string
+	Roles []string
 }
 
 // Registry maps provider id → adapter and its catalog.
@@ -83,14 +111,27 @@ type Registry struct {
 func NewRegistry() (*Registry, error) {
 	r := &Registry{adapters: make(map[string]SourceAdapter), catalogs: make(map[string]*Catalog)}
 	for _, a := range []SourceAdapter{&githubAdapter{}, &alertmanagerAdapter{}} {
-		c, err := BuildCatalog(a.Schema())
-		if err != nil {
-			return nil, fmt.Errorf("build %s catalog: %w", a.Provider(), err)
+		if err := r.register(a); err != nil {
+			return nil, err
 		}
-		r.adapters[a.Provider()] = a
-		r.catalogs[a.Provider()] = c
 	}
 	return r, nil
+}
+
+// register adds an adapter with its catalog. A chat adapter gets the shared
+// chat catalog, never its own schema.
+func (r *Registry) register(a SourceAdapter) error {
+	schema := a.Schema()
+	if categoryOf(a) == CategoryChat {
+		schema = chatSchema
+	}
+	c, err := BuildCatalog(schema)
+	if err != nil {
+		return fmt.Errorf("build %s catalog: %w", a.Provider(), err)
+	}
+	r.adapters[a.Provider()] = a
+	r.catalogs[a.Provider()] = c
+	return nil
 }
 
 // Get returns the adapter for a provider, or (nil, false) if unregistered.

@@ -5,10 +5,8 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"maps"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -278,7 +276,12 @@ func (s *Service) fanOut(
 	}
 	meta := map[string]string{metaEventType: eventType, metaDeliveryID: a.providerDeliveryID, metaSource: src.Name}
 	sender, hasSender := identifySender(adapter, eventType, doc)
-	derived := deriveFields(adapter, eventType, doc)
+	doc, readable := chatDocument(adapter, eventType, doc)
+	if !readable {
+		// A chat payload kora cannot read must never start or join a run.
+		s.outcomes.derive(ctx, deliveryID)
+		return
+	}
 
 	triggers, err := s.repo.ListMatchableTriggersForSource(ctx, src.ID)
 	if err != nil {
@@ -318,7 +321,7 @@ func (s *Service) fanOut(
 			})
 			continue
 		}
-		fields := triggerFields(t, doc, meta, derived)
+		fields := triggerFields(t, doc, meta)
 		if !matchesCondition(t.MatchCondition, fields) || !matchesContains(t.MatchContains, fields) {
 			// Insert without deriving: the summary is computed once, below,
 			// after the whole fan-out is written.
@@ -366,20 +369,34 @@ func identifySender(adapter SourceAdapter, eventType string, doc any) (Sender, b
 	return si.Sender(eventType, doc)
 }
 
-// deriveFields asks the adapter for the fields no single payload path holds. A
-// meta key is dropped so an adapter cannot overwrite what the platform reports.
-func deriveFields(adapter SourceAdapter, eventType string, doc any) map[string]string {
-	fd, ok := adapter.(fieldDeriver)
-	if !ok || doc == nil {
-		return nil
+// chatDocument swaps a chat source's payload for the chat document its
+// triggers read. ok is false when a chat adapter cannot map the payload, or
+// maps it without the ids its triggers key on.
+func chatDocument(adapter SourceAdapter, eventType string, doc any) (any, bool) {
+	ca, ok := adapter.(chatAdapter)
+	if !ok {
+		return doc, true
 	}
-	derived := fd.DerivedFields(eventType, doc)
-	maps.DeleteFunc(derived, func(k, _ string) bool { return strings.HasPrefix(k, metaFieldsPrefix) })
-	return derived
+	if doc == nil {
+		return nil, false
+	}
+	event, ok := ca.ChatEvent(eventType, doc)
+	if !ok {
+		return nil, false
+	}
+	for _, key := range chatRequiredFields {
+		if resolvePath(event, key) == "" {
+			return nil, false
+		}
+	}
+	return event, true
 }
 
-// senderAllowed applies a trigger's sender restriction. Stored logins are
-// already normalised. An event with no sender fails any restriction.
+// chatRequiredFields are the chat document fields without which a payload is unreadable.
+var chatRequiredFields = []string{"user.id", "conversation.id", "thread.id"}
+
+// senderAllowed applies a trigger's sender restriction. Stored ids are already
+// normalised. An event with no sender fails any restriction.
 func senderAllowed(r *SenderRestriction, s Sender, ok bool) bool {
 	if r.empty() {
 		return true
@@ -387,7 +404,9 @@ func senderAllowed(r *SenderRestriction, s Sender, ok bool) bool {
 	if !ok {
 		return false
 	}
-	return slices.Contains(r.Logins, s.Login) || (s.Association != "" && slices.Contains(r.Associations, s.Association))
+	return slices.Contains(r.IDs, s.ID) || slices.ContainsFunc(s.Roles, func(role string) bool {
+		return role != "" && slices.Contains(r.Roles, role)
+	})
 }
 
 // runStatusForDispatchError maps a dispatch failure to the per-trigger outcome

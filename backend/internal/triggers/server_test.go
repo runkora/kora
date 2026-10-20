@@ -686,15 +686,16 @@ func TestHandleProviderEventTypes(t *testing.T) {
 		t.Fatalf("status = %d (%s), want 200", w.Code, w.Body.String())
 	}
 	got := decode[EventTypesResponse](t, w)
-	if !slices.Contains(got.Declared, "issue_comment") || !slices.Equal(got.Associations, []string{"OWNER", "MEMBER", "COLLABORATOR"}) {
+	if !slices.Contains(got.Declared, "issue_comment") || got.Category != CategoryWebhook ||
+		got.Senders == nil || !slices.Equal(roleValuesOf(got.Senders.Roles), []string{"OWNER", "MEMBER", "COLLABORATOR"}) {
 		t.Errorf("response = %+v", got)
 	}
 
 	w = call(t, c.handleProviderEventTypes, http.MethodGet, "/trigger-providers/alertmanager/event-types",
 		map[string]string{"provider": ProviderAlertmanager}, nil)
 	if am := decode[EventTypesResponse](t, w); !slices.Equal(am.Declared, []string{"alert.firing", "alert.resolved"}) ||
-		am.Associations == nil || len(am.Associations) != 0 {
-		t.Errorf("alertmanager = %+v, want its two types and an empty association list", am)
+		am.Senders != nil {
+		t.Errorf("alertmanager = %+v, want its two types and no senders", am)
 	}
 
 	w = call(t, c.handleProviderEventTypes, http.MethodGet, "/trigger-providers/gitlab/event-types",

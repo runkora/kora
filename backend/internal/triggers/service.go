@@ -245,9 +245,9 @@ const (
 const (
 	maxNameLen           = 128
 	maxPromptTemplateLen = 8 << 10 // 8 KiB
-	// Every delivery scans a restriction's logins, so the list stays short.
-	maxSenderLogins   = 100
-	maxSenderLoginLen = 100
+	// Every delivery scans a restriction's ids, so the list stays short.
+	maxSenderIDs   = 100
+	maxSenderIDLen = 100
 	// Every delivery searches a field for each substring.
 	maxContainsValues   = 20
 	maxContainsValueLen = 256
@@ -567,12 +567,6 @@ func validateScheduleConfig(sc *ScheduleConfig) error {
 		return err
 	}
 	return nil
-}
-
-func redactSecret(s *WebhookSource) *WebhookSource {
-	cp := *s
-	cp.SecretCiphertext = ""
-	return &cp
 }
 
 func truncate(b []byte, n int) string {

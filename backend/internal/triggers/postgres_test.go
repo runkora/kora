@@ -1717,7 +1717,7 @@ func TestPostgres_WebhookSenderRestriction(t *testing.T) {
 		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: s.ID,
 		Name: "restricted", AgentTypeID: "at-1", AgentSlug: "code-reviewer",
 		EventType: "issue_comment", PromptTemplate: "{{ comment.body }}", Enabled: true,
-		SenderRestriction: &SenderRestriction{Logins: []string{"alice"}, Associations: []string{"MEMBER"}},
+		SenderRestriction: &SenderRestriction{IDs: []string{"alice"}, Roles: []string{"MEMBER"}},
 	}
 	admissionDefaults(tr)
 	if err := r.CreateTrigger(ctx, tr); err != nil {
@@ -1727,8 +1727,16 @@ func TestPostgres_WebhookSenderRestriction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTrigger: %v", err)
 	}
-	if got.SenderRestriction == nil || got.SenderRestriction.Logins[0] != "alice" || got.SenderRestriction.Associations[0] != "MEMBER" {
+	if got.SenderRestriction == nil || got.SenderRestriction.IDs[0] != "alice" || got.SenderRestriction.Roles[0] != "MEMBER" {
 		t.Fatalf("restriction round-trip = %+v", got.SenderRestriction)
+	}
+	// The row keeps the keys earlier builds wrote, so a rollback reads it.
+	var stored string
+	if err := r.pool.QueryRow(ctx, `SELECT kind_config->>'sender_restriction' FROM triggers WHERE id = $1`, tr.ID).Scan(&stored); err != nil {
+		t.Fatalf("read kind_config: %v", err)
+	}
+	if stored != `{"logins": ["alice"], "associations": ["MEMBER"]}` {
+		t.Errorf("stored sender_restriction = %s, want the logins and associations keys", stored)
 	}
 
 	got.SenderRestriction = nil
@@ -1751,7 +1759,7 @@ func TestPostgres_WebhookMatchContains(t *testing.T) {
 		Name: "mentions", AgentTypeID: "at-1", AgentSlug: "code-reviewer",
 		EventType: "issue_comment", PromptTemplate: "{{ comment.body }}", Enabled: true,
 		MatchContains:     map[string][]string{"comment.body": {"@kora-agent"}},
-		SenderRestriction: &SenderRestriction{Associations: []string{"MEMBER"}},
+		SenderRestriction: &SenderRestriction{Roles: []string{"MEMBER"}},
 	}
 	admissionDefaults(tr)
 	if err := r.CreateTrigger(ctx, tr); err != nil {
@@ -2259,7 +2267,7 @@ func TestPostgres_WebhookCoalesce(t *testing.T) {
 		Name: "coalescing", AgentTypeID: "at-1", AgentSlug: "code-reviewer",
 		EventType: "pull_request", PromptTemplate: "p", Enabled: true,
 		Coalesce:          &CoalesceConfig{Key: "{{ repository.full_name }}#{{ pull_request.number }}", WindowSeconds: 45},
-		SenderRestriction: &SenderRestriction{Logins: []string{"alice"}},
+		SenderRestriction: &SenderRestriction{IDs: []string{"alice"}},
 	}
 	admissionDefaults(tr)
 	if err := r.CreateTrigger(ctx, tr); err != nil {

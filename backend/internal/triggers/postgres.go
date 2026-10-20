@@ -244,8 +244,8 @@ func decodeKindConfig(t *Trigger, raw []byte) error {
 		if err := json.Unmarshal(raw, &wc); err != nil {
 			return fmt.Errorf("unmarshal webhook config: %w", err)
 		}
-		if !wc.SenderRestriction.empty() {
-			t.SenderRestriction = wc.SenderRestriction
+		if sr := (*SenderRestriction)(wc.SenderRestriction); !sr.empty() {
+			t.SenderRestriction = sr
 		}
 		if len(wc.MatchContains) > 0 {
 			t.MatchContains = wc.MatchContains
@@ -834,7 +834,7 @@ func marshalKindConfig(t *Trigger) ([]byte, error) {
 			wc.Coalesce = t.Coalesce
 		}
 		if !t.SenderRestriction.empty() {
-			wc.SenderRestriction = t.SenderRestriction
+			wc.SenderRestriction = (*storedSenderRestriction)(t.SenderRestriction)
 		}
 		b, err := json.Marshal(wc)
 		if err != nil {

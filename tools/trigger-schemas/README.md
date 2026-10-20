@@ -20,3 +20,7 @@ To pick up new GitHub events or fields, move the commit here and in the command.
 ## Alertmanager
 
 `schemas/alertmanager.json` is written by hand from Alertmanager's webhook payload format.
+
+## Chat
+
+`schemas/chat.json` is written by hand. Every chat platform adapter maps its payload into this one document, so a chat trigger works on every chat platform.
