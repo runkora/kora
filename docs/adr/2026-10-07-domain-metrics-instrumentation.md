@@ -3,7 +3,7 @@
 **Status:** Accepted (Amended 2026-10-20)
 **Date:** 2026-10-07
 **Deciders:** Platform Engineering
-**Technical Story:** [Domain Metrics Instrumentation PRD](../prd/domain-metrics-instrumentation.md), stacked on [Prometheus Metrics Endpoints](2026-10-06-prometheus-metrics-endpoints.md) (PR #408, merged 2026-10-18)
+**Technical Story:** [Domain Metrics Instrumentation PRD](../prd/domain-metrics-instrumentation.md), stacked on [Prometheus Metrics Endpoints](2026-10-06-prometheus-metrics-endpoints.md)
 
 ---
 
@@ -11,21 +11,21 @@
 
 ### Background
 
-PR #408 shipped a Prometheus `/metrics` endpoint per service and a uniform HTTP request counter/histogram, but deliberately deferred instrumenting any service's business logic — "the per-service domain metrics... are catalogued in the ADR's Implementation section as named follow-up work, not claimed as delivered here" (that ADR's Follow-up section). This ADR is that follow-up, covering all nine in-scope services in one stacked PR per explicit direction, rather than the incremental per-service rollout the prior ADR's own Implementation section recommended.
+The Prometheus Metrics Endpoints ADR shipped a `/metrics` port per service and a uniform HTTP request counter/histogram, but deliberately deferred instrumenting any service's business logic. This ADR is that follow-up, covering identity, orbit-agents, session-manager, policy-gateway, policy-service, inference-gateway, orbit-triggers, egress-gateway, and tool-gateway.
 
 ### Problem Statement
 
-Each service's feature package already models the domain events an operator cares about (run state, policy decisions, inference usage/cost, delivery outcomes, credential minting, tool-call decisions) in Go types and enums. None of them are exported as metrics. The work here is mechanical per call site, but two cross-cutting design questions recur enough to need a single, binding answer instead of nine ad hoc ones: **which labels are safe**, and **what to do when a service's existing query boundary (e.g. tenant isolation) doesn't line up with what a global gauge needs**.
+Each service's feature package already models the domain events an operator cares about (run state, policy decisions, inference usage/cost, delivery outcomes, credential minting, tool-call decisions) in Go types and enums. None of them are exported as metrics. The work is mechanical per call site, but two cross-cutting design questions recur enough to need a single, binding answer instead of nine ad hoc ones: **which labels are safe**, and **what to do when a service's existing query boundary (e.g. tenant isolation) doesn't line up with what a global gauge needs**.
 
 ### Goals
 
-- Instrument the full metric catalog below across identity, orbit-agents, inference-gateway, policy-gateway, policy-service, orbit-triggers, egress-gateway, tool-gateway, session-manager.
-- Establish a binding cardinality policy so this doesn't need re-litigating metric-by-metric.
-- Resolve the two concrete conflicts surfaced during research: `policyservice.Stats()`'s per-tenant isolation, and budget-ceiling scopes that include unbounded IDs.
+- Instrument the metric catalog below.
+- Establish a binding cardinality policy so safety doesn't need re-litigating metric-by-metric.
+- Resolve `policyservice.Stats()`'s per-tenant isolation and budget-ceiling scopes that include unbounded IDs.
 
 ### Non-Goals
 
-- Any change to `internal/platform/metrics/`, `internal/platform/observability/`, or the Helm chart — all already shipped.
+- Any change to `internal/platform/observability/` or the Helm chart.
 - `orbit-mcp` — pure passthrough, no independent decision points (see PRD Non-Goals).
 
 ---
@@ -46,32 +46,49 @@ Each service's feature package already models the domain events an operator care
 **Description:** Add `tenant_id`, `principal_id`, or `run_id` to every metric that has one available, for maximum drill-down.
 
 **Cons:**
-- Explodes series count: `tenant_id` alone on the cross-cutting HTTP counter multiplies by tenant count on top of route×status×method. `run_id` or `principal_id` anywhere is effectively unbounded (a run is single-use; a growing tenant has unbounded principals).
-- Directly contradicts the existing cardinality guidance already baked into PR #408's metrics middleware (route *pattern*, not raw path).
+- `run_id`/`principal_id` are effectively unbounded (a run is single-use; a growing tenant has unbounded principals) — explodes series count regardless of tenant scale.
 
 ### Option 2: No tenant/identity labels anywhere (safest, least useful)
 
-**Description:** Keep every label enum-backed, never add any tenant or identity dimension, even where billing/budget use cases would benefit.
+**Description:** Keep every label enum-backed, never add any tenant or identity dimension.
 
 **Cons:**
-- Defeats a real, named use case (per-tenant cost/usage dashboards, `docs/prd/llm-cost-tracking.md`) that the business already wants and that DB queries already support per-row — Prometheus just can't show it live.
+- Defeats a real, named use case (per-tenant cost/usage dashboards, operational dashboards filterable by tenant) that DB queries already support per-row — Prometheus just can't show it live.
 
-### Option 3: Selective tenant labeling, binding cardinality policy (chosen)
+### Option 3: Selective, scale-aware labeling under a binding cardinality policy (chosen)
 
-**Description:** Default to enum-backed labels only; allow `tenant_id` exclusively on metrics explicitly scoped to tenant-level billing/budget visibility (inference-gateway's usage/token/cost counters, and the budget-utilization gauge restricted to `scope ∈ {tenant, role_pool}`); never allow run/principal/session/agent-name as label values anywhere.
+**Description:** Default to enum-backed labels; allow `tenant_id`/`agent_id` only where the underlying value set is confirmed bounded (see Cardinality Policy); never allow run/principal/session IDs or free-text names as label values anywhere.
 
 **Cons:**
-- Requires a documented, binding policy (this ADR) rather than a single blanket rule — slightly more to communicate in review.
+- Requires a documented, binding policy (this ADR) rather than a single blanket rule.
+- Puts tenant-identifying values on an unauthenticated endpoint — see **Known Tension with the Unauthenticated-Endpoint Rule** below.
 
 ---
 
 ## Decision
 
-**Chosen Option:** Option 3 — selective tenant labeling under a binding cardinality policy.
+**Chosen Option:** Option 3 — selective, scale-aware labeling under a binding cardinality policy.
 
 ### Rationale
 
-Tenant count is bounded and slow-growing — the same property that already makes `global.metrics.scraperNamespace`-style per-tenant config safe elsewhere in this codebase. Run IDs and principal IDs are not: a `policy.BudgetCeiling` with `Scope == "run"` is single-use, and a growing tenant's principal set is effectively unbounded from Prometheus's perspective. Drawing the line at "tenant or role-pool scope only, never run or principal" captures the real billing/budget use case while keeping every new series set bounded by a quantity (tenants, role pools) the platform already treats as enumerable and slow-changing.
+Tenant count and `AgentType` count are both small and bounded in this platform's actual deployment model (kora is operator-managed, not self-service SaaS — tenants are onboarded one at a time via GitOps/CRD, and an `AgentType` provisions a real Kubernetes StatefulSet through a guided admin builder UI, with no bulk-creation path). That makes `tenant_id` and `agent_id` safe as general-purpose labels under the same reasoning that already applies to `role_pool`: a small, slowly-changing, enumerable set, not a request-driven one. Run IDs and principal IDs don't share that property — a run is single-use, and a growing tenant's principal set is unbounded from Prometheus's perspective — so those stay excluded at every scope.
+
+---
+
+## Cardinality Policy (binding)
+
+1. **Default:** every label value comes from a `const`/enum type (status, state, reason, kind, decision) — never a raw user-supplied string, unless the value set is itself a small, bounded, admin-curated catalog (2 and 4 below). Treat "is this label's value set enumerable from a Go `const`/enum, or does it come from a request field?" as a standing design-review question for every new metric.
+2. **`tenant_id`** is a default-safe label, given this platform's confirmed scale (single digits to low tens of tenants per cluster). Excluded from the generic cross-cutting `orbit_<service>_http_requests_total`/`_http_request_duration_seconds`, and from `orbit_inference_gateway_request_duration_seconds` (would multiply with provider/model/status), and absent from `orbit_policyservice_grants`/`_roles`/`_bundles_stale`, where `policyservice.Stats()`'s per-tenant isolation is a boundary unrelated to cardinality.
+3. **Run IDs, session IDs, and principal IDs never become label values**, at any scope — genuinely unbounded. A breakdown by one of these belongs in traces/logs, or a periodic DB-aggregated export, never a Prometheus label.
+4. **`agent_id`** is a bounded label on orbit-agents' run/sandbox metrics, under the same admin-curated-catalog reasoning as `role_pool`. **`agent_name`** is never a label (a rename would churn series identity) — it's carried by `orbit_agents_agent_info`, the standard Prometheus "info metric" pattern (`kube_pod_info` etc.), which Grafana joins on `agent_id`.
+5. **`framework`** (bounded, `agents.AgentFramework`: `claude-code`/`codex`/`opencode`) is safe wherever an agent run is involved.
+6. Every duration histogram uses an explicit bucket preset from `internal/platform/metrics/buckets` (`Fast` for sub-millisecond work like a warm policy check, `Default` for general seconds-scale work, `Long` for run/session duration spanning seconds to hours) instead of the OTel SDK's millisecond-tuned defaults, which would otherwise collapse nearly every real sample into one bucket.
+
+### Known Tension with the Unauthenticated-Endpoint Rule
+
+The Prometheus Metrics Endpoints ADR established a stricter rule: no tenant, principal, run, or trigger ID ever becomes a label, full stop, because `/metrics` is unauthenticated by design — a label is readable by anything that can reach the port. This ADR's `tenant_id`/`agent_id`/`role_pool` labels are a deliberate, informed exception to that rule, not a reading of it that happens to permit them. The distinction that rule drew (bounded vs. unbounded cardinality) is a different axis from the one it was actually protecting (disclosure on an unauthenticated port) — a human-readable value doesn't change whether it's exposed, only how legible the exposure is.
+
+This platform's tenants are not competitively sensitive to each other in a way that makes enumeration itself harmful, and the set of people who can reach the metrics port is already the same set who administers the cluster — accepted as a deliberate scope decision for this ADR, not a resolution of the underlying rule. If the deployment model changes (self-service tenant signup, or a scraper reachable from outside the operator's own network), revisit this exception before it does.
 
 ---
 
@@ -79,74 +96,60 @@ Tenant count is bounded and slow-growing — the same property that already make
 
 ### Positive
 
-- Operators get real-time dashboards/alerting for run health, policy decisions, inference cost, delivery outcomes, credential minting, and tool-call decisions — the actual gap this PR's PRD identifies.
-- The cardinality policy is now written down once, applicable to every future metric addition without re-deriving it.
+- Operators get real-time dashboards/alerting for run health, policy decisions, inference cost, delivery outcomes, credential minting, and tool-call decisions, filterable by tenant and by agent.
+- The cardinality policy is written down once, applicable to every future metric addition without re-deriving it.
 
 ### Negative
 
-- `orbit_agents_run_transitions_total`/`_runs_active`'s `framework` label costs an extra `GetAgentType` DB lookup per call (`run_service.go`'s `Transition`/`StartReaper` don't have an `AgentType` loaded in scope today) — the lookup pattern (`s.atRepo.GetAgentType`) already exists elsewhere in the same file (lines 309, 390, 745). PR #418 review correctly flagged that `Transition` runs on every state change, including the idle↔active turn boundary (one of the most frequent transitions a run makes), not just terminal ones, so "not a hot per-request path" undersold the cost. Mitigated with an in-process `sync.Map[runID]AgentFramework` cache on `RunService`: a run's framework never changes after creation, so `GetRun`+`GetAgentType` run at most once per run's lifetime (first transition after start) instead of once per transition, and the entry is evicted on terminal state. The remaining cost — one `GetRun` call on every terminal transition, to read `StartedAt`/`CompletedAt` for the duration histogram and to deprovision the sandbox — is unavoidable and unchanged from before this PR.
-- `orbit_policyservice_grants`/`_roles` ship as tenant-aggregate gauges only in this PR, not per-tenant, because `policyservice.Stats()` is deliberately scoped to one tenant per call (`policyservice/api/service.go:360-362`, to avoid leaking cross-tenant counts through that API). A tenant-aggregate gauge needs a new, lightweight "sum across all tenants" query path in `grantRepo`/`roleRepo` that doesn't exist today — smallest delta that respects the existing isolation boundary.
-- `orbit_inference_gateway_budget_utilization_ratio` is computed at each budget-check call site, not via an async observable-gauge callback, because no cached registry of "all current ceilings" exists to poll (`RedisBudgetCounter.GetSpends` returns raw spend only; the spend/limit pairing lives in a per-request `policy.BudgetCheckResult.Ceilings`, `evaluator.go:255`). This means the gauge only updates when a budget check actually runs, not continuously — acceptable, since budget checks run on every inference request.
+- `orbit_agents_run_transitions_total`'s `framework`/`agent_id` labels cost an extra `GetAgentType` DB lookup — `Transition` runs on every state change, including the idle↔active turn boundary, one of the most frequent transitions a run makes, not just terminal ones. Mitigated with an in-process `sync.Map[runID]runMetricLabels` cache on `RunService`: a run's framework/tenant/agent type never change after creation, so the lookup runs at most once per run's lifetime instead of once per transition, with the entry evicted on every path that can end a run (`Transition`'s own terminal branch, the reaper, a failed start, explicit termination). A residual leak remains for a run cached on one replica but terminated on another — accepted as bounded by run volume, not unbounded time, rather than built out into an LRU/TTL/shared store.
+- `orbit_policyservice_grants`/`_roles`/`_bundles_stale` ship as tenant-aggregate gauges only, because `policyservice.Stats()` is deliberately scoped to one tenant per call to avoid leaking cross-tenant counts through that API. A tenant-aggregate gauge needed a new, lightweight "sum across all tenants" query path in `grantRepo`/`roleRepo` that didn't exist before — the smallest delta that respects the existing isolation boundary.
+- `orbit_inference_gateway_budget_utilization_ratio` is computed at each budget-check call site, not via an async observable-gauge callback, because no cached registry of "all current ceilings" exists to poll — the spend/limit pairing lives in a per-request result. The gauge only updates when a budget check actually runs, acceptable since one runs on every inference request.
+- Every observable-gauge callback that touches Postgres (orbit-agents' run-count query, identity's active-sessions gauge, policy-service's `MetricsSnapshot`) now runs under an explicit `context.WithTimeout`, since the OTel exporter collects with a bare `context.TODO()` with no deadline — without one, a slow database would hang an entire scrape.
 
 ### Neutral
 
-- `egress-gateway`'s credential-mint metrics are instrumented at the `egressgw/service.go:170` call site, not inside the shared `internal/credentials` package where `Connector.Mint` is actually defined (`credentials/adapter.go:81`) — keeps the metric owned by the service binary that emits it, consistent with every other service in this catalog, rather than making the shared `credentials` package depend on metrics for a label set only one caller uses today.
-
----
-
-## Amendment (2026-10-20): broader `tenant_id`, and a bounded `agent_id`
-
-The original Cardinality Policy restricted `tenant_id` to inference-gateway's billing metrics alone, reasoning that tenant count was merely "bounded" without pinning down the actual scale. Revisited for a Grafana use case (filter one dashboard by tenant, see agents/runs/sandboxes together): research into this deployment's actual shape found tenant count is small — single digits to low tens per cluster, since kora is operator-managed, not self-service SaaS (tenants are onboarded via GitOps/CRD, `docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md:61`, `2026-03-31-orbit-kubernetes-operator.md:378-379`). That changes the cost-benefit: `tenant_id` is safe as a general-purpose label, not just a special case for one service.
-
-The same research also found `AgentType` (an agent definition) is a bounded, admin-curated catalog, not a bulk-creatable resource: each one provisions a real Kubernetes StatefulSet (`docs/adr/2026-05-11-agent-execution-infrastructure.md:22`), is created through a guided admin builder UI (`docs/prd/agent-builder.md:88`), and has no bulk-creation path — structurally identical to the `role_pool` precedent already accepted in this ADR, not the unbounded free-text case (`tool` names from dynamically-registered MCP servers) that review caught twice. Low tens of agent types per tenant, times low tens of tenants, is still a small number.
-
-**Revised policy:**
-1. `tenant_id` is now a default-safe label on any metric below, not just inference-gateway's. Still excluded from the generic cross-cutting `orbit_<service>_http_requests_total`/`_http_request_duration_seconds` (unchanged from #408) and from `orbit_inference_gateway_request_duration_seconds` (would multiply with provider/model/status) — revisit those separately if wanted, not as part of this amendment.
-2. `agent_id` (the `AgentType.ID`, stable across renames) is now a safe label on orbit-agents' run/sandbox metrics, under the same "bounded admin-curated catalog" reasoning as `role_pool`.
-3. `agent_name` is **not** a label — a tenant can rename an agent, which would otherwise churn a metric's series identity for no operational reason. Instead, a new low-cardinality "info metric" (`orbit_agents_agent_info{agent_id,agent_name,tenant_id,framework}`, value always `1`) carries the current name, so Grafana resolves `agent_id` → `agent_name` for display via a label join (`* on (agent_id) group_left(agent_name) orbit_agents_agent_info`) instead of every series carrying a renamable string. This is the standard Prometheus pattern (`kube_pod_info` etc.) for attaching mutable metadata to a stable ID.
-4. Everything else in the original Cardinality Policy is unchanged: run/session/principal IDs are still never label values, at any scope, for the same unbounded reason as before.
-
-Policy-service's two tenant-aggregate gauges (`orbit_policyservice_grants`/`_roles`) are explicitly **not** revisited by this amendment — `policyservice.Stats()`'s per-tenant isolation (`policyservice/api/service.go:360-362`) is a deliberate boundary unrelated to cardinality, and this amendment doesn't touch it.
+- `egress-gateway`'s credential-mint metrics are instrumented at the `egressgw` service-binary call site, not inside the shared `internal/credentials` package where `Connector.Mint` is actually defined — keeps the metric owned by the binary that emits it, rather than making a shared package depend on metrics for a label set only one caller uses.
+- A standardized `internal/platform/metrics.RegisterDomain[T]` helper and consistent `Close()` wiring replaced nine services' worth of ad hoc, inconsistently-fatal metrics-registration boilerplate: every service now logs and continues uninstrumented on a registration failure (a service refusing to start because a gauge failed to register has turned its own observability into an outage), and every domain `Metrics` type's observable-gauge callback is unregistered on shutdown.
 
 ---
 
 ## Implementation
 
-Binding cardinality policy (see PRD for the full statement, as amended 2026-10-20): enum-backed labels by default; `tenant_id` is now a default-safe label on any metric except the generic HTTP request counter/histogram and inference-gateway's request-duration histogram; `agent_id` is safe on orbit-agents' run/sandbox metrics (bounded admin-curated catalog, same precedent as `role_pool`); `agent_name` is never a label, only available via the `orbit_agents_agent_info` info metric; run/session/principal IDs and free-text names (e.g. MCP tool names) are never label values, at any scope; `framework` (bounded, `agents.AgentFramework`) is safe wherever an agent run is involved.
-
 | Service | Metric | Type | Labels | Instrumentation point |
 |---|---|---|---|---|
-| identity | `orbit_identity_sessions_active{tenant_id}` | gauge (observable) | `tenant_id` | `SessionRepository.CountActiveSessions`, changed to `GROUP BY tenant_id` (was a single global count) |
-| identity | `orbit_identity_delegations_issued_total{tenant_id}`/`_revoked_total{tenant_id}` | counter | `tenant_id` | `delegation_service.go:64` (`MintDelegation`) / `:176` (`RevokeDelegation`); `claims.Kora.TenantID` already in scope at both call sites |
-| identity | `orbit_identity_auth_failures_total{reason,tenant_id}` | counter | `reason,tenant_id` | `service.go:568` (`ErrRefreshTokenNotFound`), `:578` (`ErrRefreshTokenRevoked`), `:583` (`ErrRefreshTokenExpired`), `:600` (`ErrTokenRevoked`), `:713`/`:720` (`ErrInvalidToken`); sentinels at `models.go:373-403`. `tenant_id` is `""` where a failure occurs before a tenant is resolved (e.g. a malformed token) — a real, bounded value, not an omission |
-| orbit-agents | `orbit_agents_run_transitions_total{from_state,to_state,framework,tenant_id,agent_id}` | counter | `from_state,to_state,framework,tenant_id,agent_id` | `run_service.go:463` (`Transition`), `:527` (`TransitionRunState`); `framework`/`agent_id` resolved via `s.atRepo.GetAgentType(ctx, run.AgentTypeID)` (cached per run, see Negative consequences), `tenant_id` from `run.TenantID` |
-| orbit-agents | `orbit_agents_runs_active{state,framework,tenant_id,agent_id}` | gauge (observable) | `state,framework,tenant_id,agent_id` | callback over run store, grouped by state/framework/tenant/agent type — supersedes the originally-floated, now-dropped `{state,tenant_id}` P1 variant |
-| orbit-agents | `orbit_agents_run_duration_seconds{tenant_id,agent_id}` | histogram | `tenant_id,agent_id` | `CompletedAt - StartedAt`, same call site as the terminal-state branch in `Transition` (`run_service.go:503-516`). **Correction (PR #418 review):** `PostgresRepository.SetRunState` originally stamped `completed_at` only for `completed`/`failed`, so a run terminating in `budget_exhausted` had a nil `CompletedAt` and never reached this histogram. `budget_exhausted` now stamps `completed_at` too |
-| orbit-agents | `orbit_agents_runs_reaped_total{outcome,tenant_id,agent_id}` | counter | `outcome,tenant_id,agent_id` | `run_service.go:1000` (`StartReaper`), `:1016` (`ReapStaleRuns`) |
-| orbit-agents | `orbit_agents_sessions_active{tenant_id}` | gauge (observable) | `tenant_id` | **Correction (PR #418 review):** the `agents.Session` ("browser session") table has zero writers anywhere in the codebase — no `INSERT`/`UPDATE` against it, no repo method. Instrumented against `PubSub.ActiveSubscriptions()` instead (`pubsub.go`) — the actual, already-running connect/disconnect lifecycle for a browser's live SSE subscription to a run. `tenant_id` requires threading the run's tenant into `Subscribe`, which only takes a `runID` today |
-| orbit-agents | `orbit_agents_session_duration_seconds{tenant_id}` | histogram | `tenant_id` | same correction; recorded in `PubSub.Subscribe`'s returned `cancel` closure (`pubsub.go`), guarded by a `sync.Once` so a second `cancel()` call can't double-record or double-close the channel |
-| orbit-agents | `orbit_agents_sandbox_provision_duration_seconds{phase,tenant_id,agent_id}`/`_failures_total{phase,tenant_id,agent_id}` | histogram/counter | `phase,tenant_id,agent_id` | `session.go: ProvisionSandbox` (`SandboxPhase*` consts) |
-| orbit-agents | `orbit_agents_guardrail_warnings_total{kind,tenant_id,agent_id}` | counter | `kind,tenant_id,agent_id` | `guardrails.go: loopGuard`, `GuardrailWarningPayload`. **Correction (PR #418 review):** the original `{kind,tool}` label set used `ToolUsePayload.Name` (an MCP/agent tool name) as `tool` — unbounded, since custom tools register dynamically. Dropped `tool`; `kind` is enum-backed |
-| orbit-agents | `orbit_agents_agent_info{agent_id,agent_name,tenant_id,framework}` | gauge (observable, value always `1`) | `agent_id,agent_name,tenant_id,framework` | **New in the 2026-10-20 amendment.** `agent_name` is never a label on the metrics above — a rename would otherwise churn their series identity. This info metric (the standard Prometheus "info" pattern, e.g. `kube_pod_info`) carries the current name against the stable `agent_id`, so Grafana resolves it via `* on (agent_id) group_left(agent_name) orbit_agents_agent_info`. Callback over the agent-type store, one row per `AgentType` |
-| session-manager | `orbit_session_manager_sessions_active{tenant_id}` | gauge (observable) | `tenant_id` | `sessionmanager/session.go:332` (`Registry.ActiveCount`), changed to group by tenant; meter already constructed in `cmd/session-manager/main.go` (`initMeter:65`, used by `mw.MetricsMiddleware` at `:152`) |
-| policy-gateway | `orbit_policygw_checks_total{allow,resource_type,tenant_id}`/`_check_duration_seconds{allow,resource_type,tenant_id}` | counter/histogram | `allow,resource_type,tenant_id` | `policygw/service.go:26` (`Check`); `resourceType` param already a logged field `resource_type` at `:50`, `tenant_id` from `claims.Kora.TenantID`. **Correction (PR #418 review):** `resourceType` comes straight from `CheckRequest.Resource.Type`, caller-supplied and unvalidated — any authenticated caller could mint unbounded series. `policygw/metrics.go` now coarsens it against a fixed allow-list (`inference`, `platform`, `agents`, `triggers`, `trigger`, `mcp`, `connection`), mapping anything else to `"other"` via a plain in-memory map lookup — no new DB/cache dependency on the hot auth-check path |
-| policy-gateway | `orbit_policygw_denies_total{reason,tenant_id}` | counter | `reason,tenant_id` | same call site, on `!result.Allow`; `policy.Result{Allow,Reason}` defined `platform/policy/evaluator.go:208-211`. One OPA deny rule (`authz_gateway.rego`) embeds a tenant-defined role name into `Reason` (`"role:<name>"`) — coarsened to the prefix before the colon (e.g. `"role"`), same cardinality discipline as the resource-type fix above |
-| policy-service | `orbit_policyservice_grants{principal_type}`/`_roles{kind}` | gauge (observable) | `principal_type`/`kind` — **no `tenant_id`, by design, unaffected by this amendment** | new tenant-aggregate query (sum across all tenants) in `grantRepo`/`roleRepo`, distinct from the existing per-tenant `Stats()` path (`policyservice/api/service.go:334-399`) which stays as-is for its own endpoint. `policyservice.Stats()`'s per-tenant isolation (`:360-362`) is a deliberate boundary this amendment does not touch |
-| policy-service | `orbit_policyservice_bundle_stale_total` | gauge (observable) | — (no `tenant_id`, same reason as above) | aggregate count of tenants whose bundle `Status == "stale"`, same new aggregate query; **not** per-tenant (`tenantBundleStatus.TenantID` stays internal to `Stats()`'s existing per-tenant response) |
-| inference-gateway | `orbit_inference_gateway_usage_total{status,provider,model,tenant_id}` | counter | `status,provider,model,tenant_id` | `service.go: writeUsage` (`:725-738`), fed by `InferenceUsageRecord` (`models.go:145-192`): `Status` (169), `Provider` (153, nil-safe default `"unknown"`), `ModelID` (154), `TenantID` (148) |
-| inference-gateway | `orbit_inference_gateway_tokens_total{provider,model,kind,tenant_id}` | counter | `provider,model,kind,tenant_id` | same call site; `kind ∈ {prompt,completion,cache_read,cache_creation}` from `PromptTokens`/`CompletionTokens`/`CacheReadInputTokens`/`CacheCreationInputTokens` (models.go:158-162) — `TotalTokens` not separately emitted (would double-count) |
-| inference-gateway | `orbit_inference_gateway_cost_usd_total{provider,model,tenant_id}` | counter | `provider,model,tenant_id` | same call site, `EstimatedCostUSD` (models.go:163) |
-| inference-gateway | `orbit_inference_gateway_request_duration_seconds{provider,model,status}` | histogram | `provider,model,status` (no `tenant_id` — unchanged by this amendment, would multiply with provider/model/status on the one histogram in the catalog; revisit separately if wanted) | same call site, `LatencyMS` (models.go:173) |
-| inference-gateway | `orbit_inference_gateway_budget_utilization_ratio{scope,window,tenant_id,role_pool}` | gauge (set at call time, not observable) | `scope ∈ {tenant, role_pool} only`, `window`, `tenant_id` (always), `role_pool` (the OIDC role name, `BudgetCeiling.ID`, only when `scope == "role_pool"`; empty for `scope == "tenant"`) | computed as `SpendUSD/LimitUSD` from each `policy.BudgetCeiling` in `BudgetCheckResult.Ceilings` (`evaluator.go:140-149,255`) wherever that result is consumed; ceilings with `Scope ∈ {"run","principal"}` are skipped — unbounded cardinality. **Correction (PR #418 review):** the original `{scope,window}` label set let every tenant's and every role pool's ceiling collide onto the same series within a `(scope, window)`, so the exported value was whichever request recorded last, not meaningful utilization |
-| orbit-triggers | *(existing instruments)* | — | — | `metrics.go:68-125` already Prometheus-visible via PR #408's reader attach; no changes |
-| orbit-triggers | `orbit_triggers_delivery_outcomes_total{outcome,tenant_id}` | counter | `outcome,tenant_id` | `outcomes.go: derive` → `DeriveDeliveryStatus` (`postgres.go`); enum `models.go:50-55`, `tenant_id` from `Delivery.TenantID`. **Correction (PR #418 review):** the original `UPDATE ... RETURNING d.status` returned a row on every call regardless of whether the computed status actually changed, so one multi-trigger delivery double-counted (e.g. `dispatched` once per completed trigger). Added a change-detecting `WHERE d.status IS DISTINCT FROM <computed>` guard so `RETURNING` only yields a row on a genuine transition. `duplicate`/`missed` bypass `derive()` entirely (`recordDuplicate`/`RecordMissedTick` set those statuses directly) — recorded at their own successful-insertion points instead |
-| orbit-triggers | `orbit_triggers_admission_outcomes_total{outcome,tenant_id}` | counter | `outcome,tenant_id` | `admission.go:167-234` (`Admit`), enum `admission.go:49-63`, `tenant_id` from `Trigger.TenantID`. **Correction (PR #418 review):** `Admit`'s own return value only ever described the new fire's outcome (never `AdmitSuperseded`, since a successful replace returns `AdmitEnqueued` for the new item) — the displaced/evicted fire's own outcome was never counted. Each displaced fire in the `OverflowReplace` branch now gets its own `recordAdmissionOutcome(ctx, AdmitSuperseded)` call, independent of what `Admit` returns |
-| egress-gateway | `orbit_egress_gateway_credentials_minted_total{adapter,action,tenant_id}`/`_mint_duration_seconds{adapter,action,tenant_id}` | counter/histogram | `adapter,action,tenant_id` | `egressgw/service.go` (`connector.Mint` call site); `adapter` from `Adapter.Type()` (`credentials/adapter.go:42`, values `models.go:27-33`), `action` from the `action` variable `evaluatePolicy` resolves — **correction (PR #418 review):** originally passed the pre-authorization `cls.Action`, which can differ from what's actually minted when policy grants an alternate action. `tenant_id` from `claims.Kora.TenantID` |
-| egress-gateway | `orbit_egress_gateway_mint_failures_total{reason,tenant_id}` | counter | `reason,tenant_id` | sentinels `credentials/models.go:83-106` (`ErrConnectionNotFound`, `ErrUnsupportedAdapter`, `ErrInvalidConfig`, `ErrCredentialScopeRejected`). **Correction (PR #418 review):** `ErrConnectionNotFound` and `ErrInvalidConfig` return from `resolveConnection`/`adapter.Open`, both before `connector.Mint` is ever called — the original single-call-site instrumentation made those two reasons unreachable. Added mint-failure recording at those two earlier call sites too (using `"unknown"` for `adapter`/`action` where not yet resolved at that point) so all four reasons are observable |
-| tool-gateway | `orbit_tool_gateway_invocations_total{server,decision,tenant_id}`/`_invocation_duration_seconds{server,decision,tenant_id}` | counter/histogram | `server,decision ∈ {allow,deny,error},tenant_id` | `mcp_controller.go:236` (`handleToolsCall`); `server` already span-tagged (`:251-297`), `decision` already set via `mcp.decision` span attribute (`:264,269,284`), `tenant_id` from the caller's claims. **Correction (PR #418 review):** the original label set also included `tool`, taken from the caller-supplied JSON-RPC `params.name` before any catalog-membership check — unbounded, since a caller can submit any name. The proxy binary (where `handleToolsCall` runs) never constructs an `Introspector`, so there's no cheap, bounded tool catalog to validate against on this hot path; dropped `tool` entirely. Tool name stays available on the span (`mcp.tool`) and in allow/deny log lines |
-| tool-gateway | `orbit_tool_gateway_servers{state}` | gauge (observable) | `state ∈ pending/ok/degraded` (no `tenant_id` — servers are cluster-wide, not tenant-scoped) | `introspector.go:240` (`Snapshot`); `ServerState` enum `models.go:48-59` |
+| identity | `orbit_identity_sessions_active` | gauge (observable) | `tenant_id` | `SessionRepository.CountActiveSessions`, grouped by tenant |
+| identity | `orbit_identity_delegations_issued_total`/`_revoked_total` | counter | `tenant_id` | `delegation_service.go` (`MintDelegation`/`RevokeDelegation`), `claims.Kora.TenantID` |
+| identity | `orbit_identity_auth_failures_total` | counter | `reason,tenant_id` | sentinel-error return sites in `service.go` (`ErrRefreshTokenNotFound`, `ErrRefreshTokenRevoked`, `ErrRefreshTokenExpired`, `ErrTokenRevoked`, `ErrInvalidToken`); `tenant_id` is `""` where a failure occurs before a tenant is resolved (e.g. a malformed token) — a real, bounded value, not an omission |
+| orbit-agents | `orbit_agents_run_transitions_total` | counter | `from_state,to_state,framework,tenant_id,agent_id` | every path that writes a run's state: `Transition`/`TransitionRunState`, `AssignPod`, a failed-start cleanup, and the reaper |
+| orbit-agents | `orbit_agents_runs_active` | gauge (observable) | `state,framework,tenant_id,agent_id` | callback over the run store, grouped by state/framework/tenant/agent type |
+| orbit-agents | `orbit_agents_run_duration_seconds` | histogram (`buckets.Long`) | `tenant_id,agent_id` | `CompletedAt - StartedAt` on every terminal write, including a run ending via the reaper (previously missing, which skewed the histogram toward runs that ended cleanly through `Transition`) |
+| orbit-agents | `orbit_agents_runs_reaped_total` | counter | `outcome,tenant_id,agent_id` | the reaper's per-run cleanup |
+| orbit-agents | `orbit_agents_sessions_active` | gauge (observable) | `tenant_id` | `PubSub.ActiveSubscriptions()` — the browser `Session` store this was originally specified against has no writers anywhere in the codebase, so this tracks a browser's live SSE subscription to a run instead, the closest real analog that executes today |
+| orbit-agents | `orbit_agents_session_duration_seconds` | histogram (`buckets.Long`) | `tenant_id` | `PubSub.Subscribe`'s returned `cancel` closure, guarded by a `sync.Once` so a repeat call can't double-record or double-close the channel |
+| orbit-agents | `orbit_agents_sandbox_provision_duration_seconds` | histogram (`buckets.Default`) | `phase,tenant_id,agent_id` | `session.go: ProvisionSandbox` (`SandboxPhase*` consts), every phase including the two early-return failure paths (session not found, a malformed run ID) — those two record the metric directly without pushing a durable event into the run's stream, since there's no real session/run to attach one to |
+| orbit-agents | `orbit_agents_sandbox_provision_failures_total` | counter | `tenant_id,agent_id` | same call sites; no `phase` label — this counter only ever increments on the failed phase, so the label carried no information |
+| orbit-agents | `orbit_agents_guardrail_warnings_total` | counter | `kind,tenant_id,agent_id` | `guardrails.go: loopGuard` — no tool-name label; an agent/MCP tool name is caller-defined and unbounded |
+| orbit-agents | `orbit_agents_agent_info` | gauge (observable, value always `1`) | `agent_id,agent_name,tenant_id,framework` | callback over the agent-type store, one row per `AgentType` — see Cardinality Policy item 4 |
+| session-manager | `orbit_session_manager_sessions_active` | gauge (observable) | `tenant_id` | `sessionmanager.Registry.ActiveCount`-equivalent, grouped by tenant |
+| policy-gateway | `orbit_policygw_checks_total` / `_check_duration_seconds` | counter / histogram (`buckets.Fast`) | `allow ∈ {"true","false","error"},resource_type,tenant_id` | `policygw/service.go: Check`; `resource_type` is coarsened against a fixed allow-list (`inference`, `platform`, `agents`, `triggers`, `trigger`, `mcp`, `connection`, `egress`) with anything else mapped to `"other"` — `CheckRequest.Resource.Type` is caller-supplied and otherwise unbounded. `allow="error"` covers an evaluator failure (a broken bundle, an OPA error), previously invisible on this counter entirely |
+| policy-gateway | `orbit_policygw_denies_total` | counter | `reason,tenant_id` | same call site, on a policy refusal; `reason` is bucketed to the prefix before its first colon (e.g. a `role:<tenant-defined-name>` OPA reason becomes `role`) — this alone bounds the label without also maintaining a parallel hardcoded list of known reason strings that would drift the first time a new OPA rule is added |
+| policy-service | `orbit_policyservice_grants` / `_roles` | gauge (observable) | `principal_type` / `kind` — no `tenant_id`, by design | a tenant-aggregate query in `grantRepo`/`roleRepo`, distinct from the existing per-tenant `Stats()` path, which is unchanged |
+| policy-service | `orbit_policyservice_bundles_stale` | gauge (observable) | — no `tenant_id`, same reason | aggregate count of tenants whose bundle is stale; no `_total` suffix — it's a gauge, not a counter |
+| inference-gateway | `orbit_inference_gateway_usage_total` | counter | `status,provider,model,tenant_id` | `service.go: writeUsage`, fed by `InferenceUsageRecord`; recorded only after the record persists successfully, not before — otherwise an exported total could run ahead of the system of record on a failed write |
+| inference-gateway | `orbit_inference_gateway_tokens_total` | counter | `provider,model,kind,tenant_id` | same call site; `kind ∈ {prompt,completion,cache_read,cache_creation}` — the aggregate token count is never separately emitted, which would double-count |
+| inference-gateway | `orbit_inference_gateway_cost_usd_total` | counter | `provider,model,tenant_id` | same call site; unit declared as an OTel annotation (`{USD}`), which the Prometheus exporter drops from the rendered name, rather than a literal unit string it would otherwise append |
+| inference-gateway | `orbit_inference_gateway_request_duration_seconds` | histogram (`buckets.Default`) | `provider,model,status` — no `tenant_id`, would multiply with the other three | same call site |
+| inference-gateway | `orbit_inference_gateway_budget_utilization_ratio` | gauge (set synchronously at call time, not observable) | `scope ∈ {tenant, role_pool} only`,`window`,`tenant_id` (always), `role_pool` (only when `scope == "role_pool"`) | `SpendUSD/LimitUSD` from each budget ceiling consumed at a budget check; ceilings scoped to `run` or `principal` are skipped entirely — unbounded cardinality, and the only two scopes this ADR's policy never permits regardless of label name |
+| orbit-triggers | *(pre-existing instruments: auto-pauses, purged payloads, scanned triggers, tick duration, queue depth/age, purge freshness)* | — | — | `tick_duration` now uses `buckets.Default`; otherwise unchanged |
+| orbit-triggers | `orbit_triggers_delivery_outcomes_total` | counter | `outcome,tenant_id` | recorded exactly once per delivery, at the point its aggregate status is both newly-computed (`WHERE status IS DISTINCT FROM <computed>`, so a redundant re-derive is a no-op) and genuinely final — a delivery with several triggers can legitimately pass through more than one intermediate status before it's done, and only the last one should count. `duplicate`/`missed` bypass this derivation entirely and are recorded directly at their own successful-insertion points |
+| orbit-triggers | `orbit_triggers_admission_outcomes_total` | counter | `outcome ∈ {enqueued,superseded,dropped,paused,error},tenant_id` | `admission.go: Admit`. `error` is a genuine database/infrastructure failure, distinct from `dropped` (a legitimate ceiling or backlog-full refusal) — conflating the two would make a database outage read as normal overflow handling. Each fire displaced by a replace, trimmed from a full backlog, or evicted by `Drain` (a trigger being deleted/disabled) gets its own recorded outcome at the point it's evicted, independent of what `Admit` returns for the fire actually being admitted |
+| egress-gateway | `orbit_egress_gateway_decisions_total` | counter | `outcome ∈ {allow,deny,passthrough,error},adapter,tenant_id` | `Broker.Authorize`'s full outcome taxonomy: a real credential minted, a policy refusal, falling through to the anonymous/passthrough adapter (no registered connection — not a failure, and not a mint), or a genuine problem upstream of classification (an unsupported adapter, a config that can't be opened) |
+| egress-gateway | `orbit_egress_gateway_credentials_minted_total` / `_mint_duration_seconds` | counter / histogram (`buckets.Default`) | `adapter,action,tenant_id` | only around the real `connector.Mint` call — `action` is the action `evaluatePolicy` actually resolves and sends to `Mint`, not the pre-authorization classification, which can differ when policy grants an alternate action. The passthrough path does not increment this; it's a `decisions_total` outcome, not a mint |
+| egress-gateway | `orbit_egress_gateway_mint_failures_total` | counter | `reason,tenant_id` | only on a genuine failure of the real `Mint` call itself (e.g. the upstream rejecting the requested scope) — failures upstream of classification (an unresolvable connection, an unsupported adapter) are `decisions_total{outcome="error"}` instead, never a zero-duration mint sample that would otherwise drag the real mint-duration histogram toward zero |
+| tool-gateway | `orbit_tool_gateway_invocations_total` / `_invocation_duration_seconds` | counter / histogram (`buckets.Default`) | `server,decision ∈ {allow,deny,error},tenant_id` | `mcp_controller.go: handleToolsCall`; the timer spans the full request including the upstream MCP call for an allowed invocation, not just the policy decision, so the duration reflects what a caller actually waited for. The two early-return paths (malformed params, a missing tool name) record as `decision="error"` instead of being invisible to this metric. No tool-name label — a tool name is caller-supplied JSON-RPC input with no catalog available on this hot path to bound it against |
+| tool-gateway | `orbit_tool_gateway_servers` | gauge (observable) | `state ∈ {pending,ok,degraded}` — no `tenant_id`, servers are cluster-wide | `introspector.go: Snapshot` |
 
-A precise "active users" metric remains a known gap (no `last_activity_at` column), unchanged from the prior ADR.
+A precise "active users" metric remains a known gap (no `last_activity_at` column).
 
 ---
 
@@ -156,27 +159,23 @@ A precise "active users" metric remains a known gap (no `last_activity_at` colum
 
 - `curl :9464/metrics` on each service shows the new series after driving the corresponding event.
 - `make check` and `make test-postgres` green.
-- A manual review pass confirms no label in the table above resolves to a raw ID at runtime (spot-check `tenant_id` usages against the cardinality policy).
+- A manual review pass confirms no label in the table above resolves to a raw, unbounded value at runtime.
 
 ### Monitoring
 
-- Same `make redeploy` + `kubectl port-forward` + `curl` smoke test pattern as the prior ADR, repeated per service in scope.
+- `make redeploy` + `kubectl port-forward` + `curl` smoke test, repeated per service in scope.
 
 ---
 
 ## Related Decisions
 
-- [Prometheus Metrics Endpoints](2026-10-06-prometheus-metrics-endpoints.md) — the plumbing this ADR instruments against.
-- [Rendered Service Config Files](2026-10-06-rendered-service-config-files.md) — unrelated to this change, no config schema additions here.
+- [Prometheus Metrics Endpoints](2026-10-06-prometheus-metrics-endpoints.md) — the plumbing this ADR instruments against, and the source of the unauthenticated-endpoint rule this ADR partially departs from (see Known Tension, above).
+- [Rendered Service Config Files](2026-10-06-rendered-service-config-files.md) — unrelated to this change.
 
 ---
 
 ## Notes
 
-Shipped as a single stacked PR covering all four tiers, per explicit direction, rather than the incremental per-service rollout the prior ADR's own Implementation section recommended ("one or a few services at a time, so each lands with its own review"). Recorded here, not re-litigated.
-
-PR #418's review surfaced three genuine unbounded-cardinality violations (guardrail `tool`, policy-gateway `resource_type`, tool-gateway `tool`) that this ADR's own binding policy should have caught at design time but didn't, because the design pass didn't check whether each label's value set was actually code-defined versus caller-supplied. All three are corrected in the Implementation table above. Treat "is this label's value set enumerable from a Go `const`/enum, or does it come from a request field?" as a standing design-review question for every future metric, not just something to catch in review.
-
-On the 2026-10-20 amendment's cardinality: worst case is `orbit_agents_run_transitions_total`, with five label dimensions (`from_state`×`to_state`×`framework`×`tenant_id`×`agent_id`). At confirmed scale (low tens of tenants, low tens of agent types per tenant, ~8 run states, 3 frameworks) that's on the order of 8×8×3×20×20 ≈ 77,000 possible combinations in the worst theoretical case, but the real series count is bounded by *actual* (tenant, agent_type) pairs in use, not the cross product — each tenant only has its own handful of agent types, so the realistic count is closer to (tenants × agent-types-per-tenant × states-actually-reached × frameworks-in-use), typically low thousands. Acceptable for a single Prometheus instance; revisit if either bound (tenant count or agent types per tenant) grows by an order of magnitude.
+Cardinality math on the amendment's worst case, `orbit_agents_run_transitions_total` (five label dimensions: `from_state`×`to_state`×`framework`×`tenant_id`×`agent_id`): at confirmed scale (low tens of tenants, low tens of agent types per tenant, ~8 run states, 3 frameworks), the real series count is bounded by *actual* (tenant, agent_type) pairs in use, not the full cross product — each tenant only has its own handful of agent types, so the realistic count is in the low thousands. Acceptable for a single Prometheus instance; revisit if either bound (tenant count or agent types per tenant) grows by an order of magnitude.
 
 **Last Updated:** 2026-10-20
