@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -46,6 +47,42 @@ func TestKeepRegisteredRetriesStartup(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// TestKeepRegisteredReregistersEveryThirtySeconds pins the steady-state
+// cadence on a fake clock: nothing before 30s, one registration at each 30s.
+func TestKeepRegisteredReregistersEveryThirtySeconds(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		var calls atomic.Int64
+		register := func(context.Context) error {
+			calls.Add(1)
+			return nil
+		}
+		go KeepRegistered(ctx, logging.NewLogger(), "test-service", register)
+
+		synctest.Wait()
+		if got := calls.Load(); got != 1 {
+			t.Fatalf("startup registrations = %d, want 1", got)
+		}
+		time.Sleep(30*time.Second - time.Nanosecond)
+		synctest.Wait()
+		if got := calls.Load(); got != 1 {
+			t.Fatalf("registrations just before 30s = %d, want 1", got)
+		}
+		time.Sleep(time.Nanosecond)
+		synctest.Wait()
+		if got := calls.Load(); got != 2 {
+			t.Fatalf("registrations at 30s = %d, want 2", got)
+		}
+		time.Sleep(30 * time.Second)
+		synctest.Wait()
+		if got := calls.Load(); got != 3 {
+			t.Fatalf("registrations at 60s = %d, want 3", got)
+		}
+		cancel()
+		synctest.Wait()
+	})
 }
 
 // TestClientRegisterMakesOneAttemptPerCall pins where retry lives. The client

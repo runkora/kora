@@ -25,7 +25,11 @@ const (
 // same for every binary because the bundle they are all missing from is the
 // same bundle. A per-service setting would only be a way for them to disagree,
 // which is exactly what the backoff constants above exist to prevent.
-const reregisterInterval = 5 * time.Minute
+//
+// 30 seconds bounds how long routes stay missing after a restart. A tick that
+// changes nothing costs one call and no bundle recompile: the policy service
+// skips the recompile for an unchanged registration.
+const reregisterInterval = 30 * time.Second
 
 // KeepRegistered keeps a service's route table and scope vocabulary published
 // to the policy service for the life of ctx. Blocks; run it in a goroutine.
