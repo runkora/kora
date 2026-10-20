@@ -343,6 +343,21 @@ func TestUpdateRoutedTrigger(t *testing.T) {
 		}
 	})
 
+	t.Run("dropping a candidate the caller cannot run is refused", func(t *testing.T) {
+		_, deps, _, src := routedHarness(t)
+		tr := mustRouted(t, deps, src.ID, nil)
+		deps.agents.atNoRunIDs = map[string]bool{"at-c": true}
+		_, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{
+			Routing: routingReq(func(r *RoutingConfig) { r.Candidates = []string{"at-a", "at-b"} }),
+		})
+		if !errors.Is(err, ErrBindForbidden) || !strings.Contains(err.Error(), "at-c") {
+			t.Fatalf("err = %v, want ErrBindForbidden naming at-c", err)
+		}
+		if got := deps.repo.triggers[tr.ID].Routing.Candidates; !slices.Contains(got, "at-c") {
+			t.Errorf("candidates = %v, want at-c kept after a refused update", got)
+		}
+	})
+
 	t.Run("changing the model without its use scope is refused", func(t *testing.T) {
 		_, deps, _, src := routedHarness(t)
 		tr := mustRouted(t, deps, src.ID, nil)

@@ -450,8 +450,8 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 		return nil, err
 	}
 	changesRun := changesRunBehaviour(t, req)
-	// A routing replacement checks its new candidates when it resolves them.
-	if changesRun && req.Routing == nil {
+	// A routing replacement checks the current candidates here and the new ones as it resolves them.
+	if changesRun {
 		if err = requireRunAccessForTrigger(ctx, s.agents, *t); err != nil {
 			return nil, err
 		}
