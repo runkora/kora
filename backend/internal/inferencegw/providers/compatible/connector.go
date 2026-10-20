@@ -336,7 +336,7 @@ func (c *Connector) AnthropicMessagesStream(ctx context.Context, params anthropi
 // message streams and accumulates one messages call. The SDK refuses a
 // non-streaming call whose max_tokens could run past ten minutes.
 func (c *Connector) message(ctx context.Context, params anthropic.MessageNewParams) (*anthropic.Message, error) {
-	msg, _, err := convert.AccumulateAnthropicStream(c.anthropic.Messages.NewStreaming(ctx, params), c.name)
+	msg, _, err := convert.AccumulateAnthropicStream(ctx, c.anthropic.Messages.NewStreaming(ctx, params), c.name)
 	return msg, err
 }
 

@@ -47,7 +47,7 @@ func (b *AnthropicResponsesBridge) Execute(ctx context.Context, params responses
 		return nil, convert.WrapTranslationError(b.provider, err)
 	}
 
-	accumulated, _, err := convert.AccumulateAnthropicStream(b.client.Messages.NewStreaming(ctx, anthropicParams), b.provider)
+	accumulated, _, err := convert.AccumulateAnthropicStream(ctx, b.client.Messages.NewStreaming(ctx, anthropicParams), b.provider)
 	if err != nil {
 		return nil, err
 	}

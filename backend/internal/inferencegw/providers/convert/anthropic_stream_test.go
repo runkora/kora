@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -53,7 +54,7 @@ func textTurn(t *testing.T, err error) *fakeStream {
 
 func TestAccumulateAnthropicStreamAssemblesTheMessage(t *testing.T) {
 	s := textTurn(t, io.EOF)
-	msg, events, err := AccumulateAnthropicStream(s, "compatible:x")
+	msg, events, err := AccumulateAnthropicStream(context.Background(), s, "compatible:x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +71,7 @@ func TestAccumulateAnthropicStreamAssemblesTheMessage(t *testing.T) {
 
 func TestAccumulateAnthropicStreamMapsAStreamError(t *testing.T) {
 	s := textTurn(t, errors.New("connection reset"))
-	_, _, err := AccumulateAnthropicStream(s, "compatible:x")
+	_, _, err := AccumulateAnthropicStream(context.Background(), s, "compatible:x")
 	var ce *inferencegw.ConnectorError
 	if !errors.As(err, &ce) || ce.Provider != "compatible:x" {
 		t.Errorf("err = %v, want a ConnectorError for compatible:x", err)
@@ -82,7 +83,7 @@ func TestAccumulateAnthropicStreamMapsAStreamError(t *testing.T) {
 
 func TestAccumulateAnthropicStreamMapsAnOutOfOrderEvent(t *testing.T) {
 	s := streamOf(t, nil, `{"type":"content_block_delta","index":3,"delta":{"type":"text_delta","text":"x"}}`)
-	if _, _, err := AccumulateAnthropicStream(s, "compatible:x"); err == nil {
+	if _, _, err := AccumulateAnthropicStream(context.Background(), s, "compatible:x"); err == nil {
 		t.Error("want an error for a delta with no content block")
 	}
 }
@@ -143,5 +144,26 @@ func TestAnthropicStreamToOpenAIChunksTreatsEOFAsTheEnd(t *testing.T) {
 		if res.Err != nil {
 			t.Fatalf("got error %v for EOF", res.Err)
 		}
+	}
+}
+
+func TestAccumulateAnthropicStreamReportsAcceptanceOnFirstEvent(t *testing.T) {
+	ctx, accepted := inferencegw.WithAcceptedSignal(context.Background())
+	if _, _, err := AccumulateAnthropicStream(ctx, streamOf(t, io.EOF), "compatible:x"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-accepted:
+		t.Fatal("acceptance reported for a stream with no events")
+	default:
+	}
+
+	if _, _, err := AccumulateAnthropicStream(ctx, textTurn(t, io.EOF), "compatible:x"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-accepted:
+	default:
+		t.Fatal("acceptance not reported after the first event")
 	}
 }

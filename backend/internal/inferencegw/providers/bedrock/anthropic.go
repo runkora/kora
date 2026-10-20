@@ -40,7 +40,7 @@ func (c *Connector) AnthropicMessages(ctx context.Context, params anthropic.Mess
 		}
 	}
 
-	accumulated, eventCount, err := convert.AccumulateAnthropicStream(c.anthropicClient.Messages.NewStreaming(ctx, params), inferencegw.ProviderBedrock)
+	accumulated, eventCount, err := convert.AccumulateAnthropicStream(ctx, c.anthropicClient.Messages.NewStreaming(ctx, params), inferencegw.ProviderBedrock)
 	if err != nil {
 		c.logger.Error(ctx, "bedrock: AnthropicMessages stream error",
 			logging.Field{Key: "error", Value: err.Error()},

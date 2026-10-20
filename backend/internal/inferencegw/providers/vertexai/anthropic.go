@@ -41,7 +41,7 @@ func (c *Connector) AnthropicMessages(ctx context.Context, params anthropic.Mess
 	}
 
 	// Claude path: Anthropic Vertex AI client (streaming + accumulate).
-	accumulated, eventCount, err := convert.AccumulateAnthropicStream(c.anthropicClient.Messages.NewStreaming(ctx, params), c.name)
+	accumulated, eventCount, err := convert.AccumulateAnthropicStream(ctx, c.anthropicClient.Messages.NewStreaming(ctx, params), c.name)
 	if err != nil {
 		c.logger.Error(ctx, "vertexai: AnthropicMessages error",
 			logging.Field{Key: "error", Value: err.Error()},
