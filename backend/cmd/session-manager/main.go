@@ -69,36 +69,51 @@ func main() {
 		metrics.Shutdown(shutdownCtx, logger)
 	}()
 
-	server, registry := initServer(ctx, logger, metrics, b)
+	server, registry, sessionMetrics := initServer(ctx, logger, metrics, b)
+	// Close is nil-safe, so this runs unconditionally — mirroring the
+	// metrics.Shutdown defer above, this unregisters the sessions-active
+	// observable-gauge callback and closes the sandbox-provisioning/
+	// loop-guard domain metrics on shutdown.
+	defer func() {
+		if err := sessionMetrics.Close(); err != nil {
+			logger.Error(ctx, "Error shutting down session-manager metrics", logging.Field{Key: "error", Value: err.Error()})
+		}
+	}()
 	run(ctx, logger, server, registry, metrics)
 }
 
 // registerSessionMetrics registers the observable gauge tracking the number
-// of currently active sessions on this pod (orbit_session_manager_sessions_active{tenant_id}),
-// backed by the existing Registry.ActiveCountByTenant(). tenant_id is a safe
-// label under the 2026-10-20 amendment to
+// of currently active sessions on this pod (orbit.session_manager.sessions_active{tenant_id}),
+// backed by the existing Registry.ActiveCountByTenant(). The instrument name
+// is dotted, like every other service's (instrumentServiceName strips a
+// leading "orbit-" and the OTel/Prometheus bridge converts the dots to
+// underscores at export time), rather than a raw underscored string built by
+// hand. tenant_id is a safe label under the 2026-10-20 amendment to
 // docs/adr/2026-10-07-domain-metrics-instrumentation.md (bounded, slow-growing
 // tenant count); one series is emitted per tenant with at least one active
 // session, rather than a single global count.
-func registerSessionMetrics(meter metric.Meter, registry *sessionmanager.Registry) error {
+//
+// The returned metric.Registration lets the caller unregister this callback
+// on shutdown, mirroring every other service's domain Metrics.Close.
+func registerSessionMetrics(meter metric.Meter, registry *sessionmanager.Registry) (metric.Registration, error) {
 	gauge, err := meter.Int64ObservableGauge(
-		"orbit_session_manager_sessions_active",
+		"orbit.session_manager.sessions_active",
 		metric.WithDescription("Number of currently active sessions on this session-manager pod"),
 	)
 	if err != nil {
-		return fmt.Errorf("create sessions active gauge: %w", err)
+		return nil, fmt.Errorf("create sessions active gauge: %w", err)
 	}
 
-	_, err = meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+	registration, err := meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
 		for tenantID, count := range registry.ActiveCountByTenant() {
 			o.ObserveInt64(gauge, int64(count), metric.WithAttributes(attribute.String("tenant_id", tenantID)))
 		}
 		return nil
 	}, gauge)
 	if err != nil {
-		return fmt.Errorf("register sessions active callback: %w", err)
+		return nil, fmt.Errorf("register sessions active callback: %w", err)
 	}
-	return nil
+	return registration, nil
 }
 
 func initObservability(ctx context.Context) (func(), error) {
@@ -127,7 +142,30 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-func initServer(ctx context.Context, logger logging.Logger, metrics *platformmetrics.Bootstrap, b brand.Brand) (*http.Server, *sessionmanager.Registry) {
+// sessionManagerMetrics bundles everything initServer builds on the meter
+// that needs to be unregistered/closed on shutdown: the sessions-active
+// observable-gauge registration, and the sessionmanager package's own domain
+// Metrics (sandbox-provisioning and loop-guard instruments).
+type sessionManagerMetrics struct {
+	sessionsActive metric.Registration
+	domain         *sessionmanager.Metrics
+}
+
+// Close unregisters the sessions-active callback and closes the domain
+// Metrics. Nil-safe: either field may be nil (e.g. registration failed).
+func (m *sessionManagerMetrics) Close() error {
+	if m == nil {
+		return nil
+	}
+	if m.sessionsActive != nil {
+		if err := m.sessionsActive.Unregister(); err != nil {
+			return fmt.Errorf("unregister sessions-active callback: %w", err)
+		}
+	}
+	return m.domain.Close()
+}
+
+func initServer(ctx context.Context, logger logging.Logger, metrics *platformmetrics.Bootstrap, b brand.Brand) (*http.Server, *sessionmanager.Registry, *sessionManagerMetrics) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := smConfig.Current
@@ -147,7 +185,8 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 
 	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSecs) * time.Second
 	registry := sessionmanager.NewRegistry(logger, cfg.Workspaces.BasePath, notifier, idleTimeout, b)
-	if err := registerSessionMetrics(metrics.Meter(), registry); err != nil {
+	sessionsActiveReg, err := registerSessionMetrics(metrics.Meter(), registry)
+	if err != nil {
 		logger.Error(ctx, "failed to register session-manager active-sessions gauge; running uninstrumented",
 			logging.Field{Key: "error", Value: err.Error()})
 	}
@@ -155,13 +194,12 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 	// (docs/adr/2026-10-07-domain-metrics-instrumentation.md), filed under the
 	// orbit-agents row of that ADR's catalog even though this binary emits them:
 	// sandbox provisioning and the loop guard are both internal/agents/sessionmanager,
-	// the package this ADR's table names for them.
-	if smMetrics, err := sessionmanager.NewMetrics(metrics.Meter()); err != nil {
-		logger.Error(ctx, "failed to create session-manager domain metrics; running uninstrumented",
-			logging.Field{Key: "error", Value: err.Error()})
-	} else {
-		registry.SetMetrics(smMetrics)
-	}
+	// the package this ADR's table names for them. RegisterDomain is the shared
+	// helper every service's main.go uses for this.
+	smMetrics := platformmetrics.RegisterDomain(ctx, logger, "session-manager", func() (*sessionmanager.Metrics, error) {
+		return sessionmanager.NewMetrics(metrics.Meter())
+	})
+	registry.SetMetrics(smMetrics)
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
 		ClaudeBinaryPath:    cfg.Claude.BinaryPath,
 		WrapperPath:         cfg.Runner.WrapperPath,
@@ -191,7 +229,7 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 			mw.LoggingMiddleware(logger),
 		),
 		controller,
-	), registry
+	), registry, &sessionManagerMetrics{sessionsActive: sessionsActiveReg, domain: smMetrics}
 }
 
 func run(ctx context.Context, logger logging.Logger, server *http.Server, registry *sessionmanager.Registry, metrics *platformmetrics.Bootstrap) {

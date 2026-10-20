@@ -3,12 +3,20 @@ package identity
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
+
+// activeSessionsQueryTimeout bounds the sessions-active gauge's DB read. The
+// Prometheus exporter invokes this callback at scrape time with
+// context.TODO() — no deadline of its own — so without a timeout a slow
+// database hangs the whole scrape indefinitely. Mirrors the short DB-query
+// budgets in internal/platform/storage/db.go (ping/health checks).
+const activeSessionsQueryTimeout = 5 * time.Second
 
 // Metrics is the identity feature's instrument set.
 //
@@ -90,6 +98,9 @@ func NewMetrics(meter metric.Meter, repo activeSessionsReader, logger logging.Lo
 
 	m.registration, err = meter.RegisterCallback(
 		func(ctx context.Context, o metric.Observer) error {
+			ctx, cancel := context.WithTimeout(ctx, activeSessionsQueryTimeout)
+			defer cancel()
+
 			counts, countErr := repo.CountActiveSessions(ctx)
 			if countErr != nil {
 				// Reported, not returned: a failed scrape of this gauge must

@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/metrics/buckets"
 )
 
 // Metrics is the Triggers feature's instrument set.
@@ -100,6 +101,7 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 		"orbit.triggers.scheduler.tick_duration",
 		metric.WithDescription("Wall time of one scheduler tick"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(buckets.Default...),
 	); err != nil {
 		return nil, fmt.Errorf("create tick-duration histogram: %w", err)
 	}

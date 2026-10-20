@@ -8,6 +8,8 @@ import (
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
+	"github.com/runkora/kora/backend/internal/platform/metrics/buckets"
 )
 
 // collectCounter returns the sum of int64 counter data points for the given
@@ -94,12 +96,12 @@ func TestMetricsMiddleware_RecordsRequest(t *testing.T) {
 		t.Fatalf("duration data points = %d, want 1", len(histogram.DataPoints))
 	}
 	gotBounds := histogram.DataPoints[0].Bounds
-	if len(gotBounds) != len(secondsBuckets) {
-		t.Fatalf("bucket boundaries = %v, want seconds-scale buckets %v (not the OTel SDK's millisecond-tuned default)", gotBounds, secondsBuckets)
+	if len(gotBounds) != len(buckets.Default) {
+		t.Fatalf("bucket boundaries = %v, want seconds-scale buckets %v (not the OTel SDK's millisecond-tuned default)", gotBounds, buckets.Default)
 	}
-	for i, b := range secondsBuckets {
+	for i, b := range buckets.Default {
 		if gotBounds[i] != b {
-			t.Fatalf("bucket boundaries = %v, want %v", gotBounds, secondsBuckets)
+			t.Fatalf("bucket boundaries = %v, want %v", gotBounds, buckets.Default)
 		}
 	}
 }

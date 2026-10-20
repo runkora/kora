@@ -67,10 +67,10 @@ func collect(t *testing.T, reader *sdkmetric.ManualReader) map[string]metricdata
 }
 
 // TestTransitionRunState_BudgetExhausted_StampsCompletedAtAndRecordsDuration
-// covers PR #418 Finding 1: SetRunState must stamp completed_at for
-// budget_exhausted exactly as it does for completed/failed, or a
-// budget-exhausted run would look perpetually in-flight and never contribute
-// a sample to orbit_agents_run_duration_seconds.
+// pins that SetRunState stamps completed_at for budget_exhausted exactly as
+// it does for completed/failed, or a budget-exhausted run would look
+// perpetually in-flight and never contribute a sample to
+// orbit_agents_run_duration_seconds.
 func TestTransitionRunState_BudgetExhausted_StampsCompletedAtAndRecordsDuration(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)
 	started := time.Now().Add(-5 * time.Minute)

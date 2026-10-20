@@ -608,7 +608,7 @@ func (r *PostgresRepository) CountRunsByStateAndFramework(ctx context.Context) (
 			count                                   int64
 		)
 		if err := rows.Scan(&state, &framework, &tenantID, &agentTypeID, &count); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan run state count: %w", err)
 		}
 		out = append(out, RunStateFrameworkCount{
 			State:       RunState(state),

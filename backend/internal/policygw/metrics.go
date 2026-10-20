@@ -8,6 +8,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/runkora/kora/backend/internal/platform/metrics/buckets"
 )
 
 // Metrics is the policy-gateway utility API's instrument set.
@@ -43,6 +45,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 		"orbit.policygw.check_duration",
 		metric.WithDescription("Wall time of one policy check evaluation"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(buckets.Fast...),
 	); err != nil {
 		return nil, fmt.Errorf("create check-duration histogram: %w", err)
 	}
@@ -56,6 +59,14 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 
 	return m, nil
+}
+
+// Close is a no-op: this Metrics type registers no observable-gauge
+// callback to unregister. It exists so every service's main.go can defer
+// Close uniformly across its domain metrics, nil-safe like every other
+// service's Close.
+func (m *Metrics) Close() error {
+	return nil
 }
 
 // recordCheck records one Check call outcome: whether it was allowed, against
@@ -74,8 +85,26 @@ func (m *Metrics) recordCheck(ctx context.Context, allow bool, resourceType, ten
 	if m == nil {
 		return
 	}
+	m.addCheck(ctx, allowLabel(allow), resourceType, tenantID, took)
+}
+
+// recordCheckError records a Check call that never reached an allow/deny
+// decision at all: the evaluator itself failed (a broken bundle, an OPA
+// evaluation error, etc). Without this, an evaluator error returns before
+// recordCheck is ever reached, so a broken bundle or a run of OPA failures
+// would be invisible on orbit.policygw.checks. "error" widens the allow
+// label — normally "true"/"false" — to a third sentinel value, since an
+// evaluator error is neither an allow nor a deny decision.
+func (m *Metrics) recordCheckError(ctx context.Context, resourceType, tenantID string, took time.Duration) {
+	if m == nil {
+		return
+	}
+	m.addCheck(ctx, "error", resourceType, tenantID, took)
+}
+
+func (m *Metrics) addCheck(ctx context.Context, allow, resourceType, tenantID string, took time.Duration) {
 	attrs := metric.WithAttributes(
-		attribute.String("allow", allowLabel(allow)),
+		attribute.String("allow", allow),
 		attribute.String("resource_type", resourceType),
 		attribute.String("tenant_id", tenantID),
 	)
@@ -86,10 +115,11 @@ func (m *Metrics) recordCheck(ctx context.Context, allow bool, resourceType, ten
 // Known resource types in use across the platform today: the ResourceType
 // values declared in each service's ScopeDeclaration list (cmd/*/main.go —
 // inference-gateway, orbit-agents, orbit-triggers, policy-service),
-// internal/toolgateway's MCP scopes, and internal/egressgw's doc.go
-// resourceType constant. This is the closed, code-defined vocabulary — not
-// the request-supplied CheckRequest.Resource.Type, which any authenticated
-// caller controls.
+// internal/toolgateway's MCP scopes, and internal/egressgw, which calls
+// Check with ResourceType: "egress" (service.go) and also declares a
+// "connection" scope (doc.go's resourceType constant). This is the closed,
+// code-defined vocabulary — not the request-supplied
+// CheckRequest.Resource.Type, which any authenticated caller controls.
 const (
 	ResourceTypeInference  = "inference"
 	ResourceTypePlatform   = "platform"
@@ -98,6 +128,7 @@ const (
 	ResourceTypeTrigger    = "trigger"
 	ResourceTypeMCP        = "mcp"
 	ResourceTypeConnection = "connection"
+	ResourceTypeEgress     = "egress"
 )
 
 // otherResourceType is the sentinel label for any resource type outside
@@ -112,6 +143,7 @@ var knownResourceTypes = map[string]struct{}{
 	ResourceTypeTrigger:    {},
 	ResourceTypeMCP:        {},
 	ResourceTypeConnection: {},
+	ResourceTypeEgress:     {},
 }
 
 // coarsenResourceType bounds a resource type to the fixed, code-defined
@@ -150,53 +182,27 @@ func allowLabel(allow bool) string {
 	return "false"
 }
 
-// knownDenyReasons is the fixed, enum-like set of deny reasons the evaluator
-// and its OPA bundles emit today: the "REASON RULES" sections of
-// authz.rego/authz_gateway.rego (deny:no_matching_grant,
-// deny:delegation_required, deny:no_delegation_scope, deny:no_delegator_grant,
-// deny:no_agent_grant, deny:delegation_run_mismatch,
-// deny:delegation_run_unbound, deny:invalid_delegation_token,
-// deny:invalid_token, deny:no_route_match) plus engine.go's early-exit
-// literals (no claims provided, no policy configured for tenant,
-// deny:no_policy_result). These pass through unchanged: they are a closed,
-// small set written directly into policy source, not request-derived text.
-var knownDenyReasons = map[string]struct{}{
-	"deny:no_matching_grant":          {},
-	"deny:delegation_required":        {},
-	"deny:no_delegation_scope":        {},
-	"deny:no_delegator_grant":         {},
-	"deny:no_agent_grant":             {},
-	"deny:delegation_run_mismatch":    {},
-	"deny:delegation_run_unbound":     {},
-	"deny:invalid_delegation_token":   {},
-	"deny:invalid_token":              {},
-	"deny:no_route_match":             {},
-	"deny:no_policy_result":           {},
-	"no claims provided":              {},
-	"no policy configured for tenant": {},
-}
-
 // classifyDenyReason maps a policy.Result.Reason to a bounded-cardinality
 // metric label.
 //
-// Most deny reasons are one of the small fixed set in knownDenyReasons, and
-// pass through unchanged. But not every reason rule in the bundles is fixed
-// text: authz_gateway.rego's role-based reason rule
+// The evaluator and its OPA bundles emit a closed, small set of fixed-text
+// deny reasons (the "REASON RULES" sections of authz.rego/authz_gateway.rego,
+// plus engine.go's early-exit literals) — these have no colon and pass
+// through unchanged. But not every reason rule in the bundles is fixed text:
+// authz_gateway.rego's role-based reason rule
 // (`reason := concat("", ["role:", min(matched_roles)])`) fires on a deny path
 // and embeds a tenant-defined role name — free-form, per-tenant, and not drawn
-// from any bounded enum. Any reason outside the known set is coarsened to the
-// text before its first colon (e.g. "role:billing-admin" -> "role"), or
-// "other" if it has none, so a label like that — or any future free-text
-// reason rule — can never add unbounded series to this metric.
+// from any bounded enum. Any reason containing a colon is coarsened to the
+// text before its first colon (e.g. "role:billing-admin" -> "role"), so a
+// label like that — or any future free-text reason rule using the same
+// "prefix:detail" convention — can never add unbounded series to this metric,
+// without needing to enumerate every fixed reason string here too.
 func classifyDenyReason(reason string) string {
 	if reason == "" {
 		return "unknown"
 	}
-	if _, ok := knownDenyReasons[reason]; ok {
-		return reason
-	}
 	if idx := strings.IndexByte(reason, ':'); idx > 0 {
 		return reason[:idx]
 	}
-	return "other"
+	return reason
 }

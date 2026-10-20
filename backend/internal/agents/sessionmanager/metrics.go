@@ -7,6 +7,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/runkora/kora/backend/internal/platform/metrics/buckets"
 )
 
 // Metrics is this package's instrument set
@@ -30,6 +32,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 		"orbit.agents.sandbox_provision_duration",
 		metric.WithDescription("Elapsed time since a sandbox provision request started, reported at each phase"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(buckets.Default...),
 	); err != nil {
 		return nil, fmt.Errorf("create sandbox-provision-duration histogram: %w", err)
 	}
@@ -53,6 +56,14 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	return m, nil
 }
 
+// Close is a no-op: this Metrics type registers no observable-gauge
+// callback to unregister. It exists so main.go can defer Close uniformly
+// across every domain metrics instance it constructs, nil-safe like every
+// other service's Close.
+func (m *Metrics) Close() error {
+	return nil
+}
+
 // recordSandboxPhase records how long a sandbox provision has been running
 // when it reaches phase (one of the SandboxPhase* consts), and counts a
 // failure when phase is SandboxPhaseFailed.
@@ -65,14 +76,18 @@ func (m *Metrics) recordSandboxPhase(ctx context.Context, phase string, elapsed 
 	if m == nil {
 		return
 	}
-	attrs := metric.WithAttributes(
+	m.sandboxProvisionDuration.Record(ctx, elapsed.Seconds(), metric.WithAttributes(
 		attribute.String("phase", phase),
 		attribute.String("tenant_id", tenantID),
 		attribute.String("agent_id", agentTypeID),
-	)
-	m.sandboxProvisionDuration.Record(ctx, elapsed.Seconds(), attrs)
+	))
 	if phase == SandboxPhaseFailed {
-		m.sandboxProvisionFailures.Add(ctx, 1, attrs)
+		// No phase label here: this branch is the only place the counter is
+		// incremented, so phase is always "failed" and the label adds nothing.
+		m.sandboxProvisionFailures.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("tenant_id", tenantID),
+			attribute.String("agent_id", agentTypeID),
+		))
 	}
 }
 

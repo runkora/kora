@@ -7,6 +7,7 @@ package policyservice
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -14,6 +15,13 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/policyservice/api"
 )
+
+// metricsSnapshotQueryTimeout bounds the grants/roles/bundle-staleness
+// gauges' DB read. The Prometheus exporter invokes this callback at scrape
+// time with context.TODO() — no deadline of its own — so without a timeout a
+// slow database hangs the whole scrape indefinitely. Mirrors the short
+// DB-query budgets in internal/platform/storage/db.go (ping/health checks).
+const metricsSnapshotQueryTimeout = 5 * time.Second
 
 // snapshotReader is the one read the grants/roles/bundle-staleness gauges
 // take. *api.Service satisfies it (api.Service.MetricsSnapshot).
@@ -64,7 +72,7 @@ func NewMetrics(meter metric.Meter, reader snapshotReader, logger logging.Logger
 	}
 
 	staleBundles, err := meter.Int64ObservableGauge(
-		"orbit.policyservice.bundle_stale_total",
+		"orbit.policyservice.bundles_stale",
 		metric.WithDescription("Count of known tenants whose compiled OPA bundle is stale"),
 		metric.WithUnit("{tenant}"),
 	)
@@ -74,6 +82,9 @@ func NewMetrics(meter metric.Meter, reader snapshotReader, logger logging.Logger
 
 	m.registration, err = meter.RegisterCallback(
 		func(ctx context.Context, o metric.Observer) error {
+			ctx, cancel := context.WithTimeout(ctx, metricsSnapshotQueryTimeout)
+			defer cancel()
+
 			snapshot, snapErr := reader.MetricsSnapshot(ctx)
 			if snapErr != nil {
 				// Reported, not returned: a failed scrape of these gauges must

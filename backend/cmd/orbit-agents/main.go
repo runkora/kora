@@ -123,10 +123,19 @@ func realMain() error {
 		return fmt.Errorf("load brand: %w", err)
 	}
 
-	server, repo, atSvc, runSvc, draftSvc, err := initServer(ctx, logger, db, storage.NewJTIBlocklist(redis), eval, idClient, selfToken, metrics, b)
+	server, repo, atSvc, runSvc, draftSvc, agentsMetrics, err := initServer(ctx, logger, db, storage.NewJTIBlocklist(redis), eval, idClient, selfToken, metrics, b)
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
 	}
+	// Close is nil-safe (see (*agents.Metrics).Close), so this runs
+	// unconditionally — mirroring shutdownMeter above, this unregisters the
+	// runs-active/sessions-active/agent-info observable-gauge callback on
+	// shutdown.
+	defer func() {
+		if err := agentsMetrics.Close(); err != nil {
+			logger.Error(ctx, "Error shutting down orbit-agents metrics", logging.Field{Key: "error", Value: err.Error()})
+		}
+	}()
 
 	// Register now and keep the registration alive across policy-service
 	// restarts; the shared helper owns the retry and re-registration cadence.
@@ -195,7 +204,7 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 	return db, rc, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, blocklist mw.JTIBlocklist, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error), metrics *platformmetrics.Bootstrap, b brand.Brand) (*http.Server, *agents.PostgresRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, blocklist mw.JTIBlocklist, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error), metrics *platformmetrics.Bootstrap, b brand.Brand) (*http.Server, *agents.PostgresRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, *agents.Metrics, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := agentsConfig.Current
@@ -207,7 +216,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	// unregistered route denies every request, so a blank string took out both
 	// grant management and the entire agents API, silently.
 	if cfg.Platform.PolicyServiceURL == "" {
-		return nil, nil, nil, nil, nil, fmt.Errorf("platform.policyServiceURL is required")
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("platform.policyServiceURL is required")
 	}
 	pc := policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
 
@@ -230,7 +239,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 
 	patches, workloads, err := loadProvisioning(cfg, patchDir, b)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
 	logger.Info(ctx, "loaded provisioning config",
 		logging.Field{Key: "patch_dir", Value: patchDir},
@@ -240,7 +249,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 
 	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, provisionerConfig(cfg, patches, workloads, b), pc)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
 	}
 
 	repo := agents.NewPostgresRepository(db.Pool())
@@ -260,7 +269,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 
 	sizes := environmentSizes(cfg)
 	if validateErr := sizes.Validate(); validateErr != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", validateErr)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", validateErr)
 	}
 	runSvc, err := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo, agents.RunServiceConfig{
 		DefaultEnvironmentSize:  sizes.Default,
@@ -279,18 +288,18 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		Brand:             b,
 	}, logger)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("initialize run service: %w", err)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("initialize run service: %w", err)
 	}
 
 	// Domain metrics (docs/adr/2026-10-07-domain-metrics-instrumentation.md):
 	// run transitions/duration/reaped counts, browser-session (SSE
 	// subscription) duration, and the agent_info info-metric. repo satisfies
 	// the narrow runStateReader and agentTypeLister interfaces structurally;
-	// pubsub satisfies sessionCounter the same way.
-	agentsMetrics, err := agents.NewMetrics(metrics.Meter(), repo, pubsub, repo, logger)
-	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("create agents metrics: %w", err)
-	}
+	// pubsub satisfies sessionCounter the same way. Failing to build them is
+	// not fatal — see platformmetrics.RegisterDomain.
+	agentsMetrics := platformmetrics.RegisterDomain(ctx, logger, "orbit-agents", func() (*agents.Metrics, error) {
+		return agents.NewMetrics(metrics.Meter(), repo, pubsub, repo, logger)
+	})
 	pubsub.SetMetrics(agentsMetrics)
 	runSvc.SetMetrics(agentsMetrics)
 
@@ -345,7 +354,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		controller,
 		catalogController,
 	)
-	return server, repo, atSvc, runSvc, draftSvc, nil
+	return server, repo, atSvc, runSvc, draftSvc, agentsMetrics, nil
 }
 
 // sandboxGuardrails reads the install's sandbox provisioning settings.

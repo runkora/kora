@@ -9,6 +9,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/runkora/kora/backend/internal/platform/metrics/buckets"
 )
 
 // Metrics is the tool-gateway's instrument set.
@@ -57,8 +59,9 @@ func NewMetrics(meter metric.Meter, snapshots snapshotReader) (*Metrics, error) 
 
 	if m.invocationDuration, err = meter.Float64Histogram(
 		"orbit.tool_gateway.invocation_duration",
-		metric.WithDescription("Wall time of a tools/call request, from receipt to policy decision"),
+		metric.WithDescription("Wall time of a tools/call request: for an allowed call, receipt through the completed upstream round trip; for a denied or errored call, receipt through the policy decision"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(buckets.Default...),
 	); err != nil {
 		return nil, fmt.Errorf("create invocation-duration histogram: %w", err)
 	}
@@ -112,14 +115,23 @@ func (m *Metrics) Close() error {
 }
 
 // recordInvocation records one tools/call outcome: whether the policy check
-// errored, denied, or allowed the call, how long reaching that decision took,
-// which server it targeted, and the caller's tenant. decision is one of
-// "error", "deny", "allow" — the same three values already set on the
-// request span's mcp.decision attribute, so the metric and the trace agree
-// on vocabulary. tenantID is the caller's claims.Kora.TenantID: per the ADR's
-// 2026-10-20 amendment, tenant_id is now a default-safe label (tenant count
-// is confirmed single digits to low tens per cluster), unlike the "tool"
-// label below which stays excluded.
+// errored, denied, or allowed the call, how long the call took, which server
+// it targeted, and the caller's tenant. decision is one of "error", "deny",
+// "allow" — the same three values already set on the request span's
+// mcp.decision attribute, so the metric and the trace agree on vocabulary.
+// It is also what a malformed request (bad params, missing tool name) is
+// recorded as: those never reach a policy decision, but they are still a
+// gateway-side failure and must not be invisible to this metric.
+// tenantID is the caller's claims.Kora.TenantID: per the ADR's 2026-10-20
+// amendment, tenant_id is now a default-safe label (tenant count is confirmed
+// single digits to low tens per cluster), unlike the "tool" label below which
+// stays excluded.
+//
+// took is end-to-end for an allowed call (policy check plus the upstream
+// round trip — handleToolsCall starts the timer on receipt and only records
+// after the upstream proxy call returns) and decision-only for deny/error,
+// since those paths never reach the upstream. The histogram's doc comment
+// states this split explicitly rather than mislabeling either path.
 //
 // Deliberately no "tool" label: tool comes straight from the caller-supplied
 // JSON-RPC params.name, and is recorded (for the deny/error paths especially)

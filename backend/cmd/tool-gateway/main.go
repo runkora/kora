@@ -118,12 +118,16 @@ func realMain() error {
 		// Proxy mode has no Introspector, so the servers-by-state gauge is not
 		// registered here (snapshots=nil); the invocation counter/histogram are
 		// still usable from handleToolsCall.
-		toolMetrics, err := toolgateway.NewMetrics(metrics.Meter(), nil)
-		if err != nil {
-			logger.Error(ctx, "failed to register tool-gateway metrics; running uninstrumented",
-				logging.Field{Key: "error", Value: err.Error()})
-			toolMetrics = nil
-		}
+		toolMetrics := platformmetrics.RegisterDomain(ctx, logger, "tool-gateway", func() (*toolgateway.Metrics, error) {
+			return toolgateway.NewMetrics(metrics.Meter(), nil)
+		})
+		// Close is nil-safe (see (*toolgateway.Metrics).Close), so this runs
+		// unconditionally.
+		defer func() {
+			if err := toolMetrics.Close(); err != nil {
+				logger.Error(ctx, "Error shutting down tool-gateway metrics", logging.Field{Key: "error", Value: err.Error()})
+			}
+		}()
 		// MCP OAuth (RFC 9728): the MCP route challenges unauthenticated clients
 		// toward the protected-resource metadata, which the metadata controller
 		// serves and which points at the identity authorization server. All URLs
@@ -140,10 +144,16 @@ func realMain() error {
 		// Publisher mode holds the Introspector, so this registers the
 		// servers-by-state gauge; the invocation counter/histogram it also
 		// builds are unused here (tools/call is only served in proxy mode).
-		if _, err := toolgateway.NewMetrics(metrics.Meter(), introspector); err != nil {
-			logger.Error(ctx, "failed to register tool-gateway metrics; running uninstrumented",
-				logging.Field{Key: "error", Value: err.Error()})
-		}
+		publisherMetrics := platformmetrics.RegisterDomain(ctx, logger, "tool-gateway", func() (*toolgateway.Metrics, error) {
+			return toolgateway.NewMetrics(metrics.Meter(), introspector)
+		})
+		// Close is nil-safe (see (*toolgateway.Metrics).Close), so this runs
+		// unconditionally.
+		defer func() {
+			if err := publisherMetrics.Close(); err != nil {
+				logger.Error(ctx, "Error shutting down tool-gateway metrics", logging.Field{Key: "error", Value: err.Error()})
+			}
+		}()
 		selfToken := identityclient.NewClient(tgc.Current.Identity.InternalURL, logger).SelfTokenSource()
 		scopeClient := routescopes.NewClient(tgc.Current.Policy.PolicyServiceInternalURL, selfToken, logger)
 		publisher := toolgateway.NewPublisher(registry, introspector, scopeClient, logger)

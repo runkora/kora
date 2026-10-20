@@ -69,11 +69,11 @@ func (s *Service) dispatchRouted(ctx, dispatchCtx context.Context, t Trigger, p 
 	case err != nil:
 		s.recordDispatchFailure(ctx, t, p.DeliveryID, err)
 	case d.Outcome == RouteOutcomeNoRun:
-		s.recordUnrouted(ctx, t, p.DeliveryID, d)
+		s.recordUnrouted(ctx, t, p.DeliveryID, p.ID, d)
 	case d.Outcome == RouteOutcomeJoinedRun:
-		s.recordStarted(ctx, t, p.DeliveryID, RunStatusJoined, runID)
+		s.recordStarted(ctx, t, p.DeliveryID, RunStatusJoined, runID, p.ID)
 	default:
-		s.recordStarted(ctx, t, p.DeliveryID, RunStatusDispatched, runID)
+		s.recordStarted(ctx, t, p.DeliveryID, RunStatusDispatched, runID, p.ID)
 	}
 	return false
 }
@@ -94,7 +94,7 @@ func (s *Service) clearHoldReason(ctx context.Context, t Trigger, deliveryID str
 // fallback. Only a failed decision counts toward auto-pause, because with no
 // fallback agent nothing else handles the deliveries it drops, and only when
 // the failure is a configuration error (ADR Decision 11).
-func (s *Service) recordUnrouted(ctx context.Context, t Trigger, deliveryID string, d *RoutingDecision) {
+func (s *Service) recordUnrouted(ctx context.Context, t Trigger, deliveryID, ownPendingID string, d *RoutingDecision) {
 	reason := s.brand.ProductName() + " was not sure which agent fits, and the trigger has no fallback agent"
 	if d.Error != nil {
 		reason = "the routing decision failed, and the trigger has no fallback agent"
@@ -107,7 +107,7 @@ func (s *Service) recordUnrouted(ctx context.Context, t Trigger, deliveryID stri
 	if decisionErrorCounts(d.decideErr) {
 		s.countFailure(ctx, t)
 	}
-	s.outcomes.derive(ctx, deliveryID)
+	s.outcomes.deriveSettling(ctx, deliveryID, t.TenantID, ownPendingID)
 }
 
 // decisionErrorCounts reports whether a failed decision is a configuration error

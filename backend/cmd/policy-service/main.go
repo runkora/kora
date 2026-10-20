@@ -118,15 +118,16 @@ func realMain() error {
 	// Failing to register these gauges is not fatal — a service that refuses
 	// to start because a gauge could not be registered has turned its own
 	// observability into an outage — but it is loud, because unmeasured is
-	// not the state anyone signed up for. Mirrors orbit-triggers' NewMetrics
-	// handling (cmd/orbit-triggers/main.go).
-	policyMetrics, err := policyservice.NewMetrics(metrics.Meter(), svc, logger)
-	if err != nil {
-		logger.Error(ctx, "failed to register policy-service metrics; running uninstrumented",
-			logging.Field{Key: "error", Value: err.Error()})
-		policyMetrics = nil
-	}
-	defer policyMetrics.Close()
+	// not the state anyone signed up for. RegisterDomain is the shared helper
+	// every service's main.go uses for this.
+	policyMetrics := platformmetrics.RegisterDomain(ctx, logger, "policy-service", func() (*policyservice.Metrics, error) {
+		return policyservice.NewMetrics(metrics.Meter(), svc, logger)
+	})
+	defer func() {
+		if err := policyMetrics.Close(); err != nil {
+			logger.Error(ctx, "Error shutting down policy-service metrics", logging.Field{Key: "error", Value: err.Error()})
+		}
+	}()
 
 	// Self-register the policy service's own routes and platform scope
 	// vocabulary, and keep re-registering.

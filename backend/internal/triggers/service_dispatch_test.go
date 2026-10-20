@@ -447,7 +447,7 @@ func TestAdmission_Wait_LogsEviction(t *testing.T) {
 	svc, deps := newTestService(t)
 	trig := newAdmissionTrigger(t, deps, OverflowWait, 1, 2)
 	lg := &warnCapture{Logger: silentLogger()}
-	svc.admission = NewAdmission(deps.repo, lg)
+	svc.admission = NewAdmission(deps.repo, lg, nil)
 
 	ids := enqueue(t, svc, deps, trig, 4)
 

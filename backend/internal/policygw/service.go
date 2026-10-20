@@ -45,6 +45,7 @@ func (s *Service) Check(
 		Attributes:   attrs,
 	})
 	if err != nil {
+		s.metrics.recordCheckError(ctx, coarsenResourceType(resourceType), claims.Kora.TenantID, time.Since(start))
 		return policy.Result{}, err
 	}
 	took := time.Since(start)
