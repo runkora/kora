@@ -2,7 +2,6 @@ package egressgw
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -39,9 +38,6 @@ var (
 	nodeLookup = idLookup{kind: "node", subject: "node ids", resolve: ownerScoped.NodeOwners}
 	repoLookup = idLookup{kind: "repository", subject: "repository ids", resolve: ownerScoped.RepoOwners}
 )
-
-// errNodeLookup is the span status of a failed node id owner lookup.
-var errNodeLookup = errors.New("node owner lookup")
 
 // MaxNodeIDs is the most node ids a document may name for the lookup to select a
 // connection. It matches the most ids one lookup call resolves.
@@ -200,14 +196,14 @@ func (b *Broker) resolveOwners(ctx context.Context, claims *token.PlatformClaims
 // lookupOwners runs one candidate's id lookup under its own span and
 // logs it with the run attribution. Its result never reaches the agent.
 func (b *Broker) lookupOwners(ctx context.Context, claims *token.PlatformClaims, c *credentials.Connection, s ownerScoped, ids, categories []string, lookup idLookup) (map[string]string, error) {
-	ctx, span := tracer.Start(ctx, "egress.node_owner_lookup", trace.WithSpanKind(trace.SpanKindInternal))
+	ctx, span := tracer.Start(ctx, "egress."+lookup.kind+"_owner_lookup", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
-	span.SetAttributes(attribute.String("orbit.connection", c.Name), attribute.Int("orbit.node_ids", len(ids)))
+	span.SetAttributes(attribute.String("orbit.connection", c.Name), attribute.Int("orbit."+lookup.kind+"_ids", len(ids)))
 
 	resolved, err := lookup.resolve(s, ctx, ids, categories)
 	fields := []logging.Field{
 		{Key: "connection", Value: c.Name},
-		{Key: "node_ids", Value: len(ids)},
+		{Key: lookup.kind + "_ids", Value: len(ids)},
 		{Key: "resolved", Value: len(resolved)},
 		{Key: "tenant_id", Value: claims.Kora.TenantID},
 		{Key: "principal_id", Value: claims.Subject},
@@ -215,11 +211,11 @@ func (b *Broker) lookupOwners(ctx context.Context, claims *token.PlatformClaims,
 	}
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, errNodeLookup.Error())
-		b.logger.Warn(ctx, "node id owner lookup failed", append(fields, logging.Field{Key: "error", Value: err.Error()})...)
+		span.SetStatus(codes.Error, lookup.kind+" owner lookup")
+		b.logger.Warn(ctx, lookup.kind+" id owner lookup failed", append(fields, logging.Field{Key: "error", Value: err.Error()})...)
 		return nil, err
 	}
-	b.logger.Info(ctx, "node id owner lookup", fields...)
+	b.logger.Info(ctx, lookup.kind+" id owner lookup", fields...)
 	return resolved, nil
 }
 

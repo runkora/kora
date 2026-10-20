@@ -42,7 +42,7 @@ func (c *Client) repoOwner(ctx context.Context, installationToken, id string) (s
 	defer func() { _ = resp.Body.Close() }()
 	switch resp.StatusCode {
 	case http.StatusOK:
-	case http.StatusNotFound, http.StatusForbidden:
+	case http.StatusNotFound:
 		return "", nil
 	default:
 		return "", c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
