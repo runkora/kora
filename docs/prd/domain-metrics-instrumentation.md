@@ -39,7 +39,7 @@ Every rolled-out service exposes `/metrics`, but the only series present are the
 
 ### Primary Goals
 
-1. Instrument the domain events already identified in the companion ADR's (`2026-10-07-domain-metrics-instrumentation.md`) Implementation section, across all four rollout tiers, in one stacked PR on top of #408.
+1. Instrument the domain events already identified in the companion ADR's (`2026-10-07-domain-metrics-instrumentation.md`) Implementation section, across all four rollout tiers.
 2. Keep every new label low-cardinality by construction: enum-backed values only, never a raw user-supplied string, except `tenant_id` (default-safe at this platform's confirmed scale) and `agent_id` (a bounded, admin-curated catalog — see the cardinality policy below) — and never a per-run, per-session, or per-principal ID at any scope.
 3. Reuse the exact `meter`/`MetricsMiddleware` wiring the prior PRD built; no new ports, no new config surface, no chart changes.
 
@@ -87,8 +87,8 @@ Every rolled-out service exposes `/metrics`, but the only series present are the
 - [ ] `orbit_policygw_checks_total{allow,resource_type,tenant_id}`/`_check_duration_seconds`/`_denies_total{reason,tenant_id}` present.
 - [ ] `orbit_policyservice_grants{principal_type}`/`_roles{kind}` are tenant-aggregate gauges (no `tenant_id` label — see Non-Goals; unaffected by the 2026-10-20 amendment).
 - [ ] `orbit_triggers_delivery_outcomes_total{outcome,tenant_id}`/`_admission_outcomes_total{outcome,tenant_id}` present, on the existing `orbit-triggers` meter.
-- [ ] `orbit_egress_gateway_credentials_minted_total{adapter,action,tenant_id}`/`_mint_duration_seconds`/`_mint_failures_total{reason,tenant_id}` present, instrumented at the `egressgw/service.go` call site (the `Connector.Mint` implementation itself lives in the shared `internal/credentials` package and is not modified).
-- [ ] `orbit_tool_gateway_invocations_total{server,decision,tenant_id}`/`_invocation_duration_seconds` and `orbit_tool_gateway_servers{state}` present. (`tool` is not a label — see Cardinality Policy correction in the ADR: the proxy binary has no cheap, bounded tool catalog to validate against on the hot path.)
+- [ ] `orbit_egress_gateway_decisions_total{outcome,adapter,tenant_id}` covers the full authorization outcome (allow/deny/passthrough/error); `_credentials_minted_total`/`_mint_duration_seconds`/`_mint_failures_total{reason,tenant_id}` are narrowed to fire only around the real `Connector.Mint` call (the `Mint` implementation itself lives in the shared `internal/credentials` package and is not modified).
+- [ ] `orbit_tool_gateway_invocations_total{server,decision,tenant_id}`/`_invocation_duration_seconds` and `orbit_tool_gateway_servers{state}` present. No `tool` label — the proxy binary has no cheap, bounded tool catalog to validate a caller-supplied tool name against on the hot path.
 - [ ] `orbit_session_manager_sessions_active{tenant_id}` present (meter already wired in `cmd/session-manager/main.go` from PR #408; this just adds the observable callback).
 
 ---
@@ -102,7 +102,7 @@ No new packages, ports, or chart changes. Each service's `main.go` already const
 ### Cardinality Policy (binding for this PRD and future metric additions; revised 2026-10-20)
 
 1. **Default:** every label value must come from a `const`/enum type (status, state, reason, kind, decision) — never a raw user-supplied string, ID, or name, unless that value set is itself a small, bounded, admin-curated catalog (see 2 and 4 below).
-2. **Tenant ID is a default-safe label**, since confirmed deployment scale is single digits to low tens of tenants per cluster (operator-managed, not self-service SaaS — see the ADR's 2026-10-20 amendment). Add it to any metric unless explicitly excluded below. Still excluded from the generic cross-cutting `orbit_<service>_http_requests_total`/`_http_request_duration_seconds` (unchanged from #408) and from `orbit_inference_gateway_request_duration_seconds` (already multiplies with provider/model/status) — and deliberately absent from `orbit_policyservice_grants`/`_roles`/`_bundle_stale_total`, where `policyservice.Stats()`'s per-tenant isolation is a boundary unrelated to cardinality.
+2. **Tenant ID is a default-safe label**, since confirmed deployment scale is single digits to low tens of tenants per cluster (operator-managed, not self-service SaaS — see the ADR's 2026-10-20 amendment). Add it to any metric unless explicitly excluded below. Still excluded from the generic cross-cutting `orbit_<service>_http_requests_total`/`_http_request_duration_seconds` and from `orbit_inference_gateway_request_duration_seconds` (already multiplies with provider/model/status) — and deliberately absent from `orbit_policyservice_grants`/`_roles`/`_bundles_stale`, where `policyservice.Stats()`'s per-tenant isolation is a boundary unrelated to cardinality. **Note:** this puts tenant-identifying values on an unauthenticated endpoint, in tension with the stricter no-IDs-ever rule the Prometheus Metrics Endpoints ADR established — see that ADR's "Known Tension with the Unauthenticated-Endpoint Rule" for the accepted-risk reasoning.
 3. **Run IDs, session IDs, and principal IDs never become label values**, at any scope — these are genuinely unbounded (single-use or per-user growth). Where a breakdown by one of these would be valuable, it belongs in traces/logs (unbounded cardinality is free there) or a periodic DB-aggregated export — not a Prometheus label.
 4. **Agent ID is a bounded label on `orbit-agents` run/sandbox metrics.** Confirmed: `AgentType` is a small, admin-curated catalog (each provisions a real Kubernetes StatefulSet, created through a guided builder UI, no bulk-creation path) — structurally identical to the already-accepted `role_pool` precedent, not the unbounded free-text case (MCP tool names) that review caught twice. **Agent *name* is still never a label** (a rename would churn series identity) — it's carried instead by a dedicated low-cardinality info metric (`orbit_agents_agent_info{agent_id,agent_name,tenant_id,framework}`, the standard Prometheus "info metric" pattern) that Grafana joins on `agent_id`.
 5. **Agent framework** (`claude-code`/`codex`/`opencode`, from `agents.AgentFramework`) is a safe, bounded label — add it to `orbit-agents` run-state metrics.
@@ -134,7 +134,7 @@ No new Go packages. Changes are additive instrumentation inside each service's e
 
 ### Functional Requirements
 
-**Must Have (P0):** see User Stories' acceptance criteria above — all of it, across all four tiers, per the user's explicit direction to ship this as a single stacked PR rather than incremental per-tier PRs (deviating from the prior PRD's own stated preference for incremental follow-ups — noted, not re-litigated here).
+**Must Have (P0):** see User Stories' acceptance criteria above — all of it, across all four tiers.
 
 **Should Have (P1):** none remaining — the one deferred item (a `tenant_id`-labeled `orbit_agents_runs_active` breakdown) is superseded by the 2026-10-20 amendment's `{state,framework,tenant_id,agent_id}` version, which is now a P0 (see User Stories above).
 
@@ -163,7 +163,7 @@ None new.
 |------|--------|-------------|------------|
 | A label silently becomes unbounded later (e.g. someone adds a run ID "just for debugging") | High (Prometheus/alerting degradation) | Low | Cardinality Policy section above is binding; call out explicitly in code review |
 | `policyservice.Stats()`'s per-tenant isolation gets weakened to support a gauge callback | Medium (cross-tenant data exposure) | Low | This PRD ships tenant-aggregate-only gauges; per-tenant breakdown is explicitly out of scope, not implemented as a shortcut |
-| Extra `GetAgentType` DB lookup per run transition for the `framework`/`agent_id` labels adds load | Low | Low | PR #418 review correctly flagged that `Transition` runs on every state change, including the frequent idle↔active boundary, not just terminal ones. Mitigated with an in-process `sync.Map[runID]AgentFramework` cache on `RunService`: one DB read per run's lifetime, not per transition |
+| Extra `GetAgentType` DB lookup per run transition for the `framework`/`agent_id` labels adds load | Low | Low | `Transition` runs on every state change, including the frequent idle↔active boundary, not just terminal ones. Mitigated with an in-process `sync.Map[runID]runMetricLabels` cache on `RunService`: one DB read per run's lifetime, not per transition |
 | Tenant count or agent-types-per-tenant grows by an order of magnitude after this ADR's 2026-10-20 amendment, making the now-broadly-applied `tenant_id`/`agent_id` labels a real cardinality problem | Medium | Low | Both bounds are re-derivable from deployment data (`SELECT count(*) FROM tenants`, `SELECT tenant_id, count(*) FROM agent_types GROUP BY tenant_id`); revisit the amendment if either grows an order of magnitude past "low tens" |
 
 ---
