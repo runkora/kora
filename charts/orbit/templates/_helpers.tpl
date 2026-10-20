@@ -735,3 +735,13 @@ endpoint is set. The port parse matches the collector rule in netpols.yaml.
 {{- $cidrs | uniq | join "," -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Startup probe budget in seconds for the sandbox containers, shared by orbit-agents
+(sandbox-exec) and the operator webhook (identity-proxy, opa).
+*/}}
+{{- define "orbit.sandboxStartupSeconds" -}}
+{{- $s := int .Values.agents.sandboxStartupSeconds -}}
+{{- if lt $s 1 }}{{ fail "agents.sandboxStartupSeconds must be at least 1" }}{{ end -}}
+{{- $s -}}
+{{- end }}

@@ -55,6 +55,7 @@ agents:
   # Pull secrets for the images above, rendered by the chart.
   imagePullSecrets: []
   maxConcurrentRunsPerPod: 10
+  sandboxStartupSeconds: 120
   # Sandbox provisioning guardrails, sent with every run: attempts per request,
   # the first backoff (doubling), and the budget across attempts. See
   # docs/adr/2026-09-29-agent-run-guardrails.md.

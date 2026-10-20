@@ -6,6 +6,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
 	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
+	"github.com/runkora/kora/backend/internal/platform/probes"
 )
 
 // stubConns is a connectionResolver whose registry can be empty (nothing
@@ -180,9 +181,16 @@ func TestSandboxContainer_StartupProbe(t *testing.T) {
 	if sp.PeriodSeconds != 1 || sp.InitialDelaySeconds != 0 {
 		t.Errorf("startup period/delay = %d/%d, want 1/0", sp.PeriodSeconds, sp.InitialDelaySeconds)
 	}
-	// A slow start must not become a restart: cover at least 30s.
-	if sp.FailureThreshold*sp.PeriodSeconds < 30 {
-		t.Errorf("startup allows %ds, want at least 30s", sp.FailureThreshold*sp.PeriodSeconds)
+	if got := sp.FailureThreshold * sp.PeriodSeconds; got != probes.DefaultStartupSeconds {
+		t.Errorf("startup allows %ds, want the default %ds", got, probes.DefaultStartupSeconds)
+	}
+	cfg.SandboxStartupSeconds = 300
+	c, err = sandboxContainer(cfg, testSandboxSpec(), "run-1", "token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.StartupProbe.FailureThreshold * c.StartupProbe.PeriodSeconds; got != 300 {
+		t.Errorf("startup allows %ds with an override of 300s", got)
 	}
 	if rp.InitialDelaySeconds != 0 {
 		t.Errorf("readiness initial delay = %d, want 0", rp.InitialDelaySeconds)

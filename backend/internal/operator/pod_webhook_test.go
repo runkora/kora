@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/runkora/kora/backend/internal/platform/probes"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -340,12 +341,14 @@ func TestMutate_SidecarStartupProbes(t *testing.T) {
 	if err := testMutator().mutate(pod, "example", ""); err != nil {
 		t.Fatal(err)
 	}
-	// Worst case of the previous readiness probe: delay plus period times threshold.
-	oldBudget := map[string]int32{containerIdentityProxy: 5 + 5*10, containerOPA: 3 + 5*12}
+	// The default must stay above the worst case of the previous readiness
+	// probes: delay plus period times threshold.
+	if probes.DefaultStartupSeconds < 5+5*10 || probes.DefaultStartupSeconds < 3+5*12 {
+		t.Fatalf("default startup budget %ds is below the old readiness budgets", probes.DefaultStartupSeconds)
+	}
 	seen := 0
 	for _, c := range pod.Spec.InitContainers {
-		budget, ok := oldBudget[c.Name]
-		if !ok {
+		if c.Name != containerIdentityProxy && c.Name != containerOPA {
 			continue
 		}
 		seen++
@@ -359,11 +362,25 @@ func TestMutate_SidecarStartupProbes(t *testing.T) {
 		if sp.PeriodSeconds != 1 || sp.InitialDelaySeconds != 0 || rp.InitialDelaySeconds != 0 {
 			t.Errorf("%s: startup period %d, startup delay %d, readiness delay %d, want 1/0/0", c.Name, sp.PeriodSeconds, sp.InitialDelaySeconds, rp.InitialDelaySeconds)
 		}
-		if got := sp.FailureThreshold * sp.PeriodSeconds; got < budget {
-			t.Errorf("%s: startup allows %ds, want at least %ds", c.Name, got, budget)
+		if got := sp.FailureThreshold * sp.PeriodSeconds; got != probes.DefaultStartupSeconds {
+			t.Errorf("%s: startup allows %ds, want the default %ds", c.Name, got, probes.DefaultStartupSeconds)
 		}
 	}
 	if seen != 2 {
 		t.Fatalf("checked %d sidecars, want 2", seen)
+	}
+
+	m := testMutator()
+	m.Config.StartupProbeSeconds = 300
+	pod = sandboxLikePod()
+	if err := m.mutate(pod, "example", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range pod.Spec.InitContainers {
+		if c.Name == containerIdentityProxy || c.Name == containerOPA {
+			if got := c.StartupProbe.FailureThreshold * c.StartupProbe.PeriodSeconds; got != 300 {
+				t.Errorf("%s: startup allows %ds with an override of 300s", c.Name, got)
+			}
+		}
 	}
 }

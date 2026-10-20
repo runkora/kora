@@ -48,6 +48,7 @@ import (
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/ports"
+	"github.com/runkora/kora/backend/internal/platform/probes"
 	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
@@ -82,6 +83,9 @@ type K8sProvisionerConfig struct {
 	// SandboxReadyWait bounds the wait for a sandbox pod to become ready. Zero uses defaultSandboxReadyWait.
 	SandboxReadyWait time.Duration
 	SandboxGRPCPort  int32
+	// SandboxStartupSeconds is how long sandbox-exec may take to start before its
+	// startup probe restarts it. Zero uses probes.DefaultStartupSeconds.
+	SandboxStartupSeconds int
 	// GitAuthorName/GitAuthorEmail set the git identity for commits the agent
 	// makes in the sandbox (GIT_AUTHOR_*/GIT_COMMITTER_*). Empty = leave unset.
 	GitAuthorName  string
@@ -1279,12 +1283,12 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 		VolumeMounts:    mounts,
 		WorkingDir:      workspaceDir,
 		// The startup probe checks every second so the pod is Ready soon after
-		// the port opens. It allows 60s before a restart. The readiness probe
-		// keeps its steady-state period.
+		// the port opens. Its budget is the ceiling for a stuck container, not
+		// the expected start time. The readiness probe keeps its steady-state period.
 		StartupProbe: &corev1.Probe{
 			ProbeHandler:     sandboxProbeHandler(cfg.SandboxGRPCPort),
-			PeriodSeconds:    1,
-			FailureThreshold: 60,
+			PeriodSeconds:    probes.StartupPeriodSeconds,
+			FailureThreshold: probes.StartupFailureThreshold(cfg.SandboxStartupSeconds),
 		},
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler:  sandboxProbeHandler(cfg.SandboxGRPCPort),

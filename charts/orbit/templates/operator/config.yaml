@@ -39,6 +39,7 @@ cmd/operator:
       bundlePollingMinDelay: {{ .Values.operator.injection.opa.bundlePolling.minDelaySeconds | int }}
       bundlePollingMaxDelay: {{ .Values.operator.injection.opa.bundlePolling.maxDelaySeconds | int }}
       opaResources: {{ .Values.operator.injection.opa.resources | toJson }}
+      startupProbeSeconds: {{ include "orbit.sandboxStartupSeconds" . }}
       sandboxSidecars: {{ .Values.operator.injection.sandboxSidecars | toJson }}
     podSecurity:
       enforce: {{ .Values.operator.tenantPodSecurity.enforce | toJson }}

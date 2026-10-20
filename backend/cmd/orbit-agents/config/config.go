@@ -88,6 +88,9 @@ type Config struct {
 			SandboxProvisionBackoffSecs int `yaml:"sandboxProvisionBackoffSecs"`
 			SandboxProvisionBudgetSecs  int `yaml:"sandboxProvisionBudgetSecs"`
 		} `yaml:"guardrails"`
+		// SandboxStartupSeconds is how long sandbox-exec may take to start before
+		// its startup probe restarts it. Zero takes the default.
+		SandboxStartupSeconds int `yaml:"sandboxStartupSeconds"`
 		// IdleTimeout is how long a run may sit idle before its session closes,
 		// by how the run started. Sent to the session-manager with each run.
 		IdleTimeout struct {

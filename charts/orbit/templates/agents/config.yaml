@@ -50,6 +50,7 @@ cmd/orbit-agents:
     sandboxGitAuthorName: {{ .Values.agents.config.sandboxGitAuthorName | default "kora-agent" | toJson }}
     sandboxGitAuthorEmail: {{ .Values.agents.config.sandboxGitAuthorEmail | toJson }}
     imagePullSecrets: {{ include "orbit.imagePullSecretNames" . }}
+    sandboxStartupSeconds: {{ include "orbit.sandboxStartupSeconds" . }}
     guardrails:
       sandboxProvisionAttempts: {{ $guardrails.sandboxProvisionAttempts | int }}
       sandboxProvisionBackoffSecs: {{ $guardrails.sandboxProvisionBackoffSecs | int }}
