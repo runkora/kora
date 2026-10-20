@@ -350,7 +350,7 @@ export function fetchModels(): Promise<{ data: ModelObject[]; error: string | nu
     // an embeddings model in this list is a nonsense option.
     (b) =>
       ((b as { data?: ModelObject[] }).data ?? []).filter(
-        (m) => m.status === 'available' && m.capabilities.includes('chat'),
+        (m) => m.status === 'available' && (m.capabilities ?? []).includes('chat'),
       ),
     [],
     'models',
