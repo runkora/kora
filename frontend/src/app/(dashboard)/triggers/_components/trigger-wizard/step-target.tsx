@@ -612,7 +612,12 @@ function CandidateCard({
               </Stack>
             )}
           </Stack>
-          {enabled && <Checkbox checked={checked} onChange={onToggle} aria-label={agentLabel(a)} />}
+          {enabled && (
+            // The card toggles on click, so keep the checkbox's click from toggling it a second time.
+            <Text as="span" onClick={(e) => e.stopPropagation()}>
+              <Checkbox checked={checked} onChange={onToggle} aria-label={agentLabel(a)} />
+            </Text>
+          )}
         </Stack>
       </CardContent>
     </Card>
