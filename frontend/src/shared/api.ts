@@ -897,10 +897,13 @@ export interface Trigger {
   /** Webhook only, and only with overflow `wait`. Absent when off. */
   coalesce?: TriggerCoalesce;
   /**
-   * What this trigger starts. "agent" is the only kind today; triggers are the
-   * front door for starting work, and what gets started is a separate concern.
+   * What this trigger starts: "agent" for one agent, "routed" for a choice
+   * among `routing.candidates` per delivery. A routed trigger has an empty
+   * `agent_type_id` and `agent_slug`.
    */
-  target_kind?: string;
+  target_kind?: TriggerTargetKind;
+  /** Webhook only, set when `target_kind` is "routed". */
+  routing?: TriggerRouting;
   enabled: boolean;
   created_at: string;
   updated_at: string;
@@ -926,6 +929,68 @@ export interface Trigger {
   pending_count?: number;
 }
 
+/** What a trigger starts. Mirrors Go: triggers.TargetKindAgent, TargetKindRouted. */
+export type TriggerTargetKind = 'agent' | 'routed';
+
+/** How sure the decision model must be before a delivery is routed. */
+export type TriggerRoutingConfidence = 'strict' | 'balanced' | 'loose';
+
+/** A routed trigger's routing object. Mirrors Go: triggers.RoutingConfig. */
+export interface TriggerRouting {
+  /** Agent type ids a delivery may start or join, 2..20. */
+  candidates: string[];
+  /** The decision model's catalog id, e.g. "liquid/d1". */
+  model: string;
+  confidence: TriggerRoutingConfidence;
+  /** The candidate that takes a delivery routing is unsure about; null starts no run. */
+  fallback_agent_type_id: string | null;
+  /** Lets a delivery join an open run. Omitted on a request, it is on. */
+  join_runs?: boolean;
+  /** Template in the prompt_template syntax; a match joins that key's open run. */
+  join_key?: string;
+}
+
+/**
+ * An agent type as the routing step lists it. Mirrors Go:
+ * triggers.RoutingCandidate, from GET /api/v1/triggers/routing/candidates.
+ */
+export interface TriggerRoutingCandidate {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  identity_mode?: AgentIdentityMode;
+  /** The caller holds the agent's run scopes and the agent is not delegated. */
+  runnable: boolean;
+  /** Why a non-runnable agent cannot be a candidate. */
+  reason?: string;
+}
+
+/** Outcomes of a routing decision. Mirrors Go: triggers.RouteOutcome*. */
+export type TriggerRouteOutcome = 'new_run' | 'joined_run' | 'fallback_run' | 'no_run';
+
+/**
+ * What a routed trigger decided for one delivery, on its delivery run row.
+ * Mirrors Go: triggers.RoutingDecision.
+ */
+export interface TriggerRoutingDecision {
+  outcome: TriggerRouteOutcome;
+  key_matched: boolean;
+  join_key: string | null;
+  /** Null when the join key decided without a model call. */
+  model: string | null;
+  /** The agent that received the delivery. */
+  agent_type_id: string | null;
+  /** The chosen option's probability. */
+  probability: number | null;
+  threshold: number | null;
+  /** Probabilities keyed by agent type id, and by run id ("new" for a new run). */
+  scores: { agents?: Record<string, number>; runs?: Record<string, number> };
+  /** below_threshold, decision_failed or run_closed. */
+  fallback_reason: string | null;
+  error: string | null;
+}
+
 /** Request body for POST /api/triggers. */
 export interface TriggerCreateRequest {
   /**
@@ -935,7 +1000,11 @@ export interface TriggerCreateRequest {
   /** Required for webhook triggers. */
   source_id?: string;
   name: string;
-  agent_type_id: string;
+  /** Required unless `target_kind` is "routed". */
+  agent_type_id?: string;
+  /** Defaults to "agent". "routed" is webhook only and needs `routing`. */
+  target_kind?: TriggerTargetKind;
+  routing?: TriggerRouting;
   /**
    * Ignored by the backend, which resolves the canonical slug from
    * `agent_type_id` server-side. Optional and retained only for backward
@@ -983,6 +1052,8 @@ export interface TriggerUpdateRequest {
   sender_restriction?: SenderRestriction;
   /** Webhook only. Replaces the setting; `{}` removes it; omit to leave it alone. */
   coalesce?: TriggerCoalesce | Record<string, never>;
+  /** Routed triggers only. Replaces the stored routing object. */
+  routing?: TriggerRouting;
   /**
    * Suppress a repeat of a delivery already seen. Omit to leave unchanged: a
    * PATCH that only renames a trigger must not re-arm its safety settings.
@@ -1076,7 +1147,9 @@ export interface TriggerDeliveryRun {
   run_id?: string;
   /**
    * What happened for this trigger:
-   * dispatched | failed | filtered | denied | superseded | dropped | paused.
+   * dispatched | joined | unrouted | failed | filtered | denied | superseded |
+   * dropped | paused. `joined` sent the delivery to a run already working;
+   * `unrouted` started nothing under a routed trigger's no-run fallback.
    *
    * This is the level admission control, auto-pause and the console's
    * per-trigger badges act on.
@@ -1085,6 +1158,8 @@ export interface TriggerDeliveryRun {
   error?: string;
   /** Id of the delivery whose fire replaced this one; set when `status` is `superseded`. */
   superseded_by?: string;
+  /** The decision a routed trigger made for this delivery. */
+  routing?: TriggerRoutingDecision;
   created_at: string;
 }
 

@@ -9,8 +9,16 @@
 
 import type { DeliveryRow, TriggerRow } from './index';
 
-/** Delivery outcomes that mean a run started. */
-const DISPATCHED = 'dispatched';
+/**
+ * Delivery outcomes that mean a run took the delivery: one started, or a routed
+ * trigger joined one already working.
+ */
+const STARTED_OUTCOMES = new Set(['dispatched', 'joined']);
+
+/** Whether a per-trigger outcome means a run took the delivery. */
+export function isStartedOutcome(status: string): boolean {
+  return STARTED_OUTCOMES.has(status);
+}
 
 /**
  * Outcomes that represent something going wrong, as opposed to something being
@@ -84,7 +92,7 @@ export function fleetStats(
   let decided = 0;
   for (const d of recent) {
     for (const r of d.runs) {
-      if (r.status === DISPATCHED) {
+      if (isStartedOutcome(r.status)) {
         started++;
         decided++;
       } else if (FAILURE_OUTCOMES.has(r.status)) {
@@ -100,7 +108,7 @@ export function fleetStats(
   for (const d of recent) {
     const arrived = Date.parse(d.receivedAt);
     for (const r of d.runs) {
-      if (r.status !== DISPATCHED || r.createdAt === null) continue;
+      if (!isStartedOutcome(r.status) || r.createdAt === null) continue;
       const done = Date.parse(r.createdAt);
       if (Number.isFinite(arrived) && Number.isFinite(done) && done >= arrived) {
         latencies.push(done - arrived);
@@ -165,7 +173,7 @@ export function sparkline(
     const idx = Math.min(SPARK_BUCKETS - 1, Math.floor((t - (now - DAY_MS)) / bucketMs));
     for (const r of d.runs) {
       if (r.triggerId !== triggerId) continue;
-      if (r.status === DISPATCHED) buckets[idx].started++;
+      if (isStartedOutcome(r.status)) buckets[idx].started++;
       else if (FAILURE_OUTCOMES.has(r.status)) buckets[idx].failed++;
       else buckets[idx].other++;
     }

@@ -128,6 +128,73 @@ describe('POST /api/triggers', () => {
     expect(received?.match_contains).toEqual({ 'comment.body': ['@kora-agent'] });
   });
 
+  it('forwards a routed trigger without an agent', async () => {
+    let received: Record<string, unknown> | undefined;
+    server.use(
+      http.post(TRIGGERS_URL, async ({ request }) => {
+        received = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 't-1', ...received }, { status: 201 });
+      }),
+    );
+    const routing = {
+      candidates: ['agent-1', 'agent-2'],
+      model: 'liquid/d1',
+      confidence: 'balanced',
+      fallback_agent_type_id: null,
+      join_runs: true,
+      join_key: '{{ issue.number }}',
+    };
+
+    const res = await POST(
+      makePostRequest({
+        kind: 'webhook',
+        source_id: 'src-1',
+        name: 'route-github-work',
+        target_kind: 'routed',
+        routing,
+        event_type: 'issues',
+        prompt_template: '{{ issue.title }}',
+      }),
+      { params: Promise.resolve({}) } as never,
+    );
+
+    expect(res.status).toBe(201);
+    expect(received?.target_kind).toBe('routed');
+    expect(received?.routing).toEqual(routing);
+    expect(received?.agent_type_id).toBeUndefined();
+  });
+
+  it('passes the missing scopes of a refused routed trigger through', async () => {
+    server.use(
+      http.post(TRIGGERS_URL, () =>
+        HttpResponse.json(
+          {
+            code: 'forbidden',
+            message: 'caller does not hold the scopes this routed trigger would be granted',
+            details: { missing_scopes: ['inference:liquid:d1:use'], grant_id: 'grant-internal' },
+          },
+          { status: 403 },
+        ),
+      ),
+    );
+
+    const res = await POST(
+      makePostRequest({
+        kind: 'webhook',
+        source_id: 'src-1',
+        name: 'route-github-work',
+        target_kind: 'routed',
+        routing: { candidates: ['a', 'b'], model: 'liquid/d1', confidence: 'balanced' },
+        event_type: 'issues',
+        prompt_template: '{{ issue.title }}',
+      }),
+      { params: Promise.resolve({}) } as never,
+    );
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).details).toEqual({ missing_scopes: ['inference:liquid:d1:use'] });
+  });
+
   it('rejects a webhook trigger without an event type', async () => {
     let called = false;
     server.use(

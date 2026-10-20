@@ -127,3 +127,28 @@ describe('auto-paused', () => {
     expect(screen.queryByText('Auto-paused')).toBeNull();
   });
 });
+
+describe('run authority', () => {
+  const routed = makeTrigger({
+    id: 'r1',
+    name: 'routed',
+    targetKind: 'routed',
+    agentTypeId: '',
+    routing: {
+      candidates: ['at-a', 'at-b'],
+      model: 'liquid/d1',
+      confidence: 'balanced',
+      fallbackAgentTypeId: null,
+      joinRuns: true,
+      joinKey: '',
+    },
+  });
+
+  it('lets a routed trigger be toggled only when every candidate can run', () => {
+    const view = render(list({ triggers: [routed], canRunAgent: (id) => id === 'at-a' }));
+    expect(screen.getByLabelText('Disable routed').hasAttribute('disabled')).toBe(true);
+
+    view.rerender(list({ triggers: [routed], canRunAgent: () => true }));
+    expect(screen.getByLabelText('Disable routed').hasAttribute('disabled')).toBe(false);
+  });
+});

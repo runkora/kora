@@ -26,7 +26,10 @@ function formatMs(ms: number | null): string {
  */
 export function FleetKpis({ triggers, deliveries }: FleetKpisProps) {
   const s = fleetStats(triggers, deliveries);
-  const agents = new Set(triggers.map((t) => t.agentSlug)).size;
+  // A routed trigger reaches each of its candidates.
+  const agents = new Set(
+    triggers.flatMap((t) => (t.routing !== null ? t.routing.candidates : [t.agentTypeId])),
+  ).size;
 
   return (
     <Grid cols={5} gap="comfortable">

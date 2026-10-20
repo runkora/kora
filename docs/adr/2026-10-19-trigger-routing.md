@@ -298,7 +298,7 @@ The API does not return `question_version`.
 
 ### Console
 
-The target step and the delivery detail follow the stories under `Pages/Triggers (proposed)`. The model list reads `GET /api/models` and keeps models whose `capabilities` include `decision`. orbit-triggers adds `GET /api/v1/triggers/routing/candidates` to return the tenant's agent types with a `runnable` flag from orbit-agents' `can_run` for the caller. The list holds the agent types the caller may read. The wizard lists non-runnable and delegated agents as disabled with their reason.
+The target step and the delivery detail follow the routing stories under `Pages/Triggers`. The model list reads `GET /api/models` and keeps models whose `capabilities` include `decision`. orbit-triggers adds `GET /api/v1/triggers/routing/candidates` to return the tenant's agent types with a `runnable` flag from orbit-agents' `can_run` for the caller. The list holds the agent types the caller may read. The wizard lists non-runnable and delegated agents as disabled with their reason.
 
 ---
 

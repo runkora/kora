@@ -6,6 +6,7 @@ import { Card, Icon, Separator, Stack, StatusDot, Text } from '@runkora/hades';
 import { deliveryDotStatus, dispatchDuration } from '../_types';
 import type { DeliveryRow } from '../_types';
 import { DeliveryDetail } from './delivery-detail';
+import type { RoutingAgentName } from './delivery-routing';
 
 interface DeliveryListProps {
   /** Deliveries that reached this trigger, newest first. */
@@ -21,6 +22,8 @@ interface DeliveryListProps {
   ) => Promise<{ deliveryId: string | null; error: string | null }>;
   /** False when the caller may not replay; Redeliver shows disabled with the reason. */
   redeliverAllowed?: boolean;
+  /** Names the agents a routing decision mentions. */
+  agents?: RoutingAgentName[];
 }
 
 /** Compact relative time, so a column of these stays scannable. */
@@ -41,6 +44,7 @@ export function DeliveryList({
   onToggleExpanded,
   onRedeliver,
   redeliverAllowed = true,
+  agents,
 }: DeliveryListProps) {
   return (
     <Stack gap="snug">
@@ -113,6 +117,7 @@ export function DeliveryList({
                     triggerId={triggerId}
                     onRedeliver={onRedeliver}
                     redeliverAllowed={redeliverAllowed}
+                    agents={agents}
                   />
                 </Stack>
               </>

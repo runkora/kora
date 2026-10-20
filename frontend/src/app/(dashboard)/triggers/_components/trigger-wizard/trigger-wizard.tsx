@@ -12,6 +12,7 @@ import { SuccessPanel } from './success-panel';
 import { SHARED_STEPS } from './shared-steps';
 import { TRIGGER_KINDS } from './kinds';
 import { initialState, stepsFor, toDraft } from './wizard-state';
+import { useRoutingOptions } from './use-routing-options';
 import {
   brandedCopy,
   type TriggerKind,
@@ -32,6 +33,7 @@ export function TriggerWizard({
   agentsError = null,
   sources,
   ingestHost,
+  allowRouting = false,
   onCreate,
   onClose,
 }: TriggerWizardProps) {
@@ -46,9 +48,11 @@ export function TriggerWizard({
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<Created | null>(null);
 
+  // Only a webhook trigger can be routed.
+  const routing = useRoutingOptions(allowRouting && kind === 'webhook');
   const context = useMemo<WizardContext>(
-    () => ({ agents, agentsError, sources, ingestHost }),
-    [agents, agentsError, sources, ingestHost],
+    () => ({ agents, agentsError, sources, ingestHost, ...(routing !== undefined && { routing }) }),
+    [agents, agentsError, sources, ingestHost, routing],
   );
 
   const definition = kind ? TRIGGER_KINDS[kind] : null;

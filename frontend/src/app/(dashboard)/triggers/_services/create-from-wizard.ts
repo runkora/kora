@@ -17,7 +17,7 @@
 
 import { createSource, createTrigger } from './triggers-api';
 import { endpointFor } from '../_lib/endpoints';
-import { toCoalesceRequest, toScheduleConfigRequest } from '../_types';
+import { toCoalesceRequest, toRoutingRequest, toScheduleConfigRequest } from '../_types';
 import type { TriggerCreateResult, TriggerDraft } from '../_components/trigger-wizard';
 
 export interface CreateFromWizardOptions {
@@ -52,7 +52,9 @@ export async function createFromWizardDraft(
   const made = await createTrigger({
     kind: draft.kind,
     name: draft.name,
-    agent_type_id: draft.agentTypeId,
+    ...(draft.targetKind === 'routed' && draft.routing !== undefined
+      ? { target_kind: 'routed' as const, routing: toRoutingRequest(draft.routing) }
+      : { agent_type_id: draft.agentTypeId }),
     prompt_template: draft.promptTemplate,
     ...(sourceId !== undefined && { source_id: sourceId }),
     ...(draft.kind === 'webhook' && { event_type: draft.eventType ?? '' }),

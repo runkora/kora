@@ -160,7 +160,7 @@ A Routing section sits above the existing delivery detail. It shows the agent th
 
 ### Designs
 
-The Storybook stories under `Pages/Triggers (proposed)` show the wizard step and the delivery detail in every state above, including no decision models, a search with no match, a low-confidence fallback and a failed model call.
+The routing stories under `Pages/Triggers` show the wizard step and the delivery detail in every state above, including no decision models, a search with no match, a low-confidence fallback and a failed model call.
 
 ---
 

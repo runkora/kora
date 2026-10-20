@@ -10,11 +10,16 @@
 
 import type * as React from 'react';
 import type { IconName } from '@runkora/hades';
-import type { TriggerKind, TriggerOverflow } from '@runkora/shared/api';
+import type {
+  TriggerKind,
+  TriggerOverflow,
+  TriggerRoutingConfidence,
+  TriggerTargetKind,
+} from '@runkora/shared/api';
 import type { Frequency } from './cron';
 import type { FilterRow } from '../filter-rows-editor';
 import type { SenderRestrictionDraft } from '../sender-restriction-editor';
-import type { Senders, TriggerCoalesce } from '../../_types';
+import type { Senders, TriggerCoalesce, TriggerRoutingRow } from '../../_types';
 
 export type { TriggerKind, TriggerOverflow };
 
@@ -36,6 +41,51 @@ export interface TriggerWizardAgent {
   identityMode?: 'autonomous' | 'delegated';
   /** False when the caller may not run the agent, which binding a trigger needs. Absent reads as allowed. */
   canRun?: boolean;
+}
+
+/**
+ * An agent as the routing step lists it. The description is what kora routes
+ * on; `reason` says why an agent that is not runnable cannot be a candidate.
+ */
+export interface RoutingAgent extends TriggerWizardAgent {
+  description: string;
+  runnable: boolean;
+  reason?: string;
+}
+
+/** A model the decision model picker offers. */
+export interface DecisionModel {
+  id: string;
+  name: string;
+}
+
+/** A list the wizard loads while it is open. */
+export type LoadedList<T> =
+  { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; items: T[] };
+
+/** What "Let kora choose" needs: the candidate agents and the decision models. */
+export interface RoutingOptions {
+  candidates: LoadedList<RoutingAgent>;
+  models: LoadedList<DecisionModel>;
+}
+
+/** Route every delivery to one agent, or let kora choose the agent per delivery. */
+export type RoutingMode = 'one' | 'choose';
+
+/** What happens to a delivery kora is unsure about. */
+export type UnsureAction = 'fallback' | 'none';
+
+/** The routing settings as the Target step edits them. */
+export interface RoutingDraft {
+  mode: RoutingMode;
+  candidateIds: string[];
+  modelId: string;
+  confidence: TriggerRoutingConfidence;
+  unsure: UnsureAction;
+  fallbackId: string;
+  joinOpenRuns: boolean;
+  /** Template rendered per delivery; a match joins that open run with no model call. */
+  joinKey: string;
 }
 
 export interface TriggerWizardSource {
@@ -72,7 +122,11 @@ export interface TriggerDraft {
     required: boolean;
     choices?: string[];
   }[];
+  /** "routed" sends `routing` and leaves `agentTypeId` empty. */
+  targetKind: TriggerTargetKind;
   agentTypeId: string;
+  /** Set when `targetKind` is "routed". */
+  routing?: TriggerRoutingRow;
   maxParallel: number;
   overflow: TriggerOverflow;
   maxQueueDepth: number;
@@ -98,6 +152,11 @@ export interface TriggerWizardProps {
   sources: TriggerWizardSource[];
   /** Public base for webhook endpoints, e.g. "api.orbit.local.clearroute.io:8443". */
   ingestHost: string;
+  /**
+   * Offers "Let kora choose" on a webhook trigger's Target step. Off on a
+   * surface that creates triggers for one agent.
+   */
+  allowRouting?: boolean;
   /**
    * Executes creation. The parent creates the source first when requested and
    * then the trigger; resolves with what the done screen needs.
@@ -147,6 +206,7 @@ export interface WizardState {
 
   // ── Target ──
   agentTypeId: string;
+  routing: RoutingDraft;
   maxParallel: number;
   overflow: TriggerOverflow;
   maxQueueDepth: number;
@@ -170,6 +230,8 @@ export interface WizardContext {
   agentsError?: string | null;
   sources: TriggerWizardSource[];
   ingestHost: string;
+  /** Present when the Target step offers "Let kora choose". */
+  routing?: RoutingOptions;
 }
 
 /** Whether a step is complete enough to move on, and what is missing if not. */

@@ -13,7 +13,7 @@
 import { useMemo } from 'react';
 import { Badge, DataTable, Icon, IconTile, Sparkline, Stack, Text, Toggle } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
-import { KIND_ICON, relativeTime } from '../_types';
+import { KIND_ICON, relativeTime, runTargets } from '../_types';
 import type { DeliveryRow, TriggerRow } from '../_types';
 import { lastFired, recentFailures, sparkline } from '../_types/fleet';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
@@ -117,18 +117,28 @@ function makeColumns(
       header: 'Target agent',
       gridWidth: '148px',
       minWidth: '8rem',
-      cell: (row) => (
-        <Stack direction="horizontal" gap="snug" align="center" minWidth="none">
-          <IconTile size="sm">
-            <Text mono size="micro" weight="heavy">
-              {row.agentSlug.charAt(0).toUpperCase()}
+      cell: (row) =>
+        row.routing !== null ? (
+          <Stack direction="horizontal" gap="snug" align="center" minWidth="none">
+            <IconTile size="sm">
+              <Icon name="route" size="2xs" label="" />
+            </IconTile>
+            <Text size="supporting" color="muted" truncate>
+              Routed among {row.routing.candidates.length} agents
             </Text>
-          </IconTile>
-          <Text size="supporting" color="muted" truncate>
-            {row.agentSlug}
-          </Text>
-        </Stack>
-      ),
+          </Stack>
+        ) : (
+          <Stack direction="horizontal" gap="snug" align="center" minWidth="none">
+            <IconTile size="sm">
+              <Text mono size="micro" weight="heavy">
+                {row.agentSlug.charAt(0).toUpperCase()}
+              </Text>
+            </IconTile>
+            <Text size="supporting" color="muted" truncate>
+              {row.agentSlug}
+            </Text>
+          </Stack>
+        ),
     },
     {
       id: 'activity',
@@ -167,8 +177,8 @@ function makeColumns(
       align: 'right',
       locked: true,
       cell: (row) => {
-        // Turning a trigger on or off also needs run authority on its agent.
-        const runs = canRunAgent(row.agentTypeId);
+        // Turning a trigger on or off also needs run authority on every agent it can start.
+        const runs = runTargets(row).every(canRunAgent);
         return (
           <Stack
             direction="horizontal"

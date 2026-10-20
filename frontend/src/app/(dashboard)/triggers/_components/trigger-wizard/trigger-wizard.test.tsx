@@ -358,3 +358,105 @@ describe('shared steps', () => {
     expect(screen.getByText('Up to 4 at once, then wait')).toBeTruthy();
   });
 });
+
+describe('let kora choose', () => {
+  const routingContext = (models: { id: string; name: string }[]): WizardContext => ({
+    ...CONTEXT,
+    routing: {
+      candidates: {
+        status: 'ready',
+        items: [
+          {
+            id: 'at-1',
+            slug: 'coder',
+            name: 'Coder',
+            description: 'Implements a change from an issue and opens a pull request for it.',
+            runnable: true,
+          },
+          {
+            id: 'at-2',
+            slug: 'billing',
+            name: 'Billing',
+            description: 'Reconciles invoices against usage and raises disputes.',
+            runnable: false,
+            reason: 'you do not hold agent:billing:run',
+          },
+          {
+            id: 'at-3',
+            slug: 'assistant',
+            name: 'Assistant',
+            description: '',
+            identityMode: 'delegated',
+            runnable: false,
+            reason: 'delegated agents act for the person who runs them',
+          },
+        ],
+      },
+      models: { status: 'ready', items: models },
+    },
+  });
+  const base = { ...initialState(TRIGGER_KINDS.webhook, CONTEXT.sources), name: 'route' };
+  const props = (context: WizardContext, mode: 'one' | 'choose') => ({
+    state: { ...base, routing: { ...base.routing, mode } },
+    patch: vi.fn(),
+    context,
+    definition: TRIGGER_KINDS.webhook,
+    error: null,
+  });
+
+  it('keeps the one-agent picker under the mode choice', () => {
+    render(
+      <StepTarget {...props(routingContext([{ id: 'liquid/d1', name: 'Liquid d1' }]), 'one')} />,
+    );
+    expect(screen.getByText('Route to one agent')).toBeTruthy();
+    expect(screen.getByText('Agent to run')).toBeTruthy();
+  });
+
+  it('lists the candidates with the reason a disabled one cannot be picked', () => {
+    render(
+      <StepTarget {...props(routingContext([{ id: 'liquid/d1', name: 'Liquid d1' }]), 'choose')} />,
+    );
+    expect(screen.getByText('Candidate agents')).toBeTruthy();
+    expect(screen.getByText('Cannot be picked: you do not hold agent:billing:run.')).toBeTruthy();
+    expect(
+      screen.getByText('Cannot be picked: delegated agents act for the person who runs them.'),
+    ).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Coder' })).toBeTruthy();
+    expect(screen.queryByRole('checkbox', { name: 'Billing' })).toBeNull();
+    expect(screen.getByText('Liquid d1')).toBeTruthy();
+  });
+
+  it('hides the routing settings when no decision model is enabled', () => {
+    render(<StepTarget {...props(routingContext([]), 'choose')} />);
+    expect(screen.getByText('No decision model is enabled for this workspace.')).toBeTruthy();
+    expect(screen.queryByText('Candidate agents')).toBeNull();
+    expect(screen.queryByText('Confidence')).toBeNull();
+  });
+
+  it('offers one agent only when routing is not offered', () => {
+    render(<StepTarget {...props(CONTEXT, 'choose')} />);
+    expect(screen.queryByText('Let kora choose')).toBeNull();
+    expect(screen.getByText('Agent to run')).toBeTruthy();
+  });
+
+  it('reviews the candidates and settings of a routed trigger', () => {
+    const context = routingContext([{ id: 'liquid/d1', name: 'Liquid d1' }]);
+    render(
+      <StepReview
+        {...props(context, 'choose')}
+        state={{
+          ...base,
+          routing: {
+            ...base.routing,
+            mode: 'choose',
+            candidateIds: ['at-1', 'at-2'],
+            modelId: 'liquid/d1',
+            fallbackId: 'at-1',
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText('Coder, Billing')).toBeTruthy();
+    expect(screen.getByText('Send to Coder')).toBeTruthy();
+  });
+});

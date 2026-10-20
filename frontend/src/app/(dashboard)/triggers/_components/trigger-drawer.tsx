@@ -43,13 +43,15 @@ import {
 } from '@runkora/hades';
 import { KIND_ICON, LIMITS } from '../_types';
 import type { DeliveryRow, Senders, SourceRow, TriggerCoalesce, TriggerRow } from '../_types';
-import { recentFailures } from '../_types/fleet';
+import { isStartedOutcome, recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
 import { CatalogPicker } from './catalog-picker';
 import { CoalesceEditor } from './coalesce-editor';
 import type { CoalesceDraft } from './coalesce-editor';
 import { DataBlockPreview } from './data-block-preview';
 import { DeliveryList } from './delivery-list';
+import type { RoutingAgentName } from './delivery-routing';
+import { RoutedTarget } from './routed-target';
 import { FilterRowsEditor } from './filter-rows-editor';
 import type { FilterRow } from './filter-rows-editor';
 import { SenderRestrictionEditor } from './sender-restriction-editor';
@@ -143,11 +145,14 @@ interface TriggerDrawerProps {
   onFire?: (t: TriggerRow) => void;
   firing?: boolean;
   /**
-   * Whether the caller may run the bound agent. Changing what a trigger runs
-   * or when (prompt, filters, senders, schedule, on or off, redeliver, secret
-   * rotation) needs it on top of triggers:write.
+   * Whether the caller may run the bound agent, or every candidate of a
+   * routed trigger. Changing what a trigger runs or when (prompt, filters,
+   * senders, schedule, routing, on or off, redeliver, secret rotation) needs it
+   * on top of triggers:write.
    */
   canRunAgent: boolean;
+  /** Names a routed trigger's candidates and the agents its decisions mention. */
+  agents?: RoutingAgentName[];
 }
 
 /** How many deliveries the tab shows before it stops. */
@@ -318,6 +323,7 @@ export function TriggerDrawer({
   onFire: fireAction,
   firing = false,
   canRunAgent,
+  agents = [],
 }: TriggerDrawerProps) {
   // Without triggers:write every write handler is dropped, which disables its
   // control. Run-shaping edits also need run authority on the bound agent.
@@ -495,7 +501,7 @@ export function TriggerDrawer({
   const failures = recentFailures(trigger.id, deliveries);
   const succeeded = mine.reduce(
     (n, d) =>
-      n + d.runs.filter((r) => r.triggerId === trigger.id && r.status === 'dispatched').length,
+      n + d.runs.filter((r) => r.triggerId === trigger.id && isStartedOutcome(r.status)).length,
     0,
   );
   const shown = mine.slice(0, DELIVERY_SAMPLE);
@@ -908,29 +914,37 @@ export function TriggerDrawer({
               {/* Target: what gets started, and how many at once. */}
               <Stack gap="snug">
                 <SectionLabel>Target</SectionLabel>
-                <FieldRow
-                  leading={
-                    <IconTile tone="accent">
-                      <Text mono size="caption" weight="heavy">
-                        {trigger.agentSlug.charAt(0).toUpperCase()}
+                {trigger.routing !== null ? (
+                  <RoutedTarget
+                    routing={trigger.routing}
+                    agents={agents}
+                    limits={`${trigger.maxParallel} parallel · ${trigger.overflow}`}
+                  />
+                ) : (
+                  <FieldRow
+                    leading={
+                      <IconTile tone="accent">
+                        <Text mono size="caption" weight="heavy">
+                          {trigger.agentSlug.charAt(0).toUpperCase()}
+                        </Text>
+                      </IconTile>
+                    }
+                    actions={
+                      <Text size="micro" color="subtle">
+                        {trigger.maxParallel} parallel · {trigger.overflow}
                       </Text>
-                    </IconTile>
-                  }
-                  actions={
-                    <Text size="micro" color="subtle">
-                      {trigger.maxParallel} parallel · {trigger.overflow}
-                    </Text>
-                  }
-                >
-                  <Stack gap="none">
-                    <Text size="supporting" weight="emphasis">
-                      {trigger.agentSlug}
-                    </Text>
-                    <Text mono size="micro" color="subtle">
-                      agt/{trigger.agentSlug}
-                    </Text>
-                  </Stack>
-                </FieldRow>
+                    }
+                  >
+                    <Stack gap="none">
+                      <Text size="supporting" weight="emphasis">
+                        {trigger.agentSlug}
+                      </Text>
+                      <Text mono size="micro" color="subtle">
+                        agt/{trigger.agentSlug}
+                      </Text>
+                    </Stack>
+                  </FieldRow>
+                )}
               </Stack>
 
               <Grid cols={3} gap="snug">
@@ -976,6 +990,7 @@ export function TriggerDrawer({
                     onToggleExpanded={setExpanded}
                     onRedeliver={redeliverAction}
                     redeliverAllowed={canShapeRuns}
+                    agents={agents}
                   />
                 </>
               )}

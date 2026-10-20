@@ -24,6 +24,7 @@ import { DeliveryDetail } from './delivery-detail';
 import { deliveryStatusTone, formatTimestampUtc } from '../_types';
 import type { DeliveryRow } from '../_types';
 import { useHasScope } from '../../_components/permissions-provider';
+import type { RoutingAgentName } from './delivery-routing';
 
 export interface DeliveryDetailPanelProps {
   delivery: DeliveryRow;
@@ -40,6 +41,8 @@ export interface DeliveryDetailPanelProps {
    * page navigates to Triggers.
    */
   onOpenTrigger?: (triggerId: string) => void;
+  /** Names the agents a routing decision mentions. */
+  agents?: RoutingAgentName[];
 }
 
 /**
@@ -53,6 +56,7 @@ export function DeliveryDetailPanel({
   onRedeliver,
   redeliverAllowed = true,
   onOpenTrigger,
+  agents,
 }: DeliveryDetailPanelProps) {
   const canWrite = useHasScope('triggers:write');
   // Read once into a const so the narrowing survives into the click handler.
@@ -76,6 +80,7 @@ export function DeliveryDetailPanel({
             delivery={delivery}
             onRedeliver={onRedeliver}
             redeliverAllowed={canWrite && redeliverAllowed}
+            agents={agents}
           />
           {triggerId !== null && onOpenTrigger !== undefined && (
             <Stack direction="horizontal" justify="end">

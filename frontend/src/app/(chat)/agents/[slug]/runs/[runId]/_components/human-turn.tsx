@@ -3,10 +3,11 @@
 /**
  * @tier 3 — run-chat-scoped.
  * Right-aligned message bubble for the human side of the conversation, with
- * the delivery state of a message sent while the agent was working.
+ * the delivery state of a message sent while the agent was working. A message
+ * a trigger sent is labelled with the trigger's name.
  */
 
-import { Stack, Text, ChatBubble } from '@runkora/hades';
+import { ChatBubble, Icon, Stack, Text } from '@runkora/hades';
 import type { HumanTurn } from '../_types';
 
 const DELIVERY_TEXT = {
@@ -17,6 +18,14 @@ const DELIVERY_TEXT = {
 export function HumanTurnItem({ turn }: { turn: HumanTurn }) {
   return (
     <Stack style={{ padding: '4px 20px', gap: 4 }} data-delivery={turn.delivery}>
+      {turn.fromTrigger !== undefined && (
+        <Stack direction="horizontal" align="center" gap="tight" justify="end">
+          <Icon name="zap" size="2xs" color="subtle" label="" />
+          <Text size="supporting" color="muted">
+            From trigger {turn.fromTrigger}
+          </Text>
+        </Stack>
+      )}
       <ChatBubble direction="end" variant="accent">
         <Text
           as="span"

@@ -1,4 +1,13 @@
-import type { SchedulePreviewResponse, TriggerEventTypes, TriggerField } from '@runkora/shared/api';
+import type {
+  ModelObject,
+  SchedulePreviewResponse,
+  TriggerDelivery,
+  TriggerEventTypes,
+  TriggerField,
+  TriggerRoutingCandidate,
+  TriggerRoutingDecision,
+} from '@runkora/shared/api';
+import { toDeliveryRow, toTriggerRow } from '../_types';
 import type { AgentOption, DeliveryRow, DeliveryRunRow, SourceRow, TriggerRow } from '../_types';
 
 /** Mock data for the Triggers page stories. Timestamps are relative to load time so "5m ago" reads right. */
@@ -101,7 +110,9 @@ function trigger(
   const owner = agent(overrides.agentSlug);
   return {
     sourceId: '',
+    targetKind: 'agent',
     agentTypeId: owner.id,
+    routing: null,
     eventType: '',
     matchCondition: {},
     matchContains: {},
@@ -553,3 +564,305 @@ export const SCHEDULE_PREVIEW: SchedulePreviewResponse = {
     { at: new Date(Date.now() + 78 * HOUR).toISOString(), label: 'In 4 days at 02:00 UTC' },
   ],
 };
+
+// ── Routing ──────────────────────────────────────────────────────────────────
+//
+// What "Let kora choose" reads: the candidates and model catalog the wizard
+// fetches, and routed triggers and deliveries mapped from their API shapes by
+// the page's own functions.
+
+const DESCRIPTIONS: Record<string, string> = {
+  'code-reviewer':
+    'Reviews pull requests for correctness, tests and readability, and leaves inline comments.',
+  coder: 'Implements a change from an issue or a failing check and opens a pull request for it.',
+  'security-reviewer':
+    'Reviews changes that touch auth, secrets or dependencies, and flags security risks.',
+  'docs-writer': 'Writes docs.',
+  'triage-bot': 'Labels new issues, finds duplicates and assigns an owner from CODEOWNERS.',
+};
+
+const EXTRA_AGENTS: [string, string, string][] = [
+  [
+    'release-manager',
+    'Release Manager',
+    'Drafts release notes from merged pull requests and tags a release candidate.',
+  ],
+  [
+    'dependency-bot',
+    'Dependency Bot',
+    'Upgrades dependencies, reads changelogs and opens one pull request per upgrade.',
+  ],
+  [
+    'flaky-test-hunter',
+    'Flaky Test Hunter',
+    'Reruns failed checks, spots flaky tests and quarantines them with an issue.',
+  ],
+  [
+    'incident-scribe',
+    'Incident Scribe',
+    'Summarises an incident channel into a timeline and a follow-up list.',
+  ],
+  [
+    'perf-analyst',
+    'Perf Analyst',
+    'Profiles slow endpoints from a benchmark run and proposes a fix.',
+  ],
+  [
+    'migration-checker',
+    'Migration Checker',
+    'Checks schema migrations for locks, backfills and rollback safety.',
+  ],
+];
+
+/**
+ * What GET /api/triggers/routing/candidates answers. `count` caps the runnable
+ * agents; one agent without a run grant and the delegated agent always follow,
+ * since both must show disabled.
+ */
+export function routingCandidates(
+  count: number,
+  descriptions: Record<string, string> = {},
+): TriggerRoutingCandidate[] {
+  const runnable: TriggerRoutingCandidate[] = [
+    ...AGENTS.filter((a) => a.identityMode !== 'delegated').map((a) => ({
+      id: a.id,
+      slug: a.slug,
+      name: a.name,
+      description: descriptions[a.slug] ?? DESCRIPTIONS[a.slug] ?? '',
+      identity_mode: 'autonomous' as const,
+      runnable: true,
+    })),
+    ...EXTRA_AGENTS.map(([slug, name, description], i) => ({
+      id: `at_r${String(i).padStart(2, '0')}`,
+      slug,
+      name,
+      description: descriptions[slug] ?? description,
+      identity_mode: 'autonomous' as const,
+      runnable: true,
+    })),
+  ];
+  const blocked: TriggerRoutingCandidate = {
+    id: 'at_noperm01',
+    slug: 'billing-agent',
+    name: 'Billing Agent',
+    description: 'Reconciles invoices against usage and raises disputes with the vendor.',
+    identity_mode: 'autonomous',
+    runnable: false,
+    reason: 'you do not hold agent:billing-agent:run',
+  };
+  const delegated: TriggerRoutingCandidate[] = AGENTS.filter(
+    (a) => a.identityMode === 'delegated',
+  ).map((a) => ({
+    id: a.id,
+    slug: a.slug,
+    name: a.name,
+    description: 'Works through your inbox and calendar as you.',
+    identity_mode: 'delegated',
+    runnable: false,
+    reason: 'delegated agents act for the person who runs them, so a trigger cannot start them',
+  }));
+  return [...runnable.slice(0, count), blocked, ...delegated];
+}
+
+function catalogModel(id: string, name: string, capability: 'decision' | 'chat'): ModelObject {
+  return {
+    id,
+    object: 'model',
+    created: 1_758_000_000,
+    owned_by: id.split('/')[0] ?? id,
+    family: id.split('/')[0] ?? id,
+    display_name: name,
+    status: 'available',
+    aliases: [],
+    input_modalities: ['text'],
+    output_modalities: ['text'],
+    dialects: capability === 'chat' ? ['openai', 'anthropic'] : [],
+    capabilities: [capability],
+  };
+}
+
+const CHAT_MODELS: ModelObject[] = [
+  catalogModel('anthropic/claude-sonnet-4-6', 'Claude Sonnet 4.6', 'chat'),
+  catalogModel('anthropic/claude-opus-4-1', 'Claude Opus 4.1', 'chat'),
+  catalogModel('openai/gpt-5', 'GPT-5', 'chat'),
+];
+
+const DECISION_MODELS: ModelObject[] = [
+  catalogModel('typesafe/jev-1-14', 'Jev 1.14', 'decision'),
+  catalogModel('cloudflare/clef', 'Clef', 'decision'),
+  catalogModel('cloudflare/clef-flash', 'Clef Flash', 'decision'),
+  catalogModel('cloudflare/clef-omni', 'Clef Omni', 'decision'),
+  catalogModel('liquid/d1', 'Liquid d1', 'decision'),
+  catalogModel('liquid/d1-ultra', 'Liquid d1 Ultra', 'decision'),
+  catalogModel('upstage/solar-decide', 'Solar Decide', 'decision'),
+  catalogModel('upstage/solar-decide-flash', 'Solar Decide Flash', 'decision'),
+  catalogModel('perplexity/pplx-decider-v1-2', 'Perplexity Decider V1.2', 'decision'),
+  catalogModel('perplexity/pplx-decider-flash-v1-2', 'Perplexity Decider Flash V1.2', 'decision'),
+];
+
+/** What GET /api/models answers: chat models the picker must drop, mixed with the decision models. */
+export function modelCatalog(withDecisionModels: boolean): ModelObject[] {
+  return withDecisionModels
+    ? [
+        ...CHAT_MODELS.slice(0, 1),
+        ...DECISION_MODELS.slice(0, 5),
+        ...CHAT_MODELS.slice(1, 2),
+        ...DECISION_MODELS.slice(5),
+        ...CHAT_MODELS.slice(2),
+      ]
+    : CHAT_MODELS;
+}
+
+const ROUTED_NAME = 'route-github-work';
+
+/** A webhook trigger that lets kora choose between four agents, the triage bot as fallback. */
+export const ROUTED_TRIGGER: TriggerRow = toTriggerRow({
+  id: 'trg_9e41d7a0',
+  tenant_id: 'tnt_acme',
+  kind: 'webhook',
+  source_id: 'src_4d1f9a7c',
+  name: ROUTED_NAME,
+  target_kind: 'routed',
+  agent_type_id: '',
+  agent_slug: '',
+  event_type: 'issue_comment',
+  prompt_template: 'Handle this comment on {{ issue.html_url }}: {{ comment.body }}',
+  routing: {
+    candidates: [
+      agent('code-reviewer').id,
+      agent('coder').id,
+      agent('security-reviewer').id,
+      agent('triage-bot').id,
+    ],
+    model: 'liquid/d1',
+    confidence: 'balanced',
+    fallback_agent_type_id: agent('triage-bot').id,
+    join_runs: true,
+    join_key: '{{ repository.full_name }}#{{ issue.number }}',
+  },
+  enabled: true,
+  created_at: ago(6 * DAY),
+  updated_at: ago(6 * DAY),
+});
+
+export type RoutingCase = 'confident' | 'joined-by-key' | 'fallback' | 'no-run' | 'model-failed';
+
+const scores = (pairs: [string, number][]) => ({
+  agents: Object.fromEntries(pairs.map(([slug, p]) => [agent(slug).id, p])),
+});
+
+const CONFIDENT: TriggerRoutingDecision = {
+  outcome: 'new_run',
+  key_matched: false,
+  join_key: 'acme/platform#1427',
+  model: 'liquid/d1',
+  agent_type_id: agent('code-reviewer').id,
+  probability: 0.91,
+  threshold: 0.7,
+  scores: scores([
+    ['code-reviewer', 0.91],
+    ['security-reviewer', 0.06],
+    ['coder', 0.03],
+  ]),
+  fallback_reason: null,
+  error: null,
+};
+
+const UNSURE = scores([
+  ['coder', 0.48],
+  ['code-reviewer', 0.37],
+  ['security-reviewer', 0.15],
+]);
+
+const ROUTING_CASES: Record<
+  RoutingCase,
+  { status: string; runId?: string; error?: string; routing: TriggerRoutingDecision }
+> = {
+  confident: { status: 'dispatched', runId: 'run_7c21e4b2', routing: CONFIDENT },
+  'joined-by-key': {
+    status: 'joined',
+    runId: 'run_3f9c1ab04d',
+    routing: {
+      ...CONFIDENT,
+      outcome: 'joined_run',
+      key_matched: true,
+      model: null,
+      probability: null,
+      threshold: null,
+      scores: {},
+    },
+  },
+  fallback: {
+    status: 'dispatched',
+    runId: 'run_a90d33b2',
+    routing: {
+      ...CONFIDENT,
+      outcome: 'fallback_run',
+      agent_type_id: agent('triage-bot').id,
+      probability: 0.48,
+      scores: UNSURE,
+      fallback_reason: 'below_threshold',
+    },
+  },
+  'no-run': {
+    status: 'unrouted',
+    error: 'kora was not sure which agent fits, and the trigger has no fallback agent',
+    routing: {
+      ...CONFIDENT,
+      outcome: 'no_run',
+      agent_type_id: null,
+      probability: 0.48,
+      scores: UNSURE,
+      fallback_reason: 'below_threshold',
+    },
+  },
+  'model-failed': {
+    status: 'dispatched',
+    runId: 'run_51be07b2',
+    routing: {
+      ...CONFIDENT,
+      outcome: 'fallback_run',
+      agent_type_id: agent('triage-bot').id,
+      probability: null,
+      threshold: 0.7,
+      scores: {},
+      fallback_reason: 'decision_failed',
+      error: 'decision model: liquid/d1: context deadline exceeded after 10s',
+    },
+  },
+};
+
+/** One delivery of the routed trigger and the decision recorded for it, as the API returns it. */
+export function routedDelivery(c: RoutingCase): DeliveryRow {
+  const { status, runId, error, routing } = ROUTING_CASES[c];
+  const receivedAt = ago(4 * MIN);
+  const wire: TriggerDelivery = {
+    id: `dlv_routed_${c.replace(/-/g, '_')}`,
+    tenant_id: 'tnt_acme',
+    kind: 'webhook',
+    source_id: ROUTED_TRIGGER.sourceId,
+    trigger_id: ROUTED_TRIGGER.id,
+    trigger_name: ROUTED_NAME,
+    event_type: 'issue_comment',
+    status: status === 'unrouted' ? 'skipped' : 'dispatched',
+    ...(runId !== undefined && { run_id: runId }),
+    payload_excerpt:
+      '{"action":"created","issue":{"number":1427},"comment":{"body":"Can someone check the auth change?"}}',
+    payload_bytes: 14_220,
+    received_at: receivedAt,
+    runs: [
+      {
+        id: `dr_${c}`,
+        delivery_id: `dlv_routed_${c}`,
+        trigger_id: ROUTED_TRIGGER.id,
+        trigger_name: ROUTED_NAME,
+        status,
+        ...(runId !== undefined && { run_id: runId }),
+        ...(error !== undefined && { error }),
+        routing,
+        created_at: new Date(Date.parse(receivedAt) + 640).toISOString(),
+      },
+    ],
+  };
+  return toDeliveryRow(wire);
+}

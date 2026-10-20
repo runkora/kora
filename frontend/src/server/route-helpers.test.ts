@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from './route-helpers';
+import { ApiError } from '@runkora/server/api-error';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
@@ -84,5 +85,31 @@ describe('withAuth', () => {
     const inner = vi.fn();
     await withAuth(inner)(makeRequest());
     expect(inner).not.toHaveBeenCalled();
+  });
+
+  it('forwards only the missing scopes of an upstream refusal', async () => {
+    const inner = vi.fn().mockRejectedValue(
+      new ApiError(403, 'forbidden', 'missing scopes', {
+        missing_scopes: ['inference:liquid:d1:use'],
+        grant_id: 'internal',
+      }),
+    );
+    const res = await withAuth(inner)(makeRequest());
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      code: 'forbidden',
+      message: 'missing scopes',
+      details: { missing_scopes: ['inference:liquid:d1:use'] },
+    });
+  });
+
+  it('drops upstream details that carry no valid missing scopes', async () => {
+    const inner = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(400, 'invalid', 'bad', { missing_scopes: [1, 'x'], trace: 'internal' }),
+      );
+    const res = await withAuth(inner)(makeRequest());
+    expect(await res.json()).toEqual({ code: 'invalid', message: 'bad' });
   });
 });
