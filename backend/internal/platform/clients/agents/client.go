@@ -19,6 +19,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 )
 
 const (
@@ -80,17 +81,29 @@ type AgentType struct {
 // client stays decoupled from the orbit-agents feature package.
 const IdentityModeDelegated = "delegated"
 
-// GetAgentType resolves an agent type by id, authenticating with the supplied
-// platform bearer token. orbit-agents scopes the read to the token's tenant, so
+// Caller is the identity a read is sent as: the caller's platform bearer and,
+// for a delegated run, its delegation token.
+type Caller struct {
+	Bearer     string
+	Delegation string
+}
+
+// GetAgentType resolves an agent type by id, authenticating as the caller.
+// A delegation travels with the bearer so orbit-agents evaluates the delegated run. orbit-agents scopes the read to the token's tenant, so
 // a type owned by another tenant (or absent) returns ErrAgentTypeNotFound. The
 // Triggers feature uses this to confirm a trigger's target exists in-tenant and
 // to derive the canonical slug the run grant must be keyed on.
-func (c *Client) GetAgentType(ctx context.Context, bearer, id string) (AgentType, error) {
+func (c *Client) GetAgentType(ctx context.Context, caller Caller, id string) (AgentType, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/agent-types/"+url.PathEscape(id), nil)
 	if err != nil {
 		return AgentType{}, fmt.Errorf("build get agent type request: %w", err)
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+	if caller.Bearer != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+caller.Bearer)
+	}
+	if caller.Delegation != "" {
+		httpReq.Header.Set(mw.DelegationTokenHeader, caller.Delegation)
+	}
 
 	_, span, resp, err := c.Do(ctx, "agents.Client.GetAgentType", httpReq)
 	defer span.End()

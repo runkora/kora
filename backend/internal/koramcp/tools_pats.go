@@ -24,7 +24,7 @@ func registerPATTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 		"List the caller's active Personal Access Tokens — each token's id, name, scopes, and expiry "+
 			"(the secret is never returned).",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base, nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base, nil))
 		})
 
 	addTool(srv, "pats.attribution",
@@ -35,7 +35,7 @@ func registerPATTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 				return toolError(errors.New("ids is required")), nil
 			}
 			q := url.Values{"ids": {strings.Join(a.IDs, ",")}}
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/attribution", q))
+			return jsonResult(jc.Get(ctx, caller(ctx), base+"/attribution", q))
 		})
 
 	addTool(srv, "pats.update_scopes",
@@ -46,7 +46,7 @@ func registerPATTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 				return toolError(errors.New("id and scopes are required")), nil
 			}
 			body := map[string]any{"scopes": a.Scopes}
-			return jsonResult(jc.Patch(ctx, callerToken(ctx), base+"/"+url.PathEscape(a.ID)+"/scopes", body))
+			return jsonResult(jc.Patch(ctx, caller(ctx), base+"/"+url.PathEscape(a.ID)+"/scopes", body))
 		})
 
 	addTool(srv, "pats.revoke",
@@ -55,7 +55,7 @@ func registerPATTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
 			}
-			return jsonResult(jc.Delete(ctx, callerToken(ctx), base+"/"+url.PathEscape(a.ID)))
+			return jsonResult(jc.Delete(ctx, caller(ctx), base+"/"+url.PathEscape(a.ID)))
 		})
 }
 

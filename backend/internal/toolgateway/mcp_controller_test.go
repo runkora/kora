@@ -8,7 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	mcpkit "github.com/runkora/kora/backend/internal/platform/mcp"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
@@ -245,6 +248,69 @@ func TestToolDecisions_CarryDelegationAndRun(t *testing.T) {
 			}
 			if eval.lastCheck.RunID != tc.wantRunID {
 				t.Errorf("check run id = %q, want %q", eval.lastCheck.RunID, tc.wantRunID)
+			}
+		})
+	}
+}
+
+// The caller's bearer and delegation reach a global forward-identity server only.
+// External and tenant-scoped servers use their own credentials and see neither.
+func TestToolsCall_ForwardsDelegationToForwardIdentityOnly(t *testing.T) {
+	cases := []struct {
+		name           string
+		tenantID       string
+		callerIdentity string
+		wantAuth       string
+		wantDelegation string
+	}{
+		{"global forward", "", callerIdentityForward, "Bearer agent-token", "delegation-token"},
+		{"global external", "", "", "", ""},
+		{"tenant forward", "acme", callerIdentityForward, "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotAuth, gotDelegation string
+			upstream := mcpkit.NewServer("upstream", "v0")
+			upstream.AddTool(&sdk.Tool{Name: "agents.list", InputSchema: json.RawMessage(`{"type":"object"}`)},
+				func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+					return &sdk.CallToolResult{}, nil
+				})
+			handler := mcpkit.NewController("/mcp", upstream).Handler()
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.Contains(r.Header.Get("Content-Type"), "json") {
+					gotAuth, gotDelegation = r.Header.Get("Authorization"), r.Header.Get(mw.DelegationTokenHeader)
+				}
+				handler.ServeHTTP(w, r)
+			}))
+			defer ts.Close()
+
+			reg := &Registry{
+				servers: []Server{{TenantID: tc.tenantID, Name: "orbit", Endpoint: ts.URL + "/mcp", CallerIdentity: tc.callerIdentity}},
+				loaded:  true,
+			}
+			c := NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg, NewProxy("test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
+
+			claims := &platformtoken.PlatformClaims{}
+			claims.Kora.TenantID = "acme"
+			claims.Subject = "agent-1"
+			body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agents.list","arguments":{}}}`
+			req := httptest.NewRequest(http.MethodPost, "/v1/mcp/orbit", strings.NewReader(body)).WithContext(platformtoken.WithClaims(context.Background(), claims))
+			req.SetPathValue("server", "orbit")
+			req.Header.Set("Authorization", "Bearer agent-token")
+			req.Header.Set(mw.DelegationTokenHeader, "delegation-token")
+			rec := httptest.NewRecorder()
+			c.handleMCP(rec, req)
+
+			var resp jsonRPCResponse
+			_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+			if resp.Error != nil {
+				t.Fatalf("unexpected error: %+v", resp.Error)
+			}
+			if gotAuth != tc.wantAuth {
+				t.Errorf("upstream Authorization = %q, want %q", gotAuth, tc.wantAuth)
+			}
+			if gotDelegation != tc.wantDelegation {
+				t.Errorf("upstream delegation = %q, want %q", gotDelegation, tc.wantDelegation)
 			}
 		})
 	}

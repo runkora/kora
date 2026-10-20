@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
@@ -439,5 +440,27 @@ func TestIncrementSpends_ExpireError_NonFatal(t *testing.T) {
 
 	if err := c.IncrementSpends(context.Background(), SpendScopes{TenantID: "t1", PrincipalID: "pid-1"}, nil, 0.5); err != nil {
 		t.Errorf("Expire error should not propagate, got: %v", err)
+	}
+}
+
+// While Redis is unreachable budget reads and writes fail fast without touching
+// Redis (the nil client would panic).
+func TestBudgetCounter_RedisUnavailable(t *testing.T) {
+	c := newBudgetCounter(nil, &stubUsageRepo{})
+	c.available = func() bool { return false }
+	scopes := SpendScopes{PrincipalID: "p-1", TenantID: "t-1", PrincipalWindows: []string{"monthly"}}
+	cases := []struct {
+		name string
+		call func() error
+	}{
+		{"get spends", func() error { _, err := c.GetSpends(context.Background(), scopes); return err }},
+		{"increment spends", func() error { return c.IncrementSpends(context.Background(), scopes, nil, 1.5) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.call(); !errors.Is(err, storage.ErrRedisUnavailable) {
+				t.Fatalf("err = %v, want ErrRedisUnavailable", err)
+			}
+		})
 	}
 }

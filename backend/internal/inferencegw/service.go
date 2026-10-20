@@ -726,7 +726,7 @@ func (s *Service) writeUsage(ctx context.Context, rec InferenceUsageRecord) erro
 	rec.RunID = runIDFromContext(ctx)
 	rec.AgentSlug = agentSlugFromPrincipal(rec.PrincipalType, rec.PrincipalID)
 	// Stamp the delegator from the VERIFIED delegation context — set by the
-	// DelegationMiddleware after signature/blocklist checks, never from
+	// DelegationMiddlewareWithBlocklist after signature/blocklist checks, never from
 	// anything the caller asserts. Spend then rolls up to the person as well
 	// as the agent (delegated-agent-identity ADR, Decision 5).
 	if d := policy.DelegationFromContext(ctx); d != nil && d.Sub != "" {
@@ -893,7 +893,7 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 
 	spends, err := s.budgetCounter.GetSpends(ctx, scopes)
 	if err != nil {
-		s.logger.Warn(ctx, "budget.fail_open",
+		s.logger.Error(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "spend counter get failed"},
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "principal_id", Value: p.PrincipalID},
@@ -991,7 +991,7 @@ func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID s
 
 	spends, err := s.budgetCounter.GetSpends(ctx, scopes)
 	if err != nil {
-		s.logger.Warn(ctx, "budget.fail_open",
+		s.logger.Error(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "spend counter get failed"},
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "principal_id", Value: principalID},

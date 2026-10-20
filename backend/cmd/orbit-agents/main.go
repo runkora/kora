@@ -91,11 +91,12 @@ func realMain() error {
 		metrics.Shutdown(shutdownCtx, logger)
 	}()
 
-	db, err := initStorage(ctx, logger)
+	db, redis, err := initStorage(ctx, logger)
 	if err != nil {
 		return fmt.Errorf("initialize storage: %w", err)
 	}
 	defer db.Close()
+	defer func() { _ = redis.Close() }()
 
 	eval := initPolicyEvaluator(ctx, logger)
 
@@ -122,7 +123,7 @@ func realMain() error {
 		return fmt.Errorf("load brand: %w", err)
 	}
 
-	server, repo, atSvc, runSvc, draftSvc, err := initServer(ctx, logger, db, eval, idClient, selfToken, metrics, b)
+	server, repo, atSvc, runSvc, draftSvc, err := initServer(ctx, logger, db, storage.NewJTIBlocklist(redis), eval, idClient, selfToken, metrics, b)
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
 	}
@@ -174,20 +175,27 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error) {
-	cfg, err := storage.LoadPostgresConfig()
+// initStorage opens the Postgres pool and the Redis client. Redis holds the
+// shared revoked-JTI blocklist that refuses a revoked delegation before it expires.
+func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *storage.RedisClient, error) {
+	cfg, err := storage.LoadStorageConfig()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	db, err := storage.New(ctx, cfg, logger)
+	db, err := storage.New(ctx, &cfg.Postgres, logger)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	logger.Info(ctx, "Database initialized successfully")
-	return db, nil
+	rc, err := storage.NewRedis(ctx, &cfg.Redis, logger)
+	if err != nil {
+		db.Close()
+		return nil, nil, err
+	}
+	logger.Info(ctx, "Storage initialized successfully")
+	return db, rc, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error), metrics *platformmetrics.Bootstrap, b brand.Brand) (*http.Server, *agents.PostgresRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, blocklist mw.JTIBlocklist, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error), metrics *platformmetrics.Bootstrap, b brand.Brand) (*http.Server, *agents.PostgresRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := agentsConfig.Current
@@ -283,7 +291,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		Retention:      cfg.Drafts.RetentionDuration(),
 	}, logger)
 
-	controller := agents.NewController(atSvc, runSvc, envSvc, draftSvc, verifier, eval, agentRoutes(), cfg.Server.BasePath, logger)
+	controller := agents.NewController(atSvc, runSvc, envSvc, draftSvc, verifier, blocklist, eval, agentRoutes(), cfg.Server.BasePath, logger)
 
 	// Read-only connection catalog (GET /api/v1/connections). Auth-only, tenant
 	// scoped from the verified token — a separate controller so it carries no

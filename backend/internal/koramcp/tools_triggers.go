@@ -36,7 +36,7 @@ func registerTriggerProviderTools(srv *sdk.Server, providers string, jc *korajso
 			if a.Provider == "" {
 				return toolError(errors.New("provider is required")), nil
 			}
-			return jsonResult(jc.Get(ctx, callerToken(ctx), providers+"/"+url.PathEscape(a.Provider)+"/event-types", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), providers+"/"+url.PathEscape(a.Provider)+"/event-types", nil))
 		})
 
 	addTool(srv, "triggers.providers.fields",
@@ -48,7 +48,7 @@ func registerTriggerProviderTools(srv *sdk.Server, providers string, jc *korajso
 			}
 			q := url.Values{}
 			q.Set("event_type", a.EventType)
-			return jsonResult(jc.Get(ctx, callerToken(ctx), providers+"/"+url.PathEscape(a.Provider)+"/fields", q))
+			return jsonResult(jc.Get(ctx, caller(ctx), providers+"/"+url.PathEscape(a.Provider)+"/fields", q))
 		})
 }
 
@@ -59,7 +59,7 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 		"List the webhook trigger sources in the caller's tenant — each source's provider and enabled state "+
 			"(the signing secret is never returned).",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), sources, nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), sources, nil))
 		})
 
 	addTool(srv, "triggers.sources.get",
@@ -68,7 +68,7 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
 			}
-			return jsonResult(jc.Get(ctx, callerToken(ctx), sources+"/"+url.PathEscape(a.ID), nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), sources+"/"+url.PathEscape(a.ID), nil))
 		})
 
 	addTool(srv, "triggers.sources.create",
@@ -78,7 +78,7 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 			if a.Name == "" || a.Provider == "" {
 				return toolError(errors.New("name and provider are required")), nil
 			}
-			return jsonResult(jc.Post(ctx, callerToken(ctx), sources, a))
+			return jsonResult(jc.Post(ctx, caller(ctx), sources, a))
 		})
 
 	addTool(srv, "triggers.sources.update",
@@ -96,7 +96,7 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 			if a.RotateSecret {
 				body["rotate_secret"] = true
 			}
-			return jsonResult(jc.Patch(ctx, callerToken(ctx), sources+"/"+url.PathEscape(a.ID), body))
+			return jsonResult(jc.Patch(ctx, caller(ctx), sources+"/"+url.PathEscape(a.ID), body))
 		})
 
 	addTool(srv, "triggers.sources.delete",
@@ -105,7 +105,7 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
 			}
-			return jsonResult(jc.Delete(ctx, callerToken(ctx), sources+"/"+url.PathEscape(a.ID)))
+			return jsonResult(jc.Delete(ctx, caller(ctx), sources+"/"+url.PathEscape(a.ID)))
 		})
 }
 
@@ -115,7 +115,7 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 	addTool(srv, "triggers.list",
 		"List the triggers in the caller's tenant — each binds a source event to an agent run.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), triggers, nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), triggers, nil))
 		})
 
 	addTool(srv, "triggers.get",
@@ -124,7 +124,7 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
 			}
-			return jsonResult(jc.Get(ctx, callerToken(ctx), triggers+"/"+url.PathEscape(a.ID), nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), triggers+"/"+url.PathEscape(a.ID), nil))
 		})
 
 	addEnumTool(srv, "triggers.create",
@@ -148,7 +148,7 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 			if err := validateCreateTrigger(&a); err != nil {
 				return toolError(err), nil
 			}
-			return jsonResult(jc.Post(ctx, callerToken(ctx), triggers, a))
+			return jsonResult(jc.Post(ctx, caller(ctx), triggers, a))
 		})
 
 	addTool(srv, "triggers.schedule_preview",
@@ -158,7 +158,7 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 			if a.ScheduleConfig == nil {
 				return toolError(errors.New("schedule_config is required")), nil
 			}
-			return jsonResult(jc.Post(ctx, callerToken(ctx), triggers+"/schedule-preview", a))
+			return jsonResult(jc.Post(ctx, caller(ctx), triggers+"/schedule-preview", a))
 		})
 
 	addTool(srv, "triggers.update",
@@ -170,7 +170,7 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
 			}
-			return jsonResult(jc.Patch(ctx, callerToken(ctx), triggers+"/"+url.PathEscape(a.ID), updateTriggerBody(a)))
+			return jsonResult(jc.Patch(ctx, caller(ctx), triggers+"/"+url.PathEscape(a.ID), updateTriggerBody(a)))
 		})
 
 	addTool(srv, "triggers.delete",
@@ -179,7 +179,7 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
 			}
-			return jsonResult(jc.Delete(ctx, callerToken(ctx), triggers+"/"+url.PathEscape(a.ID)))
+			return jsonResult(jc.Delete(ctx, caller(ctx), triggers+"/"+url.PathEscape(a.ID)))
 		})
 
 	// ── deliveries (the recorded history of source events + resulting runs) ───────
@@ -208,7 +208,7 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 			if a.Limit > 0 {
 				q.Set("limit", strconv.Itoa(a.Limit))
 			}
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/trigger-deliveries", q))
+			return jsonResult(jc.Get(ctx, caller(ctx), base+"/trigger-deliveries", q))
 		})
 }
 

@@ -553,7 +553,7 @@ func TestGateway_DelegationRunBinding_UnboundTokenDenied(t *testing.T) {
 // signature, expiry, issuer, and audience against the same JWKS as the
 // platform token (the identity service signs both with one key). Previously it
 // used io.jwt.decode, which parses without verifying anything, and relied on
-// DelegationMiddleware having run first.
+// DelegationMiddlewareWithBlocklist having run first.
 // ═══════════════════════════════════════════════════════════════════════════
 
 func TestAuthz_Layer1_DelegationTokenVerification(t *testing.T) {

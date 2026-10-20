@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
@@ -54,7 +55,7 @@ type Controller struct {
 }
 
 // NewController builds the Triggers controller. authMW is the platform JWT auth
-// middleware (supplied by the identity service); eval/routes/basePath drive
+// and delegation middleware (supplied by main); eval/routes/basePath drive
 // ScopeEnforcementMiddleware on the management routes, exactly as for identity's
 // own authenticated routes.
 func NewController(svc *Service, sources *SourceService, triggers *TriggerService, authMW mw.Middleware, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *Controller {
@@ -560,18 +561,22 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 
 type bearerKey struct{}
 
-// keepBearer stores the caller's bearer so the service can ask orbit-agents about the caller's own access.
+// keepBearer stores the caller's bearer and any delegation the auth chain
+// verified, so the service can ask orbit-agents about the caller's own access.
 var keepBearer = mw.NewMiddleware(func(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		bearer := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), bearerKey{}, bearer)))
+		caller := agentsclient.Caller{
+			Bearer:     strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")),
+			Delegation: strings.TrimSpace(r.Header.Get(mw.DelegationTokenHeader)),
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), bearerKey{}, caller)))
 	})
 })
 
-// callerBearer returns the bearer keepBearer stored, or "" outside a management request.
-func callerBearer(ctx context.Context) string {
-	b, _ := ctx.Value(bearerKey{}).(string)
-	return b
+// callerOf returns the caller keepBearer stored, or the zero Caller outside a management request.
+func callerOf(ctx context.Context) agentsclient.Caller {
+	c, _ := ctx.Value(bearerKey{}).(agentsclient.Caller)
+	return c
 }
 
 func tenantFromCtx(ctx context.Context) string {

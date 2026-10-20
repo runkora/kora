@@ -1,9 +1,11 @@
 package policygw
 
 import (
+	"context"
 	"net/http"
 
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
@@ -22,10 +24,8 @@ func (c *Controller) handleCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	delegation, err := policy.ParseDelegationToken(ctx, req.DelegationToken, c.verifier)
-	if err != nil {
-		platformapi.ErrorResponse(ctx, w, c.logger,
-			platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "invalid delegation token", nil), err)
+	delegation, ok := c.parseDelegation(ctx, w, req.DelegationToken)
+	if !ok {
 		return
 	}
 
@@ -54,10 +54,8 @@ func (c *Controller) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	delegation, err := policy.ParseDelegationToken(ctx, req.DelegationToken, c.verifier)
-	if err != nil {
-		platformapi.ErrorResponse(ctx, w, c.logger,
-			platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "invalid delegation token", nil), err)
+	delegation, ok := c.parseDelegation(ctx, w, req.DelegationToken)
+	if !ok {
 		return
 	}
 
@@ -68,4 +66,16 @@ func (c *Controller) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	platformapi.JSON(ctx, w, c.logger, http.StatusOK, QueryResponse{Allowed: allowed})
+}
+
+// parseDelegation verifies the optional delegation token with the shared delegation check.
+// It writes the error response when it returns false.
+func (c *Controller) parseDelegation(ctx context.Context, w http.ResponseWriter, raw string) (*policy.DelegationClaims, bool) {
+	delegation, err := mw.VerifyDelegation(ctx, c.logger, c.verifier, c.blocklist, raw)
+	if err != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger,
+			platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, mw.DelegationRefusalMessage(err), nil), err)
+		return nil, false
+	}
+	return delegation, true
 }

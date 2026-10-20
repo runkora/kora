@@ -2,6 +2,7 @@ package token
 
 import (
 	"context"
+	"crypto"
 	"fmt"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
@@ -44,6 +45,14 @@ func NewVerifier(ctx context.Context, jwksURL, issuer, audience string) *Verifie
 	inner := gooidc.NewVerifier(issuer, keySet, &gooidc.Config{
 		ClientID: audience,
 	})
+	return &Verifier{inner: inner}
+}
+
+// NewStaticVerifier constructs a Verifier over a fixed public key. The identity
+// service uses it to verify tokens it signed itself, without fetching its own JWKS.
+func NewStaticVerifier(publicKey crypto.PublicKey, issuer, audience string) *Verifier {
+	keySet := &gooidc.StaticKeySet{PublicKeys: []crypto.PublicKey{publicKey}}
+	inner := gooidc.NewVerifier(issuer, keySet, &gooidc.Config{ClientID: audience})
 	return &Verifier{inner: inner}
 }
 

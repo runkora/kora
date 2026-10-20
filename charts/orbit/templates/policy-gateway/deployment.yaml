@@ -30,6 +30,7 @@ spec:
       volumes:
         {{- include "orbit.spireVolumes" . | nindent 8 }}
         {{- include "orbit.configVolume" (dict "root" $ "name" "policyGateway" "configMap" "orbit-policy-gateway-config" "modules" (include "orbit.policyGateway.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "orbit.redisCAVolume" . | nindent 8 }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "policyGateway") | nindent 8 }}
       containers:
         - name: orbit-policy-gateway
@@ -37,10 +38,8 @@ spec:
           imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "policyGateway") }}
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
-          {{- with .Values.policyGateway.extraEnv }}
           env:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- include "orbit.platformEnv" (dict "root" $ "name" "policyGateway" "keys" (list "REDIS_PASSWORD")) | nindent 12 }}
           ports:
             - name: http
               containerPort: 8084
@@ -71,4 +70,5 @@ spec:
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             {{- include "orbit.configVolumeMount" . | nindent 12 }}
+            {{- include "orbit.redisCAVolumeMount" . | nindent 12 }}
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "policyGateway") | nindent 12 }}

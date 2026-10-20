@@ -90,6 +90,13 @@ func (c *Controller) handleCreateOAuthCode(w http.ResponseWriter, r *http.Reques
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "unauthorized", nil), nil)
 		return
 	}
+	// The code mints a HUMAN token for the caller's subject. Only a human session
+	// may start it; an agent, service or PAT would come out as a HUMAN principal.
+	if claims.Kora.PrincipalType != token.PrincipalTypeHuman {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ForbiddenError(api.ErrCodeForbidden, "only a human session can authorize an MCP client", nil), nil)
+		return
+	}
 	var req createCodeRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return

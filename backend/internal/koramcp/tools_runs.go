@@ -24,7 +24,7 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			"Paginated: it returns at most `limit` runs plus `next_cursor`. Fetch the next page by calling again with "+
 			"cursor = the previous next_cursor and the same filters; next_cursor is null on the last page.",
 		func(ctx context.Context, a listRunsArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base, listRunsQuery(a)))
+			return jsonResult(jc.Get(ctx, caller(ctx), base, listRunsQuery(a)))
 		})
 
 	addTool(srv, "runs.get",
@@ -33,7 +33,7 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.RunID == "" {
 				return toolError(errors.New("run_id is required")), nil
 			}
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/"+url.PathEscape(a.RunID), nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base+"/"+url.PathEscape(a.RunID), nil))
 		})
 
 	addTool(srv, "runs.start",
@@ -42,7 +42,7 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.AgentTypeID == "" {
 				return toolError(errors.New("agent_type_id is required")), nil
 			}
-			return jsonResult(jc.Post(ctx, callerToken(ctx), base, a))
+			return jsonResult(jc.Post(ctx, caller(ctx), base, a))
 		})
 
 	addTool(srv, "runs.send_message",
@@ -52,7 +52,7 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 				return toolError(errors.New("run_id and content are required")), nil
 			}
 			body := map[string]string{"content": a.Content}
-			return jsonResult(jc.Post(ctx, callerToken(ctx), base+"/"+url.PathEscape(a.RunID)+"/messages", body))
+			return jsonResult(jc.Post(ctx, caller(ctx), base+"/"+url.PathEscape(a.RunID)+"/messages", body))
 		})
 
 	addTool(srv, "runs.interrupt",
@@ -61,7 +61,7 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.RunID == "" {
 				return toolError(errors.New("run_id is required")), nil
 			}
-			return jsonResult(jc.Post(ctx, callerToken(ctx), base+"/"+url.PathEscape(a.RunID)+"/interrupt", nil))
+			return jsonResult(jc.Post(ctx, caller(ctx), base+"/"+url.PathEscape(a.RunID)+"/interrupt", nil))
 		})
 
 	addTool(srv, "runs.terminate",
@@ -70,7 +70,7 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.RunID == "" {
 				return toolError(errors.New("run_id is required")), nil
 			}
-			return jsonResult(jc.Delete(ctx, callerToken(ctx), base+"/"+url.PathEscape(a.RunID)))
+			return jsonResult(jc.Delete(ctx, caller(ctx), base+"/"+url.PathEscape(a.RunID)))
 		})
 
 	addTool(srv, "runs.events",
@@ -89,7 +89,7 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.Limit > 0 {
 				q.Set("limit", strconv.Itoa(a.Limit))
 			}
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/"+url.PathEscape(a.RunID)+"/events", q))
+			return jsonResult(jc.Get(ctx, caller(ctx), base+"/"+url.PathEscape(a.RunID)+"/events", q))
 		})
 }
 

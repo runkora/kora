@@ -39,6 +39,7 @@ spec:
           configMap:
             name: {{ .Values.policyService.tenantsConfigMap }}
             optional: true
+        {{- include "orbit.redisCAVolume" . | nindent 8 }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "policyService") | nindent 8 }}
       containers:
         - name: orbit-policy-service
@@ -78,6 +79,7 @@ spec:
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             {{- include "orbit.configVolumeMount" . | nindent 12 }}
+            {{- include "orbit.redisCAVolumeMount" . | nindent 12 }}
             - name: tenants-config
               mountPath: /etc/orbit
               readOnly: true

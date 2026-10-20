@@ -34,8 +34,12 @@ func (b *JTIBlocklist) BlockJTI(ctx context.Context, jti string, ttl time.Durati
 	return nil
 }
 
-// IsBlocked reports whether a JTI is present in the blocklist.
+// IsBlocked reports whether a JTI is present in the blocklist. While Redis is
+// unreachable it returns ErrRedisUnavailable at once, and callers fail open.
 func (b *JTIBlocklist) IsBlocked(ctx context.Context, jti string) (bool, error) {
+	if !b.redis.Available() {
+		return false, fmt.Errorf("check jti %q: %w", jti, ErrRedisUnavailable)
+	}
 	blocked, err := b.redis.Exists(ctx, jtiBlocklistKeyPrefix+jti)
 	if err != nil {
 		return false, fmt.Errorf("check jti %q: %w", jti, err)

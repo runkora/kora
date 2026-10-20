@@ -595,6 +595,7 @@ type agentsStub struct {
 	callerStatus  int      // response status for caller reads; 0 → atStatus
 	callerReads   []string // agent type ids callers read
 	callerBearers []string // Authorization headers callers sent
+	callerDelegs  []string // delegation headers callers sent
 }
 
 // callerReadIDs returns the agent type ids callers have read, and forgets them.
@@ -616,6 +617,7 @@ func newAgentsStub() *agentsStub {
 		if auth := r.Header.Get("Authorization"); auth != "Bearer minted-token" {
 			as.callerReads = append(as.callerReads, r.PathValue("id"))
 			as.callerBearers = append(as.callerBearers, auth)
+			as.callerDelegs = append(as.callerDelegs, r.Header.Get("X-Orbit-Delegation-Token"))
 			if as.callerStatus != 0 {
 				status = as.callerStatus
 			}

@@ -10,7 +10,7 @@ cmd/policy-service:
     jwksURL: {{ printf "%s/api/v1/identity/.well-known/jwks.json" (include "orbit.serviceURL" (dict "root" . "name" "orbit-identity")) | toJson }}
     frontendHost: {{ include "orbit.frontendHost" . | toJson }}
 {{ include "orbit.observabilityConfigModule" . }}
-{{ include "orbit.storageConfigModule" . }}
+{{ include "orbit.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "orbit.tokenConfigModule" . }}
 {{- end }}
 {{- include "orbit.configMap" (dict "root" $ "name" "policyService" "configMap" "orbit-policy-service-config" "modules" (include "orbit.policyService.configModules" . | fromYaml)) }}

@@ -68,7 +68,7 @@ cmd/orbit-agents:
       nodeMaxOldSpaceMB: {{ .Values.agents.config.nodeMaxOldSpaceMB | int }}
     sandboxMount: {{ .Values.sandboxMount.enabled }}
 {{ include "orbit.observabilityConfigModule" . }}
-{{ include "orbit.storageConfigModule" . }}
+{{ include "orbit.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "orbit.tokenConfigModule" . }}
 {{ include "orbit.brandConfigModule" . }}
 {{- end }}

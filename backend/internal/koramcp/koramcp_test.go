@@ -14,6 +14,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mcpkit "github.com/runkora/kora/backend/internal/platform/mcp"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 )
 
 // TestAgentWriteToolsForwardMethodAndBody exercises the write vertical: each
@@ -682,6 +683,45 @@ func TestToolForwardsCallerTokenAndReturnsJSON(t *testing.T) {
 	}
 }
 
+// A delegated caller's delegation token reaches every backend with its bearer.
+// An autonomous caller sends none.
+func TestToolForwardsCallerDelegation(t *testing.T) {
+	tools := []string{"agents.list", "models.list", "policy.grants.list", "triggers.list", "identity.users.list"}
+	for _, delegation := range []string{"delegation-xyz", ""} {
+		for _, tool := range tools {
+			t.Run(tool+"/"+delegation, func(t *testing.T) {
+				var hit bool
+				var gotAuth, gotDelegation string
+				backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					hit = true
+					gotAuth, gotDelegation = r.Header.Get("Authorization"), r.Header.Get(mw.DelegationTokenHeader)
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{}`))
+				}))
+				defer backend.Close()
+
+				b := Backends{Agents: backend.URL, Policy: backend.URL, Inference: backend.URL, Identity: backend.URL, Triggers: backend.URL}
+				gw := httptest.NewServer(mcpkit.NewController("/mcp", NewServer(b, korajson.NewClient(logging.NewLogger()), testBrand)).Handler())
+				defer gw.Close()
+
+				call := mcpCallerAs(t, gw.URL, delegation)
+				call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+				call("tools/call", map[string]any{"name": tool, "arguments": map[string]any{}})
+
+				if !hit {
+					t.Fatalf("%s did not reach a backend", tool)
+				}
+				if gotAuth != "Bearer caller-abc" {
+					t.Errorf("Authorization = %q, want the caller's bearer", gotAuth)
+				}
+				if gotDelegation != delegation {
+					t.Errorf("delegation = %q, want %q", gotDelegation, delegation)
+				}
+			})
+		}
+	}
+}
+
 // TestToolRequiresKeysAreRegisteredTools guards the toolRequires map against
 // typos: every key must name a real registered tool. A key with no matching tool
 // is dead (its scope is never emitted as _meta); a tool that needs a scope but is
@@ -812,6 +852,12 @@ func TestToolRequiresMatchDownstreamRouteScopes(t *testing.T) {
 // over Streamable HTTP with a fixed caller token, parsing the SSE `data:` frame
 // (or a bare JSON body) into the response map.
 func mcpCaller(t *testing.T, baseURL string) func(method string, params any) map[string]any {
+	return mcpCallerAs(t, baseURL, "")
+}
+
+// mcpCallerAs is mcpCaller with a delegation token on every request, as the tool
+// gateway sends for a delegated run. An empty delegation sends none.
+func mcpCallerAs(t *testing.T, baseURL, delegation string) func(method string, params any) map[string]any {
 	return func(method string, params any) map[string]any {
 		t.Helper()
 		body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
@@ -819,6 +865,9 @@ func mcpCaller(t *testing.T, baseURL string) func(method string, params any) map
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json, text/event-stream")
 		req.Header.Set("Authorization", "Bearer caller-abc")
+		if delegation != "" {
+			req.Header.Set(mw.DelegationTokenHeader, delegation)
+		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("%s: %v", method, err)

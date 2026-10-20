@@ -29,6 +29,7 @@ type Controller struct {
 	environments *EnvironmentService
 	drafts       *DraftService
 	verifier     *token.Verifier
+	blocklist    mw.JTIBlocklist
 	eval         policy.Evaluator
 	routes       []routescopes.RouteScope
 	basePath     string
@@ -42,12 +43,14 @@ type Controller struct {
 // request time by ScopeEnforcementMiddleware to enforce route → required-scope
 // bindings in-process. basePath must match the server's BasePath so the
 // middleware can reconstruct full paths after http.StripPrefix. See docs/adr/2026-06-04-platform-scope-enforcement-middleware.md.
+// blocklist refuses a revoked delegation token before it expires.
 func NewController(
 	agentTypes *AgentTypeService,
 	runs *RunService,
 	environments *EnvironmentService,
 	drafts *DraftService,
 	verifier *token.Verifier,
+	blocklist mw.JTIBlocklist,
 	eval policy.Evaluator,
 	routes []routescopes.RouteScope,
 	basePath string,
@@ -59,6 +62,7 @@ func NewController(
 		environments: environments,
 		drafts:       drafts,
 		verifier:     verifier,
+		blocklist:    blocklist,
 		eval:         eval,
 		routes:       routes,
 		basePath:     basePath,
@@ -85,7 +89,7 @@ func (c *Controller) GroupedBy() string { return "" }
 func (c *Controller) Middleware() mw.MiddlewareHandler {
 	publicChain := mw.MiddlewareChain(
 		mw.AuthMiddleware(c.verifier, c.logger),
-		mw.DelegationMiddleware(c.logger, c.verifier),
+		mw.DelegationMiddlewareWithBlocklist(c.logger, c.verifier, c.blocklist),
 		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
 	)
 	internalChain := mw.MiddlewareChain(

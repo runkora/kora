@@ -11,6 +11,7 @@ cmd/policy-gateway:
     {{- /* The policy service's gRPC route-registration port. */}}
     policyServiceInternalURL: {{ printf "%s:9091" (include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service")) | toJson }}
 {{ include "orbit.observabilityConfigModule" . }}
+{{ include "orbit.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "orbit.tokenConfigModule" . }}
 {{- end }}
 {{- include "orbit.configMap" (dict "root" $ "name" "policyGateway" "configMap" "orbit-policy-gateway-config" "modules" (include "orbit.policyGateway.configModules" . | fromYaml)) }}

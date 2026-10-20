@@ -4,9 +4,10 @@
 // ONLY — the protocol/transport/passthrough live in the reusable internal/
 // platform/mcp kit, and the HTTP forwarding in internal/platform/clients/korajson.
 //
-// Identity model: passthrough. Each tool forwards the CALLER's token to the
-// relevant kora API (via korajson + the kit's CallerToken); the downstream
-// service enforces the real platform scope. This server holds no authority.
+// Identity model: passthrough. Each tool forwards the CALLER's token and any
+// delegation token to the relevant kora API (via korajson + the kit's
+// CallerToken and CallerDelegation); the downstream service enforces the real
+// platform scope. This server holds no authority.
 //
 // Tools are organized one file per domain (tools_agents.go, tools_models.go,
 // tools_policy.go, …) and wired together in register.go.
@@ -181,8 +182,12 @@ var toolRequires = map[string][]string{
 	"runs.terminate":    {"agents:runs:write"},
 }
 
-// callerToken returns the bearer the kit lifted from the inbound request.
-func callerToken(ctx context.Context) string { return mcpkit.CallerToken(ctx) }
+// caller returns the bearer and delegation token the kit lifted from the inbound
+// request. Every downstream call carries both. A service that reads the
+// delegation evaluates agent grant intersected with the delegator's access.
+func caller(ctx context.Context) korajson.Caller {
+	return korajson.Caller{Bearer: mcpkit.CallerToken(ctx), Delegation: mcpkit.CallerDelegation(ctx)}
+}
 
 // jsonResult turns a (rawJSON, err) into an MCP tool result: the JSON as text on
 // success, or an MCP isError result on failure (so the model sees and can react).

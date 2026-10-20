@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -25,6 +26,9 @@ func (c *Controller) handleCreatePAT(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "unauthorized", nil), nil)
+		return
+	}
+	if c.refuseDelegated(ctx, w) {
 		return
 	}
 
@@ -130,6 +134,9 @@ func (c *Controller) handleUpdatePATScopes(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "unauthorized", nil), nil)
+		return
+	}
+	if c.refuseDelegated(ctx, w) {
 		return
 	}
 
@@ -267,4 +274,15 @@ func (c *Controller) handleGetPATAttribution(w http.ResponseWriter, r *http.Requ
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, PATAttributionResponse{Attribution: attribution})
+}
+
+// refuseDelegated writes 403 for a delegated run. A PAT it minted or widened
+// would carry the agent's grant without the delegation bound and outlive the run.
+func (c *Controller) refuseDelegated(ctx context.Context, w http.ResponseWriter) bool {
+	if policy.DelegationFromContext(ctx) == nil {
+		return false
+	}
+	api.ErrorResponse(ctx, w, c.logger,
+		api.ForbiddenError(api.ErrCodeForbidden, "a delegated run cannot create or change personal access tokens", nil), nil)
+	return true
 }

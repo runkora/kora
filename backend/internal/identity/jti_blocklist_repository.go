@@ -26,7 +26,7 @@ type JTIBlocklistRepository interface {
 // redisJTIBlocklistRepository implements JTIBlocklistRepository via the shared
 // platform blocklist (internal/platform/storage.JTIBlocklist), so the identity
 // service writes to the exact namespace other services read revocation from
-// (e.g. DelegationMiddleware's revoked-delegation check).
+// (e.g. DelegationMiddlewareWithBlocklist's revoked-delegation check).
 type redisJTIBlocklistRepository struct {
 	blocklist *storage.JTIBlocklist
 }

@@ -235,11 +235,8 @@ func initController(
 		worker.Wait(shutdownCtx)
 	}(ctx)
 
-	// Revocation-aware authentication: a revoked token is rejected immediately
-	// rather than staying usable until expiry, matching the behavior these
-	// routes had while they were served by identity.
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
-	auth := mw.AuthMiddlewareWithRevocation(verifier, storage.NewJTIBlocklist(redis), logger)
+	auth := authMiddleware(verifier, storage.NewJTIBlocklist(redis), logger)
 
 	return triggers.NewController(svc, sources, lifecycle, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger), scopeClient, nil
 }
@@ -312,6 +309,15 @@ func initLogger() logging.Logger {
 		return logging.NewDevelopmentLogger()
 	}
 	return logging.NewLogger()
+}
+
+// authMiddleware authenticates the platform token and a delegated run's
+// delegation, each checked against the revoked-JTI blocklist.
+func authMiddleware(verifier *platformtoken.Verifier, blocklist mw.JTIBlocklist, logger logging.Logger) mw.Middleware {
+	return mw.NewMiddleware(mw.MiddlewareChain(
+		mw.AuthMiddlewareWithRevocation(verifier, blocklist, logger),
+		mw.DelegationMiddlewareWithBlocklist(logger, verifier, blocklist),
+	))
 }
 
 // initStorage opens the Postgres pool and the Redis client. Redis backs the JTI

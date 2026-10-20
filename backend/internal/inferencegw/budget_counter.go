@@ -94,14 +94,16 @@ type redisOps interface {
 // principal keys omit the tenant; role names are tenant-scoped, so pool keys
 // include it.
 type RedisBudgetCounter struct {
-	rdb    redisOps
-	usage  InferenceUsageRepository
-	logger logging.Logger
+	rdb redisOps
+	// available reports Redis reachability. Nil means always available.
+	available func() bool
+	usage     InferenceUsageRepository
+	logger    logging.Logger
 }
 
 // NewRedisBudgetCounter constructs a RedisBudgetCounter.
 func NewRedisBudgetCounter(rc *storage.RedisClient, usage InferenceUsageRepository, logger logging.Logger) *RedisBudgetCounter {
-	return &RedisBudgetCounter{rdb: rc.Client(), usage: usage, logger: logger}
+	return &RedisBudgetCounter{rdb: rc.Client(), available: rc.Available, usage: usage, logger: logger}
 }
 
 // ── periods and keys ─────────────────────────────────────────────────────────
@@ -243,7 +245,13 @@ func (c *RedisBudgetCounter) spendReads(scopes SpendScopes, now time.Time) []spe
 
 // GetSpends reads every canonical counter named by scopes in one MGET,
 // rehydrating misses from the usage repository and priming Redis.
+//
+// While Redis is unreachable it returns storage.ErrRedisUnavailable without a
+// network call, and the caller skips the budget check.
 func (c *RedisBudgetCounter) GetSpends(ctx context.Context, scopes SpendScopes) (policy.BudgetSpends, error) {
+	if c.available != nil && !c.available() {
+		return policy.BudgetSpends{}, fmt.Errorf("get spends: %w", storage.ErrRedisUnavailable)
+	}
 	now := time.Now().UTC()
 	spends := policy.BudgetSpends{
 		Principal: map[string]float64{},
@@ -334,7 +342,13 @@ func (c *RedisBudgetCounter) GetCategorySpends(ctx context.Context, principalID 
 // attribution counters, ensuring every key carries a TTL. The monthly
 // principal counter is always written so reporting and late-added budgets
 // have a warm baseline.
+//
+// While Redis is unreachable it returns storage.ErrRedisUnavailable without a
+// network call. The spend still lands in the usage records.
 func (c *RedisBudgetCounter) IncrementSpends(ctx context.Context, scopes SpendScopes, categories []policy.BudgetCategory, amount float64) error {
+	if c.available != nil && !c.available() {
+		return fmt.Errorf("increment spends: %w", storage.ErrRedisUnavailable)
+	}
 	now := time.Now().UTC()
 
 	windows := map[string]struct{}{"monthly": {}}
