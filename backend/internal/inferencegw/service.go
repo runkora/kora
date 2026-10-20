@@ -1625,6 +1625,11 @@ func retryTargets[T any](
 				return
 			}
 			var connErr *ConnectorError
+			if errors.As(callErr, &connErr) && connErr.RequestRejected {
+				// An invalid request fails the same way on every target; stop
+				// here instead of sending it to each regional profile.
+				return
+			}
 			if !errors.As(callErr, &connErr) || !connErr.Retryable {
 				break
 			}

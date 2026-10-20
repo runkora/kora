@@ -570,6 +570,7 @@ func MapOpenAIError(provider inferencegw.ProviderName, err error) error {
 			Provider:        provider,
 			Code:            code,
 			Retryable:       retryable,
+			RequestRejected: isRequestRejection(apiErr.StatusCode),
 			HTTPStatus:      apiErr.StatusCode,
 			Underlying:      fmt.Errorf("status %d: %s", apiErr.StatusCode, apiErr.Message),
 			ProviderMessage: apiErr.Message,
@@ -620,6 +621,7 @@ func MapAnthropicError(provider inferencegw.ProviderName, err error) error {
 			Provider:        provider,
 			Code:            code,
 			Retryable:       retryable,
+			RequestRejected: isRequestRejection(apiErr.StatusCode),
 			HTTPStatus:      apiErr.StatusCode,
 			Underlying:      fmt.Errorf("status %d: %s", apiErr.StatusCode, apiErr.Error()),
 			ProviderMessage: extractAnthropicMessage(apiErr.RawJSON()),
@@ -658,6 +660,12 @@ func extractAnthropicMessage(raw string) string {
 		return body.Error.Message
 	}
 	return ""
+}
+
+// isRequestRejection reports whether an upstream status means the request body
+// itself was rejected, which no other target can fix.
+func isRequestRejection(status int) bool {
+	return status == http.StatusBadRequest || status == http.StatusUnprocessableEntity
 }
 
 func classifyAnthropicStatus(status int) (code string, retryable bool) {
