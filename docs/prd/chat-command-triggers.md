@@ -60,17 +60,19 @@ None at this time.
 ### US-001: Connect a Slack workspace
 
 **As a** tenant admin,  
-**I want** to create the Slack app from a manifest and register it as a chat source,  
+**I want** to register a chat source first and create the Slack app from its manifest,  
 **So that** people in my workspace can reach agents from Slack.
 
 **Acceptance Criteria:**
 
 - [ ] The new-trigger screen offers "Chat command" next to the existing kinds.
 - [ ] The chat command kind offers Slack. Discord and Microsoft Teams are shown as coming later and cannot be picked.
-- [ ] The source step shows the Slack app manifest with a copy button and the steps to create the app from it.
-- [ ] The admin pastes the app's signing secret from Slack into the source form. kora does not generate a secret for a Slack source.
-- [ ] After the source is created, kora shows the request URL to enter under the Slack app's event subscriptions.
-- [ ] Slack's request URL check succeeds against the new source, and the check creates no delivery.
+- [ ] The admin names the source, and kora creates it at once without a signing secret.
+- [ ] The source step shows the Slack app manifest with the real request URL, a copy button and the steps to create the app from it. An admin with an existing app sees the request URL on its own.
+- [ ] The wizard shows no placeholder URL for a source that does not exist yet.
+- [ ] Slack's request URL check succeeds against the source before it has a secret, and the check creates no delivery.
+- [ ] The admin pastes the app's signing secret from Slack into the same screen, and the wizard continues only after the secret is saved. kora does not generate a secret for a Slack source.
+- [ ] A source without a secret shows as waiting for its signing secret on the triggers page and in the trigger drawer, with a way to set it.
 - [ ] Replacing the secret asks the admin for the new secret from Slack.
 - [ ] Placeholders and examples in the chat flow use chat terms.
 - [ ] GitHub and Alertmanager sources keep their current setup and their generated secrets.
@@ -134,11 +136,10 @@ None at this time.
 
 ### Setup
 
-1.  The admin picks "Chat command" on the new-trigger screen, picks Slack and copies the manifest.
-2.  The admin creates a Slack app from the manifest in their workspace and copies its signing secret.
-3.  The admin names the source, pastes the secret and creates the source.
-4.  kora shows the request URL. The admin enters it under the Slack app's event subscriptions, and Slack confirms the URL.
-5.  The admin installs the app in the workspace and invites the bot to the channels it should hear.
+1.  The admin picks "Chat command" on the new-trigger screen, picks Slack and names the source. kora creates the source at once, without a signing secret.
+2.  kora shows the manifest with the real request URL. The admin creates the Slack app from it, or sets the request URL on an existing app. Slack confirms the URL, and kora answers the check.
+3.  The admin copies the signing secret from the app's Basic Information page, pastes it into the same screen and continues.
+4.  The admin installs the app in the workspace and invites the bot to the channels it should hear.
 
 The manifest asks for what kora needs to hear mentions and direct messages, and for what the agent needs to read the thread and reply. Replying in Slack goes through a Slack MCP server registered with the same Slack app's bot token. The admin adds any further permissions that server needs. kora's chat source never holds a Slack token.
 
@@ -172,6 +173,8 @@ The author picks the mention event or the direct message event, narrows by conve
 **PD3:** Anyone in a channel the bot is in may fire it, including external users in a Slack Connect channel. Triggers narrow by conversation and by person. **Accepted cost:** any member or external user in a shared channel can start a run with the source's access when the trigger does not narrow it.
 
 **PD4:** One Slack app serves one workspace. The admin creates it from the manifest. **Accepted cost:** each workspace needs its own app and its own source.
+
+**PD4a:** Until the signing secret is set, the source answers only Slack's URL check and starts nothing.
 
 **PD5:** Hearing the chat and replying in the chat stay separate. The chat source holds the signing secret, and the Slack MCP server holds the bot token. They are joined only by being the same Slack app, and no Slack credentials connection exists. **Accepted cost:** an admin configures two things for one Slack app. A Slack MCP server that posts as a user can start runs from its own replies.
 
