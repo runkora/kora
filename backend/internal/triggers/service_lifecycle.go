@@ -209,19 +209,13 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 	if err != nil {
 		return nil, err
 	}
-	restriction, err := normalizeRestriction(s.registry, src.Provider, req.SenderRestriction)
-	if err != nil {
-		return nil, err
-	}
 	// Validated by validateWebhookTriggerCreate above; read again for the value.
 	coalesce, err := coalesceForCreate(req)
 	if err != nil {
 		return nil, err
 	}
-	if err = validateChatTrigger(s.registry, src.Provider, Trigger{
-		EventType: strings.TrimSpace(req.EventType), PromptTemplate: req.PromptTemplate,
-		MatchCondition: req.MatchCondition, MatchContains: req.MatchContains, Coalesce: coalesce,
-	}); err != nil {
+	restriction, err := createSourceRules(s.registry, src.Provider, req, coalesce)
+	if err != nil {
 		return nil, err
 	}
 
@@ -295,6 +289,18 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 		logging.Field{Key: "agent_slug", Value: t.AgentSlug},
 	)
 	return s.readBackTrigger(ctx, t), nil
+}
+
+// createSourceRules checks a new trigger against its source's provider: the
+// chat schema, then the sender restriction, which it returns normalized.
+func createSourceRules(registry *Registry, provider string, req CreateTriggerRequest, coalesce *CoalesceConfig) (*SenderRestriction, error) {
+	if err := validateChatTrigger(registry, provider, Trigger{
+		EventType: strings.TrimSpace(req.EventType), PromptTemplate: req.PromptTemplate,
+		MatchCondition: req.MatchCondition, MatchContains: req.MatchContains, Coalesce: coalesce,
+	}); err != nil {
+		return nil, err
+	}
+	return normalizeRestriction(registry, provider, req.SenderRestriction)
 }
 
 // createOwnedTrigger creates a trigger that owns its principal: scheduled and
