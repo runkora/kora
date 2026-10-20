@@ -7,7 +7,7 @@ Local-only tenant resources applied after the platform installation. Platform se
 ```
 deploy/local/
 ├── connections/   # Connection resources for the example tenant (Kubernetes, GitHub)
-├── fixtures/      # Example tenant workload
+├── fixtures/      # Example tenant workload and skill marketplace
 └── tenants/       # OrbitTenant resources
 ```
 
@@ -36,4 +36,10 @@ A connection without its credential is skipped, not failed.
 
 ## Fixtures
 
-`fixtures/orbit-tenant-example.yaml` is the example tenant's workload: a self-contained `Deployment` and `Service` for local testing.
+`fixtures/orbit-tenant-example.yaml` contains the example tenant's workload and a `SkillMarketplaceSource` for local testing. `make cluster-deploy` applies the file after the operator creates the tenant namespace.
+
+## Skill marketplace sources
+
+The example source registers `clear-route/skills-marketplace` as `Clear Route Skills` in `orbit-tenant-example`, reading the `main` branch. The repository is approved in `tenants/example.yaml` under `spec.allowedMarketplaceRepos`. Each source needs that approval for its tenant; a source without it stays `Pending`.
+
+Listing the marketplace does not require GitHub access. Browsing its skills requires the local platform GitHub App key at `secrets/orbit-github-app.pem`, with access to the repository.

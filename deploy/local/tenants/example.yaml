@@ -16,6 +16,10 @@ spec:
   displayName: "kora Example"
   active: true
 
+  # Repositories approved by the platform admin for this tenant's marketplaces.
+  allowedMarketplaceRepos:
+    - clear-route/skills-marketplace
+
   oidc:
     issuerURL: "https://dex.orbit.local.clearroute.io:5556/dex"
     clientID: "orbit-local"

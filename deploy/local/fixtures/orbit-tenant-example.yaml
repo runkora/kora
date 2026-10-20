@@ -1,4 +1,4 @@
-# Example tenant workload for the local cluster. The namespace comes from
+# Example tenant workload and marketplace for the local cluster. The namespace comes from
 # deploy/local/tenants/example.yaml; the operator's webhook adds the sidecars.
 ---
 apiVersion: v1
@@ -113,3 +113,17 @@ spec:
       port: 80
       targetPort: 8081
       protocol: TCP
+---
+# Approved by the example tenant's allowedMarketplaceRepos. Crawling skills
+# requires the platform GitHub App to have access to this repository.
+apiVersion: orbit.io/v1alpha1
+kind: SkillMarketplaceSource
+metadata:
+  name: skills-marketplace
+  namespace: orbit-tenant-example
+spec:
+  displayName: Clear Route Skills
+  github:
+    owner: clear-route
+    repo: skills-marketplace
+    branch: main
