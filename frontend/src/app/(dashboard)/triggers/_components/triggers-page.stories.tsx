@@ -6,7 +6,9 @@ import type { MockRequest, MockRoutes } from '@runkora/storybook/mock-api';
 import { TriggersShell } from './triggers-shell';
 import {
   AGENTS,
+  CHAT_FIELDS,
   DELIVERIES,
+  EVENT_TYPES_BY_PROVIDER,
   FAILED_DELIVERY,
   GITHUB_EVENT_TYPES,
   MANY_DELIVERIES,
@@ -22,16 +24,57 @@ import {
 } from './triggers-mock-data';
 import type { RoutingCase } from './triggers-mock-data';
 
+/** The path segment after `after`, e.g. the provider in `/api/trigger-providers/slack/fields`. */
+function segmentAfter(req: MockRequest, after: string): string {
+  const parts = req.url.pathname.split('/');
+  return parts[parts.indexOf(after) + 1] ?? '';
+}
+
+/** Each provider answers with its own catalog, so chat and webhook kinds each see their own. */
+function providerEventTypes(provider: string) {
+  return { data: EVENT_TYPES_BY_PROVIDER[provider] ?? GITHUB_EVENT_TYPES };
+}
+
 /** The client-side calls the drawer and the wizard make while open. */
 const catalogRoutes: MockRoutes = {
   'GET /api/triggers/routing/candidates': { data: routingCandidates(4) },
   'GET /api/models': { data: modelCatalog(true) },
-  'GET /api/trigger-sources/:id/event-types': { data: GITHUB_EVENT_TYPES },
-  'GET /api/trigger-providers/:provider/event-types': { data: GITHUB_EVENT_TYPES },
-  'GET /api/trigger-providers/:provider/fields': { data: { fields: PULL_REQUEST_FIELDS } },
+  'GET /api/trigger-sources/:id/event-types': (req: MockRequest) => {
+    const id = segmentAfter(req, 'trigger-sources');
+    return providerEventTypes(SOURCES.find((s) => s.id === id)?.provider ?? 'github');
+  },
+  'GET /api/trigger-providers/:provider/event-types': (req: MockRequest) =>
+    providerEventTypes(segmentAfter(req, 'trigger-providers')),
+  'GET /api/trigger-providers/:provider/fields': (req: MockRequest) => ({
+    data: {
+      fields:
+        EVENT_TYPES_BY_PROVIDER[segmentAfter(req, 'trigger-providers')]?.category === 'chat'
+          ? CHAT_FIELDS
+          : PULL_REQUEST_FIELDS,
+    },
+  }),
   'POST /api/triggers/schedule-preview': { data: SCHEDULE_PREVIEW },
   'POST /api/triggers': (req: MockRequest) => ({
     data: { id: 'trg_created01', ...(req.body as object) },
+  }),
+  // A provider that issues its own secret gets none back; the others get a generated one.
+  'POST /api/trigger-sources': (req: MockRequest) => {
+    const body = req.body as { name: string; provider: string };
+    const chat = EVENT_TYPES_BY_PROVIDER[body.provider]?.category === 'chat';
+    return {
+      data: {
+        id: 'src_created01',
+        name: body.name,
+        provider: body.provider,
+        category: chat ? 'chat' : 'webhook',
+        enabled: true,
+        webhook_path: '/api/v1/webhooks/src_created01',
+        ...(chat ? {} : { secret: 'whsec_9f2c41d8e7a0b3' }),
+      },
+    };
+  },
+  'PATCH /api/trigger-sources/:id': (req: MockRequest) => ({
+    data: { id: segmentAfter(req, 'trigger-sources'), webhook_path: '/x' },
   }),
 };
 
@@ -383,3 +426,98 @@ export const DeliveryLowConfidenceNoRun = deliveryStory('no-run');
 
 /** The decision model did not answer: the fallback agent took it. */
 export const DeliveryModelFailed = deliveryStory('model-failed');
+
+/** Opens the wizard and picks a kind from the first phase. */
+async function openKind(canvasElement: HTMLElement, kind: RegExp) {
+  await userEvent.click(await within(canvasElement).findByRole('button', { name: /New trigger/ }));
+  await userEvent.click(await within(document.body).findByRole('radio', { name: kind }));
+}
+
+/** The chat command kind's source step: a new Slack source with its manifest and signing secret. */
+export const WizardChatCommand: Story = {
+  decorators: frame,
+  play: async ({ canvasElement }) => {
+    await openKind(canvasElement, /Chat command/);
+    const body = within(document.body);
+    await userEvent.type(await body.findByLabelText(/Trigger name/), 'answer-platform-questions');
+    await userEvent.click(await body.findByText('New source'));
+    await userEvent.type(await body.findByLabelText(/Source name/), 'acme-slack-ops');
+    await userEvent.click(await body.findByRole('radio', { name: /Slack/ }));
+    await userEvent.type(
+      await body.findByLabelText(/Signing secret/),
+      '8f14e45fceea167a5a36dedd4bea2543',
+    );
+    (await body.findByText('Platform')).scrollIntoView({ block: 'start' });
+  },
+};
+
+/** A chat command on the existing Slack source: the mention event, a channel filter and two senders. */
+export const WizardChatEvent: Story = {
+  decorators: frame,
+  play: async ({ canvasElement }) => {
+    await openKind(canvasElement, /Chat command/);
+    const body = within(document.body);
+    await userEvent.type(await body.findByLabelText(/Trigger name/), 'answer-platform-questions');
+    await userEvent.click(await body.findByRole('radio', { name: /Mention/ }));
+    await userEvent.click(await body.findByRole('button', { name: /Add filter/ }));
+    await userEvent.click(await body.findByRole('button', { name: 'Filter 1 field' }));
+    await userEvent.click(await body.findByText('conversation.id'));
+    await userEvent.type(await body.findByLabelText('Filter 1 values'), 'C04PLATFORM | C07ONCALL');
+    await userEvent.type(await body.findByLabelText('Allowed senders'), 'U012AB3CD, U045EF6GH');
+    (await body.findByText('Senders')).scrollIntoView({ block: 'center' });
+  },
+};
+
+/** The done step for a new Slack source: the real request URL to set under Event Subscriptions. */
+export const WizardChatDone: Story = {
+  decorators: frame,
+  play: async ({ canvasElement }) => {
+    await openKind(canvasElement, /Chat command/);
+    const body = within(document.body);
+    await userEvent.type(await body.findByLabelText(/Trigger name/), 'answer-platform-questions');
+    await userEvent.click(await body.findByText('New source'));
+    await userEvent.type(await body.findByLabelText(/Source name/), 'acme-slack-ops');
+    await userEvent.click(await body.findByRole('radio', { name: /Slack/ }));
+    await userEvent.type(
+      await body.findByLabelText(/Signing secret/),
+      '8f14e45fceea167a5a36dedd4bea2543',
+    );
+    await userEvent.click(await body.findByRole('radio', { name: /Mention/ }));
+    await userEvent.type(
+      await body.findByLabelText('Prompt'),
+      'Answer the question in the thread and link anything you cite.',
+    );
+    await next(body);
+    await userEvent.click(await body.findByRole('radio', { name: 'Triage Bot' }));
+    await next(body);
+    await next(body);
+    await userEvent.click(await body.findByRole('button', { name: /Create trigger/ }));
+    await body.findByText('Trigger created');
+  },
+};
+
+/** A chat command trigger in its drawer, replacing the Slack signing secret. */
+export const DrawerChatTrigger: Story = {
+  decorators: frame,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByText('answer-platform-questions'));
+    const body = within(document.body);
+    await userEvent.type(
+      await body.findByLabelText(/Signing secret/),
+      'c9f0f895fb98ab9159f51fd0297e236d',
+    );
+    await userEvent.click(await body.findByRole('button', { name: 'Replace secret' }));
+    await body.findByText(/The new secret is stored/);
+  },
+};
+
+/** The webhook kind on a GitHub source: role cards read from the labels GitHub declares. */
+export const WizardWebhookSenders: Story = {
+  decorators: frame,
+  play: async ({ canvasElement }) => {
+    await openKind(canvasElement, /Webhook/);
+    const body = within(document.body);
+    await body.findByText('Owns the repository');
+    (await body.findByText('Senders')).scrollIntoView({ block: 'center' });
+  },
+};
