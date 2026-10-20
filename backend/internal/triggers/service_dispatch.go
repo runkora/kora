@@ -72,7 +72,10 @@ func admissionReason(r AdmissionResult) string {
 // disabled, retargeted or auto-paused while this fire waited, and acting on
 // stale configuration is exactly what an admin turning something off is trying
 // to prevent.
-func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
+//
+// held reports a fire put back in the queue to wait for a starting run; the
+// worker leaves it claimable rather than releasing it.
+func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) (held bool) {
 	t, err := s.repo.GetTrigger(ctx, p.TenantID, p.TriggerID)
 	if err != nil {
 		s.logger.Error(ctx, "pending dispatch: trigger no longer readable",
@@ -85,7 +88,7 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
 			TenantID: p.TenantID, DeliveryID: p.DeliveryID, TriggerID: p.TriggerID,
 			Status: RunStatusDropped, Error: new("trigger no longer available"),
 		})
-		return
+		return false
 	}
 	if !t.Enabled {
 		s.outcomes.record(ctx, &DeliveryRun{
@@ -94,7 +97,7 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
 			Status: RunStatusDropped,
 			Error:  new("trigger was disabled while this fire was waiting"),
 		})
-		return
+		return false
 	}
 
 	// The timeout bounds the start request, which returns once orbit-agents has
@@ -102,40 +105,55 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
 	dispatchCtx, cancel := context.WithTimeout(ctx, t.dispatchTimeout())
 	defer cancel()
 
+	if t.TargetKind == TargetKindRouted {
+		return s.dispatchRouted(ctx, dispatchCtx, *t, p)
+	}
 	runID, err := s.startRunForTriggerWithFields(dispatchCtx, *t, p.DeliveryID, p.Fields)
 	if err != nil {
-		s.logger.Error(ctx, "pending dispatch failed",
-			logging.Field{Key: "trigger_id", Value: t.ID},
-			logging.Field{Key: "delivery_id", Value: p.DeliveryID},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		s.outcomes.insert(ctx, &DeliveryRun{
-			TenantID: t.TenantID, DeliveryID: p.DeliveryID,
-			TriggerID: t.ID, TriggerName: t.Name,
-			Status: runStatusForDispatchError(err), Error: new(err.Error()),
-		})
-		// Carry one reason up to the delivery so the feed can say why in a
-		// single line; the per-trigger detail is the fan-out.
-		s.recordFailure(ctx, p.DeliveryID, err.Error())
-		s.noteFailure(ctx, *t, err)
-		s.outcomes.derive(ctx, p.DeliveryID)
-		return
+		s.recordDispatchFailure(ctx, *t, p.DeliveryID, err)
+		return false
 	}
+	s.recordStarted(ctx, *t, p.DeliveryID, RunStatusDispatched, runID)
+	return false
+}
 
-	rID := runID
+// recordDispatchFailure records a start or join that failed, and counts it
+// toward auto-pause when the failure is the trigger's own.
+func (s *Service) recordDispatchFailure(ctx context.Context, t Trigger, deliveryID string, err error) {
+	s.logger.Error(ctx, "pending dispatch failed",
+		logging.Field{Key: "trigger_id", Value: t.ID},
+		logging.Field{Key: "delivery_id", Value: deliveryID},
+		logging.Field{Key: "error", Value: err.Error()},
+	)
 	s.outcomes.insert(ctx, &DeliveryRun{
-		TenantID: t.TenantID, DeliveryID: p.DeliveryID,
+		TenantID: t.TenantID, DeliveryID: deliveryID,
 		TriggerID: t.ID, TriggerName: t.Name,
-		Status: RunStatusDispatched, RunID: &rID,
+		Status: runStatusForDispatchError(err), Error: new(err.Error()),
 	})
-	_ = s.repo.UpdateDeliveryOutcome(ctx, p.DeliveryID, StatusDispatched, &t.ID, &rID, nil)
-	s.noteSuccess(ctx, *t)
-	s.outcomes.derive(ctx, p.DeliveryID)
+	// Carry one reason up to the delivery so the feed can say why in a
+	// single line; the per-trigger detail is the fan-out.
+	s.recordFailure(ctx, deliveryID, err.Error())
+	s.noteFailure(ctx, t, err)
+	s.outcomes.derive(ctx, deliveryID)
+}
 
-	s.logger.Info(ctx, "trigger started run",
+// recordStarted records a delivery that started or joined runID. status is
+// RunStatusDispatched for a new run and RunStatusJoined for a joined one.
+func (s *Service) recordStarted(ctx context.Context, t Trigger, deliveryID, status, runID string) {
+	s.outcomes.insert(ctx, &DeliveryRun{
+		TenantID: t.TenantID, DeliveryID: deliveryID,
+		TriggerID: t.ID, TriggerName: t.Name,
+		Status: status, RunID: &runID,
+	})
+	_ = s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusDispatched, &t.ID, &runID, nil)
+	s.noteSuccess(ctx, t)
+	s.outcomes.derive(ctx, deliveryID)
+
+	s.logger.Info(ctx, "trigger dispatched delivery",
 		logging.Field{Key: "trigger_id", Value: t.ID},
 		logging.Field{Key: "run_id", Value: runID},
-		logging.Field{Key: "delivery_id", Value: p.DeliveryID},
+		logging.Field{Key: "delivery_id", Value: deliveryID},
+		logging.Field{Key: "status", Value: status},
 	)
 }
 
@@ -172,7 +190,15 @@ func (s *Service) RecordOrphanedPending(ctx context.Context, o OrphanedPending) 
 // once through no fault of its own: counting that would pause the entire estate
 // during a capacity blip and leave someone re-enabling each one by hand.
 func (s *Service) noteFailure(ctx context.Context, t Trigger, cause error) {
-	if !t.AutopauseEnabled || !countsTowardAutoPause(cause) {
+	if !countsTowardAutoPause(cause) {
+		return
+	}
+	s.countFailure(ctx, t)
+}
+
+// countFailure bumps the failure counter and auto-pauses the trigger at the threshold.
+func (s *Service) countFailure(ctx context.Context, t Trigger) {
+	if !t.AutopauseEnabled {
 		return
 	}
 	n, err := s.repo.BumpConsecutiveFailures(ctx, t.ID)

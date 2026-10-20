@@ -5,6 +5,7 @@ package policy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -20,6 +21,25 @@ var ErrGrantNotFound = errors.New("grant not found")
 
 // ErrNoCallerBearer is returned when a caller-scoped request has no caller token.
 var ErrNoCallerBearer = errors.New("no caller bearer token")
+
+// ErrScopeNotInVocabulary is returned when the policy service refuses a grant
+// because one of its scopes is not in the tenant's scope vocabulary.
+var ErrScopeNotInVocabulary = errors.New("scope is not in the scope vocabulary")
+
+// ScopeNotInVocabularyError names the scope the policy service refused. It
+// matches ErrScopeNotInVocabulary under errors.Is.
+type ScopeNotInVocabularyError struct {
+	Scope string
+}
+
+func (e *ScopeNotInVocabularyError) Error() string {
+	return ErrScopeNotInVocabulary.Error() + ": " + e.Scope
+}
+
+func (e *ScopeNotInVocabularyError) Is(target error) bool { return target == ErrScopeNotInVocabulary }
+
+// errGrantRejected is any other 400 the policy service answers a grant with.
+var errGrantRejected = errors.New("create grant rejected")
 
 const (
 	tracerName    = "orbit.policy-client"
@@ -121,6 +141,14 @@ func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, princ
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
+	if resp.StatusCode == http.StatusBadRequest {
+		upstream := c.ReadErrorBody(span, resp)
+		if scope, ok := vocabularyScope(upstream); ok {
+			_ = c.RecordError(span, ErrScopeNotInVocabulary)
+			return "", &ScopeNotInVocabularyError{Scope: scope}
+		}
+		return "", fmt.Errorf("%w: status %d: %s", c.RecordError(span, errGrantRejected), resp.StatusCode, upstream)
+	}
 	if resp.StatusCode != http.StatusCreated {
 		return "", c.HandleErrorResponse(span, resp, fmt.Errorf("create grant failed: status %d", resp.StatusCode))
 	}
@@ -276,4 +304,19 @@ func (c *Client) DeleteGrant(ctx context.Context, grantID string) error {
 	default:
 		return c.HandleErrorResponse(span, resp, fmt.Errorf("delete grant failed: status %d", resp.StatusCode))
 	}
+}
+
+// vocabularyScope returns the scope a policy service 400 names when it refuses
+// a scope outside the vocabulary. The service sets details.scope only then.
+func vocabularyScope(body string) (string, bool) {
+	var e struct {
+		Code    string `json:"code"`
+		Details struct {
+			Scope string `json:"scope"`
+		} `json:"details"`
+	}
+	if json.Unmarshal([]byte(body), &e) != nil || e.Code != "invalid_field" || e.Details.Scope == "" {
+		return "", false
+	}
+	return e.Details.Scope, true
 }

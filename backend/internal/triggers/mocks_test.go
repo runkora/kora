@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/runkora/kora/backend/internal/platform/brand"
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -63,6 +64,50 @@ type mockRepository struct {
 	createTriggerErr  error
 	insertDeliveryErr error
 	listTriggersErr   error
+
+	decisions []*RoutingDecision
+	// holds records HoldPending calls; holdErr fails them.
+	holds   []holdCall
+	holdErr error
+	// beforeGrantUpdate and beforeUpdate run at the start of UpdateTriggerGrant
+	// and UpdateTrigger, so a test can land a concurrent update in between.
+	beforeGrantUpdate func()
+	beforeUpdate      func()
+}
+
+// LatestJoinKeyRun mirrors the SQL: the newest decision of the trigger with the
+// key and a run.
+func (m *mockRepository) LatestJoinKeyRun(_ context.Context, tenantID, triggerID, joinKey string) (string, string, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := len(m.decisions) - 1; i >= 0; i-- {
+		d := m.decisions[i]
+		if d.TenantID == tenantID && d.TriggerID == triggerID && d.JoinKey != nil && *d.JoinKey == joinKey && d.RunID != nil {
+			return *d.RunID, deref(d.AgentTypeID), true, nil
+		}
+	}
+	return "", "", false, nil
+}
+
+func (m *mockRepository) InsertRoutingDecision(_ context.Context, d *RoutingDecision) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *d
+	m.decisions = append(m.decisions, &cp)
+	return nil
+}
+
+// decisionFor returns the decision recorded for a delivery, or nil.
+func (m *mockRepository) decisionFor(deliveryID string) *RoutingDecision {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, d := range m.decisions {
+		if d.DeliveryID == deliveryID {
+			cp := *d
+			return &cp
+		}
+	}
+	return nil
 }
 
 func newMockRepository() *mockRepository {
@@ -247,14 +292,50 @@ func (m *mockRepository) ListMatchableScheduledTriggers(_ context.Context) ([]Tr
 // matchable mirrors the SQL predicate `enabled = true OR auto_paused_at IS NOT NULL`.
 func matchable(t *Trigger) bool { return t.Enabled || t.AutoPausedAt != nil }
 
-func (m *mockRepository) UpdateTrigger(_ context.Context, t *Trigger, writeEnablement bool) error {
+// UpdateTriggerGrant mirrors the conditional UPDATE: it writes only while the
+// stored grant is still oldGrantID. beforeGrantUpdate runs first, so a test can
+// land a concurrent update in between.
+func (m *mockRepository) UpdateTriggerGrant(_ context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error {
+	if m.beforeGrantUpdate != nil {
+		m.beforeGrantUpdate()
+	}
+	m.mu.Lock()
+	stored, ok := m.triggers[t.ID]
+	if !ok {
+		m.mu.Unlock()
+		return ErrTriggerNotFound
+	}
+	if deref(stored.GrantID) != deref(oldGrantID) {
+		m.mu.Unlock()
+		return ErrTriggerConflict
+	}
+	defer m.mu.Unlock()
+	return m.updateLocked(t, writeEnablement, true, true)
+}
+
+func (m *mockRepository) UpdateTrigger(_ context.Context, t *Trigger, writeEnablement, writeRouting bool) error {
+	if m.beforeUpdate != nil {
+		m.beforeUpdate()
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.updateLocked(t, writeEnablement, writeRouting, false)
+}
+
+// updateLocked mirrors the SQL: grant_id moves only on the grant-guarded update,
+// and the routing rows only when the edit changed routing.
+func (m *mockRepository) updateLocked(t *Trigger, writeEnablement, writeRouting, writeGrant bool) error {
 	stored, ok := m.triggers[t.ID]
 	if !ok {
 		return ErrTriggerNotFound
 	}
 	cp := *t
+	if !writeGrant {
+		cp.GrantID = stored.GrantID
+	}
+	if !writeRouting {
+		cp.Routing = stored.Routing
+	}
 	if !writeEnablement {
 		// Mirror the SQL: an edit that did not touch enablement leaves the
 		// stored enabled/auto_paused_at alone rather than writing back the
@@ -505,6 +586,11 @@ type policyStub struct {
 	deleted    []string
 	counter    int
 	failCreate bool
+	// unknownScopes answers a create naming any of them with the policy
+	// service's 400 for a scope outside the vocabulary.
+	unknownScopes map[string]bool
+	// failDelete makes every grant delete answer 500.
+	failDelete bool
 }
 
 func newPolicyStub() *policyStub {
@@ -523,6 +609,14 @@ func newPolicyStub() *policyStub {
 			Scopes      []string `json:"scopes"`
 		}
 		_ = json.Unmarshal(body, &req)
+		for _, sc := range req.Scopes {
+			if ps.unknownScopes[sc] {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = fmt.Fprintf(w, `{"code":"invalid_field","message":"scope '%s' is not in the scope vocabulary","details":{"scope":%q}}`, sc, sc)
+				return
+			}
+		}
 		ps.counter++
 		id := fmt.Sprintf("grant-%d", ps.counter)
 		ps.created[id] = req.PrincipalID
@@ -546,6 +640,11 @@ func newPolicyStub() *policyStub {
 	})
 	mux.HandleFunc("DELETE /api/v1/policy/grants/{id}", func(w http.ResponseWriter, r *http.Request) {
 		ps.mu.Lock()
+		if ps.failDelete {
+			ps.mu.Unlock()
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		ps.deleted = append(ps.deleted, r.PathValue("id"))
 		delete(ps.created, r.PathValue("id"))
 		ps.mu.Unlock()
@@ -591,11 +690,34 @@ type agentsStub struct {
 	atIdentityMode string // identity_mode to return; "" → autonomous-by-default
 	atStatus       int    // response status; 0 → 200
 	// Caller reads: any bearer other than the minted principal token is a caller asking can_run.
-	atNoRun       bool     // answer can_run false to callers
-	callerStatus  int      // response status for caller reads; 0 → atStatus
-	callerReads   []string // agent type ids callers read
-	callerBearers []string // Authorization headers callers sent
-	callerDelegs  []string // delegation headers callers sent
+	atNoRun       bool            // answer can_run false to callers
+	atNoRunIDs    map[string]bool // answer can_run false to callers for these agent type ids
+	callerStatus  int             // response status for caller reads; 0 → atStatus
+	callerReads   []string        // agent type ids callers read
+	callerBearers []string        // Authorization headers callers sent
+	callerDelegs  []string        // delegation headers callers sent
+
+	// atSlugs and atDelegated override the slug and identity of single agent
+	// types by id, so a routed trigger can name several distinct candidates.
+	atSlugs     map[string]string
+	atDelegated map[string]bool
+
+	// agentTypes is what GET /api/v1/agent-types lists.
+	agentTypes []agentsclient.AgentType
+	// runs is what GET /api/v1/runs lists, and runsQuery the last query it got.
+	runs       []agentsclient.Run
+	runsQuery  string
+	runsStatus int // non-zero fails the listing with this status
+	// messages records POST /api/v1/runs/{id}/messages; messageStatus answers
+	// it per run id (0 → 202).
+	messages      []messageCall
+	messageStatus map[string]int
+	// startingRuns answer a message with the 409 of a run that has not started.
+	startingRuns map[string]bool
+}
+
+type messageCall struct {
+	bearer, runID, content, triggerID, deliveryID string
 }
 
 // callerReadIDs returns the agent type ids callers have read, and forgets them.
@@ -613,7 +735,7 @@ func newAgentsStub() *agentsStub {
 	mux.HandleFunc("GET /api/v1/agent-types/{id}", func(w http.ResponseWriter, r *http.Request) {
 		as.mu.Lock()
 		status, slug, tenant, identityMode := as.atStatus, as.atSlug, as.atTenant, as.atIdentityMode
-		canRun := !as.atNoRun
+		canRun := !as.atNoRun && !as.atNoRunIDs[r.PathValue("id")]
 		if auth := r.Header.Get("Authorization"); auth != "Bearer minted-token" {
 			as.callerReads = append(as.callerReads, r.PathValue("id"))
 			as.callerBearers = append(as.callerBearers, auth)
@@ -621,6 +743,12 @@ func newAgentsStub() *agentsStub {
 			if as.callerStatus != 0 {
 				status = as.callerStatus
 			}
+		}
+		if s, ok := as.atSlugs[r.PathValue("id")]; ok {
+			slug = s
+		}
+		if as.atDelegated[r.PathValue("id")] {
+			identityMode = agentsclient.IdentityModeDelegated
 		}
 		as.mu.Unlock()
 		if status == 0 {
@@ -636,6 +764,54 @@ func newAgentsStub() *agentsStub {
 		w.WriteHeader(status)
 		if status < 300 {
 			fmt.Fprintf(w, `{"id":%q,"tenant_id":%q,"slug":%q,"identity_mode":%q,"can_run":%t}`, r.PathValue("id"), tenant, slug, identityMode, canRun)
+		}
+	})
+	mux.HandleFunc("GET /api/v1/agent-types", func(w http.ResponseWriter, _ *http.Request) {
+		as.mu.Lock()
+		body, _ := json.Marshal(map[string]any{"agent_types": as.agentTypes})
+		as.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	})
+	mux.HandleFunc("GET /api/v1/runs", func(w http.ResponseWriter, r *http.Request) {
+		as.mu.Lock()
+		as.runsQuery = r.URL.RawQuery
+		body, _ := json.Marshal(map[string]any{"runs": as.runs})
+		status := as.runsStatus
+		as.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if status != 0 {
+			w.WriteHeader(status)
+			return
+		}
+		_, _ = w.Write(body)
+	})
+	mux.HandleFunc("POST /api/v1/runs/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req struct {
+			Content    string `json:"content"`
+			TriggerID  string `json:"trigger_id"`
+			DeliveryID string `json:"delivery_id"`
+		}
+		_ = json.Unmarshal(body, &req)
+		as.mu.Lock()
+		as.messages = append(as.messages, messageCall{
+			bearer: r.Header.Get("Authorization"), runID: r.PathValue("id"),
+			content: req.Content, triggerID: req.TriggerID, deliveryID: req.DeliveryID,
+		})
+		status := as.messageStatus[r.PathValue("id")]
+		starting := as.startingRuns[r.PathValue("id")]
+		as.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case starting:
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"code":"conflict","message":"run is starting","details":{"reason":"run_starting"}}`))
+		case status != 0:
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			w.WriteHeader(http.StatusAccepted)
 		}
 	})
 	mux.HandleFunc("POST /api/v1/runs", func(w http.ResponseWriter, r *http.Request) {
@@ -704,6 +880,8 @@ type testDeps struct {
 	// harness's stubs.
 	sources  *SourceService
 	triggers *TriggerService
+	// eval answers the creation-authority checks of routed triggers.
+	eval *mockEvaluator
 }
 
 // newTestSourceService builds the sources half against the same stubs. It takes
@@ -737,10 +915,11 @@ func newTestService(t *testing.T) (*Service, *testDeps) {
 	// nil metrics: instrumentation is injected, and its absence must leave
 	// behavior identical. Metrics have their own test.
 	admission := NewAdmission(repo, silentLogger())
-	svc := NewService(repo, mustRegistry(), cipher, pc, ac, nil, minter, admission, silentLogger(), nil)
+	svc := NewService(repo, mustRegistry(), cipher, pc, ac, nil, minter, admission, brand.MustNew("kora"), silentLogger(), nil)
 	deps := &testDeps{repo: repo, policy: ps, agents: as, minter: minter, policyClnt: pc}
 	deps.sources = newTestSourceService(t, repo, pc, ac)
-	deps.triggers = NewTriggerService(repo, mustRegistry(), pc, ac, admission, silentLogger())
+	deps.eval = &mockEvaluator{allow: true}
+	deps.triggers = NewTriggerService(repo, mustRegistry(), pc, ac, deps.eval, admission, silentLogger())
 	return svc, deps
 }
 
@@ -890,6 +1069,8 @@ type mockEvaluator struct {
 
 	allow bool
 	err   error
+	// deny refuses these scopes even when allow is set.
+	deny map[string]bool
 
 	mu       sync.Mutex
 	lastArgs policy.CheckInput
@@ -902,15 +1083,20 @@ func (m *mockEvaluator) Check(_ context.Context, in policy.CheckInput) (policy.R
 	if m.err != nil {
 		return policy.Result{}, m.err
 	}
-	return policy.Result{Allow: m.allow}, nil
+	return policy.Result{Allow: m.allow && !m.deny[scopeOf(in)]}, nil
+}
+
+// scopeOf rebuilds the scope literal from a structured check input.
+func scopeOf(in policy.CheckInput) string {
+	parts := append([]string{in.ResourceType}, in.PathSegments...)
+	return strings.Join(append(parts, in.Action), ":")
 }
 
 // scopeAsked rebuilds the scope literal from the structured check input.
 func (m *mockEvaluator) scopeAsked() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	parts := append([]string{m.lastArgs.ResourceType}, m.lastArgs.PathSegments...)
-	return strings.Join(append(parts, m.lastArgs.Action), ":")
+	return scopeOf(m.lastArgs)
 }
 
 // DueScheduledMinutesWithoutDelivery mirrors the SQL: every minute in the window
@@ -1332,4 +1518,44 @@ func drainPending(t *testing.T, svc *Service, repo *mockRepository) {
 			t.Fatalf("release pending: %v", err)
 		}
 	}
+}
+
+type holdCall struct {
+	pendingID, deliveryID, reason string
+	delay                         time.Duration
+}
+
+// HoldPending records the hold, sets the delivery's reason, and puts a known
+// pending row back with its dispatch delayed.
+func (m *mockRepository) HoldPending(_ context.Context, pendingID, deliveryID string, delay time.Duration, reason string) error {
+	if m.holdErr != nil {
+		return m.holdErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.holds = append(m.holds, holdCall{pendingID: pendingID, deliveryID: deliveryID, reason: reason, delay: delay})
+	for _, p := range m.pending {
+		if p.ID == pendingID {
+			p.claimed, p.dispatchAfter = false, time.Now().Add(delay)
+			p.HoldCount++
+		}
+	}
+	for _, d := range m.deliveries {
+		if d.ID == deliveryID {
+			d.Reason = &reason
+		}
+	}
+	return nil
+}
+
+// ClearDeliveryReason removes a known delivery's reason.
+func (m *mockRepository) ClearDeliveryReason(_ context.Context, deliveryID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, d := range m.deliveries {
+		if d.ID == deliveryID {
+			d.Reason = nil
+		}
+	}
+	return nil
 }

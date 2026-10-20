@@ -99,6 +99,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	GET    /api/v1/trigger-retention          Read this tenant's payload retention window.
 //	PUT    /api/v1/trigger-retention          Shorten this tenant's payload retention window.
 //	POST   /api/v1/triggers/schedule-preview  Preview a schedule's upcoming fires.
+//	GET    /api/v1/triggers/routing/candidates  Agent types a routed trigger may name.
 //
 // Fire (authenticated-only route; the handler requires trigger:fire or
 // trigger:{id}:fire because RouteScope cannot express a path-dependent scope):
@@ -148,6 +149,10 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// be a second route to keep in step for no one who cannot already reach
 	// this one.
 	mux.HandleWithMiddleware("POST /triggers/schedule-preview", auth, c.handleSchedulePreview)
+
+	// The routing step of the trigger wizard lists agent types with whether the
+	// caller may make each a candidate (trigger routing ADR, Console).
+	mux.HandleWithMiddleware("GET /triggers/routing/candidates", auth, c.handleRoutingCandidates)
 
 	mux.HandleWithMiddleware("GET /trigger-deliveries", auth, c.handleListDeliveries)
 
@@ -273,7 +278,7 @@ func (c *Controller) handleCreateTrigger(w http.ResponseWriter, r *http.Request)
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	t, err := c.triggers.CreateTrigger(ctx, tenantFromCtx(ctx), req)
+	t, err := c.triggers.CreateTrigger(ctx, tenantFromCtx(ctx), claimsFromCtx(ctx), req)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -319,7 +324,7 @@ func (c *Controller) handleUpdateTrigger(w http.ResponseWriter, r *http.Request)
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	t, err := c.triggers.UpdateTrigger(ctx, tenantFromCtx(ctx), r.PathValue("id"), req)
+	t, err := c.triggers.UpdateTrigger(ctx, tenantFromCtx(ctx), r.PathValue("id"), claimsFromCtx(ctx), req)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -410,6 +415,19 @@ func (c *Controller) authorizeFire(ctx context.Context, triggerID string) error 
 		return fmt.Errorf("%w: trigger:%s:fire", ErrFireForbidden, triggerID)
 	}
 	return nil
+}
+
+// handleRoutingCandidates lists the agent types the caller may read, with
+// runnable from the caller's can_run on each. The caller's own token reads
+// them, so the list is what the caller may see.
+func (c *Controller) handleRoutingCandidates(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	candidates, err := c.triggers.RoutingCandidates(ctx)
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"agent_types": candidates})
 }
 
 // ─── Deliveries ───────────────────────────────────────────────────────────────
@@ -530,7 +548,13 @@ func (c *Controller) handleSetRetention(w http.ResponseWriter, r *http.Request) 
 func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	ctx := r.Context()
 	var ive *InputValidationError
+	var mse *MissingScopesError
+	var gre *GrantRevokeError
 	switch {
+	case errors.As(err, &mse):
+		// 403 with the scopes, so the caller knows what to ask for.
+		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, err.Error(),
+			map[string]any{"missing_scopes": mse.Scopes}), nil)
 	case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrTriggerNotFound), errors.Is(err, ErrDeliveryNotFound),
 		errors.Is(err, ErrProviderNotFound):
 		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, err.Error(), nil), nil)
@@ -538,6 +562,13 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 		// 429 rather than 500: the trigger is healthy, it is just busy, and the
 		// caller should retry rather than treat this as a fault.
 		api.ErrorResponse(ctx, w, c.logger, api.TooManyRequestsError(api.ErrCodeTooManyRequests, err.Error(), nil), nil)
+	case errors.Is(err, ErrTriggerConflict):
+		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
+	case errors.As(err, &gre):
+		// The update is stored. Grant ids stay in the log.
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError,
+			"trigger updated, but its previous grant could not be revoked and is still live; ask your platform team to revoke it",
+			map[string]any{"trigger_id": gre.TriggerID}), err)
 	case errors.Is(err, ErrTriggerDisabled), errors.Is(err, ErrTriggerAutoPaused):
 		// 409 for both: the trigger is not accepting fires until someone acts.
 		// Which one it is decides what that action is, so the two keep separate
@@ -595,6 +626,12 @@ func tenantFromCtx(ctx context.Context) string {
 		return ""
 	}
 	return claims.Kora.TenantID
+}
+
+// claimsFromCtx returns the caller's verified claims, or nil.
+func claimsFromCtx(ctx context.Context) *token.PlatformClaims {
+	claims, _ := token.ClaimsFromContext(ctx)
+	return claims
 }
 
 func principalFromCtx(ctx context.Context) string {

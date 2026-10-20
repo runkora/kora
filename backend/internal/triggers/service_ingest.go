@@ -429,12 +429,12 @@ func (s *Service) runPrincipal(ctx context.Context, t Trigger) (principalID, dis
 // trigger's resolved identity, telling orbit-agents which trigger and delivery
 // the run came from.
 //
-// The backlink is set here, at the only place a run is started from a trigger.
+// The backlink is set in startRunAs, the only place a run is started from a trigger.
 // Without it the run's created_by is the trigger's SERVICE principal and nothing
 // more, so a person opening the run cannot tell what caused it — the forward
 // link (delivery → run) existed, and the reverse did not.
 func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) (string, error) {
-	principalID, displayName, err := s.runPrincipal(ctx, t)
+	tok, err := s.triggerToken(ctx, t)
 	if err != nil {
 		return "", err
 	}
@@ -444,12 +444,28 @@ func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, d
 	} else {
 		prompt = renderTemplate(t.PromptTemplate, fields)
 	}
+	return s.startRunAs(ctx, t, tok, t.AgentTypeID, prompt, deliveryID)
+}
+
+// triggerToken mints the SERVICE token a trigger's runs, messages and decision
+// calls travel under.
+func (s *Service) triggerToken(ctx context.Context, t Trigger) (string, error) {
+	principalID, displayName, err := s.runPrincipal(ctx, t)
+	if err != nil {
+		return "", err
+	}
 	tok, err := s.minter.MintServiceToken(ctx, t.TenantID, principalID, displayName, sourceTokenTTL)
 	if err != nil {
 		return "", fmt.Errorf("mint trigger token: %w", err)
 	}
+	return tok, nil
+}
+
+// startRunAs starts a run of agentTypeID under tok, attributed to the trigger
+// and delivery.
+func (s *Service) startRunAs(ctx context.Context, t Trigger, tok, agentTypeID, prompt, deliveryID string) (string, error) {
 	req := agentsclient.StartRunRequest{
-		AgentTypeID:    t.AgentTypeID,
+		AgentTypeID:    agentTypeID,
 		InitialMessage: prompt,
 		// The name travels with the ids: orbit-agents does not read the triggers
 		// database, and a run that outlives its trigger still has to render as
@@ -459,35 +475,46 @@ func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, d
 		DeliveryID:  deliveryID,
 	}
 
-	// A trigger's run grant is minted when the trigger is created, and is not
-	// visible to orbit-agents until its next OPA bundle poll. A trigger fired
-	// within that window is refused for a reason that is nothing to do with the
-	// fire: the grant exists, it is merely young.
-	//
-	// Retry only while that explanation is available. Once the trigger is older
-	// than the propagation window, a refusal is a real denial (a revoked grant,
-	// a delegated agent type) and retrying would delay an honest failure and
-	// hold a queue slot for the whole budget.
-	young := time.Since(t.CreatedAt) < grantPropagationWindow
-
 	var run agentsclient.StartRunResponse
-	err = retryWhileGrantPropagates(ctx,
-		func(err error) bool { return young && errors.Is(err, agentsclient.ErrForbidden) },
-		func(backoff time.Duration) {
-			s.logger.Debug(ctx, "run start refused, retrying while the grant propagates",
-				logging.Field{Key: "trigger_id", Value: t.ID},
-				logging.Field{Key: "backoff", Value: backoff.String()},
-			)
-		},
-		func() error {
-			var startErr error
-			run, startErr = s.agents.StartRun(ctx, tok, req)
-			return startErr
-		})
+	err := s.retryYoungGrant(ctx, t, agentsclient.ErrForbidden, func() error {
+		var startErr error
+		run, startErr = s.agents.StartRun(ctx, tok, req)
+		return startErr
+	})
 	if err != nil {
 		return "", fmt.Errorf("start run: %w", err)
 	}
 	return run.ID, nil
+}
+
+// retryYoungGrant runs call, retrying a refusal while the trigger is young
+// enough for it to be grant propagation.
+//
+// A trigger's grant is minted when the trigger is created, and is not visible
+// to orbit-agents or the inference gateway until their next OPA bundle poll. A
+// trigger fired within that window is refused for a reason that is nothing to
+// do with the fire: the grant exists, it is merely young.
+//
+// Retry only while that explanation is available. Once the trigger is older
+// than the propagation window, a refusal is a real denial (a revoked grant, a
+// delegated agent type) and retrying would delay an honest failure and hold a
+// queue slot for the whole budget.
+func (s *Service) retryYoungGrant(ctx context.Context, t Trigger, refusal error, call func() error) error {
+	// A routing update can replace the grant, so its age runs from the later write.
+	minted := t.CreatedAt
+	if t.UpdatedAt.After(minted) {
+		minted = t.UpdatedAt
+	}
+	young := time.Since(minted) < grantPropagationWindow
+	return retryWhileGrantPropagates(ctx,
+		func(err error) bool { return young && errors.Is(err, refusal) },
+		func(backoff time.Duration) {
+			s.logger.Debug(ctx, "call refused, retrying while the grant propagates",
+				logging.Field{Key: "trigger_id", Value: t.ID},
+				logging.Field{Key: "backoff", Value: backoff.String()},
+			)
+		},
+		call)
 }
 
 // retryWhileGrantPropagates runs call, retrying with exponential backoff while

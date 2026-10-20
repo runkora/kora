@@ -88,6 +88,9 @@ type PendingDelivery struct {
 	// CoalesceKey is the rendered key the fire coalesces under. Written on
 	// enqueue only; reads leave it empty.
 	CoalesceKey string
+	// HoldCount is how many times the fire returned to the queue to wait for a
+	// starting run its join key names.
+	HoldCount int16
 }
 
 // OrphanedPending is a waiting fire whose trigger can no longer run it.

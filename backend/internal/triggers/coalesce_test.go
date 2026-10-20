@@ -93,7 +93,7 @@ func TestCreateTrigger_Coalesce(t *testing.T) {
 	src := mustSource(t, deps.sources)
 	ctx := context.Background()
 
-	tr, err := deps.triggers.CreateTrigger(ctx, testTenant, coalesceReq(src.ID, nil))
+	tr, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, coalesceReq(src.ID, nil))
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestCreateTrigger_Coalesce(t *testing.T) {
 		t.Errorf("stored coalesce = %+v, want it set", tr.Coalesce)
 	}
 
-	plain, err := deps.triggers.CreateTrigger(ctx, testTenant, coalesceReq(src.ID, func(r *CreateTriggerRequest) { r.Coalesce = nil }))
+	plain, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, coalesceReq(src.ID, func(r *CreateTriggerRequest) { r.Coalesce = nil }))
 	if err != nil {
 		t.Fatalf("CreateTrigger without coalesce: %v", err)
 	}
@@ -110,12 +110,12 @@ func TestCreateTrigger_Coalesce(t *testing.T) {
 	}
 
 	wait := OverflowWait
-	if _, err := deps.triggers.CreateTrigger(ctx, testTenant, coalesceReq(src.ID, func(r *CreateTriggerRequest) { r.Overflow = &wait })); err != nil {
+	if _, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, coalesceReq(src.ID, func(r *CreateTriggerRequest) { r.Overflow = &wait })); err != nil {
 		t.Errorf("coalesce with an explicit wait: %v", err)
 	}
 
 	for _, overflow := range []string{OverflowReplace, OverflowRefuse} {
-		_, err := deps.triggers.CreateTrigger(ctx, testTenant, coalesceReq(src.ID, func(r *CreateTriggerRequest) { r.Overflow = &overflow }))
+		_, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, coalesceReq(src.ID, func(r *CreateTriggerRequest) { r.Overflow = &overflow }))
 		if !errors.Is(err, ErrValidation) {
 			t.Errorf("coalesce with overflow %q: err = %v, want ErrValidation", overflow, err)
 		}
@@ -125,7 +125,7 @@ func TestCreateTrigger_Coalesce(t *testing.T) {
 		"key without window":  {Key: "k"},
 		"unknown meta field":  {Key: "{{ meta.nope }}", WindowSeconds: 5},
 	} {
-		_, err := deps.triggers.CreateTrigger(ctx, testTenant, coalesceReq(src.ID, func(r *CreateTriggerRequest) { r.Coalesce = c }))
+		_, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, coalesceReq(src.ID, func(r *CreateTriggerRequest) { r.Coalesce = c }))
 		if !errors.Is(err, ErrValidation) {
 			t.Errorf("%s: err = %v, want ErrValidation", name, err)
 		}
@@ -134,7 +134,7 @@ func TestCreateTrigger_Coalesce(t *testing.T) {
 	for _, kind := range []string{KindScheduled, KindManual} {
 		req := validReq(kind)
 		req.Coalesce = &CoalesceConfig{Key: "k", WindowSeconds: 5}
-		if _, err := deps.triggers.CreateTrigger(ctx, testTenant, req); !errors.Is(err, ErrValidation) {
+		if _, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, req); !errors.Is(err, ErrValidation) {
 			t.Errorf("%s trigger with coalesce: err = %v, want ErrValidation", kind, err)
 		}
 	}
@@ -145,27 +145,27 @@ func TestUpdateTrigger_Coalesce(t *testing.T) {
 	src := mustSource(t, deps.sources)
 	ctx := context.Background()
 
-	tr, err := deps.triggers.CreateTrigger(ctx, testTenant, coalesceReq(src.ID, func(r *CreateTriggerRequest) { r.Coalesce = nil }))
+	tr, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, coalesceReq(src.ID, func(r *CreateTriggerRequest) { r.Coalesce = nil }))
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
 
 	set := &CoalesceConfig{Key: "{{ pull_request.number }}", WindowSeconds: 20}
-	got, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{Coalesce: set})
+	got, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, UpdateTriggerRequest{Coalesce: set})
 	if err != nil || !got.Coalesce.Enabled() || got.Coalesce.WindowSeconds != 20 {
 		t.Fatalf("set coalesce: %+v, %v", got, err)
 	}
 
 	// An edit that says nothing about coalesce leaves it alone.
 	name := "renamed"
-	got, err = deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{Name: &name})
+	got, err = deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, UpdateTriggerRequest{Name: &name})
 	if err != nil || !got.Coalesce.Enabled() {
 		t.Fatalf("rename dropped coalesce: %+v, %v", got, err)
 	}
 
 	// With coalesce on, moving to another overflow is refused and changes nothing.
 	replace := OverflowReplace
-	_, err = deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{AdmissionSettings: AdmissionSettings{Overflow: &replace}})
+	_, err = deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, UpdateTriggerRequest{AdmissionSettings: AdmissionSettings{Overflow: &replace}})
 	if !errors.Is(err, ErrValidation) {
 		t.Fatalf("overflow change while coalescing: err = %v, want ErrValidation", err)
 	}
@@ -174,7 +174,7 @@ func TestUpdateTrigger_Coalesce(t *testing.T) {
 	}
 
 	// Turning coalesce off in the same request makes the overflow change legal.
-	got, err = deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{
+	got, err = deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, UpdateTriggerRequest{
 		Coalesce: &CoalesceConfig{}, AdmissionSettings: AdmissionSettings{Overflow: &replace},
 	})
 	if err != nil || got.Coalesce != nil || got.Overflow != OverflowReplace {
@@ -182,15 +182,15 @@ func TestUpdateTrigger_Coalesce(t *testing.T) {
 	}
 
 	// And with overflow now replace, coalesce cannot be turned back on.
-	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{Coalesce: set}); !errors.Is(err, ErrValidation) {
+	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, UpdateTriggerRequest{Coalesce: set}); !errors.Is(err, ErrValidation) {
 		t.Errorf("coalesce on a replace trigger: err = %v, want ErrValidation", err)
 	}
 
-	manual, err := deps.triggers.CreateTrigger(ctx, testTenant, validReq(KindManual))
+	manual, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, validReq(KindManual))
 	if err != nil {
 		t.Fatalf("CreateTrigger(manual): %v", err)
 	}
-	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, manual.ID, UpdateTriggerRequest{Coalesce: set}); !errors.Is(err, ErrValidation) {
+	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, manual.ID, nil, UpdateTriggerRequest{Coalesce: set}); !errors.Is(err, ErrValidation) {
 		t.Errorf("coalesce on a manual trigger: err = %v, want ErrValidation", err)
 	}
 }
@@ -228,7 +228,7 @@ func (f *coalesceFixture) trigger(t *testing.T, key string) *Trigger {
 			r.Coalesce = &CoalesceConfig{Key: key, WindowSeconds: 60}
 		}
 	})
-	tr, err := f.deps.triggers.CreateTrigger(context.Background(), testTenant, req)
+	tr, err := f.deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
@@ -503,7 +503,7 @@ func TestCoalesceConfig_WireNames(t *testing.T) {
 func TestFanOut_Coalesce_TrimsTheBacklog(t *testing.T) {
 	f := newCoalesceFixture(t)
 	depth := int16(2)
-	tr, err := f.deps.triggers.CreateTrigger(context.Background(), testTenant, coalesceReq(f.src.ID, func(r *CreateTriggerRequest) {
+	tr, err := f.deps.triggers.CreateTrigger(context.Background(), testTenant, nil, coalesceReq(f.src.ID, func(r *CreateTriggerRequest) {
 		r.MaxQueueDepth = &depth
 	}))
 	if err != nil {

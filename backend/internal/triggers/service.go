@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/runkora/kora/backend/internal/platform/brand"
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
@@ -69,8 +70,12 @@ const (
 type pipelineStore interface {
 	// Recording an outcome and re-deriving the delivery, through outcomeRecorder.
 	outcomeStore
+	// The key-first lookup and the decision record of a routed trigger.
+	RoutingStore
 
 	AutoPause(ctx context.Context, triggerID string) error
+	HoldPending(ctx context.Context, pendingID, deliveryID string, delay time.Duration, reason string) error
+	ClearDeliveryReason(ctx context.Context, deliveryID string) error
 	BumpConsecutiveFailures(ctx context.Context, triggerID string) (int, error)
 	ClaimReplayKey(ctx context.Context, sourceID string, bodyHash []byte, providerDeliveryID string, window time.Duration) (fresh bool, err error)
 	CountRedeliveries(ctx context.Context, originalID string) (int, error)
@@ -103,6 +108,7 @@ type Service struct {
 	decisions decisionModel
 	minter    TokenMinter
 	admission *Admission
+	brand     brand.Brand
 	outcomes  outcomeRecorder
 	logger    logging.Logger
 	metrics   *Metrics // nil records nothing
@@ -129,6 +135,7 @@ func NewService(
 	decisions decisionModel,
 	minter TokenMinter,
 	admission *Admission,
+	b brand.Brand,
 	logger logging.Logger,
 	metrics *Metrics,
 ) *Service {
@@ -142,6 +149,7 @@ func NewService(
 		decisions: decisions,
 		minter:    minter,
 		admission: admission,
+		brand:     b,
 		outcomes:  outcomeRecorder{repo: repo, logger: logger},
 		logger:    logger,
 	}
@@ -384,7 +392,9 @@ func validateCommonTriggerCreate(req CreateTriggerRequest) error {
 	switch {
 	case strings.TrimSpace(req.Name) == "":
 		return fmt.Errorf("%w: name is required", ErrValidation)
-	case req.AgentTypeID == "":
+	case req.TargetKind == TargetKindRouted && req.AgentTypeID != "":
+		return fmt.Errorf("%w: a routed trigger names its agents in routing.candidates, not agent_type_id", ErrValidation)
+	case req.TargetKind != TargetKindRouted && req.AgentTypeID == "":
 		return fmt.Errorf("%w: agent_type_id is required", ErrValidation)
 	case strings.TrimSpace(req.PromptTemplate) == "":
 		return fmt.Errorf("%w: prompt_template is required", ErrValidation)
@@ -393,8 +403,16 @@ func validateCommonTriggerCreate(req CreateTriggerRequest) error {
 }
 
 func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
+	if err := validateTargetKind(req.TargetKind, req.Routing); err != nil {
+		return err
+	}
 	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
+	}
+	if req.TargetKind == TargetKindRouted {
+		if _, err := normalizeRouting(req.Routing); err != nil {
+			return err
+		}
 	}
 	if req.SourceID == "" {
 		return fmt.Errorf("%w: source_id is required for webhook triggers", ErrValidation)
@@ -429,12 +447,36 @@ func coalesceForCreate(req CreateTriggerRequest) (*CoalesceConfig, error) {
 	return coalesce, nil
 }
 
+// validateTargetKind checks a webhook trigger's target kind and that routing
+// is set exactly when it is routed.
+func validateTargetKind(targetKind string, routing *RoutingConfig) error {
+	switch targetKind {
+	case "", TargetKindAgent:
+		if routing != nil {
+			return fmt.Errorf("%w: routing applies only when target_kind is %q", ErrValidation, TargetKindRouted)
+		}
+	case TargetKindRouted:
+	default:
+		return fmt.Errorf("%w: target_kind must be %q or %q", ErrValidation, TargetKindAgent, TargetKindRouted)
+	}
+	return nil
+}
+
 // Scheduled and manual triggers have no delivery to read a sender or field from.
 var (
 	errSenderRestrictionWebhookOnly = fmt.Errorf("%w: sender_restriction applies to webhook triggers only", ErrValidation)
 	errMatchContainsWebhookOnly     = fmt.Errorf("%w: match_contains applies to webhook triggers only", ErrValidation)
 	errCoalesceWebhookOnly          = fmt.Errorf("%w: coalesce applies to webhook triggers only", ErrValidation)
+	errRoutingWebhookOnly           = fmt.Errorf("%w: routing applies to webhook triggers only", ErrValidation)
 )
+
+// refuseRouting rejects routing on a scheduled or manual trigger (ADR Decision 1).
+func refuseRouting(targetKind string, routing *RoutingConfig) error {
+	if routing != nil || (targetKind != "" && targetKind != TargetKindAgent) {
+		return errRoutingWebhookOnly
+	}
+	return nil
+}
 
 // refuseWebhookOnly rejects the webhook-only fields on another kind of trigger.
 func refuseWebhookOnly(restriction *SenderRestriction, contains map[string][]string, coalesce *CoalesceConfig) error {
@@ -451,6 +493,9 @@ func refuseWebhookOnly(restriction *SenderRestriction, contains map[string][]str
 }
 
 func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
+	if err := refuseRouting(req.TargetKind, req.Routing); err != nil {
+		return err
+	}
 	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
 	}
@@ -464,6 +509,9 @@ func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
 }
 
 func validateManualTriggerCreate(req CreateTriggerRequest) error {
+	if err := refuseRouting(req.TargetKind, req.Routing); err != nil {
+		return err
+	}
 	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
 	}

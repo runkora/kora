@@ -34,6 +34,7 @@ import (
 
 	tc "github.com/runkora/kora/backend/cmd/orbit-triggers/config"
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/brand"
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
 	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
@@ -128,6 +129,11 @@ func initController(
 	if err != nil {
 		return nil, nil, fmt.Errorf("init triggers cipher: %w", err)
 	}
+	// The product name goes into the reasons recorded on routed deliveries.
+	b, err := brand.Load()
+	if err != nil {
+		return nil, nil, fmt.Errorf("load brand: %w", err)
+	}
 
 	// identity is the sole token authority. This binary holds no signing key:
 	// it asks identity for each trigger's SERVICE token, authenticated by the
@@ -180,19 +186,22 @@ func initController(
 		inferenceClient,
 		identityClient,
 		admission,
+		b,
 		logger,
 		metrics,
 	)
 
-	// Creating a trigger reads the agent it binds from orbit-agents as the
-	// caller, who must be able to run it, then provisions the trigger's
-	// principal and grants. Enabling or disabling one moves work already in
-	// the queue.
+	// Creating a trigger reads the agent it binds, or each candidate of a
+	// routed trigger, from orbit-agents as the caller, who must be able to run
+	// it, then provisions the trigger's principal and grants. The evaluator
+	// checks that the caller holds a routed trigger's decision model scopes.
+	// Enabling or disabling one moves work already in the queue.
 	lifecycle := triggers.NewTriggerService(
 		repo,
 		registry,
 		policyClient,
 		agentsClient,
+		policyEval,
 		admission,
 		logger,
 	)
@@ -258,6 +267,7 @@ func routeScopes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/trigger-providers", Method: "GET", RequiredScope: "triggers:read"},
 		{PathPrefix: "/api/v1/triggers", Method: "POST", RequiredScope: "triggers:write"},
 		{PathPrefix: "/api/v1/triggers", Method: "GET", RequiredScope: "triggers:read"},
+		{PathPrefix: "/api/v1/triggers/routing/candidates", Method: "GET", RequiredScope: "triggers:read"},
 		{PathPrefix: "/api/v1/triggers", Method: "PATCH", RequiredScope: "triggers:write"},
 		{PathPrefix: "/api/v1/triggers", Method: "DELETE", RequiredScope: "triggers:write"},
 		{PathPrefix: "/api/v1/trigger-fires", Method: "POST", RequiredScope: ""},

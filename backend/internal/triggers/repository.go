@@ -20,6 +20,18 @@ type Repository interface {
 	PendingQueue
 	SafetyStore
 	RetentionStore
+	RoutingStore
+}
+
+// RoutingStore is the decision record of routed triggers. A routed trigger's
+// settings and candidates are written and read with the trigger itself.
+type RoutingStore interface {
+	// LatestJoinKeyRun returns the run and agent of the newest decision of this
+	// trigger with this join key and a run. found is false when there is none.
+	LatestJoinKeyRun(ctx context.Context, tenantID, triggerID, joinKey string) (runID, agentTypeID string, found bool, err error)
+	// InsertRoutingDecision records one routed delivery's decision. A second
+	// decision for the same delivery and trigger is ignored.
+	InsertRoutingDecision(ctx context.Context, d *RoutingDecision) error
 }
 
 // SourceStore is the webhook sources a tenant registers, and the counters the
@@ -88,8 +100,14 @@ type TriggerStore interface {
 	// gates the enabled / auto_paused_at columns: an edit that did not touch
 	// enablement (a rename, a filter change) passes false so it cannot write
 	// back the stale enabled/auto_paused_at it read at the start of the request
-	// and silently revert a concurrent auto-pause.
-	UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement bool) error
+	// and silently revert a concurrent auto-pause. writeRouting gates the
+	// routing rows on the same reasoning.
+	UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement, writeRouting bool) error
+	// UpdateTriggerGrant is UpdateTrigger for an edit that replaced the
+	// trigger's grant: it writes only while the stored grant is still
+	// oldGrantID, and returns ErrTriggerConflict otherwise. A grant is only
+	// replaced by a routing change, so it always writes the routing rows.
+	UpdateTriggerGrant(ctx context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error
 	DeleteTrigger(ctx context.Context, tenantID, id string) error
 }
 
@@ -204,6 +222,11 @@ type PendingQueue interface {
 	// transaction under a lock on the trigger, so concurrent fires with one key
 	// leave one row.
 	EnqueueCoalescing(ctx context.Context, p *PendingDelivery, window time.Duration) (replacedDeliveryID string, err error)
+	// HoldPending returns a claimed fire to the queue, claimable again after
+	// delay, counts the hold and records reason on the delivery.
+	HoldPending(ctx context.Context, pendingID, deliveryID string, delay time.Duration, reason string) error
+	// ClearDeliveryReason removes the reason a hold recorded on a delivery.
+	ClearDeliveryReason(ctx context.Context, deliveryID string) error
 	// TrimPending evicts the oldest waiting rows beyond depth, returning them.
 	TrimPending(ctx context.Context, triggerID string, depth int) ([]PendingDelivery, error)
 	// DrainPending removes everything still WAITING for a trigger, returning it.

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -212,7 +213,7 @@ func TestBoot_FireIsAuthorizedByTriggerScopeAlone(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, deps := newTestService(t)
-			trig, err := deps.triggers.CreateTrigger(context.Background(), testTenant, validReq(KindManual))
+			trig, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, validReq(KindManual))
 			if err != nil {
 				t.Fatalf("CreateTrigger: %v", err)
 			}
@@ -790,5 +791,85 @@ func TestHandleListDeliveries_TimeAndPayload(t *testing.T) {
 		if code, _ := list(q); code != http.StatusBadRequest {
 			t.Errorf("%s: status %d, want 400", q, code)
 		}
+	}
+}
+
+// A routed create the caller lacks authority for is a 403 that lists the scopes.
+func TestHandleCreateTrigger_RoutedMissingScopes(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.atSlugs = map[string]string{"at-a": "coder", "at-b": "reviewer", "at-c": "security"}
+	deps.eval.deny = map[string]bool{"inference:liquid:d1:use": true}
+	src := mustSource(t, deps.sources)
+
+	w := call(t, c.handleCreateTrigger, http.MethodPost, "/triggers", nil, routedReq(src.ID, nil))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body: %s)", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"missing_scopes":["inference:liquid:d1:use"]`) {
+		t.Errorf("body = %s, want the missing scope listed", w.Body.String())
+	}
+}
+
+// A decision model outside the catalog is a 400 naming the model, on create and update.
+func TestHandleRoutedTrigger_UnknownModel(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.atSlugs = map[string]string{"at-a": "coder", "at-b": "reviewer", "at-c": "security"}
+	src := mustSource(t, deps.sources)
+	tr := mustRouted(t, deps, src.ID, nil)
+	deps.policy.unknownScopes = map[string]bool{"inference:liquid:missing:use": true}
+
+	create := call(t, c.handleCreateTrigger, http.MethodPost, "/triggers", nil,
+		routedReq(src.ID, func(r *CreateTriggerRequest) { r.Routing.Model = "liquid/missing" }))
+	update := call(t, c.handleUpdateTrigger, http.MethodPatch, "/triggers/"+tr.ID, map[string]string{"id": tr.ID}, UpdateTriggerRequest{
+		Routing: routingReq(func(r *RoutingConfig) { r.Model = "liquid/missing" }),
+	})
+
+	for name, w := range map[string]*httptest.ResponseRecorder{"create": create, "update": update} {
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s status = %d, want 400 (body: %s)", name, w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), `routing.model \"liquid/missing\" is not a model in this tenant's catalog`) {
+			t.Errorf("%s body = %s, want the model named", name, w.Body.String())
+		}
+	}
+}
+
+func TestHandleRoutingCandidates(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.agentTypes = []agentsclient.AgentType{{ID: "at-a", Slug: "coder", Name: "Coder", CanRun: true}}
+
+	req := withTenant(newRequest(t, http.MethodGet, "/triggers/routing/candidates", nil, nil))
+	req.Header.Set("Authorization", "Bearer caller-token")
+	w := invoke(c.handleRoutingCandidates, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d (body: %s)", w.Code, w.Body.String())
+	}
+	got := decode[struct {
+		AgentTypes []RoutingCandidate `json:"agent_types"`
+	}](t, w)
+	if len(got.AgentTypes) != 1 || !got.AgentTypes[0].Runnable || got.AgentTypes[0].Name != "Coder" {
+		t.Errorf("candidates = %+v", got.AgentTypes)
+	}
+}
+
+// A failed revocation answers with a fixed message and the trigger id, never the grant ids.
+func TestHandleUpdateTrigger_RevokeFailureHidesGrants(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.atSlugs = map[string]string{"at-a": "coder", "at-b": "reviewer", "at-c": "security"}
+	src := mustSource(t, deps.sources)
+	tr := mustRouted(t, deps, src.ID, nil)
+	deps.policy.failDelete = true
+
+	w := call(t, c.handleUpdateTrigger, http.MethodPatch, "/triggers/"+tr.ID, map[string]string{"id": tr.ID}, UpdateTriggerRequest{
+		Routing: routingReq(func(r *RoutingConfig) { r.Candidates = []string{"at-a", "at-b"} }),
+	})
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d (body: %s)", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "previous grant could not be revoked") || !strings.Contains(body, tr.ID) || strings.Contains(body, "grant-") {
+		t.Errorf("body = %s, want the fixed message and trigger id only", body)
 	}
 }
