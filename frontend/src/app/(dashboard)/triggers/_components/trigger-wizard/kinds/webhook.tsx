@@ -67,6 +67,7 @@ import type {
 const RESET_EVENT = {
   eventType: '',
   eventFields: null,
+  eventFieldsFailed: false,
   filters: [],
   senders: { ids: '', roles: [] },
 };
@@ -153,10 +154,13 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
 
   // A chat trigger's fields are checked before create, since the backend
   // refuses any other field once a new source may already exist.
+  const fieldsFailed = state.eventType !== '' && catalog.error !== null;
   useEffect(() => {
-    if (category !== 'chat' || loadedPaths === null) return;
-    patch({ eventFields: loadedPaths.split('\n') });
-  }, [category, loadedPaths, patch]);
+    if (category !== 'chat') return;
+    if (loadedPaths !== null)
+      patch({ eventFields: loadedPaths.split('\n'), eventFieldsFailed: false });
+    else if (fieldsFailed) patch({ eventFieldsFailed: true });
+  }, [category, loadedPaths, fieldsFailed, patch]);
 
   // With one platform to pick, picking it is not a decision worth asking for.
   const onlyProvider =
@@ -309,7 +313,11 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
             <ChatEventPicker
               events={catalog.declared}
               value={state.eventType}
-              onChange={(eventType) => patch({ eventType, eventFields: null, filters: [] })}
+              onChange={(eventType) => {
+                // Picking the chosen event again keeps its loaded fields.
+                if (eventType === state.eventType) return;
+                patch({ eventType, eventFields: null, eventFieldsFailed: false, filters: [] });
+              }}
             />
           </>
         ) : (
@@ -404,7 +412,13 @@ function validateSource(category: SourceCategory) {
  * and filter fields. The backend refuses anything else at create.
  */
 function validateChatFields(s: WizardState) {
-  if (s.eventFields === null) return { valid: false, hint: 'Loading the message fields…' };
+  if (s.eventFields === null)
+    return {
+      valid: false,
+      hint: s.eventFieldsFailed
+        ? 'Could not load the message fields. Close the wizard and open it again to retry.'
+        : 'Loading the message fields…',
+    };
   const keys = [
     ...placeholderKeys(s.promptTemplate),
     ...s.filters.map((row) => row.field.trim()).filter(Boolean),

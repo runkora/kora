@@ -401,6 +401,36 @@ describe('chat command kind', () => {
     );
   });
 
+  it('keeps the message fields when the chosen message is picked again', async () => {
+    renderWizard('chat', [SLACK]);
+    fireEvent.change(screen.getByLabelText(/Trigger name/), { target: { value: 'ask' } });
+    const prompt = screen.getByRole('textbox', { name: 'Prompt' });
+    prompt.textContent = 'Answer {{ text }}';
+    fireEvent.input(prompt);
+    const mention = await screen.findByRole('radio', { name: /Mention/ });
+    fireEvent.click(mention);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false),
+    );
+    fireEvent.click(mention);
+    expect(screen.queryByText('Loading the message fields…')).toBeNull();
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false);
+    expect(api.fetchProviderFields).toHaveBeenCalledTimes(1);
+  });
+
+  it('says so when the message fields could not be loaded', async () => {
+    api.fetchProviderFields.mockResolvedValue({ fields: [], error: 'unavailable' });
+    renderWizard('chat', [SLACK]);
+    fireEvent.change(screen.getByLabelText(/Trigger name/), { target: { value: 'ask' } });
+    fireEvent.click(await screen.findByRole('radio', { name: /Mention/ }));
+    expect(
+      await screen.findByText(
+        'Could not load the message fields. Close the wizard and open it again to retry.',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true);
+  });
+
   it('offers Slack, and shows Discord and Microsoft Teams as planned', async () => {
     renderWizard('chat', []);
     fireEvent.click(screen.getByText('New source'));

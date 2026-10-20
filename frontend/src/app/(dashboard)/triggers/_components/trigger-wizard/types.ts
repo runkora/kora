@@ -202,6 +202,8 @@ export interface WizardState {
    * before create. Null until they load, and for every other kind.
    */
   eventFields: string[] | null;
+  /** Whether the chosen event's field paths failed to load. */
+  eventFieldsFailed: boolean;
   /** Match-condition rows. Empty means every delivery of the event qualifies. */
   filters: FilterRow[];
   senders: SenderRestrictionDraft;

@@ -122,6 +122,15 @@ describe('chat validation, review and draft', () => {
       valid: false,
       hint: 'Loading the message fields…',
     });
+    expect(
+      validate(
+        { ...ready, eventType: 'mention', eventFields: null, eventFieldsFailed: true },
+        CONTEXT,
+      ),
+    ).toEqual({
+      valid: false,
+      hint: 'Could not load the message fields. Close the wizard and open it again to retry.',
+    });
   });
 
   it('names the first placeholder or filter field that is not a chat field', () => {
