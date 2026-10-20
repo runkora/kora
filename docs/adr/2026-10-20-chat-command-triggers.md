@@ -110,6 +110,7 @@ The backend stores and runs chat command triggers as `webhook` triggers. A sourc
 
 - **Category:** Source responses (create, get, list and update) and `EventTypesResponse` carry a read-only `category` of `chat` or `webhook`, set by type assertion on `chatAdapter`. The console reads it in place of a provider list.
 - **Validation:** For a trigger on a chat source, create and update refuse an event type outside `chat.json` and any referenced field outside the `chat.json` fields and the meta fields.
+- **Observed events:** On a chat source, `observed` in the source event types response lists only `chat.json` event types.
 - **Console:** The trigger-kind registry (`kinds/index.ts`) gains a `chat` entry over the webhook kind's module with a category filter. The `chat` id exists only in the console, and its `apiKind` is `webhook`. The webhook-only gates in the wizard, routing included, test `apiKind`. The chat entry lists chat providers and shows Discord and Microsoft Teams as later, in the style of the planned kinds. The webhook entry lists webhook providers and webhook-category sources.
 - **Triggers page:** A trigger on a chat source shows as "Chat command". The kind filter gains a Chat command option with its own count, and the Webhook count excludes chat triggers.
 - **kora MCP:** The trigger and source tool descriptions in `backend/internal/koramcp/tools_triggers.go` cover chat sources, the chat events and `category`.
@@ -175,7 +176,7 @@ type SenderRole struct {
 - **Slack:** The id is `event.user` uppercased, the form Slack issues ids in, and `Roles()` is empty. `ChatEvent` sets `user.id` to the same value.
 - **Catalog:** `EventTypesResponse` carries `senders`, an object holding `roles`, in place of `associations`. It is absent when the adapter does not implement `senderIdentifier`. The sender restriction editor shows when `senders` is present, shows the role control when `roles` is not empty and reads every label from the response.
 - **Storage:** The restriction stays in `kind_config` JSON under `logins` and `associations` through a private storage struct. `marshalKindConfig` maps `ids` and `roles` into it, and `decodeKindConfig` maps it back (`postgres.go`). No migration runs.
-- **API:** `sender_restriction` takes `ids` and `roles` on create and update. `api.DecodeJSON` ignores unknown keys. `SenderRestriction.UnmarshalJSON` therefore fails on a `logins` or `associations` key, and the request answers 400. The kora MCP tool arguments use `ids` and `roles`.
+- **API:** `sender_restriction` takes `ids` and `roles` on create and update. `api.DecodeJSON` ignores unknown keys. `SenderRestriction.UnmarshalJSON` therefore fails on any key other than `ids` and `roles`, and the request answers 400. A misspelt key or a legacy `logins` or `associations` key cannot clear a stored restriction. The kora MCP tool arguments use `ids` and `roles`.
 
 ### 5. Slack Verification and Events
 
@@ -257,7 +258,7 @@ A Teams adapter would implement `chatAdapter` for Bot Framework activities. Team
 
 ## Implementation
 
-1.  **`feat/slack-trigger-capabilities` (#641):** `chatAdapter`, `schemas/chat.json` and its registry assignment, the fail-closed match in `fanOut`, `category` on source and event types responses, chat field validation on trigger create and update, the generic `Sender`, `SenderRole` and `SenderRestriction`, the GitHub roles, the storage mapping in `postgres.go`, the legacy key refusal, `senders` on `EventTypesResponse`, and the kora MCP arguments and descriptions. Fake-adapter tests cover the capability call sites.
+1.  **`feat/slack-trigger-capabilities` (#641):** `chatAdapter`, `schemas/chat.json` and its registry assignment, the fail-closed match in `fanOut`, `category` on source and event types responses, chat field validation on trigger create and update, the generic `Sender`, `SenderRole` and `SenderRestriction`, the GitHub roles, the storage mapping in `postgres.go`, the refusal of keys other than `ids` and `roles`, the chat filter on `observed`, `senders` on `EventTypesResponse`, and the kora MCP arguments and descriptions. Fake-adapter tests cover the capability call sites.
 2.  **`feat/slack-trigger-adapter` (#643):** the Slack `ChatEvent` mapping, the `mention` and `direct_message` event types and the Slack `senderIdentifier`.
 3.  **`feat/slack-trigger-frontend` (#644):** the chat registry entry with `apiKind`, category-driven provider and source lists, the Chat command filter on the triggers page, the sender editor reading `senders`, the manifest without `request_url` and the request URL on the done step, chat placeholders, and Storybook mocks and stories for the chat source setup and done step. The BFF passthroughs (`frontend/src/app/api/trigger-sources/route.ts`, `frontend/src/app/api/trigger-sources/[id]/route.ts`, `frontend/src/shared/api.ts` and `@runkora/server/triggers-client`) carry `signing_secret`, `category`, `senders` and the `sender_restriction` keys.
 
@@ -272,7 +273,8 @@ Unit tests cover:
 - Slack event types for a mention, a direct message, a `file_share` direct message, an edited message, a `thread_broadcast`, a message with `bot_id` and a `bot_message`.
 - The Slack chat document for a top-level message and a thread reply, and a trigger that cannot reference a raw Slack path.
 - An unmapped chat payload and a nil body start no run and join nothing.
-- Sender restrictions by id and role for GitHub and Slack, the storage mapping, and a request with `logins` or `associations` refused.
+- Sender restrictions by id and role for GitHub and Slack, the storage mapping, and a request with `logins`, `associations` or a misspelt key refused.
+- The `observed` filter on a chat source.
 - Create and rotate with and without `signing_secret` for Slack, GitHub and Alertmanager.
 
 ---
@@ -281,7 +283,7 @@ Unit tests cover:
 
 - [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md)
 - [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md)
-- [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md)
+- [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md): the sender restriction vocabulary superseded in part.
 - [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md)
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md)
 - Trigger Routing (`docs/adr/2026-10-19-trigger-routing.md`)

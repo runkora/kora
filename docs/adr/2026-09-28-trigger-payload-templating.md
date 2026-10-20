@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-09-28-trigger-payload-templating.md -->
 
-**Status:** Accepted
+**Status:** Accepted (the sender restriction vocabulary superseded in part by [Chat Command Triggers](2026-10-20-chat-command-triggers.md) 2026-10-20: `logins` and `associations` became `ids` and `roles`, and `Associations()` became `Roles()`)
 **Date:** 2026-09-28
 **Deciders:** Justin Wilkin, Platform Engineering
 **Technical Story:** [PRD: Trigger Payload Templating](../prd/trigger-payload-templating.md)
