@@ -605,7 +605,7 @@ func TestHandleTrigger_UnknownSenderKeys(t *testing.T) {
 		}
 	}
 
-	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, CreateTriggerRequest{
 		SourceID: src.ID, Name: "t", AgentTypeID: "at-1", EventType: "issue_comment", PromptTemplate: "p",
 		SenderRestriction: &SenderRestriction{IDs: []string{"alice"}},
 	})

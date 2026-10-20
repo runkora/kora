@@ -307,7 +307,7 @@ func TestHandleIngest_HandshakeReply(t *testing.T) {
 // capTrigger creates a mention trigger on the chat source.
 func capTrigger(t *testing.T, deps *testDeps, src WebhookSource, restriction *SenderRestriction) *Trigger {
 	t.Helper()
-	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, CreateTriggerRequest{
 		SourceID: src.ID, Name: "t", AgentTypeID: "at-1", EventType: "mention",
 		PromptTemplate:    "{{ text }} {{ user.id }} {{ meta.event_type }}",
 		MatchCondition:    map[string][]string{"conversation.id": {"C1"}},
@@ -418,7 +418,7 @@ func TestFanOut_ChatSenderRestriction(t *testing.T) {
 
 	_, deps := newCapService(t)
 	src := capSource(t, deps)
-	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, CreateTriggerRequest{
 		SourceID: src.ID, Name: "t", AgentTypeID: "at-1", EventType: "mention", PromptTemplate: "{{ text }}",
 		SenderRestriction: &SenderRestriction{Roles: []string{"OWNER"}},
 	})
@@ -587,7 +587,7 @@ func TestChatTrigger_Validation(t *testing.T) {
 			req := base()
 			req.SourceID = src.ID
 			tc.edit(&req)
-			_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
+			_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
 			if tc.wantErr != errors.Is(err, ErrValidation) || (!tc.wantErr && err != nil) {
 				t.Errorf("err = %v, want validation error %v", err, tc.wantErr)
 			}
@@ -614,7 +614,7 @@ func TestChatTrigger_UpdateValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, deps := newCapService(t)
 			tr := capTrigger(t, deps, capSource(t, deps), nil)
-			_, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, tc.req)
+			_, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, nil, tc.req)
 			if tc.wantErr != errors.Is(err, ErrValidation) || (!tc.wantErr && err != nil) {
 				t.Errorf("err = %v, want validation error %v", err, tc.wantErr)
 			}
