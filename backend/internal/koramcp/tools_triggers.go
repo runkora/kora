@@ -30,8 +30,10 @@ func registerTriggerTools(srv *sdk.Server, b Backends, jc *korajson.Client, prod
 // types a trigger can listen for and the fields it can template or filter on.
 func registerTriggerProviderTools(srv *sdk.Server, providers string, jc *korajson.Client) {
 	addTool(srv, "triggers.providers.event_types",
-		"List the event types a webhook provider (e.g. github, alertmanager) sends, from its published schema, "+
-			"and the sender associations a trigger's sender_restriction may name (empty when the provider identifies no sender).",
+		"List the event types a provider (e.g. github, alertmanager, slack) sends, from its schema. category is chat for a "+
+			"chat platform, whose providers share the chat events mention and direct_message, and webhook otherwise. senders "+
+			"is present when the provider identifies who caused an event, and senders.roles lists the roles a trigger's "+
+			"sender_restriction may name, each with its label and description (empty when the provider reports no roles).",
 		func(ctx context.Context, a providerArgs) (*sdk.CallToolResult, error) {
 			if a.Provider == "" {
 				return toolError(errors.New("provider is required")), nil
@@ -41,7 +43,9 @@ func registerTriggerProviderTools(srv *sdk.Server, providers string, jc *korajso
 
 	addTool(srv, "triggers.providers.fields",
 		"List the fields of one provider event type, by schema path (e.g. comment.body), with descriptions and "+
-			"allowed values. These paths are what prompt_template placeholders and match_condition keys name.",
+			"allowed values. These paths are what prompt_template placeholders and match_condition keys name. A chat "+
+			"provider lists the chat fields (text, user.id, conversation.id, thread.id, workspace.id, platform), and its "+
+			"triggers can reference only those and the meta fields.",
 		func(ctx context.Context, a providerFieldsArgs) (*sdk.CallToolResult, error) {
 			if a.Provider == "" || a.EventType == "" {
 				return toolError(errors.New("provider and event_type are required")), nil
@@ -56,14 +60,14 @@ func registerTriggerProviderTools(srv *sdk.Server, providers string, jc *korajso
 // that receive external events).
 func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Client) {
 	addTool(srv, "triggers.sources.list",
-		"List the webhook trigger sources in the caller's tenant — each source's provider and enabled state "+
-			"(the signing secret is never returned).",
+		"List the trigger sources in the caller's tenant: each source's provider, category (chat or webhook) and "+
+			"enabled state (the signing secret is never returned).",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
 			return jsonResult(jc.Get(ctx, caller(ctx), sources, nil))
 		})
 
 	addTool(srv, "triggers.sources.get",
-		"Get a single webhook trigger source by id.",
+		"Get a single trigger source by id, including its category (chat or webhook).",
 		func(ctx context.Context, a triggerIDArgs) (*sdk.CallToolResult, error) {
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
@@ -72,8 +76,11 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 		})
 
 	addTool(srv, "triggers.sources.create",
-		"Create a webhook trigger source. Returns the source including its signing secret (shown once). "+
-			"provider selects the payload format (e.g. github, generic); config holds provider-specific settings.",
+		"Create a webhook trigger source. Returns the source and, when the platform generates the signing secret, "+
+			"that secret (shown once). provider selects the payload format (e.g. github, generic); config holds "+
+			"provider-specific settings. A provider that issues its own signing secret cannot be created here: a secret "+
+			"must not pass through a tool call, so create it in the console or through the REST API. Chat sources such as "+
+			"slack are among these.",
 		func(ctx context.Context, a createSourceArgs) (*sdk.CallToolResult, error) {
 			if a.Name == "" || a.Provider == "" {
 				return toolError(errors.New("name and provider are required")), nil
@@ -84,7 +91,8 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 	addTool(srv, "triggers.sources.update",
 		"Update a webhook trigger source: enable/disable it, or rotate its signing secret (rotate_secret=true "+
 			"returns a new secret and invalidates the old one). Rotating, enabling or disabling needs permission to run every "+
-			"agent the source's triggers start.",
+			"agent the source's triggers start. A provider that issues its own signing secret is rotated in the console "+
+			"or through the REST API.",
 		func(ctx context.Context, a updateSourceArgs) (*sdk.CallToolResult, error) {
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
@@ -134,6 +142,8 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 			"webhook: fires when source_id delivers an event of event_type matching match_condition; source_id, name and "+
 			"event_type are required. Call triggers.sources.list for source ids and triggers.providers.fields for the field "+
 			"paths an event carries. "+
+			"On a chat source (category chat) event_type is mention or direct_message, and the prompt, filters and coalesce key "+
+			"read only the chat fields (e.g. {{ text }}, {{ user.id }}, {{ conversation.id }}, {{ thread.id }}) and the meta fields. "+
 			"A webhook trigger can set coalesce so a burst of events about one subject starts one run: key is a template like "+
 			"prompt_template, e.g. {{ repository.full_name }}#{{ pull_request.number }}, and window_seconds (1 to 300) is how long the "+
 			"first event waits. Events with the same rendered key inside the window start one run from the newest payload; "+
@@ -301,7 +311,7 @@ type createSourceArgs struct {
 type updateSourceArgs struct {
 	ID           string `json:"id" jsonschema:"the source id"`
 	Enabled      *bool  `json:"enabled,omitempty" jsonschema:"enable or disable the source"`
-	RotateSecret bool   `json:"rotate_secret,omitempty" jsonschema:"rotate the signing secret (returns a new one)"`
+	RotateSecret bool   `json:"rotate_secret,omitempty" jsonschema:"rotate the platform-generated signing secret (returns a new one)"`
 }
 
 type createTriggerArgs struct {
@@ -314,7 +324,7 @@ type createTriggerArgs struct {
 	MatchCondition    map[string][]string `json:"match_condition,omitempty" jsonschema:"optional filter: field path (e.g. action) to allowed values; a delivery must match every entry"`
 	MatchContains     map[string][]string `json:"match_contains,omitempty" jsonschema:"optional filter: field path to substrings; the field must contain one of them, ignoring case"`
 	PromptTemplate    string              `json:"prompt_template,omitempty" jsonschema:"the prompt the run starts with; {{ path }} placeholders name delivery fields (e.g. {{ comment.body }}), whose values follow in an untrusted data block; a manual trigger's inputs fill {{ var.key }} placeholders"`
-	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"optional: only these senders can fire it; a sender passes when its login or association is listed"`
+	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"optional: only these senders can fire it; a sender passes when its id or any of its roles is listed"`
 	Coalesce          *coalesceConfig     `json:"coalesce,omitempty" jsonschema:"optional: start one run for a burst of events with the same rendered key (webhook triggers only)"`
 	TargetKind        string              `json:"target_kind,omitempty" jsonschema:"agent (default) starts agent_type_id; routed chooses among routing.candidates for each event (webhook triggers only)"`
 	Routing           *routingConfig      `json:"routing,omitempty" jsonschema:"the candidates and settings of a routed trigger; required when target_kind is routed"`
@@ -329,7 +339,7 @@ type updateTriggerArgs struct {
 	MatchCondition    map[string][]string `json:"match_condition,omitempty" jsonschema:"new match condition"`
 	MatchContains     map[string][]string `json:"match_contains,omitempty" jsonschema:"replaces the contains filter: field path to substrings; an empty map removes it"`
 	PromptTemplate    *string             `json:"prompt_template,omitempty" jsonschema:"new prompt template"`
-	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"replaces the sender restriction; both lists empty removes it"`
+	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"replaces the sender restriction; ids and roles both empty removes it"`
 	Coalesce          *coalesceConfig     `json:"coalesce,omitempty" jsonschema:"replaces the coalescing setting; an empty object removes it"`
 	Routing           *routingConfig      `json:"routing,omitempty" jsonschema:"replaces a routed trigger's routing object"`
 	ScheduleConfig    *scheduleConfig     `json:"schedule_config,omitempty" jsonschema:"replaces a scheduled trigger's schedule (cron_expression, timezone, catch_up)"`
@@ -376,16 +386,16 @@ type schedulePreviewArgs struct {
 }
 
 type senderRestriction struct {
-	Logins       []string `json:"logins,omitempty" jsonschema:"sender logins allowed to fire the trigger"`
-	Associations []string `json:"associations,omitempty" jsonschema:"sender associations allowed to fire the trigger, from triggers.providers.event_types"`
+	IDs   []string `json:"ids,omitempty" jsonschema:"the provider's ids for the senders allowed to fire the trigger (a GitHub login, a Slack user id)"`
+	Roles []string `json:"roles,omitempty" jsonschema:"sender roles allowed to fire the trigger, the values in senders.roles from triggers.providers.event_types"`
 }
 
 type providerArgs struct {
-	Provider string `json:"provider" jsonschema:"the webhook provider (e.g. github, alertmanager)"`
+	Provider string `json:"provider" jsonschema:"the provider (e.g. github, alertmanager, slack)"`
 }
 
 type providerFieldsArgs struct {
-	Provider  string `json:"provider" jsonschema:"the webhook provider (e.g. github, alertmanager)"`
+	Provider  string `json:"provider" jsonschema:"the provider (e.g. github, alertmanager, slack)"`
 	EventType string `json:"event_type" jsonschema:"the provider event type (e.g. issue_comment)"`
 }
 

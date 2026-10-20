@@ -213,6 +213,51 @@ func TestTriggerToolsUseTriggersBackend(t *testing.T) {
 	}
 }
 
+// TestTriggerSourceToolsNeverCarryASigningSecret keeps a secret out of a model's
+// context: the source tools neither advertise nor forward signing_secret.
+func TestTriggerSourceToolsNeverCarryASigningSecret(t *testing.T) {
+	var bodies []map[string]any
+	triggers := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		bodies = append(bodies, b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer triggers.Close()
+
+	srv := NewServer(Backends{Triggers: triggers.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	tools, _ := call("tools/list", map[string]any{})["result"].(map[string]any)["tools"].([]any)
+	for _, tt := range tools {
+		m, _ := tt.(map[string]any)
+		if m["name"] != "triggers.sources.create" && m["name"] != "triggers.sources.update" {
+			continue
+		}
+		props, _ := m["inputSchema"].(map[string]any)["properties"].(map[string]any)
+		if _, ok := props["signing_secret"]; ok {
+			t.Errorf("%s advertises signing_secret", m["name"])
+		}
+	}
+
+	for name, args := range map[string]map[string]any{
+		"triggers.sources.create": {"name": "s", "provider": "github", "signing_secret": "leak"},
+		"triggers.sources.update": {"id": "src-1", "rotate_secret": true, "signing_secret": "leak"},
+	} {
+		res, _ := call("tools/call", map[string]any{"name": name, "arguments": args})["result"].(map[string]any)
+		if res["isError"] != true {
+			t.Errorf("%s accepted signing_secret: %v", name, res)
+		}
+	}
+	if len(bodies) != 0 {
+		t.Errorf("a source tool carrying signing_secret reached the backend: %v", bodies)
+	}
+}
+
 // TestTriggerProviderToolsAndSenderRestriction covers the provider catalog
 // tools and sender_restriction forwarding on trigger create and update.
 func TestTriggerProviderToolsAndSenderRestriction(t *testing.T) {
@@ -233,6 +278,19 @@ func TestTriggerProviderToolsAndSenderRestriction(t *testing.T) {
 	call := mcpCaller(t, gw.URL)
 	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
 
+	tools, _ := call("tools/list", map[string]any{})["result"].(map[string]any)["tools"].([]any)
+	for _, tt := range tools {
+		m, _ := tt.(map[string]any)
+		if m["name"] != "triggers.create" && m["name"] != "triggers.update" {
+			continue
+		}
+		props, _ := m["inputSchema"].(map[string]any)["properties"].(map[string]any)
+		sr, _ := props["sender_restriction"].(map[string]any)["properties"].(map[string]any)
+		if len(sr) != 2 || sr["ids"] == nil || sr["roles"] == nil {
+			t.Errorf("%s sender_restriction properties = %v, want ids and roles", m["name"], sr)
+		}
+	}
+
 	call("tools/call", map[string]any{"name": "triggers.providers.event_types", "arguments": map[string]any{"provider": "github"}})
 	if gotPath != "/api/v1/trigger-providers/github/event-types" {
 		t.Errorf("event_types hit %q", gotPath)
@@ -249,20 +307,29 @@ func TestTriggerProviderToolsAndSenderRestriction(t *testing.T) {
 		t.Errorf("create without event_type reached the backend at %q", gotPath)
 	}
 
-	restriction := map[string]any{"logins": []any{"octocat"}, "associations": []any{"MEMBER"}}
+	restriction := map[string]any{"ids": []any{"octocat"}, "roles": []any{"MEMBER"}}
 	call("tools/call", map[string]any{"name": "triggers.create", "arguments": map[string]any{
 		"source_id": "src-1", "name": "t", "event_type": "issue_comment", "sender_restriction": restriction,
 	}})
 	if gotPath != "/api/v1/triggers" {
 		t.Errorf("create hit %q", gotPath)
 	}
-	if got, _ := gotBody["sender_restriction"].(map[string]any); got["associations"] == nil || got["logins"] == nil {
+	if got, _ := gotBody["sender_restriction"].(map[string]any); got["roles"] == nil || got["ids"] == nil {
 		t.Errorf("create did not forward sender_restriction: %v", gotBody["sender_restriction"])
 	}
 
 	call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "sender_restriction": restriction}})
-	if got, _ := gotBody["sender_restriction"].(map[string]any); got["logins"] == nil {
+	if got, _ := gotBody["sender_restriction"].(map[string]any); got["ids"] == nil {
 		t.Errorf("update did not forward sender_restriction: %v", gotBody["sender_restriction"])
+	}
+
+	// The legacy keys are refused before the backend, which would refuse them too.
+	for _, legacy := range []map[string]any{{"logins": []any{"octocat"}}, {"associations": []any{"MEMBER"}}} {
+		gotPath = ""
+		res, _ := call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "sender_restriction": legacy}})["result"].(map[string]any)
+		if res["isError"] != true || gotPath != "" {
+			t.Errorf("legacy sender_restriction %v was not refused: %v (backend hit %q)", legacy, res, gotPath)
+		}
 	}
 
 	contains := map[string]any{"comment.body": []any{"@kora-agent"}}

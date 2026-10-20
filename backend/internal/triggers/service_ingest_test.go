@@ -69,8 +69,8 @@ func TestIngest_Accepted_NoTriggerSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
-	if out != IngestAccepted {
-		t.Errorf("outcome = %v, want IngestAccepted", out)
+	if out.Outcome != IngestAccepted {
+		t.Errorf("outcome = %v, want IngestAccepted", out.Outcome)
 	}
 	// The fan-out re-derives the delivery when it finishes, which is the signal
 	// that it ran at all. Nothing matched, so it recorded no outcomes.
@@ -92,7 +92,7 @@ func TestIngest_Duplicate_RecordsLinkedRow(t *testing.T) {
 	body := prBody("opened", "main")
 	h := sign(src.Secret, body)
 
-	if out, _ := svc.Ingest(context.Background(), src.ID, h, body); out != IngestAccepted {
+	if out, _ := svc.Ingest(context.Background(), src.ID, h, body); out.Outcome != IngestAccepted {
 		t.Fatalf("first delivery should be accepted")
 	}
 	original := deps.repo.lastDelivery()
@@ -101,8 +101,8 @@ func TestIngest_Duplicate_RecordsLinkedRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ingest(dup): %v", err)
 	}
-	if out != IngestDuplicate {
-		t.Errorf("redelivery outcome = %v, want IngestDuplicate", out)
+	if out.Outcome != IngestDuplicate {
+		t.Errorf("redelivery outcome = %v, want IngestDuplicate", out.Outcome)
 	}
 
 	all := deps.repo.allDeliveries()
@@ -622,7 +622,7 @@ func TestIngest_RefusesAReplayedBodyUnderAFreshDeliveryID(t *testing.T) {
 	body := prBody("opened", "main")
 
 	h := sign(src.Secret, body)
-	if out, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil || out != IngestAccepted {
+	if out, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil || out.Outcome != IngestAccepted {
 		t.Fatalf("first delivery = %v, %v; want accepted", out, err)
 	}
 
@@ -650,8 +650,8 @@ func TestIngest_AGenuineRetryIsStillADuplicateNotAReplay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retry = %v, want it handled as a duplicate", err)
 	}
-	if out != IngestDuplicate {
-		t.Errorf("retry outcome = %v, want IngestDuplicate", out)
+	if out.Outcome != IngestDuplicate {
+		t.Errorf("retry outcome = %v, want IngestDuplicate", out.Outcome)
 	}
 }
 
@@ -762,8 +762,8 @@ func TestIngest_EnqueuesBeforeAcknowledging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
-	if outcome != IngestAccepted {
-		t.Fatalf("outcome = %v, want IngestAccepted", outcome)
+	if outcome.Outcome != IngestAccepted {
+		t.Fatalf("outcome = %v, want IngestAccepted", outcome.Outcome)
 	}
 
 	// No waitFor: the enqueue is synchronous, so the durable pending row must

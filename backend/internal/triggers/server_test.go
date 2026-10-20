@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/runkora/kora/backend/internal/platform/api"
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
@@ -109,6 +111,32 @@ func TestHandleCreateSource_ValidationError(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleCreateSource_NameTaken(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.repo.createSourceErr = ErrSourceNameTaken
+
+	w := call(t, c.handleCreateSource, http.MethodPost, "/trigger-sources", nil,
+		CreateSourceRequest{Name: "gh", Provider: ProviderGitHub})
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (body: %s)", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), ErrSourceNameTaken.Error()) {
+		t.Errorf("body = %s, want the name-taken message", w.Body.String())
+	}
+}
+
+func TestSourceWriteError(t *testing.T) {
+	taken := &pgconn.PgError{Code: "23505", ConstraintName: sourceNameKey}
+	if err := sourceWriteError("create webhook source", taken); !errors.Is(err, ErrSourceNameTaken) {
+		t.Errorf("duplicate name = %v, want ErrSourceNameTaken", err)
+	}
+	other := &pgconn.PgError{Code: "23505", ConstraintName: "webhook_sources_pkey"}
+	if err := sourceWriteError("create webhook source", other); errors.Is(err, ErrSourceNameTaken) || !errors.As(err, new(*pgconn.PgError)) {
+		t.Errorf("other unique violation = %v, want it wrapped unchanged", err)
 	}
 }
 
@@ -686,15 +714,16 @@ func TestHandleProviderEventTypes(t *testing.T) {
 		t.Fatalf("status = %d (%s), want 200", w.Code, w.Body.String())
 	}
 	got := decode[EventTypesResponse](t, w)
-	if !slices.Contains(got.Declared, "issue_comment") || !slices.Equal(got.Associations, []string{"OWNER", "MEMBER", "COLLABORATOR"}) {
+	if !slices.Contains(got.Declared, "issue_comment") || got.Category != CategoryWebhook ||
+		got.Senders == nil || !slices.Equal(roleValuesOf(got.Senders.Roles), []string{"OWNER", "MEMBER", "COLLABORATOR"}) {
 		t.Errorf("response = %+v", got)
 	}
 
 	w = call(t, c.handleProviderEventTypes, http.MethodGet, "/trigger-providers/alertmanager/event-types",
 		map[string]string{"provider": ProviderAlertmanager}, nil)
 	if am := decode[EventTypesResponse](t, w); !slices.Equal(am.Declared, []string{"alert.firing", "alert.resolved"}) ||
-		am.Associations == nil || len(am.Associations) != 0 {
-		t.Errorf("alertmanager = %+v, want its two types and an empty association list", am)
+		am.Senders != nil {
+		t.Errorf("alertmanager = %+v, want its two types and no senders", am)
 	}
 
 	w = call(t, c.handleProviderEventTypes, http.MethodGet, "/trigger-providers/gitlab/event-types",

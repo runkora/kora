@@ -209,12 +209,12 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 	if err != nil {
 		return nil, err
 	}
-	restriction, err := normalizeRestriction(s.registry, src.Provider, req.SenderRestriction)
+	// Validated by validateWebhookTriggerCreate above; read again for the value.
+	coalesce, err := coalesceForCreate(req)
 	if err != nil {
 		return nil, err
 	}
-	// Validated by validateWebhookTriggerCreate above; read again for the value.
-	coalesce, err := coalesceForCreate(req)
+	restriction, err := createSourceRules(s.registry, src.Provider, req, coalesce)
 	if err != nil {
 		return nil, err
 	}
@@ -289,6 +289,20 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 		logging.Field{Key: "agent_slug", Value: t.AgentSlug},
 	)
 	return s.readBackTrigger(ctx, t), nil
+}
+
+// createSourceRules checks a new trigger against its source's provider: the
+// chat schema, the routing join key included, then the sender restriction,
+// which it returns normalized.
+func createSourceRules(registry *Registry, provider string, req CreateTriggerRequest, coalesce *CoalesceConfig) (*SenderRestriction, error) {
+	if err := validateChatTrigger(registry, provider, Trigger{
+		EventType: strings.TrimSpace(req.EventType), PromptTemplate: req.PromptTemplate,
+		MatchCondition: req.MatchCondition, MatchContains: req.MatchContains, Coalesce: coalesce,
+		Routing: req.Routing,
+	}); err != nil {
+		return nil, err
+	}
+	return normalizeRestriction(registry, provider, req.SenderRestriction)
 }
 
 // createOwnedTrigger creates a trigger that owns its principal: scheduled and
@@ -665,7 +679,7 @@ func (s *TriggerService) applyWebhookUpdate(ctx context.Context, t *Trigger, req
 		}
 		t.MatchContains = req.MatchContains
 	}
-	if req.EventType != nil || req.PromptTemplate != nil || req.MatchCondition != nil || req.MatchContains != nil {
+	if editsMatching(req) {
 		if t.EventType == "" {
 			return fmt.Errorf("%w: event_type is required for webhook triggers", ErrValidation)
 		}
@@ -673,12 +687,34 @@ func (s *TriggerService) applyWebhookUpdate(ctx context.Context, t *Trigger, req
 			return err
 		}
 	}
-	if req.SenderRestriction == nil {
+	return s.applySourceRules(ctx, t, req)
+}
+
+// editsMatching reports whether a PATCH edits a field that reads the payload:
+// the event type, the prompt template or a match rule.
+func editsMatching(req UpdateTriggerRequest) bool {
+	return req.EventType != nil || req.PromptTemplate != nil || req.MatchCondition != nil || req.MatchContains != nil
+}
+
+// applySourceRules applies what depends on the source's provider: the chat
+// schema on an edit, and the sender restriction. A PATCH that touches neither
+// reads no source.
+func (s *TriggerService) applySourceRules(ctx context.Context, t *Trigger, req UpdateTriggerRequest) error {
+	edited := editsMatching(req) || req.Coalesce != nil
+	if !edited && req.SenderRestriction == nil {
 		return nil
 	}
 	src, err := s.repo.GetSource(ctx, t.TenantID, t.SourceID)
 	if err != nil {
 		return err
+	}
+	if edited {
+		if err = validateChatTrigger(s.registry, src.Provider, *t); err != nil {
+			return err
+		}
+	}
+	if req.SenderRestriction == nil {
+		return nil
 	}
 	restriction, err := normalizeRestriction(s.registry, src.Provider, req.SenderRestriction)
 	if err != nil {
@@ -689,7 +725,7 @@ func (s *TriggerService) applyWebhookUpdate(ctx context.Context, t *Trigger, req
 }
 
 // normalizeRestriction validates a sender restriction against the source's
-// adapter and returns it with logins normalized. An empty restriction is nil.
+// adapter and returns it with ids normalized. An empty restriction is nil.
 func normalizeRestriction(registry *Registry, provider string, r *SenderRestriction) (*SenderRestriction, error) {
 	if r.empty() {
 		return nil, nil
@@ -699,31 +735,68 @@ func normalizeRestriction(registry *Registry, provider string, r *SenderRestrict
 	if !ok {
 		return nil, fmt.Errorf("%w: %s sources do not identify senders, so a sender restriction cannot apply", ErrValidation, provider)
 	}
+	declared := si.Roles()
 	out := &SenderRestriction{}
-	for _, a := range r.Associations {
-		if !slices.Contains(si.Associations(), a) {
-			return nil, fmt.Errorf("%w: association %q is not one of %s", ErrValidation, a, strings.Join(si.Associations(), ", "))
+	for _, role := range r.Roles {
+		if !slices.ContainsFunc(declared, func(d SenderRole) bool { return d.Value == role }) {
+			return nil, fmt.Errorf("%w: role %q is not one of the roles %s reports: %s", ErrValidation, role, provider, roleValues(declared))
 		}
-		if !slices.Contains(out.Associations, a) {
-			out.Associations = append(out.Associations, a)
+		if !slices.Contains(out.Roles, role) {
+			out.Roles = append(out.Roles, role)
 		}
 	}
-	if len(r.Logins) > maxSenderLogins {
-		return nil, fmt.Errorf("%w: a sender restriction lists at most %d logins", ErrValidation, maxSenderLogins)
+	if len(r.IDs) > maxSenderIDs {
+		return nil, fmt.Errorf("%w: a sender restriction lists at most %d ids", ErrValidation, maxSenderIDs)
 	}
-	for _, login := range r.Logins {
-		login = si.NormalizeLogin(strings.TrimSpace(login))
-		if login == "" {
-			return nil, fmt.Errorf("%w: sender logins must not be empty", ErrValidation)
+	for _, id := range r.IDs {
+		id = si.NormalizeID(strings.TrimSpace(id))
+		if id == "" {
+			return nil, fmt.Errorf("%w: sender ids must not be empty", ErrValidation)
 		}
-		if len(login) > maxSenderLoginLen {
-			return nil, fmt.Errorf("%w: sender logins must be %d characters or fewer", ErrValidation, maxSenderLoginLen)
+		if len(id) > maxSenderIDLen {
+			return nil, fmt.Errorf("%w: sender ids must be %d characters or fewer", ErrValidation, maxSenderIDLen)
 		}
-		if !slices.Contains(out.Logins, login) {
-			out.Logins = append(out.Logins, login)
+		if !slices.Contains(out.IDs, id) {
+			out.IDs = append(out.IDs, id)
 		}
 	}
 	return out, nil
+}
+
+// validateChatTrigger refuses, on a chat source, an event type outside the chat
+// schema and a referenced field outside its fields and the meta fields. Other
+// sources keep reading any payload path.
+func validateChatTrigger(registry *Registry, provider string, t Trigger) error {
+	adapter, ok := registry.Get(provider)
+	if !ok || categoryOf(adapter) != CategoryChat {
+		return nil
+	}
+	catalog := registry.Catalog(provider)
+	if !slices.Contains(catalog.EventTypes(), t.EventType) {
+		return fmt.Errorf("%w: event_type %q is not a chat event; chat sources take %s",
+			ErrValidation, t.EventType, strings.Join(catalog.EventTypes(), ", "))
+	}
+	fields := catalog.Fields(t.EventType)
+	for _, key := range referencedKeys(t) {
+		// Only leaves: a parent such as user renders every key a platform puts under it.
+		parent := slices.ContainsFunc(fields, func(f Field) bool { return strings.HasPrefix(f.Path, key+".") })
+		if parent || !slices.ContainsFunc(fields, func(f Field) bool { return f.Path == key }) {
+			return fmt.Errorf("%w: %q is not a chat field; see the provider's fields for %s", ErrValidation, key, t.EventType)
+		}
+	}
+	return nil
+}
+
+// roleValues lists declared role values for an error message.
+func roleValues(roles []SenderRole) string {
+	if len(roles) == 0 {
+		return "none"
+	}
+	values := make([]string, len(roles))
+	for i, r := range roles {
+		values[i] = r.Value
+	}
+	return strings.Join(values, ", ")
 }
 
 // DeleteTrigger removes a trigger and all its policy grants.

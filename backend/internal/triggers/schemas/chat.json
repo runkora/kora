@@ -1,0 +1,35 @@
+{
+  "events": {
+    "mention": { "$ref": "#/definitions/message" },
+    "direct_message": { "$ref": "#/definitions/message" }
+  },
+  "definitions": {
+    "message": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "description": "The message text as the platform sends it; empty for a message that carries only a file" },
+        "user": {
+          "type": "object",
+          "description": "The person who sent the message",
+          "properties": { "id": { "type": "string", "description": "The platform's id for the sender" } }
+        },
+        "conversation": {
+          "type": "object",
+          "description": "The channel or direct message conversation",
+          "properties": { "id": { "type": "string", "description": "The platform's id for the conversation" } }
+        },
+        "thread": {
+          "type": "object",
+          "description": "The thread within the conversation",
+          "properties": { "id": { "type": "string", "description": "The thread's id; a message outside a thread is its own thread" } }
+        },
+        "workspace": {
+          "type": "object",
+          "description": "The platform's workspace",
+          "properties": { "id": { "type": "string", "description": "The platform's id for the workspace" } }
+        },
+        "platform": { "type": "string", "description": "The chat platform, such as slack" }
+      }
+    }
+  }
+}

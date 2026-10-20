@@ -18,27 +18,28 @@ import (
 // ─── Ingest (webhook) ─────────────────────────────────────────────────────────
 
 // Ingest verifies an inbound delivery, records it, and queues asynchronous
-// dispatch. It returns IngestAccepted for a new, verified delivery and
-// IngestDuplicate for a redelivery. Signature/visibility failures are returned as
+// dispatch. It returns IngestAccepted for a new, verified delivery,
+// IngestDuplicate for a redelivery and IngestHandshake with the reply for a
+// verified provider handshake. Signature/visibility failures are returned as
 // sentinel errors and produce no delivery row (so unauthenticated callers cannot
 // flood the audit log).
-func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Header, body []byte) (IngestOutcome, error) {
+func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Header, body []byte) (IngestResult, error) {
 	src, err := s.repo.GetSourceByID(ctx, sourceID)
 	if err != nil {
-		return 0, err
+		return IngestResult{}, err
 	}
 	if !src.Enabled {
 		s.recordSourceRejection(ctx, src.ID, "source is disabled")
-		return 0, ErrSourceDisabled
+		return IngestResult{}, ErrSourceDisabled
 	}
 	adapter, ok := s.registry.Get(src.Provider)
 	if !ok {
-		return 0, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
+		return IngestResult{}, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
 	}
 
 	secret, err := s.cipher.decrypt(src.SecretCiphertext)
 	if err != nil {
-		return 0, fmt.Errorf("decrypt signing secret: %w", err)
+		return IngestResult{}, fmt.Errorf("decrypt signing secret: %w", err)
 	}
 
 	if verifyErr := adapter.Verify(secret, headers, body); verifyErr != nil {
@@ -47,7 +48,16 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		// recorded as a delivery: this request is unauthenticated, so a row per
 		// request would be an attacker-controlled write (ADR Decision 4).
 		s.recordSourceRejection(ctx, src.ID, "invalid signature")
-		return 0, ErrSignatureInvalid
+		return IngestResult{}, ErrSignatureInvalid
+	}
+
+	// A handshake is not a delivery: it writes no row, takes no replay key and
+	// moves no counter. It is answered only after Verify, so an unsigned caller
+	// cannot tell a real source id from an unknown one.
+	if hs, ok := adapter.(handshaker); ok {
+		if reply, isHandshake := hs.Handshake(body); isHandshake {
+			return IngestResult{Outcome: IngestHandshake, Reply: reply}, nil
+		}
 	}
 
 	deliveryID := adapter.DeliveryID(headers, body)
@@ -59,7 +69,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		// captured-and-replayed delivery whose id was stripped or unparseable
 		// would otherwise re-dispatch unbounded. Reject fail-closed.
 		s.recordSourceRejection(ctx, src.ID, "missing provider delivery id")
-		return 0, ErrMissingDeliveryID
+		return IngestResult{}, ErrMissingDeliveryID
 	}
 	// Replay defense that does not depend on the delivery id being honest. The id
 	// is not part of what a provider signs (GitHub puts it in a plain header), so
@@ -80,7 +90,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		)
 	} else if !fresh {
 		s.recordSourceRejection(ctx, src.ID, "payload already delivered under a different delivery id")
-		return 0, ErrReplayedPayload
+		return IngestResult{}, ErrReplayedPayload
 	}
 
 	eventType := adapter.EventType(headers, body)
@@ -99,7 +109,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 	}
 	inserted, err := s.repo.InsertDelivery(ctx, delivery)
 	if err != nil {
-		return 0, err
+		return IngestResult{}, err
 	}
 	if !inserted {
 		// The sender retried something already handled. The retry is recorded
@@ -107,7 +117,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		// delivery history has to be able to answer, and until now the repeats
 		// left nothing behind at all.
 		s.recordDuplicate(ctx, *src, adapter, delivery, body)
-		return IngestDuplicate, nil
+		return IngestResult{Outcome: IngestDuplicate}, nil
 	}
 
 	s.recordAccepted(ctx, src.ID)
@@ -124,7 +134,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		deliveryID: delivery.ID, providerDeliveryID: deliveryID, eventType: eventType, body: body,
 	})
 
-	return IngestAccepted, nil
+	return IngestResult{Outcome: IngestAccepted}, nil
 }
 
 // replayWindow is how long a source remembers the bodies it has handled.
@@ -266,6 +276,12 @@ func (s *Service) fanOut(
 	}
 	meta := map[string]string{metaEventType: eventType, metaDeliveryID: a.providerDeliveryID, metaSource: src.Name}
 	sender, hasSender := identifySender(adapter, eventType, doc)
+	doc, readable := chatDocument(adapter, eventType, doc)
+	if !readable {
+		// A chat payload kora cannot read must never start or join a run.
+		s.outcomes.derive(ctx, deliveryID)
+		return
+	}
 
 	triggers, err := s.repo.ListMatchableTriggersForSource(ctx, src.ID)
 	if err != nil {
@@ -353,8 +369,34 @@ func identifySender(adapter SourceAdapter, eventType string, doc any) (Sender, b
 	return si.Sender(eventType, doc)
 }
 
-// senderAllowed applies a trigger's sender restriction. Stored logins are
-// already normalised. An event with no sender fails any restriction.
+// chatDocument swaps a chat source's payload for the chat document its
+// triggers read. ok is false when a chat adapter cannot map the payload, or
+// maps it without the ids its triggers key on.
+func chatDocument(adapter SourceAdapter, eventType string, doc any) (any, bool) {
+	ca, ok := adapter.(chatAdapter)
+	if !ok {
+		return doc, true
+	}
+	if doc == nil {
+		return nil, false
+	}
+	event, ok := ca.ChatEvent(eventType, doc)
+	if !ok {
+		return nil, false
+	}
+	for _, key := range chatRequiredFields {
+		if resolvePath(event, key) == "" {
+			return nil, false
+		}
+	}
+	return event, true
+}
+
+// chatRequiredFields are the chat document fields without which a payload is unreadable.
+var chatRequiredFields = []string{"user.id", "conversation.id", "thread.id"}
+
+// senderAllowed applies a trigger's sender restriction. Stored ids are already
+// normalised. An event with no sender fails any restriction.
 func senderAllowed(r *SenderRestriction, s Sender, ok bool) bool {
 	if r.empty() {
 		return true
@@ -362,7 +404,9 @@ func senderAllowed(r *SenderRestriction, s Sender, ok bool) bool {
 	if !ok {
 		return false
 	}
-	return slices.Contains(r.Logins, s.Login) || (s.Association != "" && slices.Contains(r.Associations, s.Association))
+	return slices.Contains(r.IDs, s.ID) || slices.ContainsFunc(s.Roles, func(role string) bool {
+		return role != "" && slices.Contains(r.Roles, role)
+	})
 }
 
 // runStatusForDispatchError maps a dispatch failure to the per-trigger outcome

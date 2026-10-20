@@ -14,6 +14,7 @@
 package triggers
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -98,6 +99,8 @@ var (
 	// ErrSourceNotFound is returned when a webhook source does not exist (or is
 	// not visible to the caller's tenant).
 	ErrSourceNotFound = errors.New("webhook source not found")
+	// ErrSourceNameTaken is returned when the tenant already has a source with the name.
+	ErrSourceNameTaken = errors.New("a webhook source with this name already exists")
 	// ErrTriggerNotFound is returned when a trigger does not exist.
 	ErrTriggerNotFound = errors.New("trigger not found")
 	// ErrSourceDisabled is returned when a delivery targets a disabled source.
@@ -173,10 +176,12 @@ var (
 // owns bounds the write no matter what an attacker sends, while still telling an
 // admin their signing secret is wrong (ADR Decision 4).
 type WebhookSource struct {
-	ID          string         `json:"id"`
-	TenantID    string         `json:"tenant_id"`
-	Name        string         `json:"name"`
-	Provider    string         `json:"provider"`
+	ID       string `json:"id"`
+	TenantID string `json:"tenant_id"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	// Category is "chat" or "webhook", set from the provider's adapter on reads; never stored.
+	Category    string         `json:"category,omitempty"`
 	PrincipalID string         `json:"-"`
 	GrantID     *string        `json:"-"`
 	Config      map[string]any `json:"config,omitempty"`
@@ -525,13 +530,17 @@ type CreateSourceRequest struct {
 	Name     string         `json:"name"`
 	Provider string         `json:"provider"`
 	Config   map[string]any `json:"config,omitempty"`
+	// SigningSecret is write-only and accepted only for a provider that issues its own secret.
+	SigningSecret string `json:"signing_secret,omitempty"`
 }
 
 // UpdateSourceRequest is the body for PATCH /api/v1/trigger-sources/{id}.
-// Only the enabled flag is mutable in v1; rotating the secret regenerates it.
+// Only the enabled flag is mutable; rotating the secret regenerates it, or for
+// a provider that issues its own secret, stores SigningSecret.
 type UpdateSourceRequest struct {
-	Enabled      *bool `json:"enabled,omitempty"`
-	RotateSecret bool  `json:"rotate_secret,omitempty"`
+	Enabled       *bool  `json:"enabled,omitempty"`
+	RotateSecret  bool   `json:"rotate_secret,omitempty"`
+	SigningSecret string `json:"signing_secret,omitempty"`
 }
 
 // SourceResponse is the API view of a webhook source. The signing secret and the
@@ -685,13 +694,19 @@ type UpdateRetentionRequest struct {
 //
 // Declared is every event type in the provider's schema. Observed is what a
 // source has sent, including events newer than the schema; a provider's catalog
-// has none.
-// Associations are the values a sender restriction may name, empty when the
-// provider identifies no sender.
+// has none. Senders is present when the provider reports who caused an event,
+// so a sender restriction applies.
 type EventTypesResponse struct {
-	Declared     []string `json:"declared"`
-	Observed     []string `json:"observed,omitempty"`
-	Associations []string `json:"associations"`
+	Declared []string `json:"declared"`
+	Observed []string `json:"observed,omitempty"`
+	Category string   `json:"category"`
+	Senders  *Senders `json:"senders,omitempty"`
+}
+
+// Senders is what a sender restriction on a provider's triggers may name.
+type Senders struct {
+	// Roles is empty when the provider reports no roles.
+	Roles []SenderRole `json:"roles"`
 }
 
 // FieldsResponse lists the fields a trigger on one event type can reference.
@@ -702,15 +717,35 @@ type FieldsResponse struct {
 // ─── Sender restriction ─────────────────────────────────────────────────────
 
 // SenderRestriction limits which senders can fire a webhook trigger. A sender
-// passes when its login is listed or its association is listed.
+// passes when its id is listed or any of its roles is listed.
 type SenderRestriction struct {
-	Logins       []string `json:"logins,omitempty"`
-	Associations []string `json:"associations,omitempty"`
+	IDs   []string `json:"ids,omitempty"`
+	Roles []string `json:"roles,omitempty"`
+}
+
+// errSenderRestrictionKeys refuses any key but ids and roles, which a plain
+// decode would drop: a typo or a legacy key would then clear a stored restriction.
+var errSenderRestrictionKeys = errors.New("sender_restriction takes only ids and roles")
+
+// UnmarshalJSON decodes ids and roles and refuses every other key.
+func (r *SenderRestriction) UnmarshalJSON(b []byte) error {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(b, &keys); err != nil {
+		return err
+	}
+	// encoding/json matches keys case-insensitively, so the check does too.
+	for key := range keys {
+		if !strings.EqualFold(key, "ids") && !strings.EqualFold(key, "roles") {
+			return fmt.Errorf("%w: unknown key %q", errSenderRestrictionKeys, key)
+		}
+	}
+	type plain SenderRestriction
+	return json.Unmarshal(b, (*plain)(r))
 }
 
 // empty reports whether the restriction lets every sender through.
 func (r *SenderRestriction) empty() bool {
-	return r == nil || (len(r.Logins) == 0 && len(r.Associations) == 0)
+	return r == nil || (len(r.IDs) == 0 && len(r.Roles) == 0)
 }
 
 // CoalesceConfig makes a webhook trigger start one run for a burst of fires
@@ -728,9 +763,16 @@ type CoalesceConfig struct {
 
 // WebhookConfig is the kind_config for a webhook trigger.
 type WebhookConfig struct {
-	SenderRestriction *SenderRestriction  `json:"sender_restriction,omitempty"`
-	MatchContains     map[string][]string `json:"match_contains,omitempty"`
-	Coalesce          *CoalesceConfig     `json:"coalesce,omitempty"`
+	SenderRestriction *storedSenderRestriction `json:"sender_restriction,omitempty"`
+	MatchContains     map[string][]string      `json:"match_contains,omitempty"`
+	Coalesce          *CoalesceConfig          `json:"coalesce,omitempty"`
+}
+
+// storedSenderRestriction is a sender restriction as kind_config stores it. The
+// keys predate ids and roles and stay, so a rollback still reads every row.
+type storedSenderRestriction struct {
+	IDs   []string `json:"logins,omitempty"`
+	Roles []string `json:"associations,omitempty"`
 }
 
 // RedeliverResponse is returned from POST /api/v1/trigger-deliveries/{id}/redeliver.

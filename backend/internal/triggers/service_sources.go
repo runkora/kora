@@ -3,6 +3,7 @@ package triggers
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -69,7 +70,8 @@ func (s *SourceService) WebhookPath(sourceID string) string { return s.webhookBa
 // CreateSource registers a webhook source: it provisions a mapped SERVICE
 // principal with a policy grant for the generic run scopes, generates and
 // encrypts a signing secret, and persists the record. The raw secret and webhook
-// path are returned ONCE in the response.
+// path are returned ONCE in the response. A provider that issues its own secret
+// takes it from the request, and the response does not echo it.
 func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req CreateSourceRequest) (*SourceResponse, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -81,14 +83,15 @@ func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req C
 	if err := s.registry.validateProvider(req.Provider); err != nil {
 		return nil, err
 	}
+	adapter, _ := s.registry.Get(req.Provider)
+	secret, issued, err := sourceSecret(adapter, req.SigningSecret)
+	if err != nil {
+		return nil, err
+	}
 
 	id := uuid.NewString()
 	principalID := "trigger-source:" + id
 
-	secret, err := generateSecret()
-	if err != nil {
-		return nil, err
-	}
 	ciphertext, err := s.cipher.encrypt(secret)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt signing secret: %w", err)
@@ -123,9 +126,9 @@ func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req C
 	)
 
 	return &SourceResponse{
-		WebhookSource: *redactSecret(s.readBackSource(ctx, src)),
+		WebhookSource: *s.present(s.readBackSource(ctx, src)),
 		WebhookPath:   s.WebhookPath(id),
-		Secret:        secret,
+		Secret:        returnedSecret(secret, issued),
 	}, nil
 }
 
@@ -155,7 +158,7 @@ func (s *SourceService) ListSources(ctx context.Context, tenantID string) ([]Web
 		return nil, err
 	}
 	for i := range srcs {
-		srcs[i].SecretCiphertext = ""
+		srcs[i] = *s.present(&srcs[i])
 	}
 	return srcs, nil
 }
@@ -166,7 +169,18 @@ func (s *SourceService) GetSource(ctx context.Context, tenantID, id string) (*We
 	if err != nil {
 		return nil, err
 	}
-	return redactSecret(src), nil
+	return s.present(src), nil
+}
+
+// present is the API view of a stored source: the secret ciphertext removed and
+// the category set from the provider's adapter.
+func (s *SourceService) present(src *WebhookSource) *WebhookSource {
+	cp := *src
+	cp.SecretCiphertext = ""
+	if adapter, ok := s.registry.Get(src.Provider); ok {
+		cp.Category = categoryOf(adapter)
+	}
+	return &cp
 }
 
 // UpdateSource toggles enablement and optionally rotates the signing secret.
@@ -186,7 +200,11 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 	}
 	var rotated string
 	if req.RotateSecret {
-		secret, err := generateSecret()
+		adapter, ok := s.registry.Get(src.Provider)
+		if !ok {
+			return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
+		}
+		secret, issued, err := sourceSecret(adapter, req.SigningSecret)
 		if err != nil {
 			return nil, err
 		}
@@ -195,7 +213,9 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 			return nil, fmt.Errorf("encrypt signing secret: %w", err)
 		}
 		src.SecretCiphertext = ciphertext
-		rotated = secret
+		rotated = returnedSecret(secret, issued)
+	} else if req.SigningSecret != "" {
+		return nil, fmt.Errorf("%w: signing_secret is accepted only with rotate_secret", ErrValidation)
 	}
 	if err := s.repo.UpdateSource(ctx, src); err != nil {
 		return nil, err
@@ -205,10 +225,43 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 	// are not on this struct: returning it reports the PREVIOUS rotation time to
 	// a caller who just rotated, which is the one moment that field is read.
 	return &SourceResponse{
-		WebhookSource: *redactSecret(s.readBackSource(ctx, src)),
+		WebhookSource: *s.present(s.readBackSource(ctx, src)),
 		WebhookPath:   s.WebhookPath(id),
 		Secret:        rotated,
 	}, nil
+}
+
+// maxSigningSecretBytes bounds a signing secret the admin supplies.
+const maxSigningSecretBytes = 256
+
+// sourceSecret returns the signing secret for a create or a rotation. A provider
+// that issues its own secret takes it from the request; every other provider
+// gets a generated one and refuses a supplied value. issued reports the former.
+func sourceSecret(adapter SourceAdapter, supplied string) (secret string, issued bool, err error) {
+	if _, ok := adapter.(issuedSecret); !ok {
+		if supplied != "" {
+			return "", false, fmt.Errorf("%w: signing_secret is not accepted for provider %q", ErrValidation, adapter.Provider())
+		}
+		secret, err = generateSecret()
+		return secret, false, err
+	}
+	secret = strings.TrimSpace(supplied)
+	if secret == "" {
+		return "", true, fmt.Errorf("%w: signing_secret is required for provider %q", ErrValidation, adapter.Provider())
+	}
+	if len(secret) > maxSigningSecretBytes {
+		return "", true, fmt.Errorf("%w: signing_secret must be at most %d bytes", ErrValidation, maxSigningSecretBytes)
+	}
+	return secret, true, nil
+}
+
+// returnedSecret is the secret a create or rotation response carries: the
+// generated one, and never one the admin supplied.
+func returnedSecret(secret string, issued bool) string {
+	if issued {
+		return ""
+	}
+	return secret
 }
 
 // DeleteSource removes a webhook source, its triggers (FK cascade), and all
@@ -239,7 +292,7 @@ func (s *SourceService) DeleteSource(ctx context.Context, tenantID, id string) e
 // SourceEventTypes answers "what can I write a trigger for on this source?".
 //
 // Declared comes from the provider's schema. Observed comes from this source's
-// history, including events newer than the schema.
+// history, including events newer than the schema, except on a chat source.
 func (s *SourceService) SourceEventTypes(ctx context.Context, tenantID, sourceID string) (*EventTypesResponse, error) {
 	src, err := s.repo.GetSource(ctx, tenantID, sourceID)
 	if err != nil {
@@ -254,17 +307,23 @@ func (s *SourceService) SourceEventTypes(ctx context.Context, tenantID, sourceID
 	if err != nil {
 		return nil, err
 	}
-	return &EventTypesResponse{Declared: catalog.EventTypes(), Observed: observed, Associations: associationsOf(adapter)}, nil
+	resp := eventTypes(adapter, catalog)
+	resp.Observed = observed
+	if resp.Category == CategoryChat {
+		// A chat trigger can use only the chat.json event types.
+		resp.Observed = slices.DeleteFunc(observed, func(e string) bool { return !slices.Contains(resp.Declared, e) })
+	}
+	return resp, nil
 }
 
-// ProviderEventTypes lists a provider's declared event types and the
-// associations a sender restriction may name.
+// ProviderEventTypes lists a provider's declared event types and what a sender
+// restriction may name.
 func (s *SourceService) ProviderEventTypes(provider string) (*EventTypesResponse, error) {
 	adapter, catalog, err := s.providerCatalog(provider)
 	if err != nil {
 		return nil, err
 	}
-	return &EventTypesResponse{Declared: catalog.EventTypes(), Associations: associationsOf(adapter)}, nil
+	return eventTypes(adapter, catalog), nil
 }
 
 // ProviderFields lists the fields a trigger on one of a provider's event types can reference.
@@ -289,11 +348,12 @@ func (s *SourceService) providerCatalog(provider string) (SourceAdapter, *Catalo
 	return adapter, catalog, nil
 }
 
-// associationsOf returns the associations a provider's sender restriction may
-// name, empty when it identifies no sender.
-func associationsOf(adapter SourceAdapter) []string {
+// eventTypes is a provider's declared event types, its category and, when it
+// identifies senders, the roles a sender restriction may name.
+func eventTypes(adapter SourceAdapter, catalog *Catalog) *EventTypesResponse {
+	resp := &EventTypesResponse{Declared: catalog.EventTypes(), Category: categoryOf(adapter)}
 	if si, ok := adapter.(senderIdentifier); ok {
-		return si.Associations()
+		resp.Senders = &Senders{Roles: append([]SenderRole{}, si.Roles()...)}
 	}
-	return []string{}
+	return resp
 }
