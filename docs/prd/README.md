@@ -16,7 +16,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Trigger Deliveries Filter and Event Detail](trigger-deliveries-filter.md) | Approved | [trigger-deliveries-filter](../adr/2026-06-20-trigger-deliveries-filter.md) |
 | [Trigger Payload Templating](trigger-payload-templating.md) | Implemented | [trigger-payload-templating](../adr/2026-09-28-trigger-payload-templating.md) |
 | [Trigger Routing](trigger-routing.md) | Approved | [trigger-routing](../adr/2026-10-19-trigger-routing.md) |
-| [Chat Command Triggers](slack-trigger-source.md) | In Review | [slack-trigger-source](../adr/2026-10-20-slack-trigger-source.md) |
+| [Chat Command Triggers](chat-command-triggers.md) | In Review | [chat-command-triggers](../adr/2026-10-20-chat-command-triggers.md) |
 | [Agent Token Breakdown and Spend Card](agent-token-breakdown-and-spend-card.md) | Approved | [agent-token-breakdown-and-spend-card](../adr/2026-06-23-agent-token-breakdown-and-spend-card.md) |
 | [Credential Broker & Outbound Connections](credential-broker-and-outbound-connections.md) | Draft | [jit-credential-brokering-egress-gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md) |
 | [Kubernetes Connection](kubernetes-connection.md) | Draft | [jit-credential-brokering-egress-gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md) |

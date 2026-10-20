@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-"Chat command" will be a trigger kind. A person who mentions the kora bot in a chat channel or sends it a direct message will start an agent run, and the agent will answer in the chat through the platform's MCP server. Slack is the first platform. A trigger is written once against kora's own chat events and fields and works the same on every chat platform kora adds later.
+"Chat command" will be a trigger kind. A person who mentions the kora bot in a chat channel or sends it a direct message will start an agent run, and the agent will answer in the chat through the platform's MCP server. Slack is the first platform. A trigger is written once against kora's own chat events and fields and works the same on every later chat platform that delivers the same event.
 
 ---
 
@@ -34,7 +34,7 @@ Triggers start runs from GitHub and Alertmanager webhooks, from a schedule and f
 
 1.  A mention of the bot in a channel or a direct message to the bot starts a run of the agent its trigger names.
 2.  An admin connects a Slack workspace without writing code.
-3.  A trigger author writes a chat trigger once, and the same prompt, filters and follow-up settings work on every chat platform.
+3.  A trigger author writes a chat trigger once, and the same prompt, filters and follow-up settings work on every chat platform that delivers the same event.
 4.  A trigger author limits any webhook or chat trigger to chosen people, and to chosen roles where the platform reports roles.
 5.  A follow-up in the same thread or direct message conversation can reach the run that is already working on it.
 6.  Every chat delivery appears in the delivery history with the person who caused it.
@@ -144,7 +144,7 @@ The manifest asks for what kora needs to hear mentions and direct messages, and 
 
 ### Writing a Trigger
 
-The author picks the mention event or the direct message event, narrows by conversation and person, and writes the prompt with kora's chat fields. The same trigger settings would work on another chat platform. Agent choice and follow-ups come from trigger routing. A routing trigger's join key can identify the thread for mentions or the conversation for direct messages.
+The author picks the mention event or the direct message event, narrows by conversation and person, and writes the prompt with kora's chat fields. The same trigger settings would work on another chat platform that delivers the same event. Agent choice and follow-ups come from trigger routing. A routing trigger's join key can identify the thread for mentions or the conversation for direct messages.
 
 ---
 
@@ -179,16 +179,6 @@ The author picks the mention event or the direct message event, narrows by conve
 
 **PD7:** The sender restriction lists people and roles for every provider. **Accepted cost:** an integration that sets a sender restriction through the API with the old field names is refused until it uses the new ones.
 
-### Decisions Delegated to the ADR
-
-The ADR decides the following:
-
-- How the chat command kind relates to webhook triggers and to routing.
-- kora's chat schema and how a platform maps into it.
-- How kora verifies Slack's requests and answers Slack's request URL check.
-- How a source takes its secret from the admin.
-- How sender roles are declared and stored.
-
 ---
 
 ## Related Documents
@@ -196,5 +186,5 @@ The ADR decides the following:
 - [Agent Webhook Triggers PRD](agent-webhook-triggers.md)
 - [Trigger Payload Templating PRD](trigger-payload-templating.md)
 - [Delegated Agent Identity PRD](delegated-agent-identity.md)
-- [Chat Command Triggers ADR](../adr/2026-10-20-slack-trigger-source.md)
+- [Chat Command Triggers ADR](../adr/2026-10-20-chat-command-triggers.md)
 - Trigger Routing PRD (`docs/prd/trigger-routing.md`)
