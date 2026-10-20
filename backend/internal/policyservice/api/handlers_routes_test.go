@@ -63,22 +63,26 @@ func TestHandleRegisterRoutes_CallerService(t *testing.T) {
 		Kora:             token.KoraClaims{PrincipalType: token.PrincipalTypeSystem},
 	}
 
+	declared := []routes.ScopeDeclaration{{Scope: "thing:read", ResourceType: "thing", Action: "read"}}
+
 	tests := []struct {
 		name    string
 		claims  *token.PlatformClaims
 		service string
+		scopes  []routes.ScopeDeclaration
 		want    int
 	}{
-		{"system registers its own service", system("inference-gateway"), "inference-gateway", http.StatusNoContent},
-		{"system registers another service", system("orbit-agents"), "inference-gateway", http.StatusForbidden},
-		{"system token without a component name", unnamedSystem, "inference-gateway", http.StatusForbidden},
-		{"service registers its own identity", service, serviceSubject, http.StatusNoContent},
-		{"service registers another service", service, "inference-gateway", http.StatusForbidden},
+		{"system registers its own service", system("inference-gateway"), "inference-gateway", nil, http.StatusNoContent},
+		{"system registers another service", system("orbit-agents"), "inference-gateway", nil, http.StatusForbidden},
+		{"system token without a component name", unnamedSystem, "inference-gateway", nil, http.StatusForbidden},
+		{"service registers its own identity", service, serviceSubject, nil, http.StatusNoContent},
+		{"service registers another service", service, "inference-gateway", nil, http.StatusForbidden},
+		{"service declares a scope", service, serviceSubject, declared, http.StatusForbidden},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := newRoutesController()
-			body, _ := json.Marshal(registerRoutesRequest{Service: tt.service, Routes: registeredRoutes, SkipPrune: true})
+			body, _ := json.Marshal(registerRoutesRequest{Service: tt.service, Routes: registeredRoutes, Scopes: tt.scopes, SkipPrune: true})
 			req := httptest.NewRequest(http.MethodPost, "/policy/routes/register", bytes.NewReader(body))
 			req = req.WithContext(token.WithClaims(req.Context(), tt.claims))
 			rec := httptest.NewRecorder()

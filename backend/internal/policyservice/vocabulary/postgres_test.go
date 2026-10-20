@@ -2,7 +2,9 @@ package vocabulary
 
 import (
 	"context"
+	"errors"
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -100,5 +102,75 @@ func TestPostgres_UpsertReportsChange(t *testing.T) {
 	}
 	if changed {
 		t.Error("idempotent upsert with requires reported a change")
+	}
+}
+
+// TestPostgres_UpsertOwnershipAndRequires covers who may change an entry and
+// how requires moves. Only the owner writes; nil requires keeps the stored
+// edges; a non-nil empty slice clears them.
+func TestPostgres_UpsertOwnershipAndRequires(t *testing.T) {
+	repo, service := testVocabRepo(t)
+	ctx := context.Background()
+	scope := "test:" + service + ":write"
+
+	entry := func(owner, desc string, requires []string) *ScopeEntry {
+		return &ScopeEntry{
+			Scope: scope, ResourceType: "test", PathSegments: []string{service}, Action: "write",
+			Description: desc, RegisteredBy: owner, Requires: requires,
+		}
+	}
+	if _, err := repo.Upsert(ctx, entry(service, "owned", []string{"platform:grants:read"})); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	steps := []struct {
+		name         string
+		entry        *ScopeEntry
+		wantChanged  bool
+		wantErr      error
+		wantDesc     string
+		wantRequires []string
+	}{
+		{
+			name:    "another service cannot overwrite",
+			entry:   entry("other-"+service, "hijacked", []string{"platform:grants:write"}),
+			wantErr: ErrScopeOwnedByAnother, wantDesc: "owned", wantRequires: []string{"platform:grants:read"},
+		},
+		{
+			name:    "another service cannot clear",
+			entry:   entry("other-"+service, "owned", []string{}),
+			wantErr: ErrScopeOwnedByAnother, wantDesc: "owned", wantRequires: []string{"platform:grants:read"},
+		},
+		{
+			name:     "owner with unknown requires keeps the edge",
+			entry:    entry(service, "owned", nil),
+			wantDesc: "owned", wantRequires: []string{"platform:grants:read"},
+		},
+		{
+			name:        "owner clears requires explicitly",
+			entry:       entry(service, "owned", []string{}),
+			wantChanged: true, wantDesc: "owned", wantRequires: []string{},
+		},
+		{
+			name:     "owner clearing again changes nothing",
+			entry:    entry(service, "owned", []string{}),
+			wantDesc: "owned", wantRequires: []string{},
+		},
+	}
+	for _, st := range steps {
+		changed, err := repo.Upsert(ctx, st.entry)
+		if !errors.Is(err, st.wantErr) {
+			t.Fatalf("%s: err = %v, want %v", st.name, err, st.wantErr)
+		}
+		if changed != st.wantChanged {
+			t.Errorf("%s: changed = %v, want %v", st.name, changed, st.wantChanged)
+		}
+		got, err := repo.GetByScope(ctx, scope)
+		if err != nil {
+			t.Fatalf("%s: get: %v", st.name, err)
+		}
+		if got.Description != st.wantDesc || !slices.Equal(got.Requires, st.wantRequires) {
+			t.Errorf("%s: stored (%q, %v), want (%q, %v)", st.name, got.Description, got.Requires, st.wantDesc, st.wantRequires)
+		}
 	}
 }

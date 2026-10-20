@@ -14,8 +14,8 @@ import (
 )
 
 // ServiceName is the service identity the egress gateway uses when registering
-// scopes with the policy service. The platform token must carry this subject for
-// the registration to be accepted under SERVICE-principal rules.
+// scopes with the policy service. It must match the SYSTEM token's component
+// name, and it becomes registered_by on the scopes it declares.
 const ServiceName = "egress-gateway"
 
 // readConnectionsScope is the scope guarding the read-only connections catalog

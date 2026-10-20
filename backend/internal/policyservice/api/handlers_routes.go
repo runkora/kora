@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
@@ -41,7 +42,7 @@ func (c *Controller) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 // The caller's principal type determines registration scope:
 //   - SYSTEM → global registration (compiled into every tenant bundle)
 //   - SERVICE → tenant-scoped registration (compiled into that tenant's bundle only;
-//     all required_scopes must exist in the tenant's vocabulary)
+//     it may not declare scopes, and all required_scopes must already exist)
 //
 // Either way the caller may only register its own service's routes.
 // AGENT and HUMAN principals are rejected — route registration is a service-only operation.
@@ -104,6 +105,9 @@ func ownService(claims *token.PlatformClaims) string {
 }
 
 func routesErrorResponse(err error) *platformapi.APIError {
+	if errors.Is(err, ErrTenantScopeDeclaration) {
+		return platformapi.ForbiddenError(platformapi.ErrCodeForbidden, ErrTenantScopeDeclaration.Error(), nil)
+	}
 	var scopeErr *ScopeVocabularyError
 	if isScopeVocabularyError(err, &scopeErr) {
 		return platformapi.ValidationError(platformapi.ErrCodeInvalidField,

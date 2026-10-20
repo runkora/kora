@@ -86,7 +86,7 @@ The identity-proxy sidecar ([envoy-ext-proc-sidecar-token-injection](2026-03-21-
 | Tier | Declared by | Compiled into | Scope constraint |
 |---|---|---|---|
 | **Global** | Platform services (inference-gw, policy-gw) | Every tenant bundle | None — platform scopes are not in any tenant vocabulary |
-| **Per-tenant** | Tenant-published services | That tenant's bundle only | Every `required_scope` must exist in the tenant's scope vocabulary |
+| **Per-tenant** | Tenant-published services | That tenant's bundle only | Every `required_scope` must already exist in the vocabulary; the registration cannot declare scopes |
 
 The vocabulary is the trust anchor for tenant registration. Since vocabulary writes require an authenticated API call with `platform:grants:write`, a tenant cannot register a route that maps to a scope they have not explicitly defined.
 
@@ -114,7 +114,7 @@ Content-Type: application/json
 }
 ```
 
-The `scopes` array is optional vocabulary — services may register new scope entries alongside their routes in a single call. This is used by the inference gateway to register the static top-level inference scopes and to upsert per-model/family scopes dynamically as the catalog changes.
+The `scopes` array is optional vocabulary. A `SYSTEM` service may register new scope entries alongside its routes in a single call. The inference gateway uses it to register the static top-level inference scopes and to upsert per-model/family scopes as the catalog changes. A `SERVICE` registration that declares scopes is rejected. The first service to declare a scope owns it, and only the owner can change it.
 
 - Registration is global (included in every tenant bundle) when made by a `SYSTEM` or `SERVICE` principal
 - Re-registration is idempotent — replaces the prior route set for the service, upserts vocabulary entries
