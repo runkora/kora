@@ -346,6 +346,21 @@ const (
 	nonStreamingAcceptWait = 20 * time.Second
 )
 
+// writeNonStreamingResult writes a result that arrived before the status was
+// committed, so a failure still carries its real HTTP status code.
+func (c *Controller) writeNonStreamingResult(
+	ctx context.Context,
+	w http.ResponseWriter,
+	msg *anthropic.Message,
+	err error,
+) {
+	if err != nil {
+		c.writeAnthropicError(ctx, w, inferenceErrorResponse(err), err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, msg)
+}
+
 // handleMessagesNonStreaming handles the non-streaming POST /v1/messages path.
 // It uses a context detached from the HTTP request so that client-side and
 // proxy timeouts (typically 30 s) do not cancel an in-progress generation.
@@ -383,11 +398,7 @@ func (c *Controller) handleMessagesNonStreaming(
 	select {
 	case res := <-ch:
 		cancelGen()
-		if res.err != nil {
-			c.writeAnthropicError(ctx, w, inferenceErrorResponse(res.err), res.err)
-			return
-		}
-		api.JSON(ctx, w, c.logger, http.StatusOK, res.msg)
+		c.writeNonStreamingResult(ctx, w, res.msg, res.err)
 		return
 	case <-time.After(nonStreamingCommitDelay):
 	}
@@ -396,20 +407,16 @@ func (c *Controller) handleMessagesNonStreaming(
 	// request: a rejection (e.g. an invalid parameter) is only reportable as a
 	// real 4xx until we commit. Connectors report acceptance on the first
 	// stream event; those that never do are bounded by nonStreamingAcceptWait.
+	// A client disconnect is deliberately not watched here: generation stays
+	// detached from the request, and the keepalive loop below cancels it once
+	// a write fails.
 	select {
 	case res := <-ch:
 		cancelGen()
-		if res.err != nil {
-			c.writeAnthropicError(ctx, w, inferenceErrorResponse(res.err), res.err)
-			return
-		}
-		api.JSON(ctx, w, c.logger, http.StatusOK, res.msg)
+		c.writeNonStreamingResult(ctx, w, res.msg, res.err)
 		return
 	case <-accepted:
 	case <-time.After(nonStreamingAcceptWait - nonStreamingCommitDelay):
-	case <-ctx.Done():
-		cancelGen()
-		return
 	}
 
 	// Slow path: write 200 OK + Content-Type now. We cannot change the status
