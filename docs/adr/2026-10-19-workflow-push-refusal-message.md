@@ -1,6 +1,6 @@
 # Explain GitHub's Workflow-File Push Refusal at the Egress Gateway
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-10-19
 **Deciders:** justinwilkin
 **Technical Story:** [#565](https://github.com/runkora/kora/issues/565)
