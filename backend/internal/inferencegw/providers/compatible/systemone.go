@@ -127,10 +127,11 @@ func (c *Connector) transportError(ctx context.Context, err error) error {
 // retryable; 401 and 403 are the gateway's own credential for this provider,
 // so they are provider errors, not a client auth error.
 func (c *Connector) systemOneError(status int, msg string) error {
-	code, retryable := "PROVIDER_ERROR", false
+	code, retryable, rejected := "PROVIDER_ERROR", false, false
 	switch {
 	case status == http.StatusBadRequest, status == http.StatusUnprocessableEntity:
-		code = "INVALID_REQUEST"
+		// No other target can fix the caller's request, so stop failover.
+		code, rejected = "INVALID_REQUEST", true
 	case status == http.StatusTooManyRequests:
 		code, retryable = "THROTTLED", true
 	case status >= 500:
@@ -140,6 +141,7 @@ func (c *Connector) systemOneError(status int, msg string) error {
 		Provider:        c.name,
 		Code:            code,
 		Retryable:       retryable,
+		RequestRejected: rejected,
 		HTTPStatus:      status,
 		Underlying:      fmt.Errorf("status %d: %s", status, msg),
 		ProviderMessage: msg,
