@@ -337,6 +337,30 @@ func (c *Controller) handleMessages(w http.ResponseWriter, r *http.Request) {
 	c.handleMessagesNonStreaming(w, r, env.Params)
 }
 
+const (
+	// nonStreamingCommitDelay is how long a non-streaming request may run
+	// before the handler is willing to commit a 200 and start keepalives.
+	nonStreamingCommitDelay = 5 * time.Second
+	// nonStreamingAcceptWait caps how long the status is held waiting for the
+	// upstream to accept the request, kept under typical NAT/proxy idle timeouts.
+	nonStreamingAcceptWait = 20 * time.Second
+)
+
+// writeNonStreamingResult writes a result that arrived before the status was
+// committed, so a failure still carries its real HTTP status code.
+func (c *Controller) writeNonStreamingResult(
+	ctx context.Context,
+	w http.ResponseWriter,
+	msg *anthropic.Message,
+	err error,
+) {
+	if err != nil {
+		c.writeAnthropicError(ctx, w, inferenceErrorResponse(err), err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, msg)
+}
+
 // handleMessagesNonStreaming handles the non-streaming POST /v1/messages path.
 // It uses a context detached from the HTTP request so that client-side and
 // proxy timeouts (typically 30 s) do not cancel an in-progress generation.
@@ -356,6 +380,8 @@ func (c *Controller) handleMessagesNonStreaming(
 	genCtx, cancelGen := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
 	defer cancelGen()
 
+	genCtx, accepted := WithAcceptedSignal(genCtx)
+
 	type genResult struct {
 		msg *anthropic.Message
 		err error
@@ -368,18 +394,29 @@ func (c *Controller) handleMessagesNonStreaming(
 
 	// Fast path: give short-lived errors (policy denied, model not found,
 	// auth failures) 5 s to surface with the correct HTTP status code before
-	// we commit to 200 OK.
+	// we consider committing to 200 OK.
 	select {
 	case res := <-ch:
 		cancelGen()
-		if res.err != nil {
-			c.writeAnthropicError(ctx, w, inferenceErrorResponse(res.err), res.err)
-			return
-		}
-		api.JSON(ctx, w, c.logger, http.StatusOK, res.msg)
+		c.writeNonStreamingResult(ctx, w, res.msg, res.err)
 		return
-	case <-time.After(5 * time.Second):
-		// Generation is still running. Commit to 200 OK and use keepalives.
+	case <-time.After(nonStreamingCommitDelay):
+	}
+
+	// Past the delay, still hold the status until the upstream has accepted the
+	// request: a rejection (e.g. an invalid parameter) is only reportable as a
+	// real 4xx until we commit. Connectors report acceptance on the first
+	// stream event; those that never do are bounded by nonStreamingAcceptWait.
+	// A client disconnect is deliberately not watched here: generation stays
+	// detached from the request, and the keepalive loop below cancels it once
+	// a write fails.
+	select {
+	case res := <-ch:
+		cancelGen()
+		c.writeNonStreamingResult(ctx, w, res.msg, res.err)
+		return
+	case <-accepted:
+	case <-time.After(nonStreamingAcceptWait - nonStreamingCommitDelay):
 	}
 
 	// Slow path: write 200 OK + Content-Type now. We cannot change the status

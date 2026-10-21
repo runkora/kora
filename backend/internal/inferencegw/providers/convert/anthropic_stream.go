@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"context"
 	"errors"
 	"io"
 
@@ -18,13 +19,18 @@ type AnthropicStream interface {
 	Close() error
 }
 
-// AccumulateAnthropicStream reads s to the end, closes it and returns the
+// AccumulateAnthropicStream reads s to the end, reporting acceptance via
+// inferencegw.NotifyAccepted on the first event, closes it and returns the
 // assembled message with the number of events read. Errors are mapped for provider.
-func AccumulateAnthropicStream(s AnthropicStream, provider inferencegw.ProviderName) (*anthropic.Message, int, error) {
+func AccumulateAnthropicStream(ctx context.Context, s AnthropicStream, provider inferencegw.ProviderName) (*anthropic.Message, int, error) {
 	defer func() { _ = s.Close() }()
 	var msg anthropic.Message
 	events := 0
 	for s.Next() {
+		if events == 0 {
+			// First event: the upstream accepted the request.
+			inferencegw.NotifyAccepted(ctx)
+		}
 		events++
 		if err := msg.Accumulate(s.Current()); err != nil {
 			return nil, events, MapAnthropicError(provider, err)
