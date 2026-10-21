@@ -1,6 +1,6 @@
 # Non-Text Model Discovery on Compatible Providers
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-10-20
 **Deciders:** justinwilkin
 **Technical Story:** [#480](https://github.com/runkora/kora/issues/480)
@@ -95,4 +95,4 @@ It finds every model with the fewest requests and needs no CRD change. A failed 
 - [2026-10-01-crd-inference-providers.md](2026-10-01-crd-inference-providers.md) - Compatible providers
 - [2026-10-10-systemone-decision-models.md](2026-10-10-systemone-decision-models.md) - Decision model discovery this extends
 
-**Last Updated:** 2026-10-20
+**Last Updated:** 2026-10-21
