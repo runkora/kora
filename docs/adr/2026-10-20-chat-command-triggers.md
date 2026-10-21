@@ -209,8 +209,8 @@ Every failure returns `ErrSignatureInvalid` and the same 404 as today. The adapt
 - `user.id` is `event.user` uppercased.
 - `conversation.id` is `event.channel`.
 - `thread.id` is `event.thread_ts` for a reply and `event.ts` for a top-level message.
-- `conversation.type` is `event.channel_type` mapped: `channel` to `channel`, `group` to `private`, `im` to `dm`, `mpim` to `group`. It is empty for any other value.
-- `thread.started_by.id` is `event.parent_user_id` uppercased for a reply and `event.user` for a top-level message.
+- `conversation.type` is `event.channel_type` mapped: `channel` to `channel`, `group` to `private`, `im` to `dm`, `mpim` to `group`. A mention carries no `channel_type`, so a `D` channel id maps to `dm` and any other id leaves the type empty. It is empty for any other value.
+- `thread.started_by.id` is `event.parent_user_id` uppercased when set and `event.user` otherwise, so a top-level message or a thread root is started by its sender.
 - `message.id` is `event.ts`.
 - `workspace.id` is `team_id`.
 - `platform` is `slack`.

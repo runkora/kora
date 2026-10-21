@@ -116,9 +116,15 @@ func (a *slackAdapter) ChatEvent(_ string, doc any) (map[string]any, bool) {
 	if thread == "" {
 		thread = resolvePath(doc, "event.ts")
 	}
-	startedBy := user
-	if resolvePath(doc, "event.thread_ts") != "" {
-		startedBy = a.NormalizeID(resolvePath(doc, "event.parent_user_id"))
+	// A thread root carries thread_ts without parent_user_id, so the sender started it.
+	startedBy := a.NormalizeID(resolvePath(doc, "event.parent_user_id"))
+	if startedBy == "" {
+		startedBy = user
+	}
+	// app_mention carries no channel_type; a D channel id is a DM, and C and G ids cannot tell public from private.
+	convType := slackConversationTypes[resolvePath(doc, "event.channel_type")]
+	if convType == "" && strings.HasPrefix(conversation, "D") {
+		convType = "dm"
 	}
 	if user == "" || conversation == "" || thread == "" {
 		return nil, false
@@ -126,7 +132,7 @@ func (a *slackAdapter) ChatEvent(_ string, doc any) (map[string]any, bool) {
 	return map[string]any{
 		"text":         resolvePath(doc, "event.text"),
 		"user":         map[string]any{"id": user},
-		"conversation": map[string]any{"id": conversation, "type": slackConversationTypes[resolvePath(doc, "event.channel_type")]},
+		"conversation": map[string]any{"id": conversation, "type": convType},
 		"thread":       map[string]any{"id": thread, "started_by": map[string]any{"id": startedBy}},
 		"message":      map[string]any{"id": resolvePath(doc, "event.ts")},
 		"workspace":    map[string]any{"id": resolvePath(doc, "team_id")},
