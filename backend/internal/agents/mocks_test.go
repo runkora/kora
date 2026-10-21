@@ -1035,6 +1035,10 @@ func (f *testServiceFacade) GetRun(ctx context.Context, id string) (*Run, error)
 	return f.run.GetRun(f.withRunTenant(ctx, id), id)
 }
 
+func (f *testServiceFacade) GetRunWithUsage(ctx context.Context, id string) (*Run, error) {
+	return f.run.GetRunWithUsage(f.withRunTenant(ctx, id), id)
+}
+
 func (f *testServiceFacade) ListRuns(ctx context.Context, tenantID, agentTypeID string) ([]Run, error) {
 	var ids []string
 	if agentTypeID != "" {

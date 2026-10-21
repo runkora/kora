@@ -49,14 +49,14 @@ func TestGetRun_ReturnsUsage(t *testing.T) {
 	want := RunUsage{CostUSD: 0.5, InputTokens: 10, OutputTokens: 20, RequestCount: 2}
 	seedUsage(repo, "run-0000", want)
 
-	got, err := svc.GetRun(context.Background(), "run-0000")
+	got, err := svc.GetRunWithUsage(context.Background(), "run-0000")
 	if err != nil {
-		t.Fatalf("GetRun: %v", err)
+		t.Fatalf("GetRunWithUsage: %v", err)
 	}
 	if got.Usage != want {
 		t.Errorf("usage = %+v, want %+v", got.Usage, want)
 	}
-	none, err := svc.GetRun(context.Background(), "run-0001")
+	none, err := svc.GetRunWithUsage(context.Background(), "run-0001")
 	if err != nil || none.Usage != (RunUsage{}) {
 		t.Errorf("run without usage rows = %+v, %v; want zeros", none.Usage, err)
 	}

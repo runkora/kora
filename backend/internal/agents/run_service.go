@@ -356,7 +356,17 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The read check above is the only gate: cost follows the run's visibility.
+	return run, nil
+}
+
+// GetRunWithUsage is GetRun plus the run's inference usage. Existence checks
+// use GetRun so they skip the usage query and its failure mode.
+func (s *RunService) GetRunWithUsage(ctx context.Context, id string) (*Run, error) {
+	run, err := s.GetRun(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// The read check in GetRun is the only gate: cost follows the run's visibility.
 	usage, err := s.repo.RunUsageTotals(ctx, run.TenantID, []string{run.ID})
 	if err != nil {
 		return nil, fmt.Errorf("get run usage: %w", err)
