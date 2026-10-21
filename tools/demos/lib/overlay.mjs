@@ -1,6 +1,6 @@
 // The in-page layer that makes a headless recording read like a person using
 // the product: a cursor that follows Playwright's mouse, a ripple on every
-// click, and a caption bar. Headless Chromium paints no cursor of its own, so
+// click. Headless Chromium paints no cursor of its own, so
 // without this the clicks in a video happen with nothing on screen causing
 // them.
 //
@@ -31,16 +31,6 @@ function install() {
       from { transform: scale(0.3); opacity: 1; }
       to { transform: scale(1.6); opacity: 0; }
     }
-    #__demo-caption {
-      position: fixed; left: 50%; bottom: 40px; transform: translate(-50%, 12px);
-      max-width: 70%; padding: 14px 24px; border-radius: 12px;
-      background: rgba(20, 24, 31, 0.88); color: #f4f2ee;
-      font: 500 20px/1.35 Inter, system-ui, sans-serif; letter-spacing: -0.01em;
-      text-align: center; pointer-events: none; z-index: ${Z};
-      opacity: 0; transition: opacity 260ms ease, transform 260ms ease;
-    }
-    #__demo-caption.shown { opacity: 1; transform: translate(-50%, 0); }
-
     /* Hades checkboxes hide the real input with sr-only, which positions it
        absolutely against the nearest positioned ancestor. Inside the agent
        builder that is the modal frame, so headless Chromium scrolls the
@@ -55,9 +45,6 @@ function install() {
   cursor.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24">
     <path d="M5 3l14 8.2-6.1 1.3-3.3 5.5z" fill="#111" stroke="#fff" stroke-width="1.5"
       stroke-linejoin="round"/></svg>`;
-
-  const caption = document.createElement("div");
-  caption.id = "__demo-caption";
 
   const place = (x, y) => {
     cursor.style.left = `${x - 5}px`;
@@ -91,12 +78,7 @@ function install() {
   );
   window.addEventListener("mouseup", () => cursor.classList.remove("down"), true);
 
-  window.__demoCaption = (text) => {
-    if (text) caption.textContent = text;
-    caption.classList.toggle("shown", Boolean(text));
-  };
-
-  const mount = () => document.documentElement.append(style, cursor, caption);
+  const mount = () => document.documentElement.append(style, cursor);
   if (document.documentElement) mount();
   else document.addEventListener("DOMContentLoaded", mount, { once: true });
 }

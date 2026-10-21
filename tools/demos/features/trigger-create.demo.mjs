@@ -4,8 +4,8 @@
 // its filter to the one repository.
 import { feature } from "../lib/feature.mjs";
 
-const TRIGGER = "Kora Agent (mentioned)";
-const SOURCE = "runkora-github";
+export const TRIGGER = "Kora Agent (mentioned)";
+export const SOURCE = "runkora-github";
 
 // The agents kora chooses between, by the search that finds them. The list
 // pages at five, so a person searches. seed/seed.mjs creates them.
@@ -16,9 +16,9 @@ const CANDIDATES = {
 
 // The prompt opens with the instruction, typed, and continues with the
 // delivery's fields, pasted as the block it is in production.
-const INSTRUCTION =
+export const INSTRUCTION =
   "{{ comment.user.login }} mentioned @kora-agent in a comment. Do what the comment asks, within your role.";
-const FIELDS = `
+export const FIELDS = `
 
 Repository: {{ repository.full_name }}
 Number: #{{ issue.number }}

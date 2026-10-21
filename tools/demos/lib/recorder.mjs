@@ -73,11 +73,14 @@ export async function startRecording(page, { width, height, scale, workDir }) {
         outFile,
       ]);
       fs.rmSync(workDir, { recursive: true, force: true });
+      // The video starts at the first painted frame, a little after elapsed()
+      // started counting.
+      return { offsetMs: frames[0].at * 1000 - startedAt };
     },
   };
 }
 
-function ffmpeg(args) {
+export function ffmpeg(args) {
   return new Promise((resolve, reject) => {
     const proc = spawn(ffmpegPath, ["-hide_banner", "-loglevel", "error", ...args], {
       stdio: ["ignore", "inherit", "inherit"],

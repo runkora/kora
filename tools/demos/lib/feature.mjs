@@ -3,13 +3,15 @@
 // in two modes:
 //
 // - record: the cursor travels to each target on an eased path, text is typed
-//   at a human pace, captions show, and pauses hold the frame.
+//   at a human pace, captions are written for the edit, and pauses hold the
+//   frame.
 // - check: the steps run at full speed with no pauses, captions or recording.
 //   It proves every target still exists and every step still works, which is
 //   the cheap guard to run before a release.
 //
 // Every step is written to a timeline (milliseconds since the recording began,
-// the step and its target's box) for editing passes such as zooms.
+// the step and its target's box). Zooms, cuts and speed changes are written
+// there too, and lib/edit.mjs renders them into the final video.
 
 /**
  * Declares a feature walkthrough.
@@ -19,7 +21,16 @@
  * @param {string} meta.title  What the walkthrough shows.
  * @param {string} meta.start  Path the recording opens on.
  * @param {(api: import("@playwright/test").APIRequestContext) => Promise<void>} [meta.reset]
- *   Returns the platform to the feature's starting state. Runs before and after.
+ *   Returns the platform to the feature's starting state. Runs before, and
+ *   after unless meta.after is set.
+ * @param {(api: import("@playwright/test").APIRequestContext) => Promise<void>} [meta.after]
+ *   Cleans up after the feature, for one whose reset takes something away
+ *   that it then has to put back.
+ * @param {(context: import("@playwright/test").BrowserContext) => Promise<void>} [meta.prepare]
+ *   Sets up the browser before the first page opens, such as request routes.
+ * @param {boolean} [meta.github]  Starts signed in to GitHub, as github-login.mjs saved.
+ * @param {boolean | { width?: number, fps?: number }} [meta.gif]
+ *   Also writes out/<name>.gif, optionally at a set width and frame rate.
  * @param {(demo: Demo) => Promise<void>} steps
  */
 export function feature(meta, steps) {
@@ -122,16 +133,57 @@ export class Demo {
     if (this.recording) await this.page.waitForTimeout(400);
   }
 
-  /** Shows a caption until the next one, or hides it when called with no text. */
+  /**
+   * Shows a caption from now until the next one, or ends it when called with
+   * no text. lib/edit.mjs lays it over the video.
+   */
   async caption(text) {
     if (!this.recording) return;
     this.timeline.push({ t: this.elapsed(), step: "caption", text: text ?? null });
-    await this.page.evaluate((t) => window.__demoCaption?.(t), text ?? "");
     await this.page.waitForTimeout(300);
   }
 
   async pause(ms) {
     if (this.recording) await this.page.waitForTimeout(ms);
+  }
+
+  /**
+   * Moves the camera to frame the target at `scale` times, or back to the
+   * whole page when called with no target. The move eases over `ease`
+   * milliseconds; 0 jumps, as a match cut does. match: true lines the zoom
+   * before it up with this one, so the two targets meet on screen across a
+   * cut. lib/edit.mjs renders it.
+   */
+  async zoom(target, { scale = 2, ease = 700, match = false } = {}) {
+    if (!this.recording) return;
+    if (!target) {
+      this.timeline.push({ t: this.elapsed(), step: "zoom", box: null, scale: 1, ease });
+    } else {
+      const locator = await this.#visible(target);
+      const box = await this.#settled(locator);
+      this.timeline.push({ t: this.elapsed(), step: "zoom", box, scale, ease, match, target: locator.toString() });
+    }
+    if (ease > 0) await this.page.waitForTimeout(ease);
+  }
+
+  /**
+   * Runs steps that are cut from the video, such as moving between pages.
+   * transition "whip" blurs across the cut; the default is a hard cut.
+   */
+  async cut(steps, { transition = "hard" } = {}) {
+    const from = this.elapsed();
+    await steps();
+    // A page just navigated to can paint a blank frame first; the cut runs on
+    // past it.
+    if (this.recording) await this.page.waitForTimeout(250);
+    if (this.recording) this.timeline.push({ t: from, step: "cut", until: this.elapsed(), transition });
+  }
+
+  /** Runs steps played back `factor` times faster in the video. */
+  async fast(factor, steps) {
+    const from = this.elapsed();
+    await steps();
+    if (this.recording) this.timeline.push({ t: from, step: "speed", until: this.elapsed(), factor });
   }
 
   // Design-system checkboxes are a visually hidden input followed by the box
@@ -185,8 +237,9 @@ export class Demo {
       while (box && !(/(auto|scroll)/.test(getComputedStyle(box).overflowY) && box.scrollHeight > box.clientHeight)) {
         box = box.parentElement;
       }
-      if (!box) return;
-      const c = box.getBoundingClientRect();
+      // A page that scrolls as a whole, as GitHub's do, scrolls the document.
+      box ??= document.scrollingElement;
+      const c = box === document.scrollingElement ? { top: 0, height: window.innerHeight } : box.getBoundingClientRect();
       // A person keeps what they work on within the view, and higher up when
       // something is about to open below it. Outside that band the target is
       // brought up to a third of the way down.

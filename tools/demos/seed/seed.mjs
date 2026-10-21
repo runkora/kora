@@ -13,6 +13,7 @@
 //
 // Run `kubectl apply -f seed/decision-models.yaml` once first; the decision
 // models' virtual models route to that provider.
+import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -62,6 +63,11 @@ const DECISION_MODELS = [
 
 // The engineering team whose day-to-day Claude Code and Codex traffic goes
 // through the gateway. rate is requests on a working day.
+// The models the agents and the team use, from Bedrock in N. Virginia.
+const CHAT_MODELS = [
+  { name: "claude-sonnet-5", family: "anthropic", display_name: "Claude Sonnet 5", provider: "bedrock:us", model_id: "us.anthropic.claude-sonnet-5" },
+  { name: "gpt-5-5", family: "openai", display_name: "GPT-5.5", provider: "bedrock:us", model_id: "us.openai.gpt-5.5" },
+];
 const ENGINEERS = [
   ["Priya Raman", 420], ["Marcus Chen", 380], ["Sofia Alvarez", 350], ["James Okafor", 330],
   ["Aisha Bello", 310], ["Tom Nguyen", 300], ["Hannah Schmidt", 290], ["Daniel Kim", 280],
@@ -156,6 +162,15 @@ async function main() {
   }
 }
 
+/**
+ * Seeds the platform again, for a walkthrough that removed part of the seed,
+ * such as an agent it creates on camera. It replaces the seeded triggers and
+ * their history as `node seed/seed.mjs` does.
+ */
+export async function reseed(request) {
+  await seed(client(request));
+}
+
 async function seed(api) {
   const tenant = sql("SELECT DISTINCT tenant_id FROM agent_types LIMIT 1").trim() || "example";
 
@@ -189,10 +204,25 @@ async function seed(api) {
   }
 
   // A model whose every route points at a provider that is not registered,
-  // such as a local Ollama, can never serve a call.
-  const providers = new Set((await api.list("/api/catalog/provider-models")).map((m) => m.provider));
-  for (const m of await api.list("/api/catalog/virtual-models")) {
-    if (!m.routes.some((r) => providers.has(r.provider))) await api.send("DELETE", `/api/catalog/virtual-models/${m.id}`);
+  // such as a local Ollama, can never serve a call. Registered providers come
+  // from the cluster rather than the catalog: a provider whose credentials
+  // have expired lists no models but is still registered.
+  const providers = registeredProviders();
+  if (providers) {
+    for (const m of await api.list("/api/catalog/virtual-models")) {
+      if (!m.routes.some((r) => providers.has(r.provider))) await api.send("DELETE", `/api/catalog/virtual-models/${m.id}`);
+    }
+  }
+
+  const existing = new Set((await api.list("/api/catalog/virtual-models")).map((m) => m.name));
+  for (const { model_id, provider, ...model } of CHAT_MODELS) {
+    if (existing.has(model.name)) continue;
+    await api.send("POST", "/api/catalog/virtual-models", {
+      ...model,
+      strategy: "priority",
+      enabled: true,
+      routes: [{ provider, model_id, priority: 1, weight: 100, enabled: true }],
+    });
   }
 
   const models = new Set((await api.list("/api/catalog/virtual-models")).map((m) => m.name));
@@ -301,10 +331,10 @@ function historySql(tenant, triggers) {
         const started = at + latency;
         const minutes = 2 + Math.exp(random() * 2.4);
         const done = Math.min(now, started + minutes * 60_000);
-        const state = done === now ? "running" : random() < 0.92 ? "completed" : "failed";
+        const state = done === now ? "active" : random() < 0.92 ? "completed" : "failed";
         runs.push(
           `(${q(runId)}, ${q(tenant)}, ${q(t.agentId)}, ${q(state)}, 'trigger', ${ts(started)}, ` +
-            `${state === "running" ? "NULL" : ts(done)}, ${ts(started)}, ${ts(done)}, ${q(t.id)}, ${q(t.name)}, ${q(id)})`,
+            `${state === "active" ? "NULL" : ts(done)}, ${ts(started)}, ${ts(done)}, ${q(t.id)}, ${q(t.name)}, ${q(id)})`,
         );
         const calls = 15 + Math.floor(random() * 31);
         for (let i = 0; i < calls; i++) {
@@ -432,6 +462,102 @@ function client(request) {
       return res;
     },
   };
+}
+
+/**
+ * Replays a recorded run from seed/runs/ as a run of the local agent, with
+ * every event at its recorded offset, started by a webhook delivery to the
+ * trigger. The run's ids are fixed per fixture, so a replay replaces the last
+ * one.
+ *
+ * With `upTo`, only the first upTo events are written and the run is still
+ * active, its latest event a moment ago. Replaying with a growing upTo shows
+ * the run progressing. Without it the whole run is written, ending
+ * `endedAgoMs` before now.
+ *
+ * A routed trigger's delivery also records how kora chose the agent: pass
+ * `routing` with the decision model, the chosen agent's probability, the
+ * threshold and every candidate's score by agent slug. Returns the run's id.
+ */
+export function replayRun(name, { agent, trigger, upTo, endedAgoMs = 5 * 60_000, eventType = "issues", routing }) {
+  const run = JSON.parse(fs.readFileSync(path.join(dir, "runs", `${name}.json`), "utf8"));
+  const events = run.events.slice(0, upTo ?? run.events.length);
+  const done = events.length === run.events.length;
+  const q = (s) => (s == null ? "NULL" : `'${String(s).replace(/'/g, "''")}'`);
+  const start = done ? Date.now() - endedAgoMs - run.completed_ms : Date.now() - 1500 - (events.at(-1)?.at_ms ?? 0);
+  const at = (ms) => q(new Date(start + ms).toISOString());
+  const human = run.events.find((e) => e.type === "human_message").payload.content;
+  const delivery = deliveryId(run.id);
+  sql(`BEGIN;
+${deleteRunSql(run.id)}
+INSERT INTO trigger_deliveries (id, tenant_id, source_id, provider_delivery_id, event_type, status, trigger_id, run_id, received_at, kind, trigger_name)
+SELECT ${q(delivery)}, t.tenant_id, t.source_id, ${q(run.id)}, ${q(eventType)}, 'dispatched', t.id, ${q(run.id)}, ${at(-900)}, 'webhook', t.name
+FROM triggers t WHERE t.name = ${q(trigger)};
+INSERT INTO trigger_delivery_runs (id, tenant_id, delivery_id, trigger_id, run_id, status, created_at, trigger_name)
+SELECT gen_random_uuid()::text, t.tenant_id, ${q(delivery)}, t.id, ${q(run.id)}, 'dispatched', ${at(0)}, t.name
+FROM triggers t WHERE t.name = ${q(trigger)};
+INSERT INTO runs (id, tenant_id, agent_type_id, state, pod_ordinal, created_by, started_at, completed_at, created_at, updated_at,
+  summary, trigger_id, trigger_name, delivery_id, initial_message)
+SELECT ${q(run.id)}, a.tenant_id, a.id, ${q(done ? "completed" : "active")}, 0, 'trigger', ${at(run.started_ms)},
+  ${done ? at(run.completed_ms) : "NULL"}, ${at(0)}, ${at(done ? run.completed_ms : (events.at(-1)?.at_ms ?? 0))},
+  ${q(run.summary)}, t.id, t.name, ${q(delivery)}, ${q(human)}
+FROM agent_types a JOIN triggers t ON t.tenant_id = a.tenant_id AND t.name = ${q(trigger)}
+WHERE a.slug = ${q(agent)};
+${routing ? routingSql(run.id, delivery, trigger, agent, routing, at(-400)) : ""}
+${events
+  .map((e) => `INSERT INTO run_events (run_id, event_type, payload, created_at) VALUES (${q(run.id)}, ${q(e.type)}, ${q(JSON.stringify(e.payload))}::jsonb, ${at(e.at_ms)});`)
+  .join("\n")}
+COMMIT;`);
+  return run.id;
+}
+
+/** Removes a replayed run and its delivery. */
+export function removeRun(name) {
+  const { id } = JSON.parse(fs.readFileSync(path.join(dir, "runs", `${name}.json`), "utf8"));
+  sql(deleteRunSql(id));
+}
+
+/** The id of a replayed run's delivery, as the Deliveries list shows it. */
+export function deliveryOf(name) {
+  return deliveryId(JSON.parse(fs.readFileSync(path.join(dir, "runs", `${name}.json`), "utf8")).id);
+}
+
+// A replayed run's delivery has the run's id with a different first group.
+function deliveryId(runId) {
+  return `de11e2e0${runId.slice(8)}`;
+}
+
+// The decision row the delivery panel shows: the chosen agent and every
+// candidate's score, keyed by the local agents' ids.
+function routingSql(runId, delivery, trigger, agent, { model, probability, threshold, scores }, at) {
+  const values = Object.entries(scores)
+    .map(([slug, p]) => `('${slug}', ${p})`)
+    .join(", ");
+  return `INSERT INTO trigger_routing_decisions (delivery_id, trigger_id, tenant_id, question_version, model, outcome, key_matched,
+  agent_type_id, run_id, threshold, probability, confidence, scores, created_at)
+SELECT '${delivery}', t.id, t.tenant_id, 'v1', '${model}', 'new_run', false, a.id, '${runId}', ${threshold}, ${probability}, ${probability},
+  jsonb_build_object('agents', (SELECT jsonb_object_agg(c.id, s.p) FROM (VALUES ${values}) AS s(slug, p)
+    JOIN agent_types c ON c.slug = s.slug AND c.tenant_id = t.tenant_id)), ${at}
+FROM triggers t JOIN agent_types a ON a.tenant_id = t.tenant_id AND a.slug = '${agent}'
+WHERE t.name = '${trigger.replace(/'/g, "''")}';`;
+}
+
+function deleteRunSql(runId) {
+  const delivery = deliveryId(runId);
+  return `DELETE FROM trigger_routing_decisions WHERE delivery_id = '${delivery}';
+DELETE FROM run_events WHERE run_id = '${runId}';
+DELETE FROM runs WHERE id = '${runId}';
+DELETE FROM trigger_delivery_runs WHERE delivery_id = '${delivery}';
+DELETE FROM trigger_deliveries WHERE id = '${delivery}';`;
+}
+
+// The providers registered on the cluster, or null when kubectl cannot say.
+function registeredProviders() {
+  const res = spawnSync("kubectl", ["get", "inferenceproviders", "-A", "-o", "jsonpath={range .items[*]}{.spec.type}:{.metadata.name}{\"\\n\"}{end}"], {
+    encoding: "utf8",
+  });
+  if (res.status !== 0 || !res.stdout.trim()) return null;
+  return new Set(res.stdout.trim().split("\n"));
 }
 
 function sql(text) {

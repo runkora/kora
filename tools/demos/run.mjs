@@ -11,6 +11,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "@playwright/test";
+import { renderCaptions } from "./lib/captions.mjs";
+import { edit } from "./lib/edit.mjs";
 import { Demo } from "./lib/feature.mjs";
 import { overlayScript } from "./lib/overlay.mjs";
 import { startRecording } from "./lib/recorder.mjs";
@@ -24,6 +26,7 @@ const config = {
   username: process.env.KORA_USERNAME ?? "dev@orbit.local.clearroute.io",
   password: process.env.KORA_PASSWORD ?? "password",
   stateFile: path.join(dir, ".auth", "state.json"),
+  githubStateFile: path.join(dir, ".auth", "github.json"),
 };
 const VIEWPORT = { width: 1440, height: 900 };
 const SCALE = 2;
@@ -62,6 +65,13 @@ async function runFeature(browser, feature, { mode, colorScheme }) {
     permissions: ["clipboard-read", "clipboard-write"],
   });
   if (mode === "record") await context.addInitScript(overlayScript);
+  // A walkthrough that starts on GitHub uses the session github-login.mjs saved.
+  if (feature.github) {
+    if (!fs.existsSync(config.githubStateFile)) throw new Error("no GitHub session; run node github-login.mjs");
+    const { cookies } = JSON.parse(fs.readFileSync(config.githubStateFile, "utf8"));
+    await context.addCookies(cookies);
+  }
+  await feature.prepare?.(context);
 
   // Uncaught errors in the app, reported with a failure: a step that cannot
   // find its target is often a page that crashed rendering it.
@@ -72,7 +82,8 @@ async function runFeature(browser, feature, { mode, colorScheme }) {
     const page = await context.newPage();
     page.on("pageerror", (err) => pageErrors.push(err.message));
     await page.goto(feature.start);
-    await page.waitForLoadState("networkidle");
+    // GitHub keeps connections open, so its pages never go network idle.
+    await page.waitForLoadState(feature.start.startsWith("https://github.com/") ? "load" : "networkidle");
 
     if (mode === "check") {
       await feature.steps(new Demo(page, { mode }));
@@ -88,10 +99,43 @@ async function runFeature(browser, feature, { mode, colorScheme }) {
     await page.waitForTimeout(600);
     await feature.steps(demo);
     await page.waitForTimeout(1200);
-    await recording.stop(path.join(outDir, `${feature.name}.mp4`));
+    const durationMs = recording.elapsed();
+    const raw = path.join(outDir, `${feature.name}.raw.mp4`);
+    const { offsetMs } = await recording.stop(raw);
+    // Timeline times count from the recording's first frame.
+    const events = demo.timeline.map((e) => ({
+      ...e,
+      t: e.t - offsetMs,
+      ...(e.until !== undefined && { until: e.until - offsetMs }),
+    }));
+    const out = path.join(outDir, `${feature.name}.mp4`);
+    // A caption shows until the next caption step or the end of the video.
+    const marks = events.filter((e) => e.step === "caption");
+    const shown = marks
+      .map((e, i) => ({ text: e.text, from: e.t, to: marks[i + 1]?.t ?? durationMs - offsetMs }))
+      .filter((c) => c.text);
+    const images = await renderCaptions(browser, shown.map((c) => c.text), {
+      dir: path.join(outDir, `.captions-${feature.name}`),
+      scale: 1920 / VIEWPORT.width,
+    });
+    if (feature.gif || shown.length > 0 || events.some((e) => ["zoom", "cut", "speed"].includes(e.step))) {
+      await edit({
+        captions: shown.map((c) => ({ file: images.get(c.text), from: c.from, to: c.to })),
+        raw,
+        out,
+        gif: feature.gif ? { ...(feature.gif === true ? {} : feature.gif), file: path.join(outDir, `${feature.name}.gif`) } : undefined,
+        events,
+        durationMs: durationMs - offsetMs,
+        viewport: VIEWPORT,
+        scale: SCALE,
+      });
+    } else {
+      fs.renameSync(raw, out);
+    }
+    fs.rmSync(path.join(outDir, `.captions-${feature.name}`), { recursive: true, force: true });
     fs.writeFileSync(
       path.join(outDir, `${feature.name}.timeline.json`),
-      JSON.stringify({ name: feature.name, title: feature.title, viewport: VIEWPORT, events: demo.timeline }, null, 2),
+      JSON.stringify({ name: feature.name, title: feature.title, viewport: VIEWPORT, events }, null, 2),
     );
   } catch (err) {
     const page = context.pages()[0];
@@ -99,7 +143,7 @@ async function runFeature(browser, feature, { mode, colorScheme }) {
     if (pageErrors.length > 0) err.message += `\n      page errors: ${pageErrors.join(" | ")}`;
     throw err;
   } finally {
-    await feature.reset?.(context.request).catch((err) =>
+    await (feature.after ?? feature.reset)?.(context.request).catch((err) =>
       console.error(`  reset after ${feature.name} failed: ${err.message}`),
     );
     await context.close();
