@@ -1,0 +1,23 @@
+# Decision models for the trigger routing walkthrough. A model listed on a
+# compatible provider that serves the systemone API is a decision model, so
+# this gives the routing step's model picker the choice kora offers in
+# production. It reuses the local OpenRouter key.
+apiVersion: orbit.io/v1alpha1
+kind: InferenceProvider
+metadata:
+  name: decision-models
+  namespace: orbit-system
+spec:
+  type: compatible
+  displayName: Decision models
+  compatible:
+    baseURL: https://openrouter.ai/api/v1
+    apiKeySecretRef:
+      name: openrouter
+      key: apiKey
+    apis:
+      - systemone
+  models:
+    - cloudflare/clef
+    - typesafe/jev-1-14
+    - perplexity/pplx-decider-v1-2

@@ -982,6 +982,14 @@ docs-check: ## Check docs for drift (broken links, missing index entries, dead m
 diagrams: ## Render architecture diagrams from Excalidraw sources (docs/diagrams/*.excalidraw -> *.svg)
 	@cd tools/diagrams && node export.mjs
 
+.PHONY: demos
+demos: ## Record feature walkthrough videos against a running kora (FEATURE=<name> for one; tools/demos/out/*.mp4)
+	@cd tools/demos && node run.mjs $(FEATURE)
+
+.PHONY: demos-check
+demos-check: ## Run every feature walkthrough at full speed without recording, to catch broken steps
+	@cd tools/demos && node run.mjs --check $(FEATURE)
+
 .PHONY: secrets
 secrets: ## Scan for secrets and leaked credentials (gitleaks)
 	@echo "$(COLOR_YELLOW)Scanning for secrets...$(COLOR_RESET)"

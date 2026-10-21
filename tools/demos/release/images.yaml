@@ -1,0 +1,26 @@
+# Undoes the local registry overrides in values/orbit.local.yaml, so every kora
+# image comes from the release chart's ghcr.io digests. The images are private
+# until launch; ghcr-pull holds a token with read:packages, and the operator
+# copies it into tenant namespaces.
+global:
+  imageRegistry: ghcr.io/runkora
+  imageTag: ""
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets:
+    - name: ghcr-pull
+
+# The release pins OPA by its upstream digest, which the local mirror does not
+# carry.
+opaGateway:
+  image:
+    registry: docker.io
+
+# Locally, Dex serves a certificate from the mkcert CA. Local builds layer that
+# CA into the identity image, and install.sh does the same to the release
+# image: same binary, one more trusted root.
+identity:
+  image:
+    registry: orbit-registry:5001
+    repository: orbit-identity
+    tag: v0.9.0-rc.2-mkcert
+    digest: ""

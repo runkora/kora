@@ -1,0 +1,14 @@
+# Helmfile state values that point the local environment at a published
+# release: the charts from ghcr.io instead of the checkout, and the chart's
+# own digest-pinned images instead of the local registry. install.sh sets the
+# version. Paths are relative to deploy/reference.
+orbit:
+  chart: oci://ghcr.io/runkora/charts/orbit
+  crdsChart: oci://ghcr.io/runkora/charts/orbit-crds
+
+# Replaces the local list. local.generated.yaml pins the images last pushed to
+# the local registry, so its cluster facts are copied into .release/ instead.
+orbitValuesFiles:
+  - values/orbit.local.yaml
+  - ../../tools/demos/.release/cluster.yaml
+  - ../../tools/demos/release/images.yaml
