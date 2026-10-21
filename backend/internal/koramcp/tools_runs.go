@@ -10,6 +10,10 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
 )
 
+// usageDescription documents the usage object that runs.list and runs.get return on every run.
+const usageDescription = "Each run carries `usage`: cost_usd (estimated spend in US dollars), input_tokens, output_tokens and request_count, " +
+	"summed over the run's inference requests. A run that has made none reads zero, and a live run reports its total so far."
+
 // registerRunTools wires the runs domain: the lifecycle of an agent run (an
 // execution of an agent type). Reads and writes forward the caller's token to
 // orbit-agents, which enforces the real platform scope. Event streaming (SSE) is
@@ -22,13 +26,14 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			"created_after (inclusive) and created_before (exclusive) are RFC 3339 timestamps bounding when runs were created; "+
 			"keep the same window while paging. "+
 			"Paginated: it returns at most `limit` runs plus `next_cursor`. Fetch the next page by calling again with "+
-			"cursor = the previous next_cursor and the same filters; next_cursor is null on the last page.",
+			"cursor = the previous next_cursor and the same filters; next_cursor is null on the last page. "+
+			usageDescription,
 		func(ctx context.Context, a listRunsArgs) (*sdk.CallToolResult, error) {
 			return jsonResult(jc.Get(ctx, caller(ctx), base, listRunsQuery(a)))
 		})
 
 	addTool(srv, "runs.get",
-		"Get a single run by id — its status, agent type, summary, and metadata.",
+		"Get a single run by id — its status, agent type, summary, and metadata. "+usageDescription,
 		func(ctx context.Context, a runIDArgs) (*sdk.CallToolResult, error) {
 			if a.RunID == "" {
 				return toolError(errors.New("run_id is required")), nil

@@ -553,7 +553,7 @@ func (c *Controller) handleGetRun(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	run, err := c.runs.GetRun(ctx, id)
+	run, err := c.runs.GetRunWithUsage(ctx, id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)

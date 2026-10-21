@@ -99,6 +99,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — `Accepted` · 2026-05-11
 - [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — `Accepted (Amended 2026-10-12)` · 2026-05-11
 - [Run Scheduling](2026-10-12-run-scheduling.md) — `Accepted` · 2026-10-12
+- [Per-Run Cost on the Run Record](2026-10-20-run-cost-on-run-record.md) — `Proposed` · 2026-10-20
 - [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) — `Accepted` · 2026-05-11
 - [Agent Workspace Model](2026-05-11-agent-workspace-model.md) — `Accepted` · 2026-05-11
 - [BYOC Agent Discovery & Observability](2026-05-11-byoc-agent-discovery-and-observability.md) — `Accepted` · 2026-05-11
@@ -313,4 +314,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-19 | [Trigger Routing](2026-10-19-trigger-routing.md) | Accepted | — |
 | 2026-10-20 | [Chat Command Triggers](2026-10-20-chat-command-triggers.md) | Accepted | — |
 | 2026-10-20 | [Non-Text Model Discovery on Compatible Providers](2026-10-20-compatible-non-text-model-discovery.md) | Accepted | — |
+| 2026-10-20 | [Per-Run Cost on the Run Record](2026-10-20-run-cost-on-run-record.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

@@ -327,6 +327,38 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q Ru
 	return out, rows.Err()
 }
 
+// RunUsageTotals sums inference_usage per run for the given runs in one query,
+// using idx_inference_usage_run_id. The table belongs to the inference gateway;
+// a cross-service read at query time is allowed by the database migrations ADR.
+func (r *PostgresRepository) RunUsageTotals(ctx context.Context, tenantID string, runIDs []string) (map[string]RunUsage, error) {
+	out := make(map[string]RunUsage, len(runIDs))
+	if len(runIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT run_id,
+		       COALESCE(SUM(estimated_cost_usd), 0)::float8,
+		       COALESCE(SUM(prompt_tokens), 0)::bigint,
+		       COALESCE(SUM(completion_tokens), 0)::bigint,
+		       COUNT(*)
+		FROM inference_usage
+		WHERE tenant_id = $1 AND run_id = ANY($2)
+		GROUP BY run_id`, tenantID, runIDs)
+	if err != nil {
+		return nil, fmt.Errorf("query run usage: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var u RunUsage
+		if err := rows.Scan(&id, &u.CostUSD, &u.InputTokens, &u.OutputTokens, &u.RequestCount); err != nil {
+			return nil, fmt.Errorf("scan run usage: %w", err)
+		}
+		out[id] = u
+	}
+	return out, rows.Err()
+}
+
 func (r *PostgresRepository) SetRunState(ctx context.Context, id string, from, to RunState) error {
 	now := time.Now().UTC()
 	var tag interface{ RowsAffected() int64 }

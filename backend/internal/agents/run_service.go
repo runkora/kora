@@ -359,6 +359,22 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
 	return run, nil
 }
 
+// GetRunWithUsage is GetRun plus the run's inference usage. Existence checks
+// use GetRun so they skip the usage query and its failure mode.
+func (s *RunService) GetRunWithUsage(ctx context.Context, id string) (*Run, error) {
+	run, err := s.GetRun(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// The read check in GetRun is the only gate: cost follows the run's visibility.
+	usage, err := s.repo.RunUsageTotals(ctx, run.TenantID, []string{run.ID})
+	if err != nil {
+		return nil, fmt.Errorf("get run usage: %w", err)
+	}
+	run.Usage = usage[run.ID]
+	return run, nil
+}
+
 // ListRuns returns a page of the runs the caller may read, newest first, with both visibility rules applied in SQL.
 func (s *RunService) ListRuns(ctx context.Context, agentTypeIDs []string, p RunListQuery) (RunPage, error) {
 	tenantID := tenantFromContext(ctx)
@@ -395,6 +411,20 @@ func (s *RunService) listRuns(ctx context.Context, tenantID string, agentTypeIDs
 	page := RunPage{Runs: runs}
 	if len(runs) > p.Limit {
 		page.Runs = runs[:p.Limit]
+	}
+	// One query covers the page. The runs are already scoped to what the caller may read.
+	ids := make([]string, len(page.Runs))
+	for i, run := range page.Runs {
+		ids[i] = run.ID
+	}
+	usage, err := s.repo.RunUsageTotals(ctx, tenantID, ids)
+	if err != nil {
+		return RunPage{}, fmt.Errorf("list run usage: %w", err)
+	}
+	for i := range page.Runs {
+		page.Runs[i].Usage = usage[page.Runs[i].ID]
+	}
+	if len(runs) > p.Limit {
 		last := page.Runs[len(page.Runs)-1]
 		page.NextCursor = runCursor{CreatedAt: last.CreatedAt, ID: last.ID}.encode()
 	}
