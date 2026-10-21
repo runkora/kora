@@ -115,11 +115,14 @@ type RoutingDecision struct {
 	Probability *float64 `json:"probability"`
 	Threshold   *float64 `json:"threshold"`
 	// Confidence is the decision model's confidence in the deciding answer.
-	Confidence     *float64      `json:"-"`
-	Scores         RoutingScores `json:"scores"`
-	FallbackReason *string       `json:"fallback_reason"`
-	Error          *string       `json:"error"`
-	CreatedAt      time.Time     `json:"-"`
+	Confidence *float64      `json:"-"`
+	Scores     RoutingScores `json:"scores"`
+	// StartFields are the capped delivery fields kept when this delivery
+	// started a run, so the run question can label the run with them.
+	StartFields    map[string]string `json:"-"`
+	FallbackReason *string           `json:"fallback_reason"`
+	Error          *string           `json:"error"`
+	CreatedAt      time.Time         `json:"-"`
 
 	// decideErr is the failed decision behind Error, for failure accounting.
 	decideErr error

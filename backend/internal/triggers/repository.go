@@ -32,6 +32,9 @@ type RoutingStore interface {
 	// InsertRoutingDecision records one routed delivery's decision. A second
 	// decision for the same delivery and trigger is ignored.
 	InsertRoutingDecision(ctx context.Context, d *RoutingDecision) error
+	// StartFieldsByDelivery returns the start fields recorded for the given
+	// deliveries of a trigger, keyed by delivery id. A delivery with none is absent.
+	StartFieldsByDelivery(ctx context.Context, tenantID, triggerID string, deliveryIDs []string) (map[string]map[string]string, error)
 }
 
 // SourceStore is the webhook sources a tenant registers, and the counters the
