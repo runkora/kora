@@ -22,6 +22,7 @@ Tasks for platform teams running kora.
 - [Register a connection](guides/register-connection.md): give agents access to an external system without holding its credentials.
 - [OAuth clients](guides/oauth-clients.md): configure clients that authenticate users against kora.
 - [Policy and roles](guides/policy-and-roles.md): configure roles, grants and route access.
+- [Advanced customisations](guides/advanced-customisations.md): patch the Kubernetes resources kora provisions for your agents.
 
 ## Architecture
 
