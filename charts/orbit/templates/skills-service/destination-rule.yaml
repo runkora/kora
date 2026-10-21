@@ -1,0 +1,22 @@
+
+{{- if .Values.platform.spiffe.enabled }}
+# DestinationRule for orbit-skills-service mTLS.
+#
+# Explicitly configures SPIFFE-backed mutual TLS for traffic to
+# the Skills Service, including traffic from the Istio ingress gateway.
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: orbit-skills-service-client-policy
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.skillsService.labels" . | nindent 4 }}
+spec:
+  host: orbit-skills-service.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
+  exportTo: ["*"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+      subjectAltNames:
+        - "spiffe://{{ include "orbit.trustDomain" . }}/system/skills-service"
+{{- end }}

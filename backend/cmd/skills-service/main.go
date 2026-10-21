@@ -149,12 +149,19 @@ func initControllers(ctx context.Context, logger logging.Logger, redis *storage.
 
 	gh := ghclient.NewClient(sc.Current.GitHub.APIBaseURL, logger)
 
-	defaultTokens := skills.NewTokenProvider(
+	privateKeyPEM, err := os.ReadFile(sc.Current.GitHub.PrivateKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("read github app private key: %w", err)
+	}
+	defaultTokens, err := skills.NewTokenProvider(
 		gh,
 		sc.Current.GitHub.AppID,
 		installationID,
-		sc.Current.GitHub.PrivateKeyPath,
+		privateKeyPEM,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("create token provider: %w", err)
+	}
 
 	crawler := skills.NewCrawler(gh, defaultTokens, logger)
 	cache := skills.NewCache(redis, sc.Current.CacheTTL())

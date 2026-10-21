@@ -744,13 +744,11 @@ endpoint is set. The port parse matches the collector rule in netpols.yaml.
 {{- $cidrs | uniq | join "," -}}
 {{- end -}}
 {{- end -}}
-
-{{/*
-Startup probe budget in seconds for the sandbox containers, shared by kora-agents
-(sandbox-exec) and the operator webhook (identity-proxy, opa).
-*/}}
-{{- define "kora.sandboxStartupSeconds" -}}
-{{- $s := int .Values.agents.sandboxStartupSeconds -}}
-{{- if lt $s 1 }}{{ fail "agents.sandboxStartupSeconds must be at least 1" }}{{ end -}}
-{{- $s -}}
+{{- define "orbit.skillsService.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-skills-service
+app.kubernetes.io/component: skills-service
+{{- end }}
+{{- define "orbit.skillsService.selectorLabels" -}}
+app: orbit-skills-service
 {{- end }}

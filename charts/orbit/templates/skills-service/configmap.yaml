@@ -6,4 +6,8 @@ metadata:
   namespace: {{ include "orbit.systemNamespace" . }}
 data:
   skills-mapping.yaml: |
-    {{- dict "skillsMapping" $mapping | toYaml | nindent 4 }}
+    skillsMapping:
+      tenants:
+        - id: example
+          marketplaces:
+            - https://github.com/sidp-2003/skills-marketplace-test-acme
