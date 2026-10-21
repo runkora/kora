@@ -964,7 +964,7 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 	return ready, nil
 }
 
-// podFailureReason summarises why a pod failed: its status reason and message, the scheduling
+// podFailureReason summarizes why a pod failed: its status reason and message, the scheduling
 // condition when it was not placed, and each container's waiting or terminated reason.
 func podFailureReason(pod *corev1.Pod) string {
 	var parts []string
