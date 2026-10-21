@@ -312,6 +312,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-13 | [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) | Accepted | — |
 | 2026-10-15 | [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) | Accepted | — |
 | 2026-10-19 | [Trigger Routing](2026-10-19-trigger-routing.md) | Accepted | — |
+| 2026-10-19 | [Explain GitHub's Workflow-File Push Refusal at the Egress Gateway](2026-10-19-workflow-push-refusal-message.md) | Accepted | — |
 | 2026-10-20 | [Chat Command Triggers](2026-10-20-chat-command-triggers.md) | Accepted | — |
 | 2026-10-20 | [Non-Text Model Discovery on Compatible Providers](2026-10-20-compatible-non-text-model-discovery.md) | Accepted | — |
 | 2026-10-20 | [Per-Run Cost on the Run Record](2026-10-20-run-cost-on-run-record.md) | Proposed | — |
