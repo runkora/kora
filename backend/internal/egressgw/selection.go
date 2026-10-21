@@ -39,6 +39,15 @@ var (
 	repoLookup = idLookup{kind: "repository", subject: "repository ids", resolve: ownerScoped.RepoOwners}
 )
 
+// idsToResolve returns the ids the request names for an owner lookup, node ids
+// before repository ids.
+func idsToResolve(target credentials.RequestOwners) ([]string, idLookup) {
+	if len(target.NodeIDs) > 0 {
+		return target.NodeIDs, nodeLookup
+	}
+	return target.RepoIDs, repoLookup
+}
+
 // MaxNodeIDs is the most node ids a document may name for the lookup to select a
 // connection. It matches the most ids one lookup call resolves.
 const MaxNodeIDs = 100
@@ -83,20 +92,17 @@ func (b *Broker) selectConnection(ctx context.Context, claims *token.PlatformCla
 		)
 		return nil, &Denial{Reason: DenialPolicyUnavailable, Host: req.Host, cause: err}
 	}
+	ids, lookup := idsToResolve(target)
 	switch {
 	case len(held) == 1:
 		// The held token reaches only public data of an owner it does not serve.
 		return held[0], nil
 	case unserved != "":
 		return nil, unresolved(req.Host, candidates, false, fmt.Sprintf("owner %s from the %s is served by no connection", unserved, target.Subject))
-	case len(held) > 1 && len(target.NodeIDs) > MaxNodeIDs:
-		return nil, unresolved(req.Host, candidates, true, fmt.Sprintf("the %s names more than %d node ids", target.Subject, MaxNodeIDs))
-	case len(held) > 1 && len(target.NodeIDs) > 0:
-		return b.selectByIDs(ctx, claims, req.Host, candidates, held, scoped, scopes, target, target.NodeIDs, nodeLookup)
-	case len(held) > 1 && len(target.RepoIDs) > MaxNodeIDs:
-		return nil, unresolved(req.Host, candidates, true, fmt.Sprintf("the %s names more than %d repository ids", target.Subject, MaxNodeIDs))
-	case len(held) > 1 && len(target.RepoIDs) > 0:
-		return b.selectByIDs(ctx, claims, req.Host, candidates, held, scoped, scopes, target, target.RepoIDs, repoLookup)
+	case len(held) > 1 && len(ids) > MaxNodeIDs:
+		return nil, unresolved(req.Host, candidates, true, fmt.Sprintf("the %s names more than %d %s", target.Subject, MaxNodeIDs, lookup.subject))
+	case len(held) > 1 && len(ids) > 0:
+		return b.selectByIDs(ctx, claims, req.Host, candidates, held, scoped, scopes, target, ids, lookup)
 	}
 	return nil, unresolved(req.Host, candidates, len(held) > 1, "the "+target.Subject+" names no owner")
 }
