@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // newTestMetrics builds the real instrument set on an SDK meter with a manual
@@ -131,6 +132,33 @@ func TestMetrics_DelegationIssuedAndRevokedCounters(t *testing.T) {
 
 	if got := sumInt64(t, collect(t, reader)["orbit.identity.delegations_revoked"]); got != 1 {
 		t.Errorf("delegations revoked = %d, want 1", got)
+	}
+}
+
+// A SERVICE/SYSTEM caller (terminal-run cleanup) revokes with claims that carry
+// no tenant of their own; the revocation must still be attributed to the
+// delegation's tenant, not the caller's.
+func TestMetrics_DelegationRevokedAttributedToIssuanceTenant(t *testing.T) {
+	svc, _, _ := newDelegationTestService(t)
+	m, reader := newTestMetrics(t, newMockSessionRepo())
+	svc.metrics = m
+
+	issuance := mintTestDelegation(t, svc, humanClaims("t1", "user-1"), "run-1")
+
+	system := humanClaims("", "orbit-agents")
+	system.Kora.PrincipalType = token.PrincipalTypeSystem
+	if err := svc.RevokeDelegation(context.Background(), system, issuance.JTI); err != nil {
+		t.Fatalf("RevokeDelegation: %v", err)
+	}
+
+	got := collect(t, reader)["orbit.identity.delegations_revoked"]
+	sum, ok := got.Data.(metricdata.Sum[int64])
+	if !ok || len(sum.DataPoints) != 1 {
+		t.Fatalf("delegations-revoked data = %+v, want one data point", got.Data)
+	}
+	tenant, present := sum.DataPoints[0].Attributes.Value("tenant_id")
+	if !present || tenant.AsString() != "t1" {
+		t.Errorf("tenant_id = %v, want the issuance's tenant t1", tenant)
 	}
 }
 

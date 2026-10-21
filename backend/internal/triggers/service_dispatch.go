@@ -139,8 +139,9 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) (held 
 }
 
 // recordDispatchFailure records a start or join that failed, and counts it
-// toward auto-pause when the failure is the trigger's own.
-func (s *Service) recordDispatchFailure(ctx context.Context, t Trigger, deliveryID string, err error) {
+// toward auto-pause when the failure is the trigger's own. ownPendingID is the
+// fire's own pending-queue row, not yet released: see recordStarted.
+func (s *Service) recordDispatchFailure(ctx context.Context, t Trigger, deliveryID, ownPendingID string, err error) {
 	s.logger.Error(ctx, "pending dispatch failed",
 		logging.Field{Key: "trigger_id", Value: t.ID},
 		logging.Field{Key: "delivery_id", Value: deliveryID},
@@ -155,7 +156,7 @@ func (s *Service) recordDispatchFailure(ctx context.Context, t Trigger, delivery
 	// single line; the per-trigger detail is the fan-out.
 	s.recordFailure(ctx, deliveryID, err.Error())
 	s.noteFailure(ctx, t, err)
-	s.outcomes.derive(ctx, deliveryID, t.TenantID)
+	s.outcomes.deriveSettling(ctx, deliveryID, t.TenantID, ownPendingID)
 }
 
 // recordStarted records a delivery that started or joined runID. status is
