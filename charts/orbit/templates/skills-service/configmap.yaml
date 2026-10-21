@@ -4,7 +4,9 @@ metadata:
   name: orbit-skill-marketplace-sources
   namespace: {{ include "orbit.systemNamespace" . }}
 data:
-  marketplace-sources.json: |
-    {
-      "tenants": {}
-    }
+  skills-mapping.yaml: |
+    skillsMapping:
+      tenants:
+        - id: example
+          marketplaces:
+            - https://github.com/sidp-2003/skills-marketplace-test-acme

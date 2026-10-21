@@ -1,0 +1,7 @@
+identity:
+  internalURL: "http://localhost:8080"
+
+policy:
+  bundleEndpoint: "http://localhost:8083/api/v1/policy/bundles"
+  policyServiceURL: "http://localhost:8083"
+  registerRoutes: false

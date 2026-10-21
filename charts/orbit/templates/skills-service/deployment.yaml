@@ -1,82 +1,35 @@
 apiVersion: apps/v1
 kind: Deployment
-
 metadata:
   name: orbit-skills-service
   namespace: {{ include "orbit.systemNamespace" . }}
   labels:
-    app: orbit-skills-service
-
+    {{- include "orbit.skillsService.labels" . | nindent 4 }}
 spec:
-  replicas: 1
-
+  replicas: {{ .Values.skillsService.replicas }}
   selector:
     matchLabels:
-      app: orbit-skills-service
-
+      {{- include "orbit.skillsService.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: orbit-skills-service
-
+        {{- include "orbit.skillsService.selectorLabels" . | nindent 8 }}
+        {{- include "orbit.skillsService.labels" . | nindent 8 }}
+        spiffe.io/component: skills-service
+        {{- include "orbit.podLabels" (dict "root" $ "name" "skillsService") | nindent 8 }}
+      annotations:
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
+        checksum/config: {{ include (print $.Template.BasePath "/skills-service/config.yaml") . | sha256sum }}
+        {{- include "orbit.podAnnotations" (dict "root" $ "name" "skillsService") | nindent 8 }}
     spec:
       serviceAccountName: orbit-skills-service
-
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.scheduling" (dict "root" $ "name" "skillsService") | nindent 6 }}
       securityContext:
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
-
-      containers:
-        - name: orbit-skills-service
-
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-
-          image: {{ include "orbit.image" (dict "root" $ "name" "skillsService") | quote }}
-
-          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "skillsService") }}
-
-          ports:
-            - name: http
-              containerPort: 8085
-              protocol: TCP
-
-          env:
-            - name: REDIS_HOST
-              value: "orbit-redis"
-
-            - name: REDIS_PASSWORD
-              value: "orbit"
-
-            - name: GITHUB_APP_ID
-              value: "local-test"
-
-            - name: GITHUB_APP_INSTALLATION_ID
-              value: "1"
-
-            - name: GITHUB_APP_PRIVATE_KEY_PATH
-              value: {{ index .Values.skillsService.githubApps 0 "mountPath" }}/privateKey
-
-            - name: ORBIT_MARKETPLACE_SOURCES_CONFIG
-              value: "/etc/orbit/marketplace"
-
-          volumeMounts:
-            - name: marketplace-sources
-              mountPath: /etc/orbit/marketplace
-            {{- range .Values.skillsService.githubApps }}
-            - name: github-app-{{ .secretName }}
-              mountPath: {{ .mountPath }}
-              readOnly: true
-            {{- end }}
-
-          resources:
-            {{- toYaml .Values.skillsService.resources | nindent 12 }}
-
+        {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
+        {{- include "orbit.configVolume" (dict "root" $ "name" "skillsService" "configMap" "orbit-skills-service-config" "modules" (include "orbit.skillsService.configModules" . | fromYaml)) | nindent 8 }}
         - name: marketplace-sources
           configMap:
             name: orbit-skill-marketplace-sources
@@ -85,3 +38,62 @@ spec:
           secret:
             secretName: {{ .secretName }}
         {{- end }}
+        {{- include "orbit.extraVolumes" (dict "root" $ "name" "skillsService") | nindent 8 }}
+      containers:
+        - name: orbit-skills-service
+          image: {{ include "orbit.image" (dict "root" $ "name" "skillsService") | quote }}
+          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "skillsService") }}
+          securityContext:
+            {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/secrets/workload-spiffe-uds/socket"
+            - name: GITHUB_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ index .Values.skillsService.githubApps 0 "secretName" }}
+                  key: GITHUB_APP_ID
+            - name: GITHUB_APP_INSTALLATION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ index .Values.skillsService.githubApps 0 "secretName" }}
+                  key: GITHUB_APP_INSTALLATION_ID
+            - name: GITHUB_APP_PRIVATE_KEY_PATH
+              value: {{ index .Values.skillsService.githubApps 0 "mountPath" }}/private-key.pem
+            - name: ORBIT_MARKETPLACE_SOURCES_CONFIG
+              value: "/etc/orbit/marketplace"
+            {{- include "orbit.platformEnv" (dict "root" $ "name" "skillsService" "keys" (list "REDIS_PASSWORD")) | nindent 12 }}
+            {{- include "orbit.extraEnv" (dict "root" $ "name" "skillsService") | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8085
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8085
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8085
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.skillsService.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "orbit.spireVolumeMount" . | nindent 12 }}
+            {{- include "orbit.configVolumeMount" . | nindent 12 }}
+            - name: marketplace-sources
+              mountPath: /etc/orbit/marketplace
+            {{- range .Values.skillsService.githubApps }}
+            - name: github-app-{{ .secretName }}
+              mountPath: {{ .mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "skillsService") | nindent 12 }}

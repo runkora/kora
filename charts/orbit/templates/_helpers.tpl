@@ -676,3 +676,11 @@ endpoint is set. The port parse matches the collector rule in netpols.yaml.
 {{- $cidrs | uniq | join "," -}}
 {{- end -}}
 {{- end -}}
+{{- define "orbit.skillsService.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-skills-service
+app.kubernetes.io/component: skills-service
+{{- end }}
+{{- define "orbit.skillsService.selectorLabels" -}}
+app: orbit-skills-service
+{{- end }}
