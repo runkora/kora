@@ -305,8 +305,10 @@ export function buildManifest(css: string, surface: SurfaceInput = SURFACE): Man
 }
 
 /**
- * The raw colour values `tokens.css` ships, per mode. Light is `:root` with the light overrides.
- * They live in `defaults.json`, outside the manifest, because they are not part of the theme surface.
+ * The raw value `tokens.css` ships for every settable token, per mode, as written there (not computed
+ * or normalised). Light is `:root` with the light overrides laid over it. Colours come first, then the
+ * other kinds, each sorted by name. They live in `defaults.json`, outside the manifest, because they are
+ * not part of the theme surface.
  */
 export function buildTokenDefaults(
   css: string,
@@ -318,11 +320,17 @@ export function buildTokenDefaults(
     const target =
       block.selector === ':root' ? dark : block.selector === "[data-theme='light']" ? light : null;
     if (!target) continue;
-    for (const d of block.declarations)
-      if (surface.tokens[d.name]?.kind === 'color') target.set(d.name, d.value);
+    for (const d of block.declarations) if (surface.tokens[d.name]) target.set(d.name, d.value);
   }
-  const sorted = (m: Map<string, string>) =>
-    Object.fromEntries([...m].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+  const byName = ([a]: [string, string], [b]: [string, string]) => (a < b ? -1 : a > b ? 1 : 0);
+  const sorted = (m: Map<string, string>) => {
+    const entries = [...m];
+    const isColor = ([name]: [string, string]) => surface.tokens[name]!.kind === 'color';
+    return Object.fromEntries([
+      ...entries.filter(isColor).sort(byName),
+      ...entries.filter((e) => !isColor(e)).sort(byName),
+    ]);
+  };
   return { dark: sorted(dark), light: sorted(new Map([...dark, ...light])) };
 }
 

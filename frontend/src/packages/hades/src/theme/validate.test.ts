@@ -646,6 +646,34 @@ describe('validateTheme: contrast pairs', () => {
     expect(misfits).toEqual([]);
   });
 
+  it('judges a theme the same with the non-colour defaults present or absent', async () => {
+    const real = manifestJson as unknown as ThemeManifest;
+    const full: TokenDefaults = defaultsJson;
+    const colours: TokenDefaults = Object.fromEntries(
+      Object.entries(full).map(([mode, values]) => [
+        mode,
+        Object.fromEntries(
+          real.tokens
+            .filter((t) => t.kind === 'color' && values![t.name] !== undefined)
+            .map((t) => [t.name, values![t.name]!]),
+        ),
+      ]),
+    );
+    const themes = [
+      doc(''),
+      doc('  --hades-raw-black:\n    dark: "#222222"\n    light: "#dddddd"\n'),
+      doc('  --hades-raw-accent-400:\n    dark: "#101010"\n'),
+      doc(
+        '  --hades-raw-radius-sm:\n    dark: "2px"\n  --hades-raw-shadow-sm:\n    light: "none"\n',
+      ),
+    ];
+    for (const text of themes) {
+      const withAll = await runWith(text, real, full);
+      const withColours = await runWith(text, real, colours);
+      expect(withAll).toEqual(withColours);
+    }
+  });
+
   it('passes the kora defaults against every pair in the real manifest', async () => {
     const real = manifestJson as unknown as ThemeManifest;
     expect(real.contrast?.length).toBeGreaterThan(0);

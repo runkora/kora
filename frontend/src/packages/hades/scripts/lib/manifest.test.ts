@@ -11,6 +11,7 @@ import {
   serializeManifest,
   SURFACE,
   SurfaceMismatchError,
+  type Manifest,
   type SurfaceInput,
 } from './manifest.ts';
 
@@ -380,13 +381,68 @@ describe('buildManifest', () => {
 });
 
 describe('buildTokenDefaults', () => {
-  it('reads colour tokens only, with the light overrides laid over the dark values', () => {
+  it('reads every settable token as written, with the light overrides laid over the dark values', () => {
     const d = buildTokenDefaults(SMALL_CSS, SMALL_SURFACE);
-    expect(d.dark).toEqual({ '--hades-raw-accent-400': '#8aa7bb', '--hades-raw-black': '#0d0f11' });
+    expect(d.dark).toEqual({
+      '--hades-raw-accent-400': '#8aa7bb',
+      '--hades-raw-black': '#0d0f11',
+      '--hades-raw-shadow-sm': '0 2px 8px oklch(0% 0 0 / 0.25)',
+    });
     expect(d.light).toEqual({
       '--hades-raw-accent-400': '#8aa7bb',
       '--hades-raw-black': '#ece9e2',
+      '--hades-raw-shadow-sm': '0 2px 8px oklch(0% 0 0 / 0.25)',
     });
+  });
+
+  it('lists the colours first, so the non-colour entries only append', () => {
+    const d = buildTokenDefaults(tokensCss, SURFACE);
+    for (const mode of MODES) {
+      const kinds = Object.keys(d[mode]).map((name) => SURFACE.tokens[name]!.kind === 'color');
+      expect(kinds).toEqual([...kinds].sort((x, y) => Number(y) - Number(x)));
+    }
+  });
+
+  it('writes a default for every token of the manifest in each mode it lists', () => {
+    const manifest = buildManifest(tokensCss, SURFACE);
+    const d = buildTokenDefaults(tokensCss, SURFACE);
+    for (const token of manifest.tokens)
+      for (const mode of token.modes)
+        expect(d[mode][token.name], `${token.name} ${mode}`).toBeDefined();
+  });
+});
+
+describe('defaults.json', () => {
+  const read = (file: string) =>
+    JSON.parse(fs.readFileSync(path.join(packageDir, file), 'utf8')) as unknown;
+  const manifest = read('manifest.json') as Manifest;
+  const defaults = read('defaults.json') as Record<string, Record<string, string>>;
+
+  // Fails when a token is added to the surface (or a mode to a token) and `make hades-manifest` is not run.
+  it('has an entry for every settable token in the manifest, in each mode it lists', () => {
+    const missing: string[] = [];
+    for (const token of manifest.tokens)
+      for (const mode of token.modes)
+        if (typeof defaults[mode]?.[token.name] !== 'string')
+          missing.push(`${token.name} (${mode})`);
+    expect(missing).toEqual([]);
+  });
+
+  it('has no entry for a token the manifest does not list', () => {
+    const known = new Set(manifest.tokens.map((t) => t.name));
+    const extra = MODES.flatMap((mode) =>
+      Object.keys(defaults[mode] ?? {}).filter((name) => !known.has(name)),
+    );
+    expect(extra).toEqual([]);
+  });
+
+  it('carries the values of tokens.css as written, and the elevated shadow per mode', () => {
+    expect(defaults.dark!['--hades-raw-radius-sm']).toBe('0.375rem');
+    expect(defaults.light!['--hades-raw-radius-sm']).toBe('0.375rem');
+    expect(defaults.dark!['--hades-raw-font-sans']).toBe('ui-sans-serif, system-ui, sans-serif');
+    expect(defaults.dark!['--hades-raw-shadow-elevated']).not.toBe(
+      defaults.light!['--hades-raw-shadow-elevated'],
+    );
   });
 });
 
