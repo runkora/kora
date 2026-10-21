@@ -348,3 +348,84 @@ func TestDecisionOnlyAcceptsDecisionModels(t *testing.T) {
 		t.Errorf("ids = %v, %v", ids, err)
 	}
 }
+
+func TestEmbeddingsDiscoveryListsNonTextModels(t *testing.T) {
+	textOnly := `{"data":[` +
+		`{"id":"openai/gpt-x","architecture":{"output_modalities":["text"]}},` +
+		`{"id":"vendor/vec-small","architecture":{"output_modalities":["text"]}}]}`
+	all := `{"data":[` +
+		`{"id":"openai/gpt-x","architecture":{"output_modalities":["text"]}},` +
+		`{"id":"vendor/vec-small","architecture":{"output_modalities":["embeddings"]},"pricing":{"prompt":"0.00000002","completion":"0"}},` +
+		`{"id":"openai/text-embedding-3","architecture":{"output_modalities":["embeddings"]}},` +
+		`{"id":"cohere/rerank-x","architecture":{"output_modalities":["rerank"]}},` +
+		`{"id":"img/gen","architecture":{"output_modalities":["image"]}},` +
+		`{"id":"tts/voice","architecture":{"output_modalities":["speech"]}},` +
+		`{"id":"vid/gen","architecture":{"output_modalities":["video"]}},` +
+		`{"id":"stt/listen","architecture":{"output_modalities":["transcription"]}},` +
+		`{"id":"no/metadata"}]}`
+	chat, emb, rerank := inferencegw.CapabilityChat, inferencegw.CapabilityEmbedding, inferencegw.CapabilityRerank
+	cases := []struct {
+		name      string
+		honours   bool
+		defaultTo string
+		allBody   string
+		want      map[string]inferencegw.ModelCapability
+		wantPrice string
+	}{
+		{
+			name: "endpoint honours the filter", honours: true, defaultTo: textOnly, allBody: all,
+			want: map[string]inferencegw.ModelCapability{
+				"openai/gpt-x": chat, "vendor/vec-small": emb, "openai/text-embedding-3": emb, "cohere/rerank-x": rerank,
+			},
+			wantPrice: "vendor/vec-small",
+		},
+		{
+			name: "endpoint ignores the filter", honours: false, defaultTo: textOnly,
+			want: map[string]inferencegw.ModelCapability{"openai/gpt-x": chat, "vendor/vec-small": chat},
+		},
+		{
+			name: "no architecture metadata keeps the name check", honours: false,
+			defaultTo: `{"data":[{"id":"a"},{"id":"text-embed-1"}]}`,
+			want:      map[string]inferencegw.ModelCapability{"a": chat, "text-embed-1": emb},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if tc.honours && r.URL.Query().Get("output_modalities") == "all" {
+					_, _ = io.WriteString(w, tc.allBody)
+					return
+				}
+				_, _ = io.WriteString(w, tc.defaultTo)
+			}))
+			t.Cleanup(srv.Close)
+			c, err := New(Config{BaseURL: srv.URL + "/v1", APIs: []ip.API{ip.APIChatCompletions, ip.APIEmbeddings}}, "compatible:or", logging.NewLoggerWithOutput(io.Discard))
+			if err != nil {
+				t.Fatal(err)
+			}
+			models, err := c.ListModels(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[string]inferencegw.ModelCapability{}
+			for _, m := range models {
+				if len(m.Capabilities) != 1 {
+					t.Fatalf("%s capabilities = %v", m.ModelID, m.Capabilities)
+				}
+				got[m.ModelID] = m.Capabilities[0]
+				if m.ModelID == tc.wantPrice && (m.Price == nil || !near(m.Price.InputCostPer1M, 0.02)) {
+					t.Errorf("%s price = %+v", m.ModelID, m.Price)
+				}
+			}
+			if len(got) != len(tc.want) {
+				t.Errorf("catalog = %v, want %v", got, tc.want)
+			}
+			for id, want := range tc.want {
+				if got[id] != want {
+					t.Errorf("%s capability = %q, want %q", id, got[id], want)
+				}
+			}
+		})
+	}
+}

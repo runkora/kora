@@ -63,7 +63,8 @@ type Connector struct {
 
 	// baseURL, apiKey, http and decide serve the calls made without an SDK:
 	// the model list (http) and systemone (decide), which have different
-	// timeouts. They are set when the endpoint declares systemone.
+	// timeouts. http is set when the endpoint declares systemone or embeddings,
+	// decide when it declares systemone.
 	baseURL string
 	apiKey  string
 	http    *httpclient.Base
@@ -81,12 +82,14 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 	for _, api := range cfg.APIs {
 		c.serves[api] = true
 	}
-	if c.serves[ip.APISystemOne] {
-		c.decisionOnly = len(c.serves) == 1
-		c.decisionModels = slices.Clone(cfg.DecisionModels)
+	if c.serves[ip.APISystemOne] || c.serves[ip.APIEmbeddings] {
 		c.baseURL = strings.TrimSuffix(cfg.BaseURL, "/")
 		c.apiKey = cfg.APIKey
 		c.http = httpclient.New("orbit.compatible-list", logger, discoveryTimeout)
+	}
+	if c.serves[ip.APISystemOne] {
+		c.decisionOnly = len(c.serves) == 1
+		c.decisionModels = slices.Clone(cfg.DecisionModels)
 		c.decide = httpclient.New("orbit.compatible-systemone", logger, decisionTimeout)
 	}
 
@@ -141,8 +144,14 @@ func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel
 		return c.withDecisionModels(models), nil
 	}
 	models, err := c.listChatModels(ctx)
-	if err != nil || !c.serves[ip.APISystemOne] {
+	if err != nil {
 		return models, err
+	}
+	if c.serves[ip.APIEmbeddings] {
+		models = c.mergeNonTextModels(ctx, models)
+	}
+	if !c.serves[ip.APISystemOne] {
+		return models, nil
 	}
 	return c.withDecisionModels(c.mergeDecisionModels(ctx, models)), nil
 }
@@ -180,9 +189,7 @@ func (c *Connector) Describe(id string) inferencegw.ProviderModel {
 	}
 	m := c.describeChat(id)
 	if c.serves[ip.APIEmbeddings] && strings.Contains(strings.ToLower(id), "embed") {
-		m.OutputModalities = []inferencegw.Modality{inferencegw.ModalityEmbedding}
-		m.Capabilities = []inferencegw.ModelCapability{inferencegw.CapabilityEmbedding}
-		return m
+		return c.describeEmbedding(id)
 	}
 	if c.serves[ip.APIChatCompletions] || c.serves[ip.APIMessages] {
 		m.Dialects = append(m.Dialects, inferencegw.DialectOpenAI, inferencegw.DialectResponses)
@@ -209,6 +216,23 @@ func (c *Connector) describeChat(id string) inferencegw.ProviderModel {
 		OutputModalities: text,
 		Capabilities:     []inferencegw.ModelCapability{inferencegw.CapabilityChat},
 	}
+}
+
+// describeEmbedding is the entry for a model served on POST /embeddings: the
+// embedding capability only, with no chat dialects.
+func (c *Connector) describeEmbedding(id string) inferencegw.ProviderModel {
+	m := c.describeChat(id)
+	m.OutputModalities = []inferencegw.Modality{inferencegw.ModalityEmbedding}
+	m.Capabilities = []inferencegw.ModelCapability{inferencegw.CapabilityEmbedding}
+	return m
+}
+
+// describeRerank is the entry for a rerank model. Nothing serves it yet: the
+// rerank route is not implemented.
+func (c *Connector) describeRerank(id string) inferencegw.ProviderModel {
+	m := c.describeChat(id)
+	m.Capabilities = []inferencegw.ModelCapability{inferencegw.CapabilityRerank}
+	return m
 }
 
 // describeDecision is the entry for a model served on POST /systemone: the
