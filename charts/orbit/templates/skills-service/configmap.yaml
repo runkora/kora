@@ -1,10 +1,9 @@
+{{- $mapping := .Values.skillsService.skillsMapping | default (dict "tenants" (list)) -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: orbit-skill-marketplace-sources
   namespace: {{ include "orbit.systemNamespace" . }}
 data:
-  marketplace-sources.json: |
-    {
-      "tenants": {}
-    }
+  skills-mapping.yaml: |
+    {{- dict "skillsMapping" $mapping | toYaml | nindent 4 }}

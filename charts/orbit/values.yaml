@@ -866,11 +866,12 @@ skillsService:
       cpu: 500m
       memory: 256Mi
   nodeSelector: {}
+  skillsMapping:
+    # -- Approved GitHub repositories grouped by platform tenant ID.
+    tenants: []
   # githubApps lists the GitHub App Secrets to mount into the pod.
   # Each entry mounts one Kubernetes Secret as a read-only directory.
-  # The operator writes the mountPath as credentialsRef in marketplace-sources.json.
   # The first entry is also used as the default App (GITHUB_APP_PRIVATE_KEY_PATH).
-  # Add one entry per distinct GitHub App installation needed across all tenants.
   githubApps:
     - secretName: orbit-skills-github-app
       mountPath: /var/run/secrets/skills/github-apps/default

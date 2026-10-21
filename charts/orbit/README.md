@@ -473,6 +473,7 @@ Kubernetes: `>=1.34.0-0`
 | skillsService.resources.limits.memory | string | `"256Mi"` |  |
 | skillsService.resources.requests.cpu | string | `"100m"` |  |
 | skillsService.resources.requests.memory | string | `"64Mi"` |  |
+| skillsService.skillsMapping.tenants | list | `[]` | Approved GitHub repositories grouped by platform tenant ID. |
 | spire.className | string | `"spire-system-spire"` |  |
 | toolGateway.affinity | object | `{}` |  |
 | toolGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |

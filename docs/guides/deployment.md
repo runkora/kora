@@ -377,6 +377,23 @@ Image tags resolve as follows:
 
 Use the narrowest CIDRs and ports in `networkPolicy.externalServices` that cover your services. Omit the entry when Postgres and Redis are reached through destinations your cluster network policy already allows.
 
+### Marketplace sources
+
+Set the approved Marketplace repositories in the release values. Each tenant ID must match the `metadata.name` of an `OrbitTenant` resource, which the operator publishes as the platform tenant ID:
+
+```yaml
+skillsService:
+  skillsMapping:
+    tenants:
+      - id: example
+        marketplaces:
+          - https://github.com/your-org/your-skills
+```
+
+The chart writes this mapping to `orbit-skill-marketplace-sources` as `skills-mapping.yaml`, mounted at `/etc/orbit/marketplace/skills-mapping.yaml`. An empty tenant list produces a valid empty registry. GitHub App credentials must be configured separately through Kubernetes Secrets.
+
+The registry reads the file once at startup. Changing the mapping through a Helm upgrade changes the pod-template checksum and rolls skills-service so it reads the updated sources. Direct ConfigMap edits require an explicit service restart. Source declarations remain scoped to the authenticated caller's tenant; requests still require `marketplace:read`.
+
 ## Telemetry
 
 kora exports traces and metrics over OTLP, configure your endpoint as follows:

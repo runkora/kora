@@ -18,6 +18,8 @@ spec:
     metadata:
       labels:
         app: orbit-skills-service
+      annotations:
+        checksum/marketplace-sources: {{ include (print $.Template.BasePath "/skills-service/configmap.yaml") . | sha256sum }}
 
     spec:
       serviceAccountName: orbit-skills-service
