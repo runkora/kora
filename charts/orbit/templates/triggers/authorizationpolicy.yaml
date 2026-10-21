@@ -54,4 +54,20 @@ spec:
             ports:
               - "{{ .Values.global.metrics.port | default 9464 }}"
     {{- end }}
+    {{- if .Values.triggers.authorizationPolicy.metricsScraperIPBlocks }}
+    # Same exception, for a scraper with no SPIFFE identity (not
+    # sidecar-injected into the mesh) — principals can't match a caller with
+    # no mTLS identity to present. Matched against the connection's actual
+    # source IP instead, regardless of mTLS. See the ADR's Decision.
+    - from:
+        - source:
+            ipBlocks:
+              {{- range .Values.triggers.authorizationPolicy.metricsScraperIPBlocks }}
+              - "{{ . }}"
+              {{- end }}
+      to:
+        - operation:
+            ports:
+              - "{{ .Values.global.metrics.port | default 9464 }}"
+    {{- end }}
 {{- end }}

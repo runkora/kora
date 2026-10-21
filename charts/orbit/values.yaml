@@ -944,6 +944,14 @@ triggers:
     # their scraper's identity. See
     # docs/adr/2026-10-06-prometheus-metrics-endpoints.md, Decision.
     metricsScraperPrincipals: []
+    # Same exception as metricsScraperPrincipals, scoped to the metrics port
+    # only, for a scraper with no SPIFFE identity (not sidecar-injected into
+    # the mesh) — principals can't match a caller with no mTLS identity to
+    # present. CIDR blocks (e.g. the scraper namespace's pod range), matched
+    # against the connection's actual source IP regardless of mTLS. Empty by
+    # default: nothing is allowed through until an operator names their
+    # scraper's address range. See docs/adr/2026-10-06-prometheus-metrics-endpoints.md.
+    metricsScraperIPBlocks: []
 
 egressGateway:
   # Extra outbound TCP ports the gateway may dial when brokering a connection.
