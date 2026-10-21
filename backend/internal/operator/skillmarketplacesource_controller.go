@@ -2,10 +2,14 @@
 //
 // A source's verdict depends on its siblings and on its tenant's allowlist, so
 // this reconciler does not judge the one source it was called for: it re-runs
-// the aggregator, which judges every source and patches each status that
-// changed. It has its own controller rather than mapping onto the tenant
-// reconcile as Connection does, because a source in orbit-system or in a
-// namespace with no tenant maps to no tenant and would never get a status.
+// the SkillMarketplaceAggregator, which judges every source and patches each
+// status that changed. It has its own controller rather than mapping onto the
+// tenant reconcile as Connection does, because a source in the system
+// namespace or in a namespace with no tenant maps to no tenant and would never
+// get a status.
+//
+// Allowlist edits, suspends and deletes of an OrbitTenant are handled by the
+// TenantReconciler, which runs the same aggregator.
 //
 // See docs/adr/2026-10-13-skill-marketplace-source-registration.md.
 package operator
@@ -20,8 +24,8 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// SkillMarketplaceSourceReconciler re-aggregates marketplace sources whenever
-// one is created, deleted, or changes generation.
+// SkillMarketplaceSourceReconciler re-aggregates skill marketplace sources
+// whenever one is created, deleted, or changes generation.
 type SkillMarketplaceSourceReconciler struct {
 	Aggregator *SkillMarketplaceAggregator
 	Logger     logging.Logger
