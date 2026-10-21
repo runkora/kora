@@ -65,7 +65,7 @@
     "jsdom": "^30.0.1",
     "msw": "^2.15.0",
     "prettier": "^3.9.6",
-    "storybook": "^10.6.0",
+    "storybook": "^10.6.2",
     "tailwindcss": "^4.3.3",
     "typescript": "^5",
     "vitest": "^4.1.3"
