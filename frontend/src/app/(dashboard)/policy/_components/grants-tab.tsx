@@ -55,9 +55,9 @@ import { useHasScope } from '../../_components/permissions-provider';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { PrincipalBadge, ScopeChip, ScopeChipList, scopeColumnFilter } from '@runkora/components';
 import { ScopePicker } from '@runkora/components';
-import { FilterChip } from './filter-chip';
+import { FilterChip } from '@runkora/components';
 import { GrantDetailModal } from './grant-detail-modal';
-import { ViewToggle } from './view-toggle';
+import { ViewToggle } from '@runkora/components';
 import { PermissionHint } from '@runkora/components';
 
 // ── Props ────────────────────────────────────────────────────────────────────

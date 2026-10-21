@@ -1,12 +1,19 @@
 /**
- * @tier 3 — policy scoped.
- * @promote-to-tier-2 if: a second feature area outside policy adds a card/list view toggle.
+ * @tier 2 — App-level shared layout control (no kora domain knowledge). Used by: policy (roles,
+ * grants), agents, mcp-gateway.
+ *
+ * Switches a collection page between its card and table/list layouts.
+ *
+ * @promote-to-tier-1 if: a surface outside the dashboard needs it; it is a Hades candidate, which
+ * needs human approval before any Hades change.
  */
 import { Button, ButtonGroup, Icon } from '@runkora/hades';
 
+export type ViewMode = 'cards' | 'list';
+
 export interface ViewToggleProps {
-  viewMode: 'cards' | 'list';
-  onToggle: (mode: 'cards' | 'list') => void;
+  viewMode: ViewMode;
+  onToggle: (mode: ViewMode) => void;
 }
 
 export function ViewToggle({ viewMode, onToggle }: ViewToggleProps) {
@@ -17,6 +24,7 @@ export function ViewToggle({ viewMode, onToggle }: ViewToggleProps) {
         size="icon-sm"
         onClick={() => onToggle('cards')}
         aria-label="Card view"
+        aria-pressed={viewMode === 'cards'}
       >
         <Icon name="layout-grid" size="2xs" />
       </Button>
@@ -25,6 +33,7 @@ export function ViewToggle({ viewMode, onToggle }: ViewToggleProps) {
         size="icon-sm"
         onClick={() => onToggle('list')}
         aria-label="List view"
+        aria-pressed={viewMode === 'list'}
       >
         <Icon name="list" size="2xs" />
       </Button>

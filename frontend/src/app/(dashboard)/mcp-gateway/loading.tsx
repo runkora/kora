@@ -24,7 +24,7 @@ export default function McpServersLoading() {
       </Stack>
 
       {/* The server card grid. */}
-      <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
+      <Grid cols={{ base: 1, sm: 2 }} gap="comfortable">
         {Array.from({ length: 4 }).map((_, i) => (
           <Card key={i} inset border="subtle">
             <CardContent padded>

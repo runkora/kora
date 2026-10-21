@@ -1,6 +1,9 @@
 /**
- * @tier 3 — policy scoped.
- * @promote-to-tier-2 if: a second feature area outside policy adds filter tabs with count badges.
+ * @tier 2 — App-level shared control (no kora domain knowledge). Used by: policy (grants,
+ * vocabulary), mcp-gateway.
+ *
+ * A pill filter button with a trailing count, for a row of mutually exclusive filters above a
+ * card view.
  */
 import { Button, Text } from '@runkora/hades';
 

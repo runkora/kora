@@ -12,14 +12,14 @@ import {
   Heading,
   Icon,
   SegmentedControl,
-  Separator,
   Stack,
   Text,
   EmptyState,
 } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
 import Link from 'next/link';
-import { PermissionHint, StatusBadge } from '@runkora/components';
+import { PermissionHint, StatusBadge, ViewToggle } from '@runkora/components';
+import type { ViewMode } from '@runkora/components';
 import type { AgentInsightsResponse, AgentTypeUsage } from '@runkora/shared/api';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { useAgentsContext } from '../_context/agents-context';
@@ -80,7 +80,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
 
   const [startRunTarget, setStartRunTarget] = useState<AgentTypeRow | null>(null);
   const [globalRunOpen, setGlobalRunOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [identityFilter, setIdentityFilter] = useState<'all' | 'autonomous' | 'delegated'>('all');
   const [draftsOpen, setDraftsOpen] = useState(false);
   const [period, setPeriod] = useState<Period>(DEFAULT_PERIOD);
@@ -320,23 +320,6 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
               New Agent
             </Button>
           </PermissionHint>
-          <Separator orientation="vertical" style={{ height: '1.5rem', alignSelf: 'center' }} />
-          <Button
-            variant={viewMode === 'grid' ? 'default' : 'ghost'}
-            size="icon-sm"
-            aria-label="Grid view"
-            onClick={() => setViewMode('grid')}
-          >
-            <Icon name="layout-grid" size="xs" />
-          </Button>
-          <Button
-            variant={viewMode === 'list' ? 'default' : 'ghost'}
-            size="icon-sm"
-            aria-label="List view"
-            onClick={() => setViewMode('list')}
-          >
-            <Icon name="layout-list" size="xs" />
-          </Button>
         </Stack>
       </Stack>
 
@@ -376,13 +359,17 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
       />
 
       {/* Section header */}
-      <Stack direction="horizontal" align="baseline" gap="snug">
-        <Text size="supporting" weight="emphasis" color="subtle">
-          Agents
-        </Text>
-        <Text size="caption" color="subtle" mono tabular>
-          {agentTypes.length}
-        </Text>
+      <Stack direction="horizontal" align="center" justify="between">
+        <Stack direction="horizontal" align="baseline" gap="snug">
+          <Text size="supporting" weight="emphasis" color="subtle">
+            Agents
+          </Text>
+          <Text size="caption" color="subtle" mono tabular>
+            {agentTypes.length}
+          </Text>
+        </Stack>
+        {/* List mode carries the toggle in the table toolbar instead. */}
+        {viewMode === 'cards' && <ViewToggle viewMode={viewMode} onToggle={setViewMode} />}
       </Stack>
 
       {/* Agent types view: the load error in both views, else EmptyState when there are no agents */}
@@ -414,7 +401,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
             </PermissionHint>
           }
         />
-      ) : viewMode === 'grid' ? (
+      ) : viewMode === 'cards' ? (
         /* ── Grid view ─────────────────────────────────────────────────────── */
         <Grid cols={{ base: 1, sm: 2, lg: 3 }} gap="comfortable">
           {agentTypes.map((agent) => (
@@ -454,6 +441,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
               ]}
             />
           }
+          toolbarActions={<ViewToggle viewMode={viewMode} onToggle={setViewMode} />}
           emptyMessage="No agents yet."
           filteredEmptyMessage="No agents match your search."
           onRowClick={(row) => router.push(APP_ROUTES.agents.detail(row.slug))}

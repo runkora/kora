@@ -46,3 +46,11 @@ export type { RunStateDisplay } from './run-state';
 /** A disabled control's tooltip naming the missing permission. */
 export { PermissionHint, permissionHintText } from './permission-hint';
 export type { PermissionHintProps } from './permission-hint';
+
+/** Card / list layout switch for collection pages. */
+export { ViewToggle } from './view-toggle';
+export type { ViewToggleProps, ViewMode } from './view-toggle';
+
+/** Pill filter button with a trailing count, for a row of filters above a card view. */
+export { FilterChip } from './filter-chip';
+export type { FilterChipProps } from './filter-chip';

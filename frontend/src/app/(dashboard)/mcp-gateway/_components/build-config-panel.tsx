@@ -171,7 +171,11 @@ export function BuildConfigPanel({ servers, selected, onClose }: BuildConfigPane
                   border: '1px solid var(--color-border-subtle)',
                 }}
               >
-                <ServerAvatar name={s.name} accent={s.name === PLATFORM_MCP_SERVER} size="xs" />
+                <ServerAvatar
+                  name={s.display_name}
+                  accent={s.name === PLATFORM_MCP_SERVER}
+                  size="xs"
+                />
                 <Text
                   as="span"
                   mono

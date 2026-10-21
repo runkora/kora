@@ -37,7 +37,7 @@ import { useHasScope } from '../../_components/permissions-provider';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { ScopeChipList, scopeColumnFilter } from '@runkora/components';
 import { ScopePicker } from '@runkora/components';
-import { ViewToggle } from './view-toggle';
+import { ViewToggle } from '@runkora/components';
 import { PermissionHint } from '@runkora/components';
 
 // ── Props ────────────────────────────────────────────────────────────────────
