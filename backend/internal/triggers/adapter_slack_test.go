@@ -179,13 +179,22 @@ func TestSlackAdapter_ChatEvent(t *testing.T) {
 	}{
 		{name: "top-level mention is its own thread",
 			body: `{"team_id":"T1","event":{"type":"app_mention","user":"u1","text":"<@U0> hi","channel":"C1","ts":"1700000000.000100"}}`,
-			want: chatDoc("<@U0> hi", "U1", "C1", "1700000000.000100", "T1")},
+			want: chatDoc("<@U0> hi", "U1", "C1", "", "1700000000.000100", "U1", "1700000000.000100", "T1")},
 		{name: "thread reply joins its parent",
-			body: `{"team_id":"T1","event":{"type":"app_mention","user":"U1","text":"more","channel":"C1","ts":"1700000000.000200","thread_ts":"1700000000.000100"}}`,
-			want: chatDoc("more", "U1", "C1", "1700000000.000100", "T1")},
+			body: `{"team_id":"T1","event":{"type":"app_mention","user":"U1","text":"more","channel":"C1","ts":"1700000000.000200","thread_ts":"1700000000.000100","parent_user_id":"u2"}}`,
+			want: chatDoc("more", "U1", "C1", "", "1700000000.000100", "U2", "1700000000.000200", "T1")},
 		{name: "direct message with only a file",
 			body: `{"team_id":"T1","event":{"type":"message","subtype":"file_share","channel_type":"im","user":"U1","channel":"D1","ts":"1700000000.000300"}}`,
-			want: chatDoc("", "U1", "D1", "1700000000.000300", "T1")},
+			want: chatDoc("", "U1", "D1", "dm", "1700000000.000300", "U1", "1700000000.000300", "T1")},
+		{name: "message event maps channel_type",
+			body: `{"team_id":"T1","event":{"type":"message","user":"U1","text":"x","channel":"G1","channel_type":"mpim","ts":"1700000000.000400"}}`,
+			want: chatDoc("x", "U1", "G1", "group", "1700000000.000400", "U1", "1700000000.000400", "T1")},
+		{name: "mention in a D channel without channel_type is a dm",
+			body: `{"team_id":"T1","event":{"type":"app_mention","user":"U1","text":"x","channel":"D1","ts":"1700000000.000500"}}`,
+			want: chatDoc("x", "U1", "D1", "dm", "1700000000.000500", "U1", "1700000000.000500", "T1")},
+		{name: "thread root without parent_user_id is started by the sender",
+			body: `{"team_id":"T1","event":{"type":"app_mention","user":"U1","text":"x","channel":"C1","ts":"1700000000.000600","thread_ts":"1700000000.000600"}}`,
+			want: chatDoc("x", "U1", "C1", "", "1700000000.000600", "U1", "1700000000.000600", "T1")},
 		{name: "missing user", body: `{"team_id":"T1","event":{"channel":"C1","ts":"1"}}`},
 		{name: "missing channel", body: `{"team_id":"T1","event":{"user":"U1","ts":"1"}}`},
 		{name: "missing ts and thread_ts", body: `{"team_id":"T1","event":{"user":"U1","channel":"C1"}}`},
@@ -201,12 +210,13 @@ func TestSlackAdapter_ChatEvent(t *testing.T) {
 	}
 }
 
-func chatDoc(text, user, conversation, thread, workspace string) map[string]any {
+func chatDoc(text, user, conversation, convType, thread, startedBy, message, workspace string) map[string]any {
 	return map[string]any{
 		"text":         text,
 		"user":         map[string]any{"id": user},
-		"conversation": map[string]any{"id": conversation},
-		"thread":       map[string]any{"id": thread},
+		"conversation": map[string]any{"id": conversation, "type": convType},
+		"thread":       map[string]any{"id": thread, "started_by": map[string]any{"id": startedBy}},
+		"message":      map[string]any{"id": message},
 		"workspace":    map[string]any{"id": workspace},
 		"platform":     "slack",
 	}
@@ -271,7 +281,7 @@ func TestIngest_Slack(t *testing.T) {
 	}
 	tr, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, CreateTriggerRequest{
 		SourceID: resp.ID, Name: "mention", AgentTypeID: "at-1", EventType: "mention",
-		PromptTemplate: "{{ text }} from {{ user.id }} in {{ conversation.id }}:{{ thread.id }} on {{ platform }}",
+		PromptTemplate: "{{ text }} from {{ user.id }} in {{ conversation.id }}:{{ thread.id }}:{{ message.id }} by {{ thread.started_by.id }} in a {{ conversation.type }} on {{ platform }}",
 	})
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
@@ -291,7 +301,7 @@ func TestIngest_Slack(t *testing.T) {
 		t.Fatal("a handshake must record no delivery")
 	}
 
-	body := []byte(`{"type":"event_callback","team_id":"T1","event_id":"Ev1","event":{"type":"app_mention","user":"u1","text":"<@U0> hi","ts":"1700000000.000200","thread_ts":"1700000000.000100","channel":"C1"}}`)
+	body := []byte(`{"type":"event_callback","team_id":"T1","event_id":"Ev1","event":{"type":"app_mention","user":"u1","text":"<@U0> hi","ts":"1700000000.000200","thread_ts":"1700000000.000100","parent_user_id":"u2","channel":"C1","channel_type":"channel"}}`)
 	res, err = svc.Ingest(ctx, resp.ID, slackHeaders(secret, time.Now().Unix(), body), body)
 	if err != nil || res.Outcome != IngestAccepted {
 		t.Fatalf("mention = (%+v, %v), want accepted", res, err)
@@ -301,7 +311,7 @@ func TestIngest_Slack(t *testing.T) {
 		t.Errorf("delivery id %q event %q, want Ev1 and mention", d.ProviderDeliveryID, d.EventType)
 	}
 	waitFor(t, func() bool { return len(deps.repo.pendingFor(tr.ID)) == 1 })
-	want := map[string]string{"text": "<@U0> hi", "user.id": "U1", "conversation.id": "C1", "thread.id": "1700000000.000100", "platform": "slack"}
+	want := map[string]string{"text": "<@U0> hi", "user.id": "U1", "conversation.id": "C1", "thread.id": "1700000000.000100", "message.id": "1700000000.000200", "thread.started_by.id": "U2", "conversation.type": "channel", "platform": "slack"}
 	for k, v := range want {
 		if got := deps.repo.pendingFor(tr.ID)[0].Fields[k]; got != v {
 			t.Errorf("%s = %q, want %q", k, got, v)

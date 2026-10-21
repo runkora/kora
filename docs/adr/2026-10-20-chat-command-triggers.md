@@ -125,7 +125,10 @@ The backend stores and runs chat command triggers as `webhook` triggers. A sourc
 - `text`: the message text as the platform sends it. It can be empty for a message that carries only a file.
 - `user.id`: the platform's id for the sender.
 - `conversation.id`: the channel or direct message conversation.
+- `conversation.type`: `channel`, `private`, `dm` or `group`.
 - `thread.id`: the thread within the conversation. A message outside a thread is its own thread.
+- `thread.started_by.id`: the id of the user who posted the thread's first message. It is the app's own id when the app started the thread.
+- `message.id`: the platform's id for the message that fired the event. It equals `thread.id` outside a thread and differs for a reply.
 - `workspace.id`: the platform's workspace.
 - `platform`: the provider id, such as `slack`.
 
@@ -206,6 +209,9 @@ Every failure returns `ErrSignatureInvalid` and the same 404 as today. The adapt
 - `user.id` is `event.user` uppercased.
 - `conversation.id` is `event.channel`.
 - `thread.id` is `event.thread_ts` for a reply and `event.ts` for a top-level message.
+- `conversation.type` is `event.channel_type` mapped: `channel` to `channel`, `group` to `private`, `im` to `dm`, `mpim` to `group`. A mention carries no `channel_type`, so a `D` channel id maps to `dm` and any other id leaves the type empty. It is empty for any other value.
+- `thread.started_by.id` is `event.parent_user_id` uppercased when set and `event.user` otherwise, so a top-level message or a thread root is started by its sender.
+- `message.id` is `event.ts`.
 - `workspace.id` is `team_id`.
 - `platform` is `slack`.
 
