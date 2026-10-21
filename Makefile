@@ -1034,6 +1034,9 @@ fix: ## Run go fix
 # Frontend
 # ===========================================
 
+# Seconds before a Corepack registry call is abandoned in frontend-install.
+COREPACK_TIMEOUT ?= 60
+
 .PHONY: frontend-install
 frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pnpm, idempotent)
 	@echo "$(COLOR_YELLOW)Setting up frontend environment...$(COLOR_RESET)"
@@ -1051,11 +1054,15 @@ frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pn
 	nvm use $(NODE_VERSION); \
 	echo "  Enabling Corepack..."; \
 	corepack enable; \
-	if pnpm --version 2>/dev/null | grep -q "^$(PNPM_VERSION)$$"; then \
+	if timeout $(COREPACK_TIMEOUT) pnpm --version | grep -q "^$(PNPM_VERSION)$$"; then \
 		echo "  pnpm $(PNPM_VERSION) already installed — skipping"; \
 	else \
 		echo "  Installing pnpm $(PNPM_VERSION) via Corepack..."; \
-		corepack install -g pnpm@$(PNPM_VERSION); \
+		timeout $(COREPACK_TIMEOUT) corepack install -g pnpm@$(PNPM_VERSION) || { \
+			echo "$(COLOR_RED)✗ Corepack failed or timed out after $(COREPACK_TIMEOUT)s reaching $${COREPACK_NPM_REGISTRY:-https://registry.npmjs.org}$(COLOR_RESET)"; \
+			echo "  Check network, DNS and proxy settings (HTTPS_PROXY, COREPACK_NPM_REGISTRY)."; \
+			exit 1; \
+		}; \
 	fi; \
 	cd $(FRONTEND_DIR) && pnpm install $(if $(CI),--frozen-lockfile,)
 	@echo "$(COLOR_GREEN)✓ Frontend dependencies installed$(COLOR_RESET)"
