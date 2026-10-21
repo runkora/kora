@@ -113,8 +113,8 @@ export function McpServersPage({ servers, error }: McpServersPageProps) {
   const [query, setQuery] = useState('');
   const [panelOpen, setPanelOpen] = useState(false);
 
-  // The scope filter applies to both layouts; the text query is owned by the
-  // table itself in list mode.
+  // The scope filter and the text query apply to both layouts. The table filters by the
+  // query itself, so it is passed down as controlled search.
   const scoped = useMemo(
     () =>
       servers.filter((s) =>
@@ -237,6 +237,8 @@ export function McpServersPage({ servers, error }: McpServersPageProps) {
           selected={selected}
           onToggle={toggle}
           onOpen={open}
+          query={query}
+          onQueryChange={setQuery}
           quickFilters={
             <SegmentedControl
               aria-label="Filter by access"
@@ -344,13 +346,7 @@ function ServerCard({
           <Text size="supporting" color="muted">
             {server.description || 'No description provided.'}
           </Text>
-          <Stack
-            direction="horizontal"
-            wrap
-            align="center"
-            gap="tight"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <Stack direction="horizontal" wrap align="center" gap="tight">
             <ScopeBadge global={server.global} />
             <IdentityBadge delegated={server.caller_identity === 'forward'} />
             <CapabilityList domains={server.domains} />
@@ -384,6 +380,8 @@ function ServerTable({
   selected,
   onToggle,
   onOpen,
+  query,
+  onQueryChange,
   quickFilters,
   toolbarActions,
 }: {
@@ -393,6 +391,8 @@ function ServerTable({
   selected: Set<string>;
   onToggle: (name: string) => void;
   onOpen: (name: string) => void;
+  query: string;
+  onQueryChange: (query: string) => void;
   quickFilters: React.ReactNode;
   toolbarActions: React.ReactNode;
 }) {
@@ -508,6 +508,8 @@ function ServerTable({
       noun="servers"
       searchPlaceholder="Search servers…"
       searchFn={matchesQuery}
+      searchQuery={query}
+      onSearchChange={onQueryChange}
       defaultSortId="server"
       defaultSortDir="asc"
       onRowClick={(s) => onOpen(s.name)}

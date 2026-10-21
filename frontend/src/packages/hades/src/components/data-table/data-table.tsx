@@ -213,6 +213,16 @@ export interface DataTableProps<TData> {
   // Search
   searchPlaceholder?: string;
   searchFn?: (row: TData, query: string) => boolean;
+  /**
+   * Controlled search text. Provide it, with `onSearchChange`, to own the query outside the
+   * table, for example to share one search box between a table and a card view. Leave it out
+   * and the table keeps the query itself. Like a native input, pick one mode for the table's
+   * lifetime: without `onSearchChange` a controlled box cannot be edited, and going from a
+   * string to `undefined` falls back to the table's own stale text.
+   */
+  searchQuery?: string;
+  /** Called with the new text whenever the search box changes. */
+  onSearchChange?: (query: string) => void;
 
   // Sort
   defaultSortId?: string;
@@ -411,6 +421,8 @@ export function DataTable<TData>({
   rowLabel,
   searchPlaceholder,
   searchFn,
+  searchQuery: controlledSearchQuery,
+  onSearchChange,
   defaultSortId,
   defaultSortDir = 'asc',
   onSortChange,
@@ -427,7 +439,12 @@ export function DataTable<TData>({
 }: DataTableProps<TData>) {
   // ── State ───────────────────────────────────────────────────────────────────
 
-  const [searchQuery, setSearchQuery] = React.useState('');
+  const [uncontrolledSearchQuery, setUncontrolledSearchQuery] = React.useState('');
+  const searchQuery = controlledSearchQuery ?? uncontrolledSearchQuery;
+  const setSearchQuery = (query: string) => {
+    if (controlledSearchQuery === undefined) setUncontrolledSearchQuery(query);
+    onSearchChange?.(query);
+  };
 
   const [clientFilters, setClientFilters] = React.useState<Record<string, Set<string>>>({});
 
