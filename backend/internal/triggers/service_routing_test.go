@@ -504,9 +504,14 @@ func TestDispatchRouted_OutcomeOrder(t *testing.T) {
 	}{
 		{name: "agent above threshold", resp: decisionAnswers(0.91, "", 0), wantStatus: RunStatusDispatched, wantOutcome: RouteOutcomeNewRun, wantStarted: "at-a"},
 		{
-			name: "run above threshold",
+			name: "run above threshold, agent below",
 			runs: []agentsclient.Run{{ID: "run-open", AgentTypeID: "at-b", State: "idle", StartedBy: &agentsclient.StartedByTrigger{TriggerID: "other"}}},
-			resp: decisionAnswers(0.9, "r1", 0.88), wantStatus: RunStatusJoined, wantOutcome: RouteOutcomeJoinedRun, wantJoined: "run-open",
+			resp: decisionAnswers(0.6, "r1", 0.88), wantStatus: RunStatusJoined, wantOutcome: RouteOutcomeJoinedRun, wantJoined: "run-open",
+		},
+		{
+			name: "run of another agent above threshold",
+			runs: []agentsclient.Run{{ID: "run-open", AgentTypeID: "at-b", State: "idle", StartedBy: &agentsclient.StartedByTrigger{TriggerID: "other"}}},
+			resp: decisionAnswers(0.9, "r1", 0.88), wantStatus: RunStatusDispatched, wantOutcome: RouteOutcomeNewRun, wantStarted: "at-a",
 		},
 		{name: "below threshold with fallback", fallback: new("at-c"), resp: decisionAnswers(0.5, "", 0), wantStatus: RunStatusDispatched, wantOutcome: RouteOutcomeFallbackRun, wantStarted: "at-c", wantReason: FallbackBelowThreshold},
 		{name: "below threshold without fallback", resp: decisionAnswers(0.5, "", 0), wantStatus: RunStatusUnrouted, wantOutcome: RouteOutcomeNoRun, wantReason: FallbackBelowThreshold},
