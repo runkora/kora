@@ -287,7 +287,8 @@ func (r *PostgresPricingCatalogRepository) LoadAll(ctx context.Context) ([]Prici
 		       synced_request_input_cost, synced_request_output_cost,
 		       synced_second_input_cost, synced_second_output_cost,
 		       synced_audio_input_cost_per_1m, synced_audio_output_cost_per_1m
-		FROM model_pricing`
+		FROM model_pricing
+		ORDER BY provider, model_id`
 
 	rows, err := r.pool.Query(ctx, q)
 	if err != nil {

@@ -2,6 +2,7 @@ package inferencegw
 
 import (
 	"context"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -11,7 +12,8 @@ import (
 // pricingSnapshot is the immutable in-memory projection of model_pricing.
 // It is rebuilt on every refresh and swapped atomically.
 type pricingSnapshot struct {
-	entries map[string]ModelPricing // key: pricingKey
+	entries map[string]ModelPricing // key: pricingExactKey, plus pricingKey as fallback
+	rows    []ModelPricing          // every row, unindexed
 	bare    map[string]ModelPricing // key: pricingBareKey (cross-provider fallback)
 }
 
@@ -70,12 +72,12 @@ func (c *DatabasePricingCache) Start(ctx context.Context) {
 // Price returns the effective pricing for a provider+model pair.
 // Returns (ModelPricing{}, false) when the model is not in the catalog.
 //
-// For Bedrock models, cross-region profile IDs (e.g. "us.anthropic.claude-…")
-// are normalised to their base form (e.g. "anthropic.claude-…") before the
-// lookup because the pricing catalog is keyed on the base ID from LiteLLM.
+// The row for the exact routed ID is used first, so a regional profile
+// ("us.anthropic.claude-…") gets its own price. Otherwise the ID is normalised
+// to its base form ("anthropic.claude-…") for the lookup.
 func (c *DatabasePricingCache) Price(provider ProviderName, modelID string) (ModelPricing, bool) {
 	snap := c.snap.Load()
-	if p, ok := snap.entries[pricingKey(provider, modelID)]; ok {
+	if p, ok := lookupPricingIndex(snap.entries, provider, modelID); ok {
 		return p, true
 	}
 	// Best-effort: no same-provider row, so borrow the same model's price from
@@ -93,7 +95,6 @@ func (c *DatabasePricingCache) Refresh(ctx context.Context) error {
 		return err
 	}
 
-	entries := make(map[string]ModelPricing, len(catalog))
 	priced := make([]ModelPricing, 0, len(catalog))
 	for _, e := range catalog {
 		mp := ModelPricing{
@@ -112,21 +113,16 @@ func (c *DatabasePricingCache) Refresh(ctx context.Context) error {
 			AudioInputCostPer1M:      e.SyncedAudioInputCostPer1M,
 			AudioOutputCostPer1M:     e.SyncedAudioOutputCostPer1M,
 		}
-		entries[pricingKey(e.Provider, e.ModelID)] = mp
 		priced = append(priced, mp)
 	}
 
 	bare := bareFallbackIndex(priced, modelPricingProvider, modelPricingModelID)
-	c.snap.Store(&pricingSnapshot{entries: entries, bare: bare})
+	c.snap.Store(&pricingSnapshot{entries: buildPricingIndex(priced), rows: priced, bare: bare})
 	return nil
 }
 
 // All returns all known model pricing entries.
 func (c *DatabasePricingCache) All() []ModelPricing {
 	snap := c.snap.Load()
-	result := make([]ModelPricing, 0, len(snap.entries))
-	for _, v := range snap.entries {
-		result = append(result, v)
-	}
-	return result
+	return slices.Clone(snap.rows)
 }

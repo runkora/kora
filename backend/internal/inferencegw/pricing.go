@@ -1,6 +1,9 @@
 package inferencegw
 
-import "context"
+import (
+	"context"
+	"slices"
+)
 
 // PricingCache is the single source of truth for model cost data.
 // It periodically refreshes pricing from provider APIs or a local override
@@ -29,17 +32,14 @@ type PricingCache interface {
 // It is used in tests and in early development before provider price APIs are
 // integrated. The Start and Refresh methods are no-ops.
 type StaticPricingCache struct {
-	entries map[string]ModelPricing // key: pricingKey
+	entries map[string]ModelPricing // key: pricingExactKey, plus pricingKey as fallback
+	rows    []ModelPricing
 	bare    map[string]ModelPricing // key: pricingBareKey (cross-provider fallback)
 }
 
 // NewStaticPricingCache constructs a StaticPricingCache from the given entries.
 func NewStaticPricingCache(entries []ModelPricing) *StaticPricingCache {
-	m := make(map[string]ModelPricing, len(entries))
-	for _, e := range entries {
-		m[pricingKey(e.Provider, e.ModelID)] = e
-	}
-	return &StaticPricingCache{entries: m, bare: bareFallbackIndex(entries, modelPricingProvider, modelPricingModelID)}
+	return &StaticPricingCache{entries: buildPricingIndex(entries), rows: entries, bare: bareFallbackIndex(entries, modelPricingProvider, modelPricingModelID)}
 }
 
 // NewNopPricingCache returns a PricingCache with no pricing data.
@@ -52,7 +52,7 @@ func NewNopPricingCache() *StaticPricingCache {
 func (c *StaticPricingCache) Start(_ context.Context) {}
 
 func (c *StaticPricingCache) Price(provider ProviderName, modelID string) (ModelPricing, bool) {
-	if p, ok := c.entries[pricingKey(provider, modelID)]; ok {
+	if p, ok := lookupPricingIndex(c.entries, provider, modelID); ok {
 		return p, true
 	}
 	// Best-effort: no same-provider row, so borrow the same model's price from
@@ -65,9 +65,5 @@ func (c *StaticPricingCache) Price(provider ProviderName, modelID string) (Model
 func (c *StaticPricingCache) Refresh(_ context.Context) error { return nil }
 
 func (c *StaticPricingCache) All() []ModelPricing {
-	result := make([]ModelPricing, 0, len(c.entries))
-	for _, v := range c.entries {
-		result = append(result, v)
-	}
-	return result
+	return slices.Clone(c.rows)
 }

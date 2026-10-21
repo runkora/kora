@@ -353,18 +353,6 @@ func matchesCapabilityFilter(caps, want []ModelCapability) bool {
 	})
 }
 
-// buildPricingIndex constructs a lookup map from "provider/normalisedModelID"
-// to ModelPricing using the in-memory pricing cache entries.
-// Used by handleListModels to attach effective pricing to each virtual model.
-func buildPricingIndex(entries []ModelPricing) map[string]ModelPricing {
-	idx := make(map[string]ModelPricing, len(entries))
-	for _, e := range entries {
-		key := pricingKey(e.Provider, e.ModelID)
-		idx[key] = e
-	}
-	return idx
-}
-
 // lacksTokenPricing reports whether a ModelPricing has no token-priced
 // dimensions. Routes where both token fields are zero are excluded from the
 // vmEffectivePricing comparator — effective price is defined in token units.
@@ -425,7 +413,7 @@ func vmEffectivePricing(vm VirtualModel, pricingIdx, bareIdx map[string]ModelPri
 		if _, ok := connectors[route.Provider]; !ok {
 			return ModelPricing{}, false
 		}
-		p, ok := pricingIdx[pricingKey(route.Provider, route.ModelID)]
+		p, ok := lookupPricingIndex(pricingIdx, route.Provider, route.ModelID)
 		if !ok {
 			// Best-effort: the same model priced under a different provider
 			// (e.g. gpt-5.x on Bedrock, priced by LiteLLM only under Azure).

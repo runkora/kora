@@ -367,7 +367,8 @@ func (c *CatalogController) buildPricingMap(ctx context.Context) (map[string]*pr
 }
 
 // lookupPricing returns the pricing entry for a provider+modelID pair from the
-// map built by buildPricingMap. For Bedrock, it applies multi-pass normalisation:
+// map built by buildPricingMap. It tries the exact routed ID first. For Bedrock
+// it then applies multi-pass normalisation:
 //  1. Strip region prefix + version suffix via normalisePricingModelID.
 //  2. For aliased Bedrock providers (bedrock:<alias>), retry under the canonical
 //     "bedrock" key — pricing rows are stored once under the base provider name.
@@ -375,6 +376,16 @@ func (c *CatalogController) buildPricingMap(ctx context.Context) (map[string]*pr
 //     retry — handles AWS aliases like "qwen.qwen3-coder-480b-a35b-instruct"
 //     whose DB entry is stored as "qwen.qwen3-coder-480b-a35b".
 func lookupPricing(pricingMap map[string]*pricingEntryJSON, provider ProviderName, modelID string) *pricingEntryJSON {
+	// The row for the exact routed ID wins, so a regional profile keeps its own
+	// price (the same order as lookupPricingIndex, which billing uses).
+	if p, ok := pricingMap[string(provider)+"/"+modelID]; ok {
+		return p
+	}
+	if t := normalisePricingProvider(provider); t != provider {
+		if p, ok := pricingMap[string(t)+"/"+modelID]; ok {
+			return p
+		}
+	}
 	normID := normalisePricingModelID(provider, modelID)
 	key := string(provider) + "/" + normID
 	if p, ok := pricingMap[key]; ok {

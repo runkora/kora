@@ -156,6 +156,54 @@ func pricingKey(provider ProviderName, modelID string) string {
 	return string(normalisePricingProvider(provider)) + "/" + normalisePricingModelID(provider, modelID)
 }
 
+// pricingExactKey keys a pricing row on the model ID exactly as stored, with
+// only the provider normalised. A regional inference profile ("us.anthropic.x")
+// has its own row and price, so it must not collapse onto the base row.
+func pricingExactKey(provider ProviderName, modelID string) string {
+	return string(normalisePricingProvider(provider)) + "/" + modelID
+}
+
+// buildPricingIndex indexes pricing rows for lookupPricingIndex. Every row is
+// stored under its exact key. Rows that share a pricingKey also compete for that
+// fallback slot, which goes to the plainest (shortest, then lexically first)
+// model ID so the result does not depend on row order.
+func buildPricingIndex(rows []ModelPricing) map[string]ModelPricing {
+	idx := make(map[string]ModelPricing, 2*len(rows))
+	for _, e := range rows {
+		idx[pricingExactKey(e.Provider, e.ModelID)] = e
+	}
+	for _, e := range rows {
+		k := pricingKey(e.Provider, e.ModelID)
+		if cur, ok := idx[k]; ok && !plainerPricingID(e.ModelID, cur.ModelID) {
+			continue
+		}
+		if k == pricingExactKey(e.Provider, e.ModelID) {
+			continue
+		}
+		idx[k] = e
+	}
+	return idx
+}
+
+// plainerPricingID reports whether model ID a outranks b as the fallback row.
+func plainerPricingID(a, b string) bool {
+	if len(a) != len(b) {
+		return len(a) < len(b)
+	}
+	return a < b
+}
+
+// lookupPricingIndex resolves the price for a routed model: the row for the
+// exact ID first, then the row for its normalised base ID. The admin catalog,
+// /v1/models and billing all resolve through it.
+func lookupPricingIndex(idx map[string]ModelPricing, provider ProviderName, modelID string) (ModelPricing, bool) {
+	if p, ok := idx[pricingExactKey(provider, modelID)]; ok {
+		return p, true
+	}
+	p, ok := idx[pricingKey(provider, modelID)]
+	return p, ok
+}
+
 // pricingBareKey returns a provider-agnostic key for a best-effort,
 // cross-provider pricing fallback: the normalised model ID with its Bedrock
 // vendor namespace ("openai." in "openai.gpt-5.4") and any leading region
