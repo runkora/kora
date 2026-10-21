@@ -84,6 +84,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.scheduling.drainGracePeriodSecs | int | `3600` | Seconds a terminating session-manager pod waits for its runs to end before it is stopped. |
 | agents.scheduling.minReplicas | int | `2` | Session-manager pods each agent runs at least. A roll replaces one while the other takes new runs. |
 | agents.scheduling.pollIntervalSecs | int | `1` | Seconds between polls for pending runs, and before a run with no free pod is tried again. |
+| agents.scheduling.provisionBudgetSecs | int | `600` | Seconds a run may wait for its agent to finish provisioning before it fails. |
 | agents.scheduling.startBudgetSecs | int | `180` | Seconds a run may stay pending before it fails. |
 | agents.scheduling.workerConcurrency | int | `16` | Runs one orbit-agents replica starts at once. |
 | agents.serviceAccount.annotations | object | `{}` |  |

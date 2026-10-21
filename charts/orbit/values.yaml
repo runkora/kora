@@ -615,6 +615,8 @@ agents:
     pollIntervalSecs: 1
     # -- Seconds a run may stay pending before it fails.
     startBudgetSecs: 180
+    # -- Seconds a run may wait for its agent to finish provisioning before it fails.
+    provisionBudgetSecs: 600
     # -- Session-manager pods each agent runs at least. A roll replaces one while the other takes new runs.
     minReplicas: 2
     # -- Seconds a terminating session-manager pod waits for its runs to end before it is stopped.

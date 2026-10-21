@@ -42,8 +42,12 @@ type RunServiceConfig struct {
 	// Override in tests to speed up reaper cycles.
 	ReaperInterval time.Duration
 	// StartBudget is how long a run may stay pending, measured from its
-	// created_at, before the scheduler fails it. Defaults to 3 minutes.
+	// created_at or from when its agent last became active, whichever is later,
+	// before the scheduler fails it. Defaults to 3 minutes.
 	StartBudget time.Duration
+	// ProvisionBudget is how long a run may wait for its agent to finish
+	// provisioning, measured from the run's created_at. Defaults to 10 minutes.
+	ProvisionBudget time.Duration
 	// StartPollInterval is how often the scheduler claims pending runs and how
 	// long a released run waits before it can be claimed again. Defaults to 1 second.
 	StartPollInterval time.Duration

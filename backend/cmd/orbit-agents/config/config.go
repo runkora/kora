@@ -108,6 +108,8 @@ type Config struct {
 			PollIntervalSecs int `yaml:"pollIntervalSecs"`
 			// StartBudgetSecs is how long a run may stay pending before it fails.
 			StartBudgetSecs int `yaml:"startBudgetSecs"`
+			// ProvisionBudgetSecs is how long a run may wait for its agent to finish provisioning before it fails.
+			ProvisionBudgetSecs int `yaml:"provisionBudgetSecs"`
 			// MinReplicas is the session-manager pod count of each agent and its HPA minimum.
 			MinReplicas int32 `yaml:"minReplicas"`
 			// DrainGracePeriodSecs is how long a terminating session-manager pod waits for its runs to end.
