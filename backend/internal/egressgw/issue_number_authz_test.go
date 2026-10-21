@@ -64,7 +64,7 @@ func reactOnPR(t *testing.T, eval grantEvaluator) (Decision, map[string]string, 
 	})
 	registry := NewAdapterRegistry()
 	registry.Register(githubapp.New(ghclient.NewClient(gh.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger))
-	broker := NewBroker(eval, repo, registry, passthrough.New(), logger)
+	broker := NewBroker(eval, repo, registry, passthrough.New(), logger, nil)
 
 	u, _ := url.Parse("https://api.github.com/repos/clear-route/constellation-iac/issues/1054/reactions")
 	httpReq, _ := http.NewRequest(http.MethodPost, u.String(), nil)

@@ -93,10 +93,17 @@ func realMain() error {
 	defer db.Close()
 	defer redis.Close()
 
-	controller, scopeClient, err := initController(ctx, logger, db, redis, metricsBootstrap.Meter())
+	controller, scopeClient, triggersMetrics, err := initController(ctx, logger, db, redis, metricsBootstrap.Meter())
 	if err != nil {
 		return fmt.Errorf("init controller: %w", err)
 	}
+	// Close is nil-safe (see (*triggers.Metrics).Close), so this runs
+	// unconditionally — mirroring shutdownMeter above.
+	defer func() {
+		if err := triggersMetrics.Close(); err != nil {
+			logger.Error(ctx, "Error shutting down triggers metrics", logging.Field{Key: "error", Value: err.Error()})
+		}
+	}()
 
 	// Publish the Triggers scope vocabulary so the policy service can validate
 	// triggers:read / triggers:write when they are granted, and keep it
@@ -120,19 +127,19 @@ func initController(
 	db *storage.DB,
 	redis *storage.RedisClient,
 	meter metric.Meter,
-) (platformapi.Controller, *routescopes.Client, error) {
+) (platformapi.Controller, *routescopes.Client, *triggers.Metrics, error) {
 	cipherKey, err := triggers.LoadCipherKey()
 	if err != nil {
-		return nil, nil, fmt.Errorf("load triggers encryption key: %w", err)
+		return nil, nil, nil, fmt.Errorf("load triggers encryption key: %w", err)
 	}
 	cipher, err := triggers.NewSecretCipherFromKey(cipherKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("init triggers cipher: %w", err)
+		return nil, nil, nil, fmt.Errorf("init triggers cipher: %w", err)
 	}
 	// The product name goes into the reasons recorded on routed deliveries.
 	b, err := brand.Load()
 	if err != nil {
-		return nil, nil, fmt.Errorf("load brand: %w", err)
+		return nil, nil, nil, fmt.Errorf("load brand: %w", err)
 	}
 
 	// identity is the sole token authority. This binary holds no signing key:
@@ -161,21 +168,19 @@ func initController(
 	// is not fatal — a service that refuses to start because a gauge could not
 	// be registered has turned its own observability into an outage — but it is
 	// loud, because unmeasured is not the state anyone signed up for.
-	metrics, err := triggers.NewMetrics(meter, repo, logger)
-	if err != nil {
-		logger.Error(ctx, "failed to register trigger metrics; running uninstrumented",
-			logging.Field{Key: "error", Value: err.Error()})
-		metrics = nil
-	}
+	// RegisterDomain is the shared helper every service's main.go uses for this.
+	metrics := platformmetrics.RegisterDomain(ctx, logger, "orbit-triggers", func() (*triggers.Metrics, error) {
+		return triggers.NewMetrics(meter, repo, logger)
+	})
 
 	registry, err := triggers.NewRegistry()
 	if err != nil {
-		return nil, nil, fmt.Errorf("init trigger providers: %w", err)
+		return nil, nil, nil, fmt.Errorf("init trigger providers: %w", err)
 	}
 
 	// One admission controller, shared: it holds no per-caller state, and two
 	// instances deciding the same trigger's ceiling would be two answers.
-	admission := triggers.NewAdmission(repo, logger)
+	admission := triggers.NewAdmission(repo, logger, metrics)
 
 	svc := triggers.NewService(
 		repo,
@@ -236,7 +241,7 @@ func initController(
 	// See ADR Decision 2.
 	scheduler := triggers.NewScheduler(svc, repo, logger, metrics)
 	if err := scheduler.Start(ctx); err != nil {
-		return nil, nil, fmt.Errorf("start trigger scheduler: %w", err)
+		return nil, nil, nil, fmt.Errorf("start trigger scheduler: %w", err)
 	}
 	go func(parentCtx context.Context) {
 		<-parentCtx.Done()
@@ -250,7 +255,7 @@ func initController(
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 	auth := authMiddleware(verifier, storage.NewJTIBlocklist(redis), logger)
 
-	return triggers.NewController(svc, sources, lifecycle, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger), scopeClient, nil
+	return triggers.NewController(svc, sources, lifecycle, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger), scopeClient, metrics, nil
 }
 
 // routeScopes binds each management route to the scope it requires.

@@ -42,7 +42,7 @@ func TestAuthorize_UnreadableConnectionDenies(t *testing.T) {
 
 	registry := NewAdapterRegistry()
 	registry.Register(badConfigAdapter{})
-	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger)
+	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger, nil)
 
 	req, _ := http.NewRequest(http.MethodGet, "https://github.com/orbital/orbit", nil)
 	_, err := broker.Authorize(context.Background(),

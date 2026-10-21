@@ -81,12 +81,52 @@ type RunService struct {
 	// attempts and schedulerDone track the scheduler started by StartScheduler.
 	attempts      sync.WaitGroup
 	schedulerDone chan struct{}
+	metrics       *Metrics // nil = no instruments installed; every record call is a no-op
+
+	// frameworkCache memoizes each in-flight run's metric label values —
+	// framework, tenant_id, agent_id — keyed by run ID. None of the three
+	// change after a run's creation (framework/agent_id come from the agent
+	// type the run was started against; tenant_id from the run itself), so
+	// runMetricLabelsFor (used by Transition and by the other state-write paths
+	// below) reads them from the database at most once per run's lifetime
+	// instead of once per transition — the idle↔active turn boundary fires far
+	// more often than a run reaches a terminal state.
+	//
+	// Every state-write path that can end a run on this replica removes its
+	// entry when it does: Transition (completed/failed/budget_exhausted),
+	// cleanupFailedStart's MarkRunFailed (delegation.go — a run failed before
+	// it ever started), StartReaper's per-run cleanup below, and TerminateRun.
+	// That bounds the map to in-flight runs plus, as a residual, runs this
+	// replica cached a label for (via Transition) but that later ended on a
+	// different replica: no entry exists on this process for that run's own
+	// eviction to remove. Accepted rather than a full redesign (an LRU/TTL
+	// eviction, or a shared store) — run IDs are UUIDs with no cross-run
+	// collision risk, and the per-process map only grows by runs that both
+	// transitioned here and terminated elsewhere, which is bounded by overall
+	// run volume, not unbounded time.
+	frameworkCache sync.Map // runID string -> runMetricLabels
+}
+
+// runMetricLabels are the orbit_agents_run_transitions_total /
+// orbit_agents_run_duration_seconds label values that are fixed for a run's
+// entire lifetime, cached by RunService.frameworkCache so Transition's hot
+// path (the idle↔active turn boundary) never needs a database round trip to
+// populate them.
+type runMetricLabels struct {
+	Framework   AgentFramework
+	TenantID    string
+	AgentTypeID string
 }
 
 // missingProvisioner creates an agent type's missing k8s resources without changing existing ones.
 type missingProvisioner interface {
 	ProvisionMissing(ctx context.Context, at AgentType, namespace string) error
 }
+
+// SetMetrics installs the instrument set Transition and StartReaper record
+// run-transition, run-duration, and reaped-run counts on. When unset, those
+// calls are no-ops.
+func (s *RunService) SetMetrics(m *Metrics) { s.metrics = m }
 
 // SetScopeResolver installs the resolver used to render the runtime-environment
 // brief appended to an agent's system prompt at run start. When unset, runs start
@@ -476,6 +516,10 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 		span.SetStatus(codes.Error, "delete run")
 		return err
 	}
+	// The run is gone, so any frameworkCache entry for it (populated by an
+	// earlier Transition call on this replica) would otherwise never be
+	// evicted — termination does not go through Transition.
+	s.frameworkCache.Delete(id)
 	return nil
 }
 
@@ -502,6 +546,19 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		logging.Field{Key: "from", Value: string(from)},
 		logging.Field{Key: "to", Value: string(to)},
 	)
+
+	isTerminal := to == RunStateCompleted || to == RunStateFailed || to == RunStateBudgetExhausted
+
+	// Best-effort: resolve the run's agent framework for the transition
+	// counter below, and (on a terminal transition) the run itself for the
+	// cleanup further down. A failure here is logged, not returned — the
+	// transition itself already committed via SetRunState above, and this is
+	// read-only context for it, the same pattern this file's other
+	// agent-type lookups already use. See
+	// docs/adr/2026-10-07-domain-metrics-instrumentation.md.
+	labels, run := s.runMetricLabelsFor(ctx, runID, isTerminal)
+	s.metrics.recordTransition(ctx, from, to, labels.Framework, labels.TenantID, labels.AgentTypeID)
+
 	payload := []byte(`{"state":"` + string(to) + `"}`)
 	at := eventTime()
 	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload, CreatedAt: at})
@@ -522,14 +579,14 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 	}
 	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo, At: at})
 
-	if to == RunStateCompleted || to == RunStateFailed || to == RunStateBudgetExhausted {
-		run, err := s.repo.GetRun(ctx, runID)
-		if err != nil {
-			s.logger.Warn(ctx, "get run for sandbox cleanup failed",
-				logging.Field{Key: "run_id", Value: runID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
+	if isTerminal {
+		s.frameworkCache.Delete(runID)
+		if run == nil {
+			// Already logged above (the GetRun that would answer this failed).
 			return nil
+		}
+		if run.StartedAt != nil && run.CompletedAt != nil {
+			s.metrics.recordRunDuration(ctx, run.CompletedAt.Sub(*run.StartedAt), labels.TenantID, labels.AgentTypeID)
 		}
 		// The delegation ends with the run (delegated-agent-identity ADR,
 		// Decision 3): tombstone the issuance so no access survives terminal state.
@@ -537,6 +594,57 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		s.deprovisionSandbox(ctx, run)
 	}
 	return nil
+}
+
+// runMetricLabelsFor resolves a run's metric label values (framework,
+// tenant_id, agent_id), consulting frameworkCache first.
+//
+// Neither the framework, tenant_id, nor agent_id changes after a run starts,
+// so all three are cached together by run ID after the first lookup rather
+// than refetched on every call: the idle↔active turn boundary transitions far
+// more often than a run reaches a terminal state, and refetching
+// unconditionally would put a GetRun + GetAgentType round trip on that hot
+// path. force refetches even on a cache hit — Transition
+// passes isTerminal, since only the freshly loaded run carries
+// started_at/completed_at for the duration sample a terminal transition
+// records.
+//
+// run is non-nil only when this call fetched it (a miss, or force); callers
+// that need it on every call (Transition's terminal branch) pass force=true.
+// A lookup failure is logged, not returned: label resolution is best-effort
+// context for a metric, never a reason to treat the state write — which
+// already committed — as failed.
+func (s *RunService) runMetricLabelsFor(ctx context.Context, runID string, force bool) (labels runMetricLabels, run *Run) {
+	cached, cacheHit := s.frameworkCache.Load(runID)
+	if cacheHit {
+		labels = cached.(runMetricLabels)
+	}
+	if cacheHit && !force {
+		return labels, nil
+	}
+	var runErr error
+	run, runErr = s.repo.GetRun(ctx, runID)
+	if runErr != nil {
+		s.logger.Warn(ctx, "get run for metric labels failed",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: runErr.Error()},
+		)
+		return labels, nil
+	}
+	if !cacheHit {
+		labels.TenantID = run.TenantID
+		labels.AgentTypeID = run.AgentTypeID
+		if agentType, atErr := s.atRepo.GetAgentType(ctx, run.AgentTypeID); atErr != nil {
+			s.logger.Warn(ctx, "get agent type for metric labels failed",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "error", Value: atErr.Error()},
+			)
+		} else {
+			labels.Framework = agentType.Framework
+			s.frameworkCache.Store(runID, labels)
+		}
+	}
+	return labels, run
 }
 
 // TransitionRunState applies a state transition signaled by the session-manager callback.
@@ -1053,22 +1161,50 @@ func (s *RunService) StartReaper(ctx context.Context) {
 			for _, id := range completedIDs {
 				s.publishReapedState(ctx, id, RunStateCompleted)
 			}
-			for _, id := range append(append([]string{}, failedIDs...), completedIDs...) {
-				run, err := s.repo.GetRun(ctx, id)
-				if err != nil {
-					s.logger.Warn(ctx, "reaper: get run for sandbox cleanup failed",
-						logging.Field{Key: "run_id", Value: id},
-						logging.Field{Key: "error", Value: err.Error()},
-					)
-					continue
-				}
-				// Reaped runs reached a terminal state outside Transition —
-				// tombstone their delegation issuances here too.
-				s.revokeRunDelegation(ctx, run)
-				s.deprovisionSandbox(ctx, run)
+			// recordReaped's tenant_id/agent_id labels require each reaped run's
+			// own row, so metrics are recorded per run here (alongside the
+			// delegation/sandbox cleanup that already needed the same GetRun
+			// call) rather than as one aggregate call per outcome.
+			for _, id := range failedIDs {
+				s.reapedRunCleanup(ctx, id, "failed")
+			}
+			for _, id := range completedIDs {
+				s.reapedRunCleanup(ctx, id, "completed")
 			}
 		}
 	}
+}
+
+// reapedRunCleanup finishes a run the stale-run reaper just moved to a
+// terminal state: it records the runs_reaped and run_duration metrics,
+// tombstones the run's delegation issuance, and deprovisions its sandbox.
+//
+// ReapStaleRuns bypasses Transition — the canonical state-machine authority —
+// because it commits its terminal writes in one bulk UPDATE across every
+// stale run, not a per-run CAS, so it must record here what Transition would
+// have recorded for each one: without this, run_duration was missing for
+// reaped runs entirely, skewing the histogram toward runs that ended cleanly
+// through Transition. The frameworkCache entry is cleared here too, since
+// ReapStaleRuns is one of the paths that can end a run without going through
+// Transition's own eviction.
+func (s *RunService) reapedRunCleanup(ctx context.Context, id, outcome string) {
+	run, err := s.repo.GetRun(ctx, id)
+	if err != nil {
+		s.logger.Warn(ctx, "reaper: get run for sandbox cleanup failed",
+			logging.Field{Key: "run_id", Value: id},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	s.metrics.recordReaped(ctx, outcome, 1, run.TenantID, run.AgentTypeID)
+	if run.StartedAt != nil && run.CompletedAt != nil {
+		s.metrics.recordRunDuration(ctx, run.CompletedAt.Sub(*run.StartedAt), run.TenantID, run.AgentTypeID)
+	}
+	s.frameworkCache.Delete(id)
+	// Reaped runs reached a terminal state outside Transition —
+	// tombstone their delegation issuances here too.
+	s.revokeRunDelegation(ctx, run)
+	s.deprovisionSandbox(ctx, run)
 }
 
 // publishReapedState persists and publishes a run_state event for a reaper-driven

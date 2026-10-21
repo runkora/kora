@@ -14,7 +14,7 @@ func retryTestService() *Service {
 		ProviderBedrock:  &stubConnector{name: ProviderBedrock},
 		ProviderVertexAI: &stubConnector{name: ProviderVertexAI},
 	}
-	return NewService(&stubEvaluator{}, NewRoutingEngine(connectors, nil, nil), NewNopPricingCache(), nil, nil, logging.NewLoggerWithOutput(io.Discard))
+	return NewService(&stubEvaluator{}, NewRoutingEngine(connectors, nil, nil), NewNopPricingCache(), nil, nil, logging.NewLoggerWithOutput(io.Discard), nil)
 }
 
 func TestRetryTargets_RequestRejectedStopsFailover(t *testing.T) {

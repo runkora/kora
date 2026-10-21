@@ -240,10 +240,55 @@ func (s *RunService) cleanupFailedStart(ctx context.Context, runID, mintedJTI st
 				logging.Field{Key: "run_id", Value: runID},
 				logging.Field{Key: "error", Value: ferr.Error()},
 			)
+		} else {
+			s.recordStartFailureMetrics(ctx, runID)
 		}
+		// MarkRunFailed just reached a terminal state outside Transition — the
+		// only other place that evicts frameworkCache — so clear it here too
+		// (PR #418 review, Finding 2). Safe even when no entry exists yet: a
+		// run that fails this early in StartRun was never cached.
+		s.frameworkCache.Delete(runID)
 	}
 	if mintedJTI != "" && s.delegation != nil {
 		s.delegation.RevokeBestEffort(ctx, mintedJTI, runID)
+	}
+}
+
+// recordStartFailureMetrics records the run-transitions (and, when the run had
+// already started, run-duration) metrics for a run that MarkRunFailed just
+// moved to failed.
+//
+// MarkRunFailed bypasses Transition — the canonical state-machine authority —
+// because it unconditionally fails a run mid-start from whatever non-terminal
+// state it reached, rather than CAS-ing a known "from" state, so it must
+// record here what Transition would have recorded (PR #418 review, Finding
+// 1). In practice "from" is always pending: cleanupFailedStart only runs
+// between StartRun's CreateRun and QueueRun calls, before anything else can
+// move the run on. Labels are resolved the same way Transition resolves
+// them — GetRun then GetAgentType — rather than through frameworkCache
+// (runMetricLabelsFor), since this run was never cached: a failure this early
+// means Transition has not run for it yet.
+func (s *RunService) recordStartFailureMetrics(ctx context.Context, runID string) {
+	run, err := s.repo.GetRun(ctx, runID)
+	if err != nil {
+		s.logger.Warn(ctx, "get run for start-failure metrics failed",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	var framework AgentFramework
+	if at, atErr := s.atRepo.GetAgentType(ctx, run.AgentTypeID); atErr != nil {
+		s.logger.Warn(ctx, "get agent type for start-failure metrics failed",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: atErr.Error()},
+		)
+	} else {
+		framework = at.Framework
+	}
+	s.metrics.recordTransition(ctx, RunStatePending, RunStateFailed, framework, run.TenantID, run.AgentTypeID)
+	if run.StartedAt != nil && run.CompletedAt != nil {
+		s.metrics.recordRunDuration(ctx, run.CompletedAt.Sub(*run.StartedAt), run.TenantID, run.AgentTypeID)
 	}
 }
 

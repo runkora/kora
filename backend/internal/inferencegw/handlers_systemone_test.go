@@ -73,7 +73,7 @@ func newSystemOneEnv(t *testing.T, eval policy.Evaluator, conns map[ProviderName
 	router.LoadVirtualCatalog(newTestSnap(vms, nil))
 	repo := newMockUsageRepo()
 	logger := logging.NewLoggerWithOutput(io.Discard)
-	svc := NewService(eval, router, NewStaticPricingCache(prices), repo, &mockSpendCounter{}, logger)
+	svc := NewService(eval, router, NewStaticPricingCache(prices), repo, &mockSpendCounter{}, logger, nil)
 	c := &Controller{svc: svc, logger: logger}
 	return systemOneEnv{handler: c.handleSystemOne, usage: repo, router: router}
 }

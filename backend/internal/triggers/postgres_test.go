@@ -1501,7 +1501,7 @@ func TestPostgres_DeriveDeliveryStatus(t *testing.T) {
 	}
 	derived := func(t *testing.T, deliveryID string) string {
 		t.Helper()
-		if err := r.DeriveDeliveryStatus(ctx, deliveryID); err != nil {
+		if _, _, err := r.DeriveDeliveryStatus(ctx, deliveryID, ""); err != nil {
 			t.Fatalf("DeriveDeliveryStatus: %v", err)
 		}
 		got, err := r.GetDelivery(ctx, tenant, deliveryID)
@@ -1553,6 +1553,164 @@ func TestPostgres_DeriveDeliveryStatus(t *testing.T) {
 			if got := derived(t, id); got != arrival {
 				t.Errorf("status = %q, want %q kept: it describes the arrival, not the fan-out", got, arrival)
 			}
+		}
+	})
+
+	// A multi-trigger delivery calls derive() once per per-trigger outcome
+	// recorded against it, not once overall. The first call that actually moves
+	// the status must return it (so the caller counts the delivery exactly
+	// once); every subsequent call within the same final status must return ""
+	// (no row affected), or the delivery-outcomes counter double-counts one
+	// delivery per redundant re-derive.
+	t.Run("a repeat derive with no status change returns no row", func(t *testing.T) {
+		id := newDelivery(t, StatusVerified)
+		addRun(t, id, RunStatusDispatched)
+
+		first, final, err := r.DeriveDeliveryStatus(ctx, id, "")
+		if err != nil {
+			t.Fatalf("DeriveDeliveryStatus (first): %v", err)
+		}
+		if first != StatusDispatched {
+			t.Fatalf("first derive = %q, want %q: the genuine transition must be reported", first, StatusDispatched)
+		}
+		if !final {
+			t.Errorf("final = false, want true: no pending-queue row exists for this delivery")
+		}
+
+		// A second trigger on the same delivery also dispatches: the computed
+		// status ('dispatched') is unchanged, so this re-derive must report
+		// nothing to count, even though the UPDATE statement runs again.
+		addRun(t, id, RunStatusDispatched)
+		second, _, err := r.DeriveDeliveryStatus(ctx, id, "")
+		if err != nil {
+			t.Fatalf("DeriveDeliveryStatus (second): %v", err)
+		}
+		if second != "" {
+			t.Errorf("second derive = %q, want \"\": an unchanged status must not be recounted", second)
+		}
+
+		// The stored status is still correct even though the second call wrote
+		// nothing: IS DISTINCT FROM only suppresses the no-op write, it does not
+		// leave the row stale.
+		got, err := r.GetDelivery(ctx, tenant, id)
+		if err != nil {
+			t.Fatalf("GetDelivery: %v", err)
+		}
+		if got.Status != StatusDispatched {
+			t.Errorf("stored status = %q, want %q", got.Status, StatusDispatched)
+		}
+	})
+
+	// The dispatch paths write the delivery's status (UpdateDeliveryOutcome)
+	// before deriving, so by derive time the stored status already equals the
+	// computed one. The delivery's final outcome must still be reported, once.
+	t.Run("a pre-written status still reports final, once", func(t *testing.T) {
+		id := newDelivery(t, StatusVerified)
+		addRun(t, id, RunStatusDispatched)
+		runID := "run-prewritten"
+		if err := r.UpdateDeliveryOutcome(ctx, id, StatusDispatched, &tr.ID, &runID, nil); err != nil {
+			t.Fatalf("UpdateDeliveryOutcome: %v", err)
+		}
+
+		status, final, err := r.DeriveDeliveryStatus(ctx, id, "")
+		if err != nil {
+			t.Fatalf("DeriveDeliveryStatus (first): %v", err)
+		}
+		if status != StatusDispatched || !final {
+			t.Errorf("first derive = (%q, final=%v), want (%q, true): the status was already stored but the outcome was never counted", status, final, StatusDispatched)
+		}
+
+		_, final, err = r.DeriveDeliveryStatus(ctx, id, "")
+		if err != nil {
+			t.Fatalf("DeriveDeliveryStatus (second): %v", err)
+		}
+		if final {
+			t.Error("second derive reported final again: the delivery would be counted twice")
+		}
+	})
+
+	// A multi-trigger fan-out can change the computed status more than once as
+	// outcomes land (skipped, then failed, then dispatched): only the change
+	// that lands with nothing left outstanding is the delivery's real outcome.
+	// While a sibling trigger still owns a row in trigger_pending_deliveries,
+	// a status change must report final=false so the caller does not count an
+	// intermediate transition.
+	t.Run("final is false while a sibling trigger is still pending", func(t *testing.T) {
+		id := newDelivery(t, StatusVerified)
+		pending := newPending(tenant, tr.ID)
+		pending.DeliveryID = id
+		if err := r.EnqueuePending(ctx, pending); err != nil {
+			t.Fatalf("EnqueuePending: %v", err)
+		}
+
+		// One trigger's outcome lands (filtered -> computed status 'skipped'),
+		// but the sibling fire enqueued above has not resolved yet.
+		addRun(t, id, RunStatusFiltered)
+		status, final, err := r.DeriveDeliveryStatus(ctx, id, "")
+		if err != nil {
+			t.Fatalf("DeriveDeliveryStatus: %v", err)
+		}
+		if status != StatusSkipped {
+			t.Fatalf("status = %q, want %q", status, StatusSkipped)
+		}
+		if final {
+			t.Error("final = true, want false: a sibling trigger's fire is still queued")
+		}
+
+		// Once the sibling's own fire dispatches and releases its pending row,
+		// excluding its own (now nonexistent) id still correctly reports final.
+		if err := r.ReleasePending(ctx, pending.ID); err != nil {
+			t.Fatalf("ReleasePending: %v", err)
+		}
+		addRun(t, id, RunStatusDispatched)
+		status, final, err = r.DeriveDeliveryStatus(ctx, id, "")
+		if err != nil {
+			t.Fatalf("DeriveDeliveryStatus: %v", err)
+		}
+		if status != StatusDispatched {
+			t.Fatalf("status = %q, want %q", status, StatusDispatched)
+		}
+		if !final {
+			t.Error("final = false, want true: nothing is left outstanding")
+		}
+	})
+
+	// DispatchPending calls DeriveDeliveryStatus before the worker releases its
+	// own claim (worker.go releases only after DispatchPending returns), so the
+	// row for the trigger run settling right now is still present. Excluding it
+	// by id is what lets its own completion read as final.
+	t.Run("excludePendingID discounts the caller's own not-yet-released claim", func(t *testing.T) {
+		id := newDelivery(t, StatusVerified)
+		pending := newPending(tenant, tr.ID)
+		pending.DeliveryID = id
+		if err := r.EnqueuePending(ctx, pending); err != nil {
+			t.Fatalf("EnqueuePending: %v", err)
+		}
+
+		addRun(t, id, RunStatusDispatched)
+		status, final, err := r.DeriveDeliveryStatus(ctx, id, pending.ID)
+		if err != nil {
+			t.Fatalf("DeriveDeliveryStatus: %v", err)
+		}
+		if status != StatusDispatched {
+			t.Fatalf("status = %q, want %q", status, StatusDispatched)
+		}
+		if !final {
+			t.Error("final = false, want true: the only pending row left is the caller's own, excluded")
+		}
+
+		// Without the exclusion, the same still-claimed row reads as an
+		// outstanding sibling and the delivery is not final yet.
+		_, finalUnexcluded, err := r.DeriveDeliveryStatus(ctx, id, "")
+		if err != nil {
+			t.Fatalf("DeriveDeliveryStatus: %v", err)
+		}
+		if finalUnexcluded {
+			t.Error("final = true without exclusion, want false: the row is still there")
+		}
+
+		if err := r.ReleasePending(ctx, pending.ID); err != nil {
+			t.Fatalf("ReleasePending: %v", err)
 		}
 	})
 }
@@ -2321,7 +2479,7 @@ func TestPostgres_Admission_Coalesces(t *testing.T) {
 	s := seedSource(t, r, tenant)
 	tr := seedPendingTrigger(t, r, tenant, s.ID, "coalescing", 4)
 	tr.Coalesce = &CoalesceConfig{Key: "{{ k }}", WindowSeconds: 60}
-	adm := NewAdmission(r, silentLogger())
+	adm := NewAdmission(r, silentLogger(), nil)
 
 	var ids []string
 	for range 2 {

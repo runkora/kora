@@ -58,7 +58,7 @@ func (s *Service) admitOrDerive(ctx context.Context, t Trigger, deliveryID strin
 	if admitted {
 		return true, nil
 	}
-	s.outcomes.derive(ctx, deliveryID)
+	s.outcomes.derive(ctx, deliveryID, t.TenantID)
 	return false, err
 }
 

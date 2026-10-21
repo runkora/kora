@@ -84,6 +84,7 @@ type Service struct {
 	policyEval    policy.Evaluator
 	logger        logging.Logger
 	tracer        trace.Tracer
+	metrics       *Metrics // nil records nothing
 
 	// httpClient is used for all outbound OIDC requests. It is set to a
 	// sensible default in NewService and can be replaced in tests.
@@ -128,6 +129,10 @@ type Service struct {
 // ORBIT_TOKEN_SIGNING_KEY environment variables (via initSigningKey).
 // In local development, if neither is set, a throwaway key is generated
 // and a prominent warning is logged. Never use auto-generated keys in production.
+//
+// metrics may be nil, in which case nothing is recorded: instrumentation is
+// injected rather than reached for globally, so a caller that has not wired a
+// meter gets exactly the behavior it had before.
 func NewService(
 	ctx context.Context,
 	cfg *Config,
@@ -144,6 +149,7 @@ func NewService(
 	policyEval policy.Evaluator,
 	extractor PrincipalExtractor,
 	logger logging.Logger,
+	metrics *Metrics,
 ) (*Service, error) {
 	if profiles == nil {
 		profiles = noopUserProfileRepository{}
@@ -169,6 +175,7 @@ func NewService(
 		policyEval:    policyEval,
 		extractor:     extractor,
 		logger:        logger,
+		metrics:       metrics,
 		tracer:        otel.Tracer("orbit.identity"),
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		oidcTenants:   make(map[string]*tenantOIDCState),
@@ -565,6 +572,9 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 		if errors.Is(err, ErrRefreshTokenNotFound) {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "refresh_token not found")
+			// No tenant is resolvable yet: the hash lookup itself failed, so
+			// there is no refresh-token or session record to read one from.
+			s.metrics.recordAuthFailure(ctx, authFailureReasonRefreshTokenNotFound, "")
 			return nil, ErrRefreshTokenNotFound
 		}
 		span.RecordError(err)
@@ -575,11 +585,16 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 	if rt.RevokedAt != nil {
 		span.RecordError(ErrRefreshTokenRevoked)
 		span.SetStatus(codes.Error, "refresh_token revoked")
+		// RefreshToken carries no tenant_id (only session_id), and the
+		// backing session isn't looked up on this failing path.
+		s.metrics.recordAuthFailure(ctx, authFailureReasonRefreshTokenRevoked, "")
 		return nil, ErrRefreshTokenRevoked
 	}
 	if time.Now().After(rt.ExpiresAt) {
 		span.RecordError(ErrRefreshTokenExpired)
 		span.SetStatus(codes.Error, "refresh_token expired")
+		// Same reason as above: no tenant naturally in scope here.
+		s.metrics.recordAuthFailure(ctx, authFailureReasonRefreshTokenExpired, "")
 		return nil, ErrRefreshTokenExpired
 	}
 
@@ -597,6 +612,7 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 	if session.RevokedAt != nil {
 		span.RecordError(ErrTokenRevoked)
 		span.SetStatus(codes.Error, "session revoked")
+		s.metrics.recordAuthFailure(ctx, authFailureReasonTokenRevoked, session.TenantID)
 		return nil, ErrTokenRevoked
 	}
 
@@ -710,6 +726,9 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid token")
+		// Parsing/verification itself failed, so there are no claims to read
+		// a tenant from.
+		s.metrics.recordAuthFailure(ctx, authFailureReasonInvalidToken, "")
 		return ErrInvalidToken
 	}
 
@@ -717,6 +736,9 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 	if jti == "" {
 		span.RecordError(ErrInvalidToken)
 		span.SetStatus(codes.Error, "missing jti")
+		// claims parsed and verified successfully here, so the tenant is
+		// genuinely in scope even though this request is rejected.
+		s.metrics.recordAuthFailure(ctx, authFailureReasonInvalidToken, claims.Kora.TenantID)
 		return ErrInvalidToken
 	}
 

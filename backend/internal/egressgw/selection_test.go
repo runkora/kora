@@ -66,7 +66,7 @@ func selectionBroker(pol *selectionPolicy, conns candidateConns) *Broker {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	adapters := NewAdapterRegistry()
 	adapters.Register(githubapp.New(nil, nil, logger))
-	return NewBroker(pol, conns, adapters, passthrough.New(), logger)
+	return NewBroker(pol, conns, adapters, passthrough.New(), logger, nil)
 }
 
 func egressRequest(method, url string) EgressRequest {
@@ -213,7 +213,7 @@ func TestAuthorize_UnresolvedRootReadLogsAtDebug(t *testing.T) {
 			logger := logging.NewLoggerWithOutput(&logs)
 			adapters := NewAdapterRegistry()
 			adapters.Register(githubapp.New(nil, nil, logger))
-			b := NewBroker(&selectionPolicy{}, both, adapters, passthrough.New(), logger)
+			b := NewBroker(&selectionPolicy{}, both, adapters, passthrough.New(), logger, nil)
 
 			_, err := b.Authorize(context.Background(), acmeClaims, egressRequest(tc.method, tc.url))
 			var d *Denial

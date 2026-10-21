@@ -46,7 +46,7 @@ func (f failingOn) Scopes(context.Context, policy.ScopesInput) ([]string, error)
 
 func TestEvaluatePolicy_AlsoRequiredEvaluatorErrorFailsClosed(t *testing.T) {
 	cls := credentials.Classification{Action: "pulls:read", AlsoRequired: []string{"contents:read"}, Qualifier: "orbit"}
-	b := NewBroker(failingOn("github:contents:orbit:read"), nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+	b := NewBroker(failingOn("github:contents:orbit:read"), nil, nil, nil, logging.NewLoggerWithOutput(io.Discard), nil)
 	got, err := b.evaluatePolicy(context.Background(), &token.PlatformClaims{}, &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "POST"})
 	if !errors.Is(err, ErrForbidden) {
 		t.Fatalf("want ErrForbidden, got %v (authorized %v)", err, got)
@@ -71,7 +71,7 @@ func TestEvaluatePolicy_AlsoRequired(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			b := NewBroker(tc.held, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+			b := NewBroker(tc.held, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard), nil)
 			got, err := b.evaluatePolicy(context.Background(), &token.PlatformClaims{}, conn, cls, EgressRequest{Host: "api.github.com", Method: "POST"})
 			if tc.want == nil {
 				if !errors.Is(err, ErrForbidden) {
@@ -93,7 +93,7 @@ func TestEvaluatePolicy_AlsoRequired(t *testing.T) {
 // would allow it.
 func TestEvaluatePolicy_AlsoRequiredDenialNamesAction(t *testing.T) {
 	cls := credentials.Classification{Action: "pulls:read", AlsoRequired: []string{"contents:read"}, Qualifier: "orbit"}
-	b := NewBroker(heldScopes{"github:pulls:orbit:read"}, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+	b := NewBroker(heldScopes{"github:pulls:orbit:read"}, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard), nil)
 	_, err := b.evaluatePolicy(context.Background(), &token.PlatformClaims{}, &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "POST"})
 	var d *Denial
 	if !errors.As(err, &d) {
@@ -135,7 +135,7 @@ func TestBrokerChecks_CarryDelegation(t *testing.T) {
 				ctx = policy.WithDelegation(ctx, tc.delegation)
 			}
 			rec := &delegationRecorder{}
-			b := NewBroker(rec, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+			b := NewBroker(rec, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard), nil)
 			if _, err := b.evaluatePolicy(ctx, &token.PlatformClaims{}, &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "GET"}); err != nil {
 				t.Fatalf("evaluatePolicy: %v", err)
 			}
@@ -173,7 +173,7 @@ func TestBrokerAuthorize_DelegationRunBinding(t *testing.T) {
 	ctx := policy.WithDelegation(context.Background(), delegation)
 
 	t.Run("connection check for another run", func(t *testing.T) {
-		b := NewBroker(engine, nil, nil, nil, logger)
+		b := NewBroker(engine, nil, nil, nil, logger, nil)
 		cls := credentials.Classification{Action: "issues:read", Qualifier: "orbit"}
 		_, err := b.evaluatePolicy(ctx, claimsFor("run-b"), &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "GET"})
 		var d *Denial
@@ -182,13 +182,13 @@ func TestBrokerAuthorize_DelegationRunBinding(t *testing.T) {
 		}
 	})
 	t.Run("posture check for another run", func(t *testing.T) {
-		b := NewBroker(engine, nil, nil, nil, logger)
+		b := NewBroker(engine, nil, nil, nil, logger, nil)
 		if b.ownEgressAllows(ctx, claimsFor("run-b"), "github.com") {
 			t.Fatal("posture check allowed a delegation bound to another run")
 		}
 	})
 	t.Run("no attested run", func(t *testing.T) {
-		b := NewBroker(engine, nil, nil, nil, logger)
+		b := NewBroker(engine, nil, nil, nil, logger, nil)
 		_, err := b.Authorize(ctx, claimsFor(""), EgressRequest{Host: "api.github.com", Method: "GET"})
 		if !errors.Is(err, ErrDelegationRunUnattested) || !errors.Is(err, ErrForbidden) {
 			t.Fatalf("want ErrDelegationRunUnattested, got %v", err)
