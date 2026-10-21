@@ -241,7 +241,8 @@ Pod annotations that route the Istio sidecar's certificate through SPIRE and
 mount the SPIFFE workload socket. Annotation-driven so it works on any
 conforming Istio, with no custom injection template. IN_MESH keeps Istio's
 peer-metadata headers off calls that leave the mesh, so they cannot expose pod
-details to third parties. Takes (dict "root" $).
+details to third parties. An optional drainSecs keeps the sidecar serving that
+long after SIGTERM so in-flight streams finish. Takes (dict "root" $ "drainSecs" <int>).
 */}}
 {{- define "orbit.spireProxyAnnotations" -}}
 proxy.istio.io/config: |
@@ -252,6 +253,9 @@ proxy.istio.io/config: |
   proxyHeaders:
     metadataExchangeHeaders:
       mode: IN_MESH
+  {{- with .drainSecs }}
+  terminationDrainDuration: {{ . }}s
+  {{- end }}
 {{- end }}
 
 {{/*
