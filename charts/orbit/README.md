@@ -471,6 +471,7 @@ Kubernetes: `>=1.34.0-0`
 | skillsService.image.registry | string | `""` |  |
 | skillsService.image.repository | string | `"orbit-skills-service"` |  |
 | skillsService.image.tag | string | `""` |  |
+| skillsService.marketplaceSourcesConfigMapName | string | `"orbit-skill-marketplace-sources"` |  |
 | skillsService.nodeSelector | object | `{}` |  |
 | skillsService.replicas | int | `1` |  |
 | skillsService.resources.limits.cpu | string | `"500m"` |  |

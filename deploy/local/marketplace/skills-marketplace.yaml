@@ -1,0 +1,15 @@
+# Example skill marketplace for the local example tenant. The repository is on
+# the tenant's spec.allowedMarketplaceRepos (deploy/local/tenants/example.yaml),
+# so the operator serves it. Browsing its skills needs the local GitHub App
+# Secret (secrets/orbit-github-app.pem) with access to the repository.
+apiVersion: orbit.io/v1alpha1
+kind: SkillMarketplaceSource
+metadata:
+  name: skills-marketplace
+  namespace: orbit-tenant-example
+spec:
+  displayName: Clear Route Skills
+  github:
+    owner: clear-route
+    repo: skills-marketplace
+    branch: main

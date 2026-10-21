@@ -88,9 +88,13 @@ spec:
         {{- include "orbit.spireVolumes" . | nindent 8 }}
         {{- include "orbit.configVolume" (dict "root" $ "name" "skillsService" "configMap" "orbit-skills-service-config" "modules" (include "orbit.skillsService.configModules" . | fromYaml)) | nindent 8 }}
         {{- include "orbit.redisCAVolume" . | nindent 8 }}
+        # Rendered by the operator from SkillMarketplaceSource CRs. Optional:
+        # the pod starts before the first render, and skills-service picks the
+        # file up when it appears.
         - name: marketplace-sources
           configMap:
-            name: orbit-skill-marketplace-sources
+            name: {{ .Values.skillsService.marketplaceSourcesConfigMapName }}
+            optional: true
         {{- range .Values.skillsService.githubApps }}
         - name: github-app-{{ .secretName }}
           secret:

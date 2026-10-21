@@ -58,8 +58,9 @@ func main() {
 	}
 
 	// backgroundCtx ends after the HTTP server stops. The policy bundle poll
-	// stops with it.
+	// and the marketplace registry watch stop with it.
 	backgroundCtx, stopBackground := context.WithCancel(ctx)
+	go registry.Watch(backgroundCtx)
 
 	server, register, err := initServer(backgroundCtx, logger, redis, registry)
 	if err != nil {

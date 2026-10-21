@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/clear-route/orbit/internal/platform/marketplace"
 )
 
 // PolicyConfig configures the in-process OPA policy evaluator and the
@@ -63,7 +64,7 @@ type Config struct {
 	Policy PolicyConfig `yaml:"policy"`
 
 	Marketplace struct {
-		// SourcesConfigPath is the path to the mounted skills-mapping.yaml.
+		// SourcesConfigPath is the path to the mounted marketplace-sources.json.
 		// Loaded from ORBIT_MARKETPLACE_SOURCES_CONFIG — never from YAML.
 		SourcesConfigPath string `yaml:"-"`
 
@@ -112,7 +113,7 @@ func (c *Config) ApplyEnvOverrides() error {
 	if dir == "" {
 		return fmt.Errorf("ORBIT_MARKETPLACE_SOURCES_CONFIG environment variable is required")
 	}
-	c.Marketplace.SourcesConfigPath = filepath.Join(dir, "skills-mapping.yaml")
+	c.Marketplace.SourcesConfigPath = filepath.Join(dir, marketplace.SourcesFileName)
 
 	if v := os.Getenv("LOCAL_TENANT_ID"); v != "" {
 		c.Marketplace.LocalTenantID = v

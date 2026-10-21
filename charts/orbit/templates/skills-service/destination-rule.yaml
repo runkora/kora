@@ -1,0 +1,19 @@
+{{- if .Values.platform.spiffe.enabled }}
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: orbit-skills-service-client-policy
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.labels" . | nindent 4 }}
+    app.kubernetes.io/name: orbit-skills-service
+    app.kubernetes.io/component: skills-service
+spec:
+  host: orbit-skills-service.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
+  exportTo: ["*"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+      subjectAltNames:
+        - "spiffe://{{ include "orbit.trustDomain" . }}/system/skills-service"
+{{- end }}
