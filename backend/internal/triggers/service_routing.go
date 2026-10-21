@@ -67,7 +67,7 @@ func (s *Service) dispatchRouted(ctx, dispatchCtx context.Context, t Trigger, p 
 	}
 	switch {
 	case err != nil:
-		s.recordDispatchFailure(ctx, t, p.DeliveryID, err)
+		s.recordDispatchFailure(ctx, t, p.DeliveryID, p.ID, err)
 	case d.Outcome == RouteOutcomeNoRun:
 		s.recordUnrouted(ctx, t, p.DeliveryID, p.ID, d)
 	case d.Outcome == RouteOutcomeJoinedRun:

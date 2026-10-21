@@ -12,6 +12,11 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/metrics/buckets"
 )
 
+// metricsQueryTimeout bounds the observable-gauge callback's DB reads. The
+// Prometheus exporter invokes the callback at scrape time with no deadline of
+// its own. Mirrors identity's activeSessionsQueryTimeout.
+const metricsQueryTimeout = 5 * time.Second
+
 // Metrics is the orbit-agents feature's instrument set
 // (docs/adr/2026-10-07-domain-metrics-instrumentation.md).
 //
@@ -128,6 +133,12 @@ func NewMetrics(meter metric.Meter, runs runStateReader, sessions sessionCounter
 
 	m.registration, err = meter.RegisterCallback(
 		func(ctx context.Context, o metric.Observer) error {
+			// Bounds both DB reads below: the reader supplies no query
+			// timeout, so a stalled query or pool wait would otherwise hang
+			// collection of every instrument on this service.
+			ctx, cancel := context.WithTimeout(ctx, metricsQueryTimeout)
+			defer cancel()
+
 			counts, countErr := runs.CountRunsByStateAndFramework(ctx)
 			if countErr != nil {
 				// Reported, not returned: a failed scrape of one gauge must not

@@ -172,20 +172,20 @@ type DeliveryStore interface {
 	// independently — writing it inline from the first success is what makes
 	// "started two, denied one" unrepresentable (ADR Decision 3).
 	//
-	// It returns the status it wrote, or "" when the delivery was left
-	// untouched (already 'duplicate'/'missed', no such row, or the computed
-	// status matches what is already stored).
+	// It returns the status the delivery now holds, or "" when the delivery
+	// was left untouched (already 'duplicate'/'missed', no such row, or its
+	// status is unchanged and it is not newly final).
 	//
-	// final reports whether the delivery has nothing left outstanding: no
-	// matched trigger still owns a row in trigger_pending_deliveries, aside
+	// final is true on exactly one call per delivery: the first that finds no
+	// matched trigger still owning a row in trigger_pending_deliveries, aside
 	// from excludePendingID — the caller's own claim, not yet released when it
 	// calls this (DispatchPending runs before the worker's ReleasePending). A
 	// delivery's computed status can change more than once as its fan-out
-	// resolves (skipped, then failed, then dispatched); only the change that
-	// lands once nothing is outstanding is the delivery's real, final outcome,
-	// which is what the delivery-outcomes metric must attribute to, exactly
-	// once. excludePendingID is "" for every caller except one settling its own
-	// pending-queue row.
+	// resolves (skipped, then failed, then dispatched), and the dispatch paths
+	// pre-write it before deriving, so neither a status change nor the status
+	// itself marks the final outcome. A durable per-delivery flag does, and
+	// the delivery-outcomes metric counts on that call alone. excludePendingID
+	// is "" for every caller except one settling its own pending-queue row.
 	DeriveDeliveryStatus(ctx context.Context, deliveryID, excludePendingID string) (status string, final bool, err error)
 
 	// InsertDeliveryRun records one per-trigger outcome for a delivery.

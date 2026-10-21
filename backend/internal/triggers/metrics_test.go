@@ -306,6 +306,40 @@ func TestMetrics_AdmissionOutcomesCountedByResult(t *testing.T) {
 	}
 }
 
+// The coalescing path displaces fires too: a same-key replacement supersedes
+// the waiting fire, and the post-enqueue trim evicts the oldest over the depth.
+// Neither is Admit's own return value, so each needs its own count or enabling
+// coalescing would hide those outcomes.
+func TestMetrics_CoalescingDisplacementsAreCounted(t *testing.T) {
+	repo := newMockRepository()
+	m, reader := newTestMetrics(t, repo)
+	admission := NewAdmission(repo, silentLogger(), m)
+	ctx := context.Background()
+
+	trig := Trigger{
+		ID: "t-coalesce", TenantID: testTenant, Overflow: OverflowWait, MaxQueueDepth: 1,
+		Coalesce: &CoalesceConfig{Key: "{{ subject }}", WindowSeconds: 60},
+	}
+	fire := func(deliveryID, subject string) {
+		t.Helper()
+		if _, err := admission.Admit(ctx, trig, deliveryID, map[string]string{"subject": subject}); err != nil {
+			t.Fatalf("Admit %s: %v", deliveryID, err)
+		}
+	}
+	fire("d-1", "a")
+	fire("d-2", "a") // replaces d-1 under the same key
+	fire("d-3", "b") // a second key over a depth of 1 evicts the older waiting fire
+
+	byOutcome := map[string]int64{}
+	for _, dp := range collect(t, reader)["orbit.triggers.admission_outcomes"].Data.(metricdata.Sum[int64]).DataPoints {
+		outcome, _ := dp.Attributes.Value("outcome")
+		byOutcome[outcome.AsString()] += dp.Value
+	}
+	if byOutcome["enqueued"] != 3 || byOutcome["superseded"] != 1 || byOutcome["dropped"] != 1 {
+		t.Errorf("admission outcomes = %v, want enqueued:3 superseded:1 dropped:1", byOutcome)
+	}
+}
+
 // TrimPending and Drain evict fires outside Admit's own return path (the
 // return value describes the fire being admitted, never one displaced to
 // make room for it), so each eviction needs its own recorded outcome or it

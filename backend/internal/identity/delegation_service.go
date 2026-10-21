@@ -229,7 +229,10 @@ func (s *Service) RevokeDelegation(ctx context.Context, claims *PlatformClaims, 
 	}
 
 	span.SetStatus(codes.Ok, "delegation revoked")
-	s.metrics.recordDelegationRevoked(ctx, claims.Kora.TenantID)
+	// The issuance carries the delegation's tenant. The caller's claims do
+	// not: SERVICE/SYSTEM callers (terminal-run cleanup) carry none or another
+	// tenant's.
+	s.metrics.recordDelegationRevoked(ctx, issuance.TenantID)
 	return nil
 }
 

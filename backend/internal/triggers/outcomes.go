@@ -93,20 +93,17 @@ func (o outcomeRecorder) derive(ctx context.Context, deliveryID, tenantID string
 // row settling, not an outstanding sibling. Every other caller passes "".
 //
 // A single delivery can legitimately pass through several DISTINCT computed
-// statuses as its fan-out resolves over time — e.g. skipped (only a filtered
-// outcome recorded so far) then failed (a dispatch attempt errored) then
-// dispatched (a later trigger on the same delivery succeeds) — because derive
-// runs again after every per-trigger outcome. Counting each of those
-// transitions, as a naive "did the status change" guard would, over-counts one
-// delivery under several labels. The metric is recorded only when the status
-// both changed AND the delivery is final: no trigger match still has an
-// outcome outstanding. "Outstanding" is read off trigger_pending_deliveries —
-// every matched trigger that has not yet produced a terminal/dispatched
-// DeliveryRun still owns a row there (waiting or claimed), and every one that
-// has does not (ReleasePending deletes it, and the DB-side eviction paths —
-// TrimPending, Drain, SupersedeAndEnqueue, EnqueueCoalescing's replace — all
-// delete the row in the same statement that reports it, before the outcome is
-// even recorded). ownPendingID is the one exception that check cannot resolve
+// statuses as its fan-out resolves over time, and the dispatch paths pre-write
+// the delivery's status before deriving, so a status change is not a reliable
+// signal that this is the delivery's outcome. The metric is recorded only when
+// DeriveDeliveryStatus reports final, which it does once per delivery: the
+// first call that finds no trigger match still outstanding. "Outstanding" is
+// read off trigger_pending_deliveries — every matched trigger that has not yet
+// produced a terminal/dispatched DeliveryRun still owns a row there (waiting
+// or claimed), and every one that has does not (ReleasePending deletes it, and
+// the DB-side eviction paths — TrimPending, Drain, SupersedeAndEnqueue,
+// EnqueueCoalescing's replace — all delete the row in the same statement that
+// reports it, before the outcome is // even recorded). ownPendingID is the one exception that check cannot resolve
 // on its own: DispatchPending calls this before the worker releases its own
 // claim, so without naming it, a delivery would never read as final until
 // whichever sibling trigger happens to be released last.

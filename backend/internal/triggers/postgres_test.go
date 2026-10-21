@@ -1648,6 +1648,34 @@ func TestPostgres_DeriveDeliveryStatus(t *testing.T) {
 		}
 	})
 
+	// The dispatch paths write the delivery's status (UpdateDeliveryOutcome)
+	// before deriving, so by derive time the stored status already equals the
+	// computed one. The delivery's final outcome must still be reported, once.
+	t.Run("a pre-written status still reports final, once", func(t *testing.T) {
+		id := newDelivery(t, StatusVerified)
+		addRun(t, id, RunStatusDispatched)
+		runID := "run-prewritten"
+		if err := r.UpdateDeliveryOutcome(ctx, id, StatusDispatched, &tr.ID, &runID, nil); err != nil {
+			t.Fatalf("UpdateDeliveryOutcome: %v", err)
+		}
+
+		status, final, err := r.DeriveDeliveryStatus(ctx, id, "")
+		if err != nil {
+			t.Fatalf("DeriveDeliveryStatus (first): %v", err)
+		}
+		if status != StatusDispatched || !final {
+			t.Errorf("first derive = (%q, final=%v), want (%q, true): the status was already stored but the outcome was never counted", status, final, StatusDispatched)
+		}
+
+		_, final, err = r.DeriveDeliveryStatus(ctx, id, "")
+		if err != nil {
+			t.Fatalf("DeriveDeliveryStatus (second): %v", err)
+		}
+		if final {
+			t.Error("second derive reported final again: the delivery would be counted twice")
+		}
+	})
+
 	// A multi-trigger fan-out can change the computed status more than once as
 	// outcomes land (skipped, then failed, then dispatched): only the change
 	// that lands with nothing left outstanding is the delivery's real outcome.
