@@ -56,6 +56,8 @@ spec:
                   service_account_allow_list:
                     - spire-system:spire-agent
         spire-agent:
+          tolerations:
+            - operator: Exists
           sds:
             enabled: true
             defaultSVIDName: default
@@ -71,6 +73,8 @@ spec:
               useNewContainerLocator: false
         spiffe-csi-driver:
           enabled: true
+          tolerations:
+            - operator: Exists
         spire-controller-manager:
           enabled: true
   destination:

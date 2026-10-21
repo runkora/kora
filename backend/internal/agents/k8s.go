@@ -2063,15 +2063,23 @@ func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, 
 	return err
 }
 
+// buildPDB keeps one session-manager pod up. With a single replica,
+// minAvailable: 1 can never be satisfied and blocks every node drain, so the
+// budget allows one unavailable pod instead.
 func (p *K8sProvisioner) buildPDB(name, namespace string, labels map[string]string) policyv1.PodDisruptionBudget {
-	minAvailable := intstr.FromInt32(1)
+	one := intstr.FromInt32(1)
+	spec := policyv1.PodDisruptionBudgetSpec{
+		Selector: &metav1.LabelSelector{MatchLabels: labels},
+	}
+	if p.cfg.MinReplicas <= 1 {
+		spec.MaxUnavailable = &one
+	} else {
+		spec.MinAvailable = &one
+	}
 	return policyv1.PodDisruptionBudget{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "policy/v1", Kind: "PodDisruptionBudget"},
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
-		Spec: policyv1.PodDisruptionBudgetSpec{
-			MinAvailable: &minAvailable,
-			Selector:     &metav1.LabelSelector{MatchLabels: labels},
-		},
+		Spec:       spec,
 	}
 }
 
@@ -2097,6 +2105,7 @@ func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, 
 	existing.Labels = pdb.Labels
 	existing.Annotations = pdb.Annotations
 	existing.Spec.MinAvailable = pdb.Spec.MinAvailable
+	existing.Spec.MaxUnavailable = pdb.Spec.MaxUnavailable
 	// spec.selector is immutable on PodDisruptionBudget; a patch changing it
 	// only takes effect on a fresh PDB (delete + recreate), not on this
 	// update path.
