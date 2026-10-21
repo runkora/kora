@@ -660,7 +660,8 @@ export const CHAT_FIELDS: TriggerField[] = [
   {
     path: 'message.id',
     group: 'message',
-    description: "The platform's id for the message; it equals thread.id outside a thread and differs for a reply",
+    description:
+      "The platform's id for the message; it equals thread.id outside a thread and differs for a reply",
   },
   { path: 'workspace.id', group: 'workspace', description: "The platform's id for the workspace" },
   { path: 'meta.event_type', group: 'meta', description: 'The event type of the delivery' },
