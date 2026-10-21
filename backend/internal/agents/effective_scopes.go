@@ -259,6 +259,41 @@ func (r *ScopeResolver) EffectiveAccess(ctx context.Context, at AgentType) (*Eff
 	return ea, nil
 }
 
+// EffectiveConnectors returns each agent's effective connectors by agent ID, merged by connection as
+// EffectiveAccess merges them. The agents' environments load in one query. The agents must share a tenant.
+func (r *ScopeResolver) EffectiveConnectors(ctx context.Context, ats []AgentType) (map[string][]Connector, error) {
+	out := make(map[string][]Connector, len(ats))
+	if len(ats) == 0 {
+		return out, nil
+	}
+	byID := map[string]Environment{}
+	if r.envs != nil {
+		var ids []string
+		for _, at := range ats {
+			for _, id := range environmentIDs(at.Environments) {
+				if !slices.Contains(ids, id) {
+					ids = append(ids, id)
+				}
+			}
+		}
+		envs, err := r.envs.ListEnvironmentsByIDs(ctx, ats[0].TenantID, ids)
+		if err != nil {
+			return nil, fmt.Errorf("resolve environments: %w", err)
+		}
+		for _, env := range envs {
+			byID[env.ID] = env
+		}
+	}
+	for _, at := range ats {
+		connectors := append([]Connector{}, at.Connectors...)
+		for _, id := range environmentIDs(at.Environments) {
+			connectors = append(connectors, byID[id].Connectors...)
+		}
+		out[at.ID] = mergeConnectors(connectors)
+	}
+	return out, nil
+}
+
 // resolveConnectorEgress resolves each connector's adapter-declared egress hosts
 // from the connection registry. A connection not present (yet) contributes no
 // egress; a nil resolver yields none.

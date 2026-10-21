@@ -213,6 +213,9 @@ type AgentType struct {
 	// backend composes into EffectiveGrantScopes (like Connectors); the coarse
 	// mcp:invoke gate is derived there, not stored.
 	MCPTools []string `json:"mcp_tools,omitempty"`
+	// EffectiveConnectors are the agent's own connectors merged with its environments', by connection.
+	// Only a list read with include=effective_access fills it; it is not stored.
+	EffectiveConnectors []Connector `json:"effective_connectors,omitempty"`
 	// Environments are the sandboxes this agent may run in, one of them the default; none means kora-base.
 	// Their egress and connectors join the agent's grant.
 	Environments            []AgentEnvironment `json:"environments"`

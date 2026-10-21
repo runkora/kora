@@ -592,6 +592,46 @@ func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, err
 	return types, nil
 }
 
+// ListAgentTypesByIDs returns the listed agent types the principal in ctx may read, in listing order.
+// An ID the principal cannot read or the tenant lacks is left out. With withAccess each returned type
+// carries its effective connectors, resolved for the returned types only.
+func (s *AgentTypeService) ListAgentTypesByIDs(ctx context.Context, ids []string, withAccess bool) ([]AgentType, error) {
+	tenantID := tenantFromContext(ctx)
+	ctx, span := agentsTracer.Start(ctx, "agents.ListAgentTypesByIDs",
+		trace.WithAttributes(attribute.String("tenant_id", tenantID), attribute.Int("ids", len(ids))),
+	)
+	defer span.End()
+	all, err := s.repo.ListAgentTypes(ctx, tenantID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "list agent types")
+		return nil, err
+	}
+	var types []AgentType
+	for _, at := range all {
+		if slices.Contains(ids, at.ID) {
+			types = append(types, at)
+		}
+	}
+	if types, err = s.authz.filterAgentTypes(ctx, types); err != nil {
+		return nil, err
+	}
+	s.setCallerAccess(ctx, types)
+	if !withAccess {
+		return types, nil
+	}
+	connectors, err := s.scopeResolver().EffectiveConnectors(ctx, types)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "resolve effective connectors")
+		return nil, err
+	}
+	for i := range types {
+		types[i].EffectiveConnectors = connectors[types[i].ID]
+	}
+	return types, nil
+}
+
 // setCallerAccess fills CanRun and CanEdit on each agent type for the caller in
 // ctx. Run uses checkRun, the run-start check. Edit uses the mode-qualified check
 // update and delete use, once per mode, plus the scope ceiling for autonomous

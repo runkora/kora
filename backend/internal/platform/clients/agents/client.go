@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"context"
@@ -89,6 +90,17 @@ type AgentType struct {
 	IdentityMode string `json:"identity_mode"`
 	// CanRun reports whether the bearer that read the type may start its runs. Absent reads as false.
 	CanRun bool `json:"can_run"`
+	// MCPTools are the agent's governed tool grants, as mcp:<server>:<tool>:use scopes.
+	MCPTools []string `json:"mcp_tools"`
+	// EffectiveConnectors are the agent's own connectors merged with its environments', by connection.
+	// Only ListAgentTypesByIDs fills it.
+	EffectiveConnectors []Connector `json:"effective_connectors"`
+}
+
+// Connector is a connection an agent holds and the actions it may take through it.
+type Connector struct {
+	Connection string   `json:"connection"`
+	Actions    []string `json:"actions"`
 }
 
 // IdentityModeDelegated is the AgentType.IdentityMode value marking an agent
@@ -146,7 +158,18 @@ func (c *Client) GetAgentType(ctx context.Context, caller Caller, id string) (Ag
 // ListAgentTypes returns the agent types the caller may read in its tenant,
 // each with the caller's can_run. A delegation travels with the bearer.
 func (c *Client) ListAgentTypes(ctx context.Context, caller Caller) ([]AgentType, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/agent-types", nil)
+	return c.listAgentTypes(ctx, caller, "agents.Client.ListAgentTypes", "")
+}
+
+// ListAgentTypesByIDs returns the listed agent types the caller may read, each with its effective
+// connectors, in one call. A type the caller cannot read is left out.
+func (c *Client) ListAgentTypesByIDs(ctx context.Context, caller Caller, ids []string) ([]AgentType, error) {
+	query := url.Values{"ids": {strings.Join(ids, ",")}, "include": {"effective_access"}}
+	return c.listAgentTypes(ctx, caller, "agents.Client.ListAgentTypesByIDs", "?"+query.Encode())
+}
+
+func (c *Client) listAgentTypes(ctx context.Context, caller Caller, op, query string) ([]AgentType, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/agent-types"+query, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build list agent types request: %w", err)
 	}
@@ -155,7 +178,7 @@ func (c *Client) ListAgentTypes(ctx context.Context, caller Caller) ([]AgentType
 		httpReq.Header.Set(mw.DelegationTokenHeader, caller.Delegation)
 	}
 
-	_, span, resp, err := c.Do(ctx, "agents.Client.ListAgentTypes", httpReq)
+	_, span, resp, err := c.Do(ctx, op, httpReq)
 	defer span.End()
 	if err != nil {
 		return nil, err

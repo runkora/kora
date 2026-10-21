@@ -278,3 +278,40 @@ func TestRunInstructions_StartedFrom(t *testing.T) {
 		}
 	}
 }
+
+func TestDescribeAgent_Access(t *testing.T) {
+	gh := agentsclient.Connector{Connection: "github", Actions: []string{"contents:read", "pulls:write"}}
+	other := agentsclient.Connector{Connection: "other", Actions: []string{"x:read"}}
+	tests := []struct {
+		name string
+		at   agentsclient.AgentType
+		want string
+	}{
+		{"neither", agentsclient.AgentType{Name: "Coder", Description: "Codes."}, "Coder: Codes."},
+		{"no description", agentsclient.AgentType{Name: "Coder"}, "Coder"},
+		{
+			"connectors only",
+			agentsclient.AgentType{Name: "Coder", Description: "Codes.", EffectiveConnectors: []agentsclient.Connector{gh, other}},
+			"Coder: Codes.\nConnector actions: github (contents:read, pulls:write); other (x:read)",
+		},
+		{
+			"mcp tools only, grouped by server",
+			agentsclient.AgentType{Name: "Coder", MCPTools: []string{
+				"mcp:github:issue_read:use", "mcp:linear:list:use", "mcp:github:get_file_contents:use", "mcp:broken", "mcp:github:nouse",
+			}},
+			"Coder\nMCP tools: github (issue_read, get_file_contents); linear (list)",
+		},
+		{
+			"both, with environment connectors already merged",
+			agentsclient.AgentType{Name: "Coder", Description: "Codes.", EffectiveConnectors: []agentsclient.Connector{gh}, MCPTools: []string{"mcp:github:issue_read:use"}},
+			"Coder: Codes.\nConnector actions: github (contents:read, pulls:write)\nMCP tools: github (issue_read)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := describeAgent(tt.at); got != tt.want {
+				t.Errorf("describeAgent = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
