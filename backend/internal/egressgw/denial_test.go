@@ -217,8 +217,9 @@ func TestPolicyDenialReason(t *testing.T) {
 	}
 }
 
-// Deny logs carry the method and path so a denial can be diagnosed, but never
-// the query string or headers, which can carry tokens.
+// Deny logs carry the method, path and principal so a denial can be diagnosed
+// and attributed to an agent, but never the query string or headers, which can
+// carry tokens.
 func TestAuthorize_DenyLogsMethodAndPathOnly(t *testing.T) {
 	tests := []struct {
 		name, method, path, wantLog string
@@ -245,7 +246,7 @@ func TestAuthorize_DenyLogsMethodAndPathOnly(t *testing.T) {
 			}
 
 			out := logs.String()
-			for _, want := range []string{tc.wantLog, tc.method, tc.path} {
+			for _, want := range []string{tc.wantLog, tc.method, tc.path, `"principal_id":"agent"`} {
 				if !strings.Contains(out, want) {
 					t.Errorf("deny log missing %q:\n%s", want, out)
 				}
