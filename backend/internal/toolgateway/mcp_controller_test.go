@@ -182,6 +182,26 @@ func TestTenantOwnershipGuard(t *testing.T) {
 	})
 }
 
+// TestSameNameServers_NotShadowed verifies a same-named server owned by another
+// tenant cannot shadow the caller's own server, regardless of registry order.
+func TestSameNameServers_NotShadowed(t *testing.T) {
+	// doRPC's caller is tenant "acme"; "aaa" sorts before it in the registry.
+	reg := &Registry{
+		servers: []Server{
+			{TenantID: "aaa", Name: "s", Endpoint: "http://aaa/mcp"},
+			{TenantID: "acme", Name: "s", Endpoint: "http://acme/mcp"},
+		},
+		loaded: true,
+	}
+	c := NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg,
+		NewProxy("test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
+
+	rec, _ := doRPC(t, c, "s", `{"jsonrpc":"2.0","id":1,"method":"initialize"}`)
+	if rec.Code == http.StatusNotFound {
+		t.Fatalf("own server shadowed by another tenant's same-named server: got 404")
+	}
+}
+
 func TestEmptyToolName(t *testing.T) {
 	eval := &fakeEval{checkOK: true}
 	c := testController(eval, &memCatalog{})

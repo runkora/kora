@@ -125,15 +125,15 @@ func (c *MCPController) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	// The connection is scoped to one server, selected by the URL path.
 	server := r.PathValue("server")
-	srv, found := c.registry.lookup(server)
+	srv, found := c.registry.lookup(server, claims.Kora.TenantID)
 	if !found {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.NotFoundError(api.ErrCodeResourceNotFound, "unknown MCP server", nil), nil)
 		return
 	}
 	// Tenant-ownership binding. A global server (TenantID == "") is reachable by
-	// every tenant; a tenant-scoped server only by its owner. lookup() resolves by
-	// name alone and the scope vocabulary is tenant-blind in the MVP (two tenants'
+	// every tenant; a tenant-scoped server only by its owner. lookup() is
+	// tenant-aware, but the scope vocabulary is tenant-blind in the MVP (two tenants'
 	// same-named servers share one scope string), so without this a tenant holding
 	// mcp:<server>:<tool>:use could reach — or shadow — another tenant's server.
 	// Reject as 404 (indistinguishable from an unknown server) so a cross-tenant
