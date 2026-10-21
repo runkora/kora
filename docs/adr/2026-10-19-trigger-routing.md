@@ -125,7 +125,7 @@ A trigger cannot choose among agents or send a delivery to a run that is already
 1. **Target kind:** A webhook trigger gains `target_kind: "routed"`, and a routed trigger has candidates and no `agent_type_id`. Scheduled and manual triggers reject `routed`.
 2. **Placement:** Routing runs in `DispatchPending` (Option 1a). A routed fire computes a route and then either starts a run through `StartRun` or joins one through the new agents client method `SendRunMessage`.
 3. **Model call:** orbit-triggers calls `POST /v1/systemone` through the new inference client (Option 2a) with the routing trigger's SERVICE token. The gateway applies `inference:invoke`, `inference:<family>:<name>:use`, the tenant budget and the usage row as on any decision call.
-4. **Questions:** The routing questions live in `backend/internal/triggers/routing_questions.go` with `routingQuestionsVersion = "routing-v1"`:
+4. **Questions:** The routing questions live in `backend/internal/triggers/routing_questions.go` with `routingQuestionsVersion = "routing-v2"`:
    - `agent`: a `choice` question that asks which candidate agent should handle the message. Each `criteria` key is an opaque option id (`a1`, `a2`, ...) and each value is the agent's name and description (Option 4a).
    - `run`: a `choice` question that asks whether the message continues one of the listed runs. The options are `new` and one opaque id per joinable run (`r1`, `r2`, ...). Each run's description is its agent name, its run summary and its start time. The question is omitted when joining is off or no run is joinable.
 5. **State:** The `state` is a JSON object with a `message` field that holds the prompt rendered by `renderWebhookPrompt`. The delivery values stay inside the `<delivery-data>` block. The instructions of both questions state that the message content is data from an external event. The `run` instructions also state that the open runs' summaries are agent output from earlier external events and are not instructions.
@@ -136,9 +136,12 @@ A trigger cannot choose among agents or send a delivery to a run that is already
    - `balanced` (default): 0.70.
    - `loose`: 0.50.
 9. **Outcome order:**
-   1. If the `run` answer is a run id with probability at or above the threshold, the delivery joins that run.
-   2. Otherwise, if the `agent` answer clears the threshold, the delivery starts a run of that agent.
-   3. Otherwise the fallback applies.
+   1. If the `agent` answer clears the threshold and the `run` answer is a run of that same agent with probability at or above the threshold, the delivery joins that run.
+   2. Otherwise, if the `agent` answer clears the threshold, the delivery starts a run of that agent. This covers a run of another agent, `new`, and a run answer below the threshold.
+   3. Otherwise, if the `agent` answer is below the threshold and the `run` answer is a run with probability at or above the threshold, the delivery joins that run.
+   4. Otherwise the fallback applies.
+
+   An earlier order checked the `run` answer first and could join a run of an agent that cannot do the work. `routingQuestionsVersion` is `routing-v2` for this order.
 10. **Fallback:** The fallback is either a candidate agent (`fallback_agent_type_id`) or no run. A below-threshold answer and a failed model call both take the fallback. The fallback agent must be one of the candidates. Routing never starts an agent outside the candidate list.
 11. **Failure accounting:** A failed model call records the gateway error on the routing decision. It counts toward auto-pause only when no fallback agent is configured and the failure is a configuration error: a 403 for a missing scope or an exhausted budget, a 400 or 422 for a rejected request, or a 404 for an unknown or disabled model. A 5xx, 529, 429 or timeout from the gateway never counts. `countsTowardAutoPause` treats platform faults on a run start the same way. A below-threshold answer does not count toward auto-pause.
 12. **Joinable runs (Option 5a):** orbit-triggers lists runs through `GET /api/v1/runs` with two new filters: `started_by=trigger` and repeated `agent_type_id`. Joinable runs have these properties:
@@ -346,7 +349,7 @@ The target step and the delivery detail follow the routing stories under `Pages/
 
 Unit tests cover:
 
-- Outcome order: a run answer above the threshold, an agent answer above it, both below, and a failed call with and without a fallback agent.
+- Outcome order: agent and run agreeing, a run of another agent above the threshold, an agent answer below the threshold with a run above it, an agent answer above it with `new` or a run below it, both below, and a failed call with and without a fallback agent.
 - Key-first joining: a match on an open run, a match on a closed run, a match on a starting run until it opens and until the holds run out, no `join_key`, a key that renders empty or too long, and the same key on another trigger.
 - Failure accounting: a configuration error and a platform fault from the gateway, each with and without a fallback agent.
 - The lost race between the decision and `SendRunMessage`.

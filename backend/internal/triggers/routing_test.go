@@ -161,8 +161,13 @@ func TestBuildRoutingQuestions(t *testing.T) {
 // decisionAnswers builds an answer to the agent question and, when runP is
 // set, the run question, from the probability of the first option.
 func decisionAnswers(agentP float64, runChoice string, runP float64) inferenceclient.SystemOneResponse {
+	return decisionAnswersFor("a1", agentP, runChoice, runP)
+}
+
+// decisionAnswersFor is decisionAnswers with the agent option that is chosen.
+func decisionAnswersFor(agentChoice string, agentP float64, runChoice string, runP float64) inferenceclient.SystemOneResponse {
 	resp := inferenceclient.SystemOneResponse{Answers: map[string]inferenceclient.Answer{
-		questionAgent: {Choice: "a1", Probabilities: map[string]float64{"a1": agentP, "a2": 1 - agentP}, Confidence: agentP},
+		questionAgent: {Choice: agentChoice, Probabilities: map[string]float64{agentChoice: agentP}, Confidence: agentP},
 	}}
 	if runChoice != "" {
 		resp.Answers[questionRun] = inferenceclient.Answer{Choice: runChoice, Probabilities: map[string]float64{runChoice: runP}, Confidence: runP}
@@ -170,7 +175,8 @@ func decisionAnswers(agentP float64, runChoice string, runP float64) inferencecl
 	return resp
 }
 
-// ADR Decision 9: a run above the threshold, else an agent above it, else the fallback.
+// ADR Decision 9: a run above the threshold is joined only when the agent
+// answer agrees or is below the threshold, else an agent above it, else the fallback.
 func TestDecideRoute_OutcomeOrder(t *testing.T) {
 	agents := []agentsclient.AgentType{{ID: "at-a", Name: "A"}, {ID: "at-b", Name: "B"}}
 	runs := []agentsclient.Run{{ID: "run-1", AgentTypeID: "at-b"}}
@@ -186,7 +192,9 @@ func TestDecideRoute_OutcomeOrder(t *testing.T) {
 		wantRun     string
 		wantReason  string
 	}{
-		{name: "run above threshold", resp: decisionAnswers(0.9, "r1", 0.8), wantOutcome: RouteOutcomeJoinedRun, wantAgent: "at-b", wantRun: "run-1"},
+		{name: "agent and run agree", resp: decisionAnswersFor("a2", 0.9, "r1", 0.8), wantOutcome: RouteOutcomeJoinedRun, wantAgent: "at-b", wantRun: "run-1"},
+		{name: "run of another agent above threshold", resp: decisionAnswers(0.9, "r1", 0.8), wantOutcome: RouteOutcomeNewRun, wantAgent: "at-a"},
+		{name: "agent below, run above", resp: decisionAnswers(0.6, "r1", 0.8), wantOutcome: RouteOutcomeJoinedRun, wantAgent: "at-b", wantRun: "run-1"},
 		{name: "run below, agent above", resp: decisionAnswers(0.9, "r1", 0.6), wantOutcome: RouteOutcomeNewRun, wantAgent: "at-a"},
 		{name: "new run chosen", resp: decisionAnswers(0.75, runOptionNew, 0.95), wantOutcome: RouteOutcomeNewRun, wantAgent: "at-a"},
 		{name: "both below, fallback agent", resp: decisionAnswers(0.6, "r1", 0.5), fallback: fallback, wantOutcome: RouteOutcomeFallbackRun, wantAgent: "at-b", wantReason: FallbackBelowThreshold},
@@ -202,7 +210,7 @@ func TestDecideRoute_OutcomeOrder(t *testing.T) {
 			if got.outcome != tt.wantOutcome || got.agentTypeID != tt.wantAgent || got.run.ID != tt.wantRun || got.fallbackReason != tt.wantReason {
 				t.Errorf("choice = %+v, want %s agent=%q run=%q reason=%q", got, tt.wantOutcome, tt.wantAgent, tt.wantRun, tt.wantReason)
 			}
-			if got.scores.Agents["at-a"] == 0 {
+			if len(got.scores.Agents) == 0 {
 				t.Errorf("scores are keyed by agent type id: %+v", got.scores)
 			}
 		})

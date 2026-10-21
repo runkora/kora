@@ -12,7 +12,7 @@ import (
 
 // routingQuestionsVersion names the questions below. It is stored on every
 // decision, so a change to the wording or the options takes a new version.
-const routingQuestionsVersion = "routing-v1"
+const routingQuestionsVersion = "routing-v2"
 
 // Question ids and the run question's option for starting a new run.
 const (
@@ -106,8 +106,9 @@ type routeChoice struct {
 }
 
 // decideRoute applies the outcome order of ADR Decision 9: a run above the
-// threshold is joined, else an agent above it is started, else the fallback
-// applies.
+// threshold is joined only when the agent answer is below the threshold or
+// names the run's agent, else an agent above the threshold is started, else
+// the fallback applies.
 func decideRoute(q routingQuestions, resp inferenceclient.SystemOneResponse, threshold float64, fallback *string) (routeChoice, error) {
 	scores := RoutingScores{Agents: map[string]float64{}}
 	agentAnswer, ok := resp.Answers[questionAgent]
@@ -121,6 +122,7 @@ func decideRoute(q routingQuestions, resp inferenceclient.SystemOneResponse, thr
 		}
 	}
 
+	agentSure := agentAnswer.Probabilities[agentAnswer.Choice] >= threshold
 	if runAnswer, ok := resp.Answers[questionRun]; ok && len(q.runs) > 0 {
 		scores.Runs = map[string]float64{}
 		for option, p := range runAnswer.Probabilities {
@@ -131,7 +133,8 @@ func decideRoute(q routingQuestions, resp inferenceclient.SystemOneResponse, thr
 				scores.Runs[runOptionNew] = p
 			}
 		}
-		if run, ok := q.runs[runAnswer.Choice]; ok && runAnswer.Probabilities[runAnswer.Choice] >= threshold {
+		if run, ok := q.runs[runAnswer.Choice]; ok && runAnswer.Probabilities[runAnswer.Choice] >= threshold &&
+			(!agentSure || run.AgentTypeID == agentID) {
 			return routeChoice{
 				outcome: RouteOutcomeJoinedRun, agentTypeID: run.AgentTypeID, run: run,
 				probability: new(runAnswer.Probabilities[runAnswer.Choice]), confidence: new(runAnswer.Confidence),
