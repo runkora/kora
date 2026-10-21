@@ -334,6 +334,13 @@ type ConnectorError struct {
 	// provider in the failover chain.
 	Retryable bool
 
+	// RequestRejected is set when the provider rejected the request itself as
+	// invalid (HTTP 400/422). The same request fails identically on every
+	// target, so the routing engine returns the error instead of failing over.
+	// Target-specific refusals (unknown model, auth, unsupported route) leave
+	// it false so they still fail over.
+	RequestRejected bool
+
 	// Underlying is the raw provider error (never surfaced to callers).
 	Underlying error
 
