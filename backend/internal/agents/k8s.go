@@ -575,7 +575,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "wait for sandbox pod ready")
-		return Sandbox{}, fmt.Errorf("wait for sandbox pod ready: %w", err)
+		return Sandbox{}, fmt.Errorf("wait for sandbox pod ready (run %s): %w", run.ID, err)
 	}
 
 	// Read the token off the ready pod, not the freshly minted one: a reused pod
@@ -942,7 +942,7 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 			return false, err
 		}
 		if pod.Status.Phase == corev1.PodFailed {
-			return false, fmt.Errorf("sandbox pod failed")
+			return false, fmt.Errorf("sandbox pod failed: %s", podFailureReason(pod))
 		}
 		for _, cond := range pod.Status.Conditions {
 			if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
@@ -962,6 +962,34 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 		return nil, fmt.Errorf("pod ready but no IP assigned")
 	}
 	return ready, nil
+}
+
+// podFailureReason summarises why a pod failed: its status reason and message, the scheduling
+// condition when it was not placed, and each container's waiting or terminated reason.
+func podFailureReason(pod *corev1.Pod) string {
+	var parts []string
+	if pod.Status.Reason != "" || pod.Status.Message != "" {
+		parts = append(parts, strings.TrimSpace(pod.Status.Reason+" "+pod.Status.Message))
+	}
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodScheduled && cond.Status == corev1.ConditionFalse {
+			parts = append(parts, strings.TrimSpace(fmt.Sprintf("scheduling %s %s", cond.Reason, cond.Message)))
+		}
+	}
+	statuses := append(append([]corev1.ContainerStatus{}, pod.Status.InitContainerStatuses...), pod.Status.ContainerStatuses...)
+	for _, cs := range statuses {
+		switch {
+		case cs.State.Waiting != nil && cs.State.Waiting.Reason != "":
+			parts = append(parts, fmt.Sprintf("container %s waiting: %s %s", cs.Name, cs.State.Waiting.Reason, cs.State.Waiting.Message))
+		case cs.State.Terminated != nil && cs.State.Terminated.ExitCode != 0:
+			t := cs.State.Terminated
+			parts = append(parts, fmt.Sprintf("container %s terminated: %s %s (exit %d)", cs.Name, t.Reason, t.Message, t.ExitCode))
+		}
+	}
+	if len(parts) == 0 {
+		return "no reason reported"
+	}
+	return strings.Join(parts, "; ")
 }
 
 // errSandboxUnschedulable reports a sandbox pod the scheduler could not place before the wait ended.
