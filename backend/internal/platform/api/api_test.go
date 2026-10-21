@@ -541,3 +541,26 @@ func (f *failingResponseWriter) Code() int {
 	}
 	return f.ResponseRecorder.Code
 }
+
+type healthController struct{}
+
+func (healthController) GroupedBy() string                { return "" }
+func (healthController) Middleware() mw.MiddlewareHandler { return nil }
+func (healthController) Boot(mux *Mux) {
+	mux.Handle("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+}
+
+// A controller's GET /health replaces the default response.
+func TestHealthCheckControllerOverride(t *testing.T) {
+	ctx := context.Background()
+	server := NewAPI(ctx, logging.NewLogger()).Server(ctx, 8080, "/", nil, healthController{})
+
+	rec := httptest.NewRecorder()
+	server.Handler.ServeHTTP(rec, httptest.NewRequest("GET", "/health", nil))
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("Health check status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+}
