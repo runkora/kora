@@ -643,9 +643,24 @@ export const CHAT_FIELDS: TriggerField[] = [
     description: "The platform's id for the conversation",
   },
   {
+    path: 'conversation.type',
+    group: 'conversation',
+    description: 'The kind of conversation: channel, private, dm or group',
+  },
+  {
     path: 'thread.id',
     group: 'thread',
     description: "The thread's id; a message outside a thread is its own thread",
+  },
+  {
+    path: 'thread.started_by.id',
+    group: 'thread',
+    description: "The platform's id for the user who posted the thread's first message",
+  },
+  {
+    path: 'message.id',
+    group: 'message',
+    description: "The platform's id for the message; it equals thread.id outside a thread and differs for a reply",
   },
   { path: 'workspace.id', group: 'workspace', description: "The platform's id for the workspace" },
   { path: 'meta.event_type', group: 'meta', description: 'The event type of the delivery' },

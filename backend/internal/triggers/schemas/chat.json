@@ -16,12 +16,27 @@
         "conversation": {
           "type": "object",
           "description": "The channel or direct message conversation",
-          "properties": { "id": { "type": "string", "description": "The platform's id for the conversation" } }
+          "properties": {
+            "id": { "type": "string", "description": "The platform's id for the conversation" },
+            "type": { "type": "string", "enum": ["channel", "private", "dm", "group"], "description": "The kind of conversation: a public channel, a private channel, a direct message or a group direct message" }
+          }
         },
         "thread": {
           "type": "object",
           "description": "The thread within the conversation",
-          "properties": { "id": { "type": "string", "description": "The thread's id; a message outside a thread is its own thread" } }
+          "properties": {
+            "id": { "type": "string", "description": "The thread's id; a message outside a thread is its own thread" },
+            "started_by": {
+              "type": "object",
+              "description": "The person who posted the thread's first message",
+              "properties": { "id": { "type": "string", "description": "The platform's id for that user; the app's own id when the app started the thread" } }
+            }
+          }
+        },
+        "message": {
+          "type": "object",
+          "description": "The message that fired the event",
+          "properties": { "id": { "type": "string", "description": "The platform's id for the message; it equals thread.id outside a thread and differs for a reply" } }
         },
         "workspace": {
           "type": "object",
