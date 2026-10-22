@@ -31,12 +31,13 @@ type ownerScoped interface {
 type idLookup struct {
 	kind    string
 	subject string
+	idsAttr string
 	resolve func(s ownerScoped, ctx context.Context, ids, categories []string) (map[string]string, error)
 }
 
 var (
-	nodeLookup = idLookup{kind: "node", subject: "node ids", resolve: ownerScoped.NodeOwners}
-	repoLookup = idLookup{kind: "repository", subject: "repository ids", resolve: ownerScoped.RepoOwners}
+	nodeLookup = idLookup{kind: "node", idsAttr: "orbit.node_ids", subject: "node ids", resolve: ownerScoped.NodeOwners}
+	repoLookup = idLookup{kind: "repository", idsAttr: "orbit.repository_ids", subject: "repository ids", resolve: ownerScoped.RepoOwners}
 )
 
 // idsToResolve returns the ids the request names for an owner lookup, node ids
@@ -204,7 +205,7 @@ func (b *Broker) resolveOwners(ctx context.Context, claims *token.PlatformClaims
 func (b *Broker) lookupOwners(ctx context.Context, claims *token.PlatformClaims, c *credentials.Connection, s ownerScoped, ids, categories []string, lookup idLookup) (map[string]string, error) {
 	ctx, span := tracer.Start(ctx, "egress."+lookup.kind+"_owner_lookup", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
-	span.SetAttributes(attribute.String("orbit.connection", c.Name), attribute.Int("orbit."+lookup.kind+"_ids", len(ids)))
+	span.SetAttributes(attribute.String("orbit.connection", c.Name), attribute.Int(lookup.idsAttr, len(ids)))
 
 	resolved, err := lookup.resolve(s, ctx, ids, categories)
 	fields := []logging.Field{
