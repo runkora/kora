@@ -26,6 +26,9 @@ var (
 	// ErrUpstreamAuthFailed replaces an upstream 401 or 403. The upstream's
 	// response body is dropped because it may echo the credential.
 	ErrUpstreamAuthFailed = errors.New("auth_failed")
+	// ErrUpstreamStatus replaces any other non-2xx error from an upstream that
+	// was sent credentials, for the same reason.
+	ErrUpstreamStatus = errors.New("upstream_status")
 )
 
 // Caller is the principal behind a tools/call: its platform bearer and, for a
@@ -94,36 +97,75 @@ func (u upstreamCredentials) read(key string) (string, bool) {
 // upstreamClient adds headers to every request and does not follow redirects.
 // A followed redirect would carry the headers to another host.
 func upstreamClient(timeout time.Duration, tracerName string, headers http.Header) (*http.Client, *headerTransport) {
-	t := &headerTransport{headers: headers, base: http.DefaultTransport}
+	t := &headerTransport{headers: headers, base: http.DefaultTransport, secrets: headerSecrets(headers)}
 	c := httpclient.NewHTTPClient(timeout, httpclient.NewTracingTransport(tracerName, t))
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return c, t
 }
 
-// headerTransport sets fixed headers on each request and records an upstream
-// 401 or 403. The MCP client folds the response body into its error.
+// headerSecrets lists the header values to redact, with and without a
+// space-separated prefix such as "Bearer ".
+func headerSecrets(headers http.Header) []string {
+	var out []string
+	for _, vs := range headers {
+		for _, v := range vs {
+			out = append(out, v)
+			if i := strings.LastIndexByte(v, ' '); i >= 0 && len(v)-i > 4 {
+				out = append(out, v[i+1:])
+			}
+		}
+	}
+	return out
+}
+
+// headerTransport sets fixed headers on each request and records upstream
+// error statuses. The MCP client folds the response body into its error.
 type headerTransport struct {
 	headers    http.Header
 	base       http.RoundTripper
-	authStatus atomic.Int32
+	secrets    []string
+	authStatus atomic.Int64
+	errStatus  atomic.Int64
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	r := req.Clone(req.Context())
 	maps.Copy(r.Header, t.headers)
 	resp, err := t.base.RoundTrip(r)
-	if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
-		t.authStatus.Store(int32(resp.StatusCode))
+	switch {
+	case resp == nil:
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		t.authStatus.Store(int64(resp.StatusCode))
+	case resp.StatusCode >= 300:
+		t.errStatus.Store(int64(resp.StatusCode))
 	}
 	return resp, err
 }
 
-// upstreamError replaces err with ErrUpstreamAuthFailed after a 401 or 403.
+// upstreamError keeps the credentials sent upstream out of err. A 401 or 403
+// becomes ErrUpstreamAuthFailed. With credentials sent, another error status
+// becomes ErrUpstreamStatus and any remaining error has the values redacted.
 func (t *headerTransport) upstreamError(err error) error {
+	if err == nil {
+		return nil
+	}
 	if code := t.authStatus.Load(); code != 0 {
 		return fmt.Errorf("%w: HTTP %d", ErrUpstreamAuthFailed, code)
 	}
-	return err
+	if len(t.secrets) == 0 {
+		return err
+	}
+	if code := t.errStatus.Load(); code != 0 {
+		return fmt.Errorf("%w: HTTP %d", ErrUpstreamStatus, code)
+	}
+	msg := err.Error()
+	for _, s := range t.secrets {
+		msg = strings.ReplaceAll(msg, s, "[redacted]")
+	}
+	if msg == err.Error() {
+		return err
+	}
+	return errors.New(msg)
 }
 
 // failureReason classifies an upstream error for logs.
@@ -133,6 +175,8 @@ func failureReason(err error) string {
 		return "auth_failed"
 	case errors.Is(err, ErrCredentialUnavailable):
 		return "credential_unavailable"
+	case errors.Is(err, ErrUpstreamStatus):
+		return "upstream_status"
 	default:
 		return "error"
 	}

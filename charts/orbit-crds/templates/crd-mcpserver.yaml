@@ -149,10 +149,12 @@ spec:
                             properties:
                               name:
                                 type: string
-                                minLength: 1
+                                maxLength: 253
+                                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
                               key:
                                 type: string
-                                minLength: 1
+                                maxLength: 253
+                                pattern: '^[-._a-zA-Z0-9]+$'
             status:
               type: object
               properties:

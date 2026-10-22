@@ -180,7 +180,7 @@ func (i *Introspector) introspectOne(ctx context.Context, srv Server) ([]Tool, e
 		if cerr := session.Close(); cerr != nil {
 			i.logger.Debug(ctx, "closing introspection session",
 				logging.Field{Key: "server", Value: srv.Name},
-				logging.Field{Key: "error", Value: cerr.Error()})
+				logging.Field{Key: "error", Value: upstream.upstreamError(cerr).Error()})
 		}
 	}()
 

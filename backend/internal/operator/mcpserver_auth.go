@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -74,8 +75,8 @@ func validateMCPServerAuth(spec MCPServerSpec) error {
 			return fmt.Errorf("%w: %q is listed twice", ErrMCPServerBadAuthHeader, h.Name)
 		case !isHeaderValue([]byte(h.Prefix)):
 			return fmt.Errorf("%w: the prefix of %q contains a control character", ErrMCPServerBadAuthHeader, h.Name)
-		case h.SecretRef.Name == "" || h.SecretRef.Key == "":
-			return fmt.Errorf("%w: %q needs secretRef.name and secretRef.key", ErrMCPServerBadAuthHeader, h.Name)
+		case len(validation.IsDNS1123Subdomain(h.SecretRef.Name)) > 0 || len(validation.IsConfigMapKey(h.SecretRef.Key)) > 0:
+			return fmt.Errorf("%w: %q needs a valid secretRef.name and secretRef.key", ErrMCPServerBadAuthHeader, h.Name)
 		}
 		seen[lower] = true
 	}
@@ -128,6 +129,10 @@ func mcpSecretKey(namespace, name string, index int) string {
 	return namespace + "." + strings.ReplaceAll(name, ".", "_") + "." + strconv.Itoa(index)
 }
 
+// maxMCPCredentialSize bounds one value. Every value shares one Secret, which
+// Kubernetes caps at 1 MiB.
+const maxMCPCredentialSize = 8 << 10
+
 // readMCPCredential returns the value for ref in namespace. An unusable value
 // wraps ErrMCPCredentialUnavailable. No error carries the value.
 func readMCPCredential(ctx context.Context, c client.Reader, namespace string, ref MCPServerSecretRef) ([]byte, error) {
@@ -138,6 +143,11 @@ func readMCPCredential(ctx context.Context, c client.Reader, namespace string, r
 		}
 		return nil, fmt.Errorf("read Secret %q: %w", ref.Name, err)
 	}
+	// Operator-managed Secrets, such as the copied registry pull secret, hold
+	// platform credentials a tenant must not send to its own endpoint.
+	if secret.Labels["app.kubernetes.io/managed-by"] == "orbit-operator" {
+		return nil, fmt.Errorf("%w: Secret %q is managed by the operator", ErrMCPCredentialUnavailable, ref.Name)
+	}
 	v, ok := secret.Data[ref.Key]
 	if !ok {
 		return nil, fmt.Errorf("%w: Secret %q has no key %q", ErrMCPCredentialUnavailable, ref.Name, ref.Key)
@@ -146,6 +156,9 @@ func readMCPCredential(ctx context.Context, c client.Reader, namespace string, r
 	v = bytes.TrimSuffix(bytes.TrimSuffix(v, []byte("\n")), []byte("\r"))
 	if len(v) == 0 {
 		return nil, fmt.Errorf("%w: Secret %q key %q is empty", ErrMCPCredentialUnavailable, ref.Name, ref.Key)
+	}
+	if len(v) > maxMCPCredentialSize {
+		return nil, fmt.Errorf("%w: Secret %q key %q is over %d bytes", ErrMCPCredentialUnavailable, ref.Name, ref.Key, maxMCPCredentialSize)
 	}
 	if !isHeaderValue(v) {
 		return nil, fmt.Errorf("%w: Secret %q key %q contains a control character", ErrMCPCredentialUnavailable, ref.Name, ref.Key)

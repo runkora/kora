@@ -60,7 +60,7 @@ func (p *Proxy) CallTool(ctx context.Context, srv Server, toolName string, args 
 		if cerr := session.Close(); cerr != nil {
 			p.logger.Debug(ctx, "closing upstream proxy session",
 				logging.Field{Key: "server", Value: srv.Name},
-				logging.Field{Key: "error", Value: cerr.Error()})
+				logging.Field{Key: "error", Value: upstream.upstreamError(cerr).Error()})
 		}
 	}()
 

@@ -51,6 +51,9 @@ func TestValidateMCPServerAuth(t *testing.T) {
 		{"prefix with CRLF", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("Authorization", "Bearer\r\nX-Injected: 1 ", "exa", "key")}}}, ErrMCPServerBadAuthHeader},
 		{"prefix with tab", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("Authorization", "Bearer\t", "exa", "key")}}}, nil},
 		{"missing key", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("x-api-key", "", "exa", "")}}}, ErrMCPServerBadAuthHeader},
+		{"secret name with slash", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("x-api-key", "", "a/b", "key")}}}, ErrMCPServerBadAuthHeader},
+		{"secret name dot-dot", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("x-api-key", "", "..", "key")}}}, ErrMCPServerBadAuthHeader},
+		{"secret key with slash", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("x-api-key", "", "exa", "a/b")}}}, ErrMCPServerBadAuthHeader},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -148,6 +151,12 @@ func TestMCPAggregator_MissingCredentialKeepsServer(t *testing.T) {
 		{"no key", credentialSecret(map[string]string{"other": secretA})},
 		{"empty value", credentialSecret(map[string]string{"key": "\n"})},
 		{"control character", credentialSecret(map[string]string{"key": secretA + "\r\nX-Injected: 1"})},
+		{"too large", credentialSecret(map[string]string{"key": strings.Repeat("a", maxMCPCredentialSize+1)})},
+		{"operator managed", func() *corev1.Secret {
+			sec := credentialSecret(map[string]string{"key": secretA})
+			sec.Labels = map[string]string{"app.kubernetes.io/managed-by": "orbit-operator"}
+			return sec
+		}()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

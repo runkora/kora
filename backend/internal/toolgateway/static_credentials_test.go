@@ -192,3 +192,36 @@ func TestToolsCall_StaticCredentialFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+// Any upstream error status from a server sent credentials is reported by
+// status alone. The body may echo what it was sent.
+func TestUpstreamErrors_DoNotCarryCredentials(t *testing.T) {
+	echo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"bad request %s %s"}}`,
+			r.Header.Get("Authorization"), r.Header.Get("X-Api-Key"))
+	}))
+	t.Cleanup(echo.Close)
+	dir := secretsDir(t, map[string]string{"ns.exa.0": goodBearer, "ns.exa.1": goodAPIKey})
+	srv := Server{Name: "exa", Endpoint: echo.URL + "/mcp", AuthHeaders: authHeaders}
+	creds := NewUpstreamCredentials(dir)
+
+	_, introErr := NewIntrospector(creds, "test", testLogger()).introspectOne(context.Background(), srv)
+	_, callErr := NewProxy(creds, "test", testLogger()).CallTool(context.Background(), srv, "search", nil, nil)
+	for _, err := range []error{introErr, callErr} {
+		if !errors.Is(err, ErrUpstreamStatus) || strings.Contains(err.Error(), goodBearer) || strings.Contains(err.Error(), goodAPIKey) {
+			t.Errorf("err = %v, want ErrUpstreamStatus without the credential", err)
+		}
+	}
+}
+
+func TestUpstreamError_RedactsSentValues(t *testing.T) {
+	h := http.Header{}
+	h.Set("Authorization", "Bearer "+goodBearer)
+	_, upstream := upstreamClient(0, "test", h)
+	err := upstream.upstreamError(fmt.Errorf("decode: unexpected %s", goodBearer))
+	if strings.Contains(err.Error(), goodBearer) || !strings.Contains(err.Error(), "[redacted]") {
+		t.Errorf("err = %q", err)
+	}
+}
