@@ -106,6 +106,9 @@ func TestConnector_RequestOwners_GraphQL(t *testing.T) {
 		{"node and nodes ids", `{"query":"{ node(id: \"PR_1\") { id } nodes(ids: [\"I_2\", \"I_3\"]) { id } }"}`, nil, []string{"I_2", "I_3", "PR_1"}},
 		{"mutation input ids", `{"query":"mutation($in: AddLabelsToLabelableInput!) { addLabelsToLabelable(input: $in) { clientMutationId } }","variables":{"in":{"labelableId":"I_9","labelIds":["LA_1"],"clientMutationId":"abc"}}}`, nil, []string{"I_9", "LA_1"}},
 		{"excluded id names", `{"query":"mutation { updateProjectV2ItemFieldValue(input: {projectId: \"PVT_1\", itemId: \"PVTI_1\", fieldId: \"F_1\", value: {singleSelectOptionId: \"abc\", iterationId: \"it\"}, clientMutationId: \"x\"}) { clientMutationId } }"}`, nil, []string{"F_1", "PVTI_1", "PVT_1"}},
+		{"search query variable", `{"query":"query($q: String!) { search(query: $q, type: ISSUE, first: 10) { issueCount } }","variables":{"q":"repo:acme/widgets is:pr author:bot"}}`, []string{"acme"}, nil},
+		{"search query literal", `{"query":"{ search(query: \"org:contoso is:open\", type: ISSUE) { issueCount } }"}`, []string{"contoso"}, nil},
+		{"search query negated", `{"query":"query($q: String!) { search(query: $q, type: ISSUE) { issueCount } }","variables":{"q":"-repo:acme/widgets is:pr"}}`, nil, nil},
 		{"viewer only", `{"query":"{ viewer { login } }"}`, nil, nil},
 		{"unparseable", `{"query":"{ repository("}`, nil, nil},
 	}

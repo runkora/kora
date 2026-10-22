@@ -596,6 +596,13 @@ func (w *graphqlWalker) collectOwners(set ast.SelectionSet, owners, ids map[stri
 				owners[normalizeName(owner)] = true
 			}
 		}
+		if f.Name == "search" {
+			if q, _ := w.argument(f, "query").(string); q != "" {
+				for _, owner := range searchOwners(q) {
+					owners[owner] = true
+				}
+			}
+		}
 		for _, arg := range f.Arguments {
 			if v, err := arg.Value.Value(w.vars); err == nil {
 				collectNodeIDs(arg.Name, v, ids)
