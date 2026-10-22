@@ -120,9 +120,9 @@ spec:
         secretRef: {name: exa-credentials, key: api-key}
 ```
 
-- `name`: the header. It must be a valid header name and appear once. Headers that HTTP, MCP, tracing or kora set are rejected, such as `Host`, `Content-Type`, `Mcp-Session-Id`, `X-Forwarded-*` and `X-Envoy-*`.
+- `name`: the header. It uses only letters, digits and hyphens and appears once. List at most 8 headers. Headers that HTTP, MCP, tracing or kora set are rejected, such as `Host`, `Content-Type`, `Mcp-Session-Id`, `X-Forwarded-*` and `X-Envoy-*`.
 - `prefix`: optional text sent before the value, such as `"Bearer "`.
-- `secretRef`: the Secret and key holding the value, in the same namespace. One trailing newline is trimmed.
+- `secretRef`: the Secret and key holding the value, in the same namespace. One trailing newline is trimmed. A value over 4 KiB is not used.
 
 The tool-gateway sends these headers on introspection and on every tool call, whoever the caller is. Agents never see the value. Tool scopes still decide which callers may use each tool. `spec.auth` cannot be combined with `callerIdentity: forward`.
 
@@ -134,7 +134,7 @@ A missing Secret or key leaves the server registered. Its tool calls fail with `
 kubectl describe mcpserver exa -n orbit-tenant-example
 ```
 
-An upstream that rejects the credential with 401 or 403 is logged by the tool-gateway with `reason: auth_failed`. The server keeps its previously introspected tools.
+An upstream that rejects the credential with 401 or 403 is logged by the tool-gateway with `reason: auth_failed`. The server keeps its previously introspected tools. Errors from a server that was sent credentials are logged by status code only, without the upstream's response text.
 
 ## Reference
 
