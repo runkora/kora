@@ -49,9 +49,6 @@ jobs:
       - name: Format check
         run: make frontend-fmt
 
-      - name: frontend-install timeout guard
-        run: make frontend-install-test
-
       # Fails when manifest.json no longer matches the token sources.
       - name: Hades manifest in sync
         run: make hades-check

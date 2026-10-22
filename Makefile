@@ -1093,7 +1093,7 @@ frontend-build: ## Build the frontend for production
 	@echo "$(COLOR_GREEN)✓ Frontend built$(COLOR_RESET)"
 
 .PHONY: frontend-lint
-frontend-lint: ## Lint the frontend (eslint)
+frontend-lint: frontend-install-test ## Lint the frontend (eslint)
 	@echo "$(COLOR_YELLOW)Linting frontend...$(COLOR_RESET)"
 	@cd $(FRONTEND_DIR) && pnpm lint
 	@echo "$(COLOR_GREEN)✓ Frontend lint passed$(COLOR_RESET)"
