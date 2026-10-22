@@ -164,8 +164,8 @@ Tenant and global `MCPServer` CRs follow the same rules and the same path.
 
 ### 4. ServiceEntries for external hosts
 
-*   The aggregator renders one ServiceEntry for each distinct host among valid `MCPServer` endpoints, named `mcp-server-<host>`, in the system namespace. Hosts are lowercased and stripped of a trailing dot first. In-mesh hosts and IP addresses are skipped by the rule the InferenceProvider ServiceEntries use.
-*   A host whose last label is the name of a namespace in the cluster is skipped. It is a Service's `<name>.<namespace>` form.
+*   The aggregator renders one ServiceEntry for each distinct host among valid `MCPServer` endpoints, named `mcp-server-<host>`, in the system namespace. Hosts are lowercased and stripped of a trailing dot first. In-cluster hosts and IP addresses are skipped by the rule the InferenceProvider ServiceEntries use. The rule covers short names, IP addresses, and names ending in `.svc`, `.pod` or `.cluster.local`.
+*   A host with a namespace name in any label after the first is skipped. It resolves to a Service or pod through the cluster search domains.
 *   A host that another operator-managed ServiceEntry registers is skipped. Two entries for one host could declare clashing port protocols.
 *   Each ServiceEntry has `location: MESH_EXTERNAL`, `resolution: DNS`, `exportTo: ["."]`, the ports of every endpoint on that host, and the label `orbit.io/component: mcp-server-host`.
 *   On each pass the aggregator deletes labelled ServiceEntries whose host no valid `MCPServer` uses.
