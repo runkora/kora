@@ -42,14 +42,6 @@ const SCOPES = 1;
 const BUDGET = 2;
 const REVIEW = 3;
 
-// What the strip says while the step is valid.
-const READY = [
-  'Ready to continue.',
-  'Ready to continue.',
-  'Ready to continue. The budget is optional.',
-  'Ready to create the grant.',
-];
-
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 export function CreateGrantWizard({ availableScopes, onClose, onCreated }: CreateGrantWizardProps) {
@@ -234,6 +226,7 @@ export function CreateGrantWizard({ availableScopes, onClose, onCreated }: Creat
       onClose={submitting ? () => undefined : onClose}
       icon="shield-check"
       title="Create grant"
+      hint={created ? undefined : hint}
       rail={
         <Wizard.Rail
           label="Create grant"
@@ -297,19 +290,6 @@ export function CreateGrantWizard({ availableScopes, onClose, onCreated }: Creat
         </Wizard.Step>
       ) : (
         <Stack grow overflowY="auto" padding="loose" gap="relaxed">
-          {/* Always rendered, with the same structure, so a hint appearing or clearing never moves
-              the step below it. The Wizard's own hint strip is not used because it mounts only
-              while there is a hint. */}
-          <Alert
-            variant={hint ? 'error' : 'info'}
-            role={hint ? 'alert' : 'status'}
-            data-slot="grant-wizard-hint"
-          >
-            <Icon name={hint ? 'alert-circle' : 'info'} size="xs" label="" />
-            <Text size="caption" color="muted">
-              {hint ?? READY[step]}
-            </Text>
-          </Alert>
           {body}
         </Stack>
       )}

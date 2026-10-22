@@ -287,64 +287,49 @@ describe('CreateGrantWizard', () => {
     expect(screen.getByText('Choose a user before you continue.')).toBeInTheDocument();
   });
 
-  describe('hint strip', () => {
-    const strip = () => {
-      const all = document.querySelectorAll('[data-slot="grant-wizard-hint"]');
-      expect(all).toHaveLength(1);
-      return all[0] as HTMLElement;
-    };
-    /** The strip's place in the layout: its parent and what comes before it. */
-    const shape = (el: HTMLElement) => ({
-      parent: el.parentElement,
-      index: Array.from(el.parentElement!.children).indexOf(el),
-      tag: el.tagName,
-      children: Array.from(el.children).map((c) => c.tagName),
+  describe('hint banner', () => {
+    // The Hades Wizard shows its hint as an alert that is mounted only while there is one.
+    const banner = () => screen.queryByRole('alert');
+
+    it('shows the user hint until a user is chosen', async () => {
+      renderWizard();
+      expect(banner()).toHaveTextContent('Choose a user before you continue.');
+      await pickUser();
+      expect(banner()).toBeNull();
     });
 
-    it('is always rendered, in the same place and shape, with or without a hint', async () => {
+    it('shows the scope hint until a scope is chosen', async () => {
       renderWizard();
-      const withHint = strip();
-      expect(withHint).toHaveAttribute('role', 'alert');
-      const before = shape(withHint);
-
-      await pickUser(); // step 1 becomes valid: the hint clears
-      const cleared = strip();
-      expect(cleared).toHaveAttribute('role', 'status');
-      expect(cleared).toHaveTextContent('Ready to continue.');
-      expect(shape(cleared)).toEqual(before);
-      expect(cleared.parentElement!.firstElementChild).toBe(cleared);
-    });
-
-    it('keeps the same place on every step, including review', async () => {
-      renderWizard();
-      const first = shape(strip());
       await pickUser();
       next();
-      expect(shape(strip()).index).toBe(first.index); // scopes, with a hint
+      expect(banner()).toHaveTextContent('Choose at least one scope before you continue.');
       pickScope();
-      next();
-      expect(shape(strip()).index).toBe(first.index); // budget, valid
-      fireEvent.click(spendSwitch());
-      expect(strip()).toHaveAttribute('role', 'alert'); // budget, invalid
-      expect(shape(strip()).index).toBe(first.index);
-      fireEvent.click(spendSwitch());
-      next();
-      expect(shape(strip()).index).toBe(first.index); // review
+      expect(banner()).toBeNull();
     });
 
-    it('does not use the Wizard hint strip, which mounts only while a hint is set', () => {
+    it('shows the budget hint only while a row is on and invalid', async () => {
       renderWizard();
-      expect(document.querySelector('[data-slot="wizard"] > [role="alert"]')).toBeNull();
+      await toBudget();
+      expect(banner()).toBeNull(); // both rows off: no budget, nothing to fix
+      fireEvent.click(spendSwitch());
+      expect(banner()).toHaveTextContent('Enter a spend limit above 0.');
+      fireEvent.change(spendInput(), { target: { value: '25' } });
+      expect(banner()).toBeNull();
+      fireEvent.click(perRunSwitch());
+      expect(banner()).toHaveTextContent('Enter a per-run limit above 0.');
+      fireEvent.click(perRunSwitch());
+      expect(banner()).toBeNull();
     });
 
-    it('is absent from the success screen', async () => {
+    it('shows no banner on review or on the success screen', async () => {
       createGrantAction.mockResolvedValue({ ok: true, data: {} });
       renderWizard();
       await toBudget();
       next();
+      expect(banner()).toBeNull();
       fireEvent.click(createButton());
       await screen.findByText('Grant created');
-      expect(document.querySelector('[data-slot="grant-wizard-hint"]')).toBeNull();
+      expect(banner()).toBeNull();
     });
   });
 });
