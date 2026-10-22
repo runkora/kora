@@ -108,7 +108,7 @@ describe('GrantsTab', () => {
     renderTab();
     fireEvent.click(screen.getByRole('button', { name: /create grant/i }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
-    expect(screen.queryByRole('radio')).toBeNull();
+    expect(screen.queryByRole('radio', { name: /agent|trigger|service|pat/i })).toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
   });
 });

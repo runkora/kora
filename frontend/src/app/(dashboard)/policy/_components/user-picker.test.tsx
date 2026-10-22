@@ -27,7 +27,7 @@ describe('UserPicker', () => {
     render(<UserPicker value="" onChange={onChange} />);
     await settle();
     expect(searchUsersAction).toHaveBeenCalledWith('');
-    fireEvent.click(screen.getByRole('button', { name: /Maya Chen/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Maya Chen/ }));
     expect(onChange).toHaveBeenCalledWith('usr_1', MAYA);
   });
 
@@ -74,6 +74,6 @@ describe('UserPicker', () => {
     fireEvent.change(screen.getByPlaceholderText('Search users…'), { target: { value: 'maya' } });
     await settle();
     expect(screen.queryByText('Could not load users. Try searching again.')).toBeNull();
-    expect(screen.getByRole('button', { name: /Maya Chen/ })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Maya Chen/ })).toBeInTheDocument();
   });
 });

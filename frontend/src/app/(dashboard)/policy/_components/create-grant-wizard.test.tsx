@@ -32,7 +32,7 @@ function renderWizard() {
 const next = () => fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 
 async function pickUser() {
-  fireEvent.click(await screen.findByRole('button', { name: /Maya Chen/ }));
+  fireEvent.click(await screen.findByRole('radio', { name: /Maya Chen/ }));
 }
 
 const pickScope = () => fireEvent.click(screen.getAllByRole('checkbox')[0]!);
@@ -51,7 +51,7 @@ describe('CreateGrantWizard', () => {
 
   it('offers no principal type and holds Continue until a user is chosen', async () => {
     renderWizard();
-    expect(screen.queryByRole('radio')).toBeNull();
+    expect(screen.queryByRole('radio', { name: /agent|trigger|service|pat/i })).toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(screen.getByText('Choose a user before you continue.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled();
@@ -238,5 +238,66 @@ describe('CreateGrantWizard', () => {
     first.unmount();
     renderWizard();
     expect(screen.getByText('Choose a user before you continue.')).toBeInTheDocument();
+  });
+
+  describe('hint strip', () => {
+    const strip = () => {
+      const all = document.querySelectorAll('[data-slot="grant-wizard-hint"]');
+      expect(all).toHaveLength(1);
+      return all[0] as HTMLElement;
+    };
+    /** The strip's place in the layout: its parent and what comes before it. */
+    const shape = (el: HTMLElement) => ({
+      parent: el.parentElement,
+      index: Array.from(el.parentElement!.children).indexOf(el),
+      tag: el.tagName,
+      children: Array.from(el.children).map((c) => c.tagName),
+    });
+
+    it('is always rendered, in the same place and shape, with or without a hint', async () => {
+      renderWizard();
+      const withHint = strip();
+      expect(withHint).toHaveAttribute('role', 'alert');
+      const before = shape(withHint);
+
+      await pickUser(); // step 1 becomes valid: the hint clears
+      const cleared = strip();
+      expect(cleared).toHaveAttribute('role', 'status');
+      expect(cleared).toHaveTextContent('Ready to continue.');
+      expect(shape(cleared)).toEqual(before);
+      expect(cleared.parentElement!.firstElementChild).toBe(cleared);
+    });
+
+    it('keeps the same place on every step, including review', async () => {
+      renderWizard();
+      const first = shape(strip());
+      await pickUser();
+      next();
+      expect(shape(strip()).index).toBe(first.index); // scopes, with a hint
+      pickScope();
+      next();
+      expect(shape(strip()).index).toBe(first.index); // budget, valid
+      fireEvent.click(screen.getByRole('switch'));
+      expect(strip()).toHaveAttribute('role', 'alert'); // budget, invalid
+      expect(shape(strip()).index).toBe(first.index);
+      fireEvent.click(screen.getByRole('switch'));
+      next();
+      expect(shape(strip()).index).toBe(first.index); // review
+    });
+
+    it('does not use the Wizard hint strip, which mounts only while a hint is set', () => {
+      renderWizard();
+      expect(document.querySelector('[data-slot="wizard"] > [role="alert"]')).toBeNull();
+    });
+
+    it('is absent from the success screen', async () => {
+      createGrantAction.mockResolvedValue({ ok: true, data: {} });
+      renderWizard();
+      await toBudget();
+      next();
+      fireEvent.click(createButton());
+      await screen.findByText('Grant created');
+      expect(document.querySelector('[data-slot="grant-wizard-hint"]')).toBeNull();
+    });
   });
 });
