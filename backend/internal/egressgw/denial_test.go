@@ -217,8 +217,9 @@ func TestPolicyDenialReason(t *testing.T) {
 	}
 }
 
-// Deny logs carry the method and path so a denial can be diagnosed, but never
-// the query string or headers, which can carry tokens.
+// Deny logs carry the method, path and principal so a denial can be diagnosed
+// and attributed to an agent, but never the query string or headers, which can
+// carry tokens.
 func TestAuthorize_DenyLogsMethodAndPathOnly(t *testing.T) {
 	tests := []struct {
 		name, method, path, wantLog string
@@ -245,7 +246,7 @@ func TestAuthorize_DenyLogsMethodAndPathOnly(t *testing.T) {
 			}
 
 			out := logs.String()
-			for _, want := range []string{tc.wantLog, tc.method, tc.path} {
+			for _, want := range []string{tc.wantLog, tc.method, tc.path, `"principal_id":"agent"`} {
 				if !strings.Contains(out, want) {
 					t.Errorf("deny log missing %q:\n%s", want, out)
 				}
@@ -256,5 +257,48 @@ func TestAuthorize_DenyLogsMethodAndPathOnly(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// refusingAdapter classifies every request and fails Mint with the sentinel the
+// GitHub App adapter returns when the installation lacks the permission.
+type refusingAdapter struct{}
+
+func (refusingAdapter) Type() credentials.AdapterType { return credentials.AdapterGitHubApp }
+func (refusingAdapter) Actions() []credentials.ActionDeclaration {
+	return []credentials.ActionDeclaration{{Action: "repo:read"}}
+}
+func (refusingAdapter) Open(credentials.Connection) (credentials.Connector, error) {
+	return refusingConnector{}, nil
+}
+
+type refusingConnector struct{}
+
+func (refusingConnector) Classify(*http.Request) (credentials.Classification, error) {
+	return credentials.Classification{Action: "repo:read"}, nil
+}
+func (refusingConnector) Mint(context.Context, credentials.CallerIdentity) (credentials.Credential, error) {
+	return credentials.Credential{}, credentials.ErrCredentialScopeRejected
+}
+func (refusingConnector) QualifierCeiling() []string { return nil }
+
+// A credential refusal at mint time is attributed to the agent in the log.
+func TestAuthorize_CredentialRefusedLogsPrincipal(t *testing.T) {
+	f := newFixture(t)
+	registry := NewAdapterRegistry()
+	registry.Register(refusingAdapter{})
+	var logs bytes.Buffer
+	broker := NewBroker(f.eval, f.repo, registry, passthrough.New(), logging.NewLoggerWithOutput(&logs))
+
+	r := httptest.NewRequest(http.MethodGet, "https://"+f.connectionHost+"/anything", nil)
+	_, err := broker.Authorize(context.Background(), claimsFor("acme", "agent", "run-1"), FromHTTP(r))
+	if !errors.Is(err, ErrForbidden) || !errors.Is(err, credentials.ErrCredentialScopeRejected) {
+		t.Fatalf("err = %v, want forbidden credential refusal", err)
+	}
+	out := logs.String()
+	for _, want := range []string{"upstream refused credential scope", `"principal_id":"agent"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log missing %q:\n%s", want, out)
+		}
 	}
 }

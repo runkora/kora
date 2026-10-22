@@ -280,7 +280,7 @@ func unresolved(host string, candidates []*credentials.Connection, ambiguous boo
 func (b *Broker) unresolvedConnection(ctx context.Context, span trace.Span, claims *token.PlatformClaims, req EgressRequest, d *Denial) (Decision, error) {
 	if d.ambiguous || d.Reason != DenialConnectionUnresolved {
 		span.SetStatus(codes.Error, ErrForbidden.Error())
-		b.logDenial(ctx, claims.Kora.TenantID, req, d)
+		b.logDenial(ctx, claims, req, d)
 		return Decision{}, d
 	}
 	conn := &credentials.Connection{

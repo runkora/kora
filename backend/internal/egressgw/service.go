@@ -180,6 +180,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 				logging.Field{Key: "action", Value: action},
 				logging.Field{Key: "qualifier", Value: cls.Qualifier},
 				logging.Field{Key: "tenant_id", Value: tenantID},
+				logging.Field{Key: "principal_id", Value: claims.Subject},
 			)
 			refused := credentials.Classification{Action: action, Qualifier: cls.Qualifier}
 			return Decision{}, deny(DenialCredentialRefused, req.Host, conn, refused, err)
@@ -240,7 +241,7 @@ func (b *Broker) policyDenied(ctx context.Context, span trace.Span, claims *toke
 	// An evaluator error is logged where it happens. An operational result
 	// such as no policy for the tenant is logged here.
 	if denial != nil && denial.decision != "" {
-		b.logDenial(ctx, claims.Kora.TenantID, req, denial)
+		b.logDenial(ctx, claims, req, denial)
 	}
 	return Decision{}, perr
 }
@@ -257,7 +258,7 @@ const anonymousReadAction = "anonymous_read"
 func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claims *token.PlatformClaims, conn *credentials.Connection, req EgressRequest, denial *Denial) (Decision, error) {
 	if conn.Adapter != credentials.AdapterGitHubApp || !isRead(req) || !b.ownEgressAllows(ctx, claims, req.Host) {
 		span.SetStatus(codes.Error, ErrForbidden.Error())
-		b.logDenial(ctx, claims.Kora.TenantID, req, denial)
+		b.logDenial(ctx, claims, req, denial)
 		return Decision{}, denial
 	}
 
@@ -284,7 +285,8 @@ func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claim
 
 // logDenial records a refused call once, after the fallback has declined it.
 // The query string and headers stay out of the log: either can carry tokens.
-func (b *Broker) logDenial(ctx context.Context, tenantID string, req EgressRequest, d *Denial) {
+func (b *Broker) logDenial(ctx context.Context, claims *token.PlatformClaims, req EgressRequest, d *Denial) {
+	tenantID := claims.Kora.TenantID
 	if d.Reason == DenialConnectionUnresolved {
 		fields := []logging.Field{
 			{Key: "host", Value: req.Host},
@@ -292,6 +294,7 @@ func (b *Broker) logDenial(ctx context.Context, tenantID string, req EgressReque
 			{Key: "path", Value: requestPath(req)},
 			{Key: "candidates", Value: strings.Join(d.Candidates, ",")},
 			{Key: "tenant_id", Value: tenantID},
+			{Key: "principal_id", Value: claims.Subject},
 		}
 		// The sandbox egress canary sends GET / with no owner on every start.
 		// The denial still reaches the caller, and it passes the canary.
@@ -312,6 +315,8 @@ func (b *Broker) logDenial(ctx context.Context, tenantID string, req EgressReque
 			logging.Field{Key: "host", Value: req.Host},
 			logging.Field{Key: "method", Value: req.Method},
 			logging.Field{Key: "path", Value: requestPath(req)},
+			logging.Field{Key: "tenant_id", Value: tenantID},
+			logging.Field{Key: "principal_id", Value: claims.Subject},
 			logging.Field{Key: "error", Value: cause},
 		)
 		return
@@ -324,6 +329,7 @@ func (b *Broker) logDenial(ctx context.Context, tenantID string, req EgressReque
 		logging.Field{Key: "action", Value: d.Action},
 		logging.Field{Key: "qualifier", Value: d.Qualifier},
 		logging.Field{Key: "tenant_id", Value: tenantID},
+		logging.Field{Key: "principal_id", Value: claims.Subject},
 		logging.Field{Key: "reason", Value: d.decision},
 	)
 }

@@ -215,10 +215,14 @@ func TestAuthorize_UnresolvedRootReadLogsAtDebug(t *testing.T) {
 			adapters.Register(githubapp.New(nil, nil, logger))
 			b := NewBroker(&selectionPolicy{}, both, adapters, passthrough.New(), logger)
 
-			_, err := b.Authorize(context.Background(), acmeClaims, egressRequest(tc.method, tc.url))
+			claims := claimsFor("acme", "agent", "run-1")
+			_, err := b.Authorize(context.Background(), claims, egressRequest(tc.method, tc.url))
 			var d *Denial
 			if !errors.As(err, &d) || d.Reason != DenialConnectionUnresolved {
 				t.Fatalf("err = %v, want a connection_unresolved denial", err)
+			}
+			if out := logs.String(); !strings.Contains(out, `"principal_id":"agent"`) {
+				t.Errorf("log = %s, want principal_id", out)
 			}
 			if out := logs.String(); !strings.Contains(out, `"level":"`+tc.wantLevel+`"`) || !strings.Contains(out, "connection unresolved") {
 				t.Errorf("log = %s, want a %s-level unresolved line", out, tc.wantLevel)
