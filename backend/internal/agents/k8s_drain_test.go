@@ -71,3 +71,22 @@ func TestDeprovision_DeletesAgentPods(t *testing.T) {
 		}
 	}
 }
+
+// A single session-manager pod cannot satisfy minAvailable: 1, so the PDB
+// allows one unavailable pod and a node drain completes.
+func TestBuildPDB_SingleReplicaAllowsDrain(t *testing.T) {
+	p := podSecurityProvisioner()
+	labels := map[string]string{"app": "coder"}
+
+	p.cfg.MinReplicas = 1
+	spec := p.buildPDB("coder", "orbit-tenant-acme", labels).Spec
+	if spec.MinAvailable != nil || spec.MaxUnavailable == nil || spec.MaxUnavailable.IntValue() != 1 {
+		t.Errorf("1 replica: minAvailable = %v, maxUnavailable = %v, want nil and 1", spec.MinAvailable, spec.MaxUnavailable)
+	}
+
+	p.cfg.MinReplicas = 2
+	spec = p.buildPDB("coder", "orbit-tenant-acme", labels).Spec
+	if spec.MaxUnavailable != nil || spec.MinAvailable == nil || spec.MinAvailable.IntValue() != 1 {
+		t.Errorf("2 replicas: minAvailable = %v, maxUnavailable = %v, want 1 and nil", spec.MinAvailable, spec.MaxUnavailable)
+	}
+}

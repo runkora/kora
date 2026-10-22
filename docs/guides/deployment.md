@@ -47,6 +47,7 @@ kora registers workload identities into an existing SPIRE deployment. You must i
 - The SPIFFE CSI driver `csi.spiffe.io` registered, and spire-controller-manager present with the `ClusterSPIFFEID` CRD served.
 - The chart's default `ClusterSPIFFEID` disabled or set `fallback: true`, so it does not race kora's own registrations.
 - Agent SDS enabled with `defaultSVIDName: default`, `defaultBundleName: ROOTCA`, `defaultAllBundlesName: ALL`.
+- The spire-agent and SPIFFE CSI driver DaemonSets running on every node that runs agent pods, including nodes carrying a disruption taint such as `karpenter.sh/disrupted`. The reference values tolerate every taint. A node without them loses its sidecars' certificate stream.
 - A controller-manager class matching the chart's `spire.className` value (`spire-system-spire` by default). A mismatch means kora's `ClusterSPIFFEID`s are ignored.
 
 The reference Helmfile and the Argo CD example install a SPIRE the minimum spec required for kora.
