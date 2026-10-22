@@ -24,6 +24,7 @@ import { CreateTokenModal } from './create-token-modal';
 import { TokenCreatedModal } from './token-created-modal';
 import { EditScopesModal } from './edit-scopes-modal';
 import { ScopeChip } from '@runkora/components';
+import type { ScopeOption } from '@runkora/components';
 import type { CreatePATResponse, PAT } from '@runkora/shared/api';
 import { fmtDate, fmtExpiry, fmtNumCompact, isExpired } from '@runkora/utils';
 import type { TokenUsageStat } from '../_services/usage-server';
@@ -192,6 +193,8 @@ interface KeysTabProps {
   initialTokens: PAT[];
   initialError: string | null;
   effectiveScopes: string[];
+  /** `effectiveScopes` with vocabulary descriptions and grouping, for the scope pickers. */
+  scopeOptions?: ScopeOption[];
   usageStats: TokenUsageStat[];
 }
 
@@ -199,6 +202,7 @@ export function KeysTab({
   initialTokens,
   initialError,
   effectiveScopes,
+  scopeOptions,
   usageStats,
 }: KeysTabProps) {
   const statsById = useMemo(
@@ -300,6 +304,7 @@ export function KeysTab({
       <CreateTokenModal
         open={createOpen}
         availableScopes={effectiveScopes}
+        scopeOptions={scopeOptions}
         onClose={() => setCreateOpen(false)}
         onCreated={handleCreated}
       />
@@ -326,6 +331,7 @@ export function KeysTab({
       <EditScopesModal
         pat={editScopesCandidate}
         availableScopes={effectiveScopes}
+        scopeOptions={scopeOptions}
         onClose={() => setEditScopesCandidate(null)}
         onUpdated={handleScopesUpdated}
       />

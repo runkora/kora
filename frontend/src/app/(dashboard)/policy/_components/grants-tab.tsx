@@ -20,7 +20,7 @@ import {
   ConfirmDialog,
 } from '@runkora/hades';
 import { SmartTable } from '@runkora/components';
-import type { DataTableColumn } from '@runkora/components';
+import type { DataTableColumn, ScopeOption } from '@runkora/components';
 import type {
   PATAttributionEntry,
   PATGrantAttribution,
@@ -83,6 +83,8 @@ function grantMatches(
 interface GrantsTabProps {
   initialGrants: Grant[];
   availableScopes: string[];
+  /** The vocabulary entries behind `availableScopes`, so the wizard can group and describe them. */
+  scopeOptions?: ScopeOption[];
   patAttribution: Record<string, PATGrantAttribution>;
   userAttribution: Record<string, PATAttributionEntry>;
   initialError: string | null;
@@ -96,6 +98,7 @@ interface GrantsTabProps {
 export function GrantsTab({
   initialGrants,
   availableScopes,
+  scopeOptions,
   patAttribution,
   userAttribution,
   initialError,
@@ -334,6 +337,7 @@ export function GrantsTab({
       {creating && (
         <CreateGrantWizard
           availableScopes={availableScopes}
+          scopeOptions={scopeOptions}
           onClose={() => setCreating(false)}
           onCreated={() => router.refresh()}
         />

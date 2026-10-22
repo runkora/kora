@@ -1,5 +1,6 @@
 import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchGrants, fetchVocabulary } from '../_services/policy-server';
+import { toScopeOption } from '@runkora/components/scope-option';
 import { fetchPATAttribution } from '../../model-gateway/_services/tokens-server';
 import { resolveUserDisplayNames } from '@runkora/server/services/identity-server';
 import type {
@@ -41,7 +42,9 @@ export default async function GrantsPage({ searchParams }: Props) {
 
   const grants = grantsResult.ok ? (grantsResult.data.grants ?? []) : [];
   const total = grantsResult.ok ? (grantsResult.data.total ?? 0) : 0;
-  const scopes = vocabResult.ok ? (vocabResult.data.scopes ?? []).map((s) => s.scope) : [];
+  const vocabulary = vocabResult.ok ? (vocabResult.data.scopes ?? []) : [];
+  const scopes = vocabulary.map((s) => s.scope);
+  const scopeOptions = vocabulary.map(toScopeOption);
   const error = !grantsResult.ok
     ? grantsResult.message
     : !vocabResult.ok
@@ -72,6 +75,7 @@ export default async function GrantsPage({ searchParams }: Props) {
     <GrantsTab
       initialGrants={grants}
       availableScopes={scopes}
+      scopeOptions={scopeOptions}
       patAttribution={patAttribution}
       userAttribution={userAttribution}
       initialError={error}

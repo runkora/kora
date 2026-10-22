@@ -15,6 +15,7 @@ import {
 } from '@runkora/hades';
 import { createToken } from '../_actions/tokens';
 import { ScopePicker } from '@runkora/components';
+import type { ScopeOption } from '@runkora/components';
 import type { CreatePATResponse } from '@runkora/shared/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -22,6 +23,7 @@ import type { CreatePATResponse } from '@runkora/shared/api';
 interface CreateTokenModalProps {
   open: boolean;
   availableScopes: string[];
+  scopeOptions?: ScopeOption[];
   onClose: () => void;
   onCreated: (pat: CreatePATResponse) => void;
 }
@@ -31,6 +33,7 @@ interface CreateTokenModalProps {
 export function CreateTokenModal({
   open,
   availableScopes,
+  scopeOptions,
   onClose,
   onCreated,
 }: CreateTokenModalProps) {
@@ -108,7 +111,7 @@ export function CreateTokenModal({
         description="Keys are scoped to your account and usable at inference endpoints."
       />
       <Form onSubmit={(e) => void handleSubmit(e)} noValidate>
-        <ModalBody>
+        <ModalBody constrained>
           {/* Name */}
           <FormField
             id="pat-name"
@@ -151,11 +154,6 @@ export function CreateTokenModal({
                   *
                 </Text>
               </Text>
-              {selectedScopes.length > 0 && (
-                <Text size="caption" color="muted">
-                  {selectedScopes.length} selected
-                </Text>
-              )}
             </Stack>
             {availableScopes.length === 0 ? (
               <Text size="supporting" color="muted">
@@ -163,10 +161,10 @@ export function CreateTokenModal({
               </Text>
             ) : (
               <ScopePicker
+                options={scopeOptions}
                 scopes={availableScopes}
                 selected={selectedScopes}
                 onChange={setSelectedScopes}
-                searchable
               />
             )}
             <Text size="caption" color="subtle">

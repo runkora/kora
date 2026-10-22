@@ -3,7 +3,8 @@
 
 import { getSession, isSessionValid } from '@runkora/server/session';
 import { listPATsFromIdentity } from '../_services/tokens-server';
-import { fetchEffectiveScopes } from '../../policy/_services/policy-server';
+import { loadScopeOptions } from '../_services/scope-options';
+import { fetchEffectiveScopes, fetchVocabulary } from '../../policy/_services/policy-server';
 import { fetchUsageStats } from '../_services/usage-server';
 import { KeysTab } from '../_components/keys-tab';
 import type { TokenUsageStat } from '../_services/usage-server';
@@ -11,17 +12,25 @@ import type { TokenUsageStat } from '../_services/usage-server';
 export default async function KeysPage() {
   const session = await getSession();
 
-  const [tokensResult, scopesResult, statsResult] = isSessionValid(session)
-    ? await Promise.all([
-        listPATsFromIdentity(session.accessToken),
-        fetchEffectiveScopes(session.accessToken),
-        fetchUsageStats(session.accessToken),
-      ])
-    : [
-        { ok: false as const, status: 401, message: 'Session expired. Please sign in again.' },
-        { ok: false as const, status: 401, message: 'Session expired. Please sign in again.' },
-        { ok: false as const, status: 401, message: 'Session expired. Please sign in again.' },
-      ];
+  const expired = {
+    ok: false as const,
+    status: 401,
+    message: 'Session expired. Please sign in again.',
+  };
+  const valid = isSessionValid(session);
+  const accessToken = valid ? session.accessToken : '';
+  const tenantId = valid ? session.tenantId : '';
+  const scopesPromise = valid ? fetchEffectiveScopes(accessToken) : Promise.resolve(expired);
+  // Descriptions and grouping come from the vocabulary, which only platform:grants:read may fetch.
+  const scopeOptionsPromise = scopesPromise.then((r) =>
+    loadScopeOptions(r.ok ? r.data.scopes : [], () => fetchVocabulary(accessToken, tenantId)),
+  );
+  const [tokensResult, scopesResult, statsResult, scopeOptions] = await Promise.all([
+    valid ? listPATsFromIdentity(session.accessToken) : Promise.resolve(expired),
+    scopesPromise,
+    valid ? fetchUsageStats(session.accessToken) : Promise.resolve(expired),
+    scopeOptionsPromise,
+  ]);
 
   const initialTokens = tokensResult.ok ? tokensResult.tokens : [];
   const initialError = tokensResult.ok ? null : tokensResult.message;
@@ -36,6 +45,7 @@ export default async function KeysPage() {
       initialTokens={initialTokens}
       initialError={initialError}
       effectiveScopes={effectiveScopes}
+      scopeOptions={scopeOptions}
       usageStats={usageStats}
     />
   );

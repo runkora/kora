@@ -37,6 +37,7 @@ import { useHasScope } from '../../_components/permissions-provider';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { ScopeChipList, scopeColumnFilter } from '@runkora/components';
 import { ScopePicker } from '@runkora/components';
+import type { ScopeOption } from '@runkora/components';
 import { ViewToggle } from '@runkora/components';
 import { PermissionHint } from '@runkora/components';
 
@@ -45,6 +46,8 @@ import { PermissionHint } from '@runkora/components';
 interface RolesTabProps {
   initialRoles: RoleEntry[];
   availableScopes: string[];
+  /** The vocabulary entries behind `availableScopes`, for grouping and descriptions. */
+  scopeOptions?: ScopeOption[];
   /** Set when the scope vocabulary failed to load. The editor shows it in place of a full picker. */
   scopesError?: string | null;
   initialError: string | null;
@@ -55,6 +58,7 @@ interface RolesTabProps {
 export function RolesTab({
   initialRoles,
   availableScopes,
+  scopeOptions,
   scopesError = null,
   initialError,
 }: RolesTabProps) {
@@ -222,6 +226,7 @@ export function RolesTab({
         open={creating || editingRole !== null}
         editingRole={editingRole}
         availableScopes={availableScopes}
+        scopeOptions={scopeOptions}
         scopesError={scopesError}
         onClose={() => {
           setCreating(false);
@@ -490,6 +495,7 @@ function UpsertRoleModal({
   open,
   editingRole,
   availableScopes,
+  scopeOptions,
   scopesError,
   onClose,
   onSaved,
@@ -497,6 +503,7 @@ function UpsertRoleModal({
   open: boolean;
   editingRole: RoleEntry | null;
   availableScopes: string[];
+  scopeOptions?: ScopeOption[];
   scopesError: string | null;
   onClose: () => void;
   onSaved: () => void;
@@ -555,9 +562,6 @@ function UpsertRoleModal({
           <Stack gap="tight">
             <Stack direction="horizontal" align="center" gap="tight">
               <Eyebrow>Scopes</Eyebrow>
-              <Text size="caption" color="subtle">
-                ({selectedScopes.length} selected)
-              </Text>
             </Stack>
             {scopesError && (
               <Text size="caption" color="subtle">
@@ -565,6 +569,7 @@ function UpsertRoleModal({
               </Text>
             )}
             <ScopePicker
+              options={scopesError ? undefined : scopeOptions}
               scopes={scopesError ? (editingRole?.scopes ?? []) : availableScopes}
               selected={selectedScopes}
               onChange={setSelectedScopes}
