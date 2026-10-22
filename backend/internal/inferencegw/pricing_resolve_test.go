@@ -34,6 +34,21 @@ func permutations[T any](rows []T, fn func([]T)) {
 	rec(0)
 }
 
+// rotations calls fn with every rotation of rows and of rows reversed: a cheaper
+// stand-in for permutations on a larger fixture, which still puts every row
+// both first and last.
+func rotations[T any](rows []T, fn func([]T)) {
+	reversed := make([]T, len(rows))
+	for i, r := range rows {
+		reversed[len(rows)-1-i] = r
+	}
+	for _, base := range [][]T{rows, reversed} {
+		for i := range base {
+			fn(append(append([]T(nil), base[i:]...), base[:i]...))
+		}
+	}
+}
+
 // One model with a row per inference profile, every price distinct so a route
 // resolving to a neighbour's row cannot pass by coincidence.
 func TestPricingIndexPricesEachProfileByItsOwnRow(t *testing.T) {
@@ -183,6 +198,80 @@ func TestPricingIndexUnpricedExactRowYieldsToBase(t *testing.T) {
 	})
 }
 
+// An unpriced row must not hide a priced alternative that shares its key, in
+// any row order: not an empty base row over a priced global row, nor an empty
+// regional row over a priced one.
+func TestPricingIndexUnpricedRowsDoNotHidePricedAlternatives(t *testing.T) {
+	t.Parallel()
+
+	t.Run("an empty base row does not hide the priced global row", func(t *testing.T) {
+		t.Parallel()
+		rows := []ModelPricing{
+			bedrockPrice("anthropic.claude-sonnet-5", 0, 0),
+			bedrockPrice("global.anthropic.claude-sonnet-5", 1.8, 9),
+		}
+		permutations(rows, func(order []ModelPricing) {
+			got, match, ok := newModelPricingIndex(order).Resolve(ProviderBedrock, "au.anthropic.claude-sonnet-5")
+			if !ok || match != matchBase || got.InputCostPerMillion != 1.8 {
+				t.Fatalf("got %v (%v, ok=%v), want the global row 1.8, rows %v", got.InputCostPerMillion, match, ok, order)
+			}
+		})
+	})
+
+	t.Run("an empty regional row does not hide a priced one", func(t *testing.T) {
+		t.Parallel()
+		rows := []ModelPricing{
+			bedrockPrice("eu.anthropic.claude-sonnet-5", 0, 0),
+			bedrockPrice("us.anthropic.claude-sonnet-5", 2.2, 11),
+		}
+		permutations(rows, func(order []ModelPricing) {
+			got, match, ok := newModelPricingIndex(order).Resolve(ProviderBedrock, "au.anthropic.claude-sonnet-5")
+			if !ok || match != matchRegion || got.InputCostPerMillion != 2.2 {
+				t.Fatalf("got %v (%v, ok=%v), want the us row 2.2, rows %v", got.InputCostPerMillion, match, ok, order)
+			}
+		})
+	})
+
+	t.Run("an empty exact row does not hide its priced version-suffixed twin", func(t *testing.T) {
+		t.Parallel()
+		rows := []ModelPricing{
+			bedrockPrice("us.anthropic.claude-haiku-4-5", 0, 0),
+			bedrockPrice("us.anthropic.claude-haiku-4-5-20251001-v1:0", 1.1, 5.5),
+		}
+		permutations(rows, func(order []ModelPricing) {
+			got, match, ok := newModelPricingIndex(order).Resolve(ProviderBedrock, "us.anthropic.claude-haiku-4-5")
+			if !ok || match != matchExact || got.InputCostPerMillion != 1.1 {
+				t.Fatalf("got %v (%v, ok=%v), want the priced twin 1.1, rows %v", got.InputCostPerMillion, match, ok, order)
+			}
+		})
+	})
+}
+
+// An admin override of 0 makes the model free. It is a price, so it must not
+// fall through to a paid base row, in the runtime path and in the admin catalog.
+func TestZeroOverrideIsAPriceNotAMissingOne(t *testing.T) {
+	t.Parallel()
+	zero := 0.0
+	entries := []PricingCatalogEntry{
+		{Provider: ProviderBedrock, ModelID: "anthropic.claude-haiku-4-5", SyncedInput: 1, SyncedOutput: 5},
+		{Provider: ProviderBedrock, ModelID: "us.anthropic.claude-haiku-4-5", SyncedInput: 1.1, SyncedOutput: 5.5, OverrideInput: &zero, OverrideOutput: &zero},
+	}
+
+	cache := NewDatabasePricingCache(&mockPricingCatalogRepository{loadAllResult: entries}, time.Minute, logging.NewLoggerWithOutput(&bytes.Buffer{}))
+	if err := cache.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := cache.Price("bedrock:us", "us.anthropic.claude-haiku-4-5"); !ok || got.InputCostPerMillion != 0 || got.OutputCostPerMillion != 0 {
+		t.Errorf("runtime Price = %v/%v (ok=%v), want the free override 0/0, not the paid base 1/5",
+			got.InputCostPerMillion, got.OutputCostPerMillion, ok)
+	}
+
+	rows := []*pricingEntryJSON{toPricingEntryJSON(&entries[0]), toPricingEntryJSON(&entries[1])}
+	if got := lookupCatalogPricing(newCatalogPricingIndex(rows), "bedrock:us", "us.anthropic.claude-haiku-4-5"); got == nil || got.ModelID != "us.anthropic.claude-haiku-4-5" {
+		t.Errorf("admin catalog resolved %+v, want the regional row with its free override", got)
+	}
+}
+
 // The admin catalog and /v1/models (and so billing) price one route from the
 // issue's prod rows identically, whatever order the table loads in.
 func TestCatalogAndRuntimePriceTheSameRoute(t *testing.T) {
@@ -194,6 +283,7 @@ func TestCatalogAndRuntimePriceTheSameRoute(t *testing.T) {
 		{Provider: ProviderBedrock, ModelID: "openai.gpt-6-sol", SyncedInput: 2.2, SyncedOutput: 11},
 		{Provider: ProviderBedrock, ModelID: "us.openai.gpt-6-sol", SyncedInput: 2.2, SyncedOutput: 11},
 		{Provider: ProviderBedrock, ModelID: "global.openai.gpt-6-sol", SyncedInput: 2, SyncedOutput: 10},
+		{Provider: ProviderBedrock, ModelID: "us.anthropic.claude-haiku-4-5", SyncedInput: 1.1, SyncedOutput: 5.5},
 	}
 
 	for _, tc := range []struct {
@@ -205,11 +295,15 @@ func TestCatalogAndRuntimePriceTheSameRoute(t *testing.T) {
 		{VirtualModelRoute{Provider: "bedrock:us", ModelID: "global.anthropic.claude-sonnet-5", Enabled: true}, 2, 10},
 		{VirtualModelRoute{Provider: "bedrock:us", ModelID: "us.openai.gpt-6-sol", Enabled: true}, 2.2, 11},
 		{VirtualModelRoute{Provider: "bedrock:us", ModelID: "global.openai.gpt-6-sol", Enabled: true}, 2, 10},
+		// Routes with no row of their own, so each resolves through a fallback.
+		{VirtualModelRoute{Provider: "bedrock:aus", ModelID: "au.anthropic.claude-sonnet-5", Enabled: true}, 2, 10},     // base
+		{VirtualModelRoute{Provider: "bedrock:us", ModelID: "eu.openai.gpt-6-sol", Enabled: true}, 2.2, 11},             // base
+		{VirtualModelRoute{Provider: "bedrock:aus", ModelID: "au.anthropic.claude-haiku-4-5", Enabled: true}, 1.1, 5.5}, // another region
 	} {
 		vm := VirtualModel{Routes: []VirtualModelRoute{tc.route}}
-		connectors := map[ProviderName]ProviderConnector{"bedrock:us": nil}
+		connectors := map[ProviderName]ProviderConnector{"bedrock:us": nil, "bedrock:aus": nil}
 
-		permutations(entries, func(order []PricingCatalogEntry) {
+		rotations(entries, func(order []PricingCatalogEntry) {
 			cache := NewDatabasePricingCache(&mockPricingCatalogRepository{loadAllResult: order}, time.Minute, logging.NewLoggerWithOutput(&bytes.Buffer{}))
 			if err := cache.Refresh(context.Background()); err != nil {
 				t.Fatal(err)

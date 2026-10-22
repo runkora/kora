@@ -46,9 +46,10 @@ func newModelPricingIndex(rows []ModelPricing) *pricingIndex[ModelPricing] {
 	return newPricingIndex(rows, modelPricingProvider, modelPricingModelID, hasAnyModelPrice)
 }
 
-// hasAnyModelPrice reports whether a row carries a token or non-token price.
+// hasAnyModelPrice reports whether a row carries a price: an override (even of
+// 0), a token price or a non-token price.
 func hasAnyModelPrice(p ModelPricing) bool {
-	return !lacksTokenPricing(p) || hasNonTokenPricing(p)
+	return p.HasOverride || !lacksTokenPricing(p) || hasNonTokenPricing(p)
 }
 
 func (c *StaticPricingCache) Start(_ context.Context) {}

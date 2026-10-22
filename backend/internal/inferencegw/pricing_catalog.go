@@ -51,6 +51,13 @@ type PricingCatalogEntry struct {
 	SyncedAudioOutputCostPer1M    float64 // USD per 1M audio tokens output
 }
 
+// HasOverride reports whether an admin set any override on the row. An override
+// of 0 is a price: it makes the model free, and is not a missing price.
+func (e PricingCatalogEntry) HasOverride() bool {
+	return e.OverrideInput != nil || e.OverrideOutput != nil ||
+		e.OverrideCacheRead != nil || e.OverrideCacheWrite != nil
+}
+
 // EffectiveInput returns the COALESCE(override_input, synced_input) price.
 func (e PricingCatalogEntry) EffectiveInput() float64 {
 	if e.OverrideInput != nil {
@@ -216,17 +223,23 @@ func upsertSynced(ctx context.Context, tx pgx.Tx, entries []ModelPriceEntry) err
 // price gets an override-only row; its last_synced_at is the epoch, so it never
 // reads as freshly synced.
 //
-// A new row for a regional inference profile must set input and output
-// (ErrIncompleteOverride otherwise). Such a row shadows the base model's row, so
-// an unset price would bill as zero instead of falling back to the base price.
+// A regional inference profile's row must end up with both an input and an
+// output price (ErrIncompleteOverride otherwise), whether it is new or an
+// override-only row left empty by a clear. Such a row shadows the base model's
+// row, so an unset price would bill as zero instead of falling back to the base
+// price.
 func (r *PostgresPricingCatalogRepository) SetOverride(ctx context.Context, provider ProviderName, modelID string, input, output, cacheRead, cacheWrite *float64) error {
 	if (input == nil || output == nil) && hasRegionPrefix(provider, modelID) {
-		var exists bool
-		const existsQ = `SELECT EXISTS (SELECT 1 FROM model_pricing WHERE provider = $1 AND model_id = $2)`
-		if err := r.pool.QueryRow(ctx, existsQ, string(provider), modelID).Scan(&exists); err != nil {
+		var priced bool
+		const pricedQ = `
+			SELECT EXISTS (
+				SELECT 1 FROM model_pricing WHERE provider = $1 AND model_id = $2
+				AND ($3 OR synced_input_cost_per_1m <> 0 OR override_input_cost_per_1m IS NOT NULL)
+				AND ($4 OR synced_output_cost_per_1m <> 0 OR override_output_cost_per_1m IS NOT NULL))`
+		if err := r.pool.QueryRow(ctx, pricedQ, string(provider), modelID, input != nil, output != nil).Scan(&priced); err != nil {
 			return fmt.Errorf("pricing catalog set override check (%s/%s): %w", provider, modelID, err)
 		}
-		if !exists {
+		if !priced {
 			return fmt.Errorf("pricing catalog set override (%s/%s): %w", provider, modelID, ErrIncompleteOverride)
 		}
 	}

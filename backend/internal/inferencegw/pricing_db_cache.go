@@ -124,6 +124,7 @@ func (c *DatabasePricingCache) Refresh(ctx context.Context) error {
 			SecondOutputCost:         e.SyncedSecondOutputCost,
 			AudioInputCostPer1M:      e.SyncedAudioInputCostPer1M,
 			AudioOutputCostPer1M:     e.SyncedAudioOutputCostPer1M,
+			HasOverride:              e.HasOverride(),
 		}
 		priced = append(priced, mp)
 	}

@@ -357,7 +357,7 @@ func newCatalogPricingIndex(entries []*pricingEntryJSON) *pricingIndex[*pricingE
 		func(e *pricingEntryJSON) ProviderName { return ProviderName(e.Provider) },
 		func(e *pricingEntryJSON) string { return e.ModelID },
 		func(e *pricingEntryJSON) bool {
-			return e.EffectiveInput != 0 || e.EffectiveOutput != 0 || pricingEntryHasNonToken(e)
+			return e.HasOverride || e.EffectiveInput != 0 || e.EffectiveOutput != 0 || pricingEntryHasNonToken(e)
 		})
 }
 
@@ -729,8 +729,6 @@ type pricingEntryJSON struct {
 // toPricingEntryJSON converts a PricingCatalogEntry to its JSON wire type.
 // Uses the canonical EffectiveInput/Output methods so override logic is not duplicated.
 func toPricingEntryJSON(e *PricingCatalogEntry) *pricingEntryJSON {
-	hasOverride := e.OverrideInput != nil || e.OverrideOutput != nil ||
-		e.OverrideCacheRead != nil || e.OverrideCacheWrite != nil
 	return &pricingEntryJSON{
 		Provider:                      string(e.Provider),
 		ModelID:                       e.ModelID,
@@ -744,7 +742,7 @@ func toPricingEntryJSON(e *PricingCatalogEntry) *pricingEntryJSON {
 		OverrideCacheWrite:            e.OverrideCacheWrite,
 		EffectiveInput:                e.EffectiveInput(),
 		EffectiveOutput:               e.EffectiveOutput(),
-		HasOverride:                   hasOverride,
+		HasOverride:                   e.HasOverride(),
 		LastSyncedAt:                  e.LastSyncedAt.UTC().Format(time.RFC3339),
 		SyncedImageInputCostPerImage:  e.SyncedImageInputCostPerImage,
 		SyncedImageOutputCostPerImage: e.SyncedImageOutputCostPerImage,
@@ -786,8 +784,8 @@ type setPricingOverrideRequest struct {
 }
 
 // handleSetPricingOverride sets one or more pricing override columns for a
-// (provider, modelId) pair. At least one field must be non-null. A new row for a
-// regional inference profile must set both input and output.
+// (provider, modelId) pair. At least one field must be non-null. A regional
+// inference profile with no price of its own must set both input and output.
 func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	provider := ProviderName(r.PathValue("provider"))
@@ -818,7 +816,7 @@ func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *h
 
 	if err := c.pricingCatalog.SetOverride(ctx, provider, modelID, req.InputCostPer1M, req.OutputCostPer1M, req.CacheReadCostPer1M, req.CacheWriteCostPer1M); err != nil {
 		if errors.Is(err, ErrIncompleteOverride) {
-			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("incomplete_override", "a new row for a regional inference profile needs both input_cost_per_1m and output_cost_per_1m", nil), nil)
+			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("incomplete_override", "a regional inference profile with no price of its own needs both input_cost_per_1m and output_cost_per_1m", nil), nil)
 			return
 		}
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to set pricing override", nil), err)

@@ -401,6 +401,9 @@ type ModelPricing struct {
 	SecondOutputCost     float64 // USD per-second output (per-unit, not scaled)
 	AudioInputCostPer1M  float64 // USD per 1,000,000 audio tokens input
 	AudioOutputCostPer1M float64 // USD per 1,000,000 audio tokens output
+	// HasOverride is set when an admin overrode any price on the row, so an
+	// override of 0 reads as a free model, not as a missing price.
+	HasOverride bool
 }
 
 // EstimatedCostUSD returns the estimated total cost for the given token counts,

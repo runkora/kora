@@ -47,18 +47,26 @@ type pricingIndex[T any] struct {
 // rank, never by the order of rows, so the same table always resolves the same
 // prices.
 func newPricingIndex[T any](rows []T, provOf func(T) ProviderName, idOf func(T) string, priced func(T) bool) *pricingIndex[T] {
-	plainestFirst := func(a, b T) bool {
+	// Among rows sharing a key, a priced row always beats an unpriced one, so an
+	// empty row cannot hide a real price. Ties then go to the plainest ID.
+	pricedThenPlainest := func(a, b T) bool {
+		if pa, pb := priced(a), priced(b); pa != pb {
+			return pa
+		}
 		al, ap, ai := barePricingRank(provOf(a), idOf(a))
 		bl, bp, bi := barePricingRank(provOf(b), idOf(b))
 		return barePricingLess(al, ap, ai, bl, bp, bi)
 	}
 	// The model's own ID and its global profile are the preferred stand-ins for a
 	// profile with no row of its own. Another region's row is a last resort and
-	// stays out of the cross-provider fallback.
-	var shared []T
+	// stays out of the cross-provider fallback, which borrows only a price.
+	var shared, sharedPriced []T
 	for _, r := range rows {
 		if !hasRegionPrefix(provOf(r), idOf(r)) || isGlobalProfile(provOf(r), idOf(r)) {
 			shared = append(shared, r)
+			if priced(r) {
+				sharedPriced = append(sharedPriced, r)
+			}
 		}
 	}
 	return &pricingIndex[T]{
@@ -66,23 +74,26 @@ func newPricingIndex[T any](rows []T, provOf func(T) ProviderName, idOf func(T) 
 		// the plainest ID and wins.
 		exact: bestRowByKey(rows,
 			func(r T) string { return pricingExactKey(provOf(r), idOf(r)) },
-			plainestFirst),
+			pricedThenPlainest),
 		// The model's own ID first, then the global profile.
 		base: bestRowByKey(shared,
 			func(r T) string { return pricingKey(provOf(r), idOf(r)) },
 			func(a, b T) bool {
+				if pa, pb := priced(a), priced(b); pa != pb {
+					return pa
+				}
 				ga, gb := isGlobalProfile(provOf(a), idOf(a)), isGlobalProfile(provOf(b), idOf(b))
 				if ga != gb {
 					return gb
 				}
-				return plainestFirst(a, b)
+				return pricedThenPlainest(a, b)
 			}),
 		// With nothing else to go on, the plainest ID of the model's regional
 		// rows, so a given table always borrows the same region.
 		region: bestRowByKey(rows,
 			func(r T) string { return pricingKey(provOf(r), idOf(r)) },
-			plainestFirst),
-		bare:   bareFallbackIndex(shared, provOf, idOf),
+			pricedThenPlainest),
+		bare:   bareFallbackIndex(sharedPriced, provOf, idOf),
 		priced: priced,
 	}
 }

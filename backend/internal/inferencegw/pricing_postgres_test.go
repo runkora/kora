@@ -72,10 +72,11 @@ func TestPostgres_SetOverrideCreatesAndUpdatesRow(t *testing.T) {
 	t.Fatal("override-only row not found")
 }
 
-// A new row for a regional profile would shadow the base model's row, so it
-// must set input and output. Updating an existing row, and any non-regional ID,
+// A regional profile's row would shadow the base model's row, so it must end up
+// with an input and an output price: a new row, or an override-only row a clear
+// left empty. Updating a row that already has both, and any non-regional ID,
 // keep accepting a partial override.
-func TestPostgres_SetOverrideNewRegionalRowNeedsInputAndOutput(t *testing.T) {
+func TestPostgres_SetOverrideRegionalRowNeedsInputAndOutput(t *testing.T) {
 	repo, compatible := testPricingRepo(t)
 	ctx := context.Background()
 	bedrock := ProviderName("bedrock:test-" + uuid.NewString()[:8])
@@ -95,6 +96,27 @@ func TestPostgres_SetOverrideNewRegionalRowNeedsInputAndOutput(t *testing.T) {
 	}
 	if err := repo.SetOverride(ctx, bedrock, "anthropic.claude-haiku-4-5", &in, nil, nil, nil); err != nil {
 		t.Errorf("partial override of a base row: %v", err)
+	}
+
+	// Clearing leaves the override-only row behind with no price at all, so a
+	// partial update must be refused again, until both prices are set.
+	if err := repo.ClearOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5"); err != nil {
+		t.Fatalf("clear override: %v", err)
+	}
+	if err := repo.SetOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5", &in, nil, nil, nil); !errors.Is(err, ErrIncompleteOverride) {
+		t.Errorf("input-only override of a cleared override-only row: err = %v, want ErrIncompleteOverride", err)
+	}
+	if err := repo.SetOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5", &in, &out, nil, nil); err != nil {
+		t.Errorf("input and output on a cleared override-only row: %v", err)
+	}
+
+	// An explicit 0 is a price: a row overridden to free is complete.
+	zero := 0.0
+	if err := repo.SetOverride(ctx, bedrock, "eu.anthropic.claude-haiku-4-5", &zero, &zero, nil, nil); err != nil {
+		t.Fatalf("free override on a new regional row: %v", err)
+	}
+	if err := repo.SetOverride(ctx, bedrock, "eu.anthropic.claude-haiku-4-5", &in, nil, nil, nil); err != nil {
+		t.Errorf("partial update of a row overridden to free: %v", err)
 	}
 	if err := repo.SetOverride(ctx, compatible, "vendor/model", &in, nil, nil, nil); err != nil {
 		t.Errorf("partial override of a non-Bedrock row: %v", err)
