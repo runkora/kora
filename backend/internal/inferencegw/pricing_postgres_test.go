@@ -2,8 +2,10 @@ package inferencegw
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -68,6 +70,62 @@ func TestPostgres_SetOverrideCreatesAndUpdatesRow(t *testing.T) {
 		return
 	}
 	t.Fatal("override-only row not found")
+}
+
+// A new row for a regional profile would shadow the base model's row, so it
+// must set input and output. Updating an existing row, and any non-regional ID,
+// keep accepting a partial override.
+func TestPostgres_SetOverrideNewRegionalRowNeedsInputAndOutput(t *testing.T) {
+	repo, compatible := testPricingRepo(t)
+	ctx := context.Background()
+	bedrock := ProviderName("bedrock:test-" + uuid.NewString()[:8])
+	t.Cleanup(func() {
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM model_pricing WHERE provider = $1`, string(bedrock))
+	})
+	in, out := 9.0, 45.0
+
+	if err := repo.SetOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5", &in, nil, nil, nil); !errors.Is(err, ErrIncompleteOverride) {
+		t.Fatalf("input-only override of a new regional row: err = %v, want ErrIncompleteOverride", err)
+	}
+	if err := repo.SetOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5", &in, &out, nil, nil); err != nil {
+		t.Fatalf("input and output on a new regional row: %v", err)
+	}
+	if err := repo.SetOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5", nil, &in, nil, nil); err != nil {
+		t.Errorf("partial override of an existing regional row: %v", err)
+	}
+	if err := repo.SetOverride(ctx, bedrock, "anthropic.claude-haiku-4-5", &in, nil, nil, nil); err != nil {
+		t.Errorf("partial override of a base row: %v", err)
+	}
+	if err := repo.SetOverride(ctx, compatible, "vendor/model", &in, nil, nil, nil); err != nil {
+		t.Errorf("partial override of a non-Bedrock row: %v", err)
+	}
+}
+
+// Rows are inserted out of order: without an ORDER BY, LoadAll returns them in
+// storage order, which changes whenever the sync rewrites rows.
+func TestPostgres_LoadAllReturnsRowsInPrimaryKeyOrder(t *testing.T) {
+	repo, provider := testPricingRepo(t)
+	ctx := context.Background()
+	price := 1.0
+	for _, id := range []string{"vendor/c", "vendor/a", "vendor/b"} {
+		if err := repo.SetOverride(ctx, provider, id, &price, nil, nil, nil); err != nil {
+			t.Fatalf("set override %s: %v", id, err)
+		}
+	}
+
+	entries, err := repo.LoadAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range entries {
+		if e.Provider == provider {
+			got = append(got, e.ModelID)
+		}
+	}
+	if want := []string{"vendor/a", "vendor/b", "vendor/c"}; !slices.Equal(got, want) {
+		t.Errorf("LoadAll order = %v, want %v", got, want)
+	}
 }
 
 func TestPostgres_DiscoveredPricesKeepOverrides(t *testing.T) {

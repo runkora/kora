@@ -184,17 +184,17 @@ func (c *CatalogController) handleListVirtualModels(w http.ResponseWriter, r *ht
 
 	// Build a pricing map to attach effective prices to each virtual model.
 	// Failures are non-fatal — virtual models are returned without pricing.
-	pricingMap, err := c.buildPricingMap(ctx)
+	pricingIdx, err := c.buildCatalogPricingIndex(ctx)
 	if err != nil {
 		c.logger.Warn(ctx, "failed to load pricing for virtual models — returning without pricing",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		pricingMap = map[string]*pricingEntryJSON{}
+		pricingIdx = newCatalogPricingIndex(nil)
 	}
 
 	items := make([]virtualModelJSON, len(vms))
 	for i, vm := range vms {
-		items[i] = toVirtualModelJSON(vm, pricingMap)
+		items[i] = toVirtualModelJSON(vm, pricingIdx)
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": items})
 }
@@ -241,14 +241,14 @@ func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *h
 		return
 	}
 
-	pricingMap, err := c.buildPricingMap(ctx)
+	pricingIdx, err := c.buildCatalogPricingIndex(ctx)
 	if err != nil {
 		c.logger.Warn(ctx, "failed to load pricing for virtual model — returning without pricing",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		pricingMap = map[string]*pricingEntryJSON{}
+		pricingIdx = newCatalogPricingIndex(nil)
 	}
-	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]any{"data": toVirtualModelJSON(vm, pricingMap)})
+	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]any{"data": toVirtualModelJSON(vm, pricingIdx)})
 }
 
 func (c *CatalogController) handleGetVirtualModel(w http.ResponseWriter, r *http.Request) {
@@ -265,14 +265,14 @@ func (c *CatalogController) handleGetVirtualModel(w http.ResponseWriter, r *http
 		return
 	}
 
-	pricingMap, err := c.buildPricingMap(ctx)
+	pricingIdx, err := c.buildCatalogPricingIndex(ctx)
 	if err != nil {
 		c.logger.Warn(ctx, "failed to load pricing for virtual model — returning without pricing",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		pricingMap = map[string]*pricingEntryJSON{}
+		pricingIdx = newCatalogPricingIndex(nil)
 	}
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(vm, pricingMap)})
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(vm, pricingIdx)})
 }
 
 // handleUpdateVirtualModel updates a virtual model. Family and name are
@@ -322,14 +322,14 @@ func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *h
 		return
 	}
 
-	pricingMap, err := c.buildPricingMap(ctx)
+	pricingIdx, err := c.buildCatalogPricingIndex(ctx)
 	if err != nil {
 		c.logger.Warn(ctx, "failed to load pricing for virtual model — returning without pricing",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		pricingMap = map[string]*pricingEntryJSON{}
+		pricingIdx = newCatalogPricingIndex(nil)
 	}
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(updated, pricingMap)})
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(updated, pricingIdx)})
 }
 
 func (c *CatalogController) handleDeleteVirtualModel(w http.ResponseWriter, r *http.Request) {
@@ -350,72 +350,37 @@ func (c *CatalogController) handleDeleteVirtualModel(w http.ResponseWriter, r *h
 
 // ─── Provider model handlers ──────────────────────────────────────────────────
 
-// buildPricingMap loads all pricing catalog entries and returns a map keyed by
-// "provider/modelID". Returns (nil, err) on load failure so the caller can log
-// and decide how to proceed.
-func (c *CatalogController) buildPricingMap(ctx context.Context) (map[string]*pricingEntryJSON, error) {
+// newCatalogPricingIndex indexes pricing rows by the same resolver the model
+// list and billing use, so the catalog shows the row a request is charged by.
+func newCatalogPricingIndex(entries []*pricingEntryJSON) *pricingIndex[*pricingEntryJSON] {
+	return newPricingIndex(entries,
+		func(e *pricingEntryJSON) ProviderName { return ProviderName(e.Provider) },
+		func(e *pricingEntryJSON) string { return e.ModelID },
+		func(e *pricingEntryJSON) bool {
+			return e.EffectiveInput != 0 || e.EffectiveOutput != 0 || pricingEntryHasNonToken(e)
+		})
+}
+
+// lookupCatalogPricing returns the pricing row for a provider+modelID pair, or
+// nil when no row prices it.
+func lookupCatalogPricing(idx *pricingIndex[*pricingEntryJSON], provider ProviderName, modelID string) *pricingEntryJSON {
+	p, _, _ := idx.Resolve(provider, modelID)
+	return p
+}
+
+// buildCatalogPricingIndex loads all pricing catalog entries into a resolver.
+// Returns (nil, err) on load failure so the caller can log and decide how to
+// proceed.
+func (c *CatalogController) buildCatalogPricingIndex(ctx context.Context) (*pricingIndex[*pricingEntryJSON], error) {
 	entries, err := c.pricingCatalog.LoadAll(ctx)
 	if err != nil {
 		return nil, err
 	}
-	m := make(map[string]*pricingEntryJSON, len(entries))
+	rows := make([]*pricingEntryJSON, len(entries))
 	for i := range entries {
-		e := &entries[i]
-		m[string(e.Provider)+"/"+e.ModelID] = toPricingEntryJSON(e)
+		rows[i] = toPricingEntryJSON(&entries[i])
 	}
-	return m, nil
-}
-
-// lookupPricing returns the pricing entry for a provider+modelID pair from the
-// map built by buildPricingMap. For Bedrock, it applies multi-pass normalisation:
-//  1. Strip region prefix + version suffix via normalisePricingModelID.
-//  2. For aliased Bedrock providers (bedrock:<alias>), retry under the canonical
-//     "bedrock" key — pricing rows are stored once under the base provider name.
-//  3. If still no match and the ID ends in "-instruct", strip that suffix and
-//     retry — handles AWS aliases like "qwen.qwen3-coder-480b-a35b-instruct"
-//     whose DB entry is stored as "qwen.qwen3-coder-480b-a35b".
-func lookupPricing(pricingMap map[string]*pricingEntryJSON, provider ProviderName, modelID string) *pricingEntryJSON {
-	normID := normalisePricingModelID(provider, modelID)
-	key := string(provider) + "/" + normID
-	if p, ok := pricingMap[key]; ok {
-		return p
-	}
-	// A named provider falls back to the pricing row of its type.
-	if t := normalisePricingProvider(provider); t != provider {
-		key = string(t) + "/" + normID
-		if p, ok := pricingMap[key]; ok {
-			return p
-		}
-	}
-	if provider.IsBedrockFamily() && bedrockInstructSuffix.MatchString(key) {
-		fallbackKey := bedrockInstructSuffix.ReplaceAllString(key, "")
-		if p, ok := pricingMap[fallbackKey]; ok {
-			return p
-		}
-	}
-	// Best-effort cross-provider fallback: no row exists for this provider, so
-	// borrow the same model's price from another provider by bare model name
-	// (e.g. gpt-5.x on Bedrock, priced by LiteLLM only under Azure). Only reached
-	// on a full miss, so the O(n) scan runs for the few unpriced models, not all.
-	want := pricingBareKey(provider, modelID)
-	if want == "" {
-		return nil
-	}
-	var match *pricingEntryJSON
-	var mLen int
-	var mProv, mID string
-	for _, e := range pricingMap {
-		if pricingBareKey(ProviderName(e.Provider), e.ModelID) != want {
-			continue
-		}
-		l, pv, i := barePricingRank(ProviderName(e.Provider), e.ModelID)
-		// Deterministic tiebreak (barePricingLess): pricingMap iteration order is
-		// random, so identical requests must not resolve different prices.
-		if match == nil || barePricingLess(l, pv, i, mLen, mProv, mID) {
-			match, mLen, mProv, mID = e, l, pv, i
-		}
-	}
-	return match
+	return newCatalogPricingIndex(rows), nil
 }
 
 func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *http.Request) {
@@ -433,14 +398,14 @@ func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *h
 		}
 	}
 
-	// Build a pricing map keyed by "provider/modelID" so we can embed pricing
-	// data directly on each provider model — the frontend doesn't need to join.
-	pricingMap, err := c.buildPricingMap(ctx)
+	// Build the pricing index so we can embed pricing data directly on each
+	// provider model — the frontend doesn't need to join.
+	pricingIdx, err := c.buildCatalogPricingIndex(ctx)
 	if err != nil {
 		c.logger.Warn(ctx, "failed to load pricing catalog for provider models — returning models without pricing",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		pricingMap = map[string]*pricingEntryJSON{}
+		pricingIdx = newCatalogPricingIndex(nil)
 	}
 
 	// The discovery cache is filled on every provider reload and by
@@ -475,7 +440,7 @@ func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *h
 			OutputModalities: outputMods,
 			Dialects:         dialects,
 			Enabled:          !disabledSet[string(m.Provider)+"/"+m.ModelID],
-			Pricing:          lookupPricing(pricingMap, m.Provider, m.ModelID),
+			Pricing:          lookupCatalogPricing(pricingIdx, m.Provider, m.ModelID),
 		})
 	}
 
@@ -538,13 +503,13 @@ func (c *CatalogController) handleSetProviderModelEnabled(w http.ResponseWriter,
 // If no token-priced route exists, second pass: picks the first enabled route
 // with any non-token cost data and returns it with NonTokenOnly: true.
 // Returns nil when no enabled route has any pricing data at all.
-func vmCatalogPricing(vm VirtualModel, pricingMap map[string]*pricingEntryJSON) *virtualModelPricingJSON {
+func vmCatalogPricing(vm VirtualModel, pricingIdx *pricingIndex[*pricingEntryJSON]) *virtualModelPricingJSON {
 	var best *pricingEntryJSON
 	for _, route := range vm.Routes {
 		if !route.Enabled {
 			continue
 		}
-		p := lookupPricing(pricingMap, route.Provider, route.ModelID)
+		p := lookupCatalogPricing(pricingIdx, route.Provider, route.ModelID)
 		if p == nil {
 			continue
 		}
@@ -573,7 +538,7 @@ func vmCatalogPricing(vm VirtualModel, pricingMap map[string]*pricingEntryJSON) 
 		if !route.Enabled {
 			continue
 		}
-		p := lookupPricing(pricingMap, route.Provider, route.ModelID)
+		p := lookupCatalogPricing(pricingIdx, route.Provider, route.ModelID)
 		if p == nil || !pricingEntryHasNonToken(p) {
 			continue
 		}
@@ -601,7 +566,7 @@ func pricingEntryHasNonToken(p *pricingEntryJSON) bool {
 		p.SyncedAudioInputCostPer1M > 0 || p.SyncedAudioOutputCostPer1M > 0
 }
 
-func toVirtualModelJSON(vm VirtualModel, pricingMap map[string]*pricingEntryJSON) virtualModelJSON {
+func toVirtualModelJSON(vm VirtualModel, pricingIdx *pricingIndex[*pricingEntryJSON]) virtualModelJSON {
 	routes := make([]routeJSON, len(vm.Routes))
 	for i, r := range vm.Routes {
 		routes[i] = routeJSON{
@@ -626,7 +591,7 @@ func toVirtualModelJSON(vm VirtualModel, pricingMap map[string]*pricingEntryJSON
 		CreatedAt:   vm.CreatedAt,
 		UpdatedAt:   vm.UpdatedAt,
 		Routes:      routes,
-		Pricing:     vmCatalogPricing(vm, pricingMap),
+		Pricing:     vmCatalogPricing(vm, pricingIdx),
 	}
 }
 
@@ -821,11 +786,12 @@ type setPricingOverrideRequest struct {
 }
 
 // handleSetPricingOverride sets one or more pricing override columns for a
-// (provider, modelId) pair. At least one field must be non-null.
+// (provider, modelId) pair. At least one field must be non-null. A new row for a
+// regional inference profile must set both input and output.
 func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	provider := ProviderName(r.PathValue("provider"))
-	modelID := normalisePricingModelID(provider, r.PathValue("modelId"))
+	modelID := stripPricingVersion(provider, r.PathValue("modelId"))
 
 	if !provider.Valid() {
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be "+ProviderNameSyntax, nil), nil)
@@ -851,6 +817,10 @@ func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *h
 	}
 
 	if err := c.pricingCatalog.SetOverride(ctx, provider, modelID, req.InputCostPer1M, req.OutputCostPer1M, req.CacheReadCostPer1M, req.CacheWriteCostPer1M); err != nil {
+		if errors.Is(err, ErrIncompleteOverride) {
+			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("incomplete_override", "a new row for a regional inference profile needs both input_cost_per_1m and output_cost_per_1m", nil), nil)
+			return
+		}
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to set pricing override", nil), err)
 		return
 	}
@@ -863,7 +833,7 @@ func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *h
 func (c *CatalogController) handleClearPricingOverride(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	provider := ProviderName(r.PathValue("provider"))
-	modelID := normalisePricingModelID(provider, r.PathValue("modelId"))
+	modelID := stripPricingVersion(provider, r.PathValue("modelId"))
 
 	if !provider.Valid() {
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be "+ProviderNameSyntax, nil), nil)

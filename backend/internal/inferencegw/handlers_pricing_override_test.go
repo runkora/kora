@@ -3,9 +3,11 @@ package inferencegw
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -71,16 +73,35 @@ func TestHandleSetPricingOverride_AllFields(t *testing.T) {
 	if mock.lastSetProvider != ProviderBedrock {
 		t.Errorf("provider = %q, want %q", mock.lastSetProvider, ProviderBedrock)
 	}
-	// normalisePricingModelID strips the region prefix and version suffix so the
-	// write targets the same bare ID stored in model_pricing (sourced from LiteLLM).
-	if mock.lastSetModelID != "anthropic.claude-sonnet-4-6" {
-		t.Errorf("modelID = %q, want %q", mock.lastSetModelID, "anthropic.claude-sonnet-4-6")
+	// The version suffix is stripped to the ID stored in model_pricing (sourced
+	// from LiteLLM); the region prefix stays, so the override lands on the row
+	// of the inference profile the admin named.
+	if mock.lastSetModelID != "us.anthropic.claude-sonnet-4-6" {
+		t.Errorf("modelID = %q, want %q", mock.lastSetModelID, "us.anthropic.claude-sonnet-4-6")
 	}
 	if mock.lastSetInput == nil || *mock.lastSetInput != 3.0 {
 		t.Errorf("input = %v, want 3.0", mock.lastSetInput)
 	}
 	if mock.lastSetOutput == nil || *mock.lastSetOutput != 15.0 {
 		t.Errorf("output = %v, want 15.0", mock.lastSetOutput)
+	}
+}
+
+// A new row for a regional profile needs both prices; the repository says so and
+// the handler turns it into a 400 the admin can act on, not a 500.
+func TestHandleSetPricingOverride_IncompleteRegionalRowIs400(t *testing.T) {
+	t.Parallel()
+	mock := &mockPricingCatalogRepository{setOverrideErr: fmt.Errorf("set override: %w", ErrIncompleteOverride)}
+	c := newPricingOverrideController(t, mock)
+
+	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock:us", "us.anthropic.claude-haiku-4-5",
+		setPricingOverrideRequest{InputCostPer1M: new(9.0)})
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "incomplete_override") {
+		t.Errorf("body = %s, want the incomplete_override code", w.Body.String())
 	}
 }
 

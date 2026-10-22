@@ -20,54 +20,42 @@ type PricingCache interface {
 	// Refresh triggers an immediate out-of-band refresh of the cache.
 	// It is safe to call concurrently with Price.
 	Refresh(ctx context.Context) error
-
-	// All returns all known model pricing entries. Used by GET /v1/models.
-	All() []ModelPricing
 }
 
-// StaticPricingCache is a simple in-memory PricingCache backed by a fixed map.
-// It is used in tests and in early development before provider price APIs are
-// integrated. The Start and Refresh methods are no-ops.
+// StaticPricingCache is a simple in-memory PricingCache backed by a fixed set of
+// rows. It is used in tests and in early development before provider price APIs
+// are integrated. The Start and Refresh methods are no-ops.
 type StaticPricingCache struct {
-	entries map[string]ModelPricing // key: pricingKey
-	bare    map[string]ModelPricing // key: pricingBareKey (cross-provider fallback)
+	index *pricingIndex[ModelPricing]
 }
 
 // NewStaticPricingCache constructs a StaticPricingCache from the given entries.
 func NewStaticPricingCache(entries []ModelPricing) *StaticPricingCache {
-	m := make(map[string]ModelPricing, len(entries))
-	for _, e := range entries {
-		m[pricingKey(e.Provider, e.ModelID)] = e
-	}
-	return &StaticPricingCache{entries: m, bare: bareFallbackIndex(entries, modelPricingProvider, modelPricingModelID)}
+	return &StaticPricingCache{index: newModelPricingIndex(entries)}
 }
 
 // NewNopPricingCache returns a PricingCache with no pricing data.
 // All Price calls return (ModelPricing{}, false) and EstimatedCostUSD returns 0.
 // Use this until a live pricing source is wired in.
 func NewNopPricingCache() *StaticPricingCache {
-	return &StaticPricingCache{entries: map[string]ModelPricing{}, bare: map[string]ModelPricing{}}
+	return &StaticPricingCache{index: newModelPricingIndex(nil)}
+}
+
+// newModelPricingIndex indexes ModelPricing rows for Resolve.
+func newModelPricingIndex(rows []ModelPricing) *pricingIndex[ModelPricing] {
+	return newPricingIndex(rows, modelPricingProvider, modelPricingModelID, hasAnyModelPrice)
+}
+
+// hasAnyModelPrice reports whether a row carries a token or non-token price.
+func hasAnyModelPrice(p ModelPricing) bool {
+	return !lacksTokenPricing(p) || hasNonTokenPricing(p)
 }
 
 func (c *StaticPricingCache) Start(_ context.Context) {}
 
 func (c *StaticPricingCache) Price(provider ProviderName, modelID string) (ModelPricing, bool) {
-	if p, ok := c.entries[pricingKey(provider, modelID)]; ok {
-		return p, true
-	}
-	// Best-effort: no same-provider row, so borrow the same model's price from
-	// another provider (e.g. gpt-5.x on Bedrock, priced only under Azure). Keeps
-	// usage cost attribution non-zero for models the catalog prices elsewhere.
-	p, ok := c.bare[pricingBareKey(provider, modelID)]
+	p, _, ok := c.index.Resolve(provider, modelID)
 	return p, ok
 }
 
 func (c *StaticPricingCache) Refresh(_ context.Context) error { return nil }
-
-func (c *StaticPricingCache) All() []ModelPricing {
-	result := make([]ModelPricing, 0, len(c.entries))
-	for _, v := range c.entries {
-		result = append(result, v)
-	}
-	return result
-}

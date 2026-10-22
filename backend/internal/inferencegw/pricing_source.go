@@ -125,14 +125,30 @@ var bedrockRegionPrefixes = []string{
 // stripping it at lookup time would produce a miss.
 // For non-Bedrock providers the ID is returned unchanged.
 func normalisePricingModelID(provider ProviderName, modelID string) string {
+	return stripPricingVersion(provider, stripPricingRegion(provider, modelID))
+}
+
+// stripPricingRegion removes a Bedrock cross-region prefix and nothing else.
+// Other providers' IDs are returned unchanged.
+func stripPricingRegion(provider ProviderName, modelID string) string {
 	if !provider.IsBedrockFamily() {
 		return modelID
 	}
 	for _, pfx := range bedrockRegionPrefixes {
 		if strings.HasPrefix(modelID, pfx) {
-			modelID = modelID[len(pfx):]
-			break
+			return modelID[len(pfx):]
 		}
+	}
+	return modelID
+}
+
+// stripPricingVersion removes a trailing Bedrock version suffix and keeps the
+// region prefix, so "us.anthropic.claude-haiku-4-5-v1:0" becomes
+// "us.anthropic.claude-haiku-4-5". It names the pricing row for the inference
+// profile a route calls. Other providers' IDs are returned unchanged.
+func stripPricingVersion(provider ProviderName, modelID string) string {
+	if !provider.IsBedrockFamily() {
+		return modelID
 	}
 	return bedrockLookupSuffix.ReplaceAllString(modelID, "")
 }
@@ -154,6 +170,13 @@ func normalisePricingProvider(provider ProviderName) ProviderName {
 // the base provider are unreachable from an aliased one.
 func pricingKey(provider ProviderName, modelID string) string {
 	return string(normalisePricingProvider(provider)) + "/" + normalisePricingModelID(provider, modelID)
+}
+
+// pricingExactKey is the key of the pricing row for the exact inference profile
+// a route calls: the normalised provider and the model ID with its region
+// prefix kept. Regional and global variants of one model have distinct keys.
+func pricingExactKey(provider ProviderName, modelID string) string {
+	return string(normalisePricingProvider(provider)) + "/" + stripPricingVersion(provider, modelID)
 }
 
 // pricingBareKey returns a provider-agnostic key for a best-effort,
@@ -183,7 +206,7 @@ func pricingBareKey(provider ProviderName, modelID string) string {
 }
 
 // modelPricingProvider and modelPricingModelID are field accessors for
-// bareFallbackIndex over ModelPricing rows.
+// newPricingIndex over ModelPricing rows.
 func modelPricingProvider(p ModelPricing) ProviderName { return p.Provider }
 func modelPricingModelID(p ModelPricing) string        { return p.ModelID }
 

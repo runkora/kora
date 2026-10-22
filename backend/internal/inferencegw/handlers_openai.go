@@ -353,18 +353,6 @@ func matchesCapabilityFilter(caps, want []ModelCapability) bool {
 	})
 }
 
-// buildPricingIndex constructs a lookup map from "provider/normalisedModelID"
-// to ModelPricing using the in-memory pricing cache entries.
-// Used by handleListModels to attach effective pricing to each virtual model.
-func buildPricingIndex(entries []ModelPricing) map[string]ModelPricing {
-	idx := make(map[string]ModelPricing, len(entries))
-	for _, e := range entries {
-		key := pricingKey(e.Provider, e.ModelID)
-		idx[key] = e
-	}
-	return idx
-}
-
 // lacksTokenPricing reports whether a ModelPricing has no token-priced
 // dimensions. Routes where both token fields are zero are excluded from the
 // vmEffectivePricing comparator — effective price is defined in token units.
@@ -414,7 +402,10 @@ func pricingFromModelPricing(p ModelPricing) *modelObjectPricing {
 // If no token-priced route exists, second pass: picks the first enabled route
 // with any non-token cost data and returns it with NonTokenOnly: true.
 // Returns nil when no enabled route has any pricing data at all.
-func vmEffectivePricing(vm VirtualModel, pricingIdx, bareIdx map[string]ModelPricing, disabledRoutes map[string]bool, connectors map[ProviderName]ProviderConnector) *modelObjectPricing {
+//
+// priceOf is the PricingCache lookup billing uses, so the list shows the price a
+// request on the same route is charged.
+func vmEffectivePricing(vm VirtualModel, priceOf func(ProviderName, string) (ModelPricing, bool), disabledRoutes map[string]bool, connectors map[ProviderName]ProviderConnector) *modelObjectPricing {
 	routePricing := func(route VirtualModelRoute) (ModelPricing, bool) {
 		if !route.Enabled {
 			return ModelPricing{}, false
@@ -425,13 +416,7 @@ func vmEffectivePricing(vm VirtualModel, pricingIdx, bareIdx map[string]ModelPri
 		if _, ok := connectors[route.Provider]; !ok {
 			return ModelPricing{}, false
 		}
-		p, ok := pricingIdx[pricingKey(route.Provider, route.ModelID)]
-		if !ok {
-			// Best-effort: the same model priced under a different provider
-			// (e.g. gpt-5.x on Bedrock, priced by LiteLLM only under Azure).
-			p, ok = bareIdx[pricingBareKey(route.Provider, route.ModelID)]
-		}
-		return p, ok
+		return priceOf(route.Provider, route.ModelID)
 	}
 
 	var best *ModelPricing
@@ -495,15 +480,6 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 	}
 	pmIdx := buildProviderModelIndex(providerModels)
 
-	// Build pricing index from the in-memory cache — no DB round-trip. The bare
-	// index backs a best-effort cross-provider fallback for routes with no
-	// same-provider price (e.g. gpt-5.x on Bedrock).
-	allPricing := c.svc.PricingAll()
-	pricingIdx := buildPricingIndex(allPricing)
-	bareIdx := bareFallbackIndex(allPricing,
-		func(p ModelPricing) ProviderName { return p.Provider },
-		func(p ModelPricing) string { return p.ModelID })
-
 	snap := c.svc.router.virtualCatalog.Load()
 
 	var disabledRoutes map[string]bool
@@ -541,7 +517,7 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 			OutputModalities: outputMods,
 			Dialects:         dialects,
 			Capabilities:     caps,
-			Pricing:          vmEffectivePricing(vm, pricingIdx, bareIdx, disabledRoutes, c.svc.router.connectorMap()),
+			Pricing:          vmEffectivePricing(vm, c.svc.pricing.Price, disabledRoutes, c.svc.router.connectorMap()),
 		})
 	}
 

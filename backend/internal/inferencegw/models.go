@@ -372,6 +372,7 @@ var (
 	ErrVirtualModelNotFound  = errors.New("virtual model not found")
 	ErrNoCatalog             = errors.New("virtual model catalog not loaded")
 	ErrModelPricingNotFound  = errors.New("model pricing not found")
+	ErrIncompleteOverride    = errors.New("a new regional pricing row needs input and output prices")
 	ErrBudgetExceeded        = errors.New("budget exceeded")
 )
 
