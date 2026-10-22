@@ -10,7 +10,6 @@ import {
   Checkbox,
   Collapsible,
   CollapsibleContent,
-  CollapsibleTrigger,
   Icon,
   Input,
   Separator,
@@ -273,8 +272,19 @@ function useFollowedOpen(selectedCount: number, forceOpen: boolean) {
   const pin = () => {
     if (!forceOpen && manualOpen === null) setManualOpen(followed);
   };
-  return { open: forceOpen || followed, setManualOpen, pin };
+  // Clicking a header row opens or closes it. A search holds the group open, so the click waits.
+  const toggleOpen = () => {
+    if (!forceOpen) setManualOpen(!followed);
+  };
+  return { open: forceOpen || followed, toggleOpen, pin };
 }
+
+/**
+ * Header rows open and close on click. The select-all checkbox sits inside the row, so its clicks
+ * (mouse and keyboard, which browsers also report as clicks) stop here and only change the
+ * selection.
+ */
+const keepRowClosed = (e: React.MouseEvent) => e.stopPropagation();
 
 function countSelected(items: ScopeOption[], selectedSet: Set<string>): number {
   let n = 0;
@@ -299,7 +309,7 @@ function ScopeGroupCard({
   const selectedInGroup = countSelected(group.all, selectedSet);
   const any = selectedInGroup > 0;
   const { allSelected, some } = triState(selectedInGroup, total);
-  const { open, setManualOpen, pin } = useFollowedOpen(selectedInGroup, forceOpen);
+  const { open, toggleOpen, pin } = useFollowedOpen(selectedInGroup, forceOpen);
 
   const toggle = (scopes: ScopeOption[], on: boolean) => {
     pin();
@@ -308,16 +318,24 @@ function ScopeGroupCard({
 
   return (
     <Card selected={any} selectedVariant="outline">
-      <Collapsible open={open} onOpenChange={setManualOpen}>
+      <Collapsible open={open}>
         <CardContent flush>
-          <Stack direction="horizontal" align="center" gap="cozy" padding="cozy">
-            <Checkbox
-              size="md"
-              checked={allSelected}
-              indeterminate={some}
-              onChange={(checked) => toggle(group.all, checked)}
-              aria-label={`Select all ${group.key} scopes`}
-            />
+          <Stack
+            direction="horizontal"
+            align="center"
+            gap="cozy"
+            padding="cozy"
+            onClick={toggleOpen}
+          >
+            <Stack onClick={keepRowClosed}>
+              <Checkbox
+                size="md"
+                checked={allSelected}
+                indeterminate={some}
+                onChange={(checked) => toggle(group.all, checked)}
+                aria-label={`Select all ${group.key} scopes`}
+              />
+            </Stack>
             <Icon
               name="shield"
               size="sm"
@@ -341,17 +359,15 @@ function ScopeGroupCard({
                   : `${selectedInGroup} of ${total} selected`
                 : ''}
             </Text>
-            <CollapsibleTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`${group.key} scopes`}
-                aria-expanded={open}
-              >
-                <Icon name="chevron-down" rotate={open ? 180 : 0} />
-              </Button>
-            </CollapsibleTrigger>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`${group.key} scopes`}
+              aria-expanded={open}
+            >
+              <Icon name="chevron-down" rotate={open ? 180 : 0} />
+            </Button>
           </Stack>
           {open && (
             <CollapsibleContent>
@@ -397,7 +413,7 @@ function ScopeSubGroup({
   const { allSelected, some } = triState(selectedInSub, total);
   // With nothing selected sub-groups start closed, so a group of hundreds of scopes is a short
   // list of servers.
-  const { open, setManualOpen, pin } = useFollowedOpen(selectedInSub, forceOpen);
+  const { open, toggleOpen, pin } = useFollowedOpen(selectedInSub, forceOpen);
   const label = `${groupKey} ${sub.key}`;
 
   const toggle = (scopes: ScopeOption[], on: boolean) => {
@@ -408,20 +424,23 @@ function ScopeSubGroup({
   return (
     <Stack gap="none">
       <Separator />
-      <Collapsible open={open} onOpenChange={setManualOpen}>
+      <Collapsible open={open}>
         <Stack
           direction="horizontal"
           align="center"
           gap="cozy"
           padding="cozy"
           paddingInline="relaxed"
+          onClick={toggleOpen}
         >
-          <Checkbox
-            checked={allSelected}
-            indeterminate={some}
-            onChange={(checked) => toggle(sub.items, checked)}
-            aria-label={`Select all ${label} scopes`}
-          />
+          <Stack onClick={keepRowClosed}>
+            <Checkbox
+              checked={allSelected}
+              indeterminate={some}
+              onChange={(checked) => toggle(sub.items, checked)}
+              aria-label={`Select all ${label} scopes`}
+            />
+          </Stack>
           <Stack grow gap="tight" minWidth="none">
             <Text as="span" size="caption" weight="heavy" truncate>
               {sub.key}
@@ -430,17 +449,15 @@ function ScopeSubGroup({
               {counts(selectedInSub, total, sub.fullTotal, filtered)}
             </Text>
           </Stack>
-          <CollapsibleTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`${label} scopes`}
-              aria-expanded={open}
-            >
-              <Icon name="chevron-down" rotate={open ? 180 : 0} />
-            </Button>
-          </CollapsibleTrigger>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`${label} scopes`}
+            aria-expanded={open}
+          >
+            <Icon name="chevron-down" rotate={open ? 180 : 0} />
+          </Button>
         </Stack>
         {open && (
           <CollapsibleContent>

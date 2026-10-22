@@ -474,7 +474,81 @@ describe('ScopePicker inside a form', () => {
     fireEvent.click(toggleButton('mcp github'));
     fireEvent.click(toggleButton('mcp'));
     fireEvent.click(toggleButton('agents'));
+    fireEvent.click(screen.getByText('agents'));
+    fireEvent.click(screen.getByText('mcp'));
     expect(onSubmit).not.toHaveBeenCalled();
     for (const b of screen.getAllByRole('button')) expect(b).toHaveAttribute('type', 'button');
+  });
+});
+
+describe('ScopePicker header rows', () => {
+  const expanded = (name: string) => toggleButton(name).getAttribute('aria-expanded');
+  const rowOf = (text: string) => screen.getByText(text).parentElement!.parentElement!;
+
+  it('toggles a group from its name, its counts, or the blank area of the row', () => {
+    render(<ScopePicker options={OPTIONS} selected={[]} onChange={vi.fn()} />);
+    fireEvent.click(screen.getByText('agents'));
+    expect(expanded('agents')).toBe('true');
+    fireEvent.click(screen.getByText('0/1 scopes'));
+    expect(expanded('agents')).toBe('false');
+    fireEvent.click(rowOf('agents'));
+    expect(expanded('agents')).toBe('true');
+  });
+
+  it('selects from the group checkbox without toggling the group, by click and keyboard', () => {
+    const onChange = vi.fn();
+    render(<ScopePicker options={OPTIONS} selected={[]} onChange={onChange} />);
+    fireEvent.click(box('Select all agents scopes'));
+    expect(onChange).toHaveBeenCalledWith(['agents:runs:read']);
+    expect(expanded('agents')).toBe('false');
+    // A label click reaches the input as a second click; neither may toggle the group.
+    fireEvent.click(box('Select all agents scopes').closest('label')!);
+    expect(expanded('agents')).toBe('false');
+    // Space on a checkbox is reported by the browser as a click on the input.
+    box('Select all agents scopes').focus();
+    fireEvent.keyDown(box('Select all agents scopes'), { key: ' ' });
+    fireEvent.click(box('Select all agents scopes'));
+    expect(expanded('agents')).toBe('false');
+  });
+
+  it('toggles exactly once when the caret is clicked', () => {
+    render(<ScopePicker options={OPTIONS} selected={[]} onChange={vi.fn()} />);
+    fireEvent.click(toggleButton('agents'));
+    expect(expanded('agents')).toBe('true');
+    fireEvent.click(toggleButton('agents'));
+    expect(expanded('agents')).toBe('false');
+  });
+
+  it('does the same for a sub-group header', () => {
+    const onChange = vi.fn();
+    render(<ScopePicker options={OPTIONS} selected={[]} onChange={onChange} />);
+    fireEvent.click(screen.getByText('mcp'));
+    fireEvent.click(screen.getByText('github'));
+    expect(expanded('mcp github')).toBe('true');
+    fireEvent.click(screen.getByText('github').nextElementSibling!);
+    expect(expanded('mcp github')).toBe('false');
+    fireEvent.click(rowOf('github'));
+    expect(expanded('mcp github')).toBe('true');
+    fireEvent.click(box('Select all mcp github scopes'));
+    expect(onChange).toHaveBeenLastCalledWith(['mcp:github:issues:use', 'mcp:github:pulls:use']);
+    expect(expanded('mcp github')).toBe('true');
+    fireEvent.click(toggleButton('mcp github'));
+    expect(expanded('mcp github')).toBe('false');
+    fireEvent.click(toggleButton('mcp github'));
+    expect(expanded('mcp github')).toBe('true');
+  });
+
+  it('keeps a group force-opened by a search open when its header is clicked', () => {
+    render(<ScopePicker options={OPTIONS} selected={[]} onChange={vi.fn()} />);
+    search('pull');
+    expect(expanded('mcp')).toBe('true');
+    fireEvent.click(screen.getByText('mcp'));
+    fireEvent.click(toggleButton('mcp github'));
+    expect(expanded('mcp')).toBe('true');
+    expect(expanded('mcp github')).toBe('true');
+    expect(row('mcp:github:pulls:use')).toBeInTheDocument();
+    // The click did not pin anything: clearing the search returns to the collapsed default.
+    search('');
+    expect(expanded('mcp')).toBe('false');
   });
 });
