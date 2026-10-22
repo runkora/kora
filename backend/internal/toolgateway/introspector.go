@@ -7,22 +7,20 @@
 // not revoke live scopes. The worker holds the per-server snapshots the scope
 // publisher (Phase 3.3) and catalog writer (Phase 3.4) consume.
 //
-// Introspection sends no credential. Servers may be tenant-owned, so the
-// gateway's platform token must never reach them, and tools/list needs none.
+// Introspection carries no caller. UpstreamCredentials decides what each
+// server receives.
 package toolgateway
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"sort"
 	"sync"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -36,27 +34,23 @@ const defaultIntrospectTimeout = 15 * time.Second
 // concurrency-safe: Sync mutates snapshots under a write lock; Snapshot and the
 // prune-guard predicate read under a read lock.
 type Introspector struct {
-	httpClient *http.Client
-	version    string
-	timeout    time.Duration
-	logger     logging.Logger
+	creds   UpstreamCredentials
+	version string
+	timeout time.Duration
+	logger  logging.Logger
 
 	mu        sync.RWMutex
 	snapshots map[string]*ServerSnapshot // key: serverKey(tenantID, name)
 }
 
-// NewIntrospector constructs an Introspector. A nil httpClient defaults to a
-// client with the introspection timeout.
-func NewIntrospector(httpClient *http.Client, version string, logger logging.Logger) *Introspector {
-	if httpClient == nil {
-		httpClient = httpclient.NewHTTPClient(defaultIntrospectTimeout, httpclient.NewTracingTransport("orbit.toolgateway-introspector", nil))
-	}
+// NewIntrospector constructs an Introspector.
+func NewIntrospector(creds UpstreamCredentials, version string, logger logging.Logger) *Introspector {
 	return &Introspector{
-		httpClient: httpClient,
-		version:    version,
-		timeout:    defaultIntrospectTimeout,
-		logger:     logger,
-		snapshots:  make(map[string]*ServerSnapshot),
+		creds:     creds,
+		version:   version,
+		timeout:   defaultIntrospectTimeout,
+		logger:    logger,
+		snapshots: make(map[string]*ServerSnapshot),
 	}
 }
 
@@ -169,8 +163,15 @@ func (i *Introspector) introspectOne(ctx context.Context, srv Server) ([]Tool, e
 	cctx, cancel := context.WithTimeout(ctx, i.timeout)
 	defer cancel()
 
+	headers, err := i.creds.Headers(ctx, srv, nil)
+	if err != nil {
+		return nil, fmt.Errorf("upstream credentials: %w", err)
+	}
 	client := sdk.NewClient(&sdk.Implementation{Name: introspectClientName, Version: i.version}, nil)
-	transport := &sdk.StreamableClientTransport{Endpoint: srv.Endpoint, HTTPClient: i.httpClient}
+	transport := &sdk.StreamableClientTransport{
+		Endpoint:   srv.Endpoint,
+		HTTPClient: upstreamClient(i.timeout, "orbit.toolgateway-introspector", headers),
+	}
 
 	session, err := client.Connect(cctx, transport, nil)
 	if err != nil {

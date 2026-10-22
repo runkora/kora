@@ -100,6 +100,8 @@ func realMain() error {
 	catalogRepo := toolgateway.NewPostgresCatalog(db.Pool())
 
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
+	// Both modes build upstream requests from the same credential lookup.
+	creds := toolgateway.NewUpstreamCredentials()
 	controllers := []platformapi.Controller{toolgateway.NewCatalogController(catalogRepo, registry, verifier, logger)}
 
 	if proxyMode {
@@ -114,7 +116,7 @@ func realMain() error {
 		}
 		defer func() { _ = redis.Close() }()
 		blocklist := storage.NewJTIBlocklist(redis)
-		proxy := toolgateway.NewProxy(tgc.Current.App.Version, logger)
+		proxy := toolgateway.NewProxy(creds, tgc.Current.App.Version, logger)
 		// MCP OAuth (RFC 9728): the MCP route challenges unauthenticated clients
 		// toward the protected-resource metadata, which the metadata controller
 		// serves and which points at the identity authorization server. All URLs
@@ -127,7 +129,7 @@ func realMain() error {
 		go registry.Watch(ctx) // keep the mounted registry fresh for server resolution
 	} else {
 		// ── Publisher: introspection + scope publishing + catalog write ──────
-		introspector := toolgateway.NewIntrospector(nil, tgc.Current.App.Version, logger)
+		introspector := toolgateway.NewIntrospector(creds, tgc.Current.App.Version, logger)
 		selfToken := identityclient.NewClient(tgc.Current.Identity.InternalURL, logger).SelfTokenSource()
 		scopeClient := routescopes.NewClient(tgc.Current.Policy.PolicyServiceInternalURL, selfToken, logger)
 		publisher := toolgateway.NewPublisher(registry, introspector, scopeClient, logger)

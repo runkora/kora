@@ -76,7 +76,7 @@ func testController(eval policy.Evaluator, cat CatalogRepository) *MCPController
 		servers: []Server{{TenantID: "", Name: "orbit", Endpoint: "http://orbit/mcp", CallerIdentity: "forward"}},
 		loaded:  true,
 	}
-	return NewMCPController(nil, eval, cat, reg, NewProxy("test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
+	return NewMCPController(nil, eval, cat, reg, NewProxy(NewUpstreamCredentials(), "test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
 }
 
 // doRPC dispatches a JSON-RPC body against the per-server endpoint, setting the
@@ -158,7 +158,7 @@ func TestTenantOwnershipGuard(t *testing.T) {
 			loaded:  true,
 		}
 		return NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg,
-			NewProxy("test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
+			NewProxy(NewUpstreamCredentials(), "test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
 	}
 	init := `{"jsonrpc":"2.0","id":1,"method":"initialize"}`
 
@@ -194,7 +194,7 @@ func TestSameNameServers_NotShadowed(t *testing.T) {
 		loaded: true,
 	}
 	c := NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg,
-		NewProxy("test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
+		NewProxy(NewUpstreamCredentials(), "test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
 
 	rec, _ := doRPC(t, c, "s", `{"jsonrpc":"2.0","id":1,"method":"initialize"}`)
 	if rec.Code == http.StatusNotFound {
@@ -344,7 +344,7 @@ func TestToolsCall_ForwardsDelegationToForwardIdentityOnly(t *testing.T) {
 				servers: []Server{{TenantID: tc.tenantID, Name: "orbit", Endpoint: ts.URL + "/mcp", CallerIdentity: tc.callerIdentity}},
 				loaded:  true,
 			}
-			c := NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg, NewProxy("test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
+			c := NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg, NewProxy(NewUpstreamCredentials(), "test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
 
 			claims := &platformtoken.PlatformClaims{}
 			claims.Kora.TenantID = "acme"

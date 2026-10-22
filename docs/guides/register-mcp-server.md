@@ -25,7 +25,7 @@ spec:
   callerIdentity: none
 ```
 
-- `endpoint`: the in-cluster URL of your MCP server's Service.
+- `endpoint`: the in-cluster URL of your MCP server's Service. A URL with userinfo or a query string is rejected with status `Invalid`. The tool-gateway does not follow redirects from it.
 - `displayName` and `description`: shown in the tool catalog.
 - `transport`: `streamable-http`, the default and only supported transport.
 - `reintrospectIntervalSeconds`: how often the tool-gateway re-introspects the tool surface. `0` re-introspects on registry reload only.

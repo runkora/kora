@@ -2,6 +2,7 @@ package operator
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,6 +42,30 @@ func TestValidateMCPServerSpec(t *testing.T) {
 			wantErr:   ErrMCPServerNoEndpoint,
 		},
 		{
+			name:      "userinfo rejected",
+			spec:      MCPServerSpec{Endpoint: "https://user:s3cret@mcp.example.com/mcp"},
+			namespace: "orbit-tenant-acme",
+			wantErr:   ErrMCPServerBadEndpoint,
+		},
+		{
+			name:      "query string rejected",
+			spec:      MCPServerSpec{Endpoint: "https://mcp.example.com/mcp?key=s3cret"},
+			namespace: "orbit-tenant-acme",
+			wantErr:   ErrMCPServerBadEndpoint,
+		},
+		{
+			name:      "empty query rejected",
+			spec:      MCPServerSpec{Endpoint: "https://mcp.example.com/mcp?"},
+			namespace: "orbit-tenant-acme",
+			wantErr:   ErrMCPServerBadEndpoint,
+		},
+		{
+			name:      "unparseable endpoint rejected",
+			spec:      MCPServerSpec{Endpoint: "https://s3cret@[::1/mcp"},
+			namespace: "orbit-tenant-acme",
+			wantErr:   ErrMCPServerBadEndpoint,
+		},
+		{
 			name:      "bad transport",
 			spec:      MCPServerSpec{Endpoint: "http://x/mcp", Transport: "stdio"},
 			namespace: systemNamespace,
@@ -65,6 +90,10 @@ func TestValidateMCPServerSpec(t *testing.T) {
 			err := validateMCPServerSpec(c.spec, "github", c.namespace)
 			if !errors.Is(err, c.wantErr) {
 				t.Errorf("validateMCPServerSpec = %v, want %v", err, c.wantErr)
+			}
+			// The error lands in CR status and operator logs.
+			if err != nil && strings.Contains(err.Error(), "s3cret") {
+				t.Errorf("error %q repeats a credential from the endpoint", err)
 			}
 		})
 	}

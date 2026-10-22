@@ -296,12 +296,7 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 		logging.Field{Key: "tool", Value: tool},
 		logging.Field{Key: "principal", Value: claims.Subject})
 
-	// callerIdentity: forward only for global (tenant_id == "") forward servers.
-	// External servers use their own upstream credentials and never see the caller's.
-	var caller *forwardedCaller
-	if srv.CallerIdentity == callerIdentityForward && srv.TenantID == "" {
-		caller = &forwardedCaller{bearer: bearerFromRequest(r), delegation: r.Header.Get(mw.DelegationTokenHeader)}
-	}
+	caller := &Caller{Bearer: bearerFromRequest(r), Delegation: r.Header.Get(mw.DelegationTokenHeader)}
 	result, err := c.proxy.CallTool(ctx, srv, tool, params.Arguments, caller)
 	if err != nil {
 		span.RecordError(err)

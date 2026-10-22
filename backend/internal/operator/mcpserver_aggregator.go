@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
 
 	corev1 "k8s.io/api/core/v1"
@@ -49,6 +50,10 @@ const (
 var (
 	// ErrMCPServerNoEndpoint is returned when spec.endpoint is empty.
 	ErrMCPServerNoEndpoint = errors.New("spec.endpoint is required")
+	// ErrMCPServerBadEndpoint is returned for an endpoint that does not parse
+	// or carries userinfo or a query string. Credentials in the URL would reach
+	// logs and errors. The message never repeats the endpoint.
+	ErrMCPServerBadEndpoint = errors.New("spec.endpoint must be a URL with no userinfo and no query string")
 	// ErrMCPServerBadTransport is returned for an unsupported transport.
 	ErrMCPServerBadTransport = errors.New("unsupported transport (only streamable-http)")
 	// ErrMCPServerForwardNotGlobal is returned when a tenant-namespaced CR sets
@@ -227,6 +232,9 @@ func validateMCPServerSpec(spec MCPServerSpec, name, namespace string) error {
 	}
 	if spec.Endpoint == "" {
 		return ErrMCPServerNoEndpoint
+	}
+	if u, err := url.Parse(spec.Endpoint); err != nil || u.User != nil || u.RawQuery != "" || u.ForceQuery {
+		return ErrMCPServerBadEndpoint
 	}
 	if spec.Transport != "" && spec.Transport != transportStreamableHTTP {
 		return fmt.Errorf("%w: %q", ErrMCPServerBadTransport, spec.Transport)
