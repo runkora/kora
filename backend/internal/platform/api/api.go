@@ -93,6 +93,7 @@ func (a *api) Server(
 	// always wins over the "/" catch-all regardless of registration order.
 	// A controller that registers "GET /health" replaces the default response,
 	// so a service can report its own readiness, such as a draining pod.
+	// The controller's handler is served raw, so it too bypasses middleware.
 	outerMux := http.NewServeMux()
 	if controllerMux.health != nil {
 		outerMux.Handle("GET /health", controllerMux.health)
