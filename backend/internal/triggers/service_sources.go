@@ -388,8 +388,13 @@ func (s *SourceService) ProviderFields(provider, eventType string) (*FieldsRespo
 // only leaves, as validateChatTrigger enforces, so the list must not offer a parent.
 func leafFields(fields []Field) []Field {
 	return slices.DeleteFunc(slices.Clone(fields), func(f Field) bool {
-		return slices.ContainsFunc(fields, func(o Field) bool { return strings.HasPrefix(o.Path, f.Path+".") })
+		return isParentField(fields, f.Path)
 	})
+}
+
+// isParentField reports whether another field extends path.
+func isParentField(fields []Field, path string) bool {
+	return slices.ContainsFunc(fields, func(f Field) bool { return strings.HasPrefix(f.Path, path+".") })
 }
 
 func (s *SourceService) providerCatalog(provider string) (SourceAdapter, *Catalog, error) {
