@@ -135,13 +135,16 @@ func urlEndpoints(raw ...string) ([]providerEndpoint, error) {
 		if err != nil {
 			return nil, err
 		}
-		if u.Hostname() == "" {
+		// DNS names are case-insensitive and may end in a root dot. Normalise
+		// before the in-mesh check so a cluster name cannot pass as external.
+		host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+		if host == "" {
 			return nil, fmt.Errorf("provider URL %q has no host", r)
 		}
-		if inMeshHost(u.Hostname()) {
+		if inMeshHost(host) {
 			continue
 		}
-		e := providerEndpoint{host: u.Hostname(), port: port, plain: u.Scheme == schemeHTTP}
+		e := providerEndpoint{host: host, port: port, plain: u.Scheme == schemeHTTP}
 		// Every host in a ServiceEntry shares its ports, so one port number has one protocol.
 		if slices.ContainsFunc(out, func(o providerEndpoint) bool { return o.port == e.port && o.plain != e.plain }) {
 			return nil, fmt.Errorf("provider URLs use port %d for both http and https", e.port)

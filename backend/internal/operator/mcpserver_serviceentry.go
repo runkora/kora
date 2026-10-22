@@ -28,7 +28,9 @@ const (
 
 // mcpServiceEntries builds one ServiceEntry per external host among the
 // registered servers' endpoints. Endpoints it cannot register are skipped.
-func mcpServiceEntries(entries []mcpServerRegistryEntry) ([]*unstructured.Unstructured, []mcpServerSkip) {
+// Hosts in taken belong to another operator-managed ServiceEntry. A second
+// entry for the same host could declare a clashing port protocol.
+func mcpServiceEntries(entries []mcpServerRegistryEntry, taken map[string]bool) ([]*unstructured.Unstructured, []mcpServerSkip) {
 	byHost := map[string][]providerEndpoint{}
 	var skipped []mcpServerSkip
 	for _, e := range entries {
@@ -38,7 +40,10 @@ func mcpServiceEntries(entries []mcpServerRegistryEntry) ([]*unstructured.Unstru
 			continue
 		}
 		for _, ep := range eps {
-			ep.host = strings.ToLower(ep.host)
+			if taken[ep.host] {
+				skipped = append(skipped, mcpServerSkip{e.Name, e.namespace, ep.host + " is registered by another ServiceEntry"})
+				continue
+			}
 			have := byHost[ep.host]
 			// Every host in a ServiceEntry shares its ports, so one port number has one protocol.
 			if slices.ContainsFunc(have, func(o providerEndpoint) bool { return o.port == ep.port && o.plain != ep.plain }) {
@@ -74,23 +79,17 @@ func mcpServiceEntries(entries []mcpServerRegistryEntry) ([]*unstructured.Unstru
 // syncServiceEntries applies the desired ServiceEntries and deletes labeled
 // ones no registered server uses.
 func (a *MCPServerAggregator) syncServiceEntries(ctx context.Context, entries []mcpServerRegistryEntry) error {
-	desired, skipped := mcpServiceEntries(entries)
+	existing, taken, err := a.operatorServiceEntries(ctx)
+	if err != nil {
+		return err
+	}
+	desired, skipped := mcpServiceEntries(entries, taken)
 	for _, s := range skipped {
 		a.logger.Warn(ctx, "MCP server host not registered with the mesh",
 			logging.Field{Key: "mcpserver", Value: s.Name},
 			logging.Field{Key: "namespace", Value: s.Namespace},
 			logging.Field{Key: "reason", Value: s.Reason},
 		)
-	}
-
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(serviceEntryGVK.GroupVersion().WithKind(serviceEntryGVK.Kind + "List"))
-	if err := a.client.List(ctx, list, client.InNamespace(systemNamespace), client.MatchingLabels{componentLabel: mcpServerHostComponent}); err != nil {
-		return fmt.Errorf("list MCP server ServiceEntries: %w", err)
-	}
-	existing := make(map[string]*unstructured.Unstructured, len(list.Items))
-	for i := range list.Items {
-		existing[list.Items[i].GetName()] = &list.Items[i]
 	}
 
 	for _, se := range desired {
@@ -117,4 +116,28 @@ func (a *MCPServerAggregator) syncServiceEntries(ctx context.Context, entries []
 		}
 	}
 	return nil
+}
+
+// operatorServiceEntries splits the operator's system-namespace ServiceEntries
+// into this file's, by name, and the hosts the others register.
+func (a *MCPServerAggregator) operatorServiceEntries(ctx context.Context) (map[string]*unstructured.Unstructured, map[string]bool, error) {
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(serviceEntryGVK.GroupVersion().WithKind(serviceEntryGVK.Kind + "List"))
+	if err := a.client.List(ctx, list, client.InNamespace(systemNamespace), client.MatchingLabels{"app.kubernetes.io/managed-by": "orbit-operator"}); err != nil {
+		return nil, nil, fmt.Errorf("list ServiceEntries: %w", err)
+	}
+	ours := make(map[string]*unstructured.Unstructured, len(list.Items))
+	taken := map[string]bool{}
+	for i := range list.Items {
+		se := &list.Items[i]
+		if se.GetLabels()[componentLabel] == mcpServerHostComponent {
+			ours[se.GetName()] = se
+			continue
+		}
+		hosts, _, _ := unstructured.NestedStringSlice(se.Object, "spec", "hosts")
+		for _, h := range hosts {
+			taken[h] = true
+		}
+	}
+	return ours, taken, nil
 }

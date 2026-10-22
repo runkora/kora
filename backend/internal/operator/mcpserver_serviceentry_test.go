@@ -22,15 +22,20 @@ func TestMCPServiceEntries(t *testing.T) {
 	ses, skipped := mcpServiceEntries([]mcpServerRegistryEntry{
 		mcpEntry("github", "http://github-mcp.orbit-tenant-acme.svc:8000/mcp"),
 		mcpEntry("local", "http://10.0.0.5:8000/mcp"),
+		mcpEntry("cased", "http://Orbit-Identity.Orbit-System.SVC.Cluster.Local:8080/mcp"),
+		mcpEntry("dotted", "http://orbit-identity.orbit-system.svc.cluster.local.:8080/mcp"),
+		mcpEntry("short", "http://Orbit-Identity:8080/mcp"),
+		mcpEntry("exa-dot", "https://mcp.exa.ai./mcp"),
 		mcpEntry("exa", "https://MCP.exa.ai/mcp"),
 		mcpEntry("exa-alt", "https://mcp.exa.ai:8443/mcp"),
 		mcpEntry("exa-again", "https://mcp.exa.ai/other"),
 		mcpEntry("plain", "http://tools.example.com/mcp"),
 		mcpEntry("clash", "http://mcp.exa.ai:443/mcp"),
-	})
+		mcpEntry("provider", "https://openrouter.ai/mcp"),
+	}, map[string]bool{"openrouter.ai": true})
 
-	if len(skipped) != 1 || skipped[0].Name != "clash" {
-		t.Errorf("skipped = %+v, want only clash", skipped)
+	if len(skipped) != 2 || skipped[0].Name != "clash" || skipped[1].Name != "provider" {
+		t.Errorf("skipped = %+v, want clash and provider", skipped)
 	}
 	got := map[string]any{}
 	for _, se := range ses {
