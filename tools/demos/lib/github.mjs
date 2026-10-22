@@ -147,10 +147,10 @@ export async function stagePullRequest(context, { repo, number, from }) {
 // Aborts every request to GitHub that could change something. GitHub loads
 // commit badges and check rollups with POSTs that only read, so those two pass.
 const READS = /^https:\/\/github\.com\/(commits\/badges|[^/]+\/[^/]+\/commits\/checks-statuses-rollups)(\?|$)/;
-const GITHUB = /^https:\/\/([a-z.]+\.)?github(usercontent|assets)?\.com\//;
+const GITHUB = /^https:\/\/([a-z0-9.-]+\.)?github(usercontent|assets)?\.com\//;
 const guarded = new WeakSet();
 
-async function guard(context) {
+export async function guard(context) {
   if (guarded.has(context)) return;
   guarded.add(context);
   await context.route(GITHUB, (route) => {

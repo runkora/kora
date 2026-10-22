@@ -14,6 +14,7 @@ import { chromium } from "@playwright/test";
 import { renderCaptions } from "./lib/captions.mjs";
 import { edit } from "./lib/edit.mjs";
 import { Demo } from "./lib/feature.mjs";
+import { guard } from "./lib/github.mjs";
 import { overlayScript } from "./lib/overlay.mjs";
 import { startRecording } from "./lib/recorder.mjs";
 import { signIn } from "./lib/session.mjs";
@@ -70,6 +71,9 @@ async function runFeature(browser, feature, { mode, colorScheme }) {
     if (!fs.existsSync(config.githubStateFile)) throw new Error("no GitHub session; run node github-login.mjs");
     const { cookies } = JSON.parse(fs.readFileSync(config.githubStateFile, "utf8"));
     await context.addCookies(cookies);
+    // With a real GitHub session loaded, nothing the walkthrough does may
+    // change GitHub.
+    await guard(context);
   }
   await feature.prepare?.(context);
 

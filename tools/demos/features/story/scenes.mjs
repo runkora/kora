@@ -10,7 +10,7 @@
 // second mention, on runkora/kora#587, is the same for seed/runs/issue-587-design.json.
 import { stagePullRequest } from "../../lib/github.mjs";
 import { deliveryOf, removeRun, replayRun, reseed } from "../../seed/seed.mjs";
-import { FIELDS, INSTRUCTION, SOURCE, TRIGGER } from "../trigger-create.demo.mjs";
+import { FIELDS, INSTRUCTION, SOURCE, TRIGGER } from "../mention-trigger.mjs";
 
 export const PULL = { repo: "runkora/kora", number: 652, comment: "issuecomment-6287995418", reply: "issuecomment-6288012252" };
 export const ISSUE = { repo: "runkora/kora", number: 587, reply: "issuecomment-6303249661" };

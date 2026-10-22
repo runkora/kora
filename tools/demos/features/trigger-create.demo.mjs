@@ -3,9 +3,7 @@
 // The trigger, its prompt and the agents are copied from production, without
 // its filter to the one repository.
 import { feature } from "../lib/feature.mjs";
-
-export const TRIGGER = "Kora Agent (mentioned)";
-export const SOURCE = "runkora-github";
+import { FIELDS, INSTRUCTION, SOURCE, TRIGGER } from "./mention-trigger.mjs";
 
 // The agents kora chooses between, by the search that finds them. The list
 // pages at five, so a person searches. seed/seed.mjs creates them.
@@ -13,23 +11,6 @@ const CANDIDATES = {
   issue: ["Issue Fixer", "Issue Verifier"],
   code: ["Code Reviewer", "Coder"],
 };
-
-// The prompt opens with the instruction, typed, and continues with the
-// delivery's fields, pasted as the block it is in production.
-export const INSTRUCTION =
-  "{{ comment.user.login }} mentioned @kora-agent in a comment. Do what the comment asks, within your role.";
-export const FIELDS = `
-
-Repository: {{ repository.full_name }}
-Number: #{{ issue.number }}
-Title: {{ issue.title }}
-State: {{ issue.state }}
-Link: {{ issue.html_url }}
-Pull request link: {{ issue.pull_request.html_url }}
-Comment: {{ comment.body }}
-Comment link: {{ comment.html_url }}
-
-If Pull request link is empty, this is an issue. Otherwise it is a pull request with the same number. Post your answer as a comment on the issue or pull request. Do not answer only in the run.`;
 
 export default feature(
   {

@@ -173,6 +173,11 @@ export async function reseed(request) {
 }
 
 async function seed(api) {
+  // Seeding rewrites history in the local database, so it runs only against
+  // the local cluster's kora.
+  if (!/\.local\.clearroute\.io$|^localhost$/.test(new URL(config.baseURL).hostname)) {
+    throw new Error(`refusing to seed ${config.baseURL}: not the local cluster`);
+  }
   const tenant = sql("SELECT DISTINCT tenant_id FROM agent_types LIMIT 1").trim() || "example";
 
   // Triggers are recreated so their ids, and the history pointing at them,
@@ -297,8 +302,8 @@ DELETE FROM trigger_deliveries WHERE trigger_name IN (${seededNames});`;
 // Two weeks of history: deliveries spread through working hours, most starting a
 // run, a few failing or denied, with dispatch latency of one to three seconds.
 // Each run makes a handful of model calls at the catalog's Claude Sonnet 5
-// prices. Deliveries and agent usage whose trigger or agent no longer exists
-// are dropped, so they do not count towards the dashboards' totals.
+// prices. The tenant's deliveries and agent usage whose trigger or agent no
+// longer exists are dropped, so they do not count towards the dashboards' totals.
 function historySql(tenant, triggers) {
   const random = seeded(11);
   const now = Date.now();
@@ -356,14 +361,15 @@ function historySql(tenant, triggers) {
 
   return `BEGIN;
 ${deleteHistory}
-DELETE FROM trigger_deliveries d WHERE d.trigger_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM triggers t WHERE t.id = d.trigger_id);
+DELETE FROM trigger_deliveries d WHERE d.tenant_id = ${q(tenant)} AND d.trigger_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM triggers t WHERE t.id = d.trigger_id);
 INSERT INTO trigger_deliveries (id, tenant_id, source_id, provider_delivery_id, event_type, status, trigger_id, run_id, received_at, kind, scheduled_at, trigger_name)
 VALUES ${deliveries.join(",\n")};
 INSERT INTO trigger_delivery_runs (id, tenant_id, delivery_id, trigger_id, run_id, status, error, created_at, trigger_name)
 VALUES ${deliveryRuns.join(",\n")};
 INSERT INTO runs (id, tenant_id, agent_type_id, state, created_by, started_at, completed_at, created_at, updated_at, trigger_id, trigger_name, delivery_id)
 VALUES ${runs.join(",\n")};
-DELETE FROM inference_usage u WHERE u.principal_type = 'AGENT' AND NOT EXISTS (SELECT 1 FROM agent_types a WHERE a.slug = u.agent_slug);
+DELETE FROM inference_usage u WHERE u.tenant_id = ${q(tenant)} AND u.principal_type = 'AGENT'
+  AND NOT EXISTS (SELECT 1 FROM agent_types a WHERE a.tenant_id = u.tenant_id AND a.slug = u.agent_slug);
 INSERT INTO inference_usage (id, tenant_id, principal_id, principal_type, api_dialect, provider, model_id, model_family, prompt_tokens,
   completion_tokens, total_tokens, cache_read_input_tokens, estimated_cost_usd, status, latency_ms, created_at, run_id, agent_slug)
 VALUES ${usage.join(",\n")};
@@ -375,8 +381,8 @@ const engineerIds = ENGINEERS.map((e) => `'${e.id}'`).join(", ");
 // The team's own usage: each engineer's working-day requests in Sydney hours,
 // a few at weekends and a handful in the last hour, 70% Claude Code on Claude Sonnet 5 and 30% Codex on
 // GPT-5.5, mostly served from the prompt cache, with the odd throttled call.
-// Usage that is neither the team's nor a seeded run's is removed, so the
-// gateway's totals describe this team alone. setseed keeps it repeatable.
+// The tenant's usage that is neither the team's nor a seeded run's is
+// removed, so the gateway's totals describe this team alone. setseed keeps it repeatable.
 function teamSql(tenant, viewer) {
   const users = [...ENGINEERS, ...(viewer ? [{ id: viewer, rate: 280 }] : [])]
     .map((e) => `('${e.id}', ${e.rate})`)
@@ -385,7 +391,7 @@ function teamSql(tenant, viewer) {
     (e) => `('${e.id}', '${tenant}', '${e.email}', '${e.name.replace(/'/g, "''")}', ARRAY['users','engineer'])`,
   ).join(",\n");
   return `BEGIN;
-DELETE FROM inference_usage WHERE run_id IS NULL OR run_id NOT IN (${seededRuns});
+DELETE FROM inference_usage WHERE tenant_id = '${tenant}' AND (run_id IS NULL OR run_id NOT IN (${seededRuns}));
 INSERT INTO user_profiles (id, tenant_id, email, display_name, roles) VALUES ${profiles}
 ON CONFLICT (id, tenant_id) DO UPDATE SET email = EXCLUDED.email, display_name = EXCLUDED.display_name, roles = EXCLUDED.roles;
 SELECT setseed(0.42);
@@ -481,7 +487,7 @@ function client(request) {
  * threshold and every candidate's score by agent slug. Returns the run's id.
  */
 export function replayRun(name, { agent, trigger, upTo, endedAgoMs = 5 * 60_000, eventType = "issues", routing }) {
-  const run = JSON.parse(fs.readFileSync(path.join(dir, "runs", `${name}.json`), "utf8"));
+  const run = fixture(name);
   const events = run.events.slice(0, upTo ?? run.events.length);
   const done = events.length === run.events.length;
   const q = (s) => (s == null ? "NULL" : `'${String(s).replace(/'/g, "''")}'`);
@@ -558,13 +564,13 @@ function removeStagedRunsSql() {
 
 /** Removes a replayed run and its delivery. */
 export function removeRun(name) {
-  const { id } = JSON.parse(fs.readFileSync(path.join(dir, "runs", `${name}.json`), "utf8"));
+  const { id } = fixture(name);
   sql(deleteRunSql(id));
 }
 
 /** The id of a replayed run's delivery, as the Deliveries list shows it. */
 export function deliveryOf(name) {
-  return deliveryId(JSON.parse(fs.readFileSync(path.join(dir, "runs", `${name}.json`), "utf8")).id);
+  return deliveryId(fixture(name).id);
 }
 
 // A replayed run's delivery has the run's id with a different first group.
@@ -603,6 +609,15 @@ function registeredProviders() {
   });
   if (res.status !== 0 || !res.stdout.trim()) return null;
   return new Set(res.stdout.trim().split("\n"));
+}
+
+// A recorded production run from seed/runs. Tool results copied from
+// production can carry GitHub's signed download links, which must not be
+// committed, so a fixture holding one is refused.
+function fixture(name) {
+  const text = fs.readFileSync(path.join(dir, "runs", `${name}.json`), "utf8");
+  if (/[?&]token=/.test(text)) throw new Error(`seed/runs/${name}.json holds a signed URL; strip its ?token= queries`);
+  return JSON.parse(text);
 }
 
 function sql(text) {
