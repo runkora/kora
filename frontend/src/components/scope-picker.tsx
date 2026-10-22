@@ -196,9 +196,9 @@ export function ScopePicker({
           Type {MIN_SEARCH_LENGTH} or more characters to filter
         </Text>
       )}
-      {/* Always rendered so the list does not jump on the first and last selection. */}
-      <Stack direction="horizontal" align="center" gap="cozy">
-        <Stack grow minWidth="none" gap="none">
+      {/* The row keeps the Clear all button's height (h-8) so it does not shift when the button comes and goes. */}
+      <Stack direction="horizontal" align="center" gap="cozy" style={{ minHeight: '2rem' }}>
+        <Stack grow minWidth="none" gap="tight">
           <Text as="span" size="caption" weight="heavy">
             {selectedSet.size} {selectedSet.size === 1 ? 'scope' : 'scopes'} selected
           </Text>
@@ -206,15 +206,11 @@ export function ScopePicker({
             {summary || 'Choose scopes below'}
           </Text>
         </Stack>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={selectedSet.size === 0}
-          onClick={() => onChange([])}
-        >
-          Clear all
-        </Button>
+        {selectedSet.size > 0 && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => onChange([])}>
+            Clear all
+          </Button>
+        )}
       </Stack>
       {all.length === 0 ? (
         <Stack paddingBlock="comfortable" align="center">

@@ -379,10 +379,21 @@ describe('ScopePicker selection summary', () => {
     expect(onChange).toHaveBeenCalledWith([]);
   });
 
-  it('keeps the summary row with Clear all disabled when nothing is selected', () => {
-    render(<ScopePicker options={OPTIONS} selected={[]} onChange={vi.fn()} />);
+  it('shows Clear all only while something is selected, in a row of fixed height', () => {
+    const summaryRow = () => screen.getByText(/scopes? selected/).parentElement!.parentElement!;
+    const { rerender } = render(<ScopePicker options={OPTIONS} selected={[]} onChange={vi.fn()} />);
     expect(screen.getByText('0 scopes selected')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Clear all' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Clear all' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Clear all')).not.toBeInTheDocument();
+    expect(summaryRow().style.minHeight).toBe('2rem');
+
+    rerender(<ScopePicker options={OPTIONS} selected={['mcp:invoke']} onChange={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Clear all' })).toBeEnabled();
+    expect(summaryRow().style.minHeight).toBe('2rem');
+
+    rerender(<ScopePicker options={OPTIONS} selected={[]} onChange={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Clear all' })).not.toBeInTheDocument();
+    expect(summaryRow().style.minHeight).toBe('2rem');
   });
 
   it('keeps a selected scope the list does not know through toggles and select-all', () => {
