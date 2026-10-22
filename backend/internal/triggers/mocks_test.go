@@ -424,7 +424,7 @@ func (m *mockRepository) ListDeliveries(_ context.Context, tenantID string, filt
 	defer m.mu.Unlock()
 	var out []Delivery
 	for _, d := range m.deliveries {
-		if d.TenantID != tenantID || d.TriggerID != triggerID || (filter.SourceID != "" && d.SourceID != filter.SourceID) {
+		if d.TenantID != tenantID || (filter.SourceID != "" && d.SourceID != filter.SourceID) {
 			continue
 		}
 		if !filter.ReceivedAfter.IsZero() && d.ReceivedAt.Before(filter.ReceivedAfter) {
