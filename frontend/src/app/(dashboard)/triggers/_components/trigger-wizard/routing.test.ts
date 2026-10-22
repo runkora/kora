@@ -85,7 +85,9 @@ describe('validateRouting', () => {
     expect(validateRouting({ ...CHOSEN, candidateIds: [] }, READY).hint).toBe(
       'Pick at least one candidate agent.',
     );
-    expect(validateRouting({ ...CHOSEN, candidateIds: ['a1'], fallbackId: 'a1' }, READY).valid).toBe(true);
+    expect(
+      validateRouting({ ...CHOSEN, candidateIds: ['a1'], fallbackId: 'a1' }, READY).valid,
+    ).toBe(true);
     expect(validateRouting({ ...CHOSEN, modelId: '' }, READY).hint).toBe(
       'Choose a decision model.',
     );
