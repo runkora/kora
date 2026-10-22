@@ -140,11 +140,12 @@ kora records every significant technical decision as an ADR. This index is the c
 
 Build order: **Registration** is the foundation; the **Gateway** depends on it, and on **OAuth** (which can be built in parallel with the Gateway).
 
-- [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) — `Accepted` · 2026-06-29
+- [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) — `Accepted (Amended 2026-10-22)` · 2026-06-29
 - [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) — `Accepted` · 2026-06-29
 - [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) — `Accepted` · 2026-06-29
 - [kora MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) — `Accepted` · 2026-06-30
 - [Tenant MCP Servers as a Recognised Workload Class](2026-09-17-mcp-workload-class.md) — `Proposed` · 2026-09-17
+- [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md) — `Accepted` · 2026-10-22
 
 ### Service Mesh, Operator & Deployment
 
@@ -275,7 +276,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-28 | [OAuth2 Web-Redirect Clients: GitOps Pre-Registration via an OAuthClient CRD](2026-07-28-oauth2-web-redirect-clients.md) | Accepted | — |
 | 2026-08-03 | [Hades Wizard Component](2026-08-03-terra-wizard-component.md) | Proposed | — |
 | 2026-09-06 | [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) | Proposed | — |
-| 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted | — |
+| 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted (Amended 2026-10-22) | — |
 | 2026-07-24 | [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) | Accepted | — |
 | 2026-06-29 | [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) | Accepted | — |
 | 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Accepted | — |
@@ -318,4 +319,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-20 | [Per-Run Cost on the Run Record](2026-10-20-run-cost-on-run-record.md) | Proposed | — |
 | 2026-10-19 | [Repository Id Owner Selection in the Egress Gateway](2026-10-19-repository-id-owner-selection.md) | Accepted | — |
 | 2026-10-20 | [Actions Results Receiver Classification](2026-10-20-actions-results-receiver-classification.md) | Accepted | — |
+| 2026-10-22 | [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
