@@ -219,9 +219,42 @@ func TestUpstreamErrors_DoNotCarryCredentials(t *testing.T) {
 func TestUpstreamError_RedactsSentValues(t *testing.T) {
 	h := http.Header{}
 	h.Set("Authorization", "Bearer "+goodBearer)
-	_, upstream := upstreamClient(0, "test", h)
-	err := upstream.upstreamError(fmt.Errorf("decode: unexpected %s", goodBearer))
-	if strings.Contains(err.Error(), goodBearer) || !strings.Contains(err.Error(), "[redacted]") {
+	h.Set("X-Api-Key", "k=ab c")
+	srv := Server{AuthHeaders: []AuthHeader{{Name: "X-Api-Key", Prefix: "k="}}}
+	_, upstream := upstreamClient(0, "test", srv, h)
+	err := upstream.upstreamError(fmt.Errorf("decode: unexpected %s and ab c", goodBearer))
+	if strings.Contains(err.Error(), goodBearer) || strings.Contains(err.Error(), "ab c") {
 		t.Errorf("err = %q", err)
+	}
+}
+
+// stubTransport answers each request with the next status.
+type stubTransport struct{ statuses []int }
+
+func (s *stubTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	code := s.statuses[0]
+	s.statuses = s.statuses[1:]
+	return &http.Response{StatusCode: code, Body: http.NoBody}, nil
+}
+
+func TestUpstreamError_UsesLatestStatusOnlyWithCredentials(t *testing.T) {
+	cause := errors.New("stream closed")
+	send := func(tr *headerTransport, n int) {
+		for range n {
+			_, _ = tr.RoundTrip(httptest.NewRequest(http.MethodPost, "http://upstream/mcp", nil))
+		}
+	}
+
+	creds := http.Header{"X-Api-Key": {goodAPIKey}}
+	tr := &headerTransport{headers: creds, base: &stubTransport{statuses: []int{405, 200}}, secrets: headerSecrets(Server{}, creds)}
+	send(tr, 2)
+	if err := tr.upstreamError(cause); err != cause {
+		t.Errorf("after 405 then 200: err = %v, want the cause unchanged", err)
+	}
+
+	none := &headerTransport{headers: http.Header{}, base: &stubTransport{statuses: []int{401}}}
+	send(none, 1)
+	if err := none.upstreamError(cause); err != cause {
+		t.Errorf("without credentials: err = %v, want the cause unchanged", err)
 	}
 }

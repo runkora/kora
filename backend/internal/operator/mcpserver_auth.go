@@ -60,8 +60,8 @@ func validateMCPServerAuth(spec MCPServerSpec) error {
 	if spec.CallerIdentity == CallerIdentityForward {
 		return ErrMCPServerAuthWithForward
 	}
-	if len(spec.Auth.Headers) == 0 {
-		return fmt.Errorf("%w: spec.auth.headers is empty", ErrMCPServerBadAuthHeader)
+	if n := len(spec.Auth.Headers); n == 0 || n > maxMCPAuthHeaders {
+		return fmt.Errorf("%w: spec.auth.headers must list 1 to %d headers", ErrMCPServerBadAuthHeader, maxMCPAuthHeaders)
 	}
 	seen := make(map[string]bool, len(spec.Auth.Headers))
 	for _, h := range spec.Auth.Headers {
@@ -131,7 +131,10 @@ func mcpSecretKey(namespace, name string, index int) string {
 
 // maxMCPCredentialSize bounds one value. Every value shares one Secret, which
 // Kubernetes caps at 1 MiB.
-const maxMCPCredentialSize = 8 << 10
+const maxMCPCredentialSize = 4 << 10
+
+// maxMCPAuthHeaders bounds spec.auth.headers for the same reason.
+const maxMCPAuthHeaders = 8
 
 // readMCPCredential returns the value for ref in namespace. An unusable value
 // wraps ErrMCPCredentialUnavailable. No error carries the value.

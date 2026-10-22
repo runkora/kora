@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -40,6 +41,13 @@ func TestValidateMCPServerAuth(t *testing.T) {
 		{"valid", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{ok, authHeader("Authorization", "Bearer ", "exa", "token")}}}, nil},
 		{"with forward", MCPServerSpec{CallerIdentity: CallerIdentityForward, Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{ok}}}, ErrMCPServerAuthWithForward},
 		{"empty list", MCPServerSpec{Auth: &MCPServerAuth{}}, ErrMCPServerBadAuthHeader},
+		{"too many headers", MCPServerSpec{Auth: &MCPServerAuth{Headers: func() []MCPServerAuthHeader {
+			var hs []MCPServerAuthHeader
+			for i := range maxMCPAuthHeaders + 1 {
+				hs = append(hs, authHeader(fmt.Sprintf("x-key-%d", i), "", "exa", "key"))
+			}
+			return hs
+		}()}}, ErrMCPServerBadAuthHeader},
 		{"not a token", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("x api key", "", "exa", "key")}}}, ErrMCPServerBadAuthHeader},
 		{"empty name", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("", "", "exa", "key")}}}, ErrMCPServerBadAuthHeader},
 		{"host reserved", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("Host", "", "exa", "key")}}}, ErrMCPServerBadAuthHeader},

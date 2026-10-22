@@ -137,11 +137,13 @@ func (a *MCPServerAggregator) Sync(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("collect MCP server credentials: %w", err)
 	}
-	// The Secret goes first, so the registry never names a key the gateway has not been given.
-	if err := a.upsertMCPServerSecret(ctx, credentials); err != nil {
+	// The Secret goes first, so the registry rarely names a key the gateway has
+	// not been given. A failed Secret write still lets the registry update.
+	secretErr := a.upsertMCPServerSecret(ctx, credentials)
+	if err := a.upsertConfigMap(ctx, entries); err != nil {
 		return err
 	}
-	return a.upsertConfigMap(ctx, entries)
+	return secretErr
 }
 
 // collectCredentials reads every registered server's credential values. An

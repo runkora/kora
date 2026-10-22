@@ -48,7 +48,7 @@ func (p *Proxy) CallTool(ctx context.Context, srv Server, toolName string, args 
 	if err != nil {
 		return nil, fmt.Errorf("upstream credentials for %q: %w", srv.Name, err)
 	}
-	httpClient, upstream := upstreamClient(0, "orbit.toolgateway-proxy", headers)
+	httpClient, upstream := upstreamClient(0, "orbit.toolgateway-proxy", srv, headers)
 
 	client := sdk.NewClient(&sdk.Implementation{Name: proxyClientName, Version: p.version}, nil)
 	transport := &sdk.StreamableClientTransport{Endpoint: srv.Endpoint, HTTPClient: httpClient}

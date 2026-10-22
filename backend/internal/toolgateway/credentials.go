@@ -23,8 +23,8 @@ var (
 	// ErrCredentialUnavailable is returned when a server's declared credential
 	// is not in the mounted Secret. The call fails closed.
 	ErrCredentialUnavailable = errors.New("credential_unavailable")
-	// ErrUpstreamAuthFailed replaces an upstream 401 or 403. The upstream's
-	// response body is dropped because it may echo the credential.
+	// ErrUpstreamAuthFailed replaces an upstream 401 or 403 from a server that
+	// was sent credentials. The response body may echo them.
 	ErrUpstreamAuthFailed = errors.New("auth_failed")
 	// ErrUpstreamStatus replaces any other non-2xx error from an upstream that
 	// was sent credentials, for the same reason.
@@ -96,66 +96,67 @@ func (u upstreamCredentials) read(key string) (string, bool) {
 
 // upstreamClient adds headers to every request and does not follow redirects.
 // A followed redirect would carry the headers to another host.
-func upstreamClient(timeout time.Duration, tracerName string, headers http.Header) (*http.Client, *headerTransport) {
-	t := &headerTransport{headers: headers, base: http.DefaultTransport, secrets: headerSecrets(headers)}
+func upstreamClient(timeout time.Duration, tracerName string, srv Server, headers http.Header) (*http.Client, *headerTransport) {
+	t := &headerTransport{headers: headers, base: http.DefaultTransport, secrets: headerSecrets(srv, headers)}
 	c := httpclient.NewHTTPClient(timeout, httpclient.NewTracingTransport(tracerName, t))
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return c, t
 }
 
-// headerSecrets lists the header values to redact, with and without a
-// space-separated prefix such as "Bearer ".
-func headerSecrets(headers http.Header) []string {
+// headerSecrets lists the values to redact: every header value sent, and each
+// credential without its prefix.
+func headerSecrets(srv Server, headers http.Header) []string {
 	var out []string
 	for _, vs := range headers {
-		for _, v := range vs {
+		out = append(out, vs...)
+	}
+	for _, a := range srv.AuthHeaders {
+		if v := strings.TrimPrefix(headers.Get(a.Name), a.Prefix); v != "" {
 			out = append(out, v)
-			if i := strings.LastIndexByte(v, ' '); i >= 0 && len(v)-i > 4 {
-				out = append(out, v[i+1:])
-			}
 		}
+	}
+	if v, ok := strings.CutPrefix(headers.Get("Authorization"), "Bearer "); ok && v != "" {
+		out = append(out, v)
 	}
 	return out
 }
 
-// headerTransport sets fixed headers on each request and records upstream
-// error statuses. The MCP client folds the response body into its error.
+// headerTransport sets fixed headers on each request and records the status of
+// the latest response. The MCP client folds an error response's body into its
+// error.
 type headerTransport struct {
 	headers    http.Header
 	base       http.RoundTripper
 	secrets    []string
-	authStatus atomic.Int64
-	errStatus  atomic.Int64
+	lastStatus atomic.Int64
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	r := req.Clone(req.Context())
 	maps.Copy(r.Header, t.headers)
 	resp, err := t.base.RoundTrip(r)
-	switch {
-	case resp == nil:
-	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
-		t.authStatus.Store(int64(resp.StatusCode))
-	case resp.StatusCode >= 300:
-		t.errStatus.Store(int64(resp.StatusCode))
+	if resp != nil {
+		// A success clears an earlier error status, such as the SDK's 405 on its optional GET stream.
+		code := int64(resp.StatusCode)
+		if code < 300 {
+			code = 0
+		}
+		t.lastStatus.Store(code)
 	}
 	return resp, err
 }
 
-// upstreamError keeps the credentials sent upstream out of err. A 401 or 403
-// becomes ErrUpstreamAuthFailed. With credentials sent, another error status
-// becomes ErrUpstreamStatus and any remaining error has the values redacted.
+// upstreamError keeps the credentials sent upstream out of err. After an error
+// status, err is replaced by the status alone. Any other error has the sent
+// values redacted. Without credentials, err is returned unchanged.
 func (t *headerTransport) upstreamError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if code := t.authStatus.Load(); code != 0 {
-		return fmt.Errorf("%w: HTTP %d", ErrUpstreamAuthFailed, code)
-	}
-	if len(t.secrets) == 0 {
+	if err == nil || len(t.secrets) == 0 {
 		return err
 	}
-	if code := t.errStatus.Load(); code != 0 {
+	switch code := t.lastStatus.Load(); {
+	case code == http.StatusUnauthorized || code == http.StatusForbidden:
+		return fmt.Errorf("%w: HTTP %d", ErrUpstreamAuthFailed, code)
+	case code != 0:
 		return fmt.Errorf("%w: HTTP %d", ErrUpstreamStatus, code)
 	}
 	msg := err.Error()

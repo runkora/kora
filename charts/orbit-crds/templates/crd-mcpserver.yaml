@@ -127,6 +127,7 @@ spec:
                       description: Request headers, each set to the prefix followed by a Secret value.
                       type: array
                       minItems: 1
+                      maxItems: 8
                       items:
                         type: object
                         required:
