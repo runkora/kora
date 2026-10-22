@@ -1036,6 +1036,12 @@ fix: ## Run go fix
 
 # Seconds before a Corepack registry call is abandoned in frontend-install.
 COREPACK_TIMEOUT ?= 60
+# GNU timeout, or gtimeout from Homebrew coreutils on macOS. Empty when neither exists.
+TIMEOUT_CMD ?= $(shell command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+
+.PHONY: frontend-install-test
+frontend-install-test: ## Check frontend-install fails fast when Corepack stalls or timeout is missing
+	@scripts/test-frontend-install-timeout.sh
 
 .PHONY: frontend-install
 frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pnpm, idempotent)
@@ -1052,17 +1058,26 @@ frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pn
 	echo "  Ensuring Node LTS via nvm (skipped if already installed)..."; \
 	nvm install $(NODE_VERSION); \
 	nvm use $(NODE_VERSION); \
+	if [ -z "$(TIMEOUT_CMD)" ]; then \
+		echo "$(COLOR_RED)✗ Neither timeout nor gtimeout found on PATH$(COLOR_RESET)"; \
+		echo "  On macOS run: brew install coreutils"; \
+		exit 1; \
+	fi; \
 	echo "  Enabling Corepack..."; \
 	corepack enable; \
-	if timeout $(COREPACK_TIMEOUT) pnpm --version | grep -q "^$(PNPM_VERSION)$$"; then \
+	if $(TIMEOUT_CMD) $(COREPACK_TIMEOUT) pnpm --version | grep -q "^$(PNPM_VERSION)$$"; then \
 		echo "  pnpm $(PNPM_VERSION) already installed — skipping"; \
 	else \
 		echo "  Installing pnpm $(PNPM_VERSION) via Corepack..."; \
-		timeout $(COREPACK_TIMEOUT) corepack install -g pnpm@$(PNPM_VERSION) || { \
-			echo "$(COLOR_RED)✗ Corepack failed or timed out after $(COREPACK_TIMEOUT)s reaching $${COREPACK_NPM_REGISTRY:-https://registry.npmjs.org}$(COLOR_RESET)"; \
+		$(TIMEOUT_CMD) $(COREPACK_TIMEOUT) corepack install -g pnpm@$(PNPM_VERSION); rc=$$?; \
+		if [ $$rc -eq 124 ]; then \
+			echo "$(COLOR_RED)✗ Timed out after $(COREPACK_TIMEOUT)s reaching $${COREPACK_NPM_REGISTRY:-https://registry.npmjs.org}$(COLOR_RESET)"; \
 			echo "  Check network, DNS and proxy settings (HTTPS_PROXY, COREPACK_NPM_REGISTRY)."; \
 			exit 1; \
-		}; \
+		elif [ $$rc -ne 0 ]; then \
+			echo "$(COLOR_RED)✗ Corepack failed with exit code $$rc (not a timeout)$(COLOR_RESET)"; \
+			exit 1; \
+		fi; \
 	fi; \
 	cd $(FRONTEND_DIR) && pnpm install $(if $(CI),--frozen-lockfile,)
 	@echo "$(COLOR_GREEN)✓ Frontend dependencies installed$(COLOR_RESET)"
