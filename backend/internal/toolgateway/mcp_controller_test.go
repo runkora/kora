@@ -182,6 +182,62 @@ func TestTenantOwnershipGuard(t *testing.T) {
 	})
 }
 
+// TestSameNameServers_NotShadowed verifies a same-named server owned by another
+// tenant cannot shadow the caller's own server, regardless of registry order.
+func TestSameNameServers_NotShadowed(t *testing.T) {
+	// doRPC's caller is tenant "acme"; "aaa" sorts before it in the registry.
+	reg := &Registry{
+		servers: []Server{
+			{TenantID: "aaa", Name: "s", Endpoint: "http://aaa/mcp"},
+			{TenantID: "acme", Name: "s", Endpoint: "http://acme/mcp"},
+		},
+		loaded: true,
+	}
+	c := NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg,
+		NewProxy("test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
+
+	rec, _ := doRPC(t, c, "s", `{"jsonrpc":"2.0","id":1,"method":"initialize"}`)
+	if rec.Code == http.StatusNotFound {
+		t.Fatalf("own server shadowed by another tenant's same-named server: got 404")
+	}
+}
+
+// TestRegistryLookup_SelectsEndpoint asserts which server lookup resolves, by
+// endpoint, so a wrong pick cannot pass as "not a 404".
+func TestRegistryLookup_SelectsEndpoint(t *testing.T) {
+	cases := []struct {
+		name         string
+		servers      []Server
+		wantFound    bool
+		wantEndpoint string
+	}{
+		{"global wins over own, global first", []Server{
+			{TenantID: "", Name: "s", Endpoint: "http://global/mcp"},
+			{TenantID: "acme", Name: "s", Endpoint: "http://acme/mcp"},
+		}, true, "http://global/mcp"},
+		{"global wins over own, own first", []Server{
+			{TenantID: "acme", Name: "s", Endpoint: "http://acme/mcp"},
+			{TenantID: "", Name: "s", Endpoint: "http://global/mcp"},
+		}, true, "http://global/mcp"},
+		{"own wins over other tenant", []Server{
+			{TenantID: "aaa", Name: "s", Endpoint: "http://aaa/mcp"},
+			{TenantID: "acme", Name: "s", Endpoint: "http://acme/mcp"},
+		}, true, "http://acme/mcp"},
+		{"only another tenant's server is not found", []Server{
+			{TenantID: "other", Name: "s", Endpoint: "http://other/mcp"},
+		}, false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := &Registry{servers: tc.servers, loaded: true}
+			got, found := reg.lookup("s", "acme")
+			if found != tc.wantFound || got.Endpoint != tc.wantEndpoint {
+				t.Fatalf("lookup = (%q, %v), want (%q, %v)", got.Endpoint, found, tc.wantEndpoint, tc.wantFound)
+			}
+		})
+	}
+}
+
 func TestEmptyToolName(t *testing.T) {
 	eval := &fakeEval{checkOK: true}
 	c := testController(eval, &memCatalog{})

@@ -76,16 +76,28 @@ func (r *Registry) Servers() []Server {
 	return out
 }
 
-// lookup returns the registered server with the given name (any tenant). The
-// gateway resolves the caller's server by slug; for the MVP a slug is unique in
-// the registry. Returns false if no such server.
-func (r *Registry) lookup(name string) (Server, bool) {
+// lookup returns the server with the given name that the tenant may reach: a
+// global server if one exists, otherwise the tenant's own. Another tenant's
+// same-named server is never returned, so it cannot shadow the caller's.
+// Returns false if no such server.
+func (r *Registry) lookup(name, tenantID string) (Server, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for _, s := range r.servers {
-		if s.Name == name {
-			return s, true
+	var own *Server
+	for i := range r.servers {
+		s := &r.servers[i]
+		if s.Name != name {
+			continue
 		}
+		if s.TenantID == "" {
+			return *s, true
+		}
+		if s.TenantID == tenantID {
+			own = s
+		}
+	}
+	if own != nil {
+		return *own, true
 	}
 	return Server{}, false
 }
