@@ -364,7 +364,7 @@ Unit tests cover:
 
 ## Amendment 1 (2026-10-21): Candidate access and one batch read
 
-**Status:** Proposed
+**Status:** Accepted
 
 ### Context
 
@@ -380,7 +380,7 @@ Decision 4 describes a candidate by its name and description. The text does not 
 
 ### Decision
 
-1. **Option text:** The `agent` question's option for a candidate is its name and description, then up to two more lines. The version becomes `routing-v2`.
+1. **Option text:** The `agent` question's option for a candidate is its name and description, then up to two more lines.
    - `Connector actions:` the agent's effective connectors, its own and its environments' merged by connection as `ScopeResolver.EffectiveAccess` merges them. Each is `connection (action, action)`, joined by `; `.
    - `MCP tools:` the agent type's `mcp_tools` grouped by server as `server (tool, tool)`, joined by `; `. The `mcp:` prefix and `:use` suffix are removed. Schemas and descriptions are not sent.
    - A line is omitted when the agent has none of that access. `grant_scopes`, hosts, environments and the system prompt are not sent.
@@ -396,7 +396,8 @@ Decision 4 describes a candidate by its name and description. The text does not 
 
 - The model sees what each candidate can do, so a candidate without the access a task needs is less likely to be chosen.
 - The option text grows with an agent's connectors and tools.
-- Decisions recorded before this change carry `routing-v1`.
+- `routingQuestionsVersion` stays `routing-v2`. No release has shipped since v2, so this change does not move it.
+- The batch read still loads every agent type in the tenant from the repository and filters by ID in memory. The cost of that read is accepted: a tenant holds few agent types, the saving is one call per routed delivery and not one query per candidate, and a repository query by IDs can replace it later without an API change.
 
 ---
 
