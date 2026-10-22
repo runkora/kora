@@ -390,7 +390,17 @@ inferenceGateway:
     tag: ""
     digest: ""
     pullPolicy: ""
+  # Run two or more replicas in production. With one, a rollout leaves no pod
+  # to serve new requests while the old pod drains.
   replicas: 1
+  # -- Seconds the gateway keeps serving in-flight streams after SIGTERM. The
+  # pod's terminationGracePeriodSeconds and the Istio sidecar's
+  # terminationDrainDuration are derived from it.
+  shutdownTimeoutSecs: 120
+  # Created only when replicas > 1, as for the OPA gateway.
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
   resources:
     requests:
       cpu: 100m

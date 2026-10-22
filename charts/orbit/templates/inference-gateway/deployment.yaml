@@ -20,12 +20,14 @@ spec:
         orbit.io/kube-api-client: "true"
         {{- include "orbit.podLabels" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "drainSecs" .Values.inferenceGateway.shutdownTimeoutSecs) | nindent 8 }}
         # Postgres is external to the mesh; bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
         checksum/config: {{ include (print $.Template.BasePath "/inference-gateway/config.yaml") . | sha256sum }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
     spec:
+      # Outlasts the shutdown timeout so Kubernetes does not kill the pod mid-drain.
+      terminationGracePeriodSeconds: {{ add (int .Values.inferenceGateway.shutdownTimeoutSecs) 30 }}
       serviceAccountName: orbit-inference-gateway
       {{- include "orbit.imagePullSecrets" . | nindent 6 }}
       {{- include "orbit.scheduling" (dict "root" $ "name" "inferenceGateway") | nindent 6 }}

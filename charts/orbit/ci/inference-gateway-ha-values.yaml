@@ -1,0 +1,3 @@
+# Two inference gateway replicas, so the PodDisruptionBudget renders.
+inferenceGateway:
+  replicas: 2

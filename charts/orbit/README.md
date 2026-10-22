@@ -270,6 +270,8 @@ Kubernetes: `>=1.34.0-0`
 | inferenceGateway.image.tag | string | `""` |  |
 | inferenceGateway.nodeSelector | object | `{}` |  |
 | inferenceGateway.podAnnotations | object | `{}` |  |
+| inferenceGateway.podDisruptionBudget.enabled | bool | `true` |  |
+| inferenceGateway.podDisruptionBudget.minAvailable | int | `1` |  |
 | inferenceGateway.podLabels | object | `{}` |  |
 | inferenceGateway.priorityClassName | string | `""` |  |
 | inferenceGateway.replicas | int | `1` |  |
@@ -278,6 +280,7 @@ Kubernetes: `>=1.34.0-0`
 | inferenceGateway.resources.requests.cpu | string | `"100m"` |  |
 | inferenceGateway.resources.requests.memory | string | `"128Mi"` |  |
 | inferenceGateway.serviceAccount.annotations | object | `{}` |  |
+| inferenceGateway.shutdownTimeoutSecs | int | `120` | Seconds the gateway keeps serving in-flight streams after SIGTERM. The pod's terminationGracePeriodSeconds and the Istio sidecar's terminationDrainDuration are derived from it. |
 | inferenceGateway.tolerations | list | `[]` |  |
 | inferenceGateway.topologySpreadConstraints | list | `[]` |  |
 | ingressGateway.autoscaling.enabled | bool | `false` |  |

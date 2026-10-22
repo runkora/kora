@@ -1287,6 +1287,7 @@ HELM_DOCS_VERSION := v1.14.2
 chart-lint: ## Lint the Helm charts (helm lint with ci/ values)
 	@helm lint charts/orbit -f charts/orbit/ci/default-values.yaml
 	@helm lint charts/orbit -f charts/orbit/ci/default-values.yaml -f charts/orbit/ci/theme-values.yaml
+	@helm lint charts/orbit -f charts/orbit/ci/default-values.yaml -f charts/orbit/ci/inference-gateway-ha-values.yaml
 	@helm lint charts/orbit-crds
 
 .PHONY: chart-docs
