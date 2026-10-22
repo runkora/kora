@@ -142,6 +142,7 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 			logging.Field{Key: "tenant_id", Value: srv.TenantID},
 			logging.Field{Key: "endpoint", Value: srv.Endpoint},
 			logging.Field{Key: "retained_tools", Value: len(snap.Tools)},
+			logging.Field{Key: "reason", Value: failureReason(err)},
 			logging.Field{Key: "error", Value: err.Error()})
 		return
 	}
@@ -168,14 +169,12 @@ func (i *Introspector) introspectOne(ctx context.Context, srv Server) ([]Tool, e
 		return nil, fmt.Errorf("upstream credentials: %w", err)
 	}
 	client := sdk.NewClient(&sdk.Implementation{Name: introspectClientName, Version: i.version}, nil)
-	transport := &sdk.StreamableClientTransport{
-		Endpoint:   srv.Endpoint,
-		HTTPClient: upstreamClient(i.timeout, "orbit.toolgateway-introspector", headers),
-	}
+	httpClient, upstream := upstreamClient(i.timeout, "orbit.toolgateway-introspector", headers)
+	transport := &sdk.StreamableClientTransport{Endpoint: srv.Endpoint, HTTPClient: httpClient}
 
 	session, err := client.Connect(cctx, transport, nil)
 	if err != nil {
-		return nil, fmt.Errorf("connect: %w", err)
+		return nil, upstream.upstreamError(fmt.Errorf("connect: %w", err))
 	}
 	defer func() {
 		if cerr := session.Close(); cerr != nil {
@@ -188,7 +187,7 @@ func (i *Introspector) introspectOne(ctx context.Context, srv Server) ([]Tool, e
 	var tools []Tool
 	for tool, terr := range session.Tools(cctx, nil) {
 		if terr != nil {
-			return nil, fmt.Errorf("list tools: %w", terr)
+			return nil, upstream.upstreamError(fmt.Errorf("list tools: %w", terr))
 		}
 		tools = append(tools, Tool{
 			Name:           tool.Name,

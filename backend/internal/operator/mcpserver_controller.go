@@ -15,7 +15,9 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -115,9 +117,25 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, pErr
 	}
 
-	return ctrl.Result{}, r.setStatus(ctx, srv, MCPServerPhaseAggregated,
-		metav1.ConditionTrue, "Aggregated", policies.message())
+	// No Secret watch exists, so a server with credentials is rechecked on the
+	// tenant reconciler's cadence to keep its condition current.
+	var result ctrl.Result
+	if srv.Spec.Auth != nil {
+		result.RequeueAfter = credentialRecheckInterval
+	}
+	reason, message := "Aggregated", policies.message()
+	credErr := mcpCredentialStatus(ctx, r.Client, srv)
+	switch {
+	case errors.Is(credErr, ErrMCPCredentialUnavailable):
+		reason, message = "CredentialUnavailable", message+"; "+credErr.Error()
+	case credErr != nil:
+		return ctrl.Result{}, credErr
+	}
+	return result, r.setStatus(ctx, srv, MCPServerPhaseAggregated, metav1.ConditionTrue, reason, message)
 }
+
+// credentialRecheckInterval matches the tenant reconciler's periodic requeue.
+const credentialRecheckInterval = 5 * time.Minute
 
 // reconcilePolicies applies the policies fronting a server's workload, both in
 // the CR's namespace and owned by it: ingress admitting the tool-gateway, and an

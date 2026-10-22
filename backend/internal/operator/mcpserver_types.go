@@ -23,6 +23,7 @@ package operator
 
 import (
 	"maps"
+	"slices"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -87,7 +88,7 @@ type MCPServerSpec struct {
 	// +optional
 	Description string `json:"description,omitempty"`
 
-	// Endpoint is the in-mesh URL of the MCP server (Streamable HTTP).
+	// Endpoint is the URL of the MCP server (Streamable HTTP).
 	// +kubebuilder:validation:MinLength=1
 	Endpoint string `json:"endpoint"`
 
@@ -119,6 +120,33 @@ type MCPServerSpec struct {
 	// See docs/adr/2026-09-17-mcp-workload-class.md.
 	// +optional
 	Workload *MCPServerWorkload `json:"workload,omitempty"`
+
+	// Auth declares static credentials the tool-gateway sends to the server.
+	// See docs/adr/2026-10-22-mcp-server-static-credentials.md.
+	// +optional
+	Auth *MCPServerAuth `json:"auth,omitempty"`
+}
+
+// MCPServerAuth lists the credential headers sent on every upstream request.
+type MCPServerAuth struct {
+	Headers []MCPServerAuthHeader `json:"headers"`
+}
+
+// MCPServerAuthHeader is one header set to Prefix followed by a Secret value.
+type MCPServerAuthHeader struct {
+	// Name is the header name.
+	Name string `json:"name"`
+	// Prefix is sent before the value, e.g. "Bearer ".
+	// +optional
+	Prefix string `json:"prefix,omitempty"`
+	// SecretRef is the Secret and key holding the value, in the CR's namespace.
+	SecretRef MCPServerSecretRef `json:"secretRef"`
+}
+
+// MCPServerSecretRef names a key in a Secret in the CR's namespace.
+type MCPServerSecretRef struct {
+	Name string `json:"name"`
+	Key  string `json:"key"`
 }
 
 // MCPServerWorkload identifies the pods serving an MCPServer's endpoint.
@@ -143,6 +171,9 @@ func (s *MCPServerSpec) DeepCopyInto(out *MCPServerSpec) {
 	if s.Workload != nil {
 		out.Workload = new(MCPServerWorkload)
 		s.Workload.DeepCopyInto(out.Workload)
+	}
+	if s.Auth != nil {
+		out.Auth = &MCPServerAuth{Headers: slices.Clone(s.Auth.Headers)}
 	}
 }
 

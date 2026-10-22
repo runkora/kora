@@ -479,6 +479,8 @@ toolGateway:
   proxyReplicas: 1
   httpPort: 8096
   mcpServersConfigMapName: orbit-mcp-servers
+  # Holds MCPServer spec.auth values. The operator renders it.
+  mcpServerSecretsName: orbit-mcp-server-secrets
   nodeSelector: {}
   tolerations: []
   affinity: {}

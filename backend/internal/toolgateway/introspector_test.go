@@ -60,7 +60,7 @@ func TestIntrospectorSync_PerServerInterval(t *testing.T) {
 	ctx := context.Background()
 	endpoint, calls := newFakeMCPServer(t)
 
-	i := NewIntrospector(NewUpstreamCredentials(), "test", testLogger())
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 	srv := Server{TenantID: "", Name: "s", Endpoint: endpoint, ReintrospectIntervalSeconds: 3600}
 
 	// First sync (unforced) — never introspected yet, so it always runs.
@@ -91,7 +91,7 @@ func TestIntrospectorSync_ZeroIntervalIsReloadOnly(t *testing.T) {
 	ctx := context.Background()
 	endpoint, calls := newFakeMCPServer(t)
 
-	i := NewIntrospector(NewUpstreamCredentials(), "test", testLogger())
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 	srv := Server{TenantID: "", Name: "s", Endpoint: endpoint, ReintrospectIntervalSeconds: 0}
 
 	i.Sync(ctx, []Server{srv}, false) // never seen — always introspected once
@@ -114,7 +114,7 @@ func TestIntrospectorSync_ZeroIntervalIsReloadOnly(t *testing.T) {
 // TestIntrospectorDue exercises the due predicate directly, without spinning
 // up a fake server, covering the boundary and never-seen cases.
 func TestIntrospectorDue(t *testing.T) {
-	i := NewIntrospector(NewUpstreamCredentials(), "test", testLogger())
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 
 	neverSeen := Server{TenantID: "", Name: "never-seen", ReintrospectIntervalSeconds: 60}
 	if !i.due(serverKey(neverSeen.TenantID, neverSeen.Name), neverSeen) {
@@ -168,7 +168,7 @@ func TestIntrospectorDue(t *testing.T) {
 // a concurrent forced Sync is writing. Run under -race.
 func TestIntrospectorSync_ConcurrentSyncsDoNotRace(t *testing.T) {
 	ctx := context.Background()
-	i := NewIntrospector(NewUpstreamCredentials(), "test", testLogger())
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 	srv := Server{TenantID: "", Name: "s", Endpoint: "http://127.0.0.1:1/mcp", ReintrospectIntervalSeconds: 3600}
 	i.Sync(ctx, []Server{srv}, true)
 

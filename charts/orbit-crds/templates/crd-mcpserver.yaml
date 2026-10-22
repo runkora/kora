@@ -68,8 +68,9 @@ spec:
                   type: string
                 endpoint:
                   description: >
-                    In-mesh URL of the MCP server (Streamable HTTP), e.g.
-                    http://github-mcp.orbit-tenant-acme.svc:8080/mcp.
+                    URL of the MCP server (Streamable HTTP), e.g.
+                    http://github-mcp.orbit-tenant-acme.svc:8080/mcp or
+                    https://mcp.exa.ai/mcp. Userinfo and a query string are rejected.
                   type: string
                   minLength: 1
                 transport:
@@ -112,6 +113,46 @@ spec:
                       type: object
                       additionalProperties:
                         type: string
+                auth:
+                  description: >
+                    Static credentials the tool-gateway sends to this server on
+                    introspection and on every tool call. Values come from
+                    Secrets in this namespace. Cannot be combined with
+                    callerIdentity: forward.
+                  type: object
+                  required:
+                    - headers
+                  properties:
+                    headers:
+                      description: Request headers, each set to the prefix followed by a Secret value.
+                      type: array
+                      minItems: 1
+                      items:
+                        type: object
+                        required:
+                          - name
+                          - secretRef
+                        properties:
+                          name:
+                            description: The header name, e.g. Authorization or x-api-key.
+                            type: string
+                            minLength: 1
+                          prefix:
+                            description: Text sent before the Secret value, e.g. "Bearer ".
+                            type: string
+                          secretRef:
+                            description: The Secret and key holding the value, in this namespace.
+                            type: object
+                            required:
+                              - name
+                              - key
+                            properties:
+                              name:
+                                type: string
+                                minLength: 1
+                              key:
+                                type: string
+                                minLength: 1
             status:
               type: object
               properties:

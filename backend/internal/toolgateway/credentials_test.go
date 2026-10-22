@@ -29,7 +29,7 @@ func TestUpstreamCredentials_ForwardIsGlobalOnly(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h, err := NewUpstreamCredentials().Headers(context.Background(), tc.srv, tc.caller)
+			h, err := NewUpstreamCredentials("").Headers(context.Background(), tc.srv, tc.caller)
 			if err != nil {
 				t.Fatalf("Headers: %v", err)
 			}
@@ -64,7 +64,7 @@ func TestProxyCallTool_DoesNotFollowRedirects(t *testing.T) {
 	endpoint, followed := redirectingUpstream(t)
 	srv := Server{Name: "orbit", Endpoint: endpoint, CallerIdentity: callerIdentityForward}
 
-	_, err := NewProxy(NewUpstreamCredentials(), "test", logging.NewLogger()).
+	_, err := NewProxy(NewUpstreamCredentials(""), "test", logging.NewLogger()).
 		CallTool(context.Background(), srv, "echo", nil, &Caller{Bearer: "agent-token"})
 	if err == nil {
 		t.Fatal("CallTool succeeded through a redirect")
@@ -76,7 +76,7 @@ func TestProxyCallTool_DoesNotFollowRedirects(t *testing.T) {
 
 func TestIntrospector_DoesNotFollowRedirects(t *testing.T) {
 	endpoint, followed := redirectingUpstream(t)
-	i := NewIntrospector(NewUpstreamCredentials(), "test", testLogger())
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 
 	if _, err := i.introspectOne(context.Background(), Server{Name: "x", Endpoint: endpoint}); err == nil {
 		t.Fatal("introspection succeeded through a redirect")
