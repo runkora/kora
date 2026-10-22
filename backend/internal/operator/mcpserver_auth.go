@@ -66,12 +66,16 @@ func validateMCPServerAuth(spec MCPServerSpec) error {
 	for _, h := range spec.Auth.Headers {
 		lower := strings.ToLower(h.Name)
 		switch {
+		case len(h.Name) > maxHeaderNameLength:
+			return fmt.Errorf("%w: a header name is over %d characters", ErrMCPServerBadAuthHeader, maxHeaderNameLength)
 		case !isHeaderName(h.Name):
 			return fmt.Errorf("%w: %q must use only letters, digits and hyphens", ErrMCPServerBadAuthHeader, h.Name)
 		case isReservedHeader(lower):
 			return fmt.Errorf("%w: %q is reserved", ErrMCPServerBadAuthHeader, h.Name)
 		case seen[lower]:
 			return fmt.Errorf("%w: %q is listed twice", ErrMCPServerBadAuthHeader, h.Name)
+		case len(h.Prefix) > maxPrefixLength:
+			return fmt.Errorf("%w: the prefix of %q is over %d characters", ErrMCPServerBadAuthHeader, h.Name, maxPrefixLength)
 		case !isHeaderValue([]byte(h.Prefix)):
 			return fmt.Errorf("%w: the prefix of %q contains a control character", ErrMCPServerBadAuthHeader, h.Name)
 		case len(validation.IsDNS1123Subdomain(h.SecretRef.Name)) > 0 || len(validation.IsConfigMapKey(h.SecretRef.Key)) > 0:
@@ -136,6 +140,13 @@ const maxMCPCredentialSize = 4 << 10
 
 // maxMCPAuthHeaders bounds spec.auth.headers for the same reason.
 const maxMCPAuthHeaders = 8
+
+// maxHeaderNameLength keeps the data key under the 253-character Secret key
+// limit: a 63-character namespace and name plus the header name and dots.
+const maxHeaderNameLength = 64
+
+// maxPrefixLength bounds the prefix carried in servers.json.
+const maxPrefixLength = 256
 
 // readMCPCredential returns the value for ref in namespace. An unusable value
 // wraps ErrMCPCredentialUnavailable. No error carries the value.

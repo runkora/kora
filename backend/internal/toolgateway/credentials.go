@@ -5,9 +5,12 @@ package toolgateway
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -147,7 +150,37 @@ func (t *headerTransport) upstreamError(err error) error {
 	if code := t.errStatus.Load(); code != 0 {
 		return fmt.Errorf("%w: HTTP %d", ErrUpstreamStatus, code)
 	}
+	if cause := transportCause(err); cause != nil {
+		return fmt.Errorf("%w: %w", ErrUpstreamFailed, cause)
+	}
 	return ErrUpstreamFailed
+}
+
+// transportCause returns the network, TLS or deadline cause of err. Their text
+// comes from the client side, never from a response body.
+func transportCause(err error) error {
+	var dnsErr *net.DNSError
+	var certErr *tls.CertificateVerificationError
+	var hostErr x509.HostnameError
+	var authorityErr x509.UnknownAuthorityError
+	var opErr *net.OpError
+	switch {
+	case errors.As(err, &dnsErr):
+		return dnsErr
+	case errors.As(err, &certErr):
+		return certErr
+	case errors.As(err, &hostErr):
+		return hostErr
+	case errors.As(err, &authorityErr):
+		return authorityErr
+	case errors.As(err, &opErr):
+		return opErr
+	case errors.Is(err, context.DeadlineExceeded):
+		return context.DeadlineExceeded
+	case errors.Is(err, context.Canceled):
+		return context.Canceled
+	}
+	return nil
 }
 
 // failureReason classifies an upstream error for logs.

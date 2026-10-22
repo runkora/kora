@@ -135,10 +135,7 @@ func (a *MCPServerAggregator) Sync(ctx context.Context) error {
 		return fmt.Errorf("collect MCP servers: %w", err)
 	}
 
-	credentials, err := a.collectCredentials(ctx, entries)
-	if err != nil {
-		return fmt.Errorf("collect MCP server credentials: %w", err)
-	}
+	credentials := a.collectCredentials(ctx, entries)
 	// The Secret goes first, so the registry rarely names a key the gateway has
 	// not been given. A failed Secret write still lets the registry update.
 	secretErr := a.upsertMCPServerSecret(ctx, credentials)
@@ -151,18 +148,18 @@ func (a *MCPServerAggregator) Sync(ctx context.Context) error {
 	return secretErr
 }
 
-// collectCredentials reads every registered server's credential values. An
-// unavailable value is left out and logged. The server stays registered and
-// the gateway fails its calls closed.
-func (a *MCPServerAggregator) collectCredentials(ctx context.Context, entries []mcpServerRegistryEntry) (map[string][]byte, error) {
+// collectCredentials reads every registered server's credential values. A
+// value that cannot be read is left out and logged, like a Connection's Secret.
+// The server stays registered and the gateway fails its calls closed.
+func (a *MCPServerAggregator) collectCredentials(ctx context.Context, entries []mcpServerRegistryEntry) map[string][]byte {
 	data := make(map[string][]byte)
 	for _, e := range entries {
 		if e.auth == nil {
 			continue
 		}
-		for i, h := range e.auth.Headers {
+		for _, h := range e.auth.Headers {
 			v, err := readMCPCredential(ctx, a.client, e.namespace, h.SecretRef)
-			if errors.Is(err, ErrMCPCredentialUnavailable) {
+			if err != nil {
 				a.logger.Warn(ctx, "MCPServer credential unavailable",
 					logging.Field{Key: "mcpserver", Value: e.Name},
 					logging.Field{Key: "namespace", Value: e.namespace},
@@ -170,13 +167,10 @@ func (a *MCPServerAggregator) collectCredentials(ctx context.Context, entries []
 				)
 				continue
 			}
-			if err != nil {
-				return nil, err
-			}
-			data[e.AuthHeaders[i].SecretKey] = v
+			data[mcpSecretKey(e.namespace, e.Name, h.Name)] = v
 		}
 	}
-	return data, nil
+	return data
 }
 
 // activeTenantNamespaces builds a namespace -> tenant_id map for active tenants

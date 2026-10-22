@@ -54,7 +54,7 @@ func (p *Proxy) CallTool(ctx context.Context, srv Server, toolName string, args 
 	transport := &sdk.StreamableClientTransport{Endpoint: srv.Endpoint, HTTPClient: httpClient}
 	session, err := client.Connect(cctx, transport, nil)
 	if err != nil {
-		return nil, upstream.upstreamError(fmt.Errorf("connect upstream %q: %w", srv.Name, err))
+		return nil, fmt.Errorf("connect upstream %q: %w", srv.Name, upstream.upstreamError(err))
 	}
 	defer func() {
 		if cerr := session.Close(); cerr != nil {
@@ -73,7 +73,7 @@ func (p *Proxy) CallTool(ctx context.Context, srv Server, toolName string, args 
 
 	res, err := session.CallTool(cctx, &sdk.CallToolParams{Name: toolName, Arguments: arguments})
 	if err != nil {
-		return nil, upstream.upstreamError(fmt.Errorf("upstream tools/call %q: %w", toolName, err))
+		return nil, fmt.Errorf("upstream tools/call %q: %w", toolName, upstream.upstreamError(err))
 	}
 	return res, nil
 }

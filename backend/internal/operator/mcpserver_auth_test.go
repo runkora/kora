@@ -12,9 +12,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
@@ -41,6 +43,9 @@ func TestValidateMCPServerAuth(t *testing.T) {
 		{"valid", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{ok, authHeader("Authorization", "Bearer ", "exa", "token")}}}, nil},
 		{"with forward", MCPServerSpec{CallerIdentity: CallerIdentityForward, Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{ok}}}, ErrMCPServerAuthWithForward},
 		{"empty list", MCPServerSpec{Auth: &MCPServerAuth{}}, ErrMCPServerBadAuthHeader},
+		{"name too long", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader(strings.Repeat("x", maxHeaderNameLength+1), "", "exa", "key")}}}, ErrMCPServerBadAuthHeader},
+		{"name at the limit", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader(strings.Repeat("x", maxHeaderNameLength), "", "exa", "key")}}}, nil},
+		{"prefix too long", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("Authorization", strings.Repeat("p", maxPrefixLength+1), "exa", "key")}}}, ErrMCPServerBadAuthHeader},
 		{"too many headers", MCPServerSpec{Auth: &MCPServerAuth{Headers: func() []MCPServerAuthHeader {
 			var hs []MCPServerAuthHeader
 			for i := range maxMCPAuthHeaders + 1 {
@@ -213,5 +218,40 @@ func TestMCPServerReconciler_ReportsUnavailableCredential(t *testing.T) {
 	}
 	if strings.Contains(cond.Message, secretA) {
 		t.Errorf("condition message holds a secret value: %q", cond.Message)
+	}
+}
+
+// The longest valid namespace, name and header still make a valid data key.
+func TestMCPSecretKey_FitsTheSecretKeyLimit(t *testing.T) {
+	key := mcpSecretKey(strings.Repeat("n", 63), strings.Repeat("s", maxLabelValueLength), strings.Repeat("H", maxHeaderNameLength))
+	if errs := validation.IsConfigMapKey(key); len(errs) > 0 {
+		t.Errorf("key of %d characters is invalid: %v", len(key), errs)
+	}
+}
+
+// A Secret read that fails for a reason other than NotFound skips that
+// credential and still writes the registry and the other servers' values.
+func TestMCPAggregator_ReadErrorSkipsOneCredential(t *testing.T) {
+	broken := exaServer(authHeader("x-api-key", "", "broken", "key"))
+	broken.Name = "broken"
+	healthy := exaServer(authHeader("x-api-key", "", "exa-credentials", "key"))
+	c := fake.NewClientBuilder().WithScheme(NewScheme()).
+		WithObjects(tenant("acme", true), broken, healthy, credentialSecret(map[string]string{"key": secretA})).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if key.Name == "broken" {
+					return errors.New("etcd timeout")
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+
+	registry, data := renderedMCP(t, c)
+
+	if !strings.Contains(registry, `"name": "broken"`) || !strings.Contains(registry, `"name": "exa"`) {
+		t.Errorf("registry = %s, want both servers", registry)
+	}
+	if string(data[mcpSecretKey(testTenantNS, "exa", "x-api-key")]) != secretA || len(data) != 1 {
+		t.Errorf("aggregated Secret = %q, want only the healthy value", data)
 	}
 }
