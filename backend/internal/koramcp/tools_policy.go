@@ -49,9 +49,11 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 		})
 
 	addEnumTool(srv, "policy.grants.create",
-		"Grant a set of scopes to a principal. You can only assign scopes you hold yourself (call policy.scopes "+
-			"to see them); the policy service rejects any scope outside your own authority.",
-		map[string][]any{"principal_type": principalTypes},
+		"Grant a set of scopes to a human user (principal_type HUMAN, principal_id the user id). You can only "+
+			"assign scopes you hold yourself (call policy.scopes to see them); the policy service rejects any scope "+
+			"outside your own authority. Grants for agents, triggers and tokens are written by SYSTEM callers "+
+			"(the platform services that own those identities), not through this tool.",
+		map[string][]any{"principal_type": humanPrincipalTypes},
 		func(ctx context.Context, a createGrantArgs) (*sdk.CallToolResult, error) {
 			if a.PrincipalType == "" || a.PrincipalID == "" || len(a.Scopes) == 0 {
 				return toolError(errors.New("principal_type, principal_id, and scopes are required")), nil
@@ -61,7 +63,8 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 
 	addTool(srv, "policy.grants.set_budget",
 		"Set or remove the spend budget on a grant. Scopes on a grant are immutable; only the budget is mutable. "+
-			"Omit budget to remove it.",
+			"Omit budget to remove it. A grant whose principal is not HUMAN (AGENT, SERVICE, PAT) can only be "+
+			"changed by a SYSTEM caller; this tool returns 403 for it.",
 		func(ctx context.Context, a setBudgetArgs) (*sdk.CallToolResult, error) {
 			if a.GrantID == "" {
 				return toolError(errors.New("grant_id is required")), nil
@@ -71,7 +74,8 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 		})
 
 	addTool(srv, "policy.grants.delete",
-		"Delete (revoke) a grant by id.",
+		"Delete (revoke) a grant by id. A grant whose principal is not HUMAN (AGENT, SERVICE, PAT) can only be "+
+			"deleted by a SYSTEM caller; this tool returns 403 for it.",
 		func(ctx context.Context, a grantIDArgs) (*sdk.CallToolResult, error) {
 			if a.GrantID == "" {
 				return toolError(errors.New("grant_id is required")), nil
@@ -147,9 +151,10 @@ type scopeArgs struct {
 	Scope string `json:"scope" jsonschema:"the scope string (e.g. platform:grants:read)"`
 }
 
-// principalTypes is the closed set of grant principal types, surfaced as a
-// JSON-Schema enum. Mirrors internal/policyservice/grants.PrincipalType.
-var principalTypes = []any{"AGENT", "HUMAN", "SERVICE", "PAT"}
+// humanPrincipalTypes is the principal type policy.grants.create accepts,
+// surfaced as a JSON-Schema enum. Only a SYSTEM caller may write a grant for
+// any other grants.PrincipalType (AGENT, SERVICE, PAT), so it is not offered.
+var humanPrincipalTypes = []any{"HUMAN"}
 
 // ── tool argument types (JSON schema is generated from these) ─────────────────
 
@@ -171,8 +176,8 @@ type grantIDArgs struct {
 }
 
 type createGrantArgs struct {
-	PrincipalType string     `json:"principal_type" jsonschema:"the principal type to grant to"`
-	PrincipalID   string     `json:"principal_id" jsonschema:"the principal id (an agent's SPIFFE id, a user id, a service or PAT id)"`
+	PrincipalType string     `json:"principal_type" jsonschema:"the principal type to grant to; only HUMAN"`
+	PrincipalID   string     `json:"principal_id" jsonschema:"the user id"`
 	Scopes        []string   `json:"scopes" jsonschema:"the scopes to grant — only scopes you hold yourself are allowed; call the policy.scopes tool to list them"`
 	Budget        *budgetArg `json:"budget,omitempty" jsonschema:"optional spend budget for the grant"`
 }

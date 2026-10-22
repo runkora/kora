@@ -1,6 +1,6 @@
 # Policy Administration Dashboard
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-10-22)
 **Date:** 2026-04-15
 **Deciders:** Engineering Team  
 **Technical Story:** Build a full-featured policy administration dashboard that enables tenants to manage grants, roles, vocabulary, and routes — and to inspect effective permissions and test policy decisions — using the live policy-service and policy-gateway APIs.
@@ -658,6 +658,38 @@ The overview page is built first — it is the redirect target for `/policy` and
 
 ---
 
+## Amendment 1 (2026-10-22): Human-only grant creation and platform-owned grants
+
+**Status:** Accepted
+
+Touches *What can it access?* and *Who is this agent?* Grants for a HUMAN principal are still written by tenant admins. Grants for any other principal type (AGENT, SERVICE, PAT) can now be written only by a SYSTEM caller: the platform services (orbit-agents, orbit-triggers, identity) that own those identities. What a grant allows is unchanged. Tracked in [#443](https://github.com/runkora/kora/issues/443).
+
+**Context.** The grants page offers a principal type selector and a free-text principal ID (Phase 2, "Grant create modal"). For three of the four types that produces a grant that is wrong or short-lived:
+
+- **AGENT.** The form asks for an agent UUID. OPA matches agent grants on `spiffe://<td>/tenant/<ns>/agent/<slug>`, so a grant created here never matches a request. With a correct ID, `ensureAgentGrant` (`backend/internal/agents/k8s.go`) deletes the extra grant on the next agent save.
+- **SERVICE.** A SERVICE grant is a trigger identity. orbit-triggers creates it with fixed scopes (`backend/internal/triggers/`) and deletes only the grant IDs it recorded. A manual one extends a trigger beyond its one agent and outlives the trigger.
+- **PAT.** The identity PAT service creates and replaces a PAT's grant when its scopes change (`backend/internal/identity/pat_service.go`). A manual write bypasses the token flow.
+
+**Decision.**
+
+*Grants page*
+
+- Creating a grant is a human-only wizard. It offers no other principal type.
+- AGENT, SERVICE and PAT grants stay in the list with no revoke action, each linking to its owner: the agent builder, the trigger page, or the token screens. Editing an agent grant from this page is out of scope. The Grants tab under Model Gateway Budgets lists the same grants and likewise offers no edit-budget action on them.
+- `PrincipalBadge` shows the `SERVICE` principal type as "Trigger". The wire value stays `SERVICE`.
+
+*Policy-service rule*
+
+- Only a SYSTEM caller may create a grant whose `principal_type` is not `HUMAN`. Delete and set-budget look up the grant and apply the same check to its stored `principal_type`. Reads are unchanged. A write by any other caller returns 403, tenant admins included.
+- SYSTEM is the only principal type that may write them. Any SYSTEM caller qualifies; there is no per-component allowlist. A SERVICE principal is refused: it is a tenant-scoped identity (`/tenant/<id>/service/<name>`, or a trigger source's token), the kind of identity these grants protect, not a platform component. Platform components such as orbit-agents and tool-gateway present SYSTEM (`/system/<component>`), not SERVICE.
+- This is the same SYSTEM-versus-the-rest split `enforceScopeCeiling` and `resolveTenantID` already use. The three platform writers each present SYSTEM: identity mints it with `SystemToken`, and orbit-triggers and orbit-agents exchange their SVID through `SelfTokenSource` for a token whose principal comes from `/system/<component>`.
+- The dashboard BFF and the orbit MCP tools (`policy.grants.create`, `policy.grants.delete`, `policy.grants.set_budget`) call the same endpoints as a person, so the rule covers them with no change to either. The `policy.grants.create` tool's `principal_type` enum narrows to `HUMAN` so it no longer advertises types the API refuses.
+- PAT grants are unaffected where they are written properly: the model-gateway keys screen and `pats.update_scopes` go to the identity service (`/identity/tokens`), which writes the grant as SYSTEM. Only a direct write to the policy-service grants API is refused.
+
+**Consequences.** A grant of any non-human type can no longer be written through the dashboard or an MCP tool, including to clean up one a failed trigger or agent cleanup left behind; only a SYSTEM caller can remove it. Set-budget follows the same rule, so a per-grant budget on those grants, including a trigger's per-run limit, is set only by a SYSTEM caller; the cap an admin keeps over PAT and trigger spend is the tenant cap. Grants of those types already created by hand are untouched and become read-only on the page. The Phase 2 create modal and revoke action, and the "full CRUD for grants" goal, now apply to HUMAN grants only. A new platform component that writes grants must call the policy-service as SYSTEM or its writes return 403.
+
+---
+
 ## Related Decisions
 
 - [policy-gateway-and-authorisation-model](2026-04-14-policy-gateway-and-authorisation-model.md) — Policy gateway and authorisation model
@@ -665,7 +697,10 @@ The overview page is built first — it is the redirect target for `/policy` and
 - [frontend-policy-projection](2026-04-14-frontend-policy-projection.md) — Frontend policy projection via BFF
 - [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) — Browser auth flow and BFF session architecture
 - [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) — Hades frontend design system
+- [agent-identity-and-policy-provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — The provisioner writes agent grants
+- [agent-triggers-and-webhook-ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — orbit-triggers writes trigger SERVICE grants
+- [pat-scope-assignment-via-explicit-grants](2026-04-19-pat-scope-assignment-via-explicit-grants.md) — The identity PAT service writes PAT grants
 
 ---
 
-**Last Updated:** 2026-04-14
+**Last Updated:** 2026-10-22 (Amendment 1: human-only grant creation and platform-owned grants)

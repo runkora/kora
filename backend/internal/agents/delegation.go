@@ -52,7 +52,7 @@ type ServiceTokenSource func(ctx context.Context) (string, error)
 
 // DelegationBroker mints delegation issuances at run start (forwarding the
 // caller's bearer) and revokes them on terminal run state (authenticating as
-// orbit-agents' own SERVICE principal).
+// orbit-agents' own SYSTEM principal, spiffe://<td>/system/orbit-agents).
 type DelegationBroker struct {
 	issuer      delegationIssuer
 	tokenSource ServiceTokenSource
