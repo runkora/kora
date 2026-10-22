@@ -187,3 +187,23 @@ func TestWaitForPodReady_UnschedulableReportsReason(t *testing.T) {
 		t.Errorf("err = %v, want a plain timeout for a scheduled pod", err)
 	}
 }
+
+// A failed pod's error names the container that failed and why.
+func TestWaitForPodReady_FailedReportsReason(t *testing.T) {
+	failed := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "sandbox-run-1", Namespace: "ns"},
+		Status: corev1.PodStatus{Phase: corev1.PodFailed, InitContainerStatuses: []corev1.ContainerStatus{{
+			Name: "istio-validation",
+			State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+				Reason: "Error", Message: "pod is scheduled before the node is ready", ExitCode: 126,
+			}},
+		}}},
+	}
+	p := podSecurityProvisioner()
+	p.client = fake.NewSimpleClientset(failed)
+
+	_, err := p.waitForPodReady(context.Background(), "sandbox-run-1", "ns")
+	if err == nil || !strings.Contains(err.Error(), "istio-validation") || !strings.Contains(err.Error(), "scheduled before the node is ready") {
+		t.Errorf("err = %v, want the failed container and its message", err)
+	}
+}
