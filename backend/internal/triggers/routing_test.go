@@ -34,8 +34,9 @@ func TestNormalizeRouting(t *testing.T) {
 		wantErr string
 	}{
 		{name: "missing", in: nil, wantErr: "routing is required"},
-		{name: "one candidate", in: routingReq(func(r *RoutingConfig) { r.Candidates = []string{"at-a"} }), wantErr: "between 2 and 20"},
-		{name: "twenty one candidates", in: routingReq(func(r *RoutingConfig) { r.Candidates = ids(21) }), wantErr: "between 2 and 20"},
+		{name: "no candidates", in: routingReq(func(r *RoutingConfig) { r.Candidates = nil }), wantErr: "between 1 and 20"},
+		{name: "one candidate", in: routingReq(func(r *RoutingConfig) { r.Candidates = []string{"at-a"} })},
+		{name: "twenty one candidates", in: routingReq(func(r *RoutingConfig) { r.Candidates = ids(21) }), wantErr: "between 1 and 20"},
 		{name: "twenty candidates", in: routingReq(func(r *RoutingConfig) { r.Candidates = ids(20) })},
 		{name: "duplicate candidate", in: routingReq(func(r *RoutingConfig) { r.Candidates = []string{"at-a", "at-a"} }), wantErr: "more than once"},
 		{name: "empty candidate", in: routingReq(func(r *RoutingConfig) { r.Candidates = []string{"at-a", " "} }), wantErr: "empty id"},

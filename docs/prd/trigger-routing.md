@@ -77,7 +77,7 @@ The platform already serves decision models. A decision model reads a state and 
 **Acceptance Criteria:**
 
 - [ ] The target step offers "Route to one agent" and "Let kora choose".
-- [ ] "Let kora choose" requires at least two candidate agents.
+- [ ] "Let kora choose" requires at least one candidate agent.
 - [ ] Only agents the author may run can be candidates. Other agents show the reason they cannot be picked.
 - [ ] Each candidate shows its description. A missing or very short description carries a warning that kora routes on it.
 - [ ] The chosen agent receives the trigger's prompt.
