@@ -779,8 +779,7 @@ func validateChatTrigger(registry *Registry, provider string, t Trigger) error {
 	fields := catalog.Fields(t.EventType)
 	for _, key := range referencedKeys(t) {
 		// Only leaves: a parent such as user renders every key a platform puts under it.
-		parent := slices.ContainsFunc(fields, func(f Field) bool { return strings.HasPrefix(f.Path, key+".") })
-		if parent || !slices.ContainsFunc(fields, func(f Field) bool { return f.Path == key }) {
+		if isParentField(fields, key) || !slices.ContainsFunc(fields, func(f Field) bool { return f.Path == key }) {
 			return fmt.Errorf("%w: %q is not a chat field; see the provider's fields for %s", ErrValidation, key, t.EventType)
 		}
 	}

@@ -373,11 +373,28 @@ func (s *SourceService) ProviderFields(provider, eventType string) (*FieldsRespo
 	if eventType == "" {
 		return nil, fmt.Errorf("%w: event_type is required", ErrValidation)
 	}
-	_, catalog, err := s.providerCatalog(provider)
+	adapter, catalog, err := s.providerCatalog(provider)
 	if err != nil {
 		return nil, err
 	}
-	return &FieldsResponse{Fields: catalog.Fields(eventType)}, nil
+	fields := catalog.Fields(eventType)
+	if categoryOf(adapter) == CategoryChat {
+		fields = leafFields(fields)
+	}
+	return &FieldsResponse{Fields: fields}, nil
+}
+
+// leafFields drops a field that another field extends. A chat trigger accepts
+// only leaves, as validateChatTrigger enforces, so the list must not offer a parent.
+func leafFields(fields []Field) []Field {
+	return slices.DeleteFunc(slices.Clone(fields), func(f Field) bool {
+		return isParentField(fields, f.Path)
+	})
+}
+
+// isParentField reports whether another field extends path.
+func isParentField(fields []Field, path string) bool {
+	return slices.ContainsFunc(fields, func(f Field) bool { return strings.HasPrefix(f.Path, path+".") })
 }
 
 func (s *SourceService) providerCatalog(provider string) (SourceAdapter, *Catalog, error) {

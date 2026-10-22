@@ -875,3 +875,43 @@ func TestIngest_SourceWithSecretVerifiesBeforeHandshake(t *testing.T) {
 		t.Errorf("reason = %q, want invalid signature", got)
 	}
 }
+
+func TestProviderFields_ChatLeavesOnly(t *testing.T) {
+	_, deps := newCapService(t)
+	src := capSource(t, deps)
+	for _, event := range []string{"mention", "direct_message"} {
+		resp, err := deps.sources.ProviderFields(providerCap, event)
+		if err != nil {
+			t.Fatalf("ProviderFields %s: %v", event, err)
+		}
+		var prompt []string
+		for _, f := range resp.Fields {
+			prompt = append(prompt, "{{ "+f.Path+" }}")
+			for _, o := range resp.Fields {
+				if strings.HasPrefix(o.Path, f.Path+".") {
+					t.Errorf("%s fields list %q and %q, which extends it", event, f.Path, o.Path)
+				}
+			}
+		}
+		if !slices.ContainsFunc(resp.Fields, func(f Field) bool { return f.Path == metaEventType }) {
+			t.Errorf("%s fields lack %s", event, metaEventType)
+		}
+		_, err = deps.triggers.CreateTrigger(context.Background(), testTenant, nil, CreateTriggerRequest{
+			Name: "all", AgentTypeID: "at-1", SourceID: src.ID, EventType: event, PromptTemplate: strings.Join(prompt, " "),
+		})
+		if err != nil {
+			t.Errorf("%s trigger referencing every returned field: %v", event, err)
+		}
+	}
+}
+
+func TestProviderFields_WebhookKeepsParents(t *testing.T) {
+	_, deps := newCapService(t)
+	resp, err := deps.sources.ProviderFields(ProviderGitHub, "pull_request")
+	if err != nil {
+		t.Fatalf("ProviderFields: %v", err)
+	}
+	if !slices.ContainsFunc(resp.Fields, func(f Field) bool { return f.Path == "pull_request" }) {
+		t.Error("github pull_request fields lack the parent path pull_request")
+	}
+}
