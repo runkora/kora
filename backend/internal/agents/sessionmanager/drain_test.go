@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/runkora/kora/backend/internal/platform/api"
 )
 
 // A drain cut short by its deadline refuses new sessions and keeps the ones it has.
@@ -113,6 +115,25 @@ func TestHandleHealth_Draining(t *testing.T) {
 		}
 		w := httptest.NewRecorder()
 		c.handleHealth(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+		if w.Code != tc.want {
+			t.Errorf("draining=%v: status = %d, want %d", tc.drain, w.Code, tc.want)
+		}
+	}
+}
+
+// The served /health route reaches the drain-aware handler, not the platform default.
+func TestServedHealth_Draining(t *testing.T) {
+	c, _ := sandboxTestController(t)
+	server := api.NewAPI(context.Background(), c.logger).Server(context.Background(), 8090, "/", nil, c)
+	for _, tc := range []struct {
+		drain bool
+		want  int
+	}{{false, http.StatusOK}, {true, http.StatusServiceUnavailable}} {
+		if tc.drain {
+			c.registry.Drain(context.Background(), time.Millisecond)
+		}
+		w := httptest.NewRecorder()
+		server.Handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
 		if w.Code != tc.want {
 			t.Errorf("draining=%v: status = %d, want %d", tc.drain, w.Code, tc.want)
 		}

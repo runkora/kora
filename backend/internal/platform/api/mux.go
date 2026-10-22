@@ -33,6 +33,11 @@ type Mux struct {
 	// actually read the route the request matched. See HandleWithMiddleware.
 	// Nil when the binary has no meter wired (metrics disabled).
 	metricsMiddleware mw.MiddlewareHandler
+
+	// health is the handler a controller registered for "GET /health", if any.
+	// Server serves it in place of the default health response. It is the
+	// raw handler, without middleware.
+	health http.Handler
 }
 
 func NewMux(ctx context.Context, logger logging.Logger) *Mux {
@@ -141,6 +146,12 @@ func (m *Mux) HandleWithMiddleware(
 
 	// Outermost, so every middleware above reads the route from the context.
 	finalHandler = mw.RoutePattern(fullPath)(finalHandler)
+
+	if method == http.MethodGet && fullPath == "/health" {
+		// Raw handler, not the wrapped chain: probes bypass controller
+		// middleware and stay out of traces, logs and HTTP metrics.
+		m.health = http.HandlerFunc(handler)
+	}
 
 	m.ServeMux.Handle(joinedRoute, finalHandler)
 }

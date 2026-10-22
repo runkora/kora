@@ -91,22 +91,31 @@ func (a *api) Server(
 	// Build the outer mux: health check (no middleware) + all other routes.
 	// http.ServeMux matches more specific patterns first, so "GET /health"
 	// always wins over the "/" catch-all regardless of registration order.
+	// A controller that registers "GET /health" replaces the default response,
+	// so a service can report its own readiness, such as a draining pod.
+	// The controller's handler is served raw, so it too bypasses middleware.
 	outerMux := http.NewServeMux()
-	outerMux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write([]byte(`{"status": "health ok"}`)); err != nil {
-			// r.Context() has no active span here by design — health is
-			// intentionally outside the tracing middleware.
-			a.logger.Error(r.Context(), "Failed to write health check response",
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-	})
+	if controllerMux.health != nil {
+		outerMux.Handle("GET /health", controllerMux.health)
+	} else {
+		outerMux.HandleFunc("GET /health", a.defaultHealth)
+	}
 	outerMux.Handle("/", appHandler)
 
 	return &http.Server{
 		Addr:              fmt.Sprintf(":%d", port),
 		Handler:           outerMux,
 		ReadHeaderTimeout: 10 * time.Second,
+	}
+}
+
+func (a *api) defaultHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write([]byte(`{"status": "health ok"}`)); err != nil {
+		// r.Context() has no active span here by design — health is
+		// intentionally outside the tracing middleware.
+		a.logger.Error(r.Context(), "Failed to write health check response",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
 	}
 }
