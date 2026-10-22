@@ -33,7 +33,7 @@ A `tools/call` is a single JSON-RPC method on one endpoint; the tool being invok
 
 - The *design* of server registration & introspection — the [registration ADR](2026-06-29-mcp-server-registration-and-introspection.md). (Its introspection + scope-publishing worker is the **same binary in publisher mode, run as a separate `replicas=1` deployment** — single-writer, because its `DeleteOrphans` publish revokes grants. The request-path proxy described here scales independently.)
 - The human authentication mechanism — the [OAuth ADR](2026-06-29-mcp-oauth-authentication.md); this ADR consumes its resulting principal.
-- Remote third-party MCP servers; argument-level policy; `resources/*`/`prompts/*`; delegation `act`-chain enforcement across the gateway — all deferred per the PRD.
+- Remote third-party MCP servers; argument-level policy; `resources/*`/`prompts/*`; delegation `act`-chain enforcement across the gateway — all deferred per the PRD. *Amended 2026-10-22 by [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md): remote servers are supported, with a static credential through `spec.auth`.*
 - **JIT backend-credential injection** on the gateway→server hop — i.e. the gateway minting/injecting the *upstream's own* credential (a GitHub token, an API key) so the tool can reach its backend. That is the credential-broker pillar's job, and by default a managed microservice owns its own backend creds. This non-goal is **distinct from auth-token passthrough** (below), which the gateway *does* do for explicitly-flagged first-party servers.
 
 ---

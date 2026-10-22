@@ -223,7 +223,7 @@ Touches *How does it connect?* and *Who is this agent?* A platform service's tok
 - `routescopes.Client` is the one registration client. orbit-triggers uses it, and `policyclient.RegisterRoutes` is removed.
 - A SYSTEM caller may register, and so prune, only its own service. `service` must equal the token's `display_name`, the `<name>` in `spiffe://<trust-domain>/system/<name>`. A SERVICE caller's `service` must equal the token subject, as before. A mismatch returns 403.
 - Each platform service registers under its `spiffe.io/component` label: `orbit-agents`, `inference-gateway`, `egress-gateway`, `tool-gateway`, `orbit-triggers`. The policy service registers itself in-process.
-- Tool-gateway introspection sends no credential. Servers may be tenant-owned, and `tools/list` needs none.
+- Tool-gateway introspection sends no credential. Servers may be tenant-owned, and `tools/list` needs none. *Amended 2026-10-22 by [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md): introspection sends a server's `spec.auth` headers.*
 
 **Consequences.** The Design lines saying the identity-proxy injects the registration token, and the "Registration is global" line covering SERVICE principals, no longer describe the system. Registration depends on identity being reachable; a failed exchange fails that attempt and `KeepRegistered` retries it. A SYSTEM token can no longer overwrite or prune another service's routes and scopes. Plain-HTTP calls from platform services carry no platform token.
 
