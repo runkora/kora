@@ -193,3 +193,28 @@ func TestConnector_NodeOwnersWithoutLookupPermissions(t *testing.T) {
 		t.Errorf("err = %v, want errNoLookupPermissions", err)
 	}
 }
+
+// A /repositories/{id} path names no owner but names the repository id the
+// broker resolves to one. A path that is not a numeric id names neither.
+func TestConnector_RequestOwners_RepositoryID(t *testing.T) {
+	a := New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard))
+	c := open(t, a, validConn(t)).(*connector)
+	cases := []struct {
+		url  string
+		want string
+	}{
+		{"https://api.github.com/repositories/522/pulls/7/files?page=2", "522"},
+		{"https://api.github.com/repositories/522", "522"},
+		{"https://api.github.com/repositories", ""},
+		{"https://api.github.com/repositories/abc/pulls", ""},
+		{"https://ghe.example.com/api/v3/repositories/9/issues", "9"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.url, func(t *testing.T) {
+			got := c.RequestOwners(httptest.NewRequest(http.MethodGet, tc.url, nil))
+			if len(got.Owners) != 0 || strings.Join(got.RepoIDs, ",") != tc.want {
+				t.Errorf("owners %v repo ids %v, want ids %q", got.Owners, got.RepoIDs, tc.want)
+			}
+		})
+	}
+}

@@ -59,6 +59,10 @@ func (c *lookupConnector) NodeOwners(_ context.Context, ids, categories []string
 	return out, nil
 }
 
+func (c *lookupConnector) RepoOwners(ctx context.Context, ids, categories []string) (map[string]string, error) {
+	return c.NodeOwners(ctx, ids, categories)
+}
+
 func lookupBroker(pol *selectionPolicy, conns candidateConns, la *lookupAdapter) *Broker {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	la.Adapter = githubapp.New(nil, nil, logger)
@@ -84,7 +88,11 @@ func TestResolveConnection_OwnerResolution(t *testing.T) {
 	holdsBoth := []string{"connection:contoso-github:repo:read", "connection:fabrikam-github:repo:read"}
 	visible := map[string]map[string]string{
 		"contoso-github":  {"PR_contoso": "contoso", "R_public": "fabrikam"},
-		"fabrikam-github": {"PR_fabrikam": "fabrikam", "R_public": "fabrikam"},
+		"fabrikam-github": {"PR_fabrikam": "fabrikam", "R_public": "fabrikam", "522": "fabrikam"},
+	}
+	repoPath := func(path string) EgressRequest {
+		r := httptest.NewRequest(http.MethodGet, "https://api.github.com"+path, nil)
+		return EgressRequest{Host: r.Host, Method: http.MethodGet, URL: r.URL, HTTPRequest: r}
 	}
 	nodeDoc := func(ids ...string) string {
 		return `{"query":"{ nodes(ids: [\"` + strings.Join(ids, `\", \"`) + `\"]) { id } }"}`
@@ -113,6 +121,9 @@ func TestResolveConnection_OwnerResolution(t *testing.T) {
 		{name: "viewer only stays unresolved", conns: both, scopes: holdsBoth, req: graphqlRequest(`{"query":"{ viewer { login } }"}`), wantInMsg: "GraphQL document names no owner"},
 		{name: "one held candidate needs no lookup", conns: both, scopes: holdsBoth[1:], req: graphqlRequest(nodeDoc("PR_contoso")), want: "fabrikam-github"},
 		{name: "single-connection tenant needs no lookup", conns: candidateConns{fabrikam}, req: graphqlRequest(nodeDoc("PR_contoso")), want: "fabrikam-github"},
+		{name: "repository id path selects its owner", conns: both, scopes: holdsBoth, req: repoPath("/repositories/522/pulls/7/files?page=2"), want: "fabrikam-github", wantLookups: 2},
+		{name: "unknown repository id denied", conns: both, scopes: holdsBoth, req: repoPath("/repositories/999/pulls"), wantInMsg: "none of its repository ids resolved", wantLookups: 2},
+		{name: "repository id with one held candidate needs no lookup", conns: both, scopes: holdsBoth[:1], req: repoPath("/repositories/522"), want: "contoso-github"},
 		{name: "search repo qualifier", conns: both, scopes: holdsBoth, req: searchRequest("repo:fabrikam/widgets is:pr"), want: "fabrikam-github"},
 		{name: "search org qualifier", conns: both, scopes: holdsBoth, req: searchRequest("org:contoso bug"), want: "contoso-github"},
 		{name: "search qualifiers spanning candidates denied", conns: both, scopes: holdsBoth, req: searchRequest("org:contoso repo:fabrikam/widgets"), wantInMsg: "served by different connections"},

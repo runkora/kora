@@ -58,3 +58,22 @@ func TestClient_NodeOwners(t *testing.T) {
 		})
 	}
 }
+
+func TestClient_RepoOwners(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		switch r.URL.Path {
+		case "/repositories/522":
+			_, _ = io.WriteString(w, `{"owner":{"login":"Fabrikam"}}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	got, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).RepoOwners(t.Context(), "tok", []string{"522", "9"})
+	if err != nil || len(got) != 1 || got["522"] != "fabrikam" {
+		t.Errorf("got %v, err %v, want 522=fabrikam", got, err)
+	}
+}
