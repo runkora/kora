@@ -214,7 +214,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	patchDir := cfg.Agents.ManifestPatchDir
 
 	// Legacy env-var overrides were removed in favor of the ConfigMap-mounted
-	// patch directory (docs/adr/2026-09-15-manifest-patches-configmap.md).
+	// patch directory (docs/guides/advanced-customisations.md).
 	// Operators who set ORBIT_MANIFEST__* directly on the pod spec would
 	// silently lose their customization, so warn loudly at startup with the
 	// migration path.
@@ -222,7 +222,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		if strings.HasPrefix(e, "ORBIT_MANIFEST__") {
 			key, _, _ := strings.Cut(e, "=")
 			logger.Warn(ctx,
-				"legacy ORBIT_MANIFEST__ env var is ignored: migrate it to a patch file under "+patchDir+" (docs/adr/2026-09-15-manifest-patches-configmap.md)",
+				"legacy ORBIT_MANIFEST__ env var is ignored: migrate it to a patch file under "+patchDir+" (docs/guides/advanced-customisations.md)",
 				logging.Field{Key: "key", Value: key},
 			)
 		}
