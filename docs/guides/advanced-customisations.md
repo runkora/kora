@@ -51,7 +51,7 @@ go run ./cmd/orbit-agents -render \
   -sandbox
 ```
 
-- `-patch-dir`: directory of `*.yaml` or `*.yml` patch files. It mirrors what the Helm chart mounts at `/etc/orbit/manifest-patches`.
+- `-patch-dir`: directory of `*.yaml` or `*.yml` patch files. Write each `agents.manifestPatches` key as a file named `<key>.yaml` in this directory, holding that key's entry. It mirrors what the Helm chart mounts at `/etc/orbit/manifest-patches`.
 - `-agent-slug`: required, the agent type slug to render.
 - `-agent-type-id`: the agent type's ID, for patches that select on the `orbit.io/agent-type` label. Defaults to `render-<slug>`.
 - `-namespace`: tenant namespace to render into. Defaults to `tenant-example`.
