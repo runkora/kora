@@ -16,6 +16,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 import { signIn } from "../lib/session.mjs";
@@ -69,9 +70,9 @@ const CHAT_MODELS = [
   { name: "gpt-5-5", family: "openai", display_name: "GPT-5.5", provider: "bedrock:us", model_id: "us.openai.gpt-5.5" },
 ];
 const ENGINEERS = [
-  ["Priya Raman", 420], ["Marcus Chen", 380], ["Sofia Alvarez", 350], ["James Okafor", 330],
+  ["Olivia Bennett", 420], ["Marcus Chen", 380], ["Sofia Alvarez", 350], ["James Okafor", 330],
   ["Aisha Bello", 310], ["Tom Nguyen", 300], ["Hannah Schmidt", 290], ["Daniel Kim", 280],
-  ["Fatima Haddad", 270], ["Lucas Ferreira", 260], ["Emily Watson", 250], ["Raj Patel", 240],
+  ["Fatima Haddad", 270], ["Lucas Ferreira", 260], ["Emily Watson", 250], ["Jack Morrison", 240],
   ["Chloe Martin", 220], ["Oliver Brooks", 210], ["Mei Lin", 200], ["Ethan Walker", 180],
   ["Zara Ahmed", 160], ["Noah Fischer", 140], ["Grace Liu", 120], ["Sam Taylor", 90],
 ].map(([name, rate]) => {
@@ -509,6 +510,50 @@ ${events
   .join("\n")}
 COMMIT;`);
   return run.id;
+}
+
+/**
+ * Starts runs in progress with no events, for a still that shows the fleet at
+ * work: each spec is an agent slug, the trigger that started it and how many
+ * minutes ago, and optionally state "pending" for a run still queued. The ids
+ * are fixed by position, so staging again replaces them.
+ */
+export function stageRuns(specs) {
+  const ids = specs.map((_, i) => stagedRunId(i));
+  const now = Date.now();
+  sql(`BEGIN;
+${removeStagedRunsSql()}
+${specs
+  .map(({ agent, trigger, minutesAgo, state = "active" }, i) => {
+    // A few seconds either side of the minute, as real start times fall.
+    const at = `'${new Date(now - minutesAgo * 60_000 - ((i * 23_417 + 7_311) % 50_000)).toISOString()}'`;
+    return `INSERT INTO runs (id, tenant_id, agent_type_id, state, pod_ordinal, created_by, started_at, created_at, updated_at, trigger_id, trigger_name, initial_message)
+SELECT '${ids[i]}', a.tenant_id, a.id, '${state}', 0, 'trigger', ${state === "pending" ? "NULL" : at}, ${at}, now(), t.id, t.name, ''
+FROM agent_types a JOIN triggers t ON t.tenant_id = a.tenant_id AND t.name = '${trigger.replace(/'/g, "''")}'
+WHERE a.slug = '${agent}';`;
+  })
+  .join("\n")}
+COMMIT;`);
+  return ids;
+}
+
+/** Removes the runs stageRuns started. */
+export function removeStagedRuns() {
+  sql(removeStagedRunsSql());
+}
+
+const MAX_STAGED = 50;
+
+// A staged run's id: a v4-shaped UUID hashed from its position, so it reads
+// like any other run's and staging again finds the same one.
+function stagedRunId(i) {
+  const h = createHash("sha256").update(`kora-demos staged run ${i}`).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+function removeStagedRunsSql() {
+  const ids = Array.from({ length: MAX_STAGED }, (_, i) => `'${stagedRunId(i)}'`).join(", ");
+  return `DELETE FROM runs WHERE id IN (${ids});`;
 }
 
 /** Removes a replayed run and its delivery. */
