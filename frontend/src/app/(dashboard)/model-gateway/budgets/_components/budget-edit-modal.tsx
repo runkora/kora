@@ -17,7 +17,7 @@ import type { BudgetAssignment } from '../../../policy/_types/api';
 
 interface BudgetEditModalProps {
   open: boolean;
-  /** "role" budgets carry a pooled toggle; "grant" budgets are a person's, with a window limit only. */
+  /** "role" budgets carry a pooled toggle; "grant" budgets carry a per-run limit. */
   kind: 'role' | 'grant';
   /** Display name of the role or grant principal being edited. */
   subject: string;
@@ -42,14 +42,21 @@ export function BudgetEditModal({
   );
   const [cadence, setCadence] = useState(initialBudget?.reset_cadence ?? 'monthly');
   const [pooled, setPooled] = useState(initialBudget?.pooled ?? false);
+  const [perRunUSD, setPerRunUSD] = useState(
+    initialBudget?.per_run_limit_usd ? String(initialBudget.per_run_limit_usd) : '',
+  );
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const parsedLimit = limitUSD === '' ? 0 : parseFloat(limitUSD);
   const limitValid = !Number.isNaN(parsedLimit) && parsedLimit >= 0;
-  // Both kinds require a window limit. A grant here is a person's, and per-run limits only apply to
-  // agent principals, so there is no per-run field.
-  const valid = limitValid && parsedLimit > 0;
+  const parsedPerRun = perRunUSD === '' ? 0 : parseFloat(perRunUSD);
+  const perRunValid = !Number.isNaN(parsedPerRun) && parsedPerRun >= 0;
+  // Roles require a window limit; grants require at least one of the two limits.
+  const valid =
+    limitValid &&
+    perRunValid &&
+    (kind === 'role' ? parsedLimit > 0 : parsedLimit > 0 || parsedPerRun > 0);
 
   const submit = useCallback(
     async (budget: BudgetAssignment | null) => {
@@ -68,6 +75,7 @@ export function BudgetEditModal({
     const budget: BudgetAssignment = { reset_cadence: cadence };
     if (parsedLimit > 0) budget.limit_usd = parsedLimit;
     if (kind === 'role' && pooled) budget.pooled = true;
+    if (kind === 'grant' && parsedPerRun > 0) budget.per_run_limit_usd = parsedPerRun;
     return budget;
   };
 
@@ -128,6 +136,32 @@ export function BudgetEditModal({
               <Text size="caption" color="subtle">
                 Per member: every principal asserting the role gets this limit. Pooled: one shared
                 pot where all members&apos; spend accumulates against a single counter.
+              </Text>
+            </Stack>
+          )}
+
+          {kind === 'grant' && (
+            <Stack gap="tight">
+              <Text size="caption" weight="emphasis">
+                Per-Run Limit
+              </Text>
+              <Stack direction="horizontal" align="center" gap="snug">
+                <Text size="caption" color="muted">
+                  $
+                </Text>
+                <Input
+                  type="number"
+                  placeholder="e.g. 5"
+                  value={perRunUSD}
+                  onChange={(e) => setPerRunUSD(e.target.value)}
+                />
+                <Text size="caption" color="muted">
+                  / run
+                </Text>
+              </Stack>
+              <Text size="caption" color="subtle">
+                Caps what a single agent run started on this person&apos;s behalf can spend; every
+                new run starts fresh. Set either limit or both.
               </Text>
             </Stack>
           )}

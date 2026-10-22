@@ -31,7 +31,7 @@ describe('GrantDetailModal', () => {
     );
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'ci-failure-investigator' })).toBeInTheDocument();
-    expect(screen.getByText('AGENT')).toBeInTheDocument(); // the type badge beside the title
+    expect(screen.getByText('Agent')).toBeInTheDocument(); // the type badge beside the title
     expect(screen.queryByText('AGENT grant')).toBeNull(); // no generic subtitle
     expect(screen.getByText(agentId)).toBeInTheDocument();
     expect(screen.getByText('Scopes (3)')).toBeInTheDocument();
@@ -87,6 +87,6 @@ describe('GrantDetailModal', () => {
       />,
     );
     expect(screen.getByText('dev@example.com')).toBeInTheDocument();
-    expect(screen.getByText('HUMAN')).toBeInTheDocument();
+    expect(screen.getByText('Human')).toBeInTheDocument();
   });
 });

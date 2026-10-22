@@ -57,8 +57,8 @@ import { GrantOwnerLink } from './grant-owner-link';
 import { ViewToggle } from '@runkora/components';
 import { PermissionHint } from '@runkora/components';
 
-// grantMatches reports whether a search query (already lower-cased) matches a grant's
-// principal, owner, type label or scopes.
+const PRINCIPAL_TYPES: PrincipalType[] = ['AGENT', 'HUMAN', 'PAT', 'SERVICE'];
+
 function grantMatches(
   g: Grant,
   q: string,
@@ -220,7 +220,7 @@ export function GrantsTab({
                 active={typeFilter === 'all'}
                 onClick={() => setTypeFilter('all')}
               />
-              {(['AGENT', 'HUMAN', 'PAT', 'SERVICE'] as PrincipalType[]).map((type) => (
+              {PRINCIPAL_TYPES.map((type) => (
                 <FilterChip
                   key={type}
                   label={principalLabel(type)}
@@ -478,12 +478,7 @@ function GrantCardGrid({
 
 // ── Table view ──────────────────────────────────────────────────────────────
 
-const TYPE_OPTIONS = [
-  { value: 'AGENT', label: 'Agent' },
-  { value: 'HUMAN', label: 'Human' },
-  { value: 'PAT', label: 'PAT' },
-  { value: 'SERVICE', label: principalLabel('SERVICE') },
-];
+const TYPE_OPTIONS = PRINCIPAL_TYPES.map((value) => ({ value, label: principalLabel(value) }));
 
 function GrantTable({
   grants,

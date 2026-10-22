@@ -1,14 +1,19 @@
 /**
  * @tier 2 — kora-domain-aware: maps a principal type to its badge colour and label. The
- * `SERVICE` wire value reads "Trigger" (triggers are the service identities users see); every
- * other type shows as it is. Used by: policy (grants, grant detail, evaluate), model-gateway
+ * wire values read Agent, Human, PAT and, for `SERVICE`, "Trigger" (triggers are the service
+ * identities users see); an unknown type shows as it is. Used by: policy (grants, grant detail, evaluate), model-gateway
  * budgets.
  */
 import { Badge } from '@runkora/hades';
 
 export type PrincipalType = 'AGENT' | 'HUMAN' | 'PAT' | 'SERVICE';
 
-const PRINCIPAL_LABELS: Record<string, string> = { SERVICE: 'Trigger' };
+const PRINCIPAL_LABELS: Record<string, string> = {
+  AGENT: 'Agent',
+  HUMAN: 'Human',
+  PAT: 'PAT',
+  SERVICE: 'Trigger',
+};
 
 /** What a principal type is called in the UI. The wire value is unchanged. */
 export function principalLabel(type: PrincipalType | (string & {})): string {

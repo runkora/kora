@@ -38,13 +38,6 @@ import type {
 import { PrincipalBadge, principalLabel, ScopeChipList } from '@runkora/components';
 import { QuickLinkCard } from './quick-link-card';
 
-const PRINCIPAL_TYPE_LABELS: Record<string, string> = {
-  AGENT: 'Agent',
-  HUMAN: 'Human',
-  PAT: 'PAT',
-  SERVICE: principalLabel('SERVICE'),
-};
-
 /** The ring and its legend read best with the biggest part first. */
 function largestFirst<T extends { value: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => b.value - a.value);
@@ -134,7 +127,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
           footer={<Link href={APP_ROUTES.policy.grants}>View all →</Link>}
           breakdown={largestFirst(
             Object.entries(stats.grants.by_principal_type).map(([type, count]) => ({
-              label: PRINCIPAL_TYPE_LABELS[type] ?? type,
+              label: principalLabel(type),
               value: count,
             })),
           )}

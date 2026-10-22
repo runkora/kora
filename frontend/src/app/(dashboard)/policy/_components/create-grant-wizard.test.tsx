@@ -88,7 +88,9 @@ describe('CreateGrantWizard', () => {
     renderWizard();
     await toBudget();
     fireEvent.click(screen.getByRole('switch'));
-    expect(screen.getByText('Enter a spend limit, or turn the budget off.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Enter a spend limit or a per-run limit, or turn the budget off.'),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled();
     fireEvent.change(screen.getByPlaceholderText('e.g. 50'), { target: { value: '25' } });
     fireEvent.click(screen.getByRole('button', { name: label }));
@@ -99,6 +101,55 @@ describe('CreateGrantWizard', () => {
       limit_usd: 25,
       reset_cadence: cadence,
     });
+  });
+
+  it.each([
+    ['window only', '25', '', { limit_usd: 25 }],
+    ['per-run only', '', '4', { per_run_limit_usd: 4 }],
+    ['both', '25', '4', { limit_usd: 25, per_run_limit_usd: 4 }],
+  ])('sends a %s budget', async (_name, window, perRunValue, expected) => {
+    createGrantAction.mockResolvedValue({ ok: true, data: {} });
+    renderWizard();
+    await toBudget();
+    fireEvent.click(screen.getByRole('switch'));
+    if (window)
+      fireEvent.change(screen.getByPlaceholderText('e.g. 50'), { target: { value: window } });
+    if (perRunValue)
+      fireEvent.change(screen.getByPlaceholderText('e.g. 5'), { target: { value: perRunValue } });
+    next();
+    fireEvent.click(createButton());
+    await waitFor(() => expect(createGrantAction).toHaveBeenCalled());
+    expect(createGrantAction.mock.calls[0]![0].budget).toEqual({
+      reset_cadence: 'monthly',
+      ...expected,
+    });
+  });
+
+  it.each([
+    ['both empty', '', ''],
+    ['both zero', '0', '0'],
+    ['a negative per-run limit', '', '-1'],
+  ])('holds Continue on the budget step with %s', async (_name, window, perRunValue) => {
+    renderWizard();
+    await toBudget();
+    fireEvent.click(screen.getByRole('switch'));
+    if (window)
+      fireEvent.change(screen.getByPlaceholderText('e.g. 50'), { target: { value: window } });
+    if (perRunValue)
+      fireEvent.change(screen.getByPlaceholderText('e.g. 5'), { target: { value: perRunValue } });
+    expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled();
+  });
+
+  it('shows both limits on the review step', async () => {
+    renderWizard();
+    await toBudget();
+    fireEvent.click(screen.getByRole('switch'));
+    fireEvent.change(screen.getByPlaceholderText('e.g. 50'), { target: { value: '25' } });
+    fireEvent.change(screen.getByPlaceholderText('e.g. 5'), { target: { value: '4' } });
+    next();
+    expect(screen.getByText('Per-run limit')).toBeInTheDocument();
+    expect(screen.getByText(/\$4\.00 per run/)).toBeInTheDocument();
+    expect(screen.getByText(/\$25\.00/)).toBeInTheDocument();
   });
 
   it('sends no budget when it is switched on and then off again', async () => {

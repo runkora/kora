@@ -64,13 +64,28 @@ export function CreateGrantWizard({ availableScopes, onClose, onCreated }: Creat
   const [scopes, setScopes] = useState<string[]>([]);
   const [budgetEnabled, setBudgetEnabled] = useState(false);
   const [limitUSD, setLimitUSD] = useState('');
+  const [perRunUSD, setPerRunUSD] = useState('');
   const [cadence, setCadence] = useState<Cadence>('monthly');
 
-  const limit = parseFloat(limitUSD);
-  const limitValid = Number.isFinite(limit) && limit > 0;
+  const limit = limitUSD === '' ? 0 : parseFloat(limitUSD);
+  const perRun = perRunUSD === '' ? 0 : parseFloat(perRunUSD);
+  // Each limit is blank or a positive amount, and a budget needs at least one of them.
+  const budgetValid =
+    Number.isFinite(limit) &&
+    limit >= 0 &&
+    Number.isFinite(perRun) &&
+    perRun >= 0 &&
+    limit + perRun > 0;
   const budget = useMemo<BudgetAssignment | null>(
-    () => (budgetEnabled && limitValid ? { limit_usd: limit, reset_cadence: cadence } : null),
-    [budgetEnabled, limitValid, limit, cadence],
+    () =>
+      budgetEnabled && budgetValid
+        ? {
+            reset_cadence: cadence,
+            ...(limit > 0 ? { limit_usd: limit } : {}),
+            ...(perRun > 0 ? { per_run_limit_usd: perRun } : {}),
+          }
+        : null,
+    [budgetEnabled, budgetValid, limit, perRun, cadence],
   );
 
   const userName = user ? user.display_name || user.email : userId;
@@ -78,7 +93,9 @@ export function CreateGrantWizard({ availableScopes, onClose, onCreated }: Creat
   const hints: (string | undefined)[] = [
     userId ? undefined : 'Choose a user before you continue.',
     scopes.length === 0 ? 'Choose at least one scope before you continue.' : undefined,
-    budgetEnabled && !limitValid ? 'Enter a spend limit, or turn the budget off.' : undefined,
+    budgetEnabled && !budgetValid
+      ? 'Enter a spend limit or a per-run limit, or turn the budget off.'
+      : undefined,
     undefined,
   ];
   // Review stands for every step before it, so it cannot be reached with one of them invalid.
@@ -126,6 +143,7 @@ export function CreateGrantWizard({ availableScopes, onClose, onCreated }: Creat
     setScopes([]);
     setBudgetEnabled(false);
     setLimitUSD('');
+    setPerRunUSD('');
     setCadence('monthly');
     setSubmitError(null);
     setCreated(false);
@@ -182,36 +200,57 @@ export function CreateGrantWizard({ availableScopes, onClose, onCreated }: Creat
               }
             />
             {budgetEnabled && (
-              <FormField id="grant-budget-limit" label="Spend limit" required>
-                <Stack direction="horizontal" align="center" gap="snug">
-                  <Input
-                    id="grant-budget-limit"
-                    type="number"
-                    placeholder="e.g. 50"
-                    startAdornment="$"
-                    value={limitUSD}
-                    onChange={(e) => setLimitUSD(e.target.value)}
-                  />
-                  <ButtonGroup>
-                    <Button
-                      variant="outline-muted"
-                      size="sm"
-                      selected={cadence === 'weekly'}
-                      onClick={() => setCadence('weekly')}
-                    >
-                      Weekly
-                    </Button>
-                    <Button
-                      variant="outline-muted"
-                      size="sm"
-                      selected={cadence === 'monthly'}
-                      onClick={() => setCadence('monthly')}
-                    >
-                      Monthly
-                    </Button>
-                  </ButtonGroup>
-                </Stack>
-              </FormField>
+              <Stack gap="comfortable">
+                <FormField id="grant-budget-limit" label="Spend limit">
+                  <Stack direction="horizontal" align="center" gap="snug">
+                    <Input
+                      id="grant-budget-limit"
+                      type="number"
+                      placeholder="e.g. 50"
+                      startAdornment="$"
+                      value={limitUSD}
+                      onChange={(e) => setLimitUSD(e.target.value)}
+                    />
+                    <ButtonGroup>
+                      <Button
+                        variant="outline-muted"
+                        size="sm"
+                        selected={cadence === 'weekly'}
+                        onClick={() => setCadence('weekly')}
+                      >
+                        Weekly
+                      </Button>
+                      <Button
+                        variant="outline-muted"
+                        size="sm"
+                        selected={cadence === 'monthly'}
+                        onClick={() => setCadence('monthly')}
+                      >
+                        Monthly
+                      </Button>
+                    </ButtonGroup>
+                  </Stack>
+                </FormField>
+                <FormField
+                  id="grant-budget-per-run"
+                  label="Per-run limit"
+                  hint="Caps what a single agent run started on this person's behalf can spend. Set either limit or both."
+                >
+                  <Stack direction="horizontal" align="center" gap="snug">
+                    <Input
+                      id="grant-budget-per-run"
+                      type="number"
+                      placeholder="e.g. 5"
+                      startAdornment="$"
+                      value={perRunUSD}
+                      onChange={(e) => setPerRunUSD(e.target.value)}
+                    />
+                    <Text size="caption" color="muted">
+                      / run
+                    </Text>
+                  </Stack>
+                </FormField>
+              </Stack>
             )}
           </SectionHeading>
         );
@@ -253,8 +292,14 @@ export function CreateGrantWizard({ availableScopes, onClose, onCreated }: Creat
                 rows={[
                   {
                     label: 'Spend limit',
-                    value: budget
-                      ? `${fmtUsd(limit)}${fmtWindowSuffix(budget.reset_cadence)}`
+                    value: budget?.limit_usd
+                      ? `${fmtUsd(budget.limit_usd)}${fmtWindowSuffix(budget.reset_cadence)}`
+                      : 'None',
+                  },
+                  {
+                    label: 'Per-run limit',
+                    value: budget?.per_run_limit_usd
+                      ? `${fmtUsd(budget.per_run_limit_usd)} per run`
                       : 'None',
                   },
                 ]}

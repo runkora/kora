@@ -17,6 +17,7 @@ export function UserPicker({ value, onChange }: UserPickerProps) {
   const [users, setUsers] = useState<PATAttributionEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -24,10 +25,20 @@ export function UserPicker({ value, onChange }: UserPickerProps) {
     const timer = setTimeout(async () => {
       if (cancelled) return;
       setLoading(true);
-      const result = await searchUsersAction(search);
-      if (cancelled) return;
-      setLoading(false);
-      if (result.ok) setUsers(result.data);
+      try {
+        const result = await searchUsersAction(search);
+        if (cancelled) return;
+        if (result.ok) {
+          setUsers(result.data);
+          setFailed(false);
+        } else {
+          setFailed(true);
+        }
+      } catch {
+        if (!cancelled) setFailed(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }, delay);
     return () => {
       cancelled = true;
@@ -46,11 +57,17 @@ export function UserPicker({ value, onChange }: UserPickerProps) {
         />
       </Stack>
       <Card maxHeight="scroll-sm" overflowY="auto" border="default" divide>
-        {loading || users.length === 0 ? (
+        {loading || failed || users.length === 0 ? (
           <Stack paddingBlock="tight" paddingInline="snug">
-            <Text size="caption" color="muted">
-              {loading ? 'Loading…' : search ? 'No users match your search' : 'No users found'}
-            </Text>
+            {!loading && failed ? (
+              <Text size="caption" color="status-error">
+                Could not load users. Try searching again.
+              </Text>
+            ) : (
+              <Text size="caption" color="muted">
+                {loading ? 'Loading…' : search ? 'No users match your search' : 'No users found'}
+              </Text>
+            )}
           </Stack>
         ) : (
           users.map((u) => {

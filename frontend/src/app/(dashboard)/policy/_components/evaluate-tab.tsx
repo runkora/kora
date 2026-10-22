@@ -205,8 +205,8 @@ export function EvaluateTab({
                   onChange={(e) => setLookupType(e.target.value as PrincipalType)}
                   aria-label="Principal type"
                 >
-                  <option value="AGENT">AGENT</option>
-                  <option value="HUMAN">HUMAN</option>
+                  <option value="AGENT">{principalLabel('AGENT')}</option>
+                  <option value="HUMAN">{principalLabel('HUMAN')}</option>
                   <option value="SERVICE">{principalLabel('SERVICE')}</option>
                 </NativeSelect>
               </Stack>
@@ -359,8 +359,8 @@ export function EvaluateTab({
                   onChange={(e) => setSimPrincipalType(e.target.value as PrincipalType)}
                   aria-label="Principal type"
                 >
-                  <option value="AGENT">AGENT</option>
-                  <option value="HUMAN">HUMAN</option>
+                  <option value="AGENT">{principalLabel('AGENT')}</option>
+                  <option value="HUMAN">{principalLabel('HUMAN')}</option>
                   <option value="SERVICE">{principalLabel('SERVICE')}</option>
                 </NativeSelect>
               </Stack>
