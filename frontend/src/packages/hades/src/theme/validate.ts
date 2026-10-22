@@ -26,12 +26,12 @@ import type {
   ValidationResult,
 } from './types';
 
-/** Raw token to value, per mode: the colours the app ships, from `defaults.json`. */
+/** Raw token to value, per mode: the value the app ships for every settable token, from `defaults.json`. */
 export type TokenDefaults = Readonly<Partial<Record<Mode, Readonly<Record<string, string>>>>>;
 
 export interface ValidateOptions {
   readonly manifest: ThemeManifest;
-  /** Raw colour defaults per mode. Without them a pair is checked only when the theme sets both sides. */
+  /** Raw defaults per mode. Without them a pair is checked only when the theme sets both sides. */
   readonly defaults?: TokenDefaults;
   /** The instance's kora version without the `v`. Null for a development build, which skips the major check. */
   readonly koraVersion: string | null;
