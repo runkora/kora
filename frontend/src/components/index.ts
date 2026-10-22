@@ -15,9 +15,11 @@ export { ClampedList } from './clamped-list';
 export type { ClampedListProps } from './clamped-list';
 export { scopeColumnFilter } from './scope-column-filter';
 
-/** Tri-state collapsible-card scope selector grouped by resource type, optionally searchable. */
+/** Tri-state scope selector grouped by resource type and server or connection, searchable by default. */
 export { ScopePicker } from './scope-picker';
 export type { ScopePickerProps } from './scope-picker';
+export { toScopeOption, scopeOptionsFor } from './scope-option';
+export type { ScopeOption } from './scope-option';
 
 /**
  * Preference-backed DataTable. Requires PreferencesProvider (dashboard-scoped).

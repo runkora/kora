@@ -16,7 +16,7 @@ import {
   budgetLimitProblem,
   budgetLimitsAnyOn,
 } from '@runkora/components';
-import type { BudgetLimitValues } from '@runkora/components';
+import type { BudgetLimitValues, ScopeOption } from '@runkora/components';
 import { fmtUsd } from '@runkora/utils';
 import type { PATAttributionEntry } from '../../model-gateway/_services/tokens-server';
 import { createGrantAction } from '../_actions/grants';
@@ -25,6 +25,8 @@ import { UserPicker } from './user-picker';
 interface CreateGrantWizardProps {
   /** Every scope the grant can carry. */
   availableScopes: string[];
+  /** The vocabulary entries behind `availableScopes`; the picker groups by them and shows descriptions. */
+  scopeOptions?: ScopeOption[];
   onClose: () => void;
   /** Called once the grant exists, so the list can refresh behind the success screen. */
   onCreated: () => void;
@@ -44,7 +46,12 @@ const REVIEW = 3;
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-export function CreateGrantWizard({ availableScopes, onClose, onCreated }: CreateGrantWizardProps) {
+export function CreateGrantWizard({
+  availableScopes,
+  scopeOptions,
+  onClose,
+  onCreated,
+}: CreateGrantWizardProps) {
   const [step, setStep] = useState(USER);
   const [maxVisited, setMaxVisited] = useState(USER);
   const [submitting, setSubmitting] = useState(false);
@@ -157,10 +164,12 @@ export function CreateGrantWizard({ availableScopes, onClose, onCreated }: Creat
             title="Scopes"
             description="Choose what this user is allowed to do."
           >
-            <Text size="caption" color="subtle">
-              {scopes.length} selected
-            </Text>
-            <ScopePicker scopes={availableScopes} selected={scopes} onChange={setScopes} />
+            <ScopePicker
+              options={scopeOptions}
+              scopes={availableScopes}
+              selected={scopes}
+              onChange={setScopes}
+            />
           </SectionHeading>
         );
       case BUDGET:

@@ -13,11 +13,13 @@ import {
 } from '@runkora/hades';
 import { updateTokenScopes } from '../_actions/tokens';
 import { ScopePicker } from '@runkora/components';
+import type { ScopeOption } from '@runkora/components';
 import type { PAT } from '@runkora/shared/api';
 
 interface EditScopesModalProps {
   pat: PAT | null;
   availableScopes: string[];
+  scopeOptions?: ScopeOption[];
   onClose: () => void;
   onUpdated: () => void;
 }
@@ -25,6 +27,7 @@ interface EditScopesModalProps {
 export function EditScopesModal({
   pat,
   availableScopes,
+  scopeOptions,
   onClose,
   onUpdated,
 }: EditScopesModalProps) {
@@ -79,7 +82,7 @@ export function EditScopesModal({
         description={pat ? `Update scopes for ${pat.name}` : undefined}
       />
       <Form onSubmit={(e) => void handleSubmit(e)} noValidate>
-        <ModalBody>
+        <ModalBody constrained>
           <Stack gap="tight">
             <Stack direction="horizontal" align="center" justify="between">
               <Text size="caption" weight="emphasis">
@@ -88,11 +91,6 @@ export function EditScopesModal({
                   *
                 </Text>
               </Text>
-              {selectedScopes.length > 0 && (
-                <Text size="caption" color="muted">
-                  {selectedScopes.length} selected
-                </Text>
-              )}
             </Stack>
             {availableScopes.length === 0 ? (
               <Text size="supporting" color="muted">
@@ -100,10 +98,10 @@ export function EditScopesModal({
               </Text>
             ) : (
               <ScopePicker
+                options={scopeOptions}
                 scopes={availableScopes}
                 selected={selectedScopes}
                 onChange={setSelectedScopes}
-                searchable
               />
             )}
             <Text size="caption" color="subtle">
