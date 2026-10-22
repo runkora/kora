@@ -33,10 +33,17 @@ func TestMCPServiceEntries(t *testing.T) {
 		mcpEntry("clash", "http://mcp.exa.ai:443/mcp"),
 		mcpEntry("provider", "https://openrouter.ai/mcp"),
 		mcpEntry("svc-ns", "http://orbit-identity.Orbit-System:8080/mcp"),
+		mcpEntry("headless", "http://pod-0.mcp.orbit-tenant-acme:8080/mcp"),
+		mcpEntry("pod", "http://10-42-2-6.orbit-system.pod:8080/mcp"),
+		mcpEntry("pod-fqdn", "http://10-42-2-6.orbit-system.pod.cluster.local:8080/mcp"),
 	}, map[string]bool{"openrouter.ai": true}, map[string]bool{"orbit-system": true, "orbit-tenant-acme": true})
 
-	if len(skipped) != 3 || skipped[0].Name != "clash" || skipped[1].Name != "provider" || skipped[2].Name != "svc-ns" {
-		t.Errorf("skipped = %+v, want clash, provider and svc-ns", skipped)
+	var names []string
+	for _, sk := range skipped {
+		names = append(names, sk.Name)
+	}
+	if want := []string{"clash", "provider", "svc-ns", "headless"}; !reflect.DeepEqual(names, want) {
+		t.Errorf("skipped = %v, want %v", names, want)
 	}
 	got := map[string]any{}
 	for _, se := range ses {

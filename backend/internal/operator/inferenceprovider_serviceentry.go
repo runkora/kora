@@ -157,11 +157,11 @@ func urlEndpoints(raw ...string) ([]providerEndpoint, error) {
 const schemeHTTP = "http"
 
 // inMeshHost reports a host the mesh already knows or cannot register by name:
-// a Service's short or cluster DNS name, or an IP. Service.namespace names
-// are indistinguishable from external ones and are registered.
+// a Service's or pod's short or cluster DNS name, or an IP. Service.namespace
+// names need the namespace list to recognize. See mcpServiceEntries.
 func inMeshHost(host string) bool {
-	return !strings.Contains(host, ".") || strings.HasSuffix(host, ".svc") ||
-		strings.HasSuffix(host, ".svc.cluster.local") || net.ParseIP(host) != nil
+	return !strings.Contains(host, ".") || strings.HasSuffix(host, ".svc") || strings.HasSuffix(host, ".pod") ||
+		strings.HasSuffix(host, ".cluster.local") || net.ParseIP(host) != nil
 }
 
 // urlPort is the URL's port, or its scheme's default.
