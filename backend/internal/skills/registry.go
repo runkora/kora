@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"sigs.k8s.io/yaml"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -68,6 +71,103 @@ func (r *Registry) ListSources(tenantID string) []MarketplaceSource {
 	return out
 }
 
+// FindSource returns the marketplace registered for tenantID with the given
+// slug. It returns false if the marketplace is not registered for that tenant.
+func (r *Registry) FindSource(tenantID, marketplaceSlug string) (MarketplaceSource, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, source := range r.sources[tenantID] {
+		if source.MarketplaceSlug == marketplaceSlug {
+			return source, true
+		}
+	}
+
+	return MarketplaceSource{}, false
+}
+
+// Reload reloads marketplace sources and keeps the previous
+// configuration if the new file cannot be parsed.
+func (r *Registry) Reload(path string) error {
+	sources, err := loadYAMLSources(path, r.logger)
+	if err != nil {
+		return fmt.Errorf("reload skills mapping: %w", err)
+	}
+
+	r.mu.Lock()
+	r.sources = sources
+	r.mu.Unlock()
+
+	total := 0
+	for _, ss := range sources {
+		total += len(ss)
+	}
+
+	r.logger.Info(context.Background(), "marketplace registry reloaded",
+		logging.Field{Key: "path", Value: path},
+		logging.Field{Key: "tenants", Value: len(sources)},
+		logging.Field{Key: "sources", Value: total},
+	)
+
+	return nil
+}
+
+// Watch watches the containing directory because Kubernetes ConfigMap
+// updates replace symlinks instead of modifying the mounted file directly.
+func (r *Registry) Watch(ctx context.Context, path string) error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return err
+	}
+
+	dir := filepath.Dir(path)
+	if err := watcher.Add(dir); err != nil {
+		_ = watcher.Close()
+		return fmt.Errorf("watch marketplace directory %s: %w", dir, err)
+	}
+
+	go func() {
+		defer watcher.Close()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+
+				if event.Op&(fsnotify.Write|fsnotify.Create|
+					fsnotify.Rename|fsnotify.Remove) == 0 {
+					continue
+				}
+
+				// Allow Kubernetes to finish switching ConfigMap symlinks.
+				time.Sleep(200 * time.Millisecond)
+
+				if err := r.Reload(path); err != nil {
+					r.logger.Error(ctx,
+						"marketplace registry reload failed",
+						logging.Field{Key: "error", Value: err.Error()},
+					)
+				}
+
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				r.logger.Error(ctx,
+					"marketplace file watcher error",
+					logging.Field{Key: "error", Value: err.Error()},
+				)
+			}
+		}
+	}()
+	return nil
+}
+
 // loadYAMLSources reads and parses skills-mapping.yaml. An absent file
 // returns an empty map (not an error).
 func loadYAMLSources(path string, logger logging.Logger) (map[string][]MarketplaceSource, error) {
@@ -79,7 +179,7 @@ func loadYAMLSources(path string, logger logging.Logger) (map[string][]Marketpla
 		return nil, fmt.Errorf("read skills mapping: %w", err)
 	}
 
-	var f skillsMappingYAML
+	var f skillsMappingYAML // yaml to go
 	if err := yaml.Unmarshal(data, &f); err != nil {
 		return nil, fmt.Errorf("parse skills mapping yaml: %w", err)
 	}
@@ -117,7 +217,10 @@ func loadYAMLSources(path string, logger logging.Logger) (map[string][]Marketpla
 // Any other form is an error.
 func parseGitHubURL(raw string) (MarketplaceSource, error) {
 	// Strip trailing .git or /
-	raw = strings.TrimSuffix(strings.TrimSuffix(strings.TrimRight(raw, "/"), ".git"), "/")
+	raw = strings.TrimSuffix(
+		strings.TrimSuffix(strings.TrimRight(raw, "/"), ".git"),
+		"/",
+	)
 
 	u, err := url.Parse(raw)
 	if err != nil || u.Host != "github.com" {

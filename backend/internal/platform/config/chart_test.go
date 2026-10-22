@@ -20,6 +20,7 @@ import (
 	policyGatewayConfig "github.com/clear-route/orbit/cmd/policy-gateway/config"
 	policyServiceConfig "github.com/clear-route/orbit/cmd/policy-service/config"
 	sandboxMountConfig "github.com/clear-route/orbit/cmd/sandbox-mount/config"
+	skillsServiceConfig "github.com/clear-route/orbit/cmd/skills-service/config"
 	toolGatewayConfig "github.com/clear-route/orbit/cmd/tool-gateway/config"
 	"github.com/clear-route/orbit/internal/identity"
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -40,6 +41,7 @@ var moduleLoaders = map[string]func() error{
 	"cmd/policy-gateway":    loadService[policyGatewayConfig.Config]("cmd/policy-gateway"),
 	"cmd/policy-service":    loadService[policyServiceConfig.Config]("cmd/policy-service"),
 	"cmd/sandbox-mount":     loadService[sandboxMountConfig.Config]("cmd/sandbox-mount"),
+	"cmd/skills-service":    loadService[skillsServiceConfig.Config]("cmd/skills-service"),
 	"cmd/tool-gateway":      loadService[toolGatewayConfig.Config]("cmd/tool-gateway"),
 
 	"internal/identity": func() error {

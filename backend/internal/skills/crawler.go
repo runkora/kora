@@ -55,7 +55,6 @@ type githubTokenProvider interface {
 }
 
 // NewCrawler creates a Crawler using the given single GitHub token provider.
-// All marketplaces share the same GitHub App credentials.
 func NewCrawler(
 	github githubTreeClient,
 	tokens githubTokenProvider,
@@ -74,6 +73,7 @@ func NewCrawler(
 // A skill is any folder that contains a SKILL.md, at any depth.
 // A SKILL.md at the repository root is skipped with a warning.
 // An empty repository gives an empty map.
+// collects and stores the paths of valid SKILL.md files in the skills map.
 func (c *Crawler) FetchTree(ctx context.Context, source MarketplaceSource) (map[string]skillFilePath, error) {
 	token, err := c.tokens.Token(ctx)
 	if err != nil {
@@ -150,8 +150,8 @@ func collectResourceDocs(
 	}
 }
 
-// FetchSkills downloads the SKILL.md of every skill that FetchTree found and
-// returns a []SkillEntry sorted by SkillSlug.
+// FetchSkills downloads the SKILL.md and all resource documents of every skill
+// that FetchTree found and returns a []Skill sorted by SkillSlug.
 //
 // Skills are fetched in parallel. A GitHub outage or rate limit aborts the
 // whole crawl. Other per-skill failures (bad frontmatter, fetch error) skip
@@ -159,23 +159,23 @@ func collectResourceDocs(
 //
 // If two SKILL.md files produce the same skillSlug, the one whose path sorts
 // first is kept; the other is skipped.
-func (c *Crawler) FetchSkills(ctx context.Context, source MarketplaceSource, skillPaths map[string]skillFilePath) ([]SkillEntry, error) {
+func (c *Crawler) FetchSkills(ctx context.Context, source MarketplaceSource, skillPaths map[string]skillFilePath) ([]Skill, error) {
 	token, err := c.tokens.Token(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get github token for marketplace %q: %w", source.Name, err)
 	}
 
 	var mu sync.Mutex
-	entries := make([]SkillEntry, 0, len(skillPaths))
+	skills := make([]Skill, 0, len(skillPaths))
 	perRepoSem := semaphore.NewWeighted(perRepoCap)
 
 	g, gctx := errgroup.WithContext(ctx)
 	for _, fp := range skillPaths {
 		g.Go(func() error {
-			entry, err := c.fetchSkill(gctx, token, source, fp, perRepoSem)
+			skill, err := c.fetchSkillFull(gctx, token, source, fp, perRepoSem)
 			if err == nil {
 				mu.Lock()
-				entries = append(entries, entry)
+				skills = append(skills, skill)
 				mu.Unlock()
 				return nil
 			}
@@ -197,52 +197,42 @@ func (c *Crawler) FetchSkills(ctx context.Context, source MarketplaceSource, ski
 		return nil, err
 	}
 
-	sort.Slice(entries, func(i, j int) bool { return entries[i].SkillSlug < entries[j].SkillSlug })
+	sort.Slice(skills, func(i, j int) bool { return skills[i].SkillSlug < skills[j].SkillSlug })
 
-	// Deduplicate: two skills that produce the same slug after slugify — keep the
-	// one whose Path sorts first (path order is deterministic within a sorted slice).
-	deduped := entries[:0]
-	seen := make(map[string]struct{}, len(entries))
-	for _, e := range entries {
-		if _, dup := seen[e.SkillSlug]; dup {
-			c.logger.Warn(ctx, "skipping skill with duplicate slug — the first path is kept",
-				logging.Field{Key: "marketplace", Value: source.Name},
-				logging.Field{Key: "skillSlug", Value: e.SkillSlug},
-				logging.Field{Key: "skipped", Value: e.Path},
-			)
-			continue
-		}
-		seen[e.SkillSlug] = struct{}{}
-		deduped = append(deduped, e)
-	}
-
-	return deduped, nil
+	return skills, nil
 }
 
-// FetchSkillContent downloads the SKILL.md and all resource documents for the
-// given entry and returns the full Skill record for the detail endpoint.
-func (c *Crawler) FetchSkillContent(ctx context.Context, source MarketplaceSource, entry SkillEntry) (Skill, error) {
-	token, err := c.tokens.Token(ctx)
+// fetchSkillFull downloads SKILL.md and all resource documents for one skill,
+// parses its frontmatter, and returns the full Skill record.
+func (c *Crawler) fetchSkillFull(ctx context.Context, token string, source MarketplaceSource, fp skillFilePath, perRepoSem *semaphore.Weighted) (Skill, error) {
+	raw, err := c.fetchRaw(ctx, token, source, fp.skillPath, perRepoSem)
 	if err != nil {
-		return Skill{}, fmt.Errorf("get github token for marketplace %q: %w", source.Name, err)
+		return Skill{}, err
 	}
 
-	all := make([]string, 0, 1+len(entry.DocPaths))
-	all = append(all, entry.Path)
-	all = append(all, entry.DocPaths...)
+	fm, err := ParseSkillFrontmatter(raw)
+	if err != nil {
+		return Skill{}, fmt.Errorf("parse frontmatter of %s: %w", fp.skillPath, err)
+	}
 
-	capacity := min(int64(len(all)), perRepoCap)
-	perCallSem := semaphore.NewWeighted(capacity)
+	nameSlug := skillSlugify(fm.Name)
+	if nameSlug == "" {
+		return Skill{}, fmt.Errorf("skill name %q in %s slugifies to empty string", fm.Name, fp.skillPath)
+	}
 
-	contents := make([]string, len(all))
+	docs := make([]SkillFile, len(fp.docPaths))
 	g, gctx := errgroup.WithContext(ctx)
-	for i, filePath := range all {
+	for i, docPath := range fp.docPaths {
 		g.Go(func() error {
-			raw, err := c.fetchRaw(gctx, token, source, filePath, perCallSem)
+			content, err := c.fetchRaw(gctx, token, source, docPath, perRepoSem)
 			if err != nil {
 				return err
 			}
-			contents[i] = raw
+			docs[i] = SkillFile{
+				Path:    docPath,
+				Name:    path.Base(docPath),
+				Content: content,
+			}
 			return nil
 		})
 	}
@@ -250,53 +240,16 @@ func (c *Crawler) FetchSkillContent(ctx context.Context, source MarketplaceSourc
 		return Skill{}, err
 	}
 
-	docs := make([]SkillFile, 0, len(entry.DocPaths))
-	for i, docPath := range entry.DocPaths {
-		docs = append(docs, SkillFile{
-			Path:    docPath,
-			Name:    path.Base(docPath),
-			Content: contents[1+i],
-		})
-	}
-
 	return Skill{
-		Name:        entry.Name,
-		Description: entry.Description,
-		SkillSlug:   entry.SkillSlug,
-		File: SkillFile{
-			Path:    entry.Path,
-			Name:    path.Base(entry.Path),
-			Content: contents[0],
-		},
-		Documents: docs,
-	}, nil
-}
-
-// fetchSkill downloads one SKILL.md, parses its frontmatter, and returns a
-// SkillEntry. The skillSlug is built from the marketplace slug and the
-// slugified frontmatter name.
-func (c *Crawler) fetchSkill(ctx context.Context, token string, source MarketplaceSource, fp skillFilePath, perRepoSem *semaphore.Weighted) (SkillEntry, error) {
-	raw, err := c.fetchRaw(ctx, token, source, fp.skillPath, perRepoSem)
-	if err != nil {
-		return SkillEntry{}, err
-	}
-
-	fm, err := ParseSkillFrontmatter(raw)
-	if err != nil {
-		return SkillEntry{}, fmt.Errorf("parse frontmatter of %s: %w", fp.skillPath, err)
-	}
-
-	nameSlug := skillSlugify(fm.Name)
-	if nameSlug == "" {
-		return SkillEntry{}, fmt.Errorf("skill name %q in %s slugifies to empty string", fm.Name, fp.skillPath)
-	}
-
-	return SkillEntry{
 		Name:        fm.Name,
 		Description: fm.Description,
 		SkillSlug:   source.MarketplaceSlug + "__" + nameSlug,
-		Path:        fp.skillPath,
-		DocPaths:    fp.docPaths,
+		File: SkillFile{
+			Path:    fp.skillPath,
+			Name:    path.Base(fp.skillPath),
+			Content: raw,
+		},
+		Documents: docs,
 	}, nil
 }
 

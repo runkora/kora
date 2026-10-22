@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	skillsConfig "github.com/clear-route/orbit/cmd/skills-service/config"
+	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/skills"
 )
@@ -123,5 +125,62 @@ func TestChartSkillsMappingRejectsInvalidShape(t *testing.T) {
 		"--set-string", "skillsService.skillsMapping.tenants=not-a-list").CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "skillsMapping") {
 		t.Errorf("invalid tenant mapping was not rejected by the chart schema: %v\n%s", err, out)
+	}
+}
+
+func TestChartSkillsServiceWiring(t *testing.T) {
+	cfg, err := config.LoadService[skillsConfig.Config]("cmd/skills-service", "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := `skillsService:
+  extraEnv:
+    - name: MARKETPLACE_CACHE_TTL
+      value: 15m
+`
+	decode := func(template string, target any) {
+		t.Helper()
+		out := renderChart(t, values, "--show-only", template)
+		if err := yaml.Unmarshal([]byte(out), target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var deploy appsv1.Deployment
+	decode("templates/skills-service/deployment.yaml", &deploy)
+	if len(deploy.Spec.Template.Spec.Containers) != 1 {
+		t.Fatalf("expected one skills-service container, got %d", len(deploy.Spec.Template.Spec.Containers))
+	}
+	container := deploy.Spec.Template.Spec.Containers[0]
+	port := int32(cfg.Server.Port)
+	if len(container.Ports) != 1 || container.Ports[0].ContainerPort != port {
+		t.Errorf("container ports = %v, want backend port %d", container.Ports, port)
+	}
+	for name, probe := range map[string]*corev1.Probe{
+		"liveness": container.LivenessProbe, "readiness": container.ReadinessProbe,
+	} {
+		if probe == nil || probe.HTTPGet == nil || probe.HTTPGet.Port.IntVal != port {
+			t.Errorf("%s probe = %v, want HTTP backend port %d", name, probe, port)
+		}
+	}
+	envCounts := make(map[string]int)
+	for _, env := range container.Env {
+		envCounts[env.Name]++
+		if envCounts[env.Name] > 1 {
+			t.Errorf("environment variable %s is duplicated", env.Name)
+		}
+	}
+	if envCounts["MARKETPLACE_CACHE_TTL"] != 1 {
+		t.Error("custom environment variable was not rendered exactly once")
+	}
+	var service corev1.Service
+	decode("templates/skills-service/service.yaml", &service)
+	if len(service.Spec.Ports) != 1 || service.Spec.Ports[0].Port != port || service.Spec.Ports[0].TargetPort.IntVal != port {
+		t.Errorf("service ports = %v, want backend port %d", service.Spec.Ports, port)
+	}
+	var frontend corev1.ConfigMap
+	decode("templates/frontend/configmap.yaml", &frontend)
+	want := fmt.Sprintf("http://orbit-skills-service.orbit-system.svc.cluster.local:%d/v1", port)
+	if got := frontend.Data["SKILLS_SERVICE_URL"]; got != want {
+		t.Errorf("frontend Skills URL = %q, want %q", got, want)
 	}
 }

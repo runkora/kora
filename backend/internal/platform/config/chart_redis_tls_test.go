@@ -85,10 +85,10 @@ func TestChartRedisTLSWithCA(t *testing.T) {
 			t.Errorf("%s mounts the CA at %s", name, path)
 		}
 	}
-	if names := slices.Sorted(maps.Keys(mounts)); strings.Join(names, ",") != "orbit-identity,orbit-inference-gateway,orbit-triggers" {
-		t.Errorf("Redis CA mounted in %v, want identity, inference-gateway and triggers", names)
+	if names := slices.Sorted(maps.Keys(mounts)); strings.Join(names, ",") != "orbit-identity,orbit-inference-gateway,orbit-skills-service,orbit-triggers" {
+		t.Errorf("Redis CA mounted in %v, want identity, inference-gateway, skills-service and triggers", names)
 	}
-	if strings.Join(cfgs, ",") != "orbit-identity-config,orbit-inference-gateway-config,orbit-triggers-config" {
-		t.Errorf("caFile rendered in %v, want identity, inference-gateway and triggers", cfgs)
+	if strings.Join(cfgs, ",") != "orbit-identity-config,orbit-inference-gateway-config,orbit-skills-service-config,orbit-triggers-config" {
+		t.Errorf("caFile rendered in %v, want identity, inference-gateway, skills-service and triggers", cfgs)
 	}
 }

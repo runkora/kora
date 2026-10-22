@@ -1,0 +1,1 @@
+jwksURL: "http://localhost:8080/api/v1/identity/.well-known/jwks.json"

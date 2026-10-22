@@ -866,6 +866,18 @@ skillsService:
       cpu: 500m
       memory: 256Mi
   nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+  configOverrides: {}
   skillsMapping:
     # -- Approved GitHub repositories grouped by platform tenant ID.
     tenants: []

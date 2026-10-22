@@ -67,23 +67,17 @@ func (f *fakeCache) SetSkill(_ context.Context, slug string, skill Skill) error 
 }
 
 type fakeCrawler struct {
-	entries    []SkillEntry
-	skill      Skill
-	treeErr    error
-	skillsErr  error
-	contentErr error
+	skills    []Skill
+	treeErr   error
+	skillsErr error
 }
 
 func (f *fakeCrawler) FetchTree(_ context.Context, _ MarketplaceSource) (map[string]skillFilePath, error) {
 	return map[string]skillFilePath{}, f.treeErr
 }
 
-func (f *fakeCrawler) FetchSkills(_ context.Context, _ MarketplaceSource, _ map[string]skillFilePath) ([]SkillEntry, error) {
-	return f.entries, f.skillsErr
-}
-
-func (f *fakeCrawler) FetchSkillContent(_ context.Context, _ MarketplaceSource, _ SkillEntry) (Skill, error) {
-	return f.skill, f.contentErr
+func (f *fakeCrawler) FetchSkills(_ context.Context, _ MarketplaceSource, _ map[string]skillFilePath) ([]Skill, error) {
+	return f.skills, f.skillsErr
 }
 
 // --- helpers ---
@@ -114,6 +108,19 @@ func makeEntries(names ...string) []SkillEntry {
 			Description: n + " desc",
 			SkillSlug:   svcTestSource.MarketplaceSlug + "__" + n,
 			Path:        "skills/" + n + "/SKILL.md",
+		}
+	}
+	return out
+}
+
+func makeSkills(names ...string) []Skill {
+	out := make([]Skill, len(names))
+	for i, n := range names {
+		out[i] = Skill{
+			Name:        n,
+			Description: n + " desc",
+			SkillSlug:   svcTestSource.MarketplaceSlug + "__" + n,
+			File:        SkillFile{Path: "skills/" + n + "/SKILL.md", Name: "SKILL.md", Content: n + " content"},
 		}
 	}
 	return out
@@ -180,9 +187,8 @@ func TestListSkills_CacheHit(t *testing.T) {
 }
 
 func TestListSkills_CacheMiss_CrawlsAndCaches(t *testing.T) {
-	entries := makeEntries("alpha", "beta")
 	cache := &fakeCache{}
-	crawler := &fakeCrawler{entries: entries}
+	crawler := &fakeCrawler{skills: makeSkills("alpha", "beta")}
 	svc := newTestService(cache, crawler)
 
 	result, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "", "")
@@ -199,7 +205,7 @@ func TestListSkills_CacheMiss_CrawlsAndCaches(t *testing.T) {
 
 func TestListSkills_CacheMiss_WritesSortedEntries(t *testing.T) {
 	cache := &fakeCache{}
-	crawler := &fakeCrawler{entries: makeEntries("charlie", "alpha", "bravo")}
+	crawler := &fakeCrawler{skills: makeSkills("charlie", "alpha", "bravo")}
 	svc := newTestService(cache, crawler)
 
 	if _, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "", ""); err != nil {
@@ -392,11 +398,12 @@ func TestGetSkill_SkillCacheHit(t *testing.T) {
 }
 
 func TestGetSkill_MarketplaceCacheHit_SkillCacheMiss(t *testing.T) {
-	entries := makeEntries("react-expert")
+	// Even when the marketplace list cache is warm, a skill-cache miss triggers
+	// a fresh crawl so that full content is fetched and all skill caches are warmed.
 	slug := "org__repo__react-expert"
 	skill := Skill{Name: "React Expert", SkillSlug: slug, File: SkillFile{Content: "body"}}
-	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": entries}}
-	crawler := &fakeCrawler{skill: skill}
+	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": makeEntries("react-expert")}}
+	crawler := &fakeCrawler{skills: []Skill{skill}}
 	svc := newTestService(cache, crawler)
 
 	got, err := svc.GetSkill(context.Background(), "tenant-a", "org__repo", slug)

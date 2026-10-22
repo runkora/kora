@@ -390,9 +390,9 @@ skillsService:
           - https://github.com/your-org/your-skills
 ```
 
-The chart writes this mapping to `orbit-skill-marketplace-sources` as `skills-mapping.yaml`, mounted at `/etc/orbit/marketplace/skills-mapping.yaml`. An empty tenant list produces a valid empty registry. GitHub App credentials must be configured separately through Kubernetes Secrets.
+The chart writes this mapping to `orbit-skill-marketplace-sources` as `skills-mapping.yaml`, mounted at `/etc/orbit/marketplace/skills-mapping.yaml`. An empty tenant list produces a valid empty registry. The first Secret named in `skillsService.githubApps` must contain `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `private-key.pem`. The service reads and validates the private key at startup; restart it after rotating that key.
 
-The registry reads the file once at startup. Changing the mapping through a Helm upgrade changes the pod-template checksum and rolls skills-service so it reads the updated sources. Direct ConfigMap edits require an explicit service restart. Source declarations remain scoped to the authenticated caller's tenant; requests still require `marketplace:read`.
+The registry loads the file at startup and watches its directory for updates. Direct ConfigMap edits are reloaded after Kubernetes updates the mounted file; malformed YAML keeps the previous sources. Changing the mapping through a Helm upgrade also changes the pod-template checksum and rolls skills-service. Source declarations remain scoped to the authenticated caller's tenant; requests still require `marketplace:read`.
 
 ## Telemetry
 
