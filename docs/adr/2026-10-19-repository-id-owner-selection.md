@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-19-repository-id-owner-selection.md -->
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-10-19
 **Deciders:** Justin Wilkin
 **Technical Story:** [#584](https://github.com/runkora/kora/issues/584): paginated REST follow-up pages denied with `connection_unresolved`.
@@ -123,4 +123,4 @@ It is stateless and fits the selection rules the 2026-10-15 ADR already accepted
 
 *   [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md): the selection rules this extends
 
-**Last Updated:** 2026-10-19
+**Last Updated:** 2026-10-22
