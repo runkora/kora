@@ -6,8 +6,6 @@ import type { ReactNode } from 'react';
 import type { UserPreferences } from './preferences.schema';
 import { serializeSparse } from './preferences.schema';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
 interface PreferencesContextValue {
   preferences: UserPreferences;
   /**
@@ -23,15 +21,11 @@ interface PreferencesContextValue {
   loaded: boolean;
 }
 
-// ── Context ───────────────────────────────────────────────────────────────────
-
 const PreferencesContext = createContext<PreferencesContextValue | null>(null);
-
-// ── Provider ──────────────────────────────────────────────────────────────────
 
 interface PreferencesProviderProps {
   initialPreferences: UserPreferences;
-  /** Whether the read of `initialPreferences` succeeded. Omit it to keep the old behavior (true). */
+  /** Whether the read of `initialPreferences` succeeded. */
   loaded?: boolean;
   children: ReactNode;
 }
@@ -41,16 +35,10 @@ export function PreferencesProvider({
   loaded: loadedProp,
   children,
 }: PreferencesProviderProps) {
+  // Both values describe the initial snapshot. A server refresh preserves this
+  // state, so new props must not mark fallback preferences as safely loaded.
   const [preferences, setPreferences] = useState<UserPreferences>(initialPreferences);
-
-  let loaded: boolean;
-  if (loadedProp === false) {
-    // The read failed. The values are only the defaults.
-    loaded = false;
-  } else {
-    // The read succeeded, or the caller did not say.
-    loaded = true;
-  }
+  const [loaded] = useState(loadedProp !== false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMounted = useRef(false);
 
@@ -67,9 +55,7 @@ export function PreferencesProvider({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body,
-      }).catch(() => {
-        // Best-effort write — silently dropped per ADR-0061.
-      });
+      }).catch(() => {});
     }, 500);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -86,8 +72,6 @@ export function PreferencesProvider({
     </PreferencesContext.Provider>
   );
 }
-
-// ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function usePreferences(): PreferencesContextValue {
   const ctx = useContext(PreferencesContext);

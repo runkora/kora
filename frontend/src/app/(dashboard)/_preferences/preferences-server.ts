@@ -34,10 +34,8 @@ export const readPreferences = cache(
       if (!res.ok) return { loaded: false, preferences: mergeWithDefaults({}) };
       const raw: unknown = await res.json();
       if (typeof raw === 'object' && raw !== null) {
-        // The stored document, or {} when the user has no stored preferences.
         return { loaded: true, preferences: mergeWithDefaults(raw as Record<string, unknown>) };
       }
-      // The response is not a document. Treat it as a failed read.
       return { loaded: false, preferences: mergeWithDefaults({}) };
     } catch {
       return { loaded: false, preferences: mergeWithDefaults({}) };
