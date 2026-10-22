@@ -137,6 +137,10 @@ colima stop && colima start --cpu 12 --memory 24   # persists in ~/.colima
 
 On smaller VMs, leave the flag unset. Concurrent build pressure can wedge the VM and cascade into mesh and Postgres failures.
 
+## Previewing manifest patches
+
+See the [advanced customisations guide](../guides/advanced-customisations.md).
+
 ## Database migrations
 
 Each table-owning service keeps its [Goose](https://github.com/pressly/goose) migrations under `backend/cmd/{service}/migrations/`. `backend/cmd/migrate` embeds all of them and applies them as one set. In a cluster it runs as the `orbit` chart's pre-install and pre-upgrade hook Job. See the [database migrations ADR](../adr/2026-09-10-database-migrations.md).
