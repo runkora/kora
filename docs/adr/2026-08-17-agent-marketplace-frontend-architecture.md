@@ -4,17 +4,17 @@
 
 **Date:** 2026-08-17
 
-**Updated:** 2026-10-16
+**Updated:** 2026-10-21
 
 **Deciders:** Frontend Engineering, Product Owner, Security Review (TBD)
 
-This document describes the implemented frontend after those amendments. The original proposal and the broader [Marketplace PRD](../prd/agent-marketplace.md) retain their existing approval status. The [frontend deep dive](../architecture/marketplace.md) includes the component diagram and file map.
+This document describes the frontend after those amendments, the 2026-10-19 cleanup, and the 2026-10-21 cursor integration. The original proposal and the broader [Marketplace PRD](../prd/agent-marketplace.md) retain their existing approval status. The [frontend deep dive](../architecture/marketplace.md) includes the component diagram and file map.
 
 ## Context
 
 The Marketplace lets signed-in users browse the Skills exposed by skills-service and read their instructions and supporting files. The overview has interactive source selection, search, name sorting, page size, pagination, and list/card views. Opening a Skill must render its details on a dedicated server route, following the Agents list/detail pattern.
 
-The frontend uses Next.js Server Components, authenticated Backend-for-Frontend (BFF) routes, the existing session and preferences providers, and Hades (`@orbit/hades`). It neither calls GitHub directly nor owns source registration, source credentials, or backend caching. Repository content is read-only data.
+The frontend uses Next.js Server Components, an authenticated Backend-for-Frontend (BFF) browse route, the existing session and preferences providers, and Hades (`@orbit/hades`). It neither calls GitHub directly nor owns source registration, source credentials, or backend caching. Repository content is read-only data.
 
 The earlier in-place detail implementation kept the selected Skill in client state and redirected detail addresses to the overview. The accepted 2026-10-16 amendment restores server-rendered detail navigation. Browse settings remain a separate concern: the current implementation keeps them in memory and off navigation URLs.
 
@@ -31,6 +31,8 @@ For detail navigation, retaining the in-place view was considered against restor
 Retain option 1 and apply the accepted amendments below. All product JSX uses existing Hades components. Feature components remain scoped to Marketplace, with detail-only files colocated under `[marketplaceSlug]/[skillSlug]`.
 
 The accepted named-parameter amendment (2026-10-16) replaces the catch-all directory with `[marketplaceSlug]/[skillSlug]/page.tsx`. The public detail URL stays the same. Next.js supplies two named string parameters and rejects addresses with fewer or more segments through its normal 404 handling.
+
+The dashboard layout's `PageGutter` owns outer page spacing for both Marketplace routes. Marketplace uses that shared layout directly, following the dashboard convention that feature pages do not add their own outer padding.
 
 ### Routes and state
 
@@ -53,14 +55,15 @@ Browse API requests validate search, page size, page, sort, and Marketplace thro
 | Overview `page.tsx`                         | Validates the session, calls `loadMarketplaceOverview`, and passes initial data/error to `MarketplaceShell`.                                                                                                                                           |
 | Overview shell and provider                 | Mount the browse hook/context and render controls and results. No selected-Skill state lives here.                                                                                                                                                     |
 | `[marketplaceSlug]/[skillSlug]/page.tsx`    | Validates the session, reads both named path identifiers, calls `loadSkillPage`, and renders the requested detail or its failure state.                                                                                                                |
-| `[marketplaceSlug]/[skillSlug]/loading.tsx` | Shows the detail loading skeleton while the Server Component resolves.                                                                                                                                                                                 |
+| `[marketplaceSlug]/[skillSlug]/loading.tsx` | Defines the single-use detail loading skeleton inline while the Server Component resolves.                                                                                                                                                            |
 | Detail components                           | Render the Skill title, description, `SKILL.md`, resource files, and Source metadata. The retry component calls `router.refresh()` inside a transition and disables itself while pending.                                                              |
 | Browse BFF                                  | `GET /api/marketplace/skills` uses `withAuth`, parses API query values, and calls the shared overview loader.                                                                                                                                          |
-| Detail BFF                                  | The existing authenticated `GET /api/marketplace/skill?marketplace=&skill=` remains available through `loadSkillDetail`. Dashboard selection no longer calls this API from a browser detail hook.                                                      |
-| Shared server loader                        | Owns source selection and browse shaping. `loadSkillPage` resolves the requested Marketplace display name from the authenticated source list and shares `loadSkillDetail`. Results distinguish success, missing data, refusals, and upstream failures. |
+| Shared server loader                        | Owns source selection and browse shaping. `loadSkillPage` resolves the requested Marketplace display name from the authenticated source list and uses a private `loadSkillDetail` helper. Results distinguish success, missing data, refusals, and upstream failures. |
 | Server client                               | Calls skills-service through `SKILLS_SERVICE_URL`, forwarding the session's bearer token with a ten-second timeout. The browse request also combines the caller's abort signal.                                                                        |
 
-The detail UI, skeleton, retry, tests, and stories live in `frontend/src/app/(dashboard)/marketplace/[marketplaceSlug]/[skillSlug]/_components/`. Overview UI, context, hook, and shared loaders remain in their existing Marketplace directories.
+The detail UI, retry, component tests, and stories live in `frontend/src/app/(dashboard)/marketplace/[marketplaceSlug]/[skillSlug]/_components/`. The route's `page.tsx`, `page.test.tsx`, and `loading.tsx` sit alongside that directory. Overview UI, context, hook, and shared loaders remain in their existing Marketplace directories.
+
+The dedicated Server Component is the entry point for Skill details. The unused `GET /api/marketplace/skill` BFF and its URL builder were removed in the 2026-10-19 cleanup; `loadSkillDetail` is private to the server loader. Keeping that helper internal avoids maintaining an unused browser API alongside the server detail route.
 
 ### Backend types and identifiers
 
@@ -68,7 +71,11 @@ The detail UI, skeleton, retry, tests, and stories live in `frontend/src/app/(da
 
 A Marketplace's `marketplaceSlug` is its identity; its name is a label and need not be unique. The selected source and saved `marketplace.lastSelected` preference hold the slug. A Skill is addressed with both its Marketplace slug and opaque Skill slug. The Source panel obtains the Marketplace label from the authenticated list for that request.
 
-The backend list API returns at most 200 Skills per cursor batch, in Skill-slug order, and may include `nextCursor`. The current frontend requests only the first batch and sorts, slices, and counts that batch. It does not yet follow cursors, so page numbers and total do not cover a larger catalogue. Cursor integration remains a separate decision; this routing change does not resolve it.
+The backend list API returns at most 200 Skills per cursor batch, in Skill-slug order, and may include `nextCursor`. The server-only `fetchSkills` client follows every cursor for the selected Marketplace and search, using the same session token. The shared loader then sorts the complete matching list by name, counts it, and returns only the requested display page to the browser.
+
+For cursor integration, passing a cursor directly to each browser page was considered. The existing backend does not supply name sorting or a total count, so that option would change the current sort and numbered-page behavior. Following cursors on the Next.js server preserves that behavior without changing the backend contract. Each Skills load has one ten-second deadline covering all batches, also honors caller cancellation, and rejects repeated cursors. A later batch failure rejects the load instead of presenting a truncated list as complete.
+
+This choice reads and holds all matching summaries on the server for each browse request. Network work and server memory therefore grow with the matching catalogue; the browser still receives one display page. Supporting large catalogues with work proportional to one page requires a future backend contract with name sorting and counts.
 
 ### Preferences and request coordination
 
@@ -86,7 +93,7 @@ Each new browse request aborts its predecessor and receives a newer request ID. 
 
 Browse stories mock the browse BFF and preferences writes. Their sample Marketplace slugs are distinct from display labels, and card stories assert native detail links. Detail stories supply read-only Skill props directly; retry uses Storybook's mocked App Router.
 
-Vitest covers loaders, sessions and failure states, exact identifier forwarding, link encoding, browse request coordination, preferences, file contents, and retry transitions. Playwright exercises the actual Next.js overview/detail routes using a test-only HTTP skills-service fixture for server fetches and browser route mocks for later browse requests. No live Go backend, Postgres, Redis, or production fixture path is required.
+Vitest covers loaders, sessions and failure states, exact identifier forwarding, link encoding, browse request coordination, preferences, file contents, and retry transitions. Cursor tests cover catalogues above 200 Skills, global sorting and counts, page clamping, cancellation, the shared deadline, failed later batches, and repeated cursors. Playwright exercises the actual Next.js overview/detail routes using a test-only HTTP skills-service fixture for server fetches and browser route mocks for later browse requests. No live Go backend, Postgres, Redis, or production fixture path is required.
 
 The [accessibility and layout evidence](../../frontend/e2e/marketplace-accessibility.md) records browser checks and the remaining manual screen-reader work. Required frontend checks remain lint and TypeScript; the root quality gate is required before committing.
 
@@ -95,8 +102,10 @@ The [accessibility and layout evidence](../../frontend/e2e/marketplace-accessibi
 - Dedicated Skill URLs work independently of previously selected browse state and survive refresh.
 - Browse controls retain their request cancellation, retained-results, retry, and preference behavior.
 - Keeping server initial loads and browser browse updates requires shared validation and loading rules at both entry points.
+- Skill detail loading stays behind the server page and its private helper; the authenticated browse BFF remains the browser API for Marketplace updates.
 - Search/page/sort state is not shared through navigation URLs, and restoring an arbitrary prior browse view is not guaranteed by the detail return link.
-- Large-catalogue cursor handling, manual screen-reader evidence, and deployment wiring remain independent of the restored detail route.
+- Catalogue sorting, counts, and display pages cover every cursor batch. Server work grows with the matching result set and is bounded by the Skills-load deadline.
+- Manual screen-reader evidence and deployment wiring remain independent of the browse and detail routes.
 - This frontend change adds no source-management, Skill installation, agent assignment, backend authorization, or credential-brokering behavior.
 
 ## Decision history
@@ -109,6 +118,8 @@ The [accessibility and layout evidence](../../frontend/e2e/marketplace-accessibi
 | 2026-10-13 | Align frontend types and identifiers with skills-service instead of mapping the earlier draft package types.                           | Accepted. The real server client now calls skills-service rather than serving fixtures.            |
 | 2026-10-16 | Restore server-rendered Skill details and colocate their UI/loading/retry/stories/tests under `[...slug]`, following Agents.           | Accepted for this amendment. Further browse URL design is a separate step.                         |
 | 2026-10-16 | Replace the catch-all directory with `[marketplaceSlug]/[skillSlug]`, retaining the two-segment detail URL and colocated detail files. | Accepted named-parameter amendment, explicitly requested by the learner.                           |
+| 2026-10-19 | Remove the unused Skill-detail BFF and URL builder, keep the detail helper private, inline the route skeleton, and use dashboard-owned page spacing. | Implemented cleanup of the server-rendered detail architecture.                                    |
+| 2026-10-21 | Follow Skills cursors server-side before name sorting, counting, and slicing a display page. | Pagination correction with a shared deadline and cancellation; preserves the existing browser API. |
 
 ## Related decisions
 

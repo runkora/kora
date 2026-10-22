@@ -6,14 +6,6 @@ import { fetchMarketplaces, fetchSkillDetail, fetchSkills } from '@orbit/server/
 import { getPreferences } from '../../_preferences/preferences-server';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData, SkillSort } from '../_types';
 
-// The only module that calls the Marketplace client. The RSC pages and the
-// BFF route share it. Browsing currently uses the first cursor batch from
-// skills-service (at most 200 Skills), so this module sorts that batch by name,
-// cuts the page, and counts its total. Each function returns a discriminated union and never
-// throws, so that each caller can handle a failure in its own way:
-//   - RSC page: pass initialError to the shell
-//   - BFF route: return an HTTP status to the browser
-
 export type MarketplaceOverviewResult =
   | { ok: true; overview: MarketplaceOverviewData }
   | {
