@@ -125,7 +125,7 @@ spec:
 The operator marks an `MCPServer` `Invalid` when any of these rules fails:
 
 *   `spec.auth.headers` lists at most 8 headers.
-*   Each header `name` is an RFC 7230 token, and names are unique case-insensitively.
+*   Each header `name` uses only letters, digits and hyphens, and names are unique case-insensitively. These names are also valid in a Secret data key.
 *   A header `name` is not reserved. The reserved names are `Host`, `Content-Length`, `Content-Type`, `Accept`, `Transfer-Encoding`, `Connection`, `Keep-Alive`, `Proxy-Connection`, `Proxy-Authenticate`, `Proxy-Authorization`, `TE`, `Trailer`, `Upgrade`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`, `traceparent`, `tracestate`, `X-Orbit-Delegation-Token` (`mw.DelegationTokenHeader`), and any name starting with `X-Forwarded-` or `X-Envoy-`.
 *   A `prefix` contains no control character other than tab.
 *   `secretRef.name` is a valid Secret name, and `secretRef.key` is a valid Secret data key.
@@ -136,7 +136,7 @@ Tenant and global `MCPServer` CRs follow the same rules and the same path.
 
 ### 2. Operator aggregation
 
-*   `MCPServerAggregator` reads each referenced Secret from the CR's namespace and writes the value into the `orbit-mcp-server-secrets` Secret in the system namespace. The data key is derived from the namespace, the server name and the header's index. The operator creates the Secret on its first pass, empty or not.
+*   `MCPServerAggregator` reads each referenced Secret from the CR's namespace and writes the value into the `orbit-mcp-server-secrets` Secret in the system namespace. The data key is derived from the namespace, the server name and the lowercased header name. A reordered header list cannot send a value under another header. The operator creates the Secret on its first pass, empty or not.
 *   The operator trims one trailing newline from the value. An empty value, a value over 4 KiB, or one that still contains a control character other than tab, is treated as missing. A value in a Secret the operator manages, such as a copied registry pull secret, is treated as missing.
 *   The server's `servers.json` entry lists each header's name, prefix and data key. It never holds the value.
 *   When a Secret or key is missing, the entry keeps the header and the aggregated Secret omits the key. The `Aggregated` condition stays `True` with reason `CredentialUnavailable` and a message that cites the Secret and the key.
@@ -161,7 +161,8 @@ Tenant and global `MCPServer` CRs follow the same rules and the same path.
 *   An introspection that ends in 401 or 403 records the reason `auth_failed` with the status code and discards the upstream's response body.
 *   An introspection with an unavailable credential records the reason `credential_unavailable`. The failure log carries the reason as a field.
 *   A `tools/call` that ends in 401 or 403 logs `auth_failed` and the status code and discards the upstream's response body.
-*   Any other error status from an upstream that was sent credentials is recorded as `upstream_status` with the status code, and its body is discarded. Any other upstream error has the sent values redacted.
+*   Any other error status from an upstream that was sent credentials is recorded as `upstream_status` with the status code. Any other error from such an upstream is recorded as `upstream_error`. Neither carries upstream text.
+*   The gateway keeps the first auth failure and the first error status of each upstream session. A 405 on the MCP client's optional GET stream is not an error status.
 
 ### 4. ServiceEntries for external hosts
 
