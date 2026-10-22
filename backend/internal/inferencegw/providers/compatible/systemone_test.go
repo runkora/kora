@@ -164,16 +164,17 @@ func TestSystemOneUpstreamErrors(t *testing.T) {
 		wantCode      string
 		wantRetryable bool
 		wantMessage   string
+		wantRejected  bool
 	}{
-		{"422 keeps the message", 422, `{"error":{"message":"question q1: choice needs 2 options"}}`, "INVALID_REQUEST", false, "question q1: choice needs 2 options"},
-		{"400 detail", 400, `{"detail":"state is required"}`, "INVALID_REQUEST", false, "state is required"},
-		{"429 throttled", 429, `{"error":"slow down"}`, "THROTTLED", true, "slow down"},
-		{"529 overloaded", 529, `{"message":"overloaded"}`, "PROVIDER_ERROR", true, "overloaded"},
-		{"500", 500, `boom`, "PROVIDER_ERROR", true, "boom"},
-		{"503", 503, ``, "PROVIDER_ERROR", true, ""},
-		{"401 is the gateway's credential", 401, `{"error":{"message":"bad key"}}`, "PROVIDER_ERROR", false, "bad key"},
-		{"403 is the gateway's credential", 403, `{}`, "PROVIDER_ERROR", false, "{}"},
-		{"404", 404, `not found`, "PROVIDER_ERROR", false, "not found"},
+		{"422 keeps the message", 422, `{"error":{"message":"question q1: choice needs 2 options"}}`, "INVALID_REQUEST", false, "question q1: choice needs 2 options", true},
+		{"400 detail", 400, `{"detail":"state is required"}`, "INVALID_REQUEST", false, "state is required", true},
+		{"429 throttled", 429, `{"error":"slow down"}`, "THROTTLED", true, "slow down", false},
+		{"529 overloaded", 529, `{"message":"overloaded"}`, "PROVIDER_ERROR", true, "overloaded", false},
+		{"500", 500, `boom`, "PROVIDER_ERROR", true, "boom", false},
+		{"503", 503, ``, "PROVIDER_ERROR", true, "", false},
+		{"401 is the gateway's credential", 401, `{"error":{"message":"bad key"}}`, "PROVIDER_ERROR", false, "bad key", false},
+		{"403 is the gateway's credential", 403, `{}`, "PROVIDER_ERROR", false, "{}", false},
+		{"404", 404, `not found`, "PROVIDER_ERROR", false, "not found", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -184,8 +185,8 @@ func TestSystemOneUpstreamErrors(t *testing.T) {
 			if res != nil || !errors.As(err, &ce) {
 				t.Fatalf("res = %v, err = %v", res, err)
 			}
-			if ce.Code != tc.wantCode || ce.Retryable != tc.wantRetryable || ce.HTTPStatus != tc.status || ce.ProviderMessage != tc.wantMessage {
-				t.Errorf("error = %+v, want %s retryable=%v message %q", ce, tc.wantCode, tc.wantRetryable, tc.wantMessage)
+			if ce.Code != tc.wantCode || ce.Retryable != tc.wantRetryable || ce.HTTPStatus != tc.status || ce.ProviderMessage != tc.wantMessage || ce.RequestRejected != tc.wantRejected {
+				t.Errorf("error = %+v, want %s retryable=%v message %q rejected=%v", ce, tc.wantCode, tc.wantRetryable, tc.wantMessage, tc.wantRejected)
 			}
 			if ce.Provider != "compatible:ts" {
 				t.Errorf("provider = %q", ce.Provider)
