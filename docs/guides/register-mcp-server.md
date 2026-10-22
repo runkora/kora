@@ -136,6 +136,8 @@ kubectl describe mcpserver exa -n orbit-tenant-example
 
 An upstream that rejects the credential with 401 or 403 is logged by the tool-gateway with `reason: auth_failed`. The server keeps its previously introspected tools. Errors from a server that was sent credentials are logged by status code only, without the upstream's response text.
 
+For an endpoint outside the cluster the operator registers its host with the mesh in a ServiceEntry named `mcp-server-<host>` in `orbit-system`. The server then works on a mesh with `outboundTrafficPolicy: REGISTRY_ONLY` without a ServiceEntry of your own. The platform network policy admits the tool-gateway to external hosts on port 443 only. An endpoint on another port needs an entry in `networkPolicy.externalServices`.
+
 ## Reference
 
 See [mcp tool gateway](../architecture/mcp-tool-gateway.md) for how the tool-gateway introspects, scopes, and governs tools.

@@ -185,9 +185,15 @@ func providerServiceEntryName(p *ip.InferenceProvider) string {
 	return "inference-provider-" + p.Name
 }
 
-// providerServiceEntry registers the provider's hosts with the mesh. exportTo
-// "." keeps them visible to the system namespace only, where the gateway runs.
+// providerServiceEntry registers the provider's hosts with the mesh.
 func providerServiceEntry(p *ip.InferenceProvider, endpoints []providerEndpoint) *unstructured.Unstructured {
+	return externalServiceEntry(providerServiceEntryName(p), p.Namespace,
+		map[string]any{"app.kubernetes.io/managed-by": "orbit-operator"}, endpoints)
+}
+
+// externalServiceEntry registers external hosts with the mesh. exportTo "."
+// keeps them visible to the system namespace only, where the gateways run.
+func externalServiceEntry(name, namespace string, labels map[string]any, endpoints []providerEndpoint) *unstructured.Unstructured {
 	var hosts []string
 	type portKey struct {
 		number int
@@ -205,11 +211,11 @@ func providerServiceEntry(p *ip.InferenceProvider, endpoints []providerEndpoint)
 	}
 	ports := make([]any, 0, len(portKeys))
 	for _, k := range portKeys {
-		name, protocol := fmt.Sprintf("tls-%d", k.number), "TLS"
+		portName, protocol := fmt.Sprintf("tls-%d", k.number), "TLS"
 		if k.plain {
-			name, protocol = fmt.Sprintf("http-%d", k.number), "HTTP"
+			portName, protocol = fmt.Sprintf("http-%d", k.number), "HTTP"
 		}
-		ports = append(ports, map[string]any{"number": int64(k.number), "name": name, "protocol": protocol})
+		ports = append(ports, map[string]any{"number": int64(k.number), "name": portName, "protocol": protocol})
 	}
 	hostList := make([]any, 0, len(hosts))
 	for _, h := range hosts {
@@ -218,9 +224,9 @@ func providerServiceEntry(p *ip.InferenceProvider, endpoints []providerEndpoint)
 
 	se := &unstructured.Unstructured{Object: map[string]any{
 		"metadata": map[string]any{
-			"name":      providerServiceEntryName(p),
-			"namespace": p.Namespace,
-			"labels":    map[string]any{"app.kubernetes.io/managed-by": "orbit-operator"},
+			"name":      name,
+			"namespace": namespace,
+			"labels":    labels,
 		},
 		"spec": map[string]any{
 			"hosts":      hostList,

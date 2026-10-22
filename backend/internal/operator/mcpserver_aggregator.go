@@ -12,6 +12,8 @@
 //     metadata only.
 //   - Secret orbit-mcp-server-secrets — the values auth_headers refer to,
 //     copied from Secrets in each MCPServer's namespace (mcpserver_auth.go).
+//   - ServiceEntries mcp-server-<host> — one per external endpoint host
+//     (mcpserver_serviceentry.go).
 //
 // This mirrors connection_aggregator.go: the egress gateway already receives its
 // per-tenant connection registry this way, so MCP servers take the same path
@@ -141,6 +143,9 @@ func (a *MCPServerAggregator) Sync(ctx context.Context) error {
 	// not been given. A failed Secret write still lets the registry update.
 	secretErr := a.upsertMCPServerSecret(ctx, credentials)
 	if err := a.upsertConfigMap(ctx, entries); err != nil {
+		return err
+	}
+	if err := a.syncServiceEntries(ctx, entries); err != nil {
 		return err
 	}
 	return secretErr
