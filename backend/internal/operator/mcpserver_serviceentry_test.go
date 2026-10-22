@@ -32,10 +32,11 @@ func TestMCPServiceEntries(t *testing.T) {
 		mcpEntry("plain", "http://tools.example.com/mcp"),
 		mcpEntry("clash", "http://mcp.exa.ai:443/mcp"),
 		mcpEntry("provider", "https://openrouter.ai/mcp"),
-	}, map[string]bool{"openrouter.ai": true})
+		mcpEntry("svc-ns", "http://orbit-identity.Orbit-System:8080/mcp"),
+	}, map[string]bool{"openrouter.ai": true}, map[string]bool{"orbit-system": true, "orbit-tenant-acme": true})
 
-	if len(skipped) != 2 || skipped[0].Name != "clash" || skipped[1].Name != "provider" {
-		t.Errorf("skipped = %+v, want clash and provider", skipped)
+	if len(skipped) != 3 || skipped[0].Name != "clash" || skipped[1].Name != "provider" || skipped[2].Name != "svc-ns" {
+		t.Errorf("skipped = %+v, want clash, provider and svc-ns", skipped)
 	}
 	got := map[string]any{}
 	for _, se := range ses {

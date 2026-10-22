@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -30,7 +31,9 @@ const (
 // registered servers' endpoints. Endpoints it cannot register are skipped.
 // Hosts in taken belong to another operator-managed ServiceEntry. A second
 // entry for the same host could declare a clashing port protocol.
-func mcpServiceEntries(entries []mcpServerRegistryEntry, taken map[string]bool) ([]*unstructured.Unstructured, []mcpServerSkip) {
+// A host ending in a namespace name is a Service's <name>.<namespace> form.
+// Registering it as external would break mesh routing to that Service.
+func mcpServiceEntries(entries []mcpServerRegistryEntry, taken, namespaces map[string]bool) ([]*unstructured.Unstructured, []mcpServerSkip) {
 	byHost := map[string][]providerEndpoint{}
 	var skipped []mcpServerSkip
 	for _, e := range entries {
@@ -42,6 +45,10 @@ func mcpServiceEntries(entries []mcpServerRegistryEntry, taken map[string]bool) 
 		for _, ep := range eps {
 			if taken[ep.host] {
 				skipped = append(skipped, mcpServerSkip{e.Name, e.namespace, ep.host + " is registered by another ServiceEntry"})
+				continue
+			}
+			if namespaces[ep.host[strings.LastIndexByte(ep.host, '.')+1:]] {
+				skipped = append(skipped, mcpServerSkip{e.Name, e.namespace, ep.host + " ends in a namespace name"})
 				continue
 			}
 			have := byHost[ep.host]
@@ -83,7 +90,15 @@ func (a *MCPServerAggregator) syncServiceEntries(ctx context.Context, entries []
 	if err != nil {
 		return err
 	}
-	desired, skipped := mcpServiceEntries(entries, taken)
+	nsList := &corev1.NamespaceList{}
+	if err := a.client.List(ctx, nsList); err != nil {
+		return fmt.Errorf("list namespaces: %w", err)
+	}
+	namespaces := make(map[string]bool, len(nsList.Items))
+	for _, ns := range nsList.Items {
+		namespaces[ns.Name] = true
+	}
+	desired, skipped := mcpServiceEntries(entries, taken, namespaces)
 	for _, s := range skipped {
 		a.logger.Warn(ctx, "MCP server host not registered with the mesh",
 			logging.Field{Key: "mcpserver", Value: s.Name},
