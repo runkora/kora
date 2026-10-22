@@ -290,6 +290,30 @@ func TestHandleSystemOne_FailoverFromRefusingRoute(t *testing.T) {
 	}
 }
 
+func TestHandleSystemOne_RequestRejectedStopsFailover(t *testing.T) {
+	t.Parallel()
+	rejecting := &systemOneStub{err: &ConnectorError{Provider: "typesafe", Code: "INVALID_REQUEST", HTTPStatus: 400,
+		RequestRejected: true, Underlying: errors.New("bad state"), ProviderMessage: "bad state"}}
+	next := &systemOneStub{result: &SystemOneResult{Body: []byte(upstreamBody)}}
+	env := newSystemOneEnv(t, allow(),
+		map[ProviderName]ProviderConnector{"typesafe": rejecting, "other": next},
+		decisionModel(
+			VirtualModelRoute{Provider: "typesafe", ModelID: "jev-latest"},
+			VirtualModelRoute{Provider: "other", ModelID: "jev-latest"},
+		), nil)
+
+	rec := env.post(systemOneBody)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "bad state") {
+		t.Fatalf("got %d %s, want 400 with the upstream message", rec.Code, rec.Body)
+	}
+	if len(rejecting.calls) != 1 {
+		t.Errorf("rejecting route calls = %d, want 1", len(rejecting.calls))
+	}
+	if len(next.calls) != 0 {
+		t.Errorf("next route calls = %d, want 0 after a rejected request", len(next.calls))
+	}
+}
+
 func TestHandleSystemOne_Envelope(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
