@@ -127,7 +127,7 @@ The operator marks an `MCPServer` `Invalid` when any of these rules fails:
 *   Each header `name` is an RFC 7230 token, and names are unique case-insensitively.
 *   A header `name` is not reserved. The reserved names are `Host`, `Content-Length`, `Content-Type`, `Accept`, `Transfer-Encoding`, `Connection`, `Keep-Alive`, `Proxy-Connection`, `Proxy-Authenticate`, `Proxy-Authorization`, `TE`, `Trailer`, `Upgrade`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`, `traceparent`, `tracestate`, `X-Orbit-Delegation-Token` (`mw.DelegationTokenHeader`), and any name starting with `X-Forwarded-` or `X-Envoy-`.
 *   A `prefix` contains no control character other than tab.
-*   `secretRef.name` and `secretRef.key` are set.
+*   `secretRef.name` is a valid Secret name, and `secretRef.key` is a valid Secret data key.
 *   `spec.auth` and `callerIdentity: forward` are not both set. Both would set `Authorization`.
 *   `spec.endpoint` parses as a URL with no userinfo and no query string.
 
@@ -136,7 +136,7 @@ Tenant and global `MCPServer` CRs follow the same rules and the same path.
 ### 2. Operator aggregation
 
 *   `MCPServerAggregator` reads each referenced Secret from the CR's namespace and writes the value into the `orbit-mcp-server-secrets` Secret in the system namespace. The data key is derived from the namespace, the server name and the header's index. The operator creates the Secret on its first pass, empty or not.
-*   The operator trims one trailing newline from the value. An empty value, or one that still contains a control character other than tab, is treated as missing.
+*   The operator trims one trailing newline from the value. An empty value, a value over 8 KiB, or one that still contains a control character other than tab, is treated as missing. A value in a Secret the operator manages, such as a copied registry pull secret, is treated as missing.
 *   The server's `servers.json` entry lists each header's name, prefix and data key. It never holds the value.
 *   When a Secret or key is missing, the entry keeps the header and the aggregated Secret omits the key. The `Aggregated` condition stays `True` with reason `CredentialUnavailable` and a message that cites the Secret and the key.
 *   Rotation takes up to one operator pass plus the kubelet's Secret projection delay. No gateway pod restarts.
@@ -160,10 +160,13 @@ Tenant and global `MCPServer` CRs follow the same rules and the same path.
 *   An introspection that ends in 401 or 403 records the reason `auth_failed` with the status code and discards the upstream's response body.
 *   An introspection with an unavailable credential records the reason `credential_unavailable`. The failure log carries the reason as a field.
 *   A `tools/call` that ends in 401 or 403 logs `auth_failed` and the status code and discards the upstream's response body.
+*   Any other error status from an upstream that was sent credentials is recorded as `upstream_status` with the status code, and its body is discarded. Any other upstream error has the sent values redacted.
 
 ### 4. ServiceEntries for external hosts
 
-*   The aggregator renders one ServiceEntry for each distinct host among valid `MCPServer` endpoints, named `mcp-server-<host>`, in the system namespace. In-mesh hosts and IP addresses are skipped by the rule the InferenceProvider ServiceEntries use.
+*   The aggregator renders one ServiceEntry for each distinct host among valid `MCPServer` endpoints, named `mcp-server-<host>`, in the system namespace. Hosts are lowercased and stripped of a trailing dot first. In-mesh hosts and IP addresses are skipped by the rule the InferenceProvider ServiceEntries use.
+*   A host whose last label is the name of a namespace in the cluster is skipped. It is a Service's `<name>.<namespace>` form.
+*   A host that another operator-managed ServiceEntry registers is skipped. Two entries for one host could declare clashing port protocols.
 *   Each ServiceEntry has `location: MESH_EXTERNAL`, `resolution: DNS`, `exportTo: ["."]`, the ports of every endpoint on that host, and the label `orbit.io/component: mcp-server-host`.
 *   On each pass the aggregator deletes labelled ServiceEntries whose host no valid `MCPServer` uses.
 
