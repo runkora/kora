@@ -48,19 +48,19 @@ func (p *Proxy) CallTool(ctx context.Context, srv Server, toolName string, args 
 	if err != nil {
 		return nil, fmt.Errorf("upstream credentials for %q: %w", srv.Name, err)
 	}
-	httpClient := upstreamClient(0, "orbit.toolgateway-proxy", headers)
+	httpClient, upstream := upstreamClient(0, "orbit.toolgateway-proxy", headers)
 
 	client := sdk.NewClient(&sdk.Implementation{Name: proxyClientName, Version: p.version}, nil)
 	transport := &sdk.StreamableClientTransport{Endpoint: srv.Endpoint, HTTPClient: httpClient}
 	session, err := client.Connect(cctx, transport, nil)
 	if err != nil {
-		return nil, fmt.Errorf("connect upstream %q: %w", srv.Name, err)
+		return nil, upstream.upstreamError(fmt.Errorf("connect upstream %q: %w", srv.Name, err))
 	}
 	defer func() {
 		if cerr := session.Close(); cerr != nil {
 			p.logger.Debug(ctx, "closing upstream proxy session",
 				logging.Field{Key: "server", Value: srv.Name},
-				logging.Field{Key: "error", Value: cerr.Error()})
+				logging.Field{Key: "error", Value: upstream.upstreamError(cerr).Error()})
 		}
 	}()
 
@@ -73,7 +73,7 @@ func (p *Proxy) CallTool(ctx context.Context, srv Server, toolName string, args 
 
 	res, err := session.CallTool(cctx, &sdk.CallToolParams{Name: toolName, Arguments: arguments})
 	if err != nil {
-		return nil, fmt.Errorf("upstream tools/call %q: %w", toolName, err)
+		return nil, upstream.upstreamError(fmt.Errorf("upstream tools/call %q: %w", toolName, err))
 	}
 	return res, nil
 }

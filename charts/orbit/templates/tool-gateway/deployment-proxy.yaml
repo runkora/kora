@@ -39,6 +39,10 @@ spec:
           configMap:
             name: {{ .Values.toolGateway.mcpServersConfigMapName }}
             optional: true
+        - name: mcp-server-secrets
+          secret:
+            secretName: {{ .Values.toolGateway.mcpServerSecretsName }}
+            optional: true
         {{- include "orbit.redisCAVolume" . | nindent 8 }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "toolGateway") | nindent 8 }}
       containers:
@@ -82,5 +86,8 @@ spec:
             {{- include "orbit.redisCAVolumeMount" . | nindent 12 }}
             - name: mcp-servers
               mountPath: /var/run/orbit/mcp-servers
+              readOnly: true
+            - name: mcp-server-secrets
+              mountPath: /var/run/orbit/mcp-server-secrets
               readOnly: true
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "toolGateway") | nindent 12 }}

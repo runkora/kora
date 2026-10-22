@@ -101,7 +101,7 @@ func realMain() error {
 
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 	// Both modes build upstream requests from the same credential lookup.
-	creds := toolgateway.NewUpstreamCredentials()
+	creds := toolgateway.NewUpstreamCredentials(tgc.Current.Registry.SecretsDir)
 	controllers := []platformapi.Controller{toolgateway.NewCatalogController(catalogRepo, registry, verifier, logger)}
 
 	if proxyMode {

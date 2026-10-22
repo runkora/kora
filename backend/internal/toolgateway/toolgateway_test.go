@@ -73,7 +73,7 @@ func TestLoadServers(t *testing.T) {
 // server defers the prune.
 func TestAllSeenOrRetained(t *testing.T) {
 	ctx := context.Background()
-	i := NewIntrospector(NewUpstreamCredentials(), "test", testLogger())
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 
 	ok := Server{TenantID: "", Name: "ok"}
 	degRetained := Server{TenantID: "", Name: "deg-retained"}

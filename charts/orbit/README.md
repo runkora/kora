@@ -483,6 +483,7 @@ Kubernetes: `>=1.34.0-0`
 | toolGateway.image.registry | string | `""` |  |
 | toolGateway.image.repository | string | `"orbit-tool-gateway"` |  |
 | toolGateway.image.tag | string | `""` |  |
+| toolGateway.mcpServerSecretsName | string | `"orbit-mcp-server-secrets"` |  |
 | toolGateway.mcpServersConfigMapName | string | `"orbit-mcp-servers"` |  |
 | toolGateway.nodeSelector | object | `{}` |  |
 | toolGateway.podAnnotations | object | `{}` |  |

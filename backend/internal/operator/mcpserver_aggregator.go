@@ -8,7 +8,10 @@
 //
 //   - ConfigMap orbit-mcp-servers — one data key, servers.json, a JSON array of
 //     registry entries (tenant_id, name, endpoint, transport,
-//     reintrospect_interval_seconds, caller_identity). Non-secret metadata only.
+//     reintrospect_interval_seconds, caller_identity, auth_headers). Non-secret
+//     metadata only.
+//   - Secret orbit-mcp-server-secrets — the values auth_headers refer to,
+//     copied from Secrets in each MCPServer's namespace (mcpserver_auth.go).
 //
 // This mirrors connection_aggregator.go: the egress gateway already receives its
 // per-tenant connection registry this way, so MCP servers take the same path
@@ -84,6 +87,19 @@ type mcpServerRegistryEntry struct {
 	Transport                   string `json:"transport"`
 	ReintrospectIntervalSeconds int    `json:"reintrospect_interval_seconds"`
 	CallerIdentity              string `json:"caller_identity"`
+	// AuthHeaders reference values in the orbit-mcp-server-secrets Secret.
+	AuthHeaders []mcpAuthHeaderEntry `json:"auth_headers,omitempty"`
+
+	namespace string
+	auth      *MCPServerAuth
+}
+
+// mcpAuthHeaderEntry is one credential header in servers.json. It never holds
+// the value.
+type mcpAuthHeaderEntry struct {
+	Name      string `json:"name"`
+	Prefix    string `json:"prefix,omitempty"`
+	SecretKey string `json:"secret_key"`
 }
 
 // MCPServerAggregator reads every MCPServer CR across all namespaces and renders
@@ -117,7 +133,45 @@ func (a *MCPServerAggregator) Sync(ctx context.Context) error {
 		return fmt.Errorf("collect MCP servers: %w", err)
 	}
 
-	return a.upsertConfigMap(ctx, entries)
+	credentials, err := a.collectCredentials(ctx, entries)
+	if err != nil {
+		return fmt.Errorf("collect MCP server credentials: %w", err)
+	}
+	// The Secret goes first, so the registry rarely names a key the gateway has
+	// not been given. A failed Secret write still lets the registry update.
+	secretErr := a.upsertMCPServerSecret(ctx, credentials)
+	if err := a.upsertConfigMap(ctx, entries); err != nil {
+		return err
+	}
+	return secretErr
+}
+
+// collectCredentials reads every registered server's credential values. An
+// unavailable value is left out and logged. The server stays registered and
+// the gateway fails its calls closed.
+func (a *MCPServerAggregator) collectCredentials(ctx context.Context, entries []mcpServerRegistryEntry) (map[string][]byte, error) {
+	data := make(map[string][]byte)
+	for _, e := range entries {
+		if e.auth == nil {
+			continue
+		}
+		for i, h := range e.auth.Headers {
+			v, err := readMCPCredential(ctx, a.client, e.namespace, h.SecretRef)
+			if errors.Is(err, ErrMCPCredentialUnavailable) {
+				a.logger.Warn(ctx, "MCPServer credential unavailable",
+					logging.Field{Key: "mcpserver", Value: e.Name},
+					logging.Field{Key: "namespace", Value: e.namespace},
+					logging.Field{Key: "reason", Value: err.Error()},
+				)
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			data[e.AuthHeaders[i].SecretKey] = v
+		}
+	}
+	return data, nil
 }
 
 // activeTenantNamespaces builds a namespace -> tenant_id map for active tenants
@@ -198,6 +252,9 @@ func buildMCPRegistry(servers []MCPServer, nsToTenant map[string]string) ([]mcpS
 			Transport:                   effectiveTransport(srv.Spec.Transport),
 			ReintrospectIntervalSeconds: srv.Spec.ReintrospectIntervalSeconds,
 			CallerIdentity:              effectiveCallerIdentity(srv.Spec.CallerIdentity),
+			AuthHeaders:                 authHeaderEntries(srv),
+			namespace:                   srv.Namespace,
+			auth:                        srv.Spec.Auth,
 		})
 	}
 
@@ -210,6 +267,18 @@ func buildMCPRegistry(servers []MCPServer, nsToTenant map[string]string) ([]mcpS
 		return entries[i].Name < entries[j].Name
 	})
 	return entries, skipped
+}
+
+// authHeaderEntries lists srv's credential headers for servers.json.
+func authHeaderEntries(srv *MCPServer) []mcpAuthHeaderEntry {
+	if srv.Spec.Auth == nil {
+		return nil
+	}
+	out := make([]mcpAuthHeaderEntry, 0, len(srv.Spec.Auth.Headers))
+	for _, h := range srv.Spec.Auth.Headers {
+		out = append(out, mcpAuthHeaderEntry{Name: h.Name, Prefix: h.Prefix, SecretKey: mcpSecretKey(srv.Namespace, srv.Name, h.Name)})
+	}
+	return out
 }
 
 // resolveTenantID returns the tenant_id for an MCPServer namespace: "" for the
@@ -250,7 +319,7 @@ func validateMCPServerSpec(spec MCPServerSpec, name, namespace string) error {
 	if spec.Workload != nil && len(spec.Workload.Selector) == 0 {
 		return ErrMCPServerNoWorkloadSelector
 	}
-	return nil
+	return validateMCPServerAuth(spec)
 }
 
 // effectiveTransport defaults an empty transport to streamable-http.

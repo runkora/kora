@@ -15,6 +15,7 @@ package toolgateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -303,8 +304,13 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 		c.logger.Error(ctx, "upstream tools/call failed",
 			logging.Field{Key: "server", Value: server},
 			logging.Field{Key: "tool", Value: tool},
+			logging.Field{Key: "reason", Value: failureReason(err)},
 			logging.Field{Key: "error", Value: err.Error()})
-		c.writeRPCError(ctx, w, req.ID, -32603, "upstream call failed")
+		msg := "upstream call failed"
+		if errors.Is(err, ErrCredentialUnavailable) {
+			msg = "upstream credential unavailable"
+		}
+		c.writeRPCError(ctx, w, req.ID, -32603, msg)
 		return
 	}
 	c.writeRPCResult(ctx, w, req.ID, result)

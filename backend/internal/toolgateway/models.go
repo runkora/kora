@@ -30,6 +30,17 @@ type Server struct {
 	Transport                   string `json:"transport"`
 	ReintrospectIntervalSeconds int    `json:"reintrospect_interval_seconds"`
 	CallerIdentity              string `json:"caller_identity"`
+	// AuthHeaders are static credential headers whose values are files in the
+	// mounted orbit-mcp-server-secrets Secret.
+	AuthHeaders []AuthHeader `json:"auth_headers,omitempty"`
+}
+
+// AuthHeader is one credential header: Name set to Prefix followed by the
+// value stored under SecretKey.
+type AuthHeader struct {
+	Name      string `json:"name"`
+	Prefix    string `json:"prefix,omitempty"`
+	SecretKey string `json:"secret_key"`
 }
 
 // Tool is one tool discovered on a server via tools/list. InputSchema is the

@@ -63,6 +63,9 @@ type Config struct {
 		// The gateway parses it into the server registry and hot-reloads on
 		// change. Absent/empty means no servers until the operator renders it.
 		ServersPath string `yaml:"serversPath"`
+		// SecretsDir is the mounted orbit-mcp-server-secrets Secret holding
+		// the values of servers' auth headers, one file per key.
+		SecretsDir string `yaml:"secretsDir"`
 	} `yaml:"registry"`
 
 	Introspection struct {
