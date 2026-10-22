@@ -224,10 +224,9 @@ func upsertSynced(ctx context.Context, tx pgx.Tx, entries []ModelPriceEntry) err
 // reads as freshly synced.
 //
 // A regional inference profile's row must end up with both an input and an
-// output price (ErrIncompleteOverride otherwise), whether it is new or an
-// override-only row left empty by a clear. Such a row shadows the base model's
-// row, so an unset price would bill as zero instead of falling back to the base
-// price.
+// output price (ErrIncompleteOverride otherwise). Such a row shadows the base
+// model's row, so an unset price would bill as zero instead of falling back to
+// the base price.
 func (r *PostgresPricingCatalogRepository) SetOverride(ctx context.Context, provider ProviderName, modelID string, input, output, cacheRead, cacheWrite *float64) error {
 	if (input == nil || output == nil) && hasRegionPrefix(provider, modelID) {
 		var priced bool
@@ -280,8 +279,21 @@ func (r *PostgresPricingCatalogRepository) SetOverride(ctx context.Context, prov
 }
 
 // ClearOverride sets all four override columns to NULL, reverting the model to
-// synced prices.
+// synced prices. An override-only row (never synced, last_synced_at at the
+// epoch) has no price left once cleared, so it is deleted instead: an empty row
+// would otherwise shadow the prices the route falls back to.
 func (r *PostgresPricingCatalogRepository) ClearOverride(ctx context.Context, provider ProviderName, modelID string) error {
+	const deleteOverrideOnly = `
+		DELETE FROM model_pricing
+		WHERE provider = $1 AND model_id = $2 AND last_synced_at = 'epoch'`
+	deleted, err := r.pool.Exec(ctx, deleteOverrideOnly, string(provider), modelID)
+	if err != nil {
+		return fmt.Errorf("pricing catalog clear override (%s/%s): %w", provider, modelID, err)
+	}
+	if deleted.RowsAffected() > 0 {
+		return nil
+	}
+
 	const q = `
 		UPDATE model_pricing SET
 			override_input_cost_per_1m       = NULL,

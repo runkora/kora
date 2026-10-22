@@ -98,16 +98,44 @@ func TestPostgres_SetOverrideRegionalRowNeedsInputAndOutput(t *testing.T) {
 		t.Errorf("partial override of a base row: %v", err)
 	}
 
-	// Clearing leaves the override-only row behind with no price at all, so a
-	// partial update must be refused again, until both prices are set.
+	// Clearing an override-only row deletes it: with no price left it would only
+	// shadow the prices the route falls back to. A partial update is then
+	// refused again, as for any new regional row.
 	if err := repo.ClearOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5"); err != nil {
 		t.Fatalf("clear override: %v", err)
 	}
+	if err := repo.ClearOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5"); !errors.Is(err, ErrModelPricingNotFound) {
+		t.Errorf("second clear of a deleted override-only row: err = %v, want ErrModelPricingNotFound", err)
+	}
 	if err := repo.SetOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5", &in, nil, nil, nil); !errors.Is(err, ErrIncompleteOverride) {
-		t.Errorf("input-only override of a cleared override-only row: err = %v, want ErrIncompleteOverride", err)
+		t.Errorf("input-only override after the row was deleted: err = %v, want ErrIncompleteOverride", err)
 	}
 	if err := repo.SetOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5", &in, &out, nil, nil); err != nil {
-		t.Errorf("input and output on a cleared override-only row: %v", err)
+		t.Errorf("input and output after the row was deleted: %v", err)
+	}
+
+	// A synced row keeps its synced prices when its override is cleared.
+	if err := repo.UpsertSynced(ctx, []ModelPriceEntry{{Provider: bedrock, ModelID: "ap.anthropic.claude-haiku-4-5", InputCostPer1M: 1.1, OutputCostPer1M: 5.5}}); err != nil {
+		t.Fatalf("upsert synced: %v", err)
+	}
+	if err := repo.SetOverride(ctx, bedrock, "ap.anthropic.claude-haiku-4-5", &in, nil, nil, nil); err != nil {
+		t.Fatalf("partial override of a synced regional row: %v", err)
+	}
+	if err := repo.ClearOverride(ctx, bedrock, "ap.anthropic.claude-haiku-4-5"); err != nil {
+		t.Fatalf("clear override of a synced row: %v", err)
+	}
+	entries, err := repo.LoadAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept *PricingCatalogEntry
+	for i := range entries {
+		if entries[i].Provider == bedrock && entries[i].ModelID == "ap.anthropic.claude-haiku-4-5" {
+			kept = &entries[i]
+		}
+	}
+	if kept == nil || kept.SyncedInput != 1.1 || kept.HasOverride() {
+		t.Errorf("synced row after clear = %+v, want it kept with synced input 1.1 and no override", kept)
 	}
 
 	// An explicit 0 is a price: a row overridden to free is complete.
