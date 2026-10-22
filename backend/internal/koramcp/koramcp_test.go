@@ -725,12 +725,12 @@ func TestPolicyWriteToolsForwardMethodAndPath(t *testing.T) {
 
 	t.Run("grants.create POSTs to /grants", func(t *testing.T) {
 		call("tools/call", map[string]any{"name": "policy.grants.create", "arguments": map[string]any{
-			"principal_type": "AGENT", "principal_id": "spiffe://x", "scopes": []any{"inference:invoke"},
+			"principal_type": "HUMAN", "principal_id": "user-1", "scopes": []any{"inference:invoke"},
 		}})
 		if gotMethod != http.MethodPost || gotPath != "/api/v1/policy/grants" {
 			t.Errorf("grants.create hit %s %s", gotMethod, gotPath)
 		}
-		if gotBody["principal_type"] != "AGENT" {
+		if gotBody["principal_type"] != "HUMAN" {
 			t.Errorf("principal_type not forwarded: %v", gotBody)
 		}
 	})
@@ -744,6 +744,43 @@ func TestPolicyWriteToolsForwardMethodAndPath(t *testing.T) {
 		if !strings.Contains(text, "enum") {
 			t.Errorf("expected an enum validation error for principal_type=ROOT, got %q", text)
 		}
+	})
+
+	t.Run("grants.create refuses AGENT, SERVICE and PAT via the enum", func(t *testing.T) {
+		for _, pt := range []string{"AGENT", "SERVICE", "PAT"} {
+			got := call("tools/call", map[string]any{"name": "policy.grants.create", "arguments": map[string]any{
+				"principal_type": pt, "principal_id": "x", "scopes": []any{"inference:invoke"},
+			}})
+			res, _ := got["result"].(map[string]any)
+			text, _ := res["content"].([]any)[0].(map[string]any)["text"].(string)
+			if !strings.Contains(text, "enum") {
+				t.Errorf("principal_type=%s: expected an enum validation error, got %q", pt, text)
+			}
+		}
+	})
+
+	t.Run("grants.create principal_type enum is exactly HUMAN", func(t *testing.T) {
+		if len(humanPrincipalTypes) != 1 || humanPrincipalTypes[0] != "HUMAN" {
+			t.Errorf("humanPrincipalTypes = %v, want [HUMAN]", humanPrincipalTypes)
+		}
+		got := call("tools/list", map[string]any{})
+		res, _ := got["result"].(map[string]any)
+		tools, _ := res["tools"].([]any)
+		for _, raw := range tools {
+			tool, _ := raw.(map[string]any)
+			if tool["name"] != "policy.grants.create" {
+				continue
+			}
+			schema, _ := tool["inputSchema"].(map[string]any)
+			props, _ := schema["properties"].(map[string]any)
+			pt, _ := props["principal_type"].(map[string]any)
+			enum, _ := pt["enum"].([]any)
+			if len(enum) != 1 || enum[0] != "HUMAN" {
+				t.Errorf("policy.grants.create principal_type enum = %v, want [HUMAN]", enum)
+			}
+			return
+		}
+		t.Error("policy.grants.create not listed")
 	})
 
 	t.Run("roles.upsert PUTs to /roles", func(t *testing.T) {

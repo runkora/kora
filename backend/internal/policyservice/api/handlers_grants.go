@@ -38,6 +38,12 @@ func (c *Controller) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Only a SYSTEM caller writes a non-HUMAN grant (2026-10-22 amendment to the
+	// policy administration dashboard ADR).
+	if c.refuseNonHumanGrantWrite(ctx, w, claims, grants.PrincipalType(req.PrincipalType)) {
+		return
+	}
+
 	tenantID, ok := c.resolveTenantID(w, r, claims, req.TenantID)
 	if !ok {
 		return
@@ -159,6 +165,11 @@ func (c *Controller) handleUpdateGrantBudget(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Checks the stored type, after the tenant 404, so a foreign grant still reads as not found.
+	if c.refuseNonHumanGrantWrite(ctx, w, claims, g.PrincipalType) {
+		return
+	}
+
 	updated, err := c.svc.UpdateGrantBudget(ctx, g.ID, g.TenantID, budget)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, grantErrorResponse(err), err)
@@ -189,6 +200,11 @@ func (c *Controller) handleDeleteGrant(w http.ResponseWriter, r *http.Request) {
 	if claims.Kora.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Kora.TenantID {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.NotFoundError(platformapi.ErrCodeResourceNotFound, "grant not found", nil), nil)
+		return
+	}
+
+	// Checks the stored type, after the tenant 404, so a foreign grant still reads as not found.
+	if c.refuseNonHumanGrantWrite(ctx, w, claims, g.PrincipalType) {
 		return
 	}
 

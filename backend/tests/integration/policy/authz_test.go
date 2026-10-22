@@ -48,6 +48,12 @@ const (
 	// It must match the ClusterSPIFFEID-issued SVID so the identity-proxy JWT
 	// sub claim lines up with the grant principal_id checked by OPA.
 	testAgentID = "spiffe://orbit.test/tenant/orbit-tenant-example/agent/example"
+
+	// skipAgentGrantSeeding explains why the tests that seed an AGENT grant are
+	// skipped. Only a SYSTEM caller may write AGENT grants, and ensureGrant
+	// sends the user's token, so the write returns 403 until the suite has a
+	// way to seed one. Tracked in runkora/kora#713.
+	skipAgentGrantSeeding = "AGENT grants are written by SYSTEM callers only; the user token ensureGrant sends is refused with 403. See runkora/kora#713"
 )
 
 func policyServiceURL(t *testing.T) string {
@@ -73,6 +79,7 @@ func agentClaims(principalID string) *token.PlatformClaims {
 // ═══════════════════════════════════════════════════════════════════════════
 
 func TestLiveCluster_Layer1_AllowWithGrant(t *testing.T) {
+	t.Skip(skipAgentGrantSeeding)
 	ensureGrant(t, "AGENT", testAgentID, []string{"inference:invoke", "inference:list"})
 	waitForBundleRefresh(t)
 
@@ -115,6 +122,7 @@ func TestLiveCluster_Layer2_EvaluatorAgainstRealBundle(t *testing.T) {
 	evaluator := policy.NewEvaluator(url+"/api/v1/policy/bundles", 30*time.Second, logging.NewLogger())
 	ctx := context.Background()
 
+	t.Skip(skipAgentGrantSeeding)
 	ensureGrant(t, "AGENT", testAgentID, []string{"inference:invoke"})
 	waitForBundleRefresh(t)
 

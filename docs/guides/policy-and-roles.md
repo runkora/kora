@@ -28,7 +28,7 @@ A grant or role write returns `warnings` for scopes that do nothing without a co
 
 ## Grants and Roles
 
-*   **Grant:** A grant gives one principal (`AGENT`, `HUMAN`, or `SERVICE`) a set of scopes. Agents, PATs, and service accounts get access only through grants.
+*   **Grant:** A grant gives one principal (`AGENT`, `HUMAN`, `SERVICE`, or `PAT`) a set of scopes. Agents, PATs, and service accounts get access only through grants. Admins write grants for `HUMAN` principals; the platform services that own the other identities write theirs (see [Managing Grants](#managing-grants)).
 *   **Role:** A role maps a role name to a set of scopes. Roles reach `HUMAN` principals only.
 
 A role name matches an IdP role or group of the same name literally. Your identity provider decides who holds a role. Adding a person to the `kora-user` group in the IdP gives them the `kora-user` scopes with no policy change.
@@ -53,7 +53,7 @@ kora ships six reserved roles. Built-in roles cannot be created, edited, or dele
 | `kora-user` | `inference:invoke`, `agents:runs:delegated:write`, `mcp:invoke` | Start runs of any delegated agent, and message and stop their own. Each run acts with the person's own access and can reach the MCP tool gateway. |
 | `kora-builder` | `agents:types:delegated:write` | Create and change delegated agents. |
 | `kora-operator` | `agents:types:autonomous:write`, `egress:connect`, `triggers:write`, `trigger:fire`, `agents:usage:read`, `platform:analytics:read`, `platform:budgets:read`, `identity:users:read` | Create autonomous agents within their own access, run them, and put triggers on them. Give those agents general internet access. Fire triggers. Read every agent's usage, tenant analytics, budgets, and the user directory. |
-| `kora-finops` | `platform:analytics:read`, `agents:usage:read`, `platform:budgets:read`, `platform:budgets:write`, `platform:roles:read`, `platform:grants:read`, `identity:users:read`, `agents:types:read`, `inference:list` | See tenant spend and every agent's usage, and set role, grant and tenant budgets. |
+| `kora-finops` | `platform:analytics:read`, `agents:usage:read`, `platform:budgets:read`, `platform:budgets:write`, `platform:roles:read`, `platform:grants:read`, `identity:users:read`, `agents:types:read`, `inference:list` | See tenant spend and every agent's usage, and set role, tenant, and human grant budgets. |
 | `platform-admin` | Every scope in the vocabulary | Administer the tenant: grants, roles, budgets, the model catalog, every agent and run. |
 
 Listing connections needs `platform:connections:read`. The built-in roles carry no model, connection, or MCP tool scopes. Add a tenant role for each model family a group may use (e.g. `inference:anthropic:use`) and for the connections and tools they may act through. A `kora-user` with no model scope cannot run a model.
@@ -182,11 +182,13 @@ Creating and deleting grants needs `platform:grants:write`, and a caller can onl
 POST /api/v1/policy/grants
 
 {
-  "principal_type": "AGENT",
-  "principal_id":   "agent-abc123",
+  "principal_type": "HUMAN",
+  "principal_id":   "user-abc123",
   "scopes":         ["mcp:jira:create_issue:use"]
 }
 ```
+
+Only a SYSTEM caller may create, delete, or set the budget of a grant whose `principal_type` is `AGENT`, `SERVICE`, or `PAT`. Any other caller, tenant admins included, gets 403. The platform services that own those identities (orbit-agents, orbit-triggers, identity) write them as SYSTEM. Reads are unaffected.
 
 Grants accept vocabulary scopes, egress host scopes, repository-qualified connection scopes, and `trigger:<trigger-id>:fire`.
 

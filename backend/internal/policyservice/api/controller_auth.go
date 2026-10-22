@@ -8,6 +8,7 @@ import (
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
 )
 
 // claimsFromContext retrieves the verified platform claims stored by AuthMiddleware.
@@ -124,5 +125,24 @@ func (c *Controller) refuseDelegated(ctx context.Context, w http.ResponseWriter)
 	platformapi.ErrorResponse(ctx, w, c.logger,
 		platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
 			"a delegated run cannot change policy", nil), nil)
+	return true
+}
+
+// refuseNonHumanGrantWrite writes 403 when a caller that is not SYSTEM writes
+// (creates, deletes or sets the budget of) a grant whose principal type is not
+// HUMAN. AGENT, SERVICE and PAT grants belong to the platform components that
+// own those identities (orbit-agents, orbit-triggers, identity), which present
+// SYSTEM; a tenant admin or a SERVICE principal is refused. Returns true when
+// it refused and has written the response.
+//
+// It fails closed: an unrecognized principal type from a non-SYSTEM caller gets
+// 403 as well, not 400, so the check never depends on the type being valid.
+func (c *Controller) refuseNonHumanGrantWrite(ctx context.Context, w http.ResponseWriter, claims *token.PlatformClaims, pt grants.PrincipalType) bool {
+	if claims.Kora.PrincipalType == token.PrincipalTypeSystem || pt == grants.PrincipalTypeHuman {
+		return false
+	}
+	platformapi.ErrorResponse(ctx, w, c.logger,
+		platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
+			"grants for AGENT, SERVICE and PAT principals can only be written by a SYSTEM caller", nil), nil)
 	return true
 }

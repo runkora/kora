@@ -47,7 +47,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) — `Accepted (revised 2026-04-13)` · 2026-04-14
 - [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) — `Accepted (Amended 2026-10-01)` · 2026-04-14
 - [Frontend Policy Projection via BFF](2026-04-14-frontend-policy-projection.md) — `Accepted` · 2026-04-14
-- [Policy Administration Dashboard](2026-04-15-policy-administration-dashboard.md) — `Accepted` · 2026-04-15
+- [Policy Administration Dashboard](2026-04-15-policy-administration-dashboard.md) — `Accepted (Amended 2026-10-22)` · 2026-04-15
 - [PAT Scope Assignment via Explicit Grants](2026-04-19-pat-scope-assignment-via-explicit-grants.md) — `Accepted` · 2026-04-19
 - [Gateway-Level OPA Enforcement for External Traffic](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md) — `Accepted` · 2026-04-27
 - [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) — `Accepted` · 2026-06-04
@@ -215,7 +215,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-04-14 | [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) | Accepted (Amended 2026-10-01) | 0036 |
 | 2026-04-14 | [Frontend Policy Projection via BFF](2026-04-14-frontend-policy-projection.md) | Accepted | 0037 |
 | 2026-04-14 | [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) | Accepted (revised 2026-04-13) | 0035 |
-| 2026-04-15 | [Policy Administration Dashboard](2026-04-15-policy-administration-dashboard.md) | Accepted | 0038 |
+| 2026-04-15 | [Policy Administration Dashboard](2026-04-15-policy-administration-dashboard.md) | Accepted (Amended 2026-10-22) | 0038 |
 | 2026-04-17 | [Inference Usage Logs](2026-04-17-inference-usage-logs.md) | Accepted | 0040 |
 | 2026-04-17 | [Virtual Model Catalog and Platform Routing](2026-04-17-virtual-model-catalog-and-platform-routing.md) | Accepted | 0039 |
 | 2026-04-19 | [PAT Scope Assignment via Explicit Grants](2026-04-19-pat-scope-assignment-via-explicit-grants.md) | Accepted | 0041 |
