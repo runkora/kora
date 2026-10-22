@@ -180,6 +180,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 				logging.Field{Key: "action", Value: action},
 				logging.Field{Key: "qualifier", Value: cls.Qualifier},
 				logging.Field{Key: "tenant_id", Value: tenantID},
+				logging.Field{Key: "principal_id", Value: claims.Subject},
 			)
 			refused := credentials.Classification{Action: action, Qualifier: cls.Qualifier}
 			return Decision{}, deny(DenialCredentialRefused, req.Host, conn, refused, err)
