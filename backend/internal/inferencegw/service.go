@@ -96,12 +96,6 @@ func (s *Service) DiscoverProviderModels(ctx context.Context) ([]ProviderModel, 
 	return s.router.ListModels(ctx)
 }
 
-// PricingAll returns all model pricing entries from the in-memory cache.
-// Used by handleListModels to embed effective pricing in the /v1/models response.
-func (s *Service) PricingAll() []ModelPricing {
-	return s.pricing.All()
-}
-
 // filterVirtualModelsByPolicy filters virtual models to only those the
 // principal holds a policy grant for.
 func (s *Service) filterVirtualModelsByPolicy(ctx context.Context, vms []VirtualModel) ([]VirtualModel, error) {

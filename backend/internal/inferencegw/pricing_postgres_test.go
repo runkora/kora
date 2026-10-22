@@ -2,8 +2,10 @@ package inferencegw
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -68,6 +70,112 @@ func TestPostgres_SetOverrideCreatesAndUpdatesRow(t *testing.T) {
 		return
 	}
 	t.Fatal("override-only row not found")
+}
+
+// A regional profile's row would shadow the base model's row, so it must end up
+// with an input and an output price: a new row, or an override-only row a clear
+// left empty. Updating a row that already has both, and any non-regional ID,
+// keep accepting a partial override.
+func TestPostgres_SetOverrideRegionalRowNeedsInputAndOutput(t *testing.T) {
+	repo, compatible := testPricingRepo(t)
+	ctx := context.Background()
+	bedrock := ProviderName("bedrock:test-" + uuid.NewString()[:8])
+	t.Cleanup(func() {
+		_, _ = repo.pool.Exec(ctx, `DELETE FROM model_pricing WHERE provider = $1`, string(bedrock))
+	})
+	in, out := 9.0, 45.0
+
+	if err := repo.SetOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5", &in, nil, nil, nil); !errors.Is(err, ErrIncompleteOverride) {
+		t.Fatalf("input-only override of a new regional row: err = %v, want ErrIncompleteOverride", err)
+	}
+	if err := repo.SetOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5", &in, &out, nil, nil); err != nil {
+		t.Fatalf("input and output on a new regional row: %v", err)
+	}
+	if err := repo.SetOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5", nil, &in, nil, nil); err != nil {
+		t.Errorf("partial override of an existing regional row: %v", err)
+	}
+	if err := repo.SetOverride(ctx, bedrock, "anthropic.claude-haiku-4-5", &in, nil, nil, nil); err != nil {
+		t.Errorf("partial override of a base row: %v", err)
+	}
+
+	// Clearing an override-only row deletes it: with no price left it would only
+	// shadow the prices the route falls back to. A partial update is then
+	// refused again, as for any new regional row.
+	if err := repo.ClearOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5"); err != nil {
+		t.Fatalf("clear override: %v", err)
+	}
+	if err := repo.ClearOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5"); !errors.Is(err, ErrModelPricingNotFound) {
+		t.Errorf("second clear of a deleted override-only row: err = %v, want ErrModelPricingNotFound", err)
+	}
+	if err := repo.SetOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5", &in, nil, nil, nil); !errors.Is(err, ErrIncompleteOverride) {
+		t.Errorf("input-only override after the row was deleted: err = %v, want ErrIncompleteOverride", err)
+	}
+	if err := repo.SetOverride(ctx, bedrock, "us.anthropic.claude-haiku-4-5", &in, &out, nil, nil); err != nil {
+		t.Errorf("input and output after the row was deleted: %v", err)
+	}
+
+	// A synced row keeps its synced prices when its override is cleared.
+	if err := repo.UpsertSynced(ctx, []ModelPriceEntry{{Provider: bedrock, ModelID: "ap.anthropic.claude-haiku-4-5", InputCostPer1M: 1.1, OutputCostPer1M: 5.5}}); err != nil {
+		t.Fatalf("upsert synced: %v", err)
+	}
+	if err := repo.SetOverride(ctx, bedrock, "ap.anthropic.claude-haiku-4-5", &in, nil, nil, nil); err != nil {
+		t.Fatalf("partial override of a synced regional row: %v", err)
+	}
+	if err := repo.ClearOverride(ctx, bedrock, "ap.anthropic.claude-haiku-4-5"); err != nil {
+		t.Fatalf("clear override of a synced row: %v", err)
+	}
+	entries, err := repo.LoadAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept *PricingCatalogEntry
+	for i := range entries {
+		if entries[i].Provider == bedrock && entries[i].ModelID == "ap.anthropic.claude-haiku-4-5" {
+			kept = &entries[i]
+		}
+	}
+	if kept == nil || kept.SyncedInput != 1.1 || kept.HasOverride() {
+		t.Errorf("synced row after clear = %+v, want it kept with synced input 1.1 and no override", kept)
+	}
+
+	// An explicit 0 is a price: a row overridden to free is complete.
+	zero := 0.0
+	if err := repo.SetOverride(ctx, bedrock, "eu.anthropic.claude-haiku-4-5", &zero, &zero, nil, nil); err != nil {
+		t.Fatalf("free override on a new regional row: %v", err)
+	}
+	if err := repo.SetOverride(ctx, bedrock, "eu.anthropic.claude-haiku-4-5", &in, nil, nil, nil); err != nil {
+		t.Errorf("partial update of a row overridden to free: %v", err)
+	}
+	if err := repo.SetOverride(ctx, compatible, "vendor/model", &in, nil, nil, nil); err != nil {
+		t.Errorf("partial override of a non-Bedrock row: %v", err)
+	}
+}
+
+// Rows are inserted out of order: without an ORDER BY, LoadAll returns them in
+// storage order, which changes whenever the sync rewrites rows.
+func TestPostgres_LoadAllReturnsRowsInPrimaryKeyOrder(t *testing.T) {
+	repo, provider := testPricingRepo(t)
+	ctx := context.Background()
+	price := 1.0
+	for _, id := range []string{"vendor/c", "vendor/a", "vendor/b"} {
+		if err := repo.SetOverride(ctx, provider, id, &price, nil, nil, nil); err != nil {
+			t.Fatalf("set override %s: %v", id, err)
+		}
+	}
+
+	entries, err := repo.LoadAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range entries {
+		if e.Provider == provider {
+			got = append(got, e.ModelID)
+		}
+	}
+	if want := []string{"vendor/a", "vendor/b", "vendor/c"}; !slices.Equal(got, want) {
+		t.Errorf("LoadAll order = %v, want %v", got, want)
+	}
 }
 
 func TestPostgres_DiscoveredPricesKeepOverrides(t *testing.T) {

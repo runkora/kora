@@ -2,6 +2,7 @@ package inferencegw
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -11,8 +12,7 @@ import (
 // pricingSnapshot is the immutable in-memory projection of model_pricing.
 // It is rebuilt on every refresh and swapped atomically.
 type pricingSnapshot struct {
-	entries map[string]ModelPricing // key: pricingKey
-	bare    map[string]ModelPricing // key: pricingBareKey (cross-provider fallback)
+	index *pricingIndex[ModelPricing]
 }
 
 // DatabasePricingCache implements PricingCache backed by the model_pricing
@@ -24,6 +24,9 @@ type DatabasePricingCache struct {
 	interval time.Duration
 	logger   logging.Logger
 	snap     atomic.Pointer[pricingSnapshot]
+	// warned holds the provider/model pairs already logged as priced by a
+	// fallback row, so a hot route logs once rather than once per request.
+	warned sync.Map
 }
 
 // NewDatabasePricingCache constructs a DatabasePricingCache.
@@ -36,7 +39,7 @@ func NewDatabasePricingCache(catalog PricingCatalogRepository, interval time.Dur
 		logger:   logger,
 	}
 	// Seed with an empty snapshot so Price() never panics before Start().
-	c.snap.Store(&pricingSnapshot{entries: map[string]ModelPricing{}, bare: map[string]ModelPricing{}})
+	c.snap.Store(&pricingSnapshot{index: newModelPricingIndex(nil)})
 	return c
 }
 
@@ -70,19 +73,30 @@ func (c *DatabasePricingCache) Start(ctx context.Context) {
 // Price returns the effective pricing for a provider+model pair.
 // Returns (ModelPricing{}, false) when the model is not in the catalog.
 //
-// For Bedrock models, cross-region profile IDs (e.g. "us.anthropic.claude-…")
-// are normalised to their base form (e.g. "anthropic.claude-…") before the
-// lookup because the pricing catalog is keyed on the base ID from LiteLLM.
+// A Bedrock cross-region profile ID (e.g. "us.anthropic.claude-…") is priced by
+// its own row. Without one it falls back to the model's base row, which AWS
+// prices below the regional profile, or to another region's row. Either way the
+// price may differ from what AWS bills, so the route is logged once.
 func (c *DatabasePricingCache) Price(provider ProviderName, modelID string) (ModelPricing, bool) {
-	snap := c.snap.Load()
-	if p, ok := snap.entries[pricingKey(provider, modelID)]; ok {
-		return p, true
+	p, match, ok := c.snap.Load().index.Resolve(provider, modelID)
+	if ok && match != matchExact && (match == matchRegion || hasRegionPrefix(provider, modelID)) {
+		c.warnFallbackPrice(provider, modelID, match)
 	}
-	// Best-effort: no same-provider row, so borrow the same model's price from
-	// another provider (e.g. gpt-5.x on Bedrock, priced only under Azure). Keeps
-	// usage cost attribution non-zero for models the catalog prices elsewhere.
-	p, ok := snap.bare[pricingBareKey(provider, modelID)]
 	return p, ok
+}
+
+// warnFallbackPrice logs, once per provider and model ID, that a route has no
+// pricing row of its own and is priced by a fallback row.
+func (c *DatabasePricingCache) warnFallbackPrice(provider ProviderName, modelID string, match priceMatch) {
+	if _, seen := c.warned.LoadOrStore(string(provider)+"/"+modelID, struct{}{}); seen {
+		return
+	}
+	// Price has no request context: this is cache state, not a request's log.
+	c.logger.Warn(context.Background(), "pricing.route_priced_by_fallback",
+		logging.Field{Key: "provider", Value: string(provider)},
+		logging.Field{Key: "model_id", Value: modelID},
+		logging.Field{Key: "match", Value: match.String()},
+	)
 }
 
 // Refresh reloads the pricing catalog from the database and atomically replaces
@@ -93,7 +107,6 @@ func (c *DatabasePricingCache) Refresh(ctx context.Context) error {
 		return err
 	}
 
-	entries := make(map[string]ModelPricing, len(catalog))
 	priced := make([]ModelPricing, 0, len(catalog))
 	for _, e := range catalog {
 		mp := ModelPricing{
@@ -111,22 +124,11 @@ func (c *DatabasePricingCache) Refresh(ctx context.Context) error {
 			SecondOutputCost:         e.SyncedSecondOutputCost,
 			AudioInputCostPer1M:      e.SyncedAudioInputCostPer1M,
 			AudioOutputCostPer1M:     e.SyncedAudioOutputCostPer1M,
+			HasOverride:              e.HasOverride(),
 		}
-		entries[pricingKey(e.Provider, e.ModelID)] = mp
 		priced = append(priced, mp)
 	}
 
-	bare := bareFallbackIndex(priced, modelPricingProvider, modelPricingModelID)
-	c.snap.Store(&pricingSnapshot{entries: entries, bare: bare})
+	c.snap.Store(&pricingSnapshot{index: newModelPricingIndex(priced)})
 	return nil
-}
-
-// All returns all known model pricing entries.
-func (c *DatabasePricingCache) All() []ModelPricing {
-	snap := c.snap.Load()
-	result := make([]ModelPricing, 0, len(snap.entries))
-	for _, v := range snap.entries {
-		result = append(result, v)
-	}
-	return result
 }

@@ -12,12 +12,9 @@ func mkConnectors(providers ...ProviderName) map[ProviderName]ProviderConnector 
 	return m
 }
 
-func mkPricingIdx(entries ...ModelPricing) map[string]ModelPricing {
-	m := make(map[string]ModelPricing, len(entries))
-	for _, e := range entries {
-		m[string(e.Provider)+"/"+e.ModelID] = e
-	}
-	return m
+// mkPricingIdx returns the price lookup of a cache holding entries.
+func mkPricingIdx(entries ...ModelPricing) func(ProviderName, string) (ModelPricing, bool) {
+	return NewStaticPricingCache(entries).Price
 }
 
 // ─── vmEffectivePricing ───────────────────────────────────────────────────────
@@ -31,7 +28,7 @@ func TestVmEffectivePricing(t *testing.T) {
 	tests := []struct {
 		name           string
 		vm             VirtualModel
-		pricingIdx     map[string]ModelPricing
+		pricingIdx     func(ProviderName, string) (ModelPricing, bool)
 		disabledRoutes map[string]bool
 		connectors     map[ProviderName]ProviderConnector
 		wantInput      float64
@@ -142,7 +139,7 @@ func TestVmEffectivePricing(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := vmEffectivePricing(tc.vm, tc.pricingIdx, nil, tc.disabledRoutes, tc.connectors)
+			got := vmEffectivePricing(tc.vm, tc.pricingIdx, tc.disabledRoutes, tc.connectors)
 			if tc.wantNil {
 				if got != nil {
 					t.Errorf("expected nil, got %+v", got)

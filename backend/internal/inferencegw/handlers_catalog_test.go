@@ -481,8 +481,8 @@ func TestVmCatalogPricing_NoPricingData(t *testing.T) {
 			{Provider: ProviderBedrock, ModelID: "anthropic.claude-sonnet-4-6", Enabled: true},
 		},
 	}
-	if got := vmCatalogPricing(vm, map[string]*pricingEntryJSON{}); got != nil {
-		t.Errorf("expected nil when pricing map is empty, got %+v", got)
+	if got := vmCatalogPricing(vm, newCatalogPricingIndex(nil)); got != nil {
+		t.Errorf("expected nil when pricing index is empty, got %+v", got)
 	}
 }
 
@@ -493,14 +493,12 @@ func TestVmCatalogPricing_NonTokenFallback(t *testing.T) {
 			{Provider: ProviderBedrock, ModelID: "image-model", Enabled: true},
 		},
 	}
-	pricingMap := map[string]*pricingEntryJSON{
-		"bedrock/image-model": {
-			Provider:                     "bedrock",
-			ModelID:                      "image-model",
-			SyncedImageInputCostPerImage: 0.001, // non-token only — no effective token costs
-		},
-	}
-	got := vmCatalogPricing(vm, pricingMap)
+	pricingIdx := newCatalogPricingIndex([]*pricingEntryJSON{{
+		Provider:                     "bedrock",
+		ModelID:                      "image-model",
+		SyncedImageInputCostPerImage: 0.001, // non-token only — no effective token costs
+	}})
+	got := vmCatalogPricing(vm, pricingIdx)
 	if got == nil {
 		t.Fatal("expected non-nil: non-token fallback should fire when no token-priced route exists")
 	}
@@ -535,15 +533,13 @@ func TestVmCatalogPricing_TokenPricedRouteUsesPointers(t *testing.T) {
 			{Provider: ProviderBedrock, ModelID: "claude", Enabled: true},
 		},
 	}
-	pricingMap := map[string]*pricingEntryJSON{
-		"bedrock/claude": {
-			Provider:        "bedrock",
-			ModelID:         "claude",
-			EffectiveInput:  3,
-			EffectiveOutput: 15,
-		},
-	}
-	got := vmCatalogPricing(vm, pricingMap)
+	pricingIdx := newCatalogPricingIndex([]*pricingEntryJSON{{
+		Provider:        "bedrock",
+		ModelID:         "claude",
+		EffectiveInput:  3,
+		EffectiveOutput: 15,
+	}})
+	got := vmCatalogPricing(vm, pricingIdx)
 	if got == nil {
 		t.Fatal("expected non-nil pricing")
 	}
@@ -563,10 +559,10 @@ func TestVmCatalogPricing_NilWhenNeitherPricing(t *testing.T) {
 		},
 	}
 	// Model exists but has no token or non-token costs.
-	pricingMap := map[string]*pricingEntryJSON{
-		"bedrock/free-model": {Provider: "bedrock:test", ModelID: "free-model"},
-	}
-	if got := vmCatalogPricing(vm, pricingMap); got != nil {
+	pricingIdx := newCatalogPricingIndex([]*pricingEntryJSON{
+		{Provider: "bedrock:test", ModelID: "free-model"},
+	})
+	if got := vmCatalogPricing(vm, pricingIdx); got != nil {
 		t.Errorf("expected nil when no token or non-token pricing, got %+v", got)
 	}
 }
@@ -598,18 +594,15 @@ func TestPricingEntryHasNonToken(t *testing.T) {
 	}
 }
 
-// ─── lookupPricing ────────────────────────────────────────────────────────────
+// ─── lookupCatalogPricing ─────────────────────────────────────────────────────
 
-func TestLookupPricing(t *testing.T) {
+func TestLookupCatalogPricing(t *testing.T) {
 	t.Parallel()
-	entry := &pricingEntryJSON{}
-	aliasEntry := &pricingEntryJSON{}
+	entry := &pricingEntryJSON{Provider: "bedrock", ModelID: "claude-sonnet"}
+	aliasEntry := &pricingEntryJSON{Provider: "bedrock:us", ModelID: "claude-haiku"}
+	instructEntry := &pricingEntryJSON{Provider: "bedrock", ModelID: "claude-3-instruct-pre"} // for instruct strip
 
-	pricingMap := map[string]*pricingEntryJSON{
-		"bedrock/claude-sonnet":         entry,
-		"bedrock:us/claude-haiku":       aliasEntry,
-		"bedrock/claude-3-instruct-pre": {}, // for instruct strip
-	}
+	pricingIdx := newCatalogPricingIndex([]*pricingEntryJSON{entry, aliasEntry, instructEntry})
 
 	cases := []struct {
 		name     string
@@ -645,24 +638,25 @@ func TestLookupPricing(t *testing.T) {
 			name:     "instruct suffix stripped on bedrock alias",
 			provider: "bedrock:aus",
 			modelID:  "claude-3-instruct-pre-instruct",
-			want:     pricingMap["bedrock/claude-3-instruct-pre"],
+			want:     instructEntry,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := lookupPricing(pricingMap, tc.provider, tc.modelID)
+			got := lookupCatalogPricing(pricingIdx, tc.provider, tc.modelID)
 			if got != tc.want {
-				t.Errorf("lookupPricing(%q, %q) = %v, want %v", tc.provider, tc.modelID, got, tc.want)
+				t.Errorf("lookupCatalogPricing(%q, %q) = %v, want %v", tc.provider, tc.modelID, got, tc.want)
 			}
 		})
 	}
 }
 
-// TestLookupPricingCrossProviderFallback covers the best-effort fallback that
-// borrows a price from another provider by bare model name when no row exists
-// for the request's provider (e.g. gpt-5.x on Bedrock, priced only under Azure).
-func TestLookupPricingCrossProviderFallback(t *testing.T) {
+// TestLookupCatalogPricingCrossProviderFallback covers the best-effort fallback
+// that borrows a price from another provider by bare model name when no row
+// exists for the request's provider (e.g. gpt-5.x on Bedrock, priced only under
+// Azure).
+func TestLookupCatalogPricingCrossProviderFallback(t *testing.T) {
 	t.Parallel()
 	azureBare := &pricingEntryJSON{Provider: "azure", ModelID: "gpt-5.4", EffectiveInput: 2.5, EffectiveOutput: 15}
 	azureRegional := &pricingEntryJSON{Provider: "azure", ModelID: "us/gpt-5.4", EffectiveInput: 2.75, EffectiveOutput: 16.5}
@@ -670,30 +664,24 @@ func TestLookupPricingCrossProviderFallback(t *testing.T) {
 
 	t.Run("no bedrock row borrows azure price, plainest model_id wins", func(t *testing.T) {
 		t.Parallel()
-		m := map[string]*pricingEntryJSON{
-			"azure/gpt-5.4":    azureBare,
-			"azure/us/gpt-5.4": azureRegional,
-		}
-		if got := lookupPricing(m, "bedrock:us", "openai.gpt-5.4"); got != azureBare {
+		m := newCatalogPricingIndex([]*pricingEntryJSON{azureBare, azureRegional})
+		if got := lookupCatalogPricing(m, "bedrock:us", "openai.gpt-5.4"); got != azureBare {
 			t.Errorf("got %v, want the bare azure row (2.5/15)", got)
 		}
 	})
 
 	t.Run("exact provider row wins over the cross-provider fallback", func(t *testing.T) {
 		t.Parallel()
-		m := map[string]*pricingEntryJSON{
-			"bedrock/openai.gpt-5.4": bedrockExact,
-			"azure/gpt-5.4":          azureBare,
-		}
-		if got := lookupPricing(m, "bedrock:us", "openai.gpt-5.4"); got != bedrockExact {
+		m := newCatalogPricingIndex([]*pricingEntryJSON{bedrockExact, azureBare})
+		if got := lookupCatalogPricing(m, "bedrock:us", "openai.gpt-5.4"); got != bedrockExact {
 			t.Errorf("got %v, want the exact bedrock row (3/20)", got)
 		}
 	})
 
 	t.Run("unrelated model still misses", func(t *testing.T) {
 		t.Parallel()
-		m := map[string]*pricingEntryJSON{"azure/gpt-5.4": azureBare}
-		if got := lookupPricing(m, "bedrock:us", "openai.nonexistent-model"); got != nil {
+		m := newCatalogPricingIndex([]*pricingEntryJSON{azureBare})
+		if got := lookupCatalogPricing(m, "bedrock:us", "openai.nonexistent-model"); got != nil {
 			t.Errorf("got %v, want nil (no unrelated borrow)", got)
 		}
 	})
@@ -731,21 +719,21 @@ func TestVmCatalogPricing_PicksLowestEffectiveCost(t *testing.T) {
 			{Provider: ProviderVertexAI, ModelID: "expensive-model", Enabled: true},
 		},
 	}
-	pricingMap := map[string]*pricingEntryJSON{
-		"bedrock/cheap-model": {
+	pricingIdx := newCatalogPricingIndex([]*pricingEntryJSON{
+		{
 			Provider:        "bedrock",
 			ModelID:         "cheap-model",
 			EffectiveInput:  1.0,
 			EffectiveOutput: 5.0,
 		},
-		"vertexai/expensive-model": {
+		{
 			Provider:        "vertexai",
 			ModelID:         "expensive-model",
 			EffectiveInput:  3.0,
 			EffectiveOutput: 15.0,
 		},
-	}
-	got := vmCatalogPricing(vm, pricingMap)
+	})
+	got := vmCatalogPricing(vm, pricingIdx)
 	if got == nil {
 		t.Fatal("expected non-nil pricing")
 	}
@@ -762,21 +750,21 @@ func TestVmCatalogPricing_SkipsDisabledRoutes(t *testing.T) {
 			{Provider: ProviderVertexAI, ModelID: "expensive-model", Enabled: true},
 		},
 	}
-	pricingMap := map[string]*pricingEntryJSON{
-		"bedrock/cheap-model": {
+	pricingIdx := newCatalogPricingIndex([]*pricingEntryJSON{
+		{
 			Provider:        "bedrock",
 			ModelID:         "cheap-model",
 			EffectiveInput:  1.0,
 			EffectiveOutput: 5.0,
 		},
-		"vertexai/expensive-model": {
+		{
 			Provider:        "vertexai",
 			ModelID:         "expensive-model",
 			EffectiveInput:  3.0,
 			EffectiveOutput: 15.0,
 		},
-	}
-	got := vmCatalogPricing(vm, pricingMap)
+	})
+	got := vmCatalogPricing(vm, pricingIdx)
 	if got == nil {
 		t.Fatal("expected non-nil pricing")
 	}

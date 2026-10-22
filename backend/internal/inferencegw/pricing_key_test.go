@@ -133,18 +133,18 @@ func TestVMEffectivePricingResolvesAliasedRoute(t *testing.T) {
 		}},
 	}
 
-	idx := buildPricingIndex([]ModelPricing{{
+	idx := mkPricingIdx(ModelPricing{
 		Provider:             ProviderBedrock,
 		ModelID:              "anthropic.claude-sonnet-5",
 		InputCostPerMillion:  2,
 		OutputCostPerMillion: 10,
-	}})
+	})
 
 	connectors := map[ProviderName]ProviderConnector{
 		"bedrock:usw": &stubConnector{name: "bedrock:usw"},
 	}
 
-	got := vmEffectivePricing(vm, idx, nil, nil, connectors)
+	got := vmEffectivePricing(vm, idx, nil, connectors)
 	if got == nil {
 		t.Fatal("expected effective pricing for an aliased bedrock route, got nil (renders as \"Unknown\")")
 	}
@@ -197,14 +197,11 @@ func TestVMEffectivePricingCrossProviderFallback(t *testing.T) {
 		{Provider: "azure", ModelID: "gpt-5.4", InputCostPerMillion: 2.5, OutputCostPerMillion: 15},
 		{Provider: "azure", ModelID: "us/gpt-5.4", InputCostPerMillion: 2.75, OutputCostPerMillion: 16.5},
 	}
-	idx := buildPricingIndex(pricing)
-	bareIdx := bareFallbackIndex(pricing,
-		func(p ModelPricing) ProviderName { return p.Provider },
-		func(p ModelPricing) string { return p.ModelID })
+	idx := mkPricingIdx(pricing...)
 
 	connectors := map[ProviderName]ProviderConnector{"bedrock:us": &stubConnector{name: "bedrock:us"}}
 
-	got := vmEffectivePricing(vm, idx, bareIdx, nil, connectors)
+	got := vmEffectivePricing(vm, idx, nil, connectors)
 	if got == nil {
 		t.Fatal("expected cross-provider fallback pricing for gpt-5.4 on bedrock, got nil (Unknown)")
 	}
@@ -217,12 +214,7 @@ func TestVMEffectivePricingCrossProviderFallback(t *testing.T) {
 	withExact := append(pricing, ModelPricing{
 		Provider: ProviderBedrock, ModelID: "openai.gpt-5.4", InputCostPerMillion: 3, OutputCostPerMillion: 20,
 	})
-	got = vmEffectivePricing(vm,
-		buildPricingIndex(withExact),
-		bareFallbackIndex(withExact,
-			func(p ModelPricing) ProviderName { return p.Provider },
-			func(p ModelPricing) string { return p.ModelID }),
-		nil, connectors)
+	got = vmEffectivePricing(vm, mkPricingIdx(withExact...), nil, connectors)
 	if got == nil || got.EffectiveInputCostPer1M == nil || *got.EffectiveInputCostPer1M != 3 {
 		t.Errorf("exact bedrock row should win over fallback; got %+v, want 3/20", got)
 	}
