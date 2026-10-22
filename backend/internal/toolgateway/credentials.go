@@ -6,7 +6,6 @@ package toolgateway
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"maps"
@@ -161,18 +160,12 @@ func (t *headerTransport) upstreamError(err error) error {
 func transportCause(err error) error {
 	var dnsErr *net.DNSError
 	var certErr *tls.CertificateVerificationError
-	var hostErr x509.HostnameError
-	var authorityErr x509.UnknownAuthorityError
 	var opErr *net.OpError
 	switch {
 	case errors.As(err, &dnsErr):
 		return dnsErr
 	case errors.As(err, &certErr):
 		return certErr
-	case errors.As(err, &hostErr):
-		return hostErr
-	case errors.As(err, &authorityErr):
-		return authorityErr
 	case errors.As(err, &opErr):
 		return opErr
 	case errors.Is(err, context.DeadlineExceeded):

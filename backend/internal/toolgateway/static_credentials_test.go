@@ -318,3 +318,11 @@ func TestToolsCall_CredentialedFailuresKeepStageAndCause(t *testing.T) {
 		}
 	}
 }
+
+func TestUpstreamError_KeepsDeadlineCause(t *testing.T) {
+	tr := &headerTransport{headers: http.Header{"X-Api-Key": {goodAPIKey}}}
+	err := tr.upstreamError(fmt.Errorf("sending: %w", context.DeadlineExceeded))
+	if !errors.Is(err, ErrUpstreamFailed) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("err = %v, want upstream_error wrapping the deadline", err)
+	}
+}

@@ -135,9 +135,9 @@ func (a *MCPServerAggregator) Sync(ctx context.Context) error {
 		return fmt.Errorf("collect MCP servers: %w", err)
 	}
 
-	credentials := a.collectCredentials(ctx, entries)
+	credentials, readErr := a.collectCredentials(ctx, entries)
 	// The Secret goes first, so the registry rarely names a key the gateway has
-	// not been given. A failed Secret write still lets the registry update.
+	// not been given. A failed Secret read or write still lets the registry update.
 	secretErr := a.upsertMCPServerSecret(ctx, credentials)
 	if err := a.upsertConfigMap(ctx, entries); err != nil {
 		return err
@@ -145,32 +145,51 @@ func (a *MCPServerAggregator) Sync(ctx context.Context) error {
 	if err := a.syncServiceEntries(ctx, entries); err != nil {
 		return err
 	}
-	return secretErr
+	return errors.Join(readErr, secretErr)
 }
 
-// collectCredentials reads every registered server's credential values. A
-// value that cannot be read is left out and logged, like a Connection's Secret.
-// The server stays registered and the gateway fails its calls closed.
-func (a *MCPServerAggregator) collectCredentials(ctx context.Context, entries []mcpServerRegistryEntry) map[string][]byte {
+// collectCredentials reads every registered server's credential values. An
+// unavailable value is left out and logged. A failed read keeps the value
+// already aggregated and is returned, so the reconcile retries.
+func (a *MCPServerAggregator) collectCredentials(ctx context.Context, entries []mcpServerRegistryEntry) (map[string][]byte, error) {
+	previous := a.aggregatedCredentials(ctx)
 	data := make(map[string][]byte)
+	var readErrs []error
 	for _, e := range entries {
 		if e.auth == nil {
 			continue
 		}
 		for _, h := range e.auth.Headers {
+			key := mcpSecretKey(e.namespace, e.Name, h.Name)
 			v, err := readMCPCredential(ctx, a.client, e.namespace, h.SecretRef)
-			if err != nil {
+			switch {
+			case err == nil:
+				data[key] = v
+			case errors.Is(err, ErrMCPCredentialUnavailable):
 				a.logger.Warn(ctx, "MCPServer credential unavailable",
 					logging.Field{Key: "mcpserver", Value: e.Name},
 					logging.Field{Key: "namespace", Value: e.namespace},
 					logging.Field{Key: "reason", Value: err.Error()},
 				)
-				continue
+			default:
+				if v, ok := previous[key]; ok {
+					data[key] = v
+				}
+				readErrs = append(readErrs, fmt.Errorf("MCPServer %s/%s: %w", e.namespace, e.Name, err))
 			}
-			data[mcpSecretKey(e.namespace, e.Name, h.Name)] = v
 		}
 	}
-	return data
+	return data, errors.Join(readErrs...)
+}
+
+// aggregatedCredentials returns the values currently in the aggregated Secret,
+// or nil when it cannot be read.
+func (a *MCPServerAggregator) aggregatedCredentials(ctx context.Context) map[string][]byte {
+	s := &corev1.Secret{}
+	if err := a.client.Get(ctx, client.ObjectKey{Namespace: systemNamespace, Name: aggregatedMCPServerSecretsName}, s); err != nil {
+		return nil
+	}
+	return s.Data
 }
 
 // activeTenantNamespaces builds a namespace -> tenant_id map for active tenants

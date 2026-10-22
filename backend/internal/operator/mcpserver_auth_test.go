@@ -229,29 +229,44 @@ func TestMCPSecretKey_FitsTheSecretKeyLimit(t *testing.T) {
 	}
 }
 
-// A Secret read that fails for a reason other than NotFound skips that
-// credential and still writes the registry and the other servers' values.
-func TestMCPAggregator_ReadErrorSkipsOneCredential(t *testing.T) {
+// A Secret read that fails for a reason other than NotFound keeps the value
+// already aggregated, still writes the registry, and returns the error.
+func TestMCPAggregator_ReadErrorKeepsPreviousCredential(t *testing.T) {
 	broken := exaServer(authHeader("x-api-key", "", "broken", "key"))
 	broken.Name = "broken"
 	healthy := exaServer(authHeader("x-api-key", "", "exa-credentials", "key"))
+	failing := false
 	c := fake.NewClientBuilder().WithScheme(NewScheme()).
-		WithObjects(tenant("acme", true), broken, healthy, credentialSecret(map[string]string{"key": secretA})).
+		WithObjects(tenant("acme", true), broken, healthy,
+			credentialSecret(map[string]string{"key": secretA}),
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "broken", Namespace: testTenantNS}, Data: map[string][]byte{"key": []byte(secretB)}}).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				if key.Name == "broken" {
+				if failing && key.Name == "broken" {
 					return errors.New("etcd timeout")
 				}
 				return c.Get(ctx, key, obj, opts...)
 			},
 		}).Build()
-
-	registry, data := renderedMCP(t, c)
-
-	if !strings.Contains(registry, `"name": "broken"`) || !strings.Contains(registry, `"name": "exa"`) {
-		t.Errorf("registry = %s, want both servers", registry)
+	a := NewMCPServerAggregator(c, logging.NewLoggerWithOutput(io.Discard))
+	if err := a.Sync(context.Background()); err != nil {
+		t.Fatalf("first Sync: %v", err)
 	}
-	if string(data[mcpSecretKey(testTenantNS, "exa", "x-api-key")]) != secretA || len(data) != 1 {
-		t.Errorf("aggregated Secret = %q, want only the healthy value", data)
+
+	failing = true
+	if err := a.Sync(context.Background()); err == nil {
+		t.Error("Sync with a failed read returned nil, want the error so the reconcile retries")
+	}
+	sec := &corev1.Secret{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: systemNamespace, Name: aggregatedMCPServerSecretsName}, sec); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	data := sec.Data
+	if string(data[mcpSecretKey(testTenantNS, "broken", "x-api-key")]) != secretB || string(data[mcpSecretKey(testTenantNS, "exa", "x-api-key")]) != secretA {
+		t.Errorf("aggregated Secret = %q, want both values kept", data)
+	}
+	cm := &corev1.ConfigMap{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: systemNamespace, Name: aggregatedMCPServersConfigMapName}, cm); err != nil || !strings.Contains(cm.Data[aggregatedMCPServersConfigMapKey], `"name": "broken"`) {
+		t.Errorf("registry not written: %v", err)
 	}
 }
