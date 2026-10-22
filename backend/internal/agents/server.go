@@ -214,11 +214,49 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 	api.JSON(ctx, w, c.logger, http.StatusCreated, at)
 }
 
+// includeEffectiveAccess is the include value that adds each listed agent type's effective connectors.
+const includeEffectiveAccess = "effective_access"
+
+// splitIDs splits a comma-separated id list, dropping blanks.
+func splitIDs(raw string) []string {
+	var ids []string
+	for _, id := range strings.Split(raw, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 func (c *Controller) handleListAgentTypes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// Tenant is derived from the verified platform claims; query-string is ignored.
 	// The bearer lets can_edit resolve the caller's scopes for the ceiling check.
-	types, err := c.agentTypes.ListAgentTypes(withCallerBearerFrom(ctx, r))
+	query := r.URL.Query()
+	withAccess := false
+	switch include := query.Get("include"); include {
+	case "":
+	case includeEffectiveAccess:
+		withAccess = true
+	default:
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "include must be effective_access", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+	var (
+		types []AgentType
+		err   error
+	)
+	switch {
+	case query.Has("ids"):
+		types, err = c.agentTypes.ListAgentTypesByIDs(withCallerBearerFrom(ctx, r), splitIDs(query.Get("ids")), withAccess)
+	case withAccess:
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "include=effective_access needs ids", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	default:
+		types, err = c.agentTypes.ListAgentTypes(withCallerBearerFrom(ctx, r))
+	}
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list agent types", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)

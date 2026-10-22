@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1047,5 +1048,46 @@ func TestDispatchRouted_RunOptionIgnoresOtherTriggersFields(t *testing.T) {
 	criteria := decisions.calls[1].Questions[questionRun].Criteria
 	if !strings.Contains(criteria["r1"], `Started from: {"comment.body":"@kora fix it"}`) || strings.Contains(criteria["r1"], "another trigger") {
 		t.Errorf("run option = %q, want only this trigger's fields", criteria["r1"])
+	}
+}
+
+// One routed delivery reads the candidates in one agent-types call, whatever the tenant holds.
+func TestDispatchRouted_ReadsCandidatesInOneBatch(t *testing.T) {
+	svc, deps, decisions, src := routedHarness(t)
+	decisions.resp = decisionAnswers(0.9, "", 0)
+	for i := range 30 {
+		deps.agents.agentTypes = append(deps.agents.agentTypes, agentsclient.AgentType{ID: "other-" + strconv.Itoa(i), Slug: "other"})
+	}
+	deps.agents.agentTypes[0].EffectiveConnectors = []agentsclient.Connector{{Connection: "github", Actions: []string{"contents:write"}}}
+	tr := mustRouted(t, deps, src.ID, nil)
+	before := len(deps.agents.typeQueries)
+
+	fireRouted(t, svc, deps, tr, "d-1", routedFields)
+
+	queries := deps.agents.typeQueries[before:]
+	if len(queries) != 1 || !strings.Contains(queries[0], "ids=at-a%2Cat-b%2Cat-c") || !strings.Contains(queries[0], "include=effective_access") {
+		t.Fatalf("agent-types queries = %q, want one batch read of the candidates", queries)
+	}
+	criteria := decisions.calls[0].Questions[questionAgent].Criteria
+	if len(criteria) != 3 || !strings.Contains(criteria["a1"], "Connector actions: github (contents:write)") {
+		t.Errorf("criteria = %v", criteria)
+	}
+}
+
+// A failed batch read keeps the delivery on the plain listing, described without access.
+func TestDispatchRouted_BatchReadFailureKeepsListing(t *testing.T) {
+	svc, deps, decisions, src := routedHarness(t)
+	decisions.resp = decisionAnswers(0.9, "", 0)
+	deps.agents.agentTypes[0].EffectiveConnectors = []agentsclient.Connector{{Connection: "github", Actions: []string{"contents:write"}}}
+	deps.agents.batchStatus = http.StatusInternalServerError
+	tr := mustRouted(t, deps, src.ID, nil)
+
+	fireRouted(t, svc, deps, tr, "d-1", routedFields)
+
+	if decisions.callCount() != 1 {
+		t.Fatalf("decision calls = %d, want 1", decisions.callCount())
+	}
+	if a1 := decisions.calls[0].Questions[questionAgent].Criteria["a1"]; a1 != "Coder: Implements changes." {
+		t.Errorf("a1 = %q, want the description alone", a1)
 	}
 }

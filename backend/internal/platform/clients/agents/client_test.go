@@ -357,3 +357,17 @@ func TestListAgentTypes_StatusMapping(t *testing.T) {
 		}
 	}
 }
+
+func TestListAgentTypesByIDs(t *testing.T) {
+	c, cap := newTestClient(t, http.StatusOK, `{"agent_types":[{"id":"at-1","slug":"coder","name":"Coder","mcp_tools":["mcp:github:issue_read:use"],"effective_connectors":[{"connection":"gh","actions":["contents:read"]}]}]}`)
+	types, err := c.ListAgentTypesByIDs(context.Background(), Caller{Bearer: "tok-123"}, []string{"at-1", "at-2"})
+	if err != nil {
+		t.Fatalf("ListAgentTypesByIDs: %v", err)
+	}
+	if cap.path != "/api/v1/agent-types" || cap.query != "ids=at-1%2Cat-2&include=effective_access" || cap.auth != "Bearer tok-123" {
+		t.Errorf("request = %s ?%s (auth %q)", cap.path, cap.query, cap.auth)
+	}
+	if len(types) != 1 || len(types[0].MCPTools) != 1 || len(types[0].EffectiveConnectors) != 1 || types[0].EffectiveConnectors[0].Connection != "gh" {
+		t.Errorf("types = %+v", types)
+	}
+}

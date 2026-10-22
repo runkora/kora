@@ -736,6 +736,10 @@ type agentsStub struct {
 
 	// agentTypes is what GET /api/v1/agent-types lists.
 	agentTypes []agentsclient.AgentType
+	// typeQueries records the query of each GET /api/v1/agent-types, and batchStatus
+	// fails the ones that carry ids with that status.
+	typeQueries []string
+	batchStatus int
 	// filterByScopes lists only the agent types whose agents:types:<slug>:read
 	// scope is in readScopes, as orbit-agents does for a caller without
 	// agents:types:read.
@@ -803,16 +807,40 @@ func newAgentsStub() *agentsStub {
 			fmt.Fprintf(w, `{"id":%q,"tenant_id":%q,"slug":%q,"identity_mode":%q,"can_run":%t}`, r.PathValue("id"), tenant, slug, identityMode, canRun)
 		}
 	})
-	mux.HandleFunc("GET /api/v1/agent-types", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /api/v1/agent-types", func(w http.ResponseWriter, r *http.Request) {
 		as.mu.Lock()
+		as.typeQueries = append(as.typeQueries, r.URL.RawQuery)
+		if r.URL.Query().Has("ids") && as.batchStatus != 0 {
+			status := as.batchStatus
+			as.mu.Unlock()
+			w.WriteHeader(status)
+			return
+		}
 		listed := as.agentTypes
-		if as.filterByScopes {
+		if r.URL.Query().Has("ids") {
 			listed = nil
 			for _, at := range as.agentTypes {
-				if slices.Contains(as.readScopes, "agents:types:"+at.Slug+":read") {
+				if slices.Contains(strings.Split(r.URL.Query().Get("ids"), ","), at.ID) {
 					listed = append(listed, at)
 				}
 			}
+		}
+		if as.filterByScopes {
+			var readable []agentsclient.AgentType
+			for _, at := range listed {
+				if slices.Contains(as.readScopes, "agents:types:"+at.Slug+":read") {
+					readable = append(readable, at)
+				}
+			}
+			listed = readable
+		}
+		if r.URL.Query().Get("include") != "effective_access" {
+			// Effective connectors come only with the include, as from orbit-agents.
+			plain := slices.Clone(listed)
+			for i := range plain {
+				plain[i].EffectiveConnectors = nil
+			}
+			listed = plain
 		}
 		body, _ := json.Marshal(map[string]any{"agent_types": listed})
 		as.mu.Unlock()

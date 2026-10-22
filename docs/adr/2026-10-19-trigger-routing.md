@@ -362,6 +362,45 @@ Unit tests cover:
 
 ---
 
+## Amendment 1 (2026-10-21): Candidate access and one batch read
+
+**Status:** Accepted
+
+### Context
+
+Decision 4 describes a candidate by its name and description. The text does not say what an agent can do. A run of Code Reviewer, which holds no `contents:write` and no write MCP tools, was chosen to design a change it could not push. Separately, `decide` lists every agent type in the tenant on each routed delivery and keeps the candidates, so its cost grows with the tenant and not with the trigger.
+
+### Options
+
+**Option A1 (chosen):** Add each candidate's raw access to its option text and read the candidates in one filtered call.
+
+**Option A2 (rejected):** Summarise access as a capability label such as "can push code". It needs a mapping from scopes to labels that drifts from the connections' actions.
+
+**Option A3 (rejected):** Read each candidate with `GET /api/v1/agent-types/{id}/effective-access`. It costs one call per candidate and returns hosts and egress that routing does not use.
+
+### Decision
+
+1. **Option text:** The `agent` question's option for a candidate is its name and description, then up to two more lines.
+   - `Connector actions:` the agent's effective connectors, its own and its environments' merged by connection as `ScopeResolver.EffectiveAccess` merges them. Each is `connection (action, action)`, joined by `; `.
+   - `MCP tools:` the agent type's `mcp_tools` grouped by server as `server (tool, tool)`, joined by `; `. The `mcp:` prefix and `:use` suffix are removed. Schemas and descriptions are not sent.
+   - A line is omitted when the agent has none of that access. `grant_scopes`, hosts, environments and the system prompt are not sent.
+   - The `agent` instructions say "Choose the agent whose description and access fit the work the message asks for."
+2. **Batch read:** `GET /api/v1/agent-types?ids=<id>,<id>&include=effective_access` is a filtered form of the agent types list.
+   - `ids` limits the result to the listed types. The per-type read check is unchanged, so a type the caller cannot read is left out.
+   - `include=effective_access` adds `effective_connectors` to each returned type. The connectors are computed for the returned types only, with one environment query for the batch. `include` needs `ids`, and any other `include` value is rejected with 400.
+   - Without these parameters the response is unchanged.
+   - A routed trigger's token holds `agents:types:<slug>:read` for its candidates (Decision 16), which is what the read check needs.
+3. **Client and `decide`:** The agents client gains `ListAgentTypesByIDs`. `decide` reads the candidates with it, so a routed delivery makes one agent-types call whatever the tenant holds. When the batch read fails, `decide` logs a warning and lists agent types as before for that delivery, and the options carry no access lines.
+
+### Consequences
+
+- The model sees what each candidate can do, so a candidate without the access a task needs is less likely to be chosen.
+- The option text grows with an agent's connectors and tools.
+- `routingQuestionsVersion` stays `routing-v2`. No release has shipped since v2, so this change does not move it.
+- The batch read still loads every agent type in the tenant from the repository and filters by ID in memory. The cost of that read is accepted: a tenant holds few agent types, the saving is one call per routed delivery and not one query per candidate, and a repository query by IDs can replace it later without an API change.
+
+---
+
 ## Related Decisions
 
 - [Decision Models and the System One API](2026-10-10-systemone-decision-models.md)

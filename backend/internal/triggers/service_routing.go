@@ -243,9 +243,17 @@ func (s *Service) decide(ctx context.Context, t Trigger, tok, prompt string) (ro
 	if s.decisions == nil {
 		return routeChoice{}, errNoDecisionClient
 	}
-	types, err := s.agents.ListAgentTypes(ctx, agentsclient.Caller{Bearer: tok})
+	caller := agentsclient.Caller{Bearer: tok}
+	types, err := s.agents.ListAgentTypesByIDs(ctx, caller, r.Candidates)
 	if err != nil {
-		return routeChoice{}, fmt.Errorf("list candidate agents: %w", err)
+		// Without the batch read the agents are described by name and description only.
+		s.logger.Warn(ctx, "reading candidate access failed; describing the candidate agents without it",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		if types, err = s.agents.ListAgentTypes(ctx, caller); err != nil {
+			return routeChoice{}, fmt.Errorf("list candidate agents: %w", err)
+		}
 	}
 	byID := make(map[string]agentsclient.AgentType, len(types))
 	for _, at := range types {
