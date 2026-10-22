@@ -202,6 +202,42 @@ func TestSameNameServers_NotShadowed(t *testing.T) {
 	}
 }
 
+// TestRegistryLookup_SelectsEndpoint asserts which server lookup resolves, by
+// endpoint, so a wrong pick cannot pass as "not a 404".
+func TestRegistryLookup_SelectsEndpoint(t *testing.T) {
+	cases := []struct {
+		name         string
+		servers      []Server
+		wantFound    bool
+		wantEndpoint string
+	}{
+		{"global wins over own, global first", []Server{
+			{TenantID: "", Name: "s", Endpoint: "http://global/mcp"},
+			{TenantID: "acme", Name: "s", Endpoint: "http://acme/mcp"},
+		}, true, "http://global/mcp"},
+		{"global wins over own, own first", []Server{
+			{TenantID: "acme", Name: "s", Endpoint: "http://acme/mcp"},
+			{TenantID: "", Name: "s", Endpoint: "http://global/mcp"},
+		}, true, "http://global/mcp"},
+		{"own wins over other tenant", []Server{
+			{TenantID: "aaa", Name: "s", Endpoint: "http://aaa/mcp"},
+			{TenantID: "acme", Name: "s", Endpoint: "http://acme/mcp"},
+		}, true, "http://acme/mcp"},
+		{"only another tenant's server is not found", []Server{
+			{TenantID: "other", Name: "s", Endpoint: "http://other/mcp"},
+		}, false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := &Registry{servers: tc.servers, loaded: true}
+			got, found := reg.lookup("s", "acme")
+			if found != tc.wantFound || got.Endpoint != tc.wantEndpoint {
+				t.Fatalf("lookup = (%q, %v), want (%q, %v)", got.Endpoint, found, tc.wantEndpoint, tc.wantFound)
+			}
+		})
+	}
+}
+
 func TestEmptyToolName(t *testing.T) {
 	eval := &fakeEval{checkOK: true}
 	c := testController(eval, &memCatalog{})
