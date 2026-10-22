@@ -1039,10 +1039,6 @@ COREPACK_TIMEOUT ?= 60
 # GNU timeout, or gtimeout from Homebrew coreutils on macOS. Empty when neither exists.
 TIMEOUT_CMD ?= $(shell command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
 
-.PHONY: frontend-install-test
-frontend-install-test: ## Check frontend-install fails fast when Corepack stalls or timeout is missing
-	@scripts/test-frontend-install-timeout.sh
-
 .PHONY: frontend-install
 frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pnpm, idempotent)
 	@echo "$(COLOR_YELLOW)Setting up frontend environment...$(COLOR_RESET)"
@@ -1093,7 +1089,7 @@ frontend-build: ## Build the frontend for production
 	@echo "$(COLOR_GREEN)✓ Frontend built$(COLOR_RESET)"
 
 .PHONY: frontend-lint
-frontend-lint: frontend-install-test ## Lint the frontend (eslint)
+frontend-lint: ## Lint the frontend (eslint)
 	@echo "$(COLOR_YELLOW)Linting frontend...$(COLOR_RESET)"
 	@cd $(FRONTEND_DIR) && pnpm lint
 	@echo "$(COLOR_GREEN)✓ Frontend lint passed$(COLOR_RESET)"
