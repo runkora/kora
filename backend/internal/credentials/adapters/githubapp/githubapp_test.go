@@ -328,6 +328,12 @@ func TestConnector_Classify(t *testing.T) {
 		{"objects_opaque", http.MethodGet, "https://objects.githubusercontent.com/blobs/deadbeef", "contents:read", "", false},
 		{"content_host_write", http.MethodPost, "https://codeload.github.com/orbital/orbit/tar.gz/main", "", "", true},
 
+		// Actions results receiver: log reads map to actions:read
+		{"results_receiver_get", http.MethodGet, "https://results-receiver.actions.githubusercontent.com/logs/1", "actions:read", "", false},
+		{"results_receiver_twirp_read", http.MethodPost, "https://results-receiver.actions.githubusercontent.com/twirp/results.services.receiver.Receiver/GetJobLogs", "actions:read", "", false},
+		{"results_receiver_twirp_write", http.MethodPost, "https://results-receiver.actions.githubusercontent.com/twirp/results.services.receiver.Receiver/CreateStepLogsMetadata", "", "", true},
+		{"results_receiver_delete", http.MethodDelete, "https://results-receiver.actions.githubusercontent.com/logs/1", "", "", true},
+
 		// ID-addressed pagination links stay on the unqualified catch-all
 		{"repository_id_page", http.MethodGet, "https://api.github.com/repositories/123/pulls/5/files?page=2", "repo:read", "", false},
 
