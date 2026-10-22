@@ -29,6 +29,9 @@ var (
 	// ErrUpstreamStatus replaces any other non-2xx error from an upstream that
 	// was sent credentials, for the same reason.
 	ErrUpstreamStatus = errors.New("upstream_status")
+	// ErrUpstreamFailed replaces any other error from an upstream that was
+	// sent credentials, for the same reason.
+	ErrUpstreamFailed = errors.New("upstream_error")
 )
 
 // Caller is the principal behind a tools/call: its platform bearer and, for a
@@ -96,77 +99,55 @@ func (u upstreamCredentials) read(key string) (string, bool) {
 
 // upstreamClient adds headers to every request and does not follow redirects.
 // A followed redirect would carry the headers to another host.
-func upstreamClient(timeout time.Duration, tracerName string, srv Server, headers http.Header) (*http.Client, *headerTransport) {
-	t := &headerTransport{headers: headers, base: http.DefaultTransport, secrets: headerSecrets(srv, headers)}
+func upstreamClient(timeout time.Duration, tracerName string, headers http.Header) (*http.Client, *headerTransport) {
+	t := &headerTransport{headers: headers, base: http.DefaultTransport}
 	c := httpclient.NewHTTPClient(timeout, httpclient.NewTracingTransport(tracerName, t))
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return c, t
 }
 
-// headerSecrets lists the values to redact: every header value sent, and each
-// credential without its prefix.
-func headerSecrets(srv Server, headers http.Header) []string {
-	var out []string
-	for _, vs := range headers {
-		out = append(out, vs...)
-	}
-	for _, a := range srv.AuthHeaders {
-		if v := strings.TrimPrefix(headers.Get(a.Name), a.Prefix); v != "" {
-			out = append(out, v)
-		}
-	}
-	if v, ok := strings.CutPrefix(headers.Get("Authorization"), "Bearer "); ok && v != "" {
-		out = append(out, v)
-	}
-	return out
-}
-
-// headerTransport sets fixed headers on each request and records the status of
-// the latest response. The MCP client folds an error response's body into its
-// error.
+// headerTransport sets fixed headers on each request of one session and
+// records its first auth failure and first other error status.
 type headerTransport struct {
 	headers    http.Header
 	base       http.RoundTripper
-	secrets    []string
-	lastStatus atomic.Int64
+	authFailed atomic.Int64
+	errStatus  atomic.Int64
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	r := req.Clone(req.Context())
 	maps.Copy(r.Header, t.headers)
 	resp, err := t.base.RoundTrip(r)
-	if resp != nil {
-		// A success clears an earlier error status, such as the SDK's 405 on its optional GET stream.
-		code := int64(resp.StatusCode)
-		if code < 300 {
-			code = 0
-		}
-		t.lastStatus.Store(code)
+	if resp == nil {
+		return resp, err
+	}
+	code := int64(resp.StatusCode)
+	switch {
+	case code == http.StatusUnauthorized || code == http.StatusForbidden:
+		t.authFailed.CompareAndSwap(0, code)
+	case code == http.StatusMethodNotAllowed && req.Method == http.MethodGet:
+		// The SDK's optional GET stream; servers without one answer 405.
+	case code >= 300:
+		t.errStatus.CompareAndSwap(0, code)
 	}
 	return resp, err
 }
 
-// upstreamError keeps the credentials sent upstream out of err. After an error
-// status, err is replaced by the status alone. Any other error has the sent
-// values redacted. Without credentials, err is returned unchanged.
+// upstreamError keeps upstream text out of the error once credentials were
+// sent. The MCP client folds response bodies into its errors, and a body can
+// echo the request headers. Without credentials, err is returned unchanged.
 func (t *headerTransport) upstreamError(err error) error {
-	if err == nil || len(t.secrets) == 0 {
+	if err == nil || len(t.headers) == 0 {
 		return err
 	}
-	switch code := t.lastStatus.Load(); {
-	case code == http.StatusUnauthorized || code == http.StatusForbidden:
+	if code := t.authFailed.Load(); code != 0 {
 		return fmt.Errorf("%w: HTTP %d", ErrUpstreamAuthFailed, code)
-	case code != 0:
+	}
+	if code := t.errStatus.Load(); code != 0 {
 		return fmt.Errorf("%w: HTTP %d", ErrUpstreamStatus, code)
 	}
-	msg := err.Error()
-	for _, s := range t.secrets {
-		msg = strings.ReplaceAll(msg, s, "[redacted]")
-	}
-	if msg == err.Error() {
-		return err
-	}
-	return errors.New(msg)
+	return ErrUpstreamFailed
 }
 
 // failureReason classifies an upstream error for logs.
@@ -178,6 +159,8 @@ func failureReason(err error) string {
 		return "credential_unavailable"
 	case errors.Is(err, ErrUpstreamStatus):
 		return "upstream_status"
+	case errors.Is(err, ErrUpstreamFailed):
+		return "upstream_error"
 	default:
 		return "error"
 	}

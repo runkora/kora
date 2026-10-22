@@ -169,7 +169,7 @@ func (i *Introspector) introspectOne(ctx context.Context, srv Server) ([]Tool, e
 		return nil, fmt.Errorf("upstream credentials: %w", err)
 	}
 	client := sdk.NewClient(&sdk.Implementation{Name: introspectClientName, Version: i.version}, nil)
-	httpClient, upstream := upstreamClient(i.timeout, "orbit.toolgateway-introspector", srv, headers)
+	httpClient, upstream := upstreamClient(i.timeout, "orbit.toolgateway-introspector", headers)
 	transport := &sdk.StreamableClientTransport{Endpoint: srv.Endpoint, HTTPClient: httpClient}
 
 	session, err := client.Connect(cctx, transport, nil)

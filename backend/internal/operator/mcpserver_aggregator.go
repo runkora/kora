@@ -275,8 +275,8 @@ func authHeaderEntries(srv *MCPServer) []mcpAuthHeaderEntry {
 		return nil
 	}
 	out := make([]mcpAuthHeaderEntry, 0, len(srv.Spec.Auth.Headers))
-	for i, h := range srv.Spec.Auth.Headers {
-		out = append(out, mcpAuthHeaderEntry{Name: h.Name, Prefix: h.Prefix, SecretKey: mcpSecretKey(srv.Namespace, srv.Name, i)})
+	for _, h := range srv.Spec.Auth.Headers {
+		out = append(out, mcpAuthHeaderEntry{Name: h.Name, Prefix: h.Prefix, SecretKey: mcpSecretKey(srv.Namespace, srv.Name, h.Name)})
 	}
 	return out
 }

@@ -40,12 +40,12 @@ func secretsDir(t *testing.T, files map[string]string) string {
 }
 
 var authHeaders = []AuthHeader{
-	{Name: "Authorization", Prefix: "Bearer ", SecretKey: "ns.exa.0"},
-	{Name: "x-api-key", SecretKey: "ns.exa.1"},
+	{Name: "Authorization", Prefix: "Bearer ", SecretKey: "ns.exa.authorization"},
+	{Name: "x-api-key", SecretKey: "ns.exa.x-api-key"},
 }
 
 func TestUpstreamCredentials_StaticHeaders(t *testing.T) {
-	dir := secretsDir(t, map[string]string{"ns.exa.0": goodBearer, "ns.exa.1": goodAPIKey})
+	dir := secretsDir(t, map[string]string{"ns.exa.authorization": goodBearer, "ns.exa.x-api-key": goodAPIKey})
 	creds := NewUpstreamCredentials(dir)
 	srv := Server{Name: "exa", AuthHeaders: authHeaders}
 
@@ -58,7 +58,7 @@ func TestUpstreamCredentials_StaticHeaders(t *testing.T) {
 		t.Errorf("headers = %v", h)
 	}
 
-	for _, key := range []string{"missing", "", "../ns.exa.0", "..data", "a/b"} {
+	for _, key := range []string{"missing", "", "../ns.exa.authorization", "..data", "a/b"} {
 		bad := Server{Name: "exa", AuthHeaders: []AuthHeader{{Name: "x-api-key", SecretKey: key}}}
 		if _, err := creds.Headers(context.Background(), bad, nil); !errors.Is(err, ErrCredentialUnavailable) {
 			t.Errorf("key %q: err = %v, want ErrCredentialUnavailable", key, err)
@@ -94,7 +94,7 @@ func authedUpstream(t *testing.T) (endpoint string, requests *atomic.Int32) {
 
 func TestIntrospector_StaticCredentialLifecycle(t *testing.T) {
 	endpoint, _ := authedUpstream(t)
-	dir := secretsDir(t, map[string]string{"ns.exa.0": goodBearer, "ns.exa.1": goodAPIKey})
+	dir := secretsDir(t, map[string]string{"ns.exa.authorization": goodBearer, "ns.exa.x-api-key": goodAPIKey})
 	var logs bytes.Buffer
 	i := NewIntrospector(NewUpstreamCredentials(dir), "test", logging.NewLoggerWithOutput(&logs))
 	servers := []Server{{TenantID: "acme", Name: "exa", Endpoint: endpoint, AuthHeaders: authHeaders}}
@@ -108,7 +108,7 @@ func TestIntrospector_StaticCredentialLifecycle(t *testing.T) {
 	}
 
 	writeKey := func(v string) {
-		if err := os.WriteFile(filepath.Join(dir, "ns.exa.1"), []byte(v), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "ns.exa.x-api-key"), []byte(v), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -118,7 +118,7 @@ func TestIntrospector_StaticCredentialLifecycle(t *testing.T) {
 		t.Errorf("with a wrong key: state %s, tools %d, err %q", s.State, len(s.Tools), s.LastErr)
 	}
 
-	if err := os.Remove(filepath.Join(dir, "ns.exa.1")); err != nil {
+	if err := os.Remove(filepath.Join(dir, "ns.exa.x-api-key")); err != nil {
 		t.Fatal(err)
 	}
 	s = snapshot()
@@ -149,9 +149,9 @@ func TestToolsCall_StaticCredentialFailsClosed(t *testing.T) {
 		wantMessage  string
 		wantUpstream bool
 	}{
-		{"right key", map[string]string{"ns.exa.0": goodBearer, "ns.exa.1": goodAPIKey}, "", true},
-		{"wrong key", map[string]string{"ns.exa.0": goodBearer, "ns.exa.1": wrongKey}, "upstream call failed", true},
-		{"missing key", map[string]string{"ns.exa.0": goodBearer}, "upstream credential unavailable", false},
+		{"right key", map[string]string{"ns.exa.authorization": goodBearer, "ns.exa.x-api-key": goodAPIKey}, "", true},
+		{"wrong key", map[string]string{"ns.exa.authorization": goodBearer, "ns.exa.x-api-key": wrongKey}, "upstream call failed", true},
+		{"missing key", map[string]string{"ns.exa.authorization": goodBearer}, "upstream credential unavailable", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -203,7 +203,7 @@ func TestUpstreamErrors_DoNotCarryCredentials(t *testing.T) {
 			r.Header.Get("Authorization"), r.Header.Get("X-Api-Key"))
 	}))
 	t.Cleanup(echo.Close)
-	dir := secretsDir(t, map[string]string{"ns.exa.0": goodBearer, "ns.exa.1": goodAPIKey})
+	dir := secretsDir(t, map[string]string{"ns.exa.authorization": goodBearer, "ns.exa.x-api-key": goodAPIKey})
 	srv := Server{Name: "exa", Endpoint: echo.URL + "/mcp", AuthHeaders: authHeaders}
 	creds := NewUpstreamCredentials(dir)
 
@@ -216,18 +216,6 @@ func TestUpstreamErrors_DoNotCarryCredentials(t *testing.T) {
 	}
 }
 
-func TestUpstreamError_RedactsSentValues(t *testing.T) {
-	h := http.Header{}
-	h.Set("Authorization", "Bearer "+goodBearer)
-	h.Set("X-Api-Key", "k=ab c")
-	srv := Server{AuthHeaders: []AuthHeader{{Name: "X-Api-Key", Prefix: "k="}}}
-	_, upstream := upstreamClient(0, "test", srv, h)
-	err := upstream.upstreamError(fmt.Errorf("decode: unexpected %s and ab c", goodBearer))
-	if strings.Contains(err.Error(), goodBearer) || strings.Contains(err.Error(), "ab c") {
-		t.Errorf("err = %q", err)
-	}
-}
-
 // stubTransport answers each request with the next status.
 type stubTransport struct{ statuses []int }
 
@@ -237,23 +225,40 @@ func (s *stubTransport) RoundTrip(*http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: code, Body: http.NoBody}, nil
 }
 
-func TestUpstreamError_UsesLatestStatusOnlyWithCredentials(t *testing.T) {
-	cause := errors.New("stream closed")
-	send := func(tr *headerTransport, n int) {
-		for range n {
-			_, _ = tr.RoundTrip(httptest.NewRequest(http.MethodPost, "http://upstream/mcp", nil))
-		}
+func TestUpstreamError_CarriesNoUpstreamText(t *testing.T) {
+	cause := fmt.Errorf("tool error: echoed %s", goodAPIKey)
+	creds := http.Header{"X-Api-Key": {goodAPIKey}}
+	transport := func(statuses ...int) *headerTransport {
+		return &headerTransport{headers: creds, base: &stubTransport{statuses: statuses}}
+	}
+	send := func(tr *headerTransport, method string) {
+		_, _ = tr.RoundTrip(httptest.NewRequest(method, "http://upstream/mcp", nil))
 	}
 
-	creds := http.Header{"X-Api-Key": {goodAPIKey}}
-	tr := &headerTransport{headers: creds, base: &stubTransport{statuses: []int{405, 200}}, secrets: headerSecrets(Server{}, creds)}
-	send(tr, 2)
-	if err := tr.upstreamError(cause); err != cause {
-		t.Errorf("after 405 then 200: err = %v, want the cause unchanged", err)
+	// A concurrent success on the GET stream does not clear an auth failure.
+	tr := transport(401, 200)
+	send(tr, http.MethodPost)
+	send(tr, http.MethodGet)
+	if err := tr.upstreamError(cause); !errors.Is(err, ErrUpstreamAuthFailed) || err.Error() != "auth_failed: HTTP 401" {
+		t.Errorf("after 401 then 200: err = %v", err)
+	}
+
+	// A 405 on the optional GET stream is not an error status.
+	tr = transport(405, 200)
+	send(tr, http.MethodGet)
+	send(tr, http.MethodPost)
+	if err := tr.upstreamError(cause); err != ErrUpstreamFailed {
+		t.Errorf("after GET 405: err = %v, want ErrUpstreamFailed", err)
+	}
+
+	tr = transport(500)
+	send(tr, http.MethodPost)
+	if err := tr.upstreamError(cause); err.Error() != "upstream_status: HTTP 500" {
+		t.Errorf("after 500: err = %v", err)
 	}
 
 	none := &headerTransport{headers: http.Header{}, base: &stubTransport{statuses: []int{401}}}
-	send(none, 1)
+	send(none, http.MethodPost)
 	if err := none.upstreamError(cause); err != cause {
 		t.Errorf("without credentials: err = %v, want the cause unchanged", err)
 	}

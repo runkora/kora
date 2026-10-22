@@ -49,6 +49,7 @@ func TestValidateMCPServerAuth(t *testing.T) {
 			return hs
 		}()}}, ErrMCPServerBadAuthHeader},
 		{"not a token", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("x api key", "", "exa", "key")}}}, ErrMCPServerBadAuthHeader},
+		{"token outside the key charset", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("x_api!key", "", "exa", "key")}}}, ErrMCPServerBadAuthHeader},
 		{"empty name", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("", "", "exa", "key")}}}, ErrMCPServerBadAuthHeader},
 		{"host reserved", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("Host", "", "exa", "key")}}}, ErrMCPServerBadAuthHeader},
 		{"delegation reserved", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader(mw.DelegationTokenHeader, "", "exa", "key")}}}, ErrMCPServerBadAuthHeader},
@@ -130,8 +131,8 @@ func TestMCPAggregator_CopiesCredentialsOutOfTheRegistry(t *testing.T) {
 		t.Fatalf("servers.json = %s (%v)", registry, err)
 	}
 	want := []mcpAuthHeaderEntry{
-		{Name: "Authorization", Prefix: "Bearer ", SecretKey: testTenantNS + ".exa.0"},
-		{Name: "x-api-key", SecretKey: testTenantNS + ".exa.1"},
+		{Name: "Authorization", Prefix: "Bearer ", SecretKey: testTenantNS + ".exa.authorization"},
+		{Name: "x-api-key", SecretKey: testTenantNS + ".exa.x-api-key"},
 	}
 	if got := entries[0].AuthHeaders; len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Errorf("auth_headers = %+v, want %+v", got, want)

@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -67,8 +66,8 @@ func validateMCPServerAuth(spec MCPServerSpec) error {
 	for _, h := range spec.Auth.Headers {
 		lower := strings.ToLower(h.Name)
 		switch {
-		case !isHeaderToken(h.Name):
-			return fmt.Errorf("%w: %q is not a valid header name", ErrMCPServerBadAuthHeader, h.Name)
+		case !isHeaderName(h.Name):
+			return fmt.Errorf("%w: %q must use only letters, digits and hyphens", ErrMCPServerBadAuthHeader, h.Name)
 		case isReservedHeader(lower):
 			return fmt.Errorf("%w: %q is reserved", ErrMCPServerBadAuthHeader, h.Name)
 		case seen[lower]:
@@ -95,22 +94,22 @@ func isReservedHeader(lower string) bool {
 	return false
 }
 
-// isHeaderToken reports whether name is an RFC 7230 token.
-func isHeaderToken(name string) bool {
+// isHeaderName reports whether name uses only letters, digits and hyphens.
+// That subset of RFC 7230 tokens is also valid in a Secret data key.
+func isHeaderName(name string) bool {
 	if name == "" {
 		return false
 	}
 	for _, c := range []byte(name) {
-		if !isTokenChar(c) {
+		if !isHeaderNameChar(c) {
 			return false
 		}
 	}
 	return true
 }
 
-func isTokenChar(c byte) bool {
-	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' ||
-		strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0
+func isHeaderNameChar(c byte) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '-'
 }
 
 // isHeaderValue rejects control characters other than tab, as net/http does.
@@ -123,10 +122,12 @@ func isHeaderValue(v []byte) bool {
 	return true
 }
 
-// mcpSecretKey is the aggregated Secret's data key for one header. Namespaces
-// have no dots and names have no underscores, so the key is unique.
-func mcpSecretKey(namespace, name string, index int) string {
-	return namespace + "." + strings.ReplaceAll(name, ".", "_") + "." + strconv.Itoa(index)
+// mcpSecretKey is the aggregated Secret's data key for one header. Keying on
+// the header name keeps a reordered list from sending a value under another
+// header. Namespaces and header names have no dots, and names have no
+// underscores, so the key is unique.
+func mcpSecretKey(namespace, name, header string) string {
+	return namespace + "." + strings.ReplaceAll(name, ".", "_") + "." + strings.ToLower(header)
 }
 
 // maxMCPCredentialSize bounds one value. Every value shares one Secret, which
