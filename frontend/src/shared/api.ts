@@ -1089,7 +1089,7 @@ export interface SkillSummary {
 
 /**
  * One cursor batch of a Marketplace's Skills: at most 200 items in skillSlug
- * order, with no name sort or total. The overview currently uses the first batch.
+ * order, with no name sort or total. The server client follows nextCursor.
  */
 export interface ListSkillsResponse {
   skills: SkillSummary[];

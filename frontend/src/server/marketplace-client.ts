@@ -1,22 +1,10 @@
 import 'server-only';
 
-import type { GetMarketplaces, ListSkillsResponse, Skill } from '@orbit/shared/api';
+import type { GetMarketplaces, ListSkillsResponse, Skill, SkillSummary } from '@orbit/shared/api';
 import { config } from '@orbit/server/config';
 import { ApiError } from './api-error';
 
-// Marketplace client. Calls skills-service (backend/internal/skills) over
-// SKILLS_SERVICE_URL. Each function matches one skills-service endpoint; see
-// docs/adr/2026-08-28-marketplace-adr-backend.md for the route contract.
-//
-// The skills-service returns cursor batches in slug order. This client requests
-// only the first batch; it does not follow nextCursor. The server loader does the
-// sort/page/total work (see marketplace-server.ts) over that one batch. A
-// Marketplace with more than SKILL_LIST_CAP Skills is not fully shown yet.
-
 const UPSTREAM_TIMEOUT_MS = 10_000;
-
-/** The most Skills that the skills-service returns for one list request. */
-export const SKILL_LIST_CAP = 200;
 
 /** Combines the caller's own cancellation, when given, with a fixed timeout. */
 function requestSignal(signal?: AbortSignal): AbortSignal {
@@ -51,28 +39,42 @@ export async function fetchMarketplaces(
   return request<GetMarketplaces>('/marketplaces', accessToken, signal);
 }
 
-/**
- * GET /marketplaces/{marketplaceSlug}/skills?search=
- *
- * A 404 from the skills-service (unknown Marketplace) surfaces as an
- * ApiError, same as any other failed response.
- */
+/** Loads every matching Skill summary across cursor batches. */
 export async function fetchSkills(
   accessToken: string,
   marketplaceSlug: string,
   search: string,
   signal?: AbortSignal,
-): Promise<ListSkillsResponse> {
+): Promise<{ skills: SkillSummary[] }> {
+  const batchSignal = requestSignal(signal);
   const query = new URLSearchParams();
   if (search) {
     query.set('search', search);
   }
-  const qs = query.toString();
-  return request<ListSkillsResponse>(
-    `/marketplaces/${marketplaceSlug}/skills${qs ? `?${qs}` : ''}`,
-    accessToken,
-    signal,
-  );
+  const skills: SkillSummary[] = [];
+  const seenCursors = new Set<string>();
+  let nextCursor: string | undefined;
+
+  do {
+    batchSignal.throwIfAborted();
+    if (nextCursor) query.set('cursor', nextCursor);
+    const qs = query.toString();
+    const batch = await request<ListSkillsResponse>(
+      `/marketplaces/${marketplaceSlug}/skills${qs ? `?${qs}` : ''}`,
+      accessToken,
+      batchSignal,
+    );
+    skills.push(...batch.skills);
+    nextCursor = batch.nextCursor;
+    if (nextCursor) {
+      if (seenCursors.has(nextCursor)) {
+        throw new ApiError(502, 'invalid_response', 'Failed to load Skills');
+      }
+      seenCursors.add(nextCursor);
+    }
+  } while (nextCursor);
+
+  return { skills };
 }
 
 /**
