@@ -147,12 +147,15 @@ func (c *Connector) claudeChatCompletion(ctx context.Context, params openai.Chat
 	)
 
 	startedAt := time.Now().Unix()
-	msg, err := c.anthropicClient.Messages.New(ctx, anthropicParams)
+	// Stream and accumulate: a synchronous invoke is rejected when max_tokens
+	// implies a call longer than 10 minutes.
+	msg, eventCount, err := convert.AccumulateAnthropicStream(ctx, c.anthropicClient.Messages.NewStreaming(ctx, anthropicParams), inferencegw.ProviderBedrock)
 	if err != nil {
 		c.logger.Error(ctx, "bedrock: claudeChatCompletion error",
 			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "events_before_error", Value: fmt.Sprintf("%d", eventCount)},
 		)
-		return nil, convert.MapAnthropicError(inferencegw.ProviderBedrock, err)
+		return nil, err
 	}
 
 	c.logger.Debug(ctx, "bedrock: claudeChatCompletion done",

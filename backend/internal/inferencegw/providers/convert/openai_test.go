@@ -777,3 +777,16 @@ func TestMapAnthropicError_RequestRejected(t *testing.T) {
 		}
 	}
 }
+
+func TestMapAnthropicError_StreamingRequiredNotRetryable(t *testing.T) {
+	t.Parallel()
+	err := errors.New("streaming is required for operations that may take longer than 10 minutes")
+	got := convert.MapAnthropicError(inferencegw.ProviderBedrock, err)
+	var connErr *inferencegw.ConnectorError
+	if !errors.As(got, &connErr) {
+		t.Fatalf("expected *ConnectorError, got %T", got)
+	}
+	if connErr.Retryable {
+		t.Error("Retryable = true, want false")
+	}
+}

@@ -627,6 +627,17 @@ func MapAnthropicError(provider inferencegw.ProviderName, err error) error {
 			ProviderMessage: extractAnthropicMessage(apiErr.RawJSON()),
 		}
 	}
+	// The SDK refuses a synchronous call whose max_tokens implies more than 10
+	// minutes. The same request fails every time, so do not retry it.
+	if strings.Contains(err.Error(), "streaming is required") {
+		return &inferencegw.ConnectorError{
+			Provider:        provider,
+			Code:            "INVALID_REQUEST",
+			Retryable:       false,
+			RequestRejected: true,
+			Underlying:      err,
+		}
+	}
 	// Context cancellation means the caller gave up (client disconnect, upstream
 	// timeout). Retrying is pointless — the context is already done.
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
