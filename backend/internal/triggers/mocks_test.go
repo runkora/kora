@@ -97,6 +97,23 @@ func (m *mockRepository) InsertRoutingDecision(_ context.Context, d *RoutingDeci
 	return nil
 }
 
+func (m *mockRepository) StartFieldsByDelivery(_ context.Context, tenantID, triggerID string, deliveryIDs []string) (map[string]map[string]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]map[string]string{}
+	for _, d := range m.decisions {
+		if d.TenantID != tenantID || d.TriggerID != triggerID || len(d.StartFields) == 0 {
+			continue
+		}
+		for _, id := range deliveryIDs {
+			if d.DeliveryID == id {
+				out[id] = d.StartFields
+			}
+		}
+	}
+	return out, nil
+}
+
 // decisionFor returns the decision recorded for a delivery, or nil.
 func (m *mockRepository) decisionFor(deliveryID string) *RoutingDecision {
 	m.mu.Lock()

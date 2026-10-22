@@ -178,6 +178,7 @@ func (s *Service) route(ctx context.Context, t Trigger, p PendingDelivery) (*Rou
 		return d, "", err
 	}
 	d.RunID = &runID
+	d.StartFields = startFields(t.PromptTemplate, p.Fields)
 	return d, runID, nil
 }
 
@@ -272,7 +273,8 @@ func (s *Service) decide(ctx context.Context, t Trigger, tok, prompt string) (ro
 		}
 	}
 
-	q := buildRoutingQuestions(r.Model, prompt, agents, runs)
+	started := s.runStartFields(ctx, t, runs)
+	q := buildRoutingQuestions(r.Model, prompt, agents, runs, started)
 	var resp inferenceclient.SystemOneResponse
 	err = s.retryYoungGrant(ctx, t, inferenceclient.ErrForbidden, func() error {
 		var callErr error
@@ -283,6 +285,29 @@ func (s *Service) decide(ctx context.Context, t Trigger, tok, prompt string) (ro
 		return routeChoice{}, fmt.Errorf("decision model: %w", err)
 	}
 	return decideRoute(q, resp, r.threshold(), r.FallbackAgentTypeID)
+}
+
+// runStartFields reads what the joinable runs were started from, keyed by
+// delivery id. A failed read leaves the runs described without it.
+func (s *Service) runStartFields(ctx context.Context, t Trigger, runs []agentsclient.Run) map[string]map[string]string {
+	var ids []string
+	for _, run := range runs {
+		if run.StartedBy != nil && run.StartedBy.DeliveryID != "" {
+			ids = append(ids, run.StartedBy.DeliveryID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	fields, err := s.repo.StartFieldsByDelivery(ctx, t.TenantID, t.ID, ids)
+	if err != nil {
+		s.logger.Warn(ctx, "reading run start fields failed; describing runs without them",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil
+	}
+	return fields
 }
 
 // joinableRuns lists the open, trigger-started runs of the candidate agents,

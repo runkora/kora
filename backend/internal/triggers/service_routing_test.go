@@ -999,3 +999,53 @@ func TestRedeliver_RoutedTriggerChecksEveryCandidate(t *testing.T) {
 		})
 	}
 }
+
+// The follow-up on the same pull request sees what the open run started from.
+func TestDispatchRouted_RunOptionCarriesStartDelivery(t *testing.T) {
+	svc, deps, decisions, src := routedHarness(t)
+	decisions.resp = decisionAnswers(0.9, "", 0)
+	tr := mustRouted(t, deps, src.ID, nil)
+	fireRouted(t, svc, deps, tr, "d-1", routedFields)
+
+	d := deps.repo.decisionFor("d-1")
+	if d == nil || d.StartFields["comment.body"] != "@kora fix it" || len(d.StartFields) != 1 {
+		t.Fatalf("start fields = %+v, want only the template's comment.body", d)
+	}
+
+	deps.agents.runs = []agentsclient.Run{
+		{ID: "run-1", AgentTypeID: "at-a", State: "active", StartedBy: &agentsclient.StartedByTrigger{TriggerID: tr.ID, DeliveryID: "d-1"}},
+		{ID: "run-2", AgentTypeID: "at-a", State: "active", StartedBy: &agentsclient.StartedByTrigger{TriggerID: tr.ID, DeliveryID: "d-old"}},
+	}
+	fireRouted(t, svc, deps, tr, "d-2", routedFields)
+	criteria := decisions.calls[1].Questions[questionRun].Criteria
+	if !strings.Contains(criteria["r1"], `Started from: {"comment.body":"@kora fix it"}`) {
+		t.Errorf("run option with a start delivery = %q", criteria["r1"])
+	}
+	if strings.Contains(criteria["r2"], "Started from") {
+		t.Errorf("run option with no recorded start delivery = %q", criteria["r2"])
+	}
+}
+
+// A delivery routed by two triggers keeps each trigger's own start fields.
+func TestDispatchRouted_RunOptionIgnoresOtherTriggersFields(t *testing.T) {
+	svc, deps, decisions, src := routedHarness(t)
+	decisions.resp = decisionAnswers(0.9, "", 0)
+	tr := mustRouted(t, deps, src.ID, nil)
+	fireRouted(t, svc, deps, tr, "d-1", routedFields)
+	err := deps.repo.InsertRoutingDecision(context.Background(), &RoutingDecision{
+		DeliveryID: "d-1", TriggerID: "other-trigger", TenantID: tr.TenantID,
+		StartFields: map[string]string{"comment.body": "from another trigger"},
+	})
+	if err != nil {
+		t.Fatalf("InsertRoutingDecision: %v", err)
+	}
+
+	deps.agents.runs = []agentsclient.Run{
+		{ID: "run-1", AgentTypeID: "at-a", State: "active", StartedBy: &agentsclient.StartedByTrigger{TriggerID: tr.ID, DeliveryID: "d-1"}},
+	}
+	fireRouted(t, svc, deps, tr, "d-2", routedFields)
+	criteria := decisions.calls[1].Questions[questionRun].Criteria
+	if !strings.Contains(criteria["r1"], `Started from: {"comment.body":"@kora fix it"}`) || strings.Contains(criteria["r1"], "another trigger") {
+		t.Errorf("run option = %q, want only this trigger's fields", criteria["r1"])
+	}
+}

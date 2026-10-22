@@ -1793,19 +1793,57 @@ func (r *postgresRepository) InsertRoutingDecision(ctx context.Context, d *Routi
 	if err != nil {
 		return fmt.Errorf("marshal routing scores: %w", err)
 	}
+	var startFields []byte
+	if len(d.StartFields) > 0 {
+		if startFields, err = json.Marshal(d.StartFields); err != nil {
+			return fmt.Errorf("marshal start fields: %w", err)
+		}
+	}
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO trigger_routing_decisions
 			(delivery_id, trigger_id, tenant_id, question_version, model, outcome, join_key, key_matched,
-			 agent_type_id, run_id, threshold, probability, confidence, scores, fallback_reason, error)
+			 agent_type_id, run_id, threshold, probability, confidence, scores, fallback_reason, error, start_fields)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		ON CONFLICT (delivery_id, trigger_id) DO NOTHING
 	`, d.DeliveryID, d.TriggerID, d.TenantID, d.QuestionVersion, d.Model, d.Outcome, d.JoinKey, d.KeyMatched,
-		d.AgentTypeID, d.RunID, d.Threshold, d.Probability, d.Confidence, scores, d.FallbackReason, d.Error)
+		d.AgentTypeID, d.RunID, d.Threshold, d.Probability, d.Confidence, scores, d.FallbackReason, d.Error, startFields)
 	if err != nil {
 		return fmt.Errorf("insert routing decision: %w", err)
 	}
 	return nil
+}
+
+func (r *postgresRepository) StartFieldsByDelivery(ctx context.Context, tenantID, triggerID string, deliveryIDs []string) (map[string]map[string]string, error) {
+	out := map[string]map[string]string{}
+	if len(deliveryIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT delivery_id, start_fields
+		FROM   trigger_routing_decisions
+		WHERE  tenant_id = $1 AND trigger_id = $2 AND delivery_id = ANY($3) AND start_fields IS NOT NULL
+	`, tenantID, triggerID, deliveryIDs)
+	if err != nil {
+		return nil, fmt.Errorf("read start fields: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var raw []byte
+		if err := rows.Scan(&id, &raw); err != nil {
+			return nil, fmt.Errorf("scan start fields: %w", err)
+		}
+		var fields map[string]string
+		if err := json.Unmarshal(raw, &fields); err != nil || len(fields) == 0 {
+			continue
+		}
+		out[id] = fields
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read start fields: %w", err)
+	}
+	return out, nil
 }
 
 // HoldPending returns a claimed fire to the queue until delay has passed and
