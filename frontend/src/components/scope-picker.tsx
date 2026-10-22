@@ -146,6 +146,7 @@ export function ScopePicker({
   const trimmed = searchable ? search.trim().toLowerCase() : '';
   // One character matches too much to be a search: show everything and leave groups as they are.
   const query = trimmed.length >= MIN_SEARCH_LENGTH ? trimmed : '';
+  const tooShort = trimmed !== '' && query === '';
 
   const all = useMemo<ScopeOption[]>(() => {
     const source = options && options.length > 0 ? options : scopes.map((scope) => ({ scope }));
@@ -191,6 +192,11 @@ export function ScopePicker({
           onChange={(e) => setSearch(e.target.value)}
         />
       )}
+      {tooShort && (
+        <Text size="caption" color="subtle">
+          Type {MIN_SEARCH_LENGTH} or more characters to filter
+        </Text>
+      )}
       {/* Always rendered so the list does not jump on the first and last selection. */}
       <Stack direction="horizontal" align="center" gap="cozy">
         <Stack grow minWidth="none" gap="none">
@@ -211,7 +217,13 @@ export function ScopePicker({
           Clear all
         </Button>
       </Stack>
-      {groups.length === 0 && query ? (
+      {all.length === 0 ? (
+        <Stack paddingBlock="comfortable" align="center">
+          <Text size="caption" color="muted">
+            No scopes available
+          </Text>
+        </Stack>
+      ) : groups.length === 0 && query ? (
         <Stack paddingBlock="comfortable" align="center">
           <Text size="caption" color="muted">
             No scopes match your filter
@@ -240,6 +252,30 @@ function counts(selected: number, shown: number, full: number, filtered: boolean
     : `${selected}/${shown} scopes`;
 }
 
+function triState(selected: number, total: number) {
+  const allSelected = total > 0 && selected === total;
+  return { allSelected, some: selected > 0 && !allSelected };
+}
+
+/**
+ * Open state for a group or sub-group. Until the user opens or closes it, it follows the
+ * selection: one that holds a scope is open, so existing grants are visible even when the saved
+ * scopes load after mount. A search force-opens it without touching that state.
+ *
+ * `pin` is called when the user changes the picker's own checkboxes: it freezes the open state
+ * they were made in, so select-all on a closed group does not mount its rows and clearing the last
+ * scope does not collapse the group under the cursor. It does nothing while a search force-opens
+ * the group, because `selectedCount` then counts only the matches and would pin a wrong state.
+ */
+function useFollowedOpen(selectedCount: number, forceOpen: boolean) {
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
+  const followed = manualOpen ?? selectedCount > 0;
+  const pin = () => {
+    if (!forceOpen && manualOpen === null) setManualOpen(followed);
+  };
+  return { open: forceOpen || followed, setManualOpen, pin };
+}
+
 function countSelected(items: ScopeOption[], selectedSet: Set<string>): number {
   let n = 0;
   for (const o of items) if (selectedSet.has(o.scope)) n++;
@@ -262,19 +298,11 @@ function ScopeGroupCard({
   const total = group.all.length;
   const selectedInGroup = countSelected(group.all, selectedSet);
   const any = selectedInGroup > 0;
+  const { allSelected, some } = triState(selectedInGroup, total);
+  const { open, setManualOpen, pin } = useFollowedOpen(selectedInGroup, forceOpen);
 
-  // Until the user opens or closes the group, it follows the selection: a group that holds a
-  // scope is open, so existing grants are visible even when the saved scopes load after mount.
-  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
-  const followed = manualOpen ?? any;
-  const open = forceOpen || followed;
-  const allSelected = total > 0 && selectedInGroup === total;
-  const some = any && !allSelected;
-
-  // A change made here pins the open state it was made in, so select-all on a closed group does
-  // not mount its rows and clearing the last scope does not collapse the group under the cursor.
   const toggle = (scopes: ScopeOption[], on: boolean) => {
-    if (manualOpen === null) setManualOpen(followed);
+    pin();
     onToggle(scopes, on);
   };
 
@@ -366,19 +394,14 @@ function ScopeSubGroup({
 }) {
   const total = sub.items.length;
   const selectedInSub = countSelected(sub.items, selectedSet);
-  const allSelected = total > 0 && selectedInSub === total;
-  const some = selectedInSub > 0 && !allSelected;
-
-  // Like the group, a sub-group follows the selection until the user toggles it. With nothing
-  // selected they all start closed, so a group of hundreds of scopes is a short list of servers.
-  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
-  const followed = manualOpen ?? selectedInSub > 0;
-  const open = forceOpen || followed;
+  const { allSelected, some } = triState(selectedInSub, total);
+  // With nothing selected sub-groups start closed, so a group of hundreds of scopes is a short
+  // list of servers.
+  const { open, setManualOpen, pin } = useFollowedOpen(selectedInSub, forceOpen);
   const label = `${groupKey} ${sub.key}`;
 
-  // See ScopeGroupCard: a change made here pins the open state.
   const toggle = (scopes: ScopeOption[], on: boolean) => {
-    if (manualOpen === null) setManualOpen(followed);
+    pin();
     onToggle(scopes, on);
   };
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { useState } from 'react';
 import { Form } from '@runkora/hades';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ScopePicker } from './scope-picker';
@@ -164,6 +165,54 @@ const OPTIONS: ScopeOption[] = [
     path: ['runs'],
   },
 ];
+
+describe('ScopePicker search edge cases', () => {
+  it('hints that one character is not enough, and drops the hint at two', () => {
+    render(<ScopePicker scopes={SCOPES} selected={[]} onChange={vi.fn()} />);
+    expect(screen.queryByText(/or more characters/)).not.toBeInTheDocument();
+    search('w');
+    expect(screen.getByText('Type 2 or more characters to filter')).toBeInTheDocument();
+    search('wr');
+    expect(screen.queryByText(/or more characters/)).not.toBeInTheDocument();
+    search('  ');
+    expect(screen.queryByText(/or more characters/)).not.toBeInTheDocument();
+  });
+
+  it('renders an empty state for an empty list', () => {
+    const { rerender } = render(<ScopePicker scopes={[]} selected={[]} onChange={vi.fn()} />);
+    expect(screen.getByText('No scopes available')).toBeInTheDocument();
+    expect(screen.getByText('0 scopes selected')).toBeInTheDocument();
+    rerender(<ScopePicker options={[]} selected={[]} onChange={vi.fn()} />);
+    expect(screen.getByText('No scopes available')).toBeInTheDocument();
+  });
+
+  it('keeps a group open after select-all during a search once the search is cleared', () => {
+    function Harness() {
+      const [sel, setSel] = useState<string[]>([]);
+      return <ScopePicker scopes={SCOPES} selected={sel} onChange={setSel} />;
+    }
+    render(<Harness />);
+    search('write');
+    fireEvent.click(box('Select all agents scopes'));
+    search('');
+    expect(toggleButton('agents')).toHaveAttribute('aria-expanded', 'true');
+    expect(box('Select agents:write').checked).toBe(true);
+  });
+
+  it('keeps a sub-group open after select-all during a search once the search is cleared', () => {
+    function Harness() {
+      const [sel, setSel] = useState<string[]>([]);
+      return <ScopePicker options={OPTIONS} selected={sel} onChange={setSel} />;
+    }
+    render(<Harness />);
+    search('pull');
+    fireEvent.click(box('Select all mcp github scopes'));
+    search('');
+    expect(toggleButton('mcp')).toHaveAttribute('aria-expanded', 'true');
+    expect(toggleButton('mcp github')).toHaveAttribute('aria-expanded', 'true');
+    expect(box('Select mcp:github:pulls:use').checked).toBe(true);
+  });
+});
 
 describe('ScopePicker hierarchy', () => {
   it('groups by resource type, then by server, and shows descriptions', () => {
