@@ -124,6 +124,7 @@ spec:
 
 The operator marks an `MCPServer` `Invalid` when any of these rules fails:
 
+*   `spec.auth.headers` lists at most 8 headers.
 *   Each header `name` is an RFC 7230 token, and names are unique case-insensitively.
 *   A header `name` is not reserved. The reserved names are `Host`, `Content-Length`, `Content-Type`, `Accept`, `Transfer-Encoding`, `Connection`, `Keep-Alive`, `Proxy-Connection`, `Proxy-Authenticate`, `Proxy-Authorization`, `TE`, `Trailer`, `Upgrade`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`, `traceparent`, `tracestate`, `X-Orbit-Delegation-Token` (`mw.DelegationTokenHeader`), and any name starting with `X-Forwarded-` or `X-Envoy-`.
 *   A `prefix` contains no control character other than tab.
@@ -136,7 +137,7 @@ Tenant and global `MCPServer` CRs follow the same rules and the same path.
 ### 2. Operator aggregation
 
 *   `MCPServerAggregator` reads each referenced Secret from the CR's namespace and writes the value into the `orbit-mcp-server-secrets` Secret in the system namespace. The data key is derived from the namespace, the server name and the header's index. The operator creates the Secret on its first pass, empty or not.
-*   The operator trims one trailing newline from the value. An empty value, a value over 8 KiB, or one that still contains a control character other than tab, is treated as missing. A value in a Secret the operator manages, such as a copied registry pull secret, is treated as missing.
+*   The operator trims one trailing newline from the value. An empty value, a value over 4 KiB, or one that still contains a control character other than tab, is treated as missing. A value in a Secret the operator manages, such as a copied registry pull secret, is treated as missing.
 *   The server's `servers.json` entry lists each header's name, prefix and data key. It never holds the value.
 *   When a Secret or key is missing, the entry keeps the header and the aggregated Secret omits the key. The `Aggregated` condition stays `True` with reason `CredentialUnavailable` and a message that cites the Secret and the key.
 *   Rotation takes up to one operator pass plus the kubelet's Secret projection delay. No gateway pod restarts.
@@ -188,6 +189,7 @@ Delivery reuses the connection aggregator path, and the gateway gains no Kuberne
 
 *   A rotated Secret takes up to five minutes plus the kubelet projection delay to apply.
 *   Every caller granted a tool acts upstream with the same service credential. The upstream cannot tell callers apart.
+*   Redirects stop for every registered server, including servers without `spec.auth`. A server that redirects its endpoint, such as to add a trailing slash, fails until its `spec.endpoint` names the final URL.
 *   The aggregated Secret in the system namespace holds every tenant's MCP credentials. Anything that can read Secrets in the system namespace can read them.
 *   A tenant `spec.endpoint` can still target any address the tool-gateway reaches. Review of the `MCPServer` in git is the control.
 *   A host the mesh registers is visible to every workload in the system namespace.
