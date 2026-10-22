@@ -36,6 +36,10 @@ async function pickUser() {
 }
 
 const pickScope = () => fireEvent.click(screen.getAllByRole('checkbox')[0]!);
+const spendSwitch = () => screen.getByRole('switch', { name: 'Spend limit' });
+const perRunSwitch = () => screen.getByRole('switch', { name: 'Per-run limit' });
+const spendInput = () => screen.getByLabelText('Spend limit in USD');
+const perRunInput = () => screen.getByLabelText('Per-run limit in USD');
 const createButton = () => screen.getByRole('button', { name: 'Create grant' });
 
 /** Fills user and a scope, then lands on the budget step. */
@@ -83,16 +87,14 @@ describe('CreateGrantWizard', () => {
   it.each([
     ['monthly', 'Monthly'],
     ['weekly', 'Weekly'],
-  ])('sends a %s budget when a limit is set', async (cadence, label) => {
+  ])('sends a %s spend limit', async (cadence, label) => {
     createGrantAction.mockResolvedValue({ ok: true, data: {} });
     renderWizard();
     await toBudget();
-    fireEvent.click(screen.getByRole('switch'));
-    expect(
-      screen.getByText('Enter a spend limit or a per-run limit, or turn the budget off.'),
-    ).toBeInTheDocument();
+    fireEvent.click(spendSwitch());
+    expect(screen.getByText('Enter a spend limit above 0.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled();
-    fireEvent.change(screen.getByPlaceholderText('e.g. 50'), { target: { value: '25' } });
+    fireEvent.change(spendInput(), { target: { value: '25' } });
     fireEvent.click(screen.getByRole('button', { name: label }));
     next();
     fireEvent.click(createButton());
@@ -104,18 +106,21 @@ describe('CreateGrantWizard', () => {
   });
 
   it.each([
-    ['window only', '25', '', { limit_usd: 25 }],
+    ['spend only', '25', '', { limit_usd: 25 }],
     ['per-run only', '', '4', { per_run_limit_usd: 4 }],
     ['both', '25', '4', { limit_usd: 25, per_run_limit_usd: 4 }],
   ])('sends a %s budget', async (_name, window, perRunValue, expected) => {
     createGrantAction.mockResolvedValue({ ok: true, data: {} });
     renderWizard();
     await toBudget();
-    fireEvent.click(screen.getByRole('switch'));
-    if (window)
-      fireEvent.change(screen.getByPlaceholderText('e.g. 50'), { target: { value: window } });
-    if (perRunValue)
-      fireEvent.change(screen.getByPlaceholderText('e.g. 5'), { target: { value: perRunValue } });
+    if (window) {
+      fireEvent.click(spendSwitch());
+      fireEvent.change(spendInput(), { target: { value: window } });
+    }
+    if (perRunValue) {
+      fireEvent.click(perRunSwitch());
+      fireEvent.change(perRunInput(), { target: { value: perRunValue } });
+    }
     next();
     fireEvent.click(createButton());
     await waitFor(() => expect(createGrantAction).toHaveBeenCalled());
@@ -125,40 +130,80 @@ describe('CreateGrantWizard', () => {
     });
   });
 
-  it.each([
-    ['both empty', '', ''],
-    ['both zero', '0', '0'],
-    ['a negative per-run limit', '', '-1'],
-  ])('holds Continue on the budget step with %s', async (_name, window, perRunValue) => {
+  it('keeps both rows and their controls in place whether a row is on or off', async () => {
     renderWizard();
     await toBudget();
-    fireEvent.click(screen.getByRole('switch'));
-    if (window)
-      fireEvent.change(screen.getByPlaceholderText('e.g. 50'), { target: { value: window } });
-    if (perRunValue)
-      fireEvent.change(screen.getByPlaceholderText('e.g. 5'), { target: { value: perRunValue } });
+    expect(spendSwitch()).not.toBeChecked();
+    expect(perRunSwitch()).not.toBeChecked();
+    expect(spendInput()).toBeInTheDocument();
+    expect(perRunInput()).toBeInTheDocument();
+    fireEvent.click(spendSwitch());
+    expect(spendInput()).toBeInTheDocument();
+    expect(perRunInput()).toBeInTheDocument();
+  });
+
+  it.each([
+    ['spend on but empty', '', '', true, false],
+    ['spend on and zero', '0', '', true, false],
+    ['spend on and negative', '-5', '', true, false],
+    ['per-run on and negative', '', '-1', false, true],
+    ['per-run on and zero', '', '0', false, true],
+  ])('holds Continue with %s', async (_name, window, perRunValue, spendOn, perRunOn) => {
+    renderWizard();
+    await toBudget();
+    if (spendOn) fireEvent.click(spendSwitch());
+    if (perRunOn) fireEvent.click(perRunSwitch());
+    if (window) fireEvent.change(spendInput(), { target: { value: window } });
+    if (perRunValue) fireEvent.change(perRunInput(), { target: { value: perRunValue } });
     expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled();
+  });
+
+  it('continues with no budget when both rows are off', async () => {
+    renderWizard();
+    await toBudget();
+    expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled();
+  });
+
+  it('shows only the rows that are on in the review', async () => {
+    renderWizard();
+    await toBudget();
+    fireEvent.click(spendSwitch());
+    fireEvent.change(spendInput(), { target: { value: '25' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Weekly' }));
+    next();
+    expect(screen.getByText('Spend limit')).toBeInTheDocument();
+    expect(screen.getByText('$25.00 per week')).toBeInTheDocument();
+    expect(screen.queryByText('Per-run limit')).toBeNull();
+    expect(screen.queryByText('No budget')).toBeNull();
   });
 
   it('shows both limits on the review step', async () => {
     renderWizard();
     await toBudget();
-    fireEvent.click(screen.getByRole('switch'));
-    fireEvent.change(screen.getByPlaceholderText('e.g. 50'), { target: { value: '25' } });
-    fireEvent.change(screen.getByPlaceholderText('e.g. 5'), { target: { value: '4' } });
+    fireEvent.click(spendSwitch());
+    fireEvent.change(spendInput(), { target: { value: '25' } });
+    fireEvent.click(perRunSwitch());
+    fireEvent.change(perRunInput(), { target: { value: '4' } });
     next();
-    expect(screen.getByText('Per-run limit')).toBeInTheDocument();
-    expect(screen.getByText(/\$4\.00 per run/)).toBeInTheDocument();
-    expect(screen.getByText(/\$25\.00/)).toBeInTheDocument();
+    expect(screen.getByText('$25.00 per month')).toBeInTheDocument();
+    expect(screen.getByText('$4.00 per run')).toBeInTheDocument();
   });
 
-  it('sends no budget when it is switched on and then off again', async () => {
+  it('says "No budget" in the review when both rows are off', async () => {
+    renderWizard();
+    await toBudget();
+    next();
+    expect(screen.getByText('No budget')).toBeInTheDocument();
+    expect(screen.queryByText('Spend limit')).toBeNull();
+  });
+
+  it('sends no budget when a row is switched on and then off again', async () => {
     createGrantAction.mockResolvedValue({ ok: true, data: {} });
     renderWizard();
     await toBudget();
-    fireEvent.click(screen.getByRole('switch'));
-    fireEvent.change(screen.getByPlaceholderText('e.g. 50'), { target: { value: '25' } });
-    fireEvent.click(screen.getByRole('switch'));
+    fireEvent.click(spendSwitch());
+    fireEvent.change(spendInput(), { target: { value: '25' } });
+    fireEvent.click(spendSwitch());
     next();
     fireEvent.click(createButton());
     await waitFor(() => expect(createGrantAction).toHaveBeenCalled());
@@ -204,9 +249,11 @@ describe('CreateGrantWizard', () => {
     createGrantAction.mockResolvedValue({ ok: true, data: {} });
     renderWizard();
     await toBudget();
-    fireEvent.click(screen.getByRole('switch'));
-    fireEvent.change(screen.getByPlaceholderText('e.g. 50'), { target: { value: '25' } });
+    fireEvent.click(spendSwitch());
+    fireEvent.change(spendInput(), { target: { value: '25' } });
     fireEvent.click(screen.getByRole('button', { name: 'Weekly' }));
+    fireEvent.click(perRunSwitch());
+    fireEvent.change(perRunInput(), { target: { value: '4' } });
     next();
     fireEvent.click(createButton());
     fireEvent.click(await screen.findByRole('button', { name: /create another/i }));
@@ -217,12 +264,12 @@ describe('CreateGrantWizard', () => {
     expect(screen.getByText('Choose at least one scope before you continue.')).toBeInTheDocument();
     pickScope();
     next();
-    expect(screen.getByRole('switch')).not.toBeChecked();
-    expect(screen.queryByPlaceholderText('e.g. 50')).toBeNull();
-    fireEvent.click(screen.getByRole('switch'));
-    expect(screen.getByPlaceholderText('e.g. 50')).toHaveValue(null);
-    // The cadence is back to monthly.
-    fireEvent.change(screen.getByPlaceholderText('e.g. 50'), { target: { value: '10' } });
+    expect(spendSwitch()).not.toBeChecked();
+    expect(perRunSwitch()).not.toBeChecked();
+    expect(spendInput()).toHaveValue('');
+    expect(perRunInput()).toHaveValue('');
+    fireEvent.click(spendSwitch());
+    fireEvent.change(spendInput(), { target: { value: '10' } });
     next();
     fireEvent.click(createButton());
     await waitFor(() => expect(createGrantAction).toHaveBeenCalledTimes(2));
@@ -277,10 +324,10 @@ describe('CreateGrantWizard', () => {
       pickScope();
       next();
       expect(shape(strip()).index).toBe(first.index); // budget, valid
-      fireEvent.click(screen.getByRole('switch'));
+      fireEvent.click(spendSwitch());
       expect(strip()).toHaveAttribute('role', 'alert'); // budget, invalid
       expect(shape(strip()).index).toBe(first.index);
-      fireEvent.click(screen.getByRole('switch'));
+      fireEvent.click(spendSwitch());
       next();
       expect(shape(strip()).index).toBe(first.index); // review
     });
