@@ -135,13 +135,16 @@ func urlEndpoints(raw ...string) ([]providerEndpoint, error) {
 		if err != nil {
 			return nil, err
 		}
-		if u.Hostname() == "" {
+		// DNS names are case-insensitive and may end in a root dot. Normalise
+		// before the in-mesh check so a cluster name cannot pass as external.
+		host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+		if host == "" {
 			return nil, fmt.Errorf("provider URL %q has no host", r)
 		}
-		if inMeshHost(u.Hostname()) {
+		if inMeshHost(host) {
 			continue
 		}
-		e := providerEndpoint{host: u.Hostname(), port: port, plain: u.Scheme == schemeHTTP}
+		e := providerEndpoint{host: host, port: port, plain: u.Scheme == schemeHTTP}
 		// Every host in a ServiceEntry shares its ports, so one port number has one protocol.
 		if slices.ContainsFunc(out, func(o providerEndpoint) bool { return o.port == e.port && o.plain != e.plain }) {
 			return nil, fmt.Errorf("provider URLs use port %d for both http and https", e.port)
@@ -154,11 +157,11 @@ func urlEndpoints(raw ...string) ([]providerEndpoint, error) {
 const schemeHTTP = "http"
 
 // inMeshHost reports a host the mesh already knows or cannot register by name:
-// a Service's short or cluster DNS name, or an IP. Service.namespace names
-// are indistinguishable from external ones and are registered.
+// a Service's or pod's short or cluster DNS name, or an IP. Service.namespace
+// names need the namespace list to recognize. See mcpServiceEntries.
 func inMeshHost(host string) bool {
-	return !strings.Contains(host, ".") || strings.HasSuffix(host, ".svc") ||
-		strings.HasSuffix(host, ".svc.cluster.local") || net.ParseIP(host) != nil
+	return !strings.Contains(host, ".") || strings.HasSuffix(host, ".svc") || strings.HasSuffix(host, ".pod") ||
+		strings.HasSuffix(host, ".cluster.local") || net.ParseIP(host) != nil
 }
 
 // urlPort is the URL's port, or its scheme's default.
@@ -185,9 +188,15 @@ func providerServiceEntryName(p *ip.InferenceProvider) string {
 	return "inference-provider-" + p.Name
 }
 
-// providerServiceEntry registers the provider's hosts with the mesh. exportTo
-// "." keeps them visible to the system namespace only, where the gateway runs.
+// providerServiceEntry registers the provider's hosts with the mesh.
 func providerServiceEntry(p *ip.InferenceProvider, endpoints []providerEndpoint) *unstructured.Unstructured {
+	return externalServiceEntry(providerServiceEntryName(p), p.Namespace,
+		map[string]any{"app.kubernetes.io/managed-by": "orbit-operator"}, endpoints)
+}
+
+// externalServiceEntry registers external hosts with the mesh. exportTo "."
+// keeps them visible to the system namespace only, where the gateways run.
+func externalServiceEntry(name, namespace string, labels map[string]any, endpoints []providerEndpoint) *unstructured.Unstructured {
 	var hosts []string
 	type portKey struct {
 		number int
@@ -205,11 +214,11 @@ func providerServiceEntry(p *ip.InferenceProvider, endpoints []providerEndpoint)
 	}
 	ports := make([]any, 0, len(portKeys))
 	for _, k := range portKeys {
-		name, protocol := fmt.Sprintf("tls-%d", k.number), "TLS"
+		portName, protocol := fmt.Sprintf("tls-%d", k.number), "TLS"
 		if k.plain {
-			name, protocol = fmt.Sprintf("http-%d", k.number), "HTTP"
+			portName, protocol = fmt.Sprintf("http-%d", k.number), "HTTP"
 		}
-		ports = append(ports, map[string]any{"number": int64(k.number), "name": name, "protocol": protocol})
+		ports = append(ports, map[string]any{"number": int64(k.number), "name": portName, "protocol": protocol})
 	}
 	hostList := make([]any, 0, len(hosts))
 	for _, h := range hosts {
@@ -218,9 +227,9 @@ func providerServiceEntry(p *ip.InferenceProvider, endpoints []providerEndpoint)
 
 	se := &unstructured.Unstructured{Object: map[string]any{
 		"metadata": map[string]any{
-			"name":      providerServiceEntryName(p),
-			"namespace": p.Namespace,
-			"labels":    map[string]any{"app.kubernetes.io/managed-by": "orbit-operator"},
+			"name":      name,
+			"namespace": namespace,
+			"labels":    labels,
 		},
 		"spec": map[string]any{
 			"hosts":      hostList,

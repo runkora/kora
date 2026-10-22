@@ -155,13 +155,15 @@ func TestProviderEndpointsRejectsBadSpecs(t *testing.T) {
 
 func TestInMeshHost(t *testing.T) {
 	for host, want := range map[string]bool{
-		"vllm":                          true,
-		"vllm.models.svc":               true,
-		"vllm.models.svc.cluster.local": true,
-		"10.0.0.5":                      true,
-		"api.svc.example.com":           false,
-		"openrouter.ai":                 false,
-		"host.k3d.internal":             false,
+		"vllm":                               true,
+		"vllm.models.svc":                    true,
+		"vllm.models.svc.cluster.local":      true,
+		"10.0.0.5":                           true,
+		"10-42-2-6.models.pod":               true,
+		"10-42-2-6.models.pod.cluster.local": true,
+		"api.svc.example.com":                false,
+		"openrouter.ai":                      false,
+		"host.k3d.internal":                  false,
 	} {
 		if got := inMeshHost(host); got != want {
 			t.Errorf("inMeshHost(%q) = %v, want %v", host, got, want)
