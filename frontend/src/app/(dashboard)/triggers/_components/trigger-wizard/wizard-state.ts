@@ -281,8 +281,8 @@ export function noDecisionModels(options: RoutingOptions): boolean {
 export function validateRouting(draft: RoutingDraft, options: RoutingOptions): StepValidation {
   // The step says why inline and hides everything else, so no hint repeats it.
   if (noDecisionModels(options)) return { valid: false };
-  if (draft.candidateIds.length < 2)
-    return { valid: false, hint: 'Pick at least two candidate agents.' };
+  if (draft.candidateIds.length < 1)
+    return { valid: false, hint: 'Pick at least one candidate agent.' };
   if (draft.modelId === '') return { valid: false, hint: 'Choose a decision model.' };
   if (draft.unsure === 'fallback' && !draft.candidateIds.includes(draft.fallbackId))
     return { valid: false, hint: 'Choose the fallback agent.' };

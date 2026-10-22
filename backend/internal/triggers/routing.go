@@ -25,7 +25,7 @@ var confidenceThresholds = map[string]float64{
 // Routing bounds (ADR Decisions 6 and 7). maxJoinKeyBytes matches the length
 // checks on trigger_routes and trigger_routing_decisions.
 const (
-	minRouteCandidates = 2
+	minRouteCandidates = 1
 	maxRouteCandidates = 20
 	maxJoinableRuns    = 20
 	maxJoinKeyBytes    = 256
@@ -177,7 +177,7 @@ func normalizeRouting(r *RoutingConfig) (*RoutingConfig, error) {
 	return out, nil
 }
 
-// normalizeCandidates trims the candidate ids and checks there are 2 to 20 distinct ones.
+// normalizeCandidates trims the candidate ids and checks there are 1 to 20 distinct ones.
 func normalizeCandidates(ids []string) ([]string, error) {
 	var out []string
 	for _, id := range ids {
