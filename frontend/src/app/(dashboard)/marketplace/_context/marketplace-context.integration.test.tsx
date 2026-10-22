@@ -119,14 +119,18 @@ function currentContext(): MarketplaceStateShape {
   return captured;
 }
 
-function renderProvider(preferences: UserPreferences, loaded: boolean) {
-  return renderWithProviders(
+function providerTree(preferences: UserPreferences, loaded: boolean) {
+  return (
     <PreferencesProvider initialPreferences={preferences} loaded={loaded}>
       <MarketplaceProvider initialData={CORE_RENDER} initialError={null}>
         <CaptureContext />
       </MarketplaceProvider>
-    </PreferencesProvider>,
+    </PreferencesProvider>
   );
+}
+
+function renderProvider(preferences: UserPreferences, loaded: boolean) {
+  return renderWithProviders(providerTree(preferences, loaded));
 }
 
 function pickMarketplace(name: string) {
@@ -193,6 +197,41 @@ describe('MarketplaceProvider saved Marketplace', () => {
     await waitFor(() => expect(currentContext().browse.marketplace).toBe('Platform Engineering'));
     await waitLongerThanDebounce();
     expect(writes).toHaveLength(0);
+  });
+
+  it('does not make fallback preferences writable after a successful server refresh', async () => {
+    const writes = recordPreferenceWrites();
+    serveBrowseResult(() => HttpResponse.json({ data: PLATFORM_RESULT }));
+
+    const { rerender } = renderProvider(PREFERENCE_DEFAULTS, false);
+    // router.refresh() supplies new props while preserving the provider's state.
+    rerender(providerTree(STORED_PREFERENCES, true));
+    pickMarketplace('Platform Engineering');
+
+    await waitFor(() => expect(currentContext().browse.marketplace).toBe('Platform Engineering'));
+    await waitLongerThanDebounce();
+    expect(writes).toHaveLength(0);
+  });
+
+  it('keeps a successfully loaded preference snapshot writable after a failed server refresh', async () => {
+    const writes = recordPreferenceWrites();
+    serveBrowseResult(() => HttpResponse.json({ data: PLATFORM_RESULT }));
+
+    const { rerender } = renderProvider(STORED_PREFERENCES, true);
+    rerender(providerTree(PREFERENCE_DEFAULTS, false));
+    pickMarketplace('Platform Engineering');
+
+    await waitFor(
+      () =>
+        expect(writes).toEqual([
+          {
+            analytics: { defaultPeriod: '30d' },
+            modelGateway: { favouriteModels: ['bedrock/claude-sonnet'] },
+            marketplace: { lastSelected: 'Platform Engineering' },
+          },
+        ]),
+      { timeout: 2000 },
+    );
   });
 
   it('sends no write when the picked Marketplace fails to load', async () => {

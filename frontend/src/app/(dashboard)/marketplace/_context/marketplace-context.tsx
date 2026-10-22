@@ -52,7 +52,6 @@ export function MarketplaceProvider({
         // A PUT now would replace the user's stored preferences with them.
         return;
       }
-      // PreferencesProvider sends the PUT 500 ms after the last change.
       updatePreferences((prev) => {
         if (prev.marketplace.lastSelected === marketplaceSlug) {
           // No change. Keep the same object, so that no PUT is sent.
