@@ -1,4 +1,4 @@
-export { PrincipalBadge } from './principal-badge';
+export { PrincipalBadge, principalLabel } from './principal-badge';
 export type { PrincipalBadgeProps, PrincipalType } from './principal-badge';
 
 /** Maps an KoraStatus value to a labelled Badge with a status dot. */
@@ -54,3 +54,19 @@ export type { ViewToggleProps, ViewMode } from './view-toggle';
 /** Pill filter button with a trailing count, for a row of filters above a card view. */
 export { FilterChip } from './filter-chip';
 export type { FilterChipProps } from './filter-chip';
+
+/** The limits of a budget as switchable rows, laid out like the agent builder's Guardrails. */
+export {
+  BudgetLimitFields,
+  EMPTY_BUDGET_LIMIT_VALUES,
+  budgetFromLimitValues,
+  budgetLimitProblem,
+  budgetLimitValuesFrom,
+  budgetLimitsAnyOn,
+} from './budget-limit-fields';
+export type {
+  BudgetLimitFieldsProps,
+  BudgetLimitMode,
+  BudgetLimitValues,
+  BudgetLimits,
+} from './budget-limit-fields';

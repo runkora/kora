@@ -35,15 +35,8 @@ import type {
   ScopeEntryWithUsage,
   StatsResponse,
 } from '../_types';
-import { ScopeChipList } from '@runkora/components';
+import { PrincipalBadge, principalLabel, ScopeChipList } from '@runkora/components';
 import { QuickLinkCard } from './quick-link-card';
-
-const PRINCIPAL_TYPE_LABELS: Record<string, string> = {
-  AGENT: 'Agent',
-  HUMAN: 'Human',
-  PAT: 'PAT',
-  SERVICE: 'Service',
-};
 
 /** The ring and its legend read best with the biggest part first. */
 function largestFirst<T extends { value: number }>(items: T[]): T[] {
@@ -134,7 +127,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
           footer={<Link href={APP_ROUTES.policy.grants}>View all →</Link>}
           breakdown={largestFirst(
             Object.entries(stats.grants.by_principal_type).map(([type, count]) => ({
-              label: PRINCIPAL_TYPE_LABELS[type] ?? type,
+              label: principalLabel(type),
               value: count,
             })),
           )}
@@ -303,18 +296,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
                         </Text>
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant={
-                            grant.principal_type === 'AGENT'
-                              ? 'default'
-                              : grant.principal_type === 'HUMAN'
-                                ? 'healthy'
-                                : 'degraded'
-                          }
-                          size="sm"
-                        >
-                          {grant.principal_type}
-                        </Badge>
+                        <PrincipalBadge type={grant.principal_type} />
                       </TableCell>
                       <TableCell>
                         <ScopeChipList scopes={grant.scopes} />
@@ -390,7 +372,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
         <QuickLinkCard
           icon={<Icon name="shield-check" />}
           title="Manage Grants"
-          description="Create and revoke permission grants for agents, humans, and services."
+          description="Create and revoke grants for people, and see what agents, triggers, and tokens hold."
           href={APP_ROUTES.policy.grants}
         />
         <QuickLinkCard

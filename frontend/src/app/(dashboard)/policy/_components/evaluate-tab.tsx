@@ -25,7 +25,7 @@ import type {
   ScopesExplainResponse,
 } from '../_types';
 import { fetchPolicyScopesExplain, simulatePolicyCheck } from '../_services/policy-client';
-import { PrincipalBadge, ScopeChip } from '@runkora/components';
+import { PrincipalBadge, principalLabel, ScopeChip } from '@runkora/components';
 
 interface EvaluateTabProps {
   initialExplain: ScopesExplainResponse | null;
@@ -205,9 +205,9 @@ export function EvaluateTab({
                   onChange={(e) => setLookupType(e.target.value as PrincipalType)}
                   aria-label="Principal type"
                 >
-                  <option value="AGENT">AGENT</option>
-                  <option value="HUMAN">HUMAN</option>
-                  <option value="SERVICE">SERVICE</option>
+                  <option value="AGENT">{principalLabel('AGENT')}</option>
+                  <option value="HUMAN">{principalLabel('HUMAN')}</option>
+                  <option value="SERVICE">{principalLabel('SERVICE')}</option>
                 </NativeSelect>
               </Stack>
               <Stack gap="tight" grow minWidth="form-field">
@@ -359,9 +359,9 @@ export function EvaluateTab({
                   onChange={(e) => setSimPrincipalType(e.target.value as PrincipalType)}
                   aria-label="Principal type"
                 >
-                  <option value="AGENT">AGENT</option>
-                  <option value="HUMAN">HUMAN</option>
-                  <option value="SERVICE">SERVICE</option>
+                  <option value="AGENT">{principalLabel('AGENT')}</option>
+                  <option value="HUMAN">{principalLabel('HUMAN')}</option>
+                  <option value="SERVICE">{principalLabel('SERVICE')}</option>
                 </NativeSelect>
               </Stack>
               <Stack gap="tight" grow minWidth="form-field-sm">
@@ -458,7 +458,7 @@ export function EvaluateTab({
                   </Stack>
                   <Stack direction="horizontal" align="center" gap="snug" wrap>
                     <Text size="caption" color="subtle">
-                      {simPrincipalType} {simPrincipalId}
+                      {principalLabel(simPrincipalType)} {simPrincipalId}
                       {simRole ? ` as ${simRole}` : ''}
                       {' → '}
                     </Text>

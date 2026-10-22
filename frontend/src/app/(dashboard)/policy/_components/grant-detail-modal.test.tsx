@@ -31,12 +31,40 @@ describe('GrantDetailModal', () => {
     );
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'ci-failure-investigator' })).toBeInTheDocument();
-    expect(screen.getByText('AGENT')).toBeInTheDocument(); // the type badge beside the title
+    expect(screen.getByText('Agent')).toBeInTheDocument(); // the type badge beside the title
     expect(screen.queryByText('AGENT grant')).toBeNull(); // no generic subtitle
     expect(screen.getByText(agentId)).toBeInTheDocument();
     expect(screen.getByText('Scopes (3)')).toBeInTheDocument();
     expect(screen.getByText('github.com')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Copy principal ID' })).toBeInTheDocument();
+  });
+
+  it('says an agent grant is managed by its owner and links to it', () => {
+    render(
+      <GrantDetailModal
+        grant={grant}
+        identity={{ primary: 'ci-failure-investigator', rawId: agentId }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Managed by')).toBeInTheDocument();
+    expect(screen.getByText(/belongs to an agent and is read-only here/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open agent' })).toHaveAttribute(
+      'href',
+      '/agents/ci-failure-investigator',
+    );
+  });
+
+  it('shows no managed-by section for a person', () => {
+    render(
+      <GrantDetailModal
+        grant={{ ...grant, principal_type: 'HUMAN', principal_id: 'abc' }}
+        identity={{ primary: 'Dev', rawId: 'abc' }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText('Managed by')).toBeNull();
+    expect(screen.queryByRole('link')).toBeNull();
   });
 
   it('says so when there is no budget', () => {
@@ -59,6 +87,6 @@ describe('GrantDetailModal', () => {
       />,
     );
     expect(screen.getByText('dev@example.com')).toBeInTheDocument();
-    expect(screen.getByText('HUMAN')).toBeInTheDocument();
+    expect(screen.getByText('Human')).toBeInTheDocument();
   });
 });
