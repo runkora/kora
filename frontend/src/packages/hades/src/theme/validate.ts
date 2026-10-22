@@ -31,7 +31,7 @@ export type TokenDefaults = Readonly<Partial<Record<Mode, Readonly<Record<string
 
 export interface ValidateOptions {
   readonly manifest: ThemeManifest;
-  /** Raw defaults per mode; the contrast check reads only the tokens a pair names. Without them a pair is checked only when the theme sets both sides. */
+  /** Raw defaults per mode. Without them a pair is checked only when the theme sets both sides. */
   readonly defaults?: TokenDefaults;
   /** The instance's kora version without the `v`. Null for a development build, which skips the major check. */
   readonly koraVersion: string | null;
