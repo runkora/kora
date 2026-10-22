@@ -7,7 +7,7 @@ import { PrincipalBadge } from './principal-badge';
  * PrincipalBadge
  *
  * A small badge that names what kind of identity something is: an agent, a person, an access token
- * or a platform service. Use it wherever a grant, budget or request needs to say who it belongs to.
+ * or a trigger. Use it wherever a grant, budget or request needs to say who it belongs to.
  */
 const meta: Meta<typeof PrincipalBadge> = {
   title: 'App/Atoms/PrincipalBadge',
@@ -46,7 +46,10 @@ export const Options: Story = {
         <Option name="PAT" use="A personal access token.">
           <PrincipalBadge type="PAT" />
         </Option>
-        <Option name="SERVICE" use="A platform service. Any other value takes this colour too.">
+        <Option
+          name="SERVICE"
+          use='A trigger, shown as "Trigger". Any other value takes this colour too.'
+        >
           <PrincipalBadge type="SERVICE" />
         </Option>
       </OptionTable>

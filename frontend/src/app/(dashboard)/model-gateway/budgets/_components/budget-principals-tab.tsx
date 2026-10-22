@@ -16,7 +16,7 @@ import {
   EmptyState,
 } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
-import { ClampedList, StatusBadge } from '@runkora/components';
+import { ClampedList, principalLabel, StatusBadge } from '@runkora/components';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import type { BudgetCategoryStatus, BudgetPrincipalRow, BudgetPrincipalsView } from '../../_types';
 import { TenantCapCard } from './tenant-cap-card';
@@ -74,7 +74,7 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
                 </Text>
                 {p.principal_type && (
                   <Badge variant="secondary" size="sm">
-                    {p.principal_type.toLowerCase()}
+                    {principalLabel(p.principal_type).toLowerCase()}
                   </Badge>
                 )}
               </Stack>

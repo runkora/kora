@@ -74,12 +74,16 @@ export const AVAILABLE_SCOPES: string[] = VOCABULARY.map((s) => s.scope);
 
 // ── Grants ───────────────────────────────────────────────────────────────────
 
+/** An agent grant's principal ID, the SPIFFE ID the owner link reads the agent slug from. */
+const agentPrincipal = (slug: string) => `spiffe://orbit.local/tenant/${TENANT_ID}/agent/${slug}`;
+
+// The last agent grant is keyed by a UUID, as a hand-made one is: read-only, with no owner link.
 export const GRANTS: Grant[] = [
   {
     id: 'grt_01j8x2k4m7',
     tenant_id: TENANT_ID,
     principal_type: 'AGENT',
-    principal_id: 'a3f1c9e2-5b7d-4c1a-9e60-2d8b4f7a1c35',
+    principal_id: agentPrincipal('ci-failure-investigator'),
     scopes: ['agents:read', 'mcp:github:read', 'mcp:github:write', 'inference:chat:create'],
     budget: { limit_usd: 50, reset_cadence: 'monthly', per_run_limit_usd: 5 },
     created_at: minutesAgo(35),
@@ -88,7 +92,7 @@ export const GRANTS: Grant[] = [
     id: 'grt_01j8x1q9d3',
     tenant_id: TENANT_ID,
     principal_type: 'AGENT',
-    principal_id: '7c2d8e41-0a9f-4b36-b1d5-6e3f9a2c8d17',
+    principal_id: agentPrincipal('release-notes-writer'),
     scopes: ['agents:read', 'agents:run:start', 'mcp:github:read', 'inference:chat:create'],
     created_at: minutesAgo(180),
   },
@@ -121,7 +125,7 @@ export const GRANTS: Grant[] = [
     id: 'grt_01j8v2b6y9',
     tenant_id: TENANT_ID,
     principal_type: 'SERVICE',
-    principal_id: 'svc-triggers',
+    principal_id: 'trigger:5c0e9a14-7b3d-4e52-8f61-3a9d2b7c4e08',
     scopes: ['agents:run:start', 'triggers:read'],
     created_at: daysAgo(12),
   },
@@ -142,9 +146,7 @@ export const MANY_GRANTS: Grant[] = Array.from({ length: 24 }, (_, i) => {
     ...base,
     id: `grt_01j8${String(i).padStart(2, '0')}z${i}m3`,
     principal_id:
-      base.principal_type === 'AGENT'
-        ? `${(0xa0000000 + i * 7919).toString(16)}-5b7d-4c1a-9e60-2d8b4f7a1c35`
-        : `${base.principal_id}${i}`,
+      base.principal_type === 'AGENT' ? agentPrincipal(`agent-${i}`) : `${base.principal_id}${i}`,
     created_at: daysAgo(i + 1),
   };
 });

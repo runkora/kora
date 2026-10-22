@@ -39,6 +39,34 @@ describe('GrantDetailModal', () => {
     expect(screen.getByRole('button', { name: 'Copy principal ID' })).toBeInTheDocument();
   });
 
+  it('says an agent grant is managed by its owner and links to it', () => {
+    render(
+      <GrantDetailModal
+        grant={grant}
+        identity={{ primary: 'ci-failure-investigator', rawId: agentId }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Managed by')).toBeInTheDocument();
+    expect(screen.getByText(/belongs to an agent and is read-only here/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open agent' })).toHaveAttribute(
+      'href',
+      '/agents/ci-failure-investigator',
+    );
+  });
+
+  it('shows no managed-by section for a person', () => {
+    render(
+      <GrantDetailModal
+        grant={{ ...grant, principal_type: 'HUMAN', principal_id: 'abc' }}
+        identity={{ primary: 'Dev', rawId: 'abc' }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText('Managed by')).toBeNull();
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
   it('says so when there is no budget', () => {
     render(
       <GrantDetailModal

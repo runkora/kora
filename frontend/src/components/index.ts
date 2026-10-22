@@ -1,4 +1,4 @@
-export { PrincipalBadge } from './principal-badge';
+export { PrincipalBadge, principalLabel } from './principal-badge';
 export type { PrincipalBadgeProps, PrincipalType } from './principal-badge';
 
 /** Maps an KoraStatus value to a labelled Badge with a status dot. */

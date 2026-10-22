@@ -50,6 +50,18 @@ const config: StorybookConfig = {
         recharts: dirname(createRequire(import.meta.url).resolve('recharts/package.json')),
       },
     };
+    // webpack is not a direct dependency; take the copy Storybook's Next.js framework builds with.
+    const webpack = createRequire(createRequire(import.meta.url).resolve('@storybook/nextjs'))(
+      'webpack',
+    ) as typeof import('webpack');
+    // The policy grants server actions reach `server-only`, which throws in the browser bundle.
+    webpackConfig.plugins = [
+      ...(webpackConfig.plugins ?? []),
+      new webpack.NormalModuleReplacementPlugin(
+        /_actions\/grants$/,
+        resolve(import.meta.dirname, 'mocks/policy-grants-actions.ts'),
+      ),
+    ];
     return webpackConfig;
   },
 };
