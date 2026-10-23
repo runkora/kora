@@ -22,7 +22,7 @@ import (
 // A corresponding policy grant is created as part of PAT issuance, but this is
 // not atomic with PAT persistence; if a later step fails, cleanup is best-effort.
 // The raw JWT is returned exactly once in CreatePATResponse.Token — prefixed
-// with "orb_" for visual identification. Only the SHA-256 hash is persisted.
+// with "kora_" for visual identification. Only the SHA-256 hash is persisted.
 func (s *Service) CreatePAT(ctx context.Context, tenantID, userID string, userClaims *PlatformClaims, req CreatePATRequest) (*CreatePATResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.CreatePAT",
 		trace.WithAttributes(

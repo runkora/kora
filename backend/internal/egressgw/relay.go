@@ -35,8 +35,8 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 		trace.WithAttributes(
 			attribute.String("server.address", host),
 			attribute.String("server.port", port),
-			attribute.String("orbit.tenant_id", claims.Kora.TenantID),
-			attribute.String("orbit.principal_id", claims.Subject),
+			attribute.String("kora.tenant_id", claims.Kora.TenantID),
+			attribute.String("kora.principal_id", claims.Subject),
 		))
 	defer span.End()
 
@@ -104,8 +104,8 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 	sent, recv := relayTCP(clientConn, upstream, relayIdleTimeout)
 
 	span.SetAttributes(
-		attribute.Int64("orbit.relay.bytes_sent", sent),
-		attribute.Int64("orbit.relay.bytes_received", recv),
+		attribute.Int64("kora.relay.bytes_sent", sent),
+		attribute.Int64("kora.relay.bytes_received", recv),
 	)
 	h.logger.Info(ctx, "egress relay closed",
 		logging.Field{Key: "host", Value: host},

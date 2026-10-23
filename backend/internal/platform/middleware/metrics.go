@@ -17,18 +17,18 @@ import (
 // request into a single bucket otherwise.
 var secondsBuckets = []float64{.005, .01, .025, .05, .075, .1, .25, .5, .75, 1, 2.5, 5, 7.5, 10}
 
-// instrumentServiceName strips a leading "orbit-" from the configured
+// instrumentServiceName strips a leading "kora-" from the configured
 // observability service name before it's used to build an instrument name.
-// Some services configure "orbit-<name>" (e.g. "orbit-identity"), others just
+// Some services configure "kora-<name>" (e.g. "kora-identity"), others just
 // "<name>" (e.g. "policy-gateway"); without normalizing, the former doubles up
-// into "orbit.orbit-identity...", breaking the PRD's uniform
-// orbit_<service>_... naming contract.
+// into "kora.kora-identity...", breaking the PRD's uniform
+// kora_<service>_... naming contract.
 func instrumentServiceName(serviceName string) string {
-	return strings.TrimPrefix(serviceName, "orbit-")
+	return strings.TrimPrefix(serviceName, "kora-")
 }
 
 // MetricsMiddleware records one counter and one histogram per request:
-// orbit.<service>.http.requests and orbit.<service>.http.request.duration.
+// kora.<service>.http.requests and kora.<service>.http.request.duration.
 // route comes from RoutePatternFromContext — the same low-cardinality pattern
 // TracingMiddleware uses for span names — never the raw path, so this cannot
 // be driven to unbounded cardinality by request-smuggled path segments (e.g.
@@ -43,7 +43,7 @@ func instrumentServiceName(serviceName string) string {
 func MetricsMiddleware(meter metric.Meter, serviceName string) (Middleware, error) {
 	name := instrumentServiceName(serviceName)
 	requests, err := meter.Int64Counter(
-		fmt.Sprintf("orbit.%s.http.requests", name),
+		fmt.Sprintf("kora.%s.http.requests", name),
 		metric.WithDescription("HTTP requests served"),
 		metric.WithUnit("{request}"),
 	)
@@ -51,7 +51,7 @@ func MetricsMiddleware(meter metric.Meter, serviceName string) (Middleware, erro
 		return Middleware{}, fmt.Errorf("create http request counter: %w", err)
 	}
 	duration, err := meter.Float64Histogram(
-		fmt.Sprintf("orbit.%s.http.request.duration", name),
+		fmt.Sprintf("kora.%s.http.request.duration", name),
 		metric.WithDescription("HTTP request wall time"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(secondsBuckets...),

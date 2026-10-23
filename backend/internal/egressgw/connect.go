@@ -29,7 +29,7 @@ var interceptIdleTimeout = 5 * time.Minute
 
 // tracer instruments the CONNECT path. The listener carries no tracing
 // middleware, so this package starts the server span itself.
-var tracer = otel.Tracer("orbit.egress-gateway")
+var tracer = otel.Tracer("kora.egress-gateway")
 
 // Span status descriptions are package-level sentinels: the raw error text can
 // carry hostnames and addresses, which must not land in a span string field.
@@ -251,9 +251,9 @@ func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.
 		trace.WithAttributes(
 			attribute.String("server.address", host),
 			attribute.String("server.port", port),
-			attribute.String("orbit.tenant_id", claims.Kora.TenantID),
-			attribute.String("orbit.principal_id", claims.Subject),
-			attribute.String("orbit.run_id", claims.Kora.Claims["run_id"]),
+			attribute.String("kora.tenant_id", claims.Kora.TenantID),
+			attribute.String("kora.principal_id", claims.Subject),
+			attribute.String("kora.run_id", claims.Kora.Claims["run_id"]),
 		))
 	defer span.End()
 

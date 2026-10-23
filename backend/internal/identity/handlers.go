@@ -427,7 +427,7 @@ func (c *Controller) handleRevoke(w http.ResponseWriter, r *http.Request) {
 func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 	api.JSON(r.Context(), w, c.logger, http.StatusOK, map[string]string{
 		"status":  "healthy",
-		"service": "orbit-identity",
+		"service": "kora-identity",
 	})
 }
 

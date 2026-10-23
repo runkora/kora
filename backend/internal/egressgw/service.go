@@ -102,9 +102,9 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		return Decision{}, err
 	}
 	span.SetAttributes(
-		attribute.String("orbit.connection", conn.Name),
-		attribute.String("orbit.adapter", string(conn.Adapter)),
-		attribute.Bool("orbit.connection.registered", registered),
+		attribute.String("kora.connection", conn.Name),
+		attribute.String("kora.adapter", string(conn.Adapter)),
+		attribute.Bool("kora.connection.registered", registered),
 	)
 	if conn.TenantID != tenantID {
 		return Decision{}, ErrTenantMismatch
@@ -137,8 +137,8 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, deny(DenialUnclassified, req.Host, conn, credentials.Classification{}, err))
 	}
 	span.SetAttributes(
-		attribute.String("orbit.action", cls.Action),
-		attribute.String("orbit.qualifier", cls.Qualifier),
+		attribute.String("kora.action", cls.Action),
+		attribute.String("kora.qualifier", cls.Qualifier),
 	)
 
 	// A passthrough host has no connection scope to check against. Its
@@ -153,9 +153,9 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		action, also = authorized[0], authorized[1:]
 	}
 	span.SetAttributes(
-		attribute.Bool("orbit.allowed", true),
-		attribute.String("orbit.action", action),
-		attribute.StringSlice("orbit.also_authorized", also),
+		attribute.Bool("kora.allowed", true),
+		attribute.String("kora.action", action),
+		attribute.StringSlice("kora.also_authorized", also),
 	)
 
 	// Mint.
@@ -231,7 +231,7 @@ func (b *Broker) validateCaller(ctx context.Context, span trace.Span, claims *to
 // policyDenied handles a policy refusal. A denial the grant could explain may
 // still be served by the anonymous fallback; a failed evaluation never is.
 func (b *Broker) policyDenied(ctx context.Context, span trace.Span, claims *token.PlatformClaims, conn *credentials.Connection, req EgressRequest, perr error) (Decision, error) {
-	span.SetAttributes(attribute.Bool("orbit.allowed", false))
+	span.SetAttributes(attribute.Bool("kora.allowed", false))
 	span.RecordError(perr)
 	var denial *Denial
 	if errors.As(perr, &denial) && denial.Reason != DenialPolicyUnavailable {
@@ -263,8 +263,8 @@ func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claim
 	}
 
 	span.SetAttributes(
-		attribute.Bool("orbit.allowed", true),
-		attribute.String("orbit.action", anonymousReadAction),
+		attribute.Bool("kora.allowed", true),
+		attribute.String("kora.action", anonymousReadAction),
 	)
 	b.logger.Info(ctx, "egress authorized: anonymous read",
 		logging.Field{Key: "decision", Value: anonymousReadAction},

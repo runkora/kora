@@ -8,7 +8,7 @@ operator:
   shutdownTimeoutSecs: 30
 
 observability:
-  serviceName: orbit-operator
+  serviceName: kora-operator
 
 # Defaults for a binary run outside the chart. The chart renders every key per install.
 install:

@@ -165,7 +165,7 @@ func (e *OAuthError) Error() string {
 
 // PatTokenPrefix is prepended to every issued PAT JWT for visual identification.
 // Security-significant: auth middleware strips this prefix before JWT validation.
-const PatTokenPrefix = "orb_"
+const PatTokenPrefix = "kora_"
 
 // ─── PAT types ───────────────────────────────────────────────────────────────
 
@@ -192,7 +192,7 @@ type CreatePATRequest struct {
 }
 
 // CreatePATResponse is returned on successful PAT creation.
-// Token is the raw JWT prefixed with "orb_" — shown exactly once.
+// Token is the raw JWT prefixed with "kora_" — shown exactly once.
 type CreatePATResponse struct {
 	ID        string   `json:"id"`
 	Name      string   `json:"name"`

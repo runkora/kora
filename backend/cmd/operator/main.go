@@ -62,7 +62,7 @@ func main() {
 		os.Exit(1) //nolint:gocritic // exitAfterDefer: explicit cleanup before exit
 	}
 
-	// `orbit preflight` runs the prerequisite checks once and exits non-zero on
+	// `operator preflight` runs the prerequisite checks once and exits non-zero on
 	// failure; the chart's helm test uses it.
 	if len(os.Args) > 1 && os.Args[1] == "preflight" {
 		code := runPreflightOnce(ctx, restCfg, logger)

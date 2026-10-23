@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	tracerName = "orbit.inference-client"
+	tracerName = "kora.inference-client"
 	// clientTimeout matches the gateway's per-attempt decision timeout.
 	clientTimeout = 15 * time.Second
 )

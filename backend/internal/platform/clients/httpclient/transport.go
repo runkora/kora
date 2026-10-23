@@ -30,14 +30,14 @@ package httpclient
 //	including any header mutations performed by the auth transport:
 //
 //	    NewHTTPClient(timeout,
-//	        NewTracingTransport("orbit.my-provider", authTransport),
+//	        NewTracingTransport("kora.my-provider", authTransport),
 //	    )
 //
 //	If the SDK handles auth itself (e.g. anthropic-sdk-go with awsbedrock.WithConfig),
 //	pass nil for inner and the tracing transport wraps http.DefaultTransport:
 //
 //	    NewHTTPClient(timeout,
-//	        NewTracingTransport("orbit.bedrock-anthropic", nil),
+//	        NewTracingTransport("kora.bedrock-anthropic", nil),
 //	    )
 
 import (
@@ -61,7 +61,7 @@ import (
 // Always pair with [NewTracingTransport] to get OTel coverage on every call:
 //
 //	httpclient.NewHTTPClient(30*time.Second,
-//	    httpclient.NewTracingTransport("orbit.bedrock-anthropic", nil),
+//	    httpclient.NewTracingTransport("kora.bedrock-anthropic", nil),
 //	)
 //
 // Pass nil for transport to use http.DefaultTransport.
@@ -91,7 +91,7 @@ func NewHTTPClient(timeout time.Duration, transport http.RoundTripper) *http.Cli
 // Always pair with [NewTracingTransport] to get OTel coverage per request:
 //
 //	httpclient.NewStreamingHTTPClient(
-//	    httpclient.NewTracingTransport("orbit.bedrock-anthropic", nil),
+//	    httpclient.NewTracingTransport("kora.bedrock-anthropic", nil),
 //	)
 //
 // Pass nil for transport to use http.DefaultTransport.
@@ -126,7 +126,7 @@ func NewStreamingHTTPClient(transport http.RoundTripper) *http.Client {
 //	anthropic.NewClient(
 //	    awsbedrock.WithConfig(awsCfg),
 //	    option.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
-//	        httpclient.NewTracingTransport("orbit.bedrock-anthropic", nil),
+//	        httpclient.NewTracingTransport("kora.bedrock-anthropic", nil),
 //	    )),
 //	)
 //
@@ -134,7 +134,7 @@ func NewStreamingHTTPClient(transport http.RoundTripper) *http.Client {
 //
 //	openai.NewClient(
 //	    option.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
-//	        httpclient.NewTracingTransport("orbit.bedrock-openai", sigV4Transport),
+//	        httpclient.NewTracingTransport("kora.bedrock-openai", sigV4Transport),
 //	    )),
 //	)
 func NewTracingTransport(tracerName string, inner http.RoundTripper) http.RoundTripper {

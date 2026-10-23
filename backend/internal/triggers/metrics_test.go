@@ -90,7 +90,7 @@ func TestMetrics_AutoPauseCounterIsUnattributed(t *testing.T) {
 	m.recordAutoPause(ctx)
 	m.recordAutoPause(ctx)
 
-	got, ok := collect(t, reader)["orbit.triggers.auto_pauses"]
+	got, ok := collect(t, reader)["kora.triggers.auto_pauses"]
 	if !ok {
 		t.Fatal("auto-pause counter not exported")
 	}
@@ -117,7 +117,7 @@ func TestMetrics_QueueGaugesObserveLiveState(t *testing.T) {
 	ctx := context.Background()
 
 	// Nothing queued: depth is zero and the age gauge reports no backlog.
-	if got := sumInt64(t, collect(t, reader)["orbit.triggers.queue.depth"]); got != 0 {
+	if got := sumInt64(t, collect(t, reader)["kora.triggers.queue.depth"]); got != 0 {
 		t.Errorf("empty queue depth = %d, want 0", got)
 	}
 
@@ -132,14 +132,14 @@ func TestMetrics_QueueGaugesObserveLiveState(t *testing.T) {
 	}
 
 	metrics := collect(t, reader)
-	if got := sumInt64(t, metrics["orbit.triggers.queue.depth"]); got != 2 {
+	if got := sumInt64(t, metrics["kora.triggers.queue.depth"]); got != 2 {
 		t.Errorf("queue depth = %d, want 2", got)
 	}
 	// Depth alone cannot tell a draining queue from a stalled one; the age of
 	// the oldest waiting fire is the half that can.
-	age, ok := metrics["orbit.triggers.queue.oldest_unclaimed_age"].Data.(metricdata.Gauge[float64])
+	age, ok := metrics["kora.triggers.queue.oldest_unclaimed_age"].Data.(metricdata.Gauge[float64])
 	if !ok || len(age.DataPoints) != 1 {
-		t.Fatalf("oldest-age gauge = %+v, want one data point", metrics["orbit.triggers.queue.oldest_unclaimed_age"].Data)
+		t.Fatalf("oldest-age gauge = %+v, want one data point", metrics["kora.triggers.queue.oldest_unclaimed_age"].Data)
 	}
 	if age.DataPoints[0].Value < 89 {
 		t.Errorf("oldest waiting fire = %.0fs, want ~90s", age.DataPoints[0].Value)
@@ -153,7 +153,7 @@ func TestMetrics_QueueGaugesObserveLiveState(t *testing.T) {
 	if _, err := repo.ClaimPending(ctx, 10); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
-	depth, ok := collect(t, reader)["orbit.triggers.queue.depth"].Data.(metricdata.Gauge[int64])
+	depth, ok := collect(t, reader)["kora.triggers.queue.depth"].Data.(metricdata.Gauge[int64])
 	if !ok {
 		t.Fatal("queue depth is not a gauge")
 	}
@@ -182,7 +182,7 @@ func TestMetrics_AutoPauseIsRecordedWhereItFires(t *testing.T) {
 		svc.noteFailure(context.Background(), trig, errTriggerSideFailure)
 	}
 
-	if got := sumInt64(t, collect(t, reader)["orbit.triggers.auto_pauses"]); got != 1 {
+	if got := sumInt64(t, collect(t, reader)["kora.triggers.auto_pauses"]); got != 1 {
 		t.Errorf("auto-pause count = %d, want exactly 1 for one paused trigger", got)
 	}
 }
@@ -203,10 +203,10 @@ func TestMetrics_RetentionJobRecordsFreshnessAndRows(t *testing.T) {
 	NewRetentionJob(repo, silentLogger(), DefaultPayloadRetentionDays, m).purge(context.Background())
 
 	metrics := collect(t, reader)
-	if got := sumInt64(t, metrics["orbit.triggers.payloads_purged"]); got != 1 {
+	if got := sumInt64(t, metrics["kora.triggers.payloads_purged"]); got != 1 {
 		t.Errorf("purged rows = %d, want 1", got)
 	}
-	last, ok := metrics["orbit.triggers.retention.last_success_time"].Data.(metricdata.Gauge[int64])
+	last, ok := metrics["kora.triggers.retention.last_success_time"].Data.(metricdata.Gauge[int64])
 	if !ok || len(last.DataPoints) != 1 {
 		t.Fatal("purge freshness gauge not exported after a successful run")
 	}
@@ -223,7 +223,7 @@ func TestMetrics_FailedPurgeDoesNotLookFresh(t *testing.T) {
 
 	NewRetentionJob(repo, silentLogger(), DefaultPayloadRetentionDays, m).purge(context.Background())
 
-	if _, exported := collect(t, reader)["orbit.triggers.retention.last_success_time"]; exported {
+	if _, exported := collect(t, reader)["kora.triggers.retention.last_success_time"]; exported {
 		t.Error("a failed purge must not publish a last-success time")
 	}
 }
@@ -263,11 +263,11 @@ func TestMetrics_SchedulerTickRecordsDurationAndScanned(t *testing.T) {
 	NewScheduler(svc, repo, silentLogger(), m).tick(ctx)
 
 	metrics := collect(t, reader)
-	if got := sumInt64(t, metrics["orbit.triggers.scheduler.triggers_scanned"]); got != 2 {
+	if got := sumInt64(t, metrics["kora.triggers.scheduler.triggers_scanned"]); got != 2 {
 		t.Errorf("triggers scanned = %d, want 2", got)
 	}
-	hist, ok := metrics["orbit.triggers.scheduler.tick_duration"].Data.(metricdata.Histogram[float64])
+	hist, ok := metrics["kora.triggers.scheduler.tick_duration"].Data.(metricdata.Histogram[float64])
 	if !ok || len(hist.DataPoints) != 1 || hist.DataPoints[0].Count != 1 {
-		t.Fatalf("tick duration = %+v, want one recorded tick", metrics["orbit.triggers.scheduler.tick_duration"].Data)
+		t.Fatalf("tick duration = %+v, want one recorded tick", metrics["kora.triggers.scheduler.tick_duration"].Data)
 	}
 }

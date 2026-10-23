@@ -107,9 +107,9 @@ func (r *RedisClient) watch(ctx context.Context, every time.Duration) {
 	}
 }
 
-// registerAvailabilityGauge publishes orbit.redis.available (1 up, 0 down).
+// registerAvailabilityGauge publishes kora.redis.available (1 up, 0 down).
 func (r *RedisClient) registerAvailabilityGauge(ctx context.Context) {
-	_, err := otel.Meter("orbit.storage").Int64ObservableGauge("orbit.redis.available",
+	_, err := otel.Meter("kora.storage").Int64ObservableGauge("kora.redis.available",
 		metric.WithDescription("1 while Redis answers the reachability probe, 0 otherwise"),
 		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
 			if r.Available() {

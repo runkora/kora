@@ -273,7 +273,7 @@ func TestSystemOneTimeouts(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c := newSysOne(t, slow.URL+"/v1", "", ip.APISystemOne)
-			c.decide = httpclient.New("orbit.compatible", logging.NewLoggerWithOutput(io.Discard), 100*time.Millisecond)
+			c.decide = httpclient.New("kora.compatible", logging.NewLoggerWithOutput(io.Discard), 100*time.Millisecond)
 			ctx, cancel := tc.ctx()
 			defer cancel()
 			start := time.Now()

@@ -18,7 +18,7 @@ const meta: Meta<typeof CopyField> = {
 export default meta;
 type Story = StoryObj<typeof CopyField>;
 
-const KEY = 'orb_3f9a1c7e5b2d48a6b0e4c1d9f7a2836e';
+const KEY = 'kora_3f9a1c7e5b2d48a6b0e4c1d9f7a2836e';
 const LONG =
   'us.anthropic.claude-sonnet-4-5-20250929-v1:0:with-a-very-long-suffix-that-would-not-fit-on-one-line';
 

@@ -19,7 +19,7 @@ var ErrTransportUnavailable = errors.New("upstream transport unavailable")
 
 // upstreamTracer names the OTel tracer for the forward leg. ReverseProxy owns
 // the request lifecycle, so the span comes from the RoundTripper layer.
-const upstreamTracer = "orbit.egress-upstream"
+const upstreamTracer = "kora.egress-upstream"
 
 // TransportCache resolves the http.RoundTripper the proxy should use to
 // re-originate a call to a given connection's upstream. Connections with no

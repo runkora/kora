@@ -673,13 +673,13 @@ func TestGateway_Bypass_IdentityExchange(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// PAT orb_ prefix stripping (M4)
+// PAT kora_ prefix stripping (M4)
 // ---------------------------------------------------------------------------
 
-// TestGateway_PAT_OrbPrefix_Stripped verifies that an orb_-prefixed PAT is
+// TestGateway_PAT_KoraPrefix_Stripped verifies that an kora_-prefixed PAT is
 // stripped before JWT validation. The stripped value here is invalid, so the
 // result must be deny:invalid_token — not a Rego evaluation error or crash.
-func TestGateway_PAT_OrbPrefix_Stripped(t *testing.T) {
+func TestGateway_PAT_KoraPrefix_Stripped(t *testing.T) {
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		globalRoutes: []routes.RouteScope{
 			{PathPrefix: "/v1/chat/completions", Method: "POST", RequiredScope: "inference:invoke"},
@@ -687,13 +687,13 @@ func TestGateway_PAT_OrbPrefix_Stripped(t *testing.T) {
 	})
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-		"authorization": "Bearer orb_not.a.valid.jwt",
+		"authorization": "Bearer kora_not.a.valid.jwt",
 	})
 	if allow {
 		t.Error("expected deny for PAT with invalid JWT payload")
 	}
 	if reason != "deny:invalid_token" {
-		t.Errorf("expected deny:invalid_token after orb_ strip, got %q", reason)
+		t.Errorf("expected deny:invalid_token after kora_ strip, got %q", reason)
 	}
 }
 
@@ -805,10 +805,10 @@ func TestGateway_Delegation_NoDelegatorGrant(t *testing.T) {
 // x-api-key token extraction
 // ---------------------------------------------------------------------------
 
-// TestGateway_XAPIKey_WithOrbPrefix verifies that an Anthropic SDK-style
-// x-api-key credential prefixed with orb_ is accepted and authorised identically
+// TestGateway_XAPIKey_WithKoraPrefix verifies that an Anthropic SDK-style
+// x-api-key credential prefixed with kora_ is accepted and authorised identically
 // to the Authorization: Bearer path.
-func TestGateway_XAPIKey_WithOrbPrefix_Allowed(t *testing.T) {
+func TestGateway_XAPIKey_WithKoraPrefix_Allowed(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
 	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/xapikey-agent-1"
 
@@ -828,16 +828,16 @@ func TestGateway_XAPIKey_WithOrbPrefix_Allowed(t *testing.T) {
 	signed := signTestJWT(t, "AGENT", testTenantID, agentID, nil)
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/messages", map[string]string{
-		"x-api-key": "orb_" + signed,
+		"x-api-key": "kora_" + signed,
 	})
 	if !allow {
-		t.Errorf("expected x-api-key with orb_ prefix to be allowed, got deny (reason: %s)", reason)
+		t.Errorf("expected x-api-key with kora_ prefix to be allowed, got deny (reason: %s)", reason)
 	}
 }
 
-// TestGateway_XAPIKey_WithoutOrbPrefix verifies that an x-api-key without the
-// orb_ prefix is also accepted (trim_prefix is a no-op when the prefix is absent).
-func TestGateway_XAPIKey_WithoutOrbPrefix_Allowed(t *testing.T) {
+// TestGateway_XAPIKey_WithoutKoraPrefix verifies that an x-api-key without the
+// kora_ prefix is also accepted (trim_prefix is a no-op when the prefix is absent).
+func TestGateway_XAPIKey_WithoutKoraPrefix_Allowed(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
 	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/xapikey-agent-2"
 
@@ -860,7 +860,7 @@ func TestGateway_XAPIKey_WithoutOrbPrefix_Allowed(t *testing.T) {
 		"x-api-key": signed,
 	})
 	if !allow {
-		t.Errorf("expected x-api-key without orb_ prefix to be allowed, got deny (reason: %s)", reason)
+		t.Errorf("expected x-api-key without kora_ prefix to be allowed, got deny (reason: %s)", reason)
 	}
 }
 
@@ -874,7 +874,7 @@ func TestGateway_XAPIKey_InvalidToken_Denied(t *testing.T) {
 	})
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/messages", map[string]string{
-		"x-api-key": "orb_not.a.valid.jwt",
+		"x-api-key": "kora_not.a.valid.jwt",
 	})
 	if allow {
 		t.Error("expected deny for invalid JWT in x-api-key header")

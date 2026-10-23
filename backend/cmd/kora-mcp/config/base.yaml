@@ -9,7 +9,7 @@ server:
 # The chart renders the backends' service URLs.
 
 observability:
-  serviceName: "orbit-mcp"
+  serviceName: "kora-mcp"
 
 metrics:
   enabled: true

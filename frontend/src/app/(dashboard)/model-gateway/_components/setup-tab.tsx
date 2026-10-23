@@ -231,7 +231,7 @@ function VSCodeGuide({ baseUrl }: { baseUrl: string }) {
           value is picked up.
         </Text>
         <CodeBlock
-          text={`export KORA_API_KEY="orb_xxxxxxxx-xxxxxxxx-xxxxxxxx"
+          text={`export KORA_API_KEY="kora_xxxxxxxx-xxxxxxxx-xxxxxxxx"
 export ANTHROPIC_BASE_URL="${baseUrl}"
 export ANTHROPIC_API_KEY="$KORA_API_KEY"`}
           filename="~/.zshrc"
@@ -387,7 +387,7 @@ export function SetupTab() {
                 to version control.
               </Text>
               <CodeBlock
-                text={`export KORA_API_KEY="orb_xxxxxxxx-xxxxxxxx-xxxxxxxx"`}
+                text={`export KORA_API_KEY="kora_xxxxxxxx-xxxxxxxx-xxxxxxxx"`}
                 filename="~/.zshrc"
               />
               <Text size="caption" color="subtle">

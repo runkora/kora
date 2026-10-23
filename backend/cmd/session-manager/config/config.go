@@ -45,7 +45,7 @@ type Config struct {
 		// URL is the base URL of kora-agents (e.g. "http://kora-agents.kora-system.svc.cluster.local").
 		// When empty, event push is disabled (local dev without kora-agents).
 		URL string `yaml:"url"`
-	} `yaml:"orbitAgents"`
+	} `yaml:"koraAgents"`
 
 	// Runner holds the settings that apply to every agent framework.
 	Runner struct {

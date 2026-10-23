@@ -17,7 +17,7 @@ policy:
   bundlePollIntervalSecs: 3
 
 observability:
-  serviceName: orbit-triggers
+  serviceName: kora-triggers
 
 metrics:
   enabled: true

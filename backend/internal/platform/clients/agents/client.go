@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	tracerName    = "orbit.agents-client"
+	tracerName    = "kora.agents-client"
 	clientTimeout = 30 * time.Second
 )
 

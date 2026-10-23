@@ -77,7 +77,7 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 	if cfg.BaseURL == "" || len(cfg.APIs) == 0 {
 		return nil, fmt.Errorf("compatible: a base URL and at least one API are required")
 	}
-	transport := httpclient.NewTracingTransport("orbit.compatible", nil)
+	transport := httpclient.NewTracingTransport("kora.compatible", nil)
 	c := &Connector{name: name, serves: map[ip.API]bool{}, logger: logger}
 	for _, api := range cfg.APIs {
 		c.serves[api] = true
@@ -85,12 +85,12 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 	if c.serves[ip.APISystemOne] || c.serves[ip.APIEmbeddings] {
 		c.baseURL = strings.TrimSuffix(cfg.BaseURL, "/")
 		c.apiKey = cfg.APIKey
-		c.http = httpclient.New("orbit.compatible-list", logger, discoveryTimeout)
+		c.http = httpclient.New("kora.compatible-list", logger, discoveryTimeout)
 	}
 	if c.serves[ip.APISystemOne] {
 		c.decisionOnly = len(c.serves) == 1
 		c.decisionModels = slices.Clone(cfg.DecisionModels)
-		c.decide = httpclient.New("orbit.compatible-systemone", logger, decisionTimeout)
+		c.decide = httpclient.New("kora.compatible-systemone", logger, decisionTimeout)
 	}
 
 	openaiOpts := []openaiopt.RequestOption{

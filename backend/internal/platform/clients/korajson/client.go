@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	tracerName    = "orbit.json-client"
+	tracerName    = "kora.json-client"
 	clientTimeout = 30 * time.Second
 )
 
@@ -88,7 +88,7 @@ func (c *Client) Get(ctx context.Context, caller Caller, rawURL string, query ur
 	if err != nil {
 		return nil, fmt.Errorf("build GET request: %w", err)
 	}
-	return c.send(ctx, "orbitjson.Get", caller, req)
+	return c.send(ctx, "korajson.Get", caller, req)
 }
 
 // Post performs an authenticated POST of a JSON body and returns the raw JSON body.
@@ -102,7 +102,7 @@ func (c *Client) Post(ctx context.Context, caller Caller, rawURL string, body an
 		return nil, fmt.Errorf("build POST request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return c.send(ctx, "orbitjson.Post", caller, req)
+	return c.send(ctx, "korajson.Post", caller, req)
 }
 
 // Put performs an authenticated PUT of a JSON body and returns the raw JSON body.
@@ -116,7 +116,7 @@ func (c *Client) Put(ctx context.Context, caller Caller, rawURL string, body any
 		return nil, fmt.Errorf("build PUT request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return c.send(ctx, "orbitjson.Put", caller, req)
+	return c.send(ctx, "korajson.Put", caller, req)
 }
 
 // Patch performs an authenticated PATCH of a JSON body and returns the raw JSON body.
@@ -130,7 +130,7 @@ func (c *Client) Patch(ctx context.Context, caller Caller, rawURL string, body a
 		return nil, fmt.Errorf("build PATCH request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return c.send(ctx, "orbitjson.Patch", caller, req)
+	return c.send(ctx, "korajson.Patch", caller, req)
 }
 
 // Delete performs an authenticated DELETE and returns the raw JSON body (or a
@@ -140,7 +140,7 @@ func (c *Client) Delete(ctx context.Context, caller Caller, rawURL string) (json
 	if err != nil {
 		return nil, fmt.Errorf("build DELETE request: %w", err)
 	}
-	return c.send(ctx, "orbitjson.Delete", caller, req)
+	return c.send(ctx, "korajson.Delete", caller, req)
 }
 
 func (c *Client) send(ctx context.Context, spanName string, caller Caller, req *http.Request) (json.RawMessage, error) {

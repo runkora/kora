@@ -11,7 +11,7 @@ Service name and version come from each binary's own config:
 app:
   version: "0.1.0"           # → service.version resource attribute
 observability:
-  serviceName: orbit-identity # → service.name resource attribute
+  serviceName: kora-identity # → service.name resource attribute
 ```
 
 `APP_ENV` selects the config overlay and sets the `deployment.environment` resource attribute. It is `local` or `production`, and defaults to `production` when unset.

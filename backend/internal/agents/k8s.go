@@ -52,7 +52,7 @@ import (
 	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
-var k8sTracer = otel.Tracer("orbit.agents.k8s")
+var k8sTracer = otel.Tracer("kora.agents.k8s")
 
 var destinationRuleGVR = schema.GroupVersionResource{
 	Group:    "networking.istio.io",

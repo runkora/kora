@@ -7,7 +7,7 @@ server:
   shutdownTimeoutSecs: 30
 
 observability:
-  serviceName: orbit-agents
+  serviceName: kora-agents
 
 metrics:
   enabled: true

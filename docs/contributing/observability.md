@@ -67,7 +67,7 @@ server := apiServer.Server(
     port,
     basePath,
     mw.MiddlewareChain(
-        mw.TracingMiddleware("orbit"),      // Creates spans
+        mw.TracingMiddleware("kora"),      // Creates spans
         mw.LoggingMiddleware(logger),       // Logs with trace context
     ),
     controllers...,
@@ -98,7 +98,7 @@ For detailed tracing within services:
 import "go.opentelemetry.io/otel"
 
 func (s *Service) ProcessData(ctx context.Context, data Data) error {
-    tracer := otel.Tracer("orbit")
+    tracer := otel.Tracer("kora")
     ctx, span := tracer.Start(ctx, "Service.ProcessData")
     defer span.End()
     
@@ -186,7 +186,7 @@ As a control plane for autonomous agents, observability is critical:
 ### 1. Development Mode (Stdout)
 
 ```bash
-# Start Orbit with stdout tracing
+# Start kora with stdout tracing
 APP_ENV=local go run cmd/identity/main.go
 
 # Make a request
@@ -201,11 +201,11 @@ curl http://localhost:8080/api/v1/example/health
 # Start Jaeger
 docker run -d -p4317:4317 -p16686:16686 jaegertracing/all-in-one:latest
 
-# Configure Orbit: set otlpEndpoint: http://localhost:4317 in
+# Configure kora: set otlpEndpoint: http://localhost:4317 in
 # internal/platform/observability/config/local.yaml
 export APP_ENV=local
 
-# Start Orbit
+# Start kora
 go run cmd/identity/main.go
 
 # Make requests
@@ -218,12 +218,12 @@ curl http://localhost:8080/api/v1/example/hello/world
 
 **Find traces by service:**
 - Open Jaeger UI
-- Select service: the binary's configured `observability.serviceName` (e.g. `orbit-identity`)
+- Select service: the binary's configured `observability.serviceName` (e.g. `kora-identity`)
 - View recent traces
 
 **Find logs for a trace:**
 - Copy `trace_id` from trace span
-- Search logs: `grep "trace_id=2482aff647d2da4b..." logs/orbit.log`
+- Search logs: `grep "trace_id=2482aff647d2da4b..." logs/kora.log`
 - See all logs for that request
 
 **Find traces from logs:**

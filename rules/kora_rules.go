@@ -233,7 +233,7 @@ func noFmtErrorfStringErr(m dsl.Matcher) {
 //	// in internal/platform/clients/{service}/client.go
 //	type Client struct { *httpclient.Base; ... }
 //	func NewClient(...) *Client {
-//	    return &Client{Base: httpclient.New("orbit.my-svc", logger, 10*time.Second)}
+//	    return &Client{Base: httpclient.New("kora.my-svc", logger, 10*time.Second)}
 //	}
 func noRawHttpClientLiteral(m dsl.Matcher) {
 	// Match the composite literal whether taken by address (&http.Client{...})

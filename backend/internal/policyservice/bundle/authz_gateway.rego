@@ -13,8 +13,8 @@ default allow := false
 _token := raw if {
 	auth := input.attributes.request.http.headers.authorization
 	bearer := trim_prefix(auth, "Bearer ")
-	# Strip the orbit PAT prefix ("orb_") to get the raw JWT.
-	raw := trim_prefix(bearer, "orb_")
+	# Strip the PAT prefix ("kora_") to get the raw JWT.
+	raw := trim_prefix(bearer, "kora_")
 }
 
 # The Anthropic SDK sends credentials as x-api-key rather than Authorization:
@@ -22,7 +22,7 @@ _token := raw if {
 _token := raw if {
 	not input.attributes.request.http.headers.authorization
 	api_key := input.attributes.request.http.headers["x-api-key"]
-	raw := trim_prefix(api_key, "orb_")
+	raw := trim_prefix(api_key, "kora_")
 }
 
 # The identity service's signing key, as a serialised JWK. Factored out so the

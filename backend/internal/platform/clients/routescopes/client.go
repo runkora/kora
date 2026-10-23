@@ -104,7 +104,7 @@ type Client struct {
 }
 
 const (
-	tracerName    = "orbit.routescopes-client"
+	tracerName    = "kora.routescopes-client"
 	clientTimeout = 10 * time.Second
 )
 
