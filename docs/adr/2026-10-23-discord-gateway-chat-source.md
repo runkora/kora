@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-23-discord-gateway-chat-source.md -->
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-10-23  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [Chat Command Triggers PRD](../prd/chat-command-triggers.md), runkora/kora#728
