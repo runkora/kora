@@ -247,7 +247,10 @@ func (m *GatewayManager) reconcile(ctx context.Context, sessions map[string]*gat
 		sessions[id] = s
 		m.wg.Add(1)
 		go m.ingestLoop(sctx, s)
-		go m.run(sctx, s)
+		go func() {
+			defer cancel()
+			m.run(sctx, s)
+		}()
 	}
 }
 
@@ -339,7 +342,7 @@ func (m *GatewayManager) backoff(failures int) time.Duration {
 	if d <= 0 {
 		d = m.cfg.BackoffMax
 	}
-	return d/2 + rand.N(d/2+1)
+	return d/2 + rand.N(d/2+1) // #nosec G404 — jitter is not security-sensitive
 }
 
 // rejectionReason maps a close Discord marked not reconnectable to the reason
@@ -451,7 +454,7 @@ func (m *GatewayManager) onMessage(ctx context.Context, s *gatewaySession, clien
 	var head struct {
 		ChannelID snowflake.ID `json:"channel_id"`
 	}
-	if err := json.Unmarshal(raw, &head); err != nil {
+	if err = json.Unmarshal(raw, &head); err != nil {
 		m.logger.Error(ctx, "parse gateway message failed", logging.Field{Key: "error", Value: err.Error()})
 		return
 	}
