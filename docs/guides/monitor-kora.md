@@ -40,8 +40,8 @@ The scraper must run in the mesh, in the namespace set by `scraperNamespace`. Th
 | `kora_<service>_http_requests_total` | Requests to each service, by route, method and status |
 | `kora_<service>_http_request_duration_seconds` | Request latency for each service, by route |
 | `kora_triggers_queue_depth` | Trigger deliveries waiting and claimed |
-| `kora_triggers_queue_oldest_unclaimed_age` | How long the oldest waiting delivery has waited |
-| `kora_triggers_auto_pauses` | Triggers paused after repeated failures |
+| `kora_triggers_queue_oldest_unclaimed_age_seconds` | How long the oldest waiting delivery has waited |
+| `kora_triggers_auto_pauses_total` | Triggers paused after repeated failures |
 | `kora_redis_available` | Whether each service can reach Redis |
 
 Run outcomes, model spend and policy decisions are not metrics yet. They are in the logs, traces and the console.

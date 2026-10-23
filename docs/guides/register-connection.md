@@ -24,7 +24,7 @@ spec:
   config:
     app_id: "4015347"
     installation_id: 139299720
-    owner: clear-route
+    owner: runkora
 ```
 
 - `adapter`: selects the credential mechanism. See [Adapters](#adapters) for the available adapters and their config.
