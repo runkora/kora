@@ -19,7 +19,14 @@ keywords:
 
 home: https://github.com/runkora/kora
 maintainers:
-  - name: kora Team
+  - name: Justin Wilkin
+    url: https://github.com/justinwilkin
+  - name: Tom Morelly
+    url: https://github.com/FalcoSuessgott
+  - name: Qj Stout-Spykers
+    url: https://github.com/QjStout
+  - name: Chandan Joshi
+    url: https://github.com/cjoshidev
 
 dependencies:
   # kora's ingress gateway pods. Off when an existing Istio Gateway fronts kora.

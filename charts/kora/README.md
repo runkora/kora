@@ -10,7 +10,10 @@ kora's control plane runs the operator, the cluster-scoped identity and gateway 
 
 | Name | Email | Url |
 | ---- | ------ | --- |
-| kora Team |  |  |
+| Justin Wilkin |  | <https://github.com/justinwilkin> |
+| Tom Morelly |  | <https://github.com/FalcoSuessgott> |
+| Qj Stout-Spykers |  | <https://github.com/QjStout> |
+| Chandan Joshi |  | <https://github.com/cjoshidev> |
 
 ## Requirements
 
