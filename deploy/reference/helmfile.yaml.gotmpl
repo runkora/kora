@@ -1,5 +1,5 @@
 # Reference release order for SPIRE, Istio and kora. The environments carry
-# cluster facts; the orbit chart's own values live in values/orbit.yaml.
+# cluster facts; the kora chart's own values live in values/kora.yaml.
 environments:
   local:
     values:
@@ -75,19 +75,19 @@ releases:
 
   - name: orbit-crds
     namespace: {{ .Values.systemNamespace }}
-    chart: {{ .Values.orbit.crdsChart }}
-    version: {{ .Values.orbit.version }}
+    chart: {{ .Values.kora.crdsChart }}
+    version: {{ .Values.kora.version }}
 
   # Namespace labels must exist before the first kora pod; createNamespace cannot set them.
   - name: orbit
     namespace: {{ .Values.systemNamespace }}
     disableValidationOnInstall: true
-    chart: {{ .Values.orbit.chart }}
-    version: {{ .Values.orbit.version }}
+    chart: {{ .Values.kora.chart }}
+    version: {{ .Values.kora.version }}
     needs: [{{ .Values.systemNamespace }}/orbit-crds, spire-system/spire, istio-system/istiod]
     values:
-      - values/orbit.yaml
-      {{- range (.Values | get "orbitValuesFiles" list) }}
+      - values/kora.yaml
+      {{- range (.Values | get "koraValuesFiles" list) }}
       - {{ . }}
       {{- end }}
     set:

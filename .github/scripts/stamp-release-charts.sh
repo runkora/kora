@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stamp both charts to the release version and pin every orbit chart image to a
+# Stamp both charts to the release version and pin every kora chart image to a
 # digest. Resolves digests on a working copy and fails on any empty result, so a
 # partial or empty pin never reaches the packaged chart. Writes images.txt: the
 # chart's images plus every image docker-bake.hcl publishes, so a new bake
@@ -12,12 +12,12 @@ set -euo pipefail
 
 .github/scripts/build-chart-deps.sh
 
-for chart in orbit orbit-crds; do
+for chart in kora kora-crds; do
   yq -i ".version = \"${VERSION}\" | .appVersion = \"${TAG}\"" "charts/${chart}/Chart.yaml"
 done
 
 work=$(mktemp)
-cp charts/orbit/values.yaml "${work}"
+cp charts/kora/values.yaml "${work}"
 : > images.txt
 
 components=$(yq -o=json '.' "${work}" \
@@ -54,4 +54,4 @@ done
 
 sort -u images.txt -o images.txt
 [ -s images.txt ] || { echo "::error::no chart images resolved from values.yaml" >&2; exit 1; }
-mv "${work}" charts/orbit/values.yaml
+mv "${work}" charts/kora/values.yaml

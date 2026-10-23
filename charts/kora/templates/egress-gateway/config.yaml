@@ -1,0 +1,19 @@
+{{- /*
+egress-gateway config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+*/}}
+{{- define "kora.egressGateway.configModules" -}}
+cmd/egress-gateway:
+  metrics:
+    enabled: {{ .Values.global.metrics.enabled }}
+    port: {{ .Values.global.metrics.port | default 9464 }}
+  identity:
+    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
+  policy:
+    bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}
+    policyServiceInternalURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
+{{ include "kora.observabilityConfigModule" . }}
+{{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
+{{ include "kora.tokenConfigModule" . }}
+{{ include "kora.brandConfigModule" . }}
+{{- end }}
+{{- include "kora.configMap" (dict "root" $ "name" "egressGateway" "configMap" "orbit-egress-gateway-config" "modules" (include "kora.egressGateway.configModules" . | fromYaml)) }}

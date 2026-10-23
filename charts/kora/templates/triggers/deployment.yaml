@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-triggers
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.triggers.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.triggers.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kora.triggers.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kora.triggers.selectorLabels" . | nindent 8 }}
+        {{- include "kora.triggers.labels" . | nindent 8 }}
+        spiffe.io/component: orbit-triggers
+        {{- include "kora.podLabels" (dict "root" $ "name" "triggers") | nindent 8 }}
+      annotations:
+        {{- include "kora.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
+        # Postgres is external to the mesh; bypass Envoy interception.
+        traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+        checksum/config: {{ include (print $.Template.BasePath "/triggers/config.yaml") . | sha256sum }}
+        {{- include "kora.podAnnotations" (dict "root" $ "name" "triggers") | nindent 8 }}
+    spec:
+      serviceAccountName: orbit-triggers
+      {{- include "kora.imagePullSecrets" . | nindent 6 }}
+      {{- include "kora.scheduling" (dict "root" $ "name" "triggers") | nindent 6 }}
+      securityContext:
+        {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
+      volumes:
+        {{- include "kora.spireVolumes" . | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "triggers" "configMap" "orbit-triggers-config" "modules" (include "kora.triggers.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "kora.redisCAVolume" . | nindent 8 }}
+        {{- include "kora.extraVolumes" (dict "root" $ "name" "triggers") | nindent 8 }}
+      containers:
+        - name: orbit-triggers
+          image: {{ include "kora.image" (dict "root" $ "name" "triggers") | quote }}
+          imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "triggers") }}
+          securityContext:
+            {{- include "kora.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
+          env:
+            {{- include "kora.platformEnv" (dict "root" $ "name" "triggers" "keys" (list "DB_PASSWORD" "REDIS_PASSWORD" "ORBIT_TRIGGERS_ENCRYPTION_KEY")) | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8097
+              protocol: TCP
+            {{- if .Values.global.metrics.enabled }}
+            - name: http-metrics
+              containerPort: {{ .Values.global.metrics.port | default 9464 }}
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8097
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8097
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.triggers.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "kora.spireVolumeMount" . | nindent 12 }}
+            {{- include "kora.configVolumeMount" . | nindent 12 }}
+            {{- include "kora.redisCAVolumeMount" . | nindent 12 }}
+            {{- include "kora.extraVolumeMounts" (dict "root" $ "name" "triggers") | nindent 12 }}

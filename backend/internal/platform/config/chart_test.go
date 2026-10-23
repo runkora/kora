@@ -64,12 +64,12 @@ func loadService[T any](module string) func() error {
 	}
 }
 
-// TestChartRenderedConfigDecodes renders the orbit chart and loads every config
+// TestChartRenderedConfigDecodes renders the kora chart and loads every config
 // file it mounts through the module's own loader, so a chart key the Go config
 // does not declare fails here rather than at pod startup. Needs helm and the
 // chart's dependencies (make chart-deps).
 func TestChartRenderedConfigDecodes(t *testing.T) {
-	chart := filepath.Join("..", "..", "..", "..", "charts", "orbit")
+	chart := filepath.Join("..", "..", "..", "..", "charts", "kora")
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not installed")
 	}
@@ -84,7 +84,7 @@ func TestChartRenderedConfigDecodes(t *testing.T) {
 	valueSets := map[string][]string{
 		"ci defaults":    {filepath.Join(chart, "ci", "default-values.yaml")},
 		"numeric values": {filepath.Join(chart, "ci", "default-values.yaml"), numeric},
-		"local":          {filepath.Join(chart, "ci", "default-values.yaml"), filepath.Join(chart, "..", "..", "deploy", "reference", "values", "orbit.local.yaml")},
+		"local":          {filepath.Join(chart, "ci", "default-values.yaml"), filepath.Join(chart, "..", "..", "deploy", "reference", "values", "kora.local.yaml")},
 	}
 	for name, files := range valueSets {
 		t.Run(name, func(t *testing.T) {

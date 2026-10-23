@@ -39,7 +39,7 @@ const sandboxEgressPolicyName = "sandbox-egress-to-gateway"
 const sandboxIngressPolicyName = "sandbox-ingress-from-agents"
 
 // egressGatewayServiceName is the egress-gateway Service the sandbox is
-// allowed to reach. The chart in charts/orbit/templates/egress-gateway/
+// allowed to reach. The chart in charts/kora/templates/egress-gateway/
 // renders this name; mismatch here would silently break egress for all
 // tenants.
 const egressGatewayServiceName = "orbit-egress-gateway"
@@ -120,7 +120,7 @@ func sandboxEgressPolicy(ns, tenantName string) *networkingv1.NetworkPolicy {
 				// NOT reach orbit-system this way: the sandbox Envoy
 				// transparently rewrites the agent's external egress into a
 				// CONNECT to orbit-egress-gateway:8085 (see
-				// charts/orbit/templates/egress-gateway/transparent-egress.yaml),
+				// charts/kora/templates/egress-gateway/transparent-egress.yaml),
 				// while the sidecars dial orbit-system services on cluster-DNS.
 				{
 					To: []networkingv1.NetworkPolicyPeer{

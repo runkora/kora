@@ -1,0 +1,90 @@
+{{- if eq (include "kora.sandboxWarmingMode" $) "capacity" }}
+# Low-priority placeholder holding one sandbox's worth of capacity on a warm
+# node. A real sandbox preempts it and starts without a cold node or image pull.
+{{- $warming := .Values.agents.sandboxWarming }}
+{{- $img := include "kora.sandboxBaseImage" . }}
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: orbit-sandbox-headroom
+  labels:
+    {{- include "kora.agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox-headroom
+value: {{ $warming.priority | int }}
+globalDefault: false
+preemptionPolicy: Never
+description: Low-priority placeholder for kora sandbox warm capacity.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-sandbox-headroom
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox-headroom
+spec:
+  replicas: {{ $warming.replicas | int }}
+  selector:
+    matchLabels:
+      app: orbit-sandbox-headroom
+  template:
+    metadata:
+      # Values are quoted because label and annotation values are strings, and
+      # an unquoted `true` in values.yaml reaches the API server as a boolean.
+      labels:
+        {{- range $k, $v := merge (dict "app" "orbit-sandbox-headroom") $warming.podLabels }}
+        {{ $k }}: {{ $v | quote }}
+        {{- end }}
+      # A node holding only this placeholder reads as idle, so both mainstream
+      # autoscalers are told to leave it alone. Each annotation is inert where
+      # that autoscaler is not installed. Precedence: the mesh annotation wins,
+      # then podAnnotations, then these defaults.
+      annotations:
+        {{- $defaults := dict "karpenter.sh/do-not-disrupt" "true" "cluster-autoscaler.kubernetes.io/safe-to-evict" "false" }}
+        {{- range $k, $v := merge (dict "sidecar.istio.io/inject" "false") $warming.podAnnotations $defaults }}
+        {{ $k }}: {{ $v | quote }}
+        {{- end }}
+    spec:
+      priorityClassName: orbit-sandbox-headroom
+      {{- include "kora.imagePullSecrets" . | nindent 6 }}
+      {{- include "kora.sandboxWarmingScheduling" (dict "root" $ "spreadApp" "orbit-sandbox-headroom") | nindent 6 }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 0
+      securityContext:
+        {{- include "kora.podSecurityContext" (dict "uid" 100) | nindent 8 }}
+      containers:
+        {{- if $warming.resources }}
+        - name: headroom
+          image: {{ $img | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "while true; do sleep 86400; done"]
+          resources:
+            {{- toYaml $warming.resources | nindent 12 }}
+          securityContext:
+            {{- include "kora.containerSecurityContext" (dict) | nindent 12 }}
+        {{- else }}
+        {{- /* One container per part of a default sandbox pod. The pod's requests are their sum. */}}
+        {{- $size := .Values.agents.environments.defaultSize }}
+        {{- $sidecars := .Values.operator.injection.sandboxSidecars }}
+        {{- $parts := list
+          (dict "name" "sandbox" "res" (dict "cpu" $size.cpu "memory" $size.memory "ephemeral-storage" $size.disk))
+          (dict "name" "scratch" "res" (dict "ephemeral-storage" "1Gi"))
+          (dict "name" "istio-proxy" "res" $sidecars.istioProxy)
+          (dict "name" "identity-proxy" "res" $sidecars.identityProxy)
+          (dict "name" "opa" "res" $sidecars.opa) }}
+        {{- range $parts }}
+        - name: headroom-{{ .name }}
+          image: {{ $img | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "while true; do sleep 86400; done"]
+          resources:
+            requests:
+              {{- toYaml .res | nindent 14 }}
+            limits:
+              {{- toYaml .res | nindent 14 }}
+          securityContext:
+            {{- include "kora.containerSecurityContext" (dict) | nindent 12 }}
+        {{- end }}
+        {{- end }}
+{{- end }}

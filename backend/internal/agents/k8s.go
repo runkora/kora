@@ -126,7 +126,7 @@ type K8sProvisionerConfig struct {
 	// each agent StatefulSet restricting its session-manager port to the
 	// orbit-agents principal. Requires SPIFFE/mTLS: without attested identities
 	// no source matches the rule and every call is denied, so the chart gates
-	// this on platform.spiffe.enabled (charts/orbit/templates/agents/deployment.yaml).
+	// this on platform.spiffe.enabled (charts/kora/templates/agents/deployment.yaml).
 	AuthorizationPolicyEnabled bool
 	// NodeMaxOldSpaceMB is passed to each session-manager, which caps the heap
 	// of Node processes its runs start. Zero disables the cap.
@@ -730,7 +730,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 		// the CONNECT and inject the platform Bearer token, which is the
 		// gateway's only signal of caller identity. The CONNECT method is
 		// passed through HCM via the egress-gateway EnvoyFilter
-		// (charts/orbit/templates/egress-gateway/envoyfilter.yaml).
+		// (charts/kora/templates/egress-gateway/envoyfilter.yaml).
 		"traffic.sidecar.istio.io/excludeInboundPorts": fmt.Sprintf("%d", p.cfg.SandboxGRPCPort),
 		// Holds the other containers until istio-proxy is ready on clusters
 		// where Istio does not inject it as a native sidecar. Same wiring the
@@ -1034,7 +1034,7 @@ func (p *K8sProvisioner) unschedulableReason(ctx context.Context, name, namespac
 // rewrites the agent's raw outbound TLS into a CONNECT to the per-tenant egress
 // gateway and runs OPA posture + platform-JWT injection on it; see
 // docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md (Amendment 2)
-// and charts/orbit/templates/egress-gateway/transparent-egress.yaml. We
+// and charts/kora/templates/egress-gateway/transparent-egress.yaml. We
 // deliberately do NOT set HTTPS_PROXY: it was agent-cooperative (a hostile
 // agent ignores it and uses a raw socket), so it was never an enforcement
 // boundary. The interception now happens below the agent, at Envoy.
@@ -1120,7 +1120,7 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Clu
 // egressGatewayURL returns the in-cluster URL of the egress gateway, or empty
 // if SystemNamespace is unset. The gateway always lives in SystemNamespace
 // under the well-known service name + port (the shared ports.EgressGatewayCONNECT,
-// matching charts/orbit/templates/egress-gateway/service.yaml); there's no
+// matching charts/kora/templates/egress-gateway/service.yaml); there's no
 // configurable knob because there's no version of the topology where it
 // could be different.
 func egressGatewayURL(cfg K8sProvisionerConfig) string {

@@ -104,7 +104,7 @@ func LoadConfig() (*Config, error) {
 
 ## Rendered Config Files
 
-The `orbit` chart renders each workload's per-install config into a ConfigMap and mounts it at `/etc/orbit/config`. Each config module the workload loads is one file, `{module}.yaml`, and a change to it rolls the workload through its `checksum/config` annotation. Env vars carry only secrets and third-party conventions such as `SPIFFE_ENDPOINT_SOCKET`.
+The `kora` chart renders each workload's per-install config into a ConfigMap and mounts it at `/etc/orbit/config`. Each config module the workload loads is one file, `{module}.yaml`, and a change to it rolls the workload through its `checksum/config` annotation. Env vars carry only secrets and third-party conventions such as `SPIFFE_ENDPOINT_SOCKET`.
 
 *   **Curated values:** Chart keys such as `global.logFormat`, `config.db` and `identity.config.accessTokenTtlMinutes` render into the files.
 *   **Overrides:** `<component>.configOverrides` merges last, keyed by config module. Its keys follow the Go config structs.
@@ -209,7 +209,7 @@ svc := feature.NewService(db, redis, logger, featureCfg)
 ## Reference
 
 - `internal/platform/config/config.go`: the loader package (`Load`, `MustLoad`, `LoadService`, `MustLoadService`, `Environment`)
-- `charts/orbit/templates/*/config.yaml`: the config files the chart renders for each workload
+- `charts/kora/templates/*/config.yaml`: the config files the chart renders for each workload
 - `internal/identity/service.go`: canonical example of feature-level `LoadConfig()` with secret overlays
 - `cmd/identity/config/config.go`: canonical example of binary-level `MustLoadService` package var
 - [yaml-file-based-configuration](../adr/2026-02-18-yaml-file-based-configuration.md): decision record and rationale

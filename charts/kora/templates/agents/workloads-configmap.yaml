@@ -1,0 +1,41 @@
+{{- /*
+Workload customisation ConfigMap (docs/adr/2026-09-16-first-class-workload-placement.md).
+
+Mounted at /etc/orbit/workloads inside the orbit-agents pod and applied to the
+resources it provisions in tenant namespaces, before manifest patches.
+*/}}
+{{- /*
+  A sandbox mounts its session-manager's workspace, so pinning the two to
+  different nodes over a volume that cannot cross them fails at attach time on
+  the first run. Reject it here instead, matching the check orbit-agents runs
+  for splits expressed as manifest patches: both sides must be pinned for the
+  answer to be conclusive, and pinning counts whether it is written as a
+  nodeSelector or as required node affinity, since one of each separates the
+  pods just as surely. Preferred affinity is advisory and pod anti-affinity
+  names no pool, so neither is inspected.
+*/}}
+{{- $sandbox := .Values.agents.workloads.sandbox }}
+{{- $sessionManager := .Values.agents.workloads.sessionManager }}
+{{- $sandboxNodes := dig "nodeAffinity" "requiredDuringSchedulingIgnoredDuringExecution" nil ($sandbox.affinity | default dict) }}
+{{- $sessionManagerNodes := dig "nodeAffinity" "requiredDuringSchedulingIgnoredDuringExecution" nil ($sessionManager.affinity | default dict) }}
+{{- $sandboxPinned := or $sandbox.nodeSelector $sandboxNodes }}
+{{- $sessionManagerPinned := or $sessionManager.nodeSelector $sessionManagerNodes }}
+{{- $samePool := and (eq (toYaml ($sandbox.nodeSelector | default dict)) (toYaml ($sessionManager.nodeSelector | default dict))) (eq (toYaml ($sandboxNodes | default dict)) (toYaml ($sessionManagerNodes | default dict))) }}
+{{- if and $sandboxPinned $sessionManagerPinned (not $samePool) }}
+  {{- if not (has "ReadWriteMany" .Values.agents.workspace.accessModes) }}
+    {{- fail "agents.workloads.sandbox and agents.workloads.sessionManager are scheduled on different nodes, so agents.workspace.accessModes must include ReadWriteMany: a sandbox mounts its session-manager's workspace, and ReadWriteOnce cannot cross nodes" }}
+  {{- end }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orbit-agents-workloads
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.agents.labels" . | nindent 4 }}
+data:
+  workloads.yaml: |
+    workloads:
+      {{- toYaml .Values.agents.workloads | nindent 6 }}
+    workspace:
+      {{- toYaml .Values.agents.workspace | nindent 6 }}

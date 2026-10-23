@@ -1,0 +1,16 @@
+apiVersion: v2
+name: kora-crds
+description: >
+  Defines the OrbitTenant, Connection, OAuthClient, MCPServer,
+  InferenceProvider and SandboxImage resources kora runs on. Apply this chart before kora.
+type: application
+version: 0.0.0
+appVersion: "0.0.0"
+# Oldest Kubernetes minor the release is tested on.
+kubeVersion: ">=1.34.0-0"
+keywords:
+  - kora
+  - crds
+home: https://github.com/runkora/kora
+maintainers:
+  - name: kora Team

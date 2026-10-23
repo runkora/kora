@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const crdPath = "../../../../../charts/orbit-crds/templates/crd-inferenceprovider.yaml"
+const crdPath = "../../../../../charts/kora-crds/templates/crd-inferenceprovider.yaml"
 
 // schemaNode is a node of the CRD's openAPIV3Schema, as decoded from YAML.
 type schemaNode = map[string]any

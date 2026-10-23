@@ -374,11 +374,11 @@ The pod runs as UID 1000 (not UID 1337). An earlier draft used UID 1337 on the a
 ### Helm Chart Additions
 
 ```
-charts/orbit/templates/opa-gateway/deployment.yaml
-charts/orbit/templates/opa-gateway/service.yaml
-charts/orbit/templates/opa-gateway/configmap.yaml
-charts/orbit/templates/opa-gateway/envoyfilter.yaml
-charts/orbit/templates/opa-gateway/poddisruptionbudget.yaml
+charts/kora/templates/opa-gateway/deployment.yaml
+charts/kora/templates/opa-gateway/service.yaml
+charts/kora/templates/opa-gateway/configmap.yaml
+charts/kora/templates/opa-gateway/envoyfilter.yaml
+charts/kora/templates/opa-gateway/poddisruptionbudget.yaml
 ```
 
 ---

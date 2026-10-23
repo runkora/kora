@@ -1,0 +1,28 @@
+# VirtualService for the kora frontend.
+#
+# Routes the frontend host through the kora Gateway (or the customer-owned one
+# named by gateway.name) to the orbit-frontend Service.
+#
+# Ref: ADR-0034 (frontend cluster deployment and ingress routing)
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: orbit-frontend
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.frontend.labels" . | nindent 4 }}
+spec:
+  hosts:
+    - "{{ include "kora.frontendHost" . }}"
+  gateways:
+    - {{ include "kora.gatewayRef" . }}
+  http:
+    # <domain> with no prefix is the frontend/BFF only (ADR 2026-07-04). All
+    # backend APIs, including inbound webhooks (which moved to the api. host), are
+    # served by the orbit-api VirtualService. This host is a pure catch-all to the
+    # Next.js app.
+    - route:
+        - destination:
+            host: orbit-frontend.{{ include "kora.systemNamespace" . }}.svc.cluster.local
+            port:
+              number: 80

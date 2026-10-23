@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-opa-gateway
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.opaGateway.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.opaGateway.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kora.opaGateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kora.opaGateway.selectorLabels" . | nindent 8 }}
+        {{- include "kora.opaGateway.labels" . | nindent 8 }}
+        spiffe.io/component: opa-gateway
+        {{- include "kora.podLabels" (dict "root" $ "name" "opaGateway") | nindent 8 }}
+      annotations:
+        {{- include "kora.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
+        checksum/config: {{ include (print $.Template.BasePath "/opa-gateway/configmap.yaml") . | sha256sum }}
+        {{- include "kora.podAnnotations" (dict "root" $ "name" "opaGateway") | nindent 8 }}
+    spec:
+      serviceAccountName: orbit-opa-gateway
+      {{- include "kora.imagePullSecrets" . | nindent 6 }}
+      {{- include "kora.scheduling" (dict "root" $ "name" "opaGateway") | nindent 6 }}
+      securityContext:
+        {{- include "kora.podSecurityContext" (dict "uid" 1000) | nindent 8 }}
+      volumes:
+        {{- include "kora.spireVolumes" . | nindent 8 }}
+        - name: opa-config
+          configMap:
+            name: orbit-opa-gateway-config
+      containers:
+        - name: opa
+          image: {{ include "kora.image" (dict "root" $ "name" "opaGateway") | quote }}
+          imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "opaGateway") }}
+          args:
+            - "run"
+            - "--server"
+            # gRPC ext_authz is what the gateway calls; the REST API stays on loopback.
+            - "--addr=127.0.0.1:8181"
+            - "--diagnostic-addr=0.0.0.0:8282"
+            - "--config-file=/config/config.yaml"
+            - "--log-level=info"
+            - "--log-format=json"
+          securityContext:
+            {{- include "kora.containerSecurityContext" (dict) | nindent 12 }}
+          ports:
+            - name: grpc
+              containerPort: 9191
+              protocol: TCP
+            - name: diag
+              containerPort: 8282
+              protocol: TCP
+          volumeMounts:
+            - name: opa-config
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health?bundles=true
+              port: 8282
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8282
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.opaGateway.resources | nindent 12 }}

@@ -1,0 +1,77 @@
+{{- /*
+orbit-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+*/}}
+{{- define "kora.agents.configModules" -}}
+{{- $guardrails := .Values.agents.guardrails }}
+{{- if or (lt (int $guardrails.sandboxProvisionAttempts) 1) (lt (int $guardrails.sandboxProvisionBackoffSecs) 1) (lt (int $guardrails.sandboxProvisionBudgetSecs) 1) (gt (int $guardrails.sandboxProvisionBudgetSecs) 600) }}
+  {{- fail "agents.guardrails: sandboxProvisionAttempts, sandboxProvisionBackoffSecs and sandboxProvisionBudgetSecs must be at least 1, and sandboxProvisionBudgetSecs at most 600" }}
+{{- end }}
+{{- $scheduling := .Values.agents.scheduling }}
+{{- if or (lt (int $scheduling.workerConcurrency) 1) (lt (int $scheduling.pollIntervalSecs) 1) (lt (int $scheduling.startBudgetSecs) 1) (lt (int $scheduling.provisionBudgetSecs) 1) }}
+  {{- fail "agents.scheduling: workerConcurrency, pollIntervalSecs, startBudgetSecs and provisionBudgetSecs must be at least 1" }}
+{{- end }}
+{{- if lt (int $scheduling.drainGracePeriodSecs) 61 }}
+  {{- fail "agents.scheduling.drainGracePeriodSecs must be at least 61: the session-manager's 30 s shutdown timeout plus its 30 s drainMargin (cmd/session-manager/config/config.go)" }}
+{{- end }}
+{{- if or (lt (int $scheduling.minReplicas) 1) (gt (int $scheduling.minReplicas) 10) }}
+  {{- fail "agents.scheduling.minReplicas must be between 1 and 10, the HPA maximum" }}
+{{- end }}
+{{- $idle := .Values.agents.idleTimeout }}
+{{- if or (lt (int $idle.manualSecs) 1) (lt (int $idle.triggerSecs) 1) }}
+  {{- fail "agents.idleTimeout: manualSecs and triggerSecs must be at least 1" }}
+{{- end }}
+cmd/kora-agents:
+  metrics:
+    enabled: {{ .Values.global.metrics.enabled }}
+    port: {{ .Values.global.metrics.port | default 9464 }}
+  kubernetes:
+    systemNamespace: {{ include "kora.systemNamespace" . | toJson }}
+  platform:
+    trustDomain: {{ include "kora.trustDomain" . | toJson }}
+    identityServiceURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
+    policyServiceURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
+  policy:
+    bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}
+  agents:
+    {{- $sessionManager := include "kora.imageRef" (dict "root" $ "image" (dict "repository" "kora-session-manager" "digest" .Values.agents.config.sessionManagerDigest)) }}
+    sessionManagerImage: {{ .Values.agents.config.sessionManagerImage | default $sessionManager | toJson }}
+    sandboxImage: {{ include "kora.sandboxBaseImage" . | toJson }}
+    {{- /* Quantities render as strings. An unquoted cpu: 8 in values would otherwise fail the strict decode. */}}
+    {{- /* An unset maxSize field takes the default size's value. */}}
+    {{- $default := .Values.agents.environments.defaultSize }}
+    {{- $max := .Values.agents.environments.maxSize | default dict }}
+    environments:
+      {{- range $name, $size := dict "defaultSize" $default "maxSize" (dict "cpu" ($max.cpu | default $default.cpu) "memory" ($max.memory | default $default.memory) "disk" ($max.disk | default $default.disk)) }}
+      {{ $name }}:
+        cpu: {{ $size.cpu | toString | toJson }}
+        memory: {{ $size.memory | toString | toJson }}
+        disk: {{ $size.disk | toString | toJson }}
+      {{- end }}
+    sandboxGitAuthorName: {{ .Values.agents.config.sandboxGitAuthorName | default "kora-agent" | toJson }}
+    sandboxGitAuthorEmail: {{ .Values.agents.config.sandboxGitAuthorEmail | toJson }}
+    imagePullSecrets: {{ include "kora.imagePullSecretNames" . }}
+    sandboxStartupSeconds: {{ include "kora.sandboxStartupSeconds" . }}
+    guardrails:
+      sandboxProvisionAttempts: {{ $guardrails.sandboxProvisionAttempts | int }}
+      sandboxProvisionBackoffSecs: {{ $guardrails.sandboxProvisionBackoffSecs | int }}
+      sandboxProvisionBudgetSecs: {{ $guardrails.sandboxProvisionBudgetSecs | int }}
+    idleTimeout:
+      manualSecs: {{ $idle.manualSecs | int }}
+      triggerSecs: {{ $idle.triggerSecs | int }}
+    scheduling:
+      workerConcurrency: {{ $scheduling.workerConcurrency | int }}
+      pollIntervalSecs: {{ $scheduling.pollIntervalSecs | int }}
+      startBudgetSecs: {{ $scheduling.startBudgetSecs | int }}
+      provisionBudgetSecs: {{ $scheduling.provisionBudgetSecs | int }}
+      minReplicas: {{ $scheduling.minReplicas | int }}
+      drainGracePeriodSecs: {{ $scheduling.drainGracePeriodSecs | int }}
+    sessionManager:
+      authorizationPolicyEnabled: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled }}
+      nodeMaxOldSpaceMB: {{ .Values.agents.config.nodeMaxOldSpaceMB | int }}
+    sandboxMount: {{ .Values.sandboxMount.enabled }}
+{{ include "kora.observabilityConfigModule" . }}
+{{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
+{{ include "kora.tokenConfigModule" . }}
+{{ include "kora.brandConfigModule" . }}
+{{- end }}
+{{- include "kora.configMap" (dict "root" $ "name" "agents" "configMap" "orbit-agents-config" "modules" (include "kora.agents.configModules" . | fromYaml)) }}

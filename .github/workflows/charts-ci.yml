@@ -46,15 +46,15 @@ jobs:
           set -euo pipefail
           .github/scripts/gen-crd-schemas.sh crd-schemas
           {
-            helm template orbit-crds charts/orbit-crds -n orbit-system --kube-version "${K8S_VERSION}"
+            helm template orbit-crds charts/kora-crds -n orbit-system --kube-version "${K8S_VERSION}"
             echo '---'
-            helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml --kube-version "${K8S_VERSION}"
+            helm template orbit charts/kora -n orbit-system -f charts/kora/ci/default-values.yaml --kube-version "${K8S_VERSION}"
             echo '---'
             # The same release with a theme set.
-            helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml -f charts/orbit/ci/theme-values.yaml --kube-version "${K8S_VERSION}"
+            helm template orbit charts/kora -n orbit-system -f charts/kora/ci/default-values.yaml -f charts/kora/ci/theme-values.yaml --kube-version "${K8S_VERSION}"
           } > rendered.yaml
           # Schema coverage:
-          #   - kora CRs: extracted from charts/orbit-crds into crd-schemas/.
+          #   - kora CRs: extracted from charts/kora-crds into crd-schemas/.
           #   - Istio CRs (Gateway, VirtualService, DestinationRule, EnvoyFilter,
           #     AuthorizationPolicy): pulled from the datreeio CRDs-catalog.
           #   - CustomResourceDefinition: pulled from yannh/kubernetes-json-schema's
@@ -75,9 +75,9 @@ jobs:
           K8S_VERSION: ${{ matrix.k8s }}
         run: |
           set -euo pipefail
-          # Each file under charts/orbit/ci/invalid/ must fail the render with its expected message.
+          # Each file under charts/kora/ci/invalid/ must fail the render with its expected message.
           while IFS='|' read -r file expected; do
-            if out=$(helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml -f "charts/orbit/ci/invalid/${file}" --kube-version "${K8S_VERSION}" 2>&1); then
+            if out=$(helm template orbit charts/kora -n orbit-system -f charts/kora/ci/default-values.yaml -f "charts/kora/ci/invalid/${file}" --kube-version "${K8S_VERSION}" 2>&1); then
               echo "::error::${file} rendered; expected the render to fail"
               exit 1
             fi

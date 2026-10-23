@@ -411,7 +411,7 @@ The adapter's shape (`CredentialAdapter`, `Resolve`, secret-based bearer token, 
 
 ### Why
 
-`charts/orbit/templates/egress-gateway/transparent-egress.yaml` authorizes a sandbox's outbound HTTPS by reading the TLS ClientHello's SNI extension and matching it against the connection's granted `egress:<host>:connect` scope. Per the TLS spec, a client never sends SNI when the destination is an IP literal. Confirmed directly against a real GKE cluster: the sandbox's OPA decision log showed the generated CONNECT with an empty `:authority` host and a `false` result — the transparent-egress interceptor's own header comment already documents this as intentional fail-closed behavior for empty SNI.
+`charts/kora/templates/egress-gateway/transparent-egress.yaml` authorizes a sandbox's outbound HTTPS by reading the TLS ClientHello's SNI extension and matching it against the connection's granted `egress:<host>:connect` scope. Per the TLS spec, a client never sends SNI when the destination is an IP literal. Confirmed directly against a real GKE cluster: the sandbox's OPA decision log showed the generated CONNECT with an empty `:authority` host and a `false` result — the transparent-egress interceptor's own header comment already documents this as intentional fail-closed behavior for empty SNI.
 
 **Consequence:** any `kubernetes` connection whose `baseHost` is a bare IP can never be driven through a live agent sandbox — including the ADR's own original local k3d example (`<k3d server address>:6443`), which used a raw Docker IP. This is not fixable by connection configuration alone; it is a structural incompatibility between IP-literal hosts and the transparent-egress design generally, not specific to this adapter.
 

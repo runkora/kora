@@ -341,7 +341,7 @@ The target step and the delivery detail follow the routing stories under `Pages/
 4.  `backend/internal/agents/idle_timeout.go` and `backend/internal/agents/run_service.go`: the attribution fields, the idle timeout and the event for trigger messages.
 5.  `backend/cmd/kora-triggers/migrations/`: the `add_trigger_routing` migration.
 6.  `backend/internal/triggers/`: the `routing` model and validation, `routing_questions.go`, the routing step in `DispatchPending`, the repository methods for routes, candidates, decisions and the key lookup, and the caller checks on create and on updates that change what runs or when.
-7.  `backend/cmd/kora-triggers/config/base.yaml`, `backend/cmd/kora-triggers/main.go` and `charts/orbit/`: the inference gateway URL, the client and the mesh wiring.
+7.  `backend/cmd/kora-triggers/config/base.yaml`, `backend/cmd/kora-triggers/main.go` and `charts/kora/`: the inference gateway URL, the client and the mesh wiring.
 8.  `frontend/src/app/(dashboard)/triggers/`: the target step and the Routing section of the delivery detail built from the proposed components.
 
 ---

@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-inference-gateway
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.inferenceGateway.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.inferenceGateway.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kora.inferenceGateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kora.inferenceGateway.selectorLabels" . | nindent 8 }}
+        {{- include "kora.inferenceGateway.labels" . | nindent 8 }}
+        spiffe.io/component: inference-gateway
+        # Watches InferenceProvider resources through the API server.
+        orbit.io/kube-api-client: "true"
+        {{- include "kora.podLabels" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
+      annotations:
+        {{- include "kora.spireProxyAnnotations" (dict "root" $ "drainSecs" .Values.inferenceGateway.shutdownTimeoutSecs) | nindent 8 }}
+        # Postgres is external to the mesh; bypass Envoy interception.
+        traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+        checksum/config: {{ include (print $.Template.BasePath "/inference-gateway/config.yaml") . | sha256sum }}
+        {{- include "kora.podAnnotations" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
+    spec:
+      # Outlasts the shutdown timeout so Kubernetes does not kill the pod mid-drain.
+      terminationGracePeriodSeconds: {{ add (int .Values.inferenceGateway.shutdownTimeoutSecs) 30 }}
+      serviceAccountName: orbit-inference-gateway
+      {{- include "kora.imagePullSecrets" . | nindent 6 }}
+      {{- include "kora.scheduling" (dict "root" $ "name" "inferenceGateway") | nindent 6 }}
+      securityContext:
+        {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
+      volumes:
+        {{- include "kora.spireVolumes" . | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "inferenceGateway" "configMap" "orbit-inference-gateway-config" "modules" (include "kora.inferenceGateway.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "kora.redisCAVolume" . | nindent 8 }}
+        {{- include "kora.extraVolumes" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
+      containers:
+        - name: orbit-inference-gateway
+          image: {{ include "kora.image" (dict "root" $ "name" "inferenceGateway") | quote }}
+          imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "inferenceGateway") }}
+          securityContext:
+            {{- include "kora.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/secrets/workload-spiffe-uds/socket"
+            {{- include "kora.platformEnv" (dict "root" $ "name" "inferenceGateway" "keys" (list "DB_PASSWORD" "REDIS_PASSWORD")) | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+            {{- if .Values.global.metrics.enabled }}
+            - name: http-metrics
+              containerPort: {{ .Values.global.metrics.port | default 9464 }}
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.inferenceGateway.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "kora.spireVolumeMount" . | nindent 12 }}
+            {{- include "kora.configVolumeMount" . | nindent 12 }}
+            {{- include "kora.redisCAVolumeMount" . | nindent 12 }}
+            {{- include "kora.extraVolumeMounts" (dict "root" $ "name" "inferenceGateway") | nindent 12 }}

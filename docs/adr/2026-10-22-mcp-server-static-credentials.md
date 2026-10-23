@@ -215,8 +215,8 @@ Delivery reuses the connection aggregator path, and the gateway gains no Kuberne
     *   `internal/operator`: endpoint validation.
 3.  Static credentials:
     *   `internal/operator`: `spec.auth` types, DeepCopy, validation, the aggregated Secret and the `CredentialUnavailable` condition.
-    *   `charts/orbit-crds`: the CRD schema.
-    *   `charts/orbit`: the mount and values.
+    *   `charts/kora-crds`: the CRD schema.
+    *   `charts/kora`: the mount and values.
     *   `internal/toolgateway`: the file-backed lookup, `auth_failed` and `credential_unavailable`.
     *   `docs/guides/register-mcp-server.md`: external servers with `spec.auth`.
 4.  `internal/operator`: ServiceEntries for external MCP hosts.

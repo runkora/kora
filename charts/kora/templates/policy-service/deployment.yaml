@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-policy-service
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.policyService.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.policyService.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kora.policyService.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kora.policyService.selectorLabels" . | nindent 8 }}
+        {{- include "kora.policyService.labels" . | nindent 8 }}
+        spiffe.io/component: policy-service
+        {{- include "kora.podLabels" (dict "root" $ "name" "policyService") | nindent 8 }}
+      annotations:
+        {{- include "kora.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
+        # Postgres is external to the mesh; bypass Envoy interception.
+        traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+        checksum/config: {{ include (print $.Template.BasePath "/policy-service/config.yaml") . | sha256sum }}
+        {{- include "kora.podAnnotations" (dict "root" $ "name" "policyService") | nindent 8 }}
+    spec:
+      serviceAccountName: orbit-policy-service
+      {{- include "kora.imagePullSecrets" . | nindent 6 }}
+      {{- include "kora.scheduling" (dict "root" $ "name" "policyService") | nindent 6 }}
+      securityContext:
+        {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
+      volumes:
+        {{- include "kora.spireVolumes" . | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "policyService" "configMap" "orbit-policy-service-config" "modules" (include "kora.policyService.configModules" . | fromYaml)) | nindent 8 }}
+        # Operator-owned tenant registry: the gateway bundle lists every
+        # registered tenant, with or without policy rows. Optional so the
+        # service starts before any tenant exists; re-read on every compile.
+        - name: tenants-config
+          configMap:
+            name: {{ .Values.policyService.tenantsConfigMap }}
+            optional: true
+        {{- include "kora.redisCAVolume" . | nindent 8 }}
+        {{- include "kora.extraVolumes" (dict "root" $ "name" "policyService") | nindent 8 }}
+      containers:
+        - name: orbit-policy-service
+          image: {{ include "kora.image" (dict "root" $ "name" "policyService") | quote }}
+          imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "policyService") }}
+          securityContext:
+            {{- include "kora.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
+          env:
+            {{- include "kora.platformEnv" (dict "root" $ "name" "policyService" "keys" (list "DB_PASSWORD" "REDIS_PASSWORD")) | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8083
+              protocol: TCP
+            {{- if .Values.global.metrics.enabled }}
+            - name: http-metrics
+              containerPort: {{ .Values.global.metrics.port | default 9464 }}
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.policyService.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "kora.spireVolumeMount" . | nindent 12 }}
+            {{- include "kora.configVolumeMount" . | nindent 12 }}
+            {{- include "kora.redisCAVolumeMount" . | nindent 12 }}
+            - name: tenants-config
+              mountPath: /etc/orbit
+              readOnly: true
+            {{- include "kora.extraVolumeMounts" (dict "root" $ "name" "policyService") | nindent 12 }}

@@ -1,0 +1,168 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: orbittenants.orbit.io
+  labels:
+    {{- include "kora-crds.labels" . | nindent 4 }}
+  annotations:
+    # Never deleted by helm uninstall: tenant definitions outlive the product install.
+    helm.sh/resource-policy: keep
+    controller-gen.kubebuilder.io/version: v0.14.0
+spec:
+  group: orbit.io
+  names:
+    kind: OrbitTenant
+    listKind: OrbitTenantList
+    plural: orbittenants
+    singular: orbittenant
+    shortNames:
+      - ot
+  scope: Cluster
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Namespace
+          type: string
+          # Shows the resolved namespace (auto-derived or explicit spec.namespace).
+          jsonPath: .status.namespace
+        - name: OIDC
+          type: string
+          jsonPath: .spec.oidc.issuerURL
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          description: >
+            OrbitTenant declares a tenant in the kora platform.
+            The CR name (metadata.name) is the tenant ID; no separate tenantId
+            field is needed. The operator creates the tenant namespace
+            (auto-derived as "orbit-tenant-{name}" when spec.namespace is omitted)
+            and registers the tenant in the orbit-tenants ConfigMap consumed by
+            the identity service. All tenant configuration lives in this single CR.
+          type: object
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - displayName
+                - oidc
+              properties:
+                displayName:
+                  description: Human-readable tenant display name.
+                  type: string
+                  minLength: 1
+                namespace:
+                  description: >
+                    Kubernetes namespace for tenant workloads. When omitted the
+                    operator auto-derives the namespace as "orbit-tenant-{name}".
+                    The operator creates this namespace with the required Istio
+                    and SPIRE labels.
+                  type: string
+                  minLength: 1
+                active:
+                  description: >
+                    Whether the tenant is active. Inactive tenants are excluded
+                    from the identity service registry. Default true.
+                  type: boolean
+                  default: true
+                oidc:
+                  description: OIDC provider configuration for this tenant.
+                  type: object
+                  required:
+                    - issuerURL
+                    - clientID
+                  properties:
+                    issuerURL:
+                      description: >
+                        OIDC issuer URL. Must be reachable from the identity
+                        service. For local dev this is the Dex URL.
+                      type: string
+                    clientID:
+                      description: OIDC client ID registered with the provider.
+                      type: string
+                    clientSecretRef:
+                      description: >
+                        Reference to a Secret containing the OIDC client secret
+                        in key "clientSecret". Optional for public clients (e.g.
+                        Dex device-flow clients).
+                      type: object
+                      required:
+                        - name
+                        - namespace
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                    scopes:
+                      description: >
+                        OIDC scopes to request. Defaults to
+                        [openid, profile, email].
+                      type: array
+                      items:
+                        type: string
+                      default:
+                        - openid
+                        - profile
+                        - email
+                    emailDomains:
+                      description: >
+                        Email address domains routed to this tenant by Home
+                        Realm Discovery (e.g. ["acme.com", "acme.io"]).
+                      type: array
+                      items:
+                        type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                namespace:
+                  description: >
+                    The resolved namespace in use for this tenant (either
+                    spec.namespace or the auto-derived "orbit-tenant-{name}").
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                lastReconciledAt:
+                  type: string
+                  format: date-time

@@ -171,9 +171,9 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          helm package charts/orbit-crds -d dist
-          helm package charts/orbit -d dist
-          for c in orbit-crds orbit; do
+          helm package charts/kora-crds -d dist
+          helm package charts/kora -d dist
+          for c in kora-crds kora; do
             helm push "dist/${c}-${VERSION}.tgz" "${CHART_REPO}" 2>&1 | tee "push-${c}.txt"
           done
 

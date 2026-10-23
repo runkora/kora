@@ -1,0 +1,46 @@
+{{- if eq .Values.istio.outboundTrafficPolicy "REGISTRY_ONLY" }}
+# Under REGISTRY_ONLY the mesh drops calls to unknown hosts. Covers only the
+# external hosts derivable from values. The operator registers model provider
+# hosts.
+{{- $ns := include "kora.systemNamespace" . }}
+{{- $db := .Values.config.db.host }}
+{{- if and $db (contains "." $db) (not (contains ".svc" $db)) (not (eq (regexFind "^[0-9.]+$" $db) $db)) }}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: orbit-postgres
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  hosts:
+    - {{ $db | quote }}
+  location: MESH_EXTERNAL
+  resolution: DNS
+  ports:
+    - number: {{ .Values.config.db.port }}
+      name: tcp-postgres
+      protocol: TCP
+{{- end }}
+{{- $redis := .Values.config.redis.host }}
+{{- if and $redis (contains "." $redis) (not (contains ".svc" $redis)) (not (eq (regexFind "^[0-9.]+$" $redis) $redis)) }}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: orbit-redis
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  hosts:
+    - {{ $redis | quote }}
+  location: MESH_EXTERNAL
+  resolution: DNS
+  ports:
+    - number: {{ .Values.config.redis.port }}
+      name: tcp-redis
+      protocol: TCP
+{{- end }}
+{{- end }}

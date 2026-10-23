@@ -1,6 +1,6 @@
 # Use sync waves to install releases in dependency order.
 # The orbit Application's second source is a placeholder: replace repoURL with
-# your own GitOps values repository holding an orbit chart values file.
+# your own GitOps values repository holding a kora chart values file.
 # Configure OCI registry credentials when required.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -164,7 +164,7 @@ spec:
   project: default
   source:
     repoURL: ghcr.io/runkora/charts
-    chart: orbit-crds
+    chart: kora-crds
     targetRevision: 0.0.0
   destination:
     server: https://kubernetes.default.svc
@@ -189,11 +189,11 @@ spec:
   # Point the second source at your own GitOps values repository and path.
   sources:
     - repoURL: ghcr.io/runkora/charts
-      chart: orbit
+      chart: kora
       targetRevision: 0.0.0
       helm:
         valueFiles:
-          - $values/orbit.yaml
+          - $values/kora.yaml
     - repoURL: https://github.com/your-org/your-gitops-values
       targetRevision: HEAD
       ref: values

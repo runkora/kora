@@ -70,7 +70,7 @@ EOF
 #               Currently used only by identity to layer the mkcert CA in.
 #   restart     'true' to do a rollout restart, 'false' for build-only services.
 #   tenant_default  Optional default tenant slug for {tenant}/{slug} substitution.
-#   values_key  The orbit chart values key for this image; the pushed digest is
+#   values_key  The kora chart values key for this image; the pushed digest is
 #               recorded under <values_key>.image.digest in
 #               deploy/reference/environments/local.generated.yaml.
 
@@ -181,7 +181,7 @@ dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=kora-mcp
 image=kora-mcp
-values_key=orbitMcp
+values_key=koraMcp
 namespace=orbit-system
 workload=deployment/orbit-mcp
 restart=true

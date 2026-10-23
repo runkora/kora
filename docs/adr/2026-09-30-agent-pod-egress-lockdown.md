@@ -161,7 +161,7 @@ The NetworkPolicy alone meets the security goal but makes every blocked call han
 ## Implementation
 
 - `backend/internal/operator/tenant_agent_egress.go`: `ensureAgentEgressPolicy` and `ensureAgentEgressSidecar`, reconciled with the sandbox policies in `tenant_netpol.go`; the Sidecar is written as unstructured, like the MCP server policies.
-- `charts/orbit/templates/operator/`: RBAC for `networking.istio.io` `sidecars`; `ORBIT_COLLECTOR_NAMESPACE` from `global.observability.collectorNamespace`, and `ORBIT_COLLECTOR_CIDRS` from the `networkPolicy.externalServices` entries serving the collector's port.
+- `charts/kora/templates/operator/`: RBAC for `networking.istio.io` `sidecars`; `ORBIT_COLLECTOR_NAMESPACE` from `global.observability.collectorNamespace`, and `ORBIT_COLLECTOR_CIDRS` from the `networkPolicy.externalServices` entries serving the collector's port.
 - `backend/internal/agents/k8s.go`: drop `5432` from the excluded outbound ports.
 - `backend/internal/agents/sessionmanager/`: the Claude Code environment variable and the Codex `config.toml` keys.
 

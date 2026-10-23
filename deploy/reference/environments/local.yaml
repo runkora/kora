@@ -1,5 +1,5 @@
-# Local k3d: Helmfile release inputs. The orbit chart's values live in
-# values/orbit.yaml and values/orbit.local.yaml.
+# Local k3d: Helmfile release inputs. The kora chart's values live in
+# values/kora.yaml and values/kora.local.yaml.
 versions:
   spireCrds: "0.6.1"
   spire: "0.30.2"
@@ -11,9 +11,9 @@ clusterName: orbit-local
 # Pins every helm and kubectl call in this Helmfile to the k3d cluster.
 kubeContext: k3d-orbit-local
 
-orbit:
-  chart: ../../charts/orbit
-  crdsChart: ../../charts/orbit-crds
+kora:
+  chart: ../../charts/kora
+  crdsChart: ../../charts/kora-crds
   version: 0.0.0
 
 istio:
@@ -23,9 +23,9 @@ istio:
 cniValuesFiles:
   - values/cni.local.yaml
 
-# Chart-values overlays merged onto values/orbit.yaml for the orbit release.
+# Chart-values overlays merged onto values/kora.yaml for the orbit release.
 # local.generated.yaml is written by make up (Dex hostAlias, egress CIDRs,
 # pushed image digests).
-orbitValuesFiles:
-  - values/orbit.local.yaml
+koraValuesFiles:
+  - values/kora.local.yaml
   - environments/local.generated.yaml

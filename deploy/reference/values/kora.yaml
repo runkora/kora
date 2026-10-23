@@ -1,0 +1,72 @@
+# kora chart values, the same set `helm show values oci://ghcr.io/runkora/charts/kora`
+# prints. Copy this file into your GitOps repository and edit it. A cluster
+# already running SPIRE and Istio installs the chart with this file, no Helmfile.
+#
+# Cloud starting point. Replace the trust domain, hosts and database and Redis
+# endpoints with your own.
+global:
+  trustDomain: orbit.example.com
+  imageRegistry: ghcr.io/runkora
+  imagePullPolicy: IfNotPresent
+  # Shared service config; a component's configOverrides overrides it.
+  logFormat: json
+  postgres:
+    sslMode: require
+    captureQueryText: false
+  observability:
+    # Set to your collector, e.g. http://otel-collector.observability.svc:4317.
+    otlpEndpoint: ""
+
+frontendHost: orbit.example.com
+# publicHosts defaults to api.<frontendHost> and <frontendHost>; set to override.
+
+config:
+  db:
+    host: postgres.example.internal
+    port: 5432
+    name: orbit
+    user: orbit
+  redis:
+    host: redis.example.internal
+    port: 6379
+  platformSecretName: orbit-secrets
+
+istio:
+  namespace: istio-system
+  revision: ""
+  outboundTrafficPolicy: ALLOW_ANY
+
+spire:
+  className: spire-system-spire
+
+networkPolicy:
+  enabled: true
+
+gateway:
+  create: true
+  tls:
+    enabled: true
+    credentialName: orbit-gateway-tls
+ingressGateway:
+  service:
+    type: LoadBalancer
+
+operator:
+  replicas: 2
+  leaderElection: true
+  podDisruptionBudget:
+    enabled: true
+
+identity:
+  config:
+    accessTokenTtlMinutes: 15
+
+inferenceGateway:
+  # IAM role for the gateway pod, granting Bedrock discovery and invoke. On EKS
+  # this is the IRSA or Pod Identity annotation. See docs/guides/deployment.md.
+  serviceAccount:
+    annotations: {}
+
+frontend:
+  config:
+    nextPublicAppUrl: https://orbit.example.com

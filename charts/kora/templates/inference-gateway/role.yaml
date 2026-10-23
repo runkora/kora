@@ -1,0 +1,37 @@
+# The gateway watches InferenceProvider resources and the Secrets they name in
+# its own namespace, and writes each resource's status. RBAC cannot narrow
+# Secrets by label; the gateway caches only those labelled
+# orbit.io/inference-provider=true.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: orbit-inference-gateway
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.inferenceGateway.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["orbit.io"]
+    resources: ["inferenceproviders"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["orbit.io"]
+    resources: ["inferenceproviders/status"]
+    verbs: ["patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: orbit-inference-gateway
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.inferenceGateway.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: orbit-inference-gateway
+subjects:
+  - kind: ServiceAccount
+    name: orbit-inference-gateway
+    namespace: {{ include "kora.systemNamespace" . }}
