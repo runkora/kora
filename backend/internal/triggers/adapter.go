@@ -13,9 +13,9 @@ import (
 // pipeline (verify → match → template → dispatch → log) is adapter-agnostic.
 // The fields a trigger can read come from the provider's schema.
 //
-// One adapter per file: see adapter_github.go, adapter_alertmanager.go and
-// adapter_slack.go and adapter_discord.go. To add a new adapter, drop a new adapter_<provider>.go file
-// with the implementation and register it in NewRegistry below.
+// One adapter per file: see adapter_github.go, adapter_alertmanager.go,
+// adapter_slack.go and adapter_discord.go. To add a new adapter, drop a new
+// adapter_<provider>.go file with the implementation and register it in NewRegistry below.
 type SourceAdapter interface {
 	// Provider returns the adapter's stable identifier (e.g. "github").
 	Provider() string

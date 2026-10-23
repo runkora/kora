@@ -52,6 +52,7 @@ func TestDiscordAdapter_DeliveryIDAndEventType(t *testing.T) {
 			delete(d, "guild_id")
 			d["author"] = map[string]any{"id": "31", "bot": true}
 		}, want: ""},
+		{name: "bot flag of an unexpected type", mutate: func(d, _ map[string]any) { d["author"] = map[string]any{"id": "31", "bot": "yes"} }, want: ""},
 		{name: "webhook message", mutate: func(d, _ map[string]any) { d["webhook_id"] = "77" }, want: ""},
 		{name: "type other than 0 or 19", mutate: func(d, _ map[string]any) { d["type"] = 7 }, want: ""},
 		{name: "type 6 in a direct message", mutate: func(d, _ map[string]any) { delete(d, "guild_id"); d["type"] = 6 }, want: ""},

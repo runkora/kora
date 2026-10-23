@@ -24,8 +24,7 @@ type discordEnvelope struct {
 		GuildID   string `json:"guild_id"`
 		WebhookID string `json:"webhook_id"`
 		Author    struct {
-			// Bot is any so a value of an unexpected type still marks a bot.
-			Bot any `json:"bot"`
+			Bot bool `json:"bot"`
 		} `json:"author"`
 		Mentions []struct {
 			ID string `json:"id"`
@@ -53,7 +52,7 @@ func (a *discordAdapter) DeliveryID(_ http.Header, body []byte) string {
 func (a *discordAdapter) EventType(_ http.Header, body []byte) string {
 	e, ok := parseDiscordEnvelope(body)
 	d := e.D
-	if !ok || d.Author.Bot == true || d.WebhookID != "" || (d.Type != discordMessageDefault && d.Type != discordMessageReply) {
+	if !ok || d.Author.Bot || d.WebhookID != "" || (d.Type != discordMessageDefault && d.Type != discordMessageReply) {
 		return ""
 	}
 	if d.GuildID == "" {
