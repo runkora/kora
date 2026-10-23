@@ -521,7 +521,7 @@ Each release signs its charts and images with keyless cosign, using the release 
 
 ```bash
 cosign verify ghcr.io/runkora/charts/kora:<version> \
-  --certificate-identity-regexp '^https://github.com/runkora/kora/.github/workflows/release.yml@refs/tags/v' \
+  --certificate-identity-regexp '^https://github\.com/runkora/kora/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
