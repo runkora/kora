@@ -343,7 +343,7 @@ func (m *GatewayManager) backoff(failures int) time.Duration {
 	if d <= 0 {
 		d = m.cfg.BackoffMax
 	}
-	return d/2 + rand.N(d/2+1) // #nosec G404 — jitter is not security-sensitive
+	return d/2 + rand.N(d/2+1) // #nosec G404: jitter is not security-sensitive
 }
 
 // rejectionReason maps a close Discord marked not reconnectable to the reason
