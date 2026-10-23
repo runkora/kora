@@ -115,6 +115,7 @@ type GatewayManager struct {
 	logger   logging.Logger
 	cfg      GatewayConfig
 	limiter  *identifyLimiter
+	session  func(ctx context.Context, s *gatewaySession) (reachedReady bool, err error) // connect; a seam for tests
 
 	wake     chan struct{}
 	cancel   context.CancelFunc
@@ -132,7 +133,7 @@ func NewGatewayManager(
 	logger logging.Logger,
 ) *GatewayManager {
 	cfg = cfg.withDefaults()
-	return &GatewayManager{
+	m := &GatewayManager{
 		store:    store,
 		ingest:   ingest,
 		adapters: adapters,
@@ -143,6 +144,8 @@ func NewGatewayManager(
 		wake:     make(chan struct{}, 1),
 		loopDone: make(chan struct{}),
 	}
+	m.session = m.connect
+	return m
 }
 
 // Start reconciles at once and then on the interval. It does not block.
@@ -285,7 +288,7 @@ func (m *GatewayManager) run(ctx context.Context, s *gatewaySession) {
 			case <-t.C:
 			}
 		}
-		reachedReady, err := m.connect(ctx, s)
+		reachedReady, err := m.session(ctx, s)
 		if ctx.Err() != nil {
 			return
 		}
@@ -374,7 +377,8 @@ func (m *GatewayManager) connect(ctx context.Context, s *gatewaySession) (reache
 		}, m.cfg.gatewayOpts...)...),
 		bot.WithEventListenerFunc(func(e *events.Ready) {
 			botUserID.Store(e.User.ID.String())
-			m.async(func() { m.setStatus(ctx, s, connConnected, "") })
+			// Synchronous: a rejection written after this must not be overwritten by a late connected.
+			m.setStatus(ctx, s, connConnected, "")
 		}),
 		bot.WithEventListenerFunc(func(e *events.Raw) {
 			if e.EventType != gateway.EventTypeMessageCreate {
