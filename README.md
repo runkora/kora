@@ -14,6 +14,11 @@ kora is not an agent framework, a model router, or an LLM wrapper. It runs the a
 - **Policy.** Every action by a person or an agent is evaluated against policy before it runs.
 - **Connectivity.** Agents never handle credentials. kora intercepts outbound calls and injects a scoped, just-in-time credential.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/console-dark.png">
+  <img src=".github/assets/console-light.png" alt="The kora console Agents page: agent count, active and completed runs, token use, spend by agent, and the runs in progress." width="100%">
+</picture>
+
 ## Getting started
 
 - **Run kora in a Kubernetes cluster:** Install it with the [deployment guide](docs/guides/deployment.md).
