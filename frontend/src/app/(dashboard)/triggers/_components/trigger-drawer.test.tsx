@@ -622,3 +622,64 @@ describe('a chat command trigger', () => {
     expect(screen.queryByRole('checkbox')).toBeNull();
   });
 });
+
+describe('a Discord source', () => {
+  const discord = (connection: SourceRow['connection'], signingSecretSet = true): SourceRow[] => [
+    {
+      ...SOURCES[0]!,
+      name: 'acme discord',
+      provider: 'discord',
+      category: 'chat',
+      signingSecretSet,
+      connection,
+    },
+  ];
+
+  function renderDiscord(sources: SourceRow[], onRotateSecret = vi.fn().mockResolvedValue('')) {
+    renderWithProviders(
+      <TriggerDrawer
+        canRunAgent
+        trigger={trigger()}
+        sources={sources}
+        deliveries={[]}
+        ingestHost="local.runkora.io:8443"
+        onClose={vi.fn()}
+        onToggleEnabled={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn().mockResolvedValue(null)}
+        onRotateSecret={onRotateSecret}
+      />,
+    );
+    return onRotateSecret;
+  }
+
+  it('shows no request URL', () => {
+    renderDiscord(discord({ state: 'connected' }));
+    expect(screen.getByText('Connection')).toBeTruthy();
+    expect(screen.queryByText('Request URL')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Copy' })).toBeNull();
+  });
+
+  it.each([
+    [{ state: 'connecting' as const }, 'Connecting'],
+    [{ state: 'connected' as const }, 'Connected'],
+    [{ state: 'rejected' as const, reason: 'Discord refused the bot token' }, 'Rejected'],
+  ])('shows the %j state', (connection, label) => {
+    renderDiscord(discord(connection));
+    expect(screen.getByText(label)).toBeTruthy();
+  });
+
+  it('gives the reason a rejected source was refused for', () => {
+    renderDiscord(discord({ state: 'rejected', reason: 'the bot token is invalid' }));
+    expect(screen.getByText(/the bot token is invalid/)).toBeTruthy();
+  });
+
+  it('sets the first bot token of a source that is waiting for one', async () => {
+    const onRotateSecret = renderDiscord(discord({ state: 'waiting' }, false));
+    expect(screen.getByText('Waiting for bot token')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Bot token/), { target: { value: 'tok' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Set token' }));
+    expect(onRotateSecret).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'tok', true);
+    expect(await screen.findByText(/The bot token is stored/)).toBeTruthy();
+  });
+});

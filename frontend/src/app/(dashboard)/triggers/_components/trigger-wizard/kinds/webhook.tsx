@@ -521,7 +521,7 @@ function IssuedSecretFields({
   patch: (next: Partial<WizardState>) => void;
   setup: ReturnType<typeof useIssuedSourceSetup>;
 }) {
-  const secret = ISSUED_SECRETS[provider]?.label ?? 'secret';
+  const { label: secret = 'secret', short = 'secret' } = ISSUED_SECRETS[provider] ?? {};
   if (state.newSourceSecretSaved)
     return (
       <Text size="caption" color="status-healthy">
@@ -554,7 +554,7 @@ function IssuedSecretFields({
           disabled={setup.pending || !state.newSourceSecret.trim()}
           onClick={() => void setup.saveSecret()}
         >
-          {setup.pending ? 'Saving…' : `Save ${secret}`}
+          {setup.pending ? 'Saving…' : `Save ${short}`}
         </Button>
       </Stack>
     </Stack>

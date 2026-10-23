@@ -189,3 +189,22 @@ describe('chat command triggers', () => {
     expect(screen.getByText('mention')).toBeTruthy();
   });
 });
+
+describe('a trigger on a Discord source', () => {
+  const trigger = makeTrigger({ id: 'd1', name: 'discord-ask', sourceId: 'src-d' });
+
+  it.each([
+    [{ state: 'waiting' as const }, 'Waiting for bot token'],
+    [{ state: 'connecting' as const }, 'Connecting'],
+    [{ state: 'connected' as const }, 'Connected'],
+    [{ state: 'rejected' as const, reason: 'bad token' }, 'Rejected'],
+  ])('shows the %j connection state', (connection, label) => {
+    render(list({ triggers: [trigger], sourceConnection: () => connection }));
+    expect(screen.getByText(label)).toBeTruthy();
+  });
+
+  it('shows no state for a source that receives requests', () => {
+    render(list({ triggers: [trigger] }));
+    expect(screen.queryByText('Connected')).toBeNull();
+  });
+});

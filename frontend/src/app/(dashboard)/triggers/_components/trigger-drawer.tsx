@@ -295,7 +295,7 @@ function IssuedSecretRow({
   /** The provider's display name, e.g. "Slack". */
   providerName: string;
   /** What the provider calls the secret and where its app shows it. */
-  secret: { label: string; origin: string };
+  secret: { label: string; short: string; origin: string };
   /** The source has no secret yet: the first one is set, not replaced. */
   waiting?: boolean;
   onReplace?: (secret: string) => Promise<boolean>;
@@ -348,14 +348,14 @@ function IssuedSecretRow({
         <Text size="caption" color="subtle">
           {saved === 'first'
             ? `The ${secret.label} is stored. The source now accepts events.`
-            : `The new ${secret.label} is stored. The old one stops working.`}
+            : `The new ${secret.short} is stored. The old one stops working.`}
         </Text>
       )}
       <EditActions
         dirty={value.trim() !== ''}
         pending={pending}
         error={null}
-        saveLabel={waiting ? `Set ${secret.label}` : `Replace ${secret.label}`}
+        saveLabel={waiting ? `Set ${secret.short}` : `Replace ${secret.short}`}
         onSave={save}
         onDiscard={() => setValue('')}
       />

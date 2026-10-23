@@ -41,9 +41,17 @@ export const PROVIDERS: { id: string; name: string; description: string; icon: I
  * one and the console takes it afterwards: what the secret is called, and where
  * the admin finds it.
  */
-export const ISSUED_SECRETS: Record<string, { label: string; origin: string }> = {
-  [SLACK_PROVIDER]: { label: 'signing secret', origin: 'Basic Information page of your Slack app' },
-  [DISCORD_PROVIDER]: { label: 'bot token', origin: 'Bot page of your Discord application' },
+export const ISSUED_SECRETS: Record<string, { label: string; short: string; origin: string }> = {
+  [SLACK_PROVIDER]: {
+    label: 'signing secret',
+    short: 'secret',
+    origin: 'Basic Information page of your Slack app',
+  },
+  [DISCORD_PROVIDER]: {
+    label: 'bot token',
+    short: 'token',
+    origin: 'Bot page of your Discord application',
+  },
 };
 
 export const PROVIDER_IDS = PROVIDERS.map((p) => p.id);
