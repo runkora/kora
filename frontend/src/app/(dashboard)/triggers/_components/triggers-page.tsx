@@ -38,6 +38,7 @@ import type {
   ConsoleKind,
   DeliveryRow,
   SourceCategory,
+  SourceConnection,
   SourceRow,
   TriggerRow,
 } from '../_types';
@@ -106,8 +107,17 @@ export function TriggersPage({
   }, [sources]);
 
   const sourceWaiting = useMemo(() => {
-    const waiting = new Set(sources.filter((s) => !s.signingSecretSet).map((s) => s.id));
+    // A Gateway source shows its own connection state instead.
+    const waiting = new Set(
+      sources.filter((s) => !s.signingSecretSet && s.connection === null).map((s) => s.id),
+    );
     return (id: string) => waiting.has(id);
+  }, [sources]);
+
+  const sourceConnection = useMemo(() => {
+    const map = new Map<string, SourceConnection>();
+    for (const s of sources) if (s.connection !== null) map.set(s.id, s.connection);
+    return (id: string) => map.get(id);
   }, [sources]);
 
   const wizardSources = useMemo(
@@ -289,6 +299,7 @@ export function TriggersPage({
               sourceName={sourceName}
               sourceCategory={sourceCategory}
               sourceWaiting={sourceWaiting}
+              sourceConnection={sourceConnection}
               onOpen={setDrawerTrigger}
               onToggle={(t) => void toggleTrigger(t)}
               canRunAgent={canRunAgent}

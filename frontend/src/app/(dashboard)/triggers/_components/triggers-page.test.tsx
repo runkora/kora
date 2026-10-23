@@ -11,6 +11,7 @@ import { makeTrigger } from '../_types/fixtures';
 const SOURCE: Omit<SourceRow, 'id' | 'name' | 'provider' | 'category'> = {
   enabled: true,
   signingSecretSet: true,
+  connection: null,
   createdAt: '2026-07-01T00:00:00Z',
   rejectionCount: 0,
   lastRejectionAt: null,

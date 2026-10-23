@@ -48,7 +48,6 @@ export function chatConversationKey(eventType: string): string {
 
 /** Chat platforms that are planned. Shown disabled in the platform choice. */
 export const LATER_CHAT_PLATFORMS: { name: string; icon: IconName }[] = [
-  { name: 'Discord', icon: 'send' },
   { name: 'Microsoft Teams', icon: 'send' },
 ];
 

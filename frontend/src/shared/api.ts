@@ -734,6 +734,12 @@ export interface UpdateAgentTypeRequest {
  * A webhook source is a registered inbound origin of webhook deliveries (e.g. a
  * GitHub repository). Mirrors Go: triggers.WebhookSource.
  */
+/** A Gateway source's session state. Mirrors Go: triggers.SourceConnection. */
+export interface SourceConnection {
+  state: 'waiting' | 'connecting' | 'connected' | 'rejected';
+  reason?: string;
+}
+
 export interface WebhookSource {
   id: string;
   tenant_id: string;
@@ -755,6 +761,8 @@ export interface WebhookSource {
   rejection_count?: number;
   /** False for a source of a provider that issues its own secret and is still waiting for it. */
   signing_secret_set?: boolean;
+  /** Read-only, on a Gateway source (Discord): the state of its session. */
+  connection?: SourceConnection;
   last_rejection_at?: string;
   last_rejection_reason?: string;
 }

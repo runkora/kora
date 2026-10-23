@@ -6,6 +6,7 @@
 
 import type { IconName } from '@runkora/hades';
 import type { SourceCategory } from '../_types';
+import { DISCORD_PROVIDER } from './discord-invite';
 import { SLACK_PROVIDER } from './slack-app-manifest';
 
 export const PROVIDERS: { id: string; name: string; description: string; icon: IconName }[] = [
@@ -27,7 +28,23 @@ export const PROVIDERS: { id: string; name: string; description: string; icon: I
     description: 'Mentions and direct messages to a Slack app, verified by its signing secret.',
     icon: 'send',
   },
+  {
+    id: DISCORD_PROVIDER,
+    name: 'Discord',
+    description: 'Mentions and direct messages to a Discord bot, connected with its bot token.',
+    icon: 'send',
+  },
 ];
+
+/**
+ * Providers that issue the source's secret, so the source is created without
+ * one and the console takes it afterwards: what the secret is called, and where
+ * the admin finds it.
+ */
+export const ISSUED_SECRETS: Record<string, { label: string; origin: string }> = {
+  [SLACK_PROVIDER]: { label: 'signing secret', origin: 'Basic Information page of your Slack app' },
+  [DISCORD_PROVIDER]: { label: 'bot token', origin: 'Bot page of your Discord application' },
+};
 
 export const PROVIDER_IDS = PROVIDERS.map((p) => p.id);
 

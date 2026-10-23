@@ -58,6 +58,7 @@ const SOURCES: SourceRow[] = [
     category: 'webhook',
     enabled: true,
     signingSecretSet: true,
+    connection: null,
     createdAt: '2026-07-01T00:00:00Z',
     rejectionCount: 0,
     lastRejectionAt: null,

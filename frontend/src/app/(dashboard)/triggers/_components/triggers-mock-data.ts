@@ -76,6 +76,7 @@ export const SOURCES: SourceRow[] = [
     category: 'webhook',
     enabled: true,
     signingSecretSet: true,
+    connection: null,
     createdAt: ago(41 * DAY),
     rejectionCount: 0,
     lastRejectionAt: null,
@@ -88,6 +89,7 @@ export const SOURCES: SourceRow[] = [
     category: 'webhook',
     enabled: true,
     signingSecretSet: true,
+    connection: null,
     createdAt: ago(27 * DAY),
     rejectionCount: 3,
     lastRejectionAt: ago(2 * HOUR),
@@ -100,6 +102,7 @@ export const SOURCES: SourceRow[] = [
     category: 'webhook',
     enabled: true,
     signingSecretSet: true,
+    connection: null,
     createdAt: ago(19 * DAY),
     rejectionCount: 0,
     lastRejectionAt: null,
@@ -112,7 +115,21 @@ export const SOURCES: SourceRow[] = [
     category: 'chat',
     enabled: true,
     signingSecretSet: true,
+    connection: null,
     createdAt: ago(6 * DAY),
+    rejectionCount: 0,
+    lastRejectionAt: null,
+    lastRejectionReason: null,
+  },
+  {
+    id: 'src_discord_ok',
+    name: 'acme-discord',
+    provider: 'discord',
+    category: 'chat',
+    enabled: true,
+    signingSecretSet: true,
+    connection: { state: 'connected' },
+    createdAt: ago(3 * DAY),
     rejectionCount: 0,
     lastRejectionAt: null,
     lastRejectionReason: null,
@@ -204,9 +221,23 @@ export const SLACK_MENTION_TRIGGER = trigger({
   createdAt: ago(5 * DAY),
 });
 
+/** A chat command trigger on the connected Discord source. */
+export const DISCORD_MENTION_TRIGGER = trigger({
+  id: 'trg_c81f3a5e',
+  name: 'answer-discord-questions',
+  kind: 'webhook',
+  agentSlug: 'triage-bot',
+  sourceId: 'src_discord_ok',
+  eventType: 'mention',
+  promptTemplate:
+    'Answer {{ text }} from {{ user.id }}. Reply in thread {{ thread.id }} of conversation {{ conversation.id }}.',
+  createdAt: ago(2 * DAY),
+});
+
 export const TRIGGERS: TriggerRow[] = [
   PR_REVIEW_TRIGGER,
   SLACK_MENTION_TRIGGER,
+  DISCORD_MENTION_TRIGGER,
   trigger({
     id: 'trg_d2a6f08e',
     name: 'personal-dm-helper',
@@ -612,7 +643,7 @@ export const ALERTMANAGER_EVENT_TYPES: TriggerEventTypes = {
   category: 'webhook',
 };
 
-/** Every chat source reads the chat schema. Slack identifies senders by id and reports no roles. */
+/** Every chat source reads the chat schema. Slack and Discord identify senders by id and report no roles. */
 export const SLACK_EVENT_TYPES: TriggerEventTypes = {
   declared: ['mention', 'direct_message'],
   observed: ['mention'],
@@ -625,6 +656,7 @@ export const EVENT_TYPES_BY_PROVIDER: Record<string, TriggerEventTypes> = {
   github: GITHUB_EVENT_TYPES,
   alertmanager: ALERTMANAGER_EVENT_TYPES,
   slack: SLACK_EVENT_TYPES,
+  discord: SLACK_EVENT_TYPES,
 };
 
 /** The fields of a chat event, from the chat schema, plus the meta fields. */
