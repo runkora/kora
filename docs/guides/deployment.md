@@ -286,9 +286,9 @@ Register `https://example.com/auth/callback` as an allowed redirect URI for the 
 
 ### Artifact access
 
-Charts and images are currently private. Run `helm registry login ghcr.io` to pull the charts. The cluster pulls the images with a `ghcr.io` pull Secret configured by `global.imagePullSecrets`. The operator copies the pull Secret into every tenant namespace for workloads to pull from.
+The charts and images are public on `ghcr.io`. Installing kora needs no registry login or pull Secret.
 
-To pull from your own registry mirror, set `global.imageRegistry` and name a pull Secret in `global.imagePullSecrets`. 
+To pull from your own registry mirror, set `global.imageRegistry` and name a pull Secret in `global.imagePullSecrets`. The operator copies the pull Secret into every tenant namespace for workloads to pull from.
 
 ### OIDC federation
 
