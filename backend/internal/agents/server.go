@@ -220,7 +220,7 @@ const includeEffectiveAccess = "effective_access"
 // splitIDs splits a comma-separated id list, dropping blanks.
 func splitIDs(raw string) []string {
 	var ids []string
-	for _, id := range strings.Split(raw, ",") {
+	for id := range strings.SplitSeq(raw, ",") {
 		if id = strings.TrimSpace(id); id != "" {
 			ids = append(ids, id)
 		}

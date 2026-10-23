@@ -180,17 +180,17 @@ A sandbox runs the image of its environment. kora publishes the base image `kora
 apiVersion: orbit.io/v1alpha1
 kind: SandboxImage
 metadata:
-  name: acme-go
-  namespace: orbit-tenant-acme
+  name: custom-team-go
+  namespace: orbit-tenant-kora
 spec:
-  image: ghcr.io/acme/sandbox-go:1.4.0
+  image: ghcr.io/kora/sandbox-go:1.4.0
   description: Go with buf and golangci-lint.
   warm: true
   pullSecretRef:
-    name: acme-registry
+    name: kora-registry
 ```
 
-*   **`image`:** The image reference, given as a tag or a digest such as `ghcr.io/acme/sandbox-go@sha256:...`.
+*   **`image`:** The image reference, given as a tag or a digest such as `ghcr.io/kora/sandbox-go@sha256:...`.
 *   **`description`:** Shown to people who choose an image for an environment.
 *   **`warm`:** Keeps the image pulled on every node that runs sandboxes. The operator runs one DaemonSet per warm image in the tenant namespace, placed like the sandboxes.
 *   **`pullSecretRef`:** A `kubernetes.io/dockerconfigjson` Secret in the same namespace. The operator reads the registry with it and sandboxes pull with it. The Secrets in `global.imagePullSecrets` also apply.
@@ -198,8 +198,8 @@ spec:
 The operator reads the image config from the registry. It accepts an image that runs as uid 100 and carries the `io.orbit.sandbox.base` label. The base image sets both. The operator writes the resolved digest to `status.digest`, and sandboxes pull the image by that digest. Inspect an image with:
 
 ```bash
-kubectl -n orbit-tenant-acme get sandboximages
-kubectl -n orbit-tenant-acme describe sandboximage acme-go
+kubectl -n orbit-tenant-kora get sandboximages
+kubectl -n orbit-tenant-kora describe sandboximage custom-team-go
 ```
 
 The `Valid` condition states why the operator rejected an image. An environment cannot select an image that is not valid. The operator re-reads each image every sync period, and new sandboxes pick up a moved tag after the next read.
@@ -406,14 +406,14 @@ The logo, the favicon and the fonts are not part of the chart. The document's `s
 
 ```yaml
 koraVersion: "1.4.0"
-productName: Acme Agents
+productName: Northwind Agents
 slots:
   logo:
-    dark: https://assets.acme.example/brand/2026-10/logo-dark.svg
-    light: https://assets.acme.example/brand/2026-10/logo-light.svg
+    dark: https://assets.northwind.example/brand/2026-10/logo-dark.svg
+    light: https://assets.northwind.example/brand/2026-10/logo-light.svg
   favicon:
-    dark: https://assets.acme.example/brand/2026-10/favicon.svg
-  font.sans: https://assets.acme.example/brand/2026-10/inter.woff2
+    dark: https://assets.northwind.example/brand/2026-10/favicon.svg
+  font.sans: https://assets.northwind.example/brand/2026-10/inter.woff2
 ```
 
 Host them anywhere the browsers of your users can reach over HTTPS, such as an object store behind a CDN. The instance serves none of them, and a theme never forces an asset into a git repository. What the validator checks is the form of each URL: `https`, a plain host, no credentials, no fragment, at most 2048 characters, and a path that ends in the slot's extension (`.svg` for the logo and favicon, `.woff2` for a font). It never fetches a URL and never looks at the file, so:
