@@ -43,7 +43,7 @@ We need a way to: (1) declare an MCP server as infrastructure, tenant-scoped or 
 ## Decision Drivers
 
 - **Reuse over reinvention.** kora already has a scope vocabulary with idempotent upsert + orphan pruning, an operator that aggregates tenant-namespaced CRs into mounted config, and a `ScopePublisher` that registers a service's scopes. Registration should be these patterns, composed — not new machinery.
-- **GitOps posture.** Every other per-tenant concern (`OrbitTenant`, `Connection`, ClusterSPIFFEIDs, per-tenant CA) is a reconciled CR. An MCP server is the same shape of object and is declared the same way.
+- **GitOps posture.** Every other per-tenant concern (`KoraTenant`, `Connection`, ClusterSPIFFEIDs, per-tenant CA) is a reconciled CR. An MCP server is the same shape of object and is declared the same way.
 - **Security by construction.** No UI mutation path; default-deny; tenant isolation enforced structurally (namespace + tenant-scoped grants + the tenant-dimensioned catalog), not by convention.
 - **Drift is the norm.** MCP servers add and remove tools over their lifetime. The design must converge idempotently without manual scope bookkeeping.
 
@@ -174,7 +174,7 @@ type MCPServerStatus struct {
 
 ```yaml
 # A tenant registers its own server (GitOps, in the tenant namespace):
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: MCPServer
 metadata:
   name: github           # → scope mcp:github:<tool>:use; stable slug, no tenant in path
@@ -194,7 +194,7 @@ kora registers the global kora MCP identically, in `orbit-system` — same kind,
 
 Responsibility splits exactly as it does for connections.
 
-**Operator — `MCPServerAggregator`** (mirror of `ConnectionAggregator`, registered in `scheme.go` alongside `OrbitTenant`/`Connection`):
+**Operator — `MCPServerAggregator`** (mirror of `ConnectionAggregator`, registered in `scheme.go` alongside `KoraTenant`/`Connection`):
 
 ```
 Reconcile(MCPServer):

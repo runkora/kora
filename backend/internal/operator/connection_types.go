@@ -30,7 +30,7 @@ import (
 // the egress gateway brokers for a tenant. It lives in the tenant namespace.
 //
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:shortName=oconn
+// +kubebuilder:resource:shortName=kconn
 // +kubebuilder:printcolumn:name="Adapter",type=string,JSONPath=`.spec.adapter`
 // +kubebuilder:printcolumn:name="Host",type=string,JSONPath=`.spec.baseHost`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`

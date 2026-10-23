@@ -10,7 +10,7 @@ spec:
   failurePolicy: Fail
   matchConstraints:
     resourceRules:
-      - apiGroups: ["orbit.io"]
+      - apiGroups: ["runkora.io"]
         apiVersions: ["*"]
         operations: ["CREATE", "UPDATE"]
         resources: ["inferenceproviders"]

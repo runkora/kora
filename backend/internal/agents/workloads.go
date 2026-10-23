@@ -85,7 +85,7 @@ var reservedAnnotations = []string{
 // identity, which is why manifest patches protect the same keys. Istio honors
 // sidecar.istio.io/inject as a label too, and the operator denies pods that
 // opt out.
-var reservedLabels = append([]string{"app", "orbit.io/managed-agent", "sidecar.istio.io/inject"}, manifestpatch.IdentityLabels...)
+var reservedLabels = append([]string{"app", "runkora.io/managed-agent", "sidecar.istio.io/inject"}, manifestpatch.IdentityLabels...)
 
 // ForSessionManager returns the session-manager's customization with the common
 // pod metadata merged underneath it.
@@ -211,7 +211,7 @@ func (w WorkloadsConfig) Validate() error {
 
 // serviceAccountHashAnnotation carries a digest of the agent ServiceAccount's
 // annotations on the pod template.
-const serviceAccountHashAnnotation = "orbit.io/service-account-hash"
+const serviceAccountHashAnnotation = "runkora.io/service-account-hash"
 
 // serviceAccountAnnotationHash digests the ServiceAccount annotations, empty
 // when there are none.

@@ -2,7 +2,7 @@
 
 Register each model provider with an `InferenceProvider` resource in the kora system namespace (`orbit-system` by default). The provider's name is `<type>:<metadata.name>`, for example `compatible:openrouter`. Changes to the resource or its Secret apply without a restart.
 
-Store credentials in a Secret in the same namespace. Label it `orbit.io/inference-provider=true` and reference it from the resource.
+Store credentials in a Secret in the same namespace. Label it `runkora.io/inference-provider=true` and reference it from the resource.
 
 ## Register OpenRouter or any compatible endpoint
 
@@ -15,11 +15,11 @@ metadata:
   name: openrouter
   namespace: orbit-system
   labels:
-    orbit.io/inference-provider: "true"
+    runkora.io/inference-provider: "true"
 stringData:
   apiKey: sk-or-v1-...
 ---
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: openrouter
@@ -68,7 +68,7 @@ The gateway sends a listed API to the endpoint as is. An API missing from `apis`
 Ollama serves all four APIs:
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: ollama
@@ -90,7 +90,7 @@ spec:
 ## Register AWS Bedrock
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: aus
@@ -116,7 +116,7 @@ For local development, `make cluster-bedrock-creds` creates one Bedrock provider
 ## Register Google Vertex AI
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: gcp
@@ -142,7 +142,7 @@ spec:
 ## Register Azure AI
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: eastus
@@ -174,7 +174,7 @@ The gateway serves decision models at `POST /v1/systemone` in the System One API
 Every model the provider lists is a decision model. This example registers TypeSafe:
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: typesafe

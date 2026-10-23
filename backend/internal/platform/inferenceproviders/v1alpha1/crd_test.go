@@ -111,7 +111,7 @@ func validate(schema schemaNode, value any, path string) []string {
 
 func provider(apis ...any) map[string]any {
 	return map[string]any{
-		"apiVersion": "orbit.io/v1alpha1",
+		"apiVersion": "runkora.io/v1alpha1",
 		"kind":       "InferenceProvider",
 		"metadata":   map[string]any{"name": "ts"},
 		"spec": map[string]any{

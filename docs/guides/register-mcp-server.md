@@ -11,7 +11,7 @@ The following guide assumes kora is already installed. See [Deploying kora](depl
 kora runs on a BYO MCP server model. You can register that MCP using the `MCPServer` CR. The operator adds it to the tool-gateway's registry, and the tool-gateway introspects the server's tools into `mcp:<server>:<tool>:use` scopes automatically.
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: MCPServer
 metadata:
   name: github
@@ -105,7 +105,7 @@ metadata:
 stringData:
   api-key: <your Exa API key>
 ---
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: MCPServer
 metadata:
   name: exa

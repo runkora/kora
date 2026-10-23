@@ -2,7 +2,7 @@
 //
 // Without this NetworkPolicy a sandbox could dial github.com (or any
 // external host) directly, bypassing the credential broker. The policy
-// targets pods labeled orbit.io/role=sandbox in the tenant namespace and
+// targets pods labeled runkora.io/role=sandbox in the tenant namespace and
 // constrains their egress to:
 //
 //   - DNS (port 53): service discovery, including resolving the gateway
@@ -59,13 +59,13 @@ func sandboxEgressPolicy(ns, tenantName string) *networkingv1.NetworkPolicy {
 			Namespace: ns,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "orbit-operator",
-				"orbit.io/tenant":              tenantName,
+				"runkora.io/tenant":            tenantName,
 			},
 		},
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"orbit.io/role": "sandbox",
+					"runkora.io/role": "sandbox",
 				},
 			},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
@@ -212,13 +212,13 @@ func (r *TenantReconciler) ensureSandboxIngressPolicy(ctx context.Context, tenan
 			Namespace: ns,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "orbit-operator",
-				"orbit.io/tenant":              tenant.Name,
+				"runkora.io/tenant":            tenant.Name,
 			},
 		},
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"orbit.io/role": "sandbox",
+					"runkora.io/role": "sandbox",
 				},
 			},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
@@ -230,7 +230,7 @@ func (r *TenantReconciler) ensureSandboxIngressPolicy(ctx context.Context, tenan
 					From: []networkingv1.NetworkPolicyPeer{
 						{
 							PodSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{"orbit.io/managed-agent": "true"},
+								MatchLabels: map[string]string{"runkora.io/managed-agent": "true"},
 							},
 						},
 					},

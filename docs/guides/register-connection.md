@@ -11,7 +11,7 @@ The following guide assumes kora is already installed. See [Deploying kora](depl
 A connection is defined using the `Connection` CRD. The operator folds it into the egress-gateway config. Agents can then be granted access to the connection within the tenant.
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: Connection
 metadata:
   name: github

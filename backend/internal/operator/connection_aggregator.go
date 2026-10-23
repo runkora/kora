@@ -69,7 +69,7 @@ var secretRefSanitize = regexp.MustCompile(`[^-_a-zA-Z0-9]`)
 
 // connectionRegistryEntry is one element of connections.json — the runtime
 // contract the egress gateway's registry reader agrees on. tenant_id MUST equal
-// the value the gateway sees as claims.Kora.TenantID (the OrbitTenant CR name,
+// the value the gateway sees as claims.Kora.TenantID (the KoraTenant CR name,
 // the same key the CA aggregator uses for tenant CA lookup).
 type connectionRegistryEntry struct {
 	TenantID  string          `json:"tenant_id"`
@@ -128,13 +128,13 @@ func (a *ConnectionAggregator) Sync(ctx context.Context) error {
 	return a.upsertSecret(ctx, secretData)
 }
 
-// listActiveTenants returns all OrbitTenant resources whose Spec.Active is true.
+// listActiveTenants returns all KoraTenant resources whose Spec.Active is true.
 // Suspended tenants are excluded so the gateway will not broker their
 // connections — matching the CA aggregator's behavior.
 func (a *ConnectionAggregator) listActiveTenants(ctx context.Context) ([]KoraTenant, error) {
 	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("list OrbitTenants: %w", err)
+		return nil, fmt.Errorf("list KoraTenants: %w", err)
 	}
 	out := make([]KoraTenant, 0, len(list.Items))
 	for _, t := range list.Items {
@@ -190,7 +190,7 @@ func (a *ConnectionAggregator) collect(ctx context.Context, tenants []KoraTenant
 			// Kept before the Secret read, so a late Secret never flips the winner.
 			kept = append(kept, conn)
 
-			// tenant_id MUST equal claims.Kora.TenantID — the OrbitTenant CR
+			// tenant_id MUST equal claims.Kora.TenantID — the KoraTenant CR
 			// name, the identifier the CA aggregator keys on. Do not invent one.
 			tenantID := t.Name
 			secretRef := connectionSecretRef(tenantID, conn.Name)
@@ -339,7 +339,7 @@ func (a *ConnectionAggregator) upsertConfigMap(ctx context.Context, registryJSON
 				Namespace: systemNamespace,
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "orbit-operator",
-					"orbit.io/component":           "tenant-connections",
+					"runkora.io/component":         "tenant-connections",
 				},
 			},
 			Data: map[string]string{aggregatedConnectionsConfigMapKey: registryJSON},
@@ -394,7 +394,7 @@ func (a *ConnectionAggregator) upsertSecret(ctx context.Context, data map[string
 				Namespace: systemNamespace,
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "orbit-operator",
-					"orbit.io/component":           "tenant-connection-secrets",
+					"runkora.io/component":         "tenant-connection-secrets",
 				},
 			},
 			Type: corev1.SecretTypeOpaque,

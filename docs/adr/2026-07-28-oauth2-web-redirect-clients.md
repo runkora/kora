@@ -23,7 +23,7 @@ The question is **where that admin-reviewed registration lives**. kora already h
 
 Add a first-class **`OAuthClient` CRD** and consume it exactly like `Connection`.
 
-1. **CRD `OAuthClient`** (`orbit.io/v1alpha1`, namespaced, shortName `oauthc`) in the tenant namespace. Spec: `clientId`, optional `clientName`, and `redirectUris` (≥1). No secret — all kora OAuth clients are public (PKCE is the proof of possession), so unlike `Connection` there is no `secretRef`.
+1. **CRD `OAuthClient`** (`runkora.io/v1alpha1`, namespaced, shortName `oauthc`) in the tenant namespace. Spec: `clientId`, optional `clientName`, and `redirectUris` (≥1). No secret — all kora OAuth clients are public (PKCE is the proof of possession), so unlike `Connection` there is no `secretRef`.
 
 2. **`OAuthClientAggregator`** in the operator collects every active tenant's `OAuthClient` CRs and renders the `orbit-system` ConfigMap **`orbit-tenant-oauth-clients`** (key `oauth-clients.json`, a JSON array of `{tenant_id, client_id, client_name, redirect_uris}`). It is driven by the `TenantReconciler` and re-runs on any `OAuthClient` change, tenant suspend/reactivate, or tenant delete — mirroring `ConnectionAggregator` minus the Secret half. A `client_id` is globally unique; a duplicate across CRs is dropped (first by sort order) and logged.
 

@@ -15,7 +15,7 @@ interface ProvidersSectionProps {
   error?: string | null;
 }
 
-const EXAMPLE = `apiVersion: orbit.io/v1alpha1
+const EXAMPLE = `apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: openrouter
@@ -164,7 +164,8 @@ export function ProvidersSection({ providers, error }: ProvidersSectionProps) {
       <Stack gap="snug">
         <Text size="supporting" color="muted">
           No providers are registered. Apply an InferenceProvider resource in the {productName}{' '}
-          system namespace, with its API key in a Secret labelled orbit.io/inference-provider=true.
+          system namespace, with its API key in a Secret labelled
+          runkora.io/inference-provider=true.
         </Text>
         <CodeBlock text={EXAMPLE} filename="openrouter.yaml" />
       </Stack>

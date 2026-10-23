@@ -30,7 +30,7 @@ The operator must work in both contexts:
 
 **Local development (k3d):** Engineers run `make dev-cluster` today to create the k3d cluster. With the operator, the next step is `make cluster-operator` (installs the bootstrap chart) followed by `kubectl apply -f deploy/local/orbit-platform.yaml`. The operator installs SPIRE, Istio, and the kora charts in the correct order — no Helmfile, no `make cluster-platform`. The same `kubectl` workflow used in EKS is exercised locally from day one.
 
-**Production (EKS and customer self-hosted):** Operators have their own GitOps tooling (ArgoCD, Flux, or Helmfile). They install the operator bootstrap chart once, then declare `OrbitPlatform` and `OrbitTenant` resources in their repository. Git becomes the source of truth for platform state. Secrets come from their existing secret management solution.
+**Production (EKS and customer self-hosted):** Operators have their own GitOps tooling (ArgoCD, Flux, or Helmfile). They install the operator bootstrap chart once, then declare `OrbitPlatform` and `KoraTenant` resources in their repository. Git becomes the source of truth for platform state. Secrets come from their existing secret management solution.
 
 ### How [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) and [orbit-kubernetes-operator](2026-03-31-orbit-kubernetes-operator.md) Relate
 
@@ -39,7 +39,7 @@ The operator must work in both contexts:
 The operator is the **cluster management view** of tenants: it manages the namespace, the per-namespace Secrets and ConfigMaps, OIDC configuration validation, and ultimately writes the ConfigMap that the identity service reads. The two ADRs describe different layers of the same system:
 
 ```
-OrbitTenant CR (operator input)
+KoraTenant CR (operator input)
         ↓  operator reconciler
 orbit-tenants ConfigMap ([tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) tenant registry file)
         ↓  identity service reads
@@ -69,7 +69,7 @@ The Helm charts (`charts/orbit-platform/` and `charts/orbit/`) are not replaced 
 
 We need:
 1. A single CRD (`OrbitPlatform`) that declares the desired state of the kora platform in a cluster
-2. A CRD (`OrbitTenant`) that declares a tenant — its OIDC configuration, the namespace it operates in, and references to its secrets
+2. A CRD (`KoraTenant`) that declares a tenant — its OIDC configuration, the namespace it operates in, and references to its secrets
 3. A controller (the operator) that reconciles those CRDs against cluster state, driving the Helm charts and managing all ancillary resources
 4. A bootstrap chart (`charts/orbit-operator/`) that is the only thing operators need to install manually — everything else is managed by the CRDs
 5. A secret model that works with environment variables locally and with any secrets manager in production
@@ -77,7 +77,7 @@ We need:
 ### Goals
 
 - Operators deploy the entire kora platform by applying two things: the operator bootstrap chart, and an `OrbitPlatform` CR — the operator handles SPIRE, Istio, and all kora charts from there
-- Adding a tenant requires applying one `OrbitTenant` CR — no namespace creation, no ConfigMap patching, no manual helm commands
+- Adding a tenant requires applying one `KoraTenant` CR — no namespace creation, no ConfigMap patching, no manual helm commands
 - The operator works identically in local k3d and production EKS — same CRDs, same controller binary, no divergent tooling paths
 - Secrets are managed via `secretRef` pointing at pre-existing `Secret` objects — compatible with ESO, Vault, manual, or any other secret source
 - Upgrade kora by bumping `spec.version` in the `OrbitPlatform` CR — the operator sequences all chart upgrades in dependency order
@@ -101,7 +101,7 @@ We need:
 * **Environment parity**: The same operational model must work in k3d and EKS — not two divergent workflows
 * **Secrets compatibility**: Must work with ESO, Vault Agent, manually created Secrets, and local env-var-sourced Secrets — no single secret management opinion
 * **Chart preservation**: Two years of chart development and local validation should not be discarded — the operator drives the charts, it does not replace them
-* **GitOps compatibility**: All state must be declarable as Kubernetes resources committed to a deployment repository — `OrbitPlatform` and `OrbitTenant` CRs fulfil this
+* **GitOps compatibility**: All state must be declarable as Kubernetes resources committed to a deployment repository — `OrbitPlatform` and `KoraTenant` CRs fulfil this
 * **Upgrade safety**: Bumping a chart version across two dependent charts must be sequenced and validated — the operator's reconciler provides this
 
 ---
@@ -124,9 +124,9 @@ We need:
 - Cannot work identically in local k3d and production EKS without two divergent tooling paths
 - SPIRE/Istio enforcement is documentation, not code — operators who skip steps get silent failures
 
-### Option B: kora Kubernetes Operator with `OrbitPlatform` and `OrbitTenant` CRDs (chosen)
+### Option B: kora Kubernetes Operator with `OrbitPlatform` and `KoraTenant` CRDs (chosen)
 
-**Description:** A `controller-runtime`-based Go operator that watches `OrbitPlatform` and `OrbitTenant` custom resources and reconciles cluster state. It installs/upgrades the Helm charts in the correct order, manages per-tenant namespaces and secrets, validates OIDC configuration, and surfaces health via CR status fields. A minimal bootstrap chart (`charts/orbit-operator/`) installs the operator itself.
+**Description:** A `controller-runtime`-based Go operator that watches `OrbitPlatform` and `KoraTenant` custom resources and reconciles cluster state. It installs/upgrades the Helm charts in the correct order, manages per-tenant namespaces and secrets, validates OIDC configuration, and surfaces health via CR status fields. A minimal bootstrap chart (`charts/orbit-operator/`) installs the operator itself.
 
 **Pros:**
 - Single operational model for local dev and production — same CRDs, same controller
@@ -134,7 +134,7 @@ We need:
 - When `spec.spire.enabled: true` or `spec.istio.enabled: true`, the operator installs them — no external prerequisite. When set to false (pre-existing installation), the reconciler validates they are present before proceeding. Either way, enforcement is code, not documentation.
 - Upgrade sequencing is the reconciler's responsibility — operators bump `spec.version`
 - Status conditions on the CR give operators full visibility (`kubectl get orbitplatform`)
-- Fully GitOps-compatible — `OrbitPlatform` and `OrbitTenant` CRs are committed to the deployment repository
+- Fully GitOps-compatible — `OrbitPlatform` and `KoraTenant` CRs are committed to the deployment repository
 - Compatible with any secret management solution via `secretRef`
 - Existing charts are unchanged — the operator adopts them as-is
 
@@ -163,7 +163,7 @@ We need:
 
 ## Decision
 
-**Chosen Option:** Option B — kora Kubernetes Operator with `OrbitPlatform` and `OrbitTenant` CRDs
+**Chosen Option:** Option B — kora Kubernetes Operator with `OrbitPlatform` and `KoraTenant` CRDs
 
 ### Rationale
 
@@ -180,7 +180,7 @@ The decision to drive the existing Helm charts (rather than replacing them with 
 One per cluster. Declares the desired state of the entire kora platform.
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: OrbitPlatform
 metadata:
   name: orbit                       # conventionally "orbit"; one per cluster
@@ -251,13 +251,13 @@ status:
   lastReconciledAt: "2026-06-15T10:00:00Z"
 ```
 
-### `OrbitTenant` — Cluster-scoped
+### `KoraTenant` — Cluster-scoped
 
 One per tenant. Declares a tenant's existence, its OIDC configuration, and references to its secrets.
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
-kind: OrbitTenant
+apiVersion: runkora.io/v1alpha1
+kind: KoraTenant
 metadata:
   name: acme-corp                   # tenant ID — used in the tenant registry
 spec:
@@ -271,7 +271,7 @@ spec:
 
   # The namespace this tenant's workloads run in.
   # The operator creates this namespace with the correct labels:
-  #   orbit.io/role: tenant
+  #   runkora.io/role: tenant
   #   istio-injection: enabled
   #   spiffe.io/spire-managed: "true"
   namespace: "acme-corp-tenant"
@@ -313,12 +313,12 @@ status:
       status: "True"
 ```
 
-### How `OrbitTenant` Drives [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md)
+### How `KoraTenant` Drives [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md)
 
-The operator maintains the `orbit-tenants` ConfigMap consumed by the identity service ([tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md)). When an `OrbitTenant` CR is created, updated, or deleted, the operator:
+The operator maintains the `orbit-tenants` ConfigMap consumed by the identity service ([tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md)). When an `KoraTenant` CR is created, updated, or deleted, the operator:
 
-1. Creates/updates the tenant namespace with the required labels (`orbit.io/role: tenant`, `istio-injection: enabled`, `spiffe.io/spire-managed: "true"`)
-2. Rebuilds the `orbit-tenants` ConfigMap in `orbit-system` by assembling the current state of all `OrbitTenant` CRs into the [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) tenant registry YAML format
+1. Creates/updates the tenant namespace with the required labels (`runkora.io/role: tenant`, `istio-injection: enabled`, `spiffe.io/spire-managed: "true"`)
+2. Rebuilds the `orbit-tenants` ConfigMap in `orbit-system` by assembling the current state of all `KoraTenant` CRs into the [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) tenant registry YAML format
 3. Marks the tenant `Ready` and records `status.lastReconciledAt` — the identity service picks up ConfigMap changes via its file watcher
 
 The operator does NOT manage the tenant's own application secrets (database passwords, API keys, etc.). Those are the tenant's infrastructure concern, managed independently of kora.
@@ -341,9 +341,9 @@ backend/cmd/operator/
 │   └── local.yaml        # local overrides
 internal/operator/        # feature package (follows [repository-pattern-and-code-organization](2026-02-17-repository-pattern-and-code-organization.md) structure)
 ├── platform_controller.go    # reconciler for OrbitPlatform
-├── tenant_controller.go      # reconciler for OrbitTenant
+├── tenant_controller.go      # reconciler for KoraTenant
 ├── helm.go               # Helm SDK wrapper (install/upgrade/status)
-├── registry.go           # builds orbit-tenants ConfigMap from OrbitTenant CRs
+├── registry.go           # builds orbit-tenants ConfigMap from KoraTenant CRs
 ├── models.go             # Go types for CRD spec/status
 └── rbac.go               # generates per-tenant RBAC
 ```
@@ -362,7 +362,7 @@ charts/orbit-operator/
     ├── clusterrole.yaml          # broad permissions — see RBAC section
     ├── clusterrolebinding.yaml
     └── crd-orbitplatform.yaml    # OrbitPlatform CRD
-    └── crd-orbittenant.yaml      # OrbitTenant CRD
+    └── crd-koratenant.yaml      # KoraTenant CRD
 ```
 
 Install sequence from the operator's perspective:
@@ -416,8 +416,8 @@ rules:
     resources: ["clusterroles", "clusterrolebindings", "roles", "rolebindings"]
     verbs: ["*"]
   # Own CRDs
-  - apiGroups: ["orbit.io"]
-    resources: ["orbitplatforms", "orbitplatforms/status", "orbittenants", "orbittenants/status"]
+  - apiGroups: ["runkora.io"]
+    resources: ["orbitplatforms", "orbitplatforms/status", "koratenants", "koratenants/status"]
     verbs: ["*"]
   # Apps (Deployments, DaemonSets — for SPIRE, Istio, Orbit services)
   - apiGroups: ["apps"]
@@ -452,7 +452,7 @@ kubectl apply -f deploy/local/orbit-platform.yaml
                          # waits for readiness at each step
 
 kubectl apply -f deploy/local/tenants/local.yaml
-                         # OrbitTenant CR for the local dev tenant
+                         # KoraTenant CR for the local dev tenant
                          # operator provisions namespace, validates OIDC, rebuilds registry
 ```
 
@@ -491,10 +491,10 @@ The operator pod itself runs with `sidecar.istio.io/inject: "false"` — it inst
 - **Tenant lifecycle is a single CR apply**: No more coordinated changes across Helmfile values, tenants.yaml, and Secret creation
 - **Environment parity**: Local k3d and production EKS use identical CRDs and the same controller binary — no divergent tooling paths
 - **Prerequisite enforcement in code**: The reconciler validates SPIRE and Istio are present before proceeding. Silent failures from missing prerequisites are eliminated.
-- **OIDC validation at CR apply time**: The operator validates OIDC issuer reachability when `OrbitTenant` is applied — operators get immediate feedback, not a runtime failure hours later
-- **GitOps-native**: `OrbitPlatform` and `OrbitTenant` CRs are standard Kubernetes resources committable to any GitOps repository
+- **OIDC validation at CR apply time**: The operator validates OIDC issuer reachability when `KoraTenant` is applied — operators get immediate feedback, not a runtime failure hours later
+- **GitOps-native**: `OrbitPlatform` and `KoraTenant` CRs are standard Kubernetes resources committable to any GitOps repository
 - **Secret management flexibility**: Works with ESO, Vault Agent, SealedSecrets, or manual creation — operator reads `secretRef`, does not own secret sourcing
-- **Status visibility**: `kubectl get orbitplatform` and `kubectl get orbittenant` give operators full health visibility without `helm list` or log tailing
+- **Status visibility**: `kubectl get orbitplatform` and `kubectl get koratenant` give operators full health visibility without `helm list` or log tailing
 
 ### Negative
 
@@ -506,7 +506,7 @@ The operator pod itself runs with `sidecar.istio.io/inject: "false"` — it inst
 
 ### Neutral
 
-- `deploy/local/` structure changes: values files are supplemented by `OrbitPlatform` and `OrbitTenant` CRs; `make cluster-platform` is replaced by `make cluster-operator` + `kubectl apply`
+- `deploy/local/` structure changes: values files are supplemented by `OrbitPlatform` and `KoraTenant` CRs; `make cluster-platform` is replaced by `make cluster-operator` + `kubectl apply`
 - `scripts/cluster/create-secrets.sh` is retained for local dev — it creates the Secret that `spec.secrets.platformSecretRef` points at
 - Tenant application secrets (DB passwords, API keys) are explicitly out of scope — the operator manages only kora platform secrets (OIDC client secrets, signing keys)
 
@@ -517,7 +517,7 @@ The operator pod itself runs with `sidecar.istio.io/inject: "false"` — it inst
 ### Phase 1: CRD types and operator scaffold (~1 week)
 
 1. Add `controller-runtime` and `helm.sh/v3` to `backend/go.mod`
-2. Create `backend/internal/operator/` package with `OrbitPlatform` and `OrbitTenant` Go types (spec, status, conditions)
+2. Create `backend/internal/operator/` package with `OrbitPlatform` and `KoraTenant` Go types (spec, status, conditions)
 3. Create `backend/cmd/operator/main.go` — controller-runtime manager with leader election, metrics endpoint, health probe
 4. Create `charts/orbit-operator/` bootstrap chart — CRD yamls, Deployment, ServiceAccount, ClusterRole, ClusterRoleBinding
 5. Register both controllers in the manager (empty reconcile stubs)
@@ -537,16 +537,16 @@ The operator pod itself runs with `sidecar.istio.io/inject: "false"` — it inst
 3. Implement upgrade sequencing: when `spec.version` changes, replay the full sequence in order — each step waits for the previous to be healthy before proceeding
 4. Write integration tests against a real k3d cluster (or `envtest`)
 
-### Phase 3: `OrbitTenant` reconciler — happy path (~1 week)
+### Phase 3: `KoraTenant` reconciler — happy path (~1 week)
 
-1. Implement `registry.go` — assembles `orbit-tenants` ConfigMap content from all `OrbitTenant` CRs in the [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) YAML format
-2. Implement `OrbitTenant` reconciler:
+1. Implement `registry.go` — assembles `orbit-tenants` ConfigMap content from all `KoraTenant` CRs in the [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) YAML format
+2. Implement `KoraTenant` reconciler:
    - Create/update tenant namespace with required labels
    - Validate OIDC issuer reachability (HTTP GET to `/.well-known/openid-configuration`)
    - Project OIDC client secret env var name into the tenant namespace (reads `spec.oidc.clientSecretRef`, creates a projected Secret in the tenant namespace)
    - Rebuild `orbit-tenants` ConfigMap in `orbit-system`
    - Trigger identity service reload (update a ConfigMap annotation to force pod config reload)
-   - Update `OrbitTenant` status conditions
+   - Update `KoraTenant` status conditions
 3. Implement suspension: `spec.active: false` sets `state: suspended` in the tenant registry without deleting cluster resources
 4. Write unit tests for registry assembly, OIDC validation, and Secret projection
 
@@ -554,11 +554,11 @@ The operator pod itself runs with `sidecar.istio.io/inject: "false"` — it inst
 
 1. Implement `Automatic` upgrade mode — poll chart registry at configurable interval, upgrade on new patch version
 2. Implement reconciler error recovery — exponential backoff on transient failures (OIDC unreachable, Helm timeout)
-3. Add finalizers to both CRDs — prevent deletion of `OrbitTenant` while namespace has active workloads
-4. Implement `OrbitTenant` deletion — remove tenant from registry, optionally delete namespace (controlled by `spec.deleteNamespaceOnRemoval`)
+3. Add finalizers to both CRDs — prevent deletion of `KoraTenant` while namespace has active workloads
+4. Implement `KoraTenant` deletion — remove tenant from registry, optionally delete namespace (controlled by `spec.deleteNamespaceOnRemoval`)
 5. Add `make cluster-operator` Makefile target and update `cluster-deploy` to apply `OrbitPlatform` CR
 6. Create `deploy/local/orbit-platform.yaml` (local `OrbitPlatform` CR)
-7. Create `deploy/local/tenants/local.yaml` (local `OrbitTenant` CR for the dev tenant)
+7. Create `deploy/local/tenants/local.yaml` (local `KoraTenant` CR for the dev tenant)
 8. Write e2e test: fresh cluster → `make cluster-operator` → `kubectl apply orbit-platform.yaml` → operator installs full stack → identity service issues tokens
 
 ### Effort Breakdown
@@ -567,7 +567,7 @@ The operator pod itself runs with `sidecar.istio.io/inject: "false"` — it inst
 |---|---|
 | CRD types + scaffold + bootstrap chart | 1 week |
 | `OrbitPlatform` reconciler (happy path + upgrades) | 1 week |
-| `OrbitTenant` reconciler (provisioning + registry assembly) | 1 week |
+| `KoraTenant` reconciler (provisioning + registry assembly) | 1 week |
 | Error handling + upgrade strategy + e2e test | 1 week |
 | **Total** | **~4 weeks** |
 
@@ -594,23 +594,23 @@ The imperative `kubectl create configmap orbit-config`, `kubectl create configma
 - A fresh cluster deployment requires exactly three commands: `make cluster-secrets`, `make cluster-operator`, `kubectl apply -f deploy/local/`
 - Adding a new tenant requires exactly one command: `kubectl apply -f tenant.yaml`
 - `kubectl get orbitplatform orbit -o jsonpath='{.status.phase}'` returns `Ready` after a successful install
-- `kubectl get orbittenant -o wide` shows OIDC validation status and phase for all tenants
-- The identity service issues tokens within 60 seconds of an `OrbitTenant` CR being applied (end-to-end latency of the registry reconciliation)
+- `kubectl get koratenant -o wide` shows OIDC validation status and phase for all tenants
+- The identity service issues tokens within 60 seconds of an `KoraTenant` CR being applied (end-to-end latency of the registry reconciliation)
 
 ### Monitoring
 
 - Operator exposes Prometheus metrics via `controller-runtime` standard metrics (reconcile queue depth, reconcile errors, reconcile duration)
-- `OrbitPlatform.status.conditions` and `OrbitTenant.status.conditions` are the source of truth for cluster health
+- `OrbitPlatform.status.conditions` and `KoraTenant.status.conditions` are the source of truth for cluster health
 - Alert on `OrbitPlatform.status.phase != Ready` for more than 5 minutes
 
 ---
 
 ## Related Decisions
 
-- [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) — Tenant registry YAML format; the operator generates this file's content from `OrbitTenant` CRs
+- [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) — Tenant registry YAML format; the operator generates this file's content from `KoraTenant` CRs
 - [helm-chart-distribution-and-gitops-repository-structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) — Two-chart model; the operator drives these charts via the Helm Go SDK
 - [multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md) — Multi-binary structure; `cmd/operator/` follows the same conventions
-- [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) — SPIRE workload identity; the operator validates SPIRE readiness before accepting `OrbitTenant` reconciliation
+- [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) — SPIRE workload identity; the operator validates SPIRE readiness before accepting `KoraTenant` reconciliation
 - [service-mesh-and-network-enforcement-infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md) — Istio service mesh; the operator validates Istio readiness before platform install
 - [repository-pattern-and-code-organization](2026-02-17-repository-pattern-and-code-organization.md) — Feature package conventions; `internal/operator/` follows these
 
@@ -644,7 +644,7 @@ Operators who manage their own SPIRE and Istio upgrades independently set `spec.
 
 **On the `KORA_OIDC_CLIENT_ID` global variable:**
 
-[tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) noted that `OIDCConfig` global vars (`KORA_OIDC_CLIENT_ID`, `KORA_OIDC_ISSUER_URL`) must be removed in the same PR that adds multi-tenant support. With the operator, these env vars are no longer placed in the `orbit-config` ConfigMap by the operator — they are derived from `OrbitTenant` CRs and written into the `orbit-tenants` ConfigMap. The `orbit-config` ConfigMap created by the operator contains only infrastructure config (DB host, Redis host) that is not tenant-specific. This aligns with [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md)'s requirement to remove the global OIDC vars.
+[tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) noted that `OIDCConfig` global vars (`KORA_OIDC_CLIENT_ID`, `KORA_OIDC_ISSUER_URL`) must be removed in the same PR that adds multi-tenant support. With the operator, these env vars are no longer placed in the `orbit-config` ConfigMap by the operator — they are derived from `KoraTenant` CRs and written into the `orbit-tenants` ConfigMap. The `orbit-config` ConfigMap created by the operator contains only infrastructure config (DB host, Redis host) that is not tenant-specific. This aligns with [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md)'s requirement to remove the global OIDC vars.
 
 **On ESO and secret management:**
 

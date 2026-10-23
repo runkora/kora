@@ -35,8 +35,8 @@ func (r *TenantReconciler) ensureImagePullSecrets(ctx context.Context, tenant *K
 				Namespace: ns,
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "orbit-operator",
-					"orbit.io/component":           pullSecretComponent,
-					"orbit.io/tenant":              tenant.Name,
+					"runkora.io/component":         pullSecretComponent,
+					"runkora.io/tenant":            tenant.Name,
 				},
 			},
 			Type: src.Type,
@@ -57,7 +57,7 @@ func (r *TenantReconciler) ensureImagePullSecrets(ctx context.Context, tenant *K
 			return fmt.Errorf("get pull secret %q in %q: %w", name, ns, err)
 		case !reflect.DeepEqual(existing.Data, desired.Data) ||
 			existing.Type != desired.Type ||
-			existing.Labels["orbit.io/component"] != pullSecretComponent:
+			existing.Labels["runkora.io/component"] != pullSecretComponent:
 			// Labels are reconciled alongside the data: a replica created
 			// before the component label existed has to gain it, or the prune
 			// below can never see it.
@@ -79,7 +79,7 @@ func (r *TenantReconciler) pruneImagePullSecrets(ctx context.Context, ns string)
 	replicas := &corev1.SecretList{}
 	if err := r.List(ctx, replicas, client.InNamespace(ns), client.MatchingLabels{
 		"app.kubernetes.io/managed-by": "orbit-operator",
-		"orbit.io/component":           pullSecretComponent,
+		"runkora.io/component":         pullSecretComponent,
 	}); err != nil {
 		return fmt.Errorf("list pull secrets in %q: %w", ns, err)
 	}

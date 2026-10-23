@@ -50,7 +50,7 @@ This touches *What can it access?*, because it removes every destination the pla
 
 ### Option 1: An operator-reconciled NetworkPolicy on agent pods
 
-**Description:** The operator reconciles a NetworkPolicy in each tenant namespace selecting `orbit.io/managed-agent=true` pods with `policyTypes: [Egress]` and an allow-list, as it already does for sandbox pods.
+**Description:** The operator reconciles a NetworkPolicy in each tenant namespace selecting `runkora.io/managed-agent=true` pods with `policyTypes: [Egress]` and an allow-list, as it already does for sandbox pods.
 
 **Pros:**
 - Enforced by the CNI below the pod, for every container, port and protocol, including the ports excluded from Envoy capture (`50051`, `5432`) and UDP.
@@ -100,7 +100,7 @@ This touches *What can it access?*, because it removes every destination the pla
 
 **Chosen Option:** Options 1 and 2 together. The NetworkPolicy is the enforcement: it is the one control no process in the pod can route around. The Sidecar makes a blocked call fail immediately and narrows the agent pod's Envoy to the named services.
 
-1. **NetworkPolicy `agent-egress`.** The operator reconciles it in every tenant namespace, next to the sandbox policies, selecting `orbit.io/managed-agent=true`. Egress is allowed only to:
+1. **NetworkPolicy `agent-egress`.** The operator reconciles it in every tenant namespace, next to the sandbox policies, selecting `runkora.io/managed-agent=true`. Egress is allowed only to:
 
    | Destination | Port | Used by |
    |---|---|---|
@@ -111,7 +111,7 @@ This touches *What can it access?*, because it removes every destination the pla
    | `orbit-system` `app=orbit-inference-gateway` | 8081 TCP | every runtime's model calls; the run summariser |
    | `orbit-system` `app=orbit-tool-gateway` | 8096 TCP | governed MCP servers |
    | `orbit-system` `app=orbit-policy-service` | 8083 TCP | OPA bundle polling |
-   | this namespace, `orbit.io/role=sandbox` pods | 50051 TCP | orbit-shell, the session registry and the egress canary to `sandbox-exec` |
+   | this namespace, `runkora.io/role=sandbox` pods | 50051 TCP | orbit-shell, the session registry and the egress canary to `sandbox-exec` |
    | the collector: its namespace when in the cluster, otherwise the `networkPolicy.externalServices` ranges serving its port | the collector's port | OTLP export from the session-manager, identity-proxy and Claude Code ([2026-09-18: Telemetry Collector](2026-09-18-telemetry-collector-platform-destination.md)) |
 
    SPIRE needs no rule: SVIDs arrive over the CSI-mounted socket. The pod makes no Kubernetes API call; the session-manager provisions sandboxes through orbit-agents. The collector is the tenant collector endpoint of [2026-09-18: Telemetry Collector](2026-09-18-telemetry-collector-platform-destination.md). When `global.observability.collectorNamespace` is set, the rule names that namespace. Otherwise the rule names the `networkPolicy.externalServices` CIDRs whose ports include the collector's port, the same entries that already open the collector for the platform services. No new value is added.

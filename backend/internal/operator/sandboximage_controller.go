@@ -43,7 +43,7 @@ const (
 const warmerComponent = "sandbox-image-warmer"
 
 // labelSandboxImage names the SandboxImage a warmer pod pulls.
-const labelSandboxImage = "orbit.io/sandbox-image"
+const labelSandboxImage = "runkora.io/sandbox-image"
 
 // registryReadTimeout bounds one registry read.
 const registryReadTimeout = 30 * time.Second

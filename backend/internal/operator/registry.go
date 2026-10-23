@@ -45,7 +45,7 @@ const (
 )
 
 // TenantRegistry manages the orbit-tenants ConfigMap. It translates the set of
-// active OrbitTenant CRs into the docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md tenant registry YAML format that
+// active KoraTenant CRs into the docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md tenant registry YAML format that
 // the identity service reads at startup and watches for changes via a file watcher.
 //
 // Registry operations are idempotent: calling Sync multiple times with the
@@ -61,7 +61,7 @@ func NewTenantRegistry(c client.Client, logger logging.Logger) *TenantRegistry {
 }
 
 // Sync rebuilds the orbit-tenants ConfigMap from the current list of
-// OrbitTenant CRs. It creates the ConfigMap if absent and patches it if
+// KoraTenant CRs. It creates the ConfigMap if absent and patches it if
 // the content has changed.
 func (r *TenantRegistry) Sync(ctx context.Context) error {
 	tenants, err := r.listActiveTenants(ctx)
@@ -101,7 +101,7 @@ func (r *TenantRegistry) Sync(ctx context.Context) error {
 func (r *TenantRegistry) listActiveTenants(ctx context.Context) ([]KoraTenant, error) {
 	list := &KoraTenantList{}
 	if err := r.client.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("list OrbitTenants: %w", err)
+		return nil, fmt.Errorf("list KoraTenants: %w", err)
 	}
 
 	active := make([]KoraTenant, 0, len(list.Items))
@@ -153,7 +153,7 @@ func (r *TenantRegistry) createConfigMap(ctx context.Context, yaml string) error
 			Namespace: systemNamespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "orbit-operator",
-				"orbit.io/component":           "tenant-registry",
+				"runkora.io/component":         "tenant-registry",
 			},
 		},
 		Data: map[string]string{

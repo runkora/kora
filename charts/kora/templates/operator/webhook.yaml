@@ -23,7 +23,7 @@ metadata:
   labels:
     {{- include "kora.operator.labels" . | nindent 4 }}
 webhooks:
-  - name: pod.orbit.io
+  - name: pod.runkora.io
     admissionReviewVersions: ["v1"]
     clientConfig:
       service:
@@ -37,7 +37,7 @@ webhooks:
         resources: ["pods"]
     namespaceSelector:
       matchLabels:
-        orbit.io/role: tenant
+        runkora.io/role: tenant
     reinvocationPolicy: Never
     sideEffects: None
     timeoutSeconds: 10
@@ -49,7 +49,7 @@ metadata:
   labels:
     {{- include "kora.operator.labels" . | nindent 4 }}
 webhooks:
-  - name: pod.orbit.io
+  - name: pod.runkora.io
     admissionReviewVersions: ["v1"]
     clientConfig:
       service:
@@ -63,11 +63,11 @@ webhooks:
         resources: ["pods"]
     namespaceSelector:
       matchLabels:
-        orbit.io/role: tenant
+        runkora.io/role: tenant
     sideEffects: None
     timeoutSeconds: 10
   # Rejects a Connection the egress gateway cannot tell apart from an earlier one.
-  - name: connection.orbit.io
+  - name: connection.runkora.io
     admissionReviewVersions: ["v1"]
     clientConfig:
       service:
@@ -76,11 +76,11 @@ webhooks:
         path: /validate-connection
     rules:
       - operations: ["CREATE", "UPDATE"]
-        apiGroups: ["orbit.io"]
+        apiGroups: ["runkora.io"]
         apiVersions: ["v1alpha1"]
         resources: ["connections"]
     namespaceSelector:
       matchLabels:
-        orbit.io/role: tenant
+        runkora.io/role: tenant
     sideEffects: None
     timeoutSeconds: 10

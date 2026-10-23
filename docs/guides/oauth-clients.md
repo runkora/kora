@@ -11,7 +11,7 @@ The following guide assumes kora is already installed. See [Deploying kora](depl
 An OAuth client is defined with the `OAuthClient` CRD. The operator aggregates it into the identity service config, registering the client with the authorization server.
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: OAuthClient
 metadata:
   name: example-app

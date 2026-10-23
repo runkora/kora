@@ -14,13 +14,13 @@ import (
 )
 
 // GroupVersion is the API group and version of SandboxImage.
-var GroupVersion = schema.GroupVersion{Group: "orbit.io", Version: "v1alpha1"}
+var GroupVersion = schema.GroupVersion{Group: "runkora.io", Version: "v1alpha1"}
 
 // Resource is the plural resource name that dynamic clients use.
 var Resource = GroupVersion.WithResource("sandboximages")
 
 // BaseLabel marks an image built on kora-sandbox-base. Its value is the base version.
-const BaseLabel = "io.orbit.sandbox.base"
+const BaseLabel = "io.runkora.sandbox.base"
 
 // BaseName is the SandboxImage the operator keeps in every tenant namespace for
 // the base image. An environment without an image uses it.
@@ -31,7 +31,7 @@ func BaseDescription(product string) string {
 	return "The " + product + " base image: general command-line tools, Go and Python."
 }
 
-// BundledComponent is the orbit.io/component label value on the bundled
+// BundledComponent is the runkora.io/component label value on the bundled
 // SandboxImages the operator keeps in tenant namespaces. Together with the
 // managed-by label it marks the resources the operator may patch and delete.
 const BundledComponent = "bundled-sandbox-image"

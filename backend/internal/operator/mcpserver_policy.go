@@ -23,7 +23,7 @@ const (
 	// podLabelMCPServer marks a pod the webhook matched to an MCPServer. The
 	// webhook sets it from the CR; a pod that carries it without a matching CR
 	// is treated as an agent pod, so the label grants nothing on its own.
-	podLabelMCPServer = "orbit.io/mcp-server"
+	podLabelMCPServer = "runkora.io/mcp-server"
 
 	// mcpToolGatewayApp is the tool-gateway pod label, set by its chart.
 	mcpToolGatewayApp = "orbit-tool-gateway"
@@ -87,8 +87,8 @@ func (m *MCPServer) authorizationPolicyName() string { return "mcp-" + m.Name + 
 func (m *MCPServer) managedPolicyLabels() map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/managed-by": "orbit-operator",
-		"orbit.io/mcp-server":          m.Name,
-		"orbit.io/mcp-server-ns":       m.Namespace,
+		"runkora.io/mcp-server":        m.Name,
+		"runkora.io/mcp-server-ns":     m.Namespace,
 	}
 }
 

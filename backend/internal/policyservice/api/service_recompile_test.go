@@ -89,7 +89,7 @@ func TestRegisterRoutes_NoOpDoesNotRecompile(t *testing.T) {
 }
 
 // TestGlobalStateChanged_TenantSetDrift covers a registry-only tenant: one
-// that exists (an OrbitTenant CR) but holds no grant and no route, so it
+// that exists (an KoraTenant CR) but holds no grant and no route, so it
 // never shows up in a vocabulary or route diff. Without tracking the known
 // tenant set separately, a periodic re-registration whose own catalog is
 // unchanged would report changed=false and the new tenant's bundle — and the

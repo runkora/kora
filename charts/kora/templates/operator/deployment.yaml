@@ -14,7 +14,7 @@ spec:
     metadata:
       labels:
         {{- include "kora.operator.selectorLabels" . | nindent 8 }}
-        orbit.io/kube-api-client: "true"
+        runkora.io/kube-api-client: "true"
         {{- include "kora.operator.labels" . | nindent 8 }}
         spiffe.io/component: operator
         {{- include "kora.podLabels" (dict "root" $ "name" "operator") | nindent 8 }}

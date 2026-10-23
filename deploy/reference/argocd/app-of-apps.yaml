@@ -170,7 +170,7 @@ spec:
     server: https://kubernetes.default.svc
     namespace: orbit-system
   syncPolicy:
-    # Unlike spire-crds, these back tenant-authored CRs (OrbitTenant,
+    # Unlike spire-crds, these back tenant-authored CRs (KoraTenant,
     # Connection, OAuthClient, MCPServer) with no way to regenerate them;
     # a prune here cascade-deletes every tenant's data cluster-wide.
     automated: { prune: false, selfHeal: true }

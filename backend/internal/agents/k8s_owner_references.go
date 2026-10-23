@@ -11,22 +11,22 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-// koraTenantGVR is the GroupVersionResource for the cluster-scoped OrbitTenant
+// koraTenantGVR is the GroupVersionResource for the cluster-scoped KoraTenant
 // CR defined by the operator (backend/internal/operator/models.go). Duplicated
 // here — as a three-field literal — so backend/internal/agents does not import
 // backend/internal/operator (feature packages must not import each other).
 var koraTenantGVR = schema.GroupVersionResource{
-	Group:    "orbit.io",
+	Group:    "runkora.io",
 	Version:  "v1alpha1",
-	Resource: "orbittenants",
+	Resource: "koratenants",
 }
 
 const (
-	koraTenantAPIVersion = "orbit.io/v1alpha1"
-	koraTenantKind       = "OrbitTenant"
+	koraTenantAPIVersion = "runkora.io/v1alpha1"
+	koraTenantKind       = "KoraTenant"
 )
 
-// tenantOwnerRef fetches the cluster-scoped OrbitTenant named tenantID and
+// tenantOwnerRef fetches the cluster-scoped KoraTenant named tenantID and
 // returns a controller OwnerReference for it. Returns the zero value with a
 // nil error when the tenant cannot be reached (missing CRD, missing CR,
 // permission denied) — callers must treat an empty ref as "skip ownership"
@@ -40,12 +40,12 @@ func (p *K8sProvisioner) tenantOwnerRef(ctx context.Context, tenantID string) me
 	if err != nil {
 		degraded := apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || isNoKindMatchError(err)
 		if degraded {
-			p.logger.Warn(ctx, "OrbitTenant unavailable, provisioning without owner reference",
+			p.logger.Warn(ctx, "KoraTenant unavailable, provisioning without owner reference",
 				logging.Field{Key: "tenant_id", Value: tenantID},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
 		} else {
-			p.logger.Warn(ctx, "fetch OrbitTenant for owner reference failed",
+			p.logger.Warn(ctx, "fetch KoraTenant for owner reference failed",
 				logging.Field{Key: "tenant_id", Value: tenantID},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
@@ -162,7 +162,7 @@ func (p *K8sProvisioner) statefulSetOwnerRef(ctx context.Context, slug, namespac
 	}
 }
 
-// isNoKindMatchError returns true when err reports that the OrbitTenant CRD is
+// isNoKindMatchError returns true when err reports that the KoraTenant CRD is
 // not installed. String matching avoids importing k8s.io/apimachinery/pkg/api/meta
 // solely for a single sentinel check.
 func isNoKindMatchError(err error) bool {

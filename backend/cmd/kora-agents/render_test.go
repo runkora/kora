@@ -44,15 +44,15 @@ func TestLoadWorkloads_RejectsIdentityLabel(t *testing.T) {
 	body := `workloads:
   sandbox:
     podLabels:
-      orbit.io/role: not-a-sandbox
+      runkora.io/role: not-a-sandbox
 `
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	_, err := loadWorkloads(path)
-	if err == nil || !strings.Contains(err.Error(), "orbit.io/role") {
-		t.Fatalf("got %v, want an error naming orbit.io/role", err)
+	if err == nil || !strings.Contains(err.Error(), "runkora.io/role") {
+		t.Fatalf("got %v, want an error naming runkora.io/role", err)
 	}
 }
 
@@ -222,7 +222,7 @@ func TestLoadWorkloads_ChartDefaultsChangeNoManifest(t *testing.T) {
 // TestLoadPatches_ValidPatchLoads checks a patch that applies cleanly passes
 // startup validation.
 func TestLoadPatches_ValidPatchLoads(t *testing.T) {
-	dir := writePatch(t, "10-ok.yaml", `target: {kind: Pod, labelSelector: orbit.io/role=sandbox}
+	dir := writePatch(t, "10-ok.yaml", `target: {kind: Pod, labelSelector: runkora.io/role=sandbox}
 patch: |
   - {op: add, path: /spec/tolerations, value: [{key: dedicated, operator: Exists}]}
 `)

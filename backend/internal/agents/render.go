@@ -22,7 +22,7 @@ import (
 //
 // It calls the same build helpers as the runtime ensure functions and needs
 // no cluster or database. Owner references are omitted: the runtime resolves
-// them from live OrbitTenant and StatefulSet lookups.
+// them from live KoraTenant and StatefulSet lookups.
 func RenderResources(cfg K8sProvisionerConfig, at AgentType, namespace string, renderSandbox bool) ([]runtime.Object, error) {
 	p := &K8sProvisioner{cfg: cfg}
 	labels := agentTypeLabels(at)

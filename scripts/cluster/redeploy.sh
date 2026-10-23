@@ -370,7 +370,7 @@ pin_workload() {
     # Mark an agent StatefulSet as pinned so the kora-agents reconcile keeps
     # this image instead of moving it to the release image.
     if [ "$kind" = "statefulset" ]; then
-      kubectl annotate "$workload" orbit.io/session-manager-image-pinned=true \
+      kubectl annotate "$workload" runkora.io/session-manager-image-pinned=true \
         --overwrite -n "$NAMESPACE"
     fi
   else

@@ -7,19 +7,19 @@ metadata:
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.toolGateway.labels" . | nindent 4 }}
-    orbit.io/mode: publisher
+    runkora.io/mode: publisher
 spec:
   replicas: 1
   selector:
     matchLabels:
       {{- include "kora.toolGateway.selectorLabels" . | nindent 6 }}
-      orbit.io/mode: publisher
+      runkora.io/mode: publisher
   template:
     metadata:
       labels:
         {{- include "kora.toolGateway.selectorLabels" . | nindent 8 }}
         {{- include "kora.toolGateway.labels" . | nindent 8 }}
-        orbit.io/mode: publisher
+        runkora.io/mode: publisher
         spiffe.io/component: tool-gateway
         {{- include "kora.podLabels" (dict "root" $ "name" "toolGateway") | nindent 8 }}
       annotations:

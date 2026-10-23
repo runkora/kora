@@ -181,7 +181,7 @@ An entry under `tokens` or `slots` whose key the running manifest does not know 
 
 **Options considered, which strings change:**
 
-1. **Everything a client's people or their agents read.** UI copy, the page title, the consent screen, guardrail messages, the capabilities brief that becomes the agent's system prompt, MCP tool descriptions and the MCP server name the runners register, the egress gateway's denial messages, and the sandbox base image description. Identifiers such as the `orbit.io` API group and image names, log lines, Kubernetes messages and operator preflight output keep the kora name.
+1. **Everything a client's people or their agents read.** UI copy, the page title, the consent screen, guardrail messages, the capabilities brief that becomes the agent's system prompt, MCP tool descriptions and the MCP server name the runners register, the egress gateway's denial messages, and the sandbox base image description. Identifiers such as the `runkora.io` API group and image names, log lines, Kubernetes messages and operator preflight output keep the kora name.
 2. **UI copy only.** A guardrail message that says "kora paused this run" inside a white-labelled product is the leak the PRD exists to prevent.
 
 **Options considered, the hardcoded-string check:**

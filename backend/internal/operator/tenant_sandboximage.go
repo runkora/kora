@@ -125,13 +125,13 @@ func (r *TenantReconciler) ensureBundledSandboxImages(ctx context.Context, tenan
 // ownsBundledSandboxImage reports whether the operator created img as a bundled image.
 func ownsBundledSandboxImage(img *si.SandboxImage) bool {
 	return img.Labels["app.kubernetes.io/managed-by"] == "orbit-operator" &&
-		img.Labels["orbit.io/component"] == si.BundledComponent
+		img.Labels["runkora.io/component"] == si.BundledComponent
 }
 
 // product is the configured product name the description reads.
 func bundledSandboxImage(ns, tenantName string, b si.BundledImage, cfg BundledSandboxImage, product string) *si.SandboxImage {
 	labels := tenantPolicyLabels(tenantName)
-	labels["orbit.io/component"] = si.BundledComponent
+	labels["runkora.io/component"] = si.BundledComponent
 	return &si.SandboxImage{
 		TypeMeta:   metav1.TypeMeta{APIVersion: si.GroupVersion.String(), Kind: "SandboxImage"},
 		ObjectMeta: metav1.ObjectMeta{Name: b.Name, Namespace: ns, Labels: labels},

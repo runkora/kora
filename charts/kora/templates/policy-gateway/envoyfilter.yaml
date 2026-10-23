@@ -3,7 +3,7 @@
 # Layer 1 coarse-grained enforcement: "Can this principal call this route at all?"
 #
 # The OPA sidecar runs as openpolicyagent/opa:<tag>-envoy-static on localhost:9191
-# inside every agent pod (orbit.io/opa-policy: "enabled"). Envoy's outbound
+# inside every agent pod (runkora.io/opa-policy: "enabled"). Envoy's outbound
 # filter chain checks OPA before forwarding any outbound request.
 #
 # Critical ordering: ext_authz is inserted AFTER the identity-proxy ext_proc
@@ -24,7 +24,7 @@ metadata:
 spec:
   workloadSelector:
     labels:
-      orbit.io/opa-policy: "enabled"
+      runkora.io/opa-policy: "enabled"
   configPatches:
     # Insert ext_authz HTTP filter after the identity-proxy ext_proc filter.
     # This ensures the Authorization header is populated before OPA evaluates.

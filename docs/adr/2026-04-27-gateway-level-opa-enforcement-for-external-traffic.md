@@ -16,7 +16,7 @@
 The current enforcement topology has a gap:
 
 ```
-Agent pod (orbit.io/opa-policy: enabled)
+Agent pod (runkora.io/opa-policy: enabled)
   └── Envoy SIDECAR_OUTBOUND
         ├── ext_proc → identity-proxy (token swap)
         └── ext_authz → OPA sidecar localhost:9191   ← enforced ✓
@@ -27,7 +27,7 @@ SDK client / PAT caller
               → inference-gateway service
 ```
 
-The OPA ext_authz EnvoyFilter (`opa-policy-ext-authz`) targets `SIDECAR_OUTBOUND` on pods labelled `orbit.io/opa-policy: "enabled"`. This covers agent-to-service traffic only. It does not cover:
+The OPA ext_authz EnvoyFilter (`opa-policy-ext-authz`) targets `SIDECAR_OUTBOUND` on pods labelled `runkora.io/opa-policy: "enabled"`. This covers agent-to-service traffic only. It does not cover:
 
 - Direct API callers using Platform Access Tokens (PATs) via the Anthropic or OpenAI SDK
 - Any external caller whose traffic enters via the IngressGateway

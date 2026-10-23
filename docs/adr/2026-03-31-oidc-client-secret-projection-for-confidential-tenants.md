@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-03-31
 **Deciders:** Engineering Team
-**Technical Story:** `OrbitTenant.spec.oidc.clientSecretRef` is defined in the CRD and data model but the operator does not act on it — the OIDC client secret is never delivered to the `orbit-identity` service. Any tenant using a confidential OIDC client (Okta, Azure AD, Google Workspace, Auth0, etc.) cannot complete device authorization because the identity service has no client secret to supply to the token endpoint. This is a blocking gap for all enterprise tenants.
+**Technical Story:** `KoraTenant.spec.oidc.clientSecretRef` is defined in the CRD and data model but the operator does not act on it — the OIDC client secret is never delivered to the `orbit-identity` service. Any tenant using a confidential OIDC client (Okta, Azure AD, Google Workspace, Auth0, etc.) cannot complete device authorization because the identity service has no client secret to supply to the token endpoint. This is a blocking gap for all enterprise tenants.
 
 ---
 
@@ -11,7 +11,7 @@
 
 ### Background
 
-[tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) established the tenant registry model: per-tenant OIDC configuration is stored in the `orbit-tenants` ConfigMap and the identity service reads it at startup, reloading automatically via an `fsnotify` file watcher when the ConfigMap volume is updated by the operator. [orbit-kubernetes-operator](2026-03-31-orbit-kubernetes-operator.md) introduced the kora operator and `OrbitTenant` CRD, which includes a `spec.oidc.clientSecretRef` field pointing to a pre-existing `Secret` containing the OIDC client secret.
+[tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) established the tenant registry model: per-tenant OIDC configuration is stored in the `orbit-tenants` ConfigMap and the identity service reads it at startup, reloading automatically via an `fsnotify` file watcher when the ConfigMap volume is updated by the operator. [orbit-kubernetes-operator](2026-03-31-orbit-kubernetes-operator.md) introduced the kora operator and `KoraTenant` CRD, which includes a `spec.oidc.clientSecretRef` field pointing to a pre-existing `Secret` containing the OIDC client secret.
 
 The tenant registry format (`orbit-tenants` ConfigMap) includes a `clientSecretEnv` field per tenant — a named environment variable the identity service will read to obtain the client secret at runtime:
 
@@ -48,7 +48,7 @@ Client secrets are not write-once. Enterprise IdPs require periodic rotation (Ok
 
 ### Problem Statement
 
-The identity service needs OIDC client secret values for confidential tenants at runtime — injected without pod restart, updatable without pod restart, and sourced from the `clientSecretRef` the tenant declared in their `OrbitTenant` CR.
+The identity service needs OIDC client secret values for confidential tenants at runtime — injected without pod restart, updatable without pod restart, and sourced from the `clientSecretRef` the tenant declared in their `KoraTenant` CR.
 
 ### Goals
 
@@ -170,7 +170,7 @@ The `create`/`update`/`patch` verbs are scoped to `orbit-system` via a separate 
 
 In `backend/internal/operator/tenant_controller.go`, after reconciling the tenant namespace and ConfigMap:
 
-1. For each `OrbitTenant` with a non-nil `spec.oidc.clientSecretRef`:
+1. For each `KoraTenant` with a non-nil `spec.oidc.clientSecretRef`:
    - `GET` the referenced Secret from `spec.oidc.clientSecretRef.namespace` (or the tenant namespace if namespace is omitted)
    - Extract the value at key `OIDC_CLIENT_SECRET`
    - Add it to the aggregated map: `tenantID → secretValue`
@@ -186,7 +186,7 @@ The aggregated Secret is always rebuilt from scratch across all tenants on each 
 
 #### 3. Controller Watches — Trigger Reconcile on Source Secret Change
 
-Register a `Watches` on `v1.Secret` in the controller setup, filtered to Secrets referenced by `OrbitTenant` CRs. When a source Secret changes (rotation), the controller-runtime enqueues a reconcile for the owning `OrbitTenant`. This propagates the new value into the aggregated Secret within one reconcile cycle.
+Register a `Watches` on `v1.Secret` in the controller setup, filtered to Secrets referenced by `KoraTenant` CRs. When a source Secret changes (rotation), the controller-runtime enqueues a reconcile for the owning `KoraTenant`. This propagates the new value into the aggregated Secret within one reconcile cycle.
 
 ```go
 // In SetupWithManager:
@@ -196,7 +196,7 @@ Register a `Watches` on `v1.Secret` in the controller setup, filtered to Secrets
 )
 ```
 
-`secretToTenantRequests` lists all `OrbitTenant` CRs and returns reconcile requests for any whose `clientSecretRef` points to the changed Secret.
+`secretToTenantRequests` lists all `KoraTenant` CRs and returns reconcile requests for any whose `clientSecretRef` points to the changed Secret.
 
 #### 4. Remove `clientSecretEnv` from Registry Format
 
@@ -290,11 +290,11 @@ The `clientSecretEnv` field is removed from the registry YAML written by the ope
 
 ### Migration Path
 
-Existing deployments with no `clientSecretRef` set on any `OrbitTenant` CR are unaffected — the aggregated Secret will not be created (or will be empty), `optional: true` on the volume mount keeps the identity service starting cleanly, and `ORBIT_TENANT_SECRETS_CONFIG` points to a file that does not exist (handled gracefully by the no-op watcher path).
+Existing deployments with no `clientSecretRef` set on any `KoraTenant` CR are unaffected — the aggregated Secret will not be created (or will be empty), `optional: true` on the volume mount keeps the identity service starting cleanly, and `ORBIT_TENANT_SECRETS_CONFIG` points to a file that does not exist (handled gracefully by the no-op watcher path).
 
 To migrate a tenant to use a confidential client:
 1. Create the OIDC client secret as a Kubernetes `Secret` in the tenant namespace (via ESO, Vault Agent, SealedSecret, or manually)
-2. Set `spec.oidc.clientSecretRef` on the `OrbitTenant` CR pointing to that Secret
+2. Set `spec.oidc.clientSecretRef` on the `KoraTenant` CR pointing to that Secret
 3. The operator reconciles, reads the source Secret, builds/updates `orbit-tenant-oidc-secrets` in `orbit-system`
 4. The kubelet propagates the updated Secret volume to the `orbit-identity` pod (10–30s)
 5. The `watchClientSecrets` goroutine detects the `..data` event, reloads, logs `"tenant client secrets reloaded"`
@@ -329,9 +329,9 @@ To migrate a tenant to use a confidential client:
 
 ### Success Metrics
 
-- An `OrbitTenant` with `spec.oidc.clientSecretRef` completes device authorization against a confidential OIDC client without a pod restart of `orbit-identity`
+- An `KoraTenant` with `spec.oidc.clientSecretRef` completes device authorization against a confidential OIDC client without a pod restart of `orbit-identity`
 - Rotating the source Secret (updating its value) propagates to the identity service within 60 seconds without a pod restart
-- Removing `clientSecretRef` from an `OrbitTenant` CR removes the tenant entry from the aggregated Secret within one reconcile cycle
+- Removing `clientSecretRef` from an `KoraTenant` CR removes the tenant entry from the aggregated Secret within one reconcile cycle
 - `orbit-identity` starts cleanly when `orbit-tenant-oidc-secrets` does not exist (no confidential tenants)
 - `orbit-identity` logs `"tenant client secrets reloaded"` within 200ms of the kubelet propagating a Secret volume update
 
@@ -347,7 +347,7 @@ To migrate a tenant to use a confidential client:
 ## Related Decisions
 
 - [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) — defines the tenant registry ConfigMap format and hot-reload architecture; this ADR extends the pattern to secrets
-- [orbit-kubernetes-operator](2026-03-31-orbit-kubernetes-operator.md) — defines the operator model, `OrbitTenant` CRD, and the `clientSecretRef` field; this ADR implements the gap documented there
+- [orbit-kubernetes-operator](2026-03-31-orbit-kubernetes-operator.md) — defines the operator model, `KoraTenant` CRD, and the `clientSecretRef` field; this ADR implements the gap documented there
 
 ---
 
@@ -361,7 +361,7 @@ To migrate a tenant to use a confidential client:
 
 ## Notes
 
-The `optional: true` field on the Secret volume mount is load-bearing — omitting it causes the identity service pod to fail to start if the aggregated Secret does not yet exist (e.g. on a fresh cluster before any `OrbitTenant` with `clientSecretRef` is applied). This must be present in the Helm template.
+The `optional: true` field on the Secret volume mount is load-bearing — omitting it causes the identity service pod to fail to start if the aggregated Secret does not yet exist (e.g. on a fresh cluster before any `KoraTenant` with `clientSecretRef` is applied). This must be present in the Helm template.
 
 The source Secret key is fixed at `OIDC_CLIENT_SECRET`. This should be validated by the operator when reading the referenced Secret — if the key is absent, the operator logs a warning and skips that tenant's entry in the aggregated Secret rather than writing an empty value.
 

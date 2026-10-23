@@ -21,7 +21,7 @@ func injectedPod() *corev1.Pod {
 }
 
 func tenantNS(labels map[string]string) *corev1.Namespace {
-	labels["orbit.io/role"] = "tenant"
+	labels["runkora.io/role"] = "tenant"
 	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "orbit-tenant-example", Labels: labels}}
 }
 

@@ -29,12 +29,12 @@ We need hosted apps to log their users in through kora, without opening a self-s
 
 ## Solution
 
-A first-class **`OAuthClient` CRD** (`orbit.io/v1alpha1`, namespaced, shortName `oauthc`), reconciled by `orbit-operator` into the `orbit-tenant-oauth-clients` ConfigMap that the identity service mounts and hot-reloads. This mirrors the `Connection`/`MCPServer` registration pattern exactly. The authorize endpoint gates every client on exact-match redirect validation; DCR keeps its loopback restriction so only admin-declared CRs may use hosted HTTPS redirects. See the ADR for the full design.
+A first-class **`OAuthClient` CRD** (`runkora.io/v1alpha1`, namespaced, shortName `oauthc`), reconciled by `orbit-operator` into the `orbit-tenant-oauth-clients` ConfigMap that the identity service mounts and hot-reloads. This mirrors the `Connection`/`MCPServer` registration pattern exactly. The authorize endpoint gates every client on exact-match redirect validation; DCR keeps its loopback restriction so only admin-declared CRs may use hosted HTTPS redirects. See the ADR for the full design.
 
 ### User flow (operator)
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: OAuthClient
 metadata:
   name: example-app

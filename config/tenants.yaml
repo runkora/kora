@@ -9,7 +9,7 @@
 # registry.tenantsPath in backend/internal/identity/config/base.yaml at this file.
 #
 # For cluster dev (make cluster-platform + make cluster-deploy):
-#   The orbit-operator builds the orbit-tenants ConfigMap from OrbitTenant CRs
+#   The orbit-operator builds the orbit-tenants ConfigMap from KoraTenant CRs
 #   defined in deploy/local/tenants/. This file is not read or mounted.
 #   Edit deploy/local/tenants/example.yaml to change cluster tenant config.
 #

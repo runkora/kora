@@ -13,11 +13,10 @@ import (
 // AddToScheme registers the kora CRD types into a runtime.Scheme.
 // Call this on the controller-runtime manager's scheme before starting.
 func AddToScheme(s *runtime.Scheme) error {
-	// Register the concrete CRD types for orbit.io/v1alpha1. The tenant types
-	// carry the CRD kind explicitly, since it differs from the Go type name.
-	s.AddKnownTypeWithName(GroupVersion.WithKind("OrbitTenant"), &KoraTenant{})
-	s.AddKnownTypeWithName(GroupVersion.WithKind("OrbitTenantList"), &KoraTenantList{})
+	// Register the concrete CRD types for runkora.io/v1alpha1.
 	s.AddKnownTypes(GroupVersion,
+		&KoraTenant{},
+		&KoraTenantList{},
 		&Connection{},
 		&ConnectionList{},
 		&MCPServer{},
@@ -28,7 +27,7 @@ func AddToScheme(s *runtime.Scheme) error {
 
 	// Wire up metav1 types (ListOptions, WatchEvent, etc.) to our group version.
 	// Without this, the reflector/informer machinery cannot list or watch our CRDs
-	// and produces: "v1.ListOptions is not suitable for converting to orbit.io/v1alpha1".
+	// and produces: "v1.ListOptions is not suitable for converting to runkora.io/v1alpha1".
 	metav1.AddToGroupVersion(s, GroupVersion)
 
 	return nil

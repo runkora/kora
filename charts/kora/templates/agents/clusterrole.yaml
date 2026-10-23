@@ -7,7 +7,7 @@ metadata:
 # Verbs match the calls in internal/agents/k8s.go. There are no informers and
 # no watch. get+update on every namespaced resource because each
 # ensureX follows a create-then-backfill pattern — on AlreadyExists it Gets
-# the existing object, merges the OrbitTenant owner reference, and Updates
+# the existing object, merges the KoraTenant owner reference, and Updates
 # (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
 rules:
   - apiGroups: ["apps"]
@@ -39,14 +39,14 @@ rules:
   - apiGroups: ["security.istio.io"]
     resources: ["authorizationpolicies"]
     verbs: ["get", "create", "update", "delete"]
-  # Read-only access to the cluster-scoped OrbitTenant CR so orbit-agents can
+  # Read-only access to the cluster-scoped KoraTenant CR so orbit-agents can
   # set it as ownerReferences on the resources it provisions. Enables the
   # ArgoCD resource-tree view and native k8s cascade delete
   # (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
-  - apiGroups: ["orbit.io"]
-    resources: ["orbittenants"]
+  - apiGroups: ["runkora.io"]
+    resources: ["koratenants"]
     verbs: ["get"]
   # A SandboxImage's validation and pinned digest decide the image a sandbox runs.
-  - apiGroups: ["orbit.io"]
+  - apiGroups: ["runkora.io"]
     resources: ["sandboximages"]
     verbs: ["get", "list"]

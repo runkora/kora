@@ -18,11 +18,11 @@ The following guide assumes kora is already installed. See [Deploying kora](depl
 
 ## Configuring a tenant
 
-A tenant is defined using the `OrbitTenant` CRD. The kora operator reconciles it, creating the namespace, applying the SPIRE and Istio labels, and publishing the tenant to the identity service.
+A tenant is defined using the `KoraTenant` CRD. The kora operator reconciles it, creating the namespace, applying the SPIRE and Istio labels, and publishing the tenant to the identity service.
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
-kind: OrbitTenant
+apiVersion: runkora.io/v1alpha1
+kind: KoraTenant
 metadata:
   name: example
 spec:
@@ -51,13 +51,13 @@ kubectl create secret generic orbit-example-oidc \
   --from-literal=OIDC_CLIENT_SECRET='<oidc client secret>'
 ```
 
-An `OrbitTenant` is a declarative resource, applied the way you manage the rest of your cluster. Commit it to your GitOps repository, or `kubectl apply` it for a quick start. To inspect its status:
+An `KoraTenant` is a declarative resource, applied the way you manage the rest of your cluster. Commit it to your GitOps repository, or `kubectl apply` it for a quick start. To inspect its status:
 
 ```bash
-kubectl get orbittenant example -w
+kubectl get koratenant example -w
 kubectl get namespace orbit-tenant-example
 ```
 
-Set `deleteNamespaceOnRemoval: true` only when deleting the `OrbitTenant` must delete every workload in its namespace.
+Set `deleteNamespaceOnRemoval: true` only when deleting the `KoraTenant` must delete every workload in its namespace.
 
 Once the tenant is ready, configure access for its principals with [policy and roles](policy-and-roles.md).

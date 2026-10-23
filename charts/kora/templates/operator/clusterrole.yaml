@@ -46,21 +46,21 @@ rules:
     resources: ["sidecars"]
     verbs: ["get", "list", "watch", "create", "patch"]
   # Reconciliation inputs; read-only.
-  - apiGroups: ["orbit.io"]
-    resources: ["orbittenants", "connections", "oauthclients", "mcpservers"]
+  - apiGroups: ["runkora.io"]
+    resources: ["koratenants", "connections", "oauthclients", "mcpservers"]
     verbs: ["get", "list", "watch"]
   # Status conditions. Connection and OAuthClient have none.
-  - apiGroups: ["orbit.io"]
-    resources: ["orbittenants/status", "mcpservers/status", "sandboximages/status"]
+  - apiGroups: ["runkora.io"]
+    resources: ["koratenants/status", "mcpservers/status", "sandboximages/status"]
     verbs: ["get", "patch"]
   # The operator validates every SandboxImage, owns kora-base in each tenant
   # namespace, and deletes the bundled images that are disabled.
-  - apiGroups: ["orbit.io"]
+  - apiGroups: ["runkora.io"]
     resources: ["sandboximages"]
     verbs: ["get", "list", "watch", "create", "patch", "delete"]
   # Owner references with blockOwnerDeletion on the warmers need this where
   # OwnerReferencesPermissionEnforcement is on.
-  - apiGroups: ["orbit.io"]
+  - apiGroups: ["runkora.io"]
     resources: ["sandboximages/finalizers"]
     verbs: ["update"]
   # Each warm SandboxImage owns one pre-pull DaemonSet. Preflight reads the CNI DaemonSet.

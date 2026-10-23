@@ -111,8 +111,8 @@ Give operators a maintainable, familiar mechanism for customising the Kubernetes
 Fields orbit-agents computes per agent type at runtime:
 - `metadata.name` = agent type slug (`at.Slug`); StatefulSet, Service, ServiceAccount, HPA and PDB are all named after it.
 - `metadata.namespace` = the tenant namespace, one per tenant.
-- `metadata.labels` = `{app: {slug}, orbit.io/agent-type: {at.ID}, orbit.io/tenant: {at.TenantID}}`; the agent-type UUID exists only once the row is written.
-- `metadata.ownerReferences` = the OrbitTenant CR's UID, looked up at provision time.
+- `metadata.labels` = `{app: {slug}, runkora.io/agent-type: {at.ID}, runkora.io/tenant: {at.TenantID}}`; the agent-type UUID exists only once the row is written.
+- `metadata.ownerReferences` = the KoraTenant CR's UID, looked up at provision time.
 - StatefulSet `spec.serviceName` = agent slug (must equal the headless Service name for DNS).
 - StatefulSet `spec.selector.matchLabels` and pod template labels share `podLabels(at)`, which includes the agent-type UUID.
 - StatefulSet pod template `spec.serviceAccountName` = agent slug.
@@ -122,7 +122,7 @@ Fields orbit-agents computes per agent type at runtime:
 
 Fields orbit-agents computes per run at runtime for the sandbox Pod:
 - `metadata.name` = `sandbox-{run.ID}`.
-- `metadata.labels` = `{orbit.io/role: sandbox, orbit.io/run-id: {run.ID}, orbit.io/agent-slug: {slug}}`; the run ID is a database-generated UUID.
+- `metadata.labels` = `{runkora.io/role: sandbox, runkora.io/run-id: {run.ID}, runkora.io/agent-slug: {slug}}`; the run ID is a database-generated UUID.
 - PVC volume reference = `workspaces-{slug}-{run.PodOrdinal}`, the StatefulSet's per-ordinal claim name.
 - Container `volumeMounts[…].subPath` = `run.ID`, so the sandbox only mounts its own workspace subdirectory.
 - Container env includes `WORKSPACE`, `SANDBOX_EXEC_PORT`, per-tenant CA paths and a base64-encoded kubeconfig built from the granted Kubernetes clusters.
@@ -216,7 +216,7 @@ JSON6902:
 ```yaml
 target:
   kind: Pod
-  labelSelector: orbit.io/role=sandbox
+  labelSelector: runkora.io/role=sandbox
 patch: |
   - op: replace
     path: /spec/containers/0/resources
@@ -232,7 +232,7 @@ Patches apply in filename order. Each runs against the output of the previous on
 A patch is rejected if, compared with the built object, it changes any of:
 
 - `apiVersion`, `kind`, `metadata.name`, `metadata.namespace`, `metadata.ownerReferences`.
-- The identity labels `spiffe.io/agent`, `spiffe.io/spire-managed-identity`, `orbit.io/identity-proxy`, `orbit.io/tenant`, `orbit.io/agent-type`, `orbit.io/role`, `orbit.io/run-id` and `orbit.io/agent-slug`, on the resource and on the StatefulSet pod template.
+- The identity labels `spiffe.io/agent`, `spiffe.io/spire-managed-identity`, `runkora.io/identity-proxy`, `runkora.io/tenant`, `runkora.io/agent-type`, `runkora.io/role`, `runkora.io/run-id` and `runkora.io/agent-slug`, on the resource and on the StatefulSet pod template.
 - `spec.selector`, `spec.serviceName`, `spec.scaleTargetRef`, and the StatefulSet's VolumeClaimTemplate names.
 - `serviceAccountName`, `automountServiceAccountToken` and `enableServiceLinks` on the Pod and the StatefulSet pod template.
 - Pod `securityContext.runAsNonRoot`, `runAsUser` and `seccompProfile`, and every container's `securityContext`.
@@ -262,7 +262,7 @@ Fields absent from both objects are equal, so a patch may add volumes, container
 
 ### Debug render mode
 
-`orbit-agents -render -agent-slug=<slug> [-agent-type-id=<id>] [-tenant-id=<id>] [-namespace=<ns>] [-patch-dir=<dir>] [-sandbox]` loads the service config and patches, runs the same startup validation, calls `agents.RenderResources` and prints each object as YAML separated by `---`. It needs no kubeconfig or database. `-agent-type-id` sets the `orbit.io/agent-type` label so patches selecting on it match; it defaults to `render-<slug>`. `metadata.ownerReferences` is omitted: the runtime resolves it from live OrbitTenant and StatefulSet lookups.
+`orbit-agents -render -agent-slug=<slug> [-agent-type-id=<id>] [-tenant-id=<id>] [-namespace=<ns>] [-patch-dir=<dir>] [-sandbox]` loads the service config and patches, runs the same startup validation, calls `agents.RenderResources` and prints each object as YAML separated by `---`. It needs no kubeconfig or database. `-agent-type-id` sets the `runkora.io/agent-type` label so patches selecting on it match; it defaults to `render-<slug>`. `metadata.ownerReferences` is omitted: the runtime resolves it from live KoraTenant and StatefulSet lookups.
 
 ### Helm chart
 

@@ -47,12 +47,12 @@ var protectedPaths = [][]string{
 var IdentityLabels = []string{
 	"spiffe.io/agent",
 	"spiffe.io/spire-managed-identity",
-	"orbit.io/identity-proxy",
-	"orbit.io/tenant",
-	"orbit.io/agent-type",
-	"orbit.io/role",
-	"orbit.io/run-id",
-	"orbit.io/agent-slug",
+	"runkora.io/identity-proxy",
+	"runkora.io/tenant",
+	"runkora.io/agent-type",
+	"runkora.io/role",
+	"runkora.io/run-id",
+	"runkora.io/agent-slug",
 }
 
 // checkProtected rejects a patched resource whose protected fields differ

@@ -63,7 +63,7 @@ func TestEnsureBundledSandboxImages_CreatesEnabledAndSkipsDisabled(t *testing.T)
 	if img.Spec.Image != "ghcr.io/runkora/kora-sandbox-go:v1" || !img.Spec.Warm || img.Spec.Description == "" {
 		t.Errorf("kora-go spec = %+v", img.Spec)
 	}
-	if !ownsBundledSandboxImage(img) || img.Labels["orbit.io/tenant"] != "example" {
+	if !ownsBundledSandboxImage(img) || img.Labels["runkora.io/tenant"] != "example" {
 		t.Errorf("kora-go labels = %v", img.Labels)
 	}
 	if img, _ := getSandboxImage(t, c, "kora-python"); img == nil || img.Spec.Warm {

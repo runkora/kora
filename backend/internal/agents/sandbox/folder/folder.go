@@ -15,11 +15,11 @@ import (
 const (
 	// RoleLabel set to RoleSandbox marks a sandbox pod, and ManagedAgentLabel set to
 	// "true" marks a session-manager pod. The node agent watches pods by them.
-	RoleLabel         = "orbit.io/role"
+	RoleLabel         = "runkora.io/role"
 	RoleSandbox       = "sandbox"
-	ManagedAgentLabel = "orbit.io/managed-agent"
+	ManagedAgentLabel = "runkora.io/managed-agent"
 	// RunIDLabel carries the sandbox's run ID, which names its workspace directory.
-	RunIDLabel = "orbit.io/run-id"
+	RunIDLabel = "runkora.io/run-id"
 	// Volume is the sandbox pod's local disk, and Dir is the folder in it that
 	// both pods see at /workspaces/<run>/sandbox.
 	Volume = "local-disk"

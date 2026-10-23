@@ -1,6 +1,6 @@
 {{- if .Values.platform.spiffe.enabled }}
 # kora's SPIFFE registrations, scoped to the system namespace and namespaces
-# labelled orbit.io/role=tenant.
+# labelled runkora.io/role=tenant.
 #
 #   System component:  spiffe://<trust-domain>/system/<spiffe.io/component>
 #   Tenant service:    spiffe://<trust-domain>/tenant/<namespace>/service/<spiffe.io/service>
@@ -38,7 +38,7 @@ spec:
   spiffeIDTemplate: "spiffe://{{ $trustDomain }}/tenant/{{ `{{ .PodMeta.Namespace }}` }}/service/{{ `{{ index .PodMeta.Labels \"spiffe.io/service\" }}` }}"
   namespaceSelector:
     matchLabels:
-      orbit.io/role: tenant
+      runkora.io/role: tenant
   podSelector:
     matchExpressions:
       - key: spiffe.io/service
@@ -55,7 +55,7 @@ spec:
   spiffeIDTemplate: "spiffe://{{ $trustDomain }}/tenant/{{ `{{ .PodMeta.Namespace }}` }}/agent/{{ `{{ index .PodMeta.Labels \"spiffe.io/agent\" }}` }}"
   namespaceSelector:
     matchLabels:
-      orbit.io/role: tenant
+      runkora.io/role: tenant
   podSelector:
     matchExpressions:
       - key: spiffe.io/agent
@@ -72,16 +72,16 @@ metadata:
     {{- include "kora.labels" . | nindent 4 }}
 spec:
   className: {{ .Values.spire.className }}
-  spiffeIDTemplate: "spiffe://{{ $trustDomain }}/tenant/{{ `{{ .PodMeta.Namespace }}` }}/agent/{{ `{{ index .PodMeta.Labels \"orbit.io/agent-slug\" }}` }}/sandbox/{{ `{{ index .PodMeta.Labels \"orbit.io/run-id\" }}` }}"
+  spiffeIDTemplate: "spiffe://{{ $trustDomain }}/tenant/{{ `{{ .PodMeta.Namespace }}` }}/agent/{{ `{{ index .PodMeta.Labels \"runkora.io/agent-slug\" }}` }}/sandbox/{{ `{{ index .PodMeta.Labels \"runkora.io/run-id\" }}` }}"
   namespaceSelector:
     matchLabels:
-      orbit.io/role: tenant
+      runkora.io/role: tenant
   podSelector:
     matchLabels:
-      orbit.io/role: sandbox
+      runkora.io/role: sandbox
     matchExpressions:
-      - key: orbit.io/agent-slug
+      - key: runkora.io/agent-slug
         operator: Exists
-      - key: orbit.io/run-id
+      - key: runkora.io/run-id
         operator: Exists
 {{- end }}

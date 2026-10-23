@@ -21,7 +21,7 @@ import (
 const agentEgressName = "agent-egress"
 
 // agentPodLabels select agent pods; kora-agents sets them on every one.
-var agentPodLabels = map[string]string{"orbit.io/managed-agent": "true"}
+var agentPodLabels = map[string]string{"runkora.io/managed-agent": "true"}
 
 // sidecarGVK is Istio's, which is not in the operator's scheme.
 var sidecarGVK = schema.GroupVersionKind{Group: "networking.istio.io", Version: "v1", Kind: "Sidecar"}
@@ -82,7 +82,7 @@ func agentEgressPolicy(ns, tenantName string, collector AgentCollector) *network
 	}
 	// No NamespaceSelector: the peer is this namespace's sandboxes only.
 	egress = append(egress, networkingv1.NetworkPolicyEgressRule{
-		To:    []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"orbit.io/role": "sandbox"}}}},
+		To:    []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"runkora.io/role": "sandbox"}}}},
 		Ports: tcpPort(ports.SandboxExecGRPC),
 	})
 	switch {
@@ -149,7 +149,7 @@ func agentEgressSidecar(ns, tenantName string, collector AgentCollector) *unstru
 }
 
 func tenantPolicyLabels(tenantName string) map[string]string {
-	return map[string]string{"app.kubernetes.io/managed-by": "orbit-operator", "orbit.io/tenant": tenantName}
+	return map[string]string{"app.kubernetes.io/managed-by": "orbit-operator", "runkora.io/tenant": tenantName}
 }
 
 func namespacePeer(namespace string, pods map[string]string) []networkingv1.NetworkPolicyPeer {

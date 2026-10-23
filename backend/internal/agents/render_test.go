@@ -58,8 +58,8 @@ func TestRenderResources_ParityWithBuilders(t *testing.T) {
 	if pod.Name != "sandbox-sample-run" {
 		t.Errorf("sandbox Pod.Name: got %q, want %q", pod.Name, "sandbox-sample-run")
 	}
-	if pod.Labels["orbit.io/role"] != "sandbox" {
-		t.Errorf("sandbox Pod missing orbit.io/role=sandbox label: %v", pod.Labels)
+	if pod.Labels["runkora.io/role"] != "sandbox" {
+		t.Errorf("sandbox Pod missing runkora.io/role=sandbox label: %v", pod.Labels)
 	}
 }
 
@@ -83,7 +83,7 @@ patch: |
       spec:
         nodeSelector: {disktype: ssd}
 `,
-			"20-sandbox.yaml": `target: {kind: Pod, labelSelector: orbit.io/role=sandbox}
+			"20-sandbox.yaml": `target: {kind: Pod, labelSelector: runkora.io/role=sandbox}
 patch: |
   - {op: add, path: /spec/tolerations, value: [{key: dedicated, operator: Exists}]}
 `,
@@ -110,7 +110,7 @@ patch: |
 	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0].Key != "dedicated" {
 		t.Errorf("sandbox Pod tolerations: got %v", pod.Spec.Tolerations)
 	}
-	for k, want := range map[string]string{"orbit.io/role": "sandbox", "orbit.io/run-id": "sample-run", "orbit.io/agent-slug": "coder"} {
+	for k, want := range map[string]string{"runkora.io/role": "sandbox", "runkora.io/run-id": "sample-run", "runkora.io/agent-slug": "coder"} {
 		if pod.Labels[k] != want {
 			t.Errorf("sandbox Pod label %s: got %q, want %q", k, pod.Labels[k], want)
 		}
@@ -122,7 +122,7 @@ patch: |
 // patch under test.
 func splitPoolPatches(workspace string) map[string]string {
 	return map[string]string{
-		"10-agent-placement.yaml": `target: {kind: StatefulSet, labelSelector: orbit.io/agent-type}
+		"10-agent-placement.yaml": `target: {kind: StatefulSet, labelSelector: runkora.io/agent-type}
 patch: |
   apiVersion: apps/v1
   kind: StatefulSet
@@ -132,7 +132,7 @@ patch: |
       spec:
         nodeSelector: {workload-tier: orbit}
 `,
-		"11-sandbox-placement.yaml": `target: {kind: Pod, labelSelector: orbit.io/role=sandbox}
+		"11-sandbox-placement.yaml": `target: {kind: Pod, labelSelector: runkora.io/role=sandbox}
 patch: |
   apiVersion: v1
   kind: Pod
@@ -247,7 +247,7 @@ patch: |
   spec:
     template:` + strings.ReplaceAll(nodeAffinity("orbit"), "\n  ", "\n      ") + `
 `,
-			"11-sandbox.yaml": `target: {kind: Pod, labelSelector: orbit.io/role=sandbox}
+			"11-sandbox.yaml": `target: {kind: Pod, labelSelector: runkora.io/role=sandbox}
 patch: |
   apiVersion: v1
   kind: Pod
@@ -276,7 +276,7 @@ func TestCheckSandboxPlacement_CatchesPatchesScopedToOneAgentType(t *testing.T) 
 		SandboxGRPCPort:        50051,
 		SystemNamespace:        "orbit-system",
 		Patches: loadTestPatches(t, map[string]string{
-			"10-agent.yaml": `target: {kind: StatefulSet, labelSelector: "orbit.io/agent-type=render-coder"}
+			"10-agent.yaml": `target: {kind: StatefulSet, labelSelector: "runkora.io/agent-type=render-coder"}
 patch: |
   apiVersion: apps/v1
   kind: StatefulSet
@@ -286,7 +286,7 @@ patch: |
       spec:
         nodeSelector: {workload-tier: orbit}
 `,
-			"11-sandbox.yaml": `target: {kind: Pod, labelSelector: "orbit.io/agent-slug=coder"}
+			"11-sandbox.yaml": `target: {kind: Pod, labelSelector: "runkora.io/agent-slug=coder"}
 patch: |
   apiVersion: v1
   kind: Pod

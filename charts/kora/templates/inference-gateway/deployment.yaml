@@ -17,7 +17,7 @@ spec:
         {{- include "kora.inferenceGateway.labels" . | nindent 8 }}
         spiffe.io/component: inference-gateway
         # Watches InferenceProvider resources through the API server.
-        orbit.io/kube-api-client: "true"
+        runkora.io/kube-api-client: "true"
         {{- include "kora.podLabels" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
       annotations:
         {{- include "kora.spireProxyAnnotations" (dict "root" $ "drainSecs" .Values.inferenceGateway.shutdownTimeoutSecs) | nindent 8 }}
