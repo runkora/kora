@@ -13,7 +13,7 @@ export interface IdentityTheme {
 export const defaultTheme: IdentityTheme = {
   productName: 'kora',
   logo: {
-    dark: '/brand/kora-logo-dark.svg',
-    light: '/brand/kora-logo-light.svg',
+    dark: '/brand/runkora-logo-dark.svg',
+    light: '/brand/runkora-logo-light.svg',
   },
 };

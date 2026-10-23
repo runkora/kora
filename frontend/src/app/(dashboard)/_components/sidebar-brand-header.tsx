@@ -16,7 +16,7 @@ export function SidebarBrandHeader({ action }: { action?: ReactNode } = {}) {
     <BrandLogo
       dark={brand.logo.dark}
       light={brand.logo.light}
-      size={30}
+      size={26}
       title={brand.productName}
     />
   );
