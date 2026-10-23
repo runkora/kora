@@ -10,7 +10,7 @@ Have a look through [existing issues](https://github.com/runkora/kora/issues) fi
 
 - **Bug:** the kora version or commit, how kora is installed, the steps that reproduce it, what you expected and what happened. Include logs or error messages.
 - **Feature:** the problem and who it affects. Describe the problem before proposing a solution.
-- **Question:** open an issue labelled `question`.
+- **Question:** ask in [#help on Discord](https://runkora.io/discord).
 
 ## Check the docs
 
