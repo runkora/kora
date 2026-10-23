@@ -12,7 +12,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"sigs.k8s.io/yaml"
 
-	agentsConfig "github.com/runkora/kora/backend/cmd/orbit-agents/config"
+	agentsConfig "github.com/runkora/kora/backend/cmd/kora-agents/config"
 	sandboxMountConfig "github.com/runkora/kora/backend/cmd/sandbox-mount/config"
 	"github.com/runkora/kora/backend/internal/platform/config"
 )
@@ -48,7 +48,7 @@ agents:
     sessionManager:
       tolerations: [{key: agents, operator: Exists}]
 `)
-	if !loadRendered[agentsConfig.Config](t, out, "cmd/orbit-agents").Agents.SandboxMount {
+	if !loadRendered[agentsConfig.Config](t, out, "cmd/kora-agents").Agents.SandboxMount {
 		t.Error("orbit-agents sandboxMount = false, want true")
 	}
 	var ds appsv1.DaemonSet
@@ -107,7 +107,7 @@ func TestChartSandboxMountDisabledByDefault(t *testing.T) {
 	if strings.Contains(out, "orbit-sandbox-mount") {
 		t.Error("default chart renders the node agent")
 	}
-	if loadRendered[agentsConfig.Config](t, out, "cmd/orbit-agents").Agents.SandboxMount {
+	if loadRendered[agentsConfig.Config](t, out, "cmd/kora-agents").Agents.SandboxMount {
 		t.Error("orbit-agents sandboxMount = true by default")
 	}
 }

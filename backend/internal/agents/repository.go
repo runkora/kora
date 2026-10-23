@@ -111,7 +111,7 @@ type EnvironmentRepository interface {
 	DeleteEnvironment(ctx context.Context, tenantID, id string) error
 }
 
-// Repository is the combined persistence interface for orbit-agents.
+// Repository is the combined persistence interface for kora-agents.
 // It is retained for backward-compatibility; most new code should depend on
 // AgentTypeRepository, RunRepository, or EnvironmentRepository directly.
 type Repository interface {

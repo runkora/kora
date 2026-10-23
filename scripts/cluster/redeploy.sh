@@ -58,7 +58,7 @@ EOF
 #   build_arg   Optional --build-arg entries, space-separated KEY=VALUE pairs; empty if
 #               not needed. {sha} is the git SHA and {go_version} is GO_VERSION
 #               from versions.hcl.
-#   image       Image name (without tag); IMAGE=orbit-foo → orbit-foo:latest.
+#   image       Image name (without tag); IMAGE=kora-foo → kora-foo:latest.
 #   namespace   Cluster namespace. Use {tenant} as a placeholder.
 #   workload    Workload kind/name pair (deployment/orbit-foo or statefulset/{slug}),
 #               'sidecar' or 'release' for images with no workload of their own,
@@ -81,7 +81,7 @@ service_spec() {
 dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=identity
-image=orbit-identity
+image=kora-identity
 values_key=identity
 namespace=orbit-system
 workload=deployment/orbit-identity
@@ -96,7 +96,7 @@ EOF
 dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=identity-proxy
-image=orbit-identity-proxy
+image=kora-identity-proxy
 values_key=identityProxy
 namespace=orbit-system
 workload=sidecar
@@ -108,7 +108,7 @@ EOF
 dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=inference-gateway
-image=orbit-inference-gateway
+image=kora-inference-gateway
 values_key=inferenceGateway
 namespace=orbit-system
 workload=deployment/orbit-inference-gateway
@@ -120,7 +120,7 @@ EOF
 dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=policy-service
-image=orbit-policy-service
+image=kora-policy-service
 values_key=policyService
 namespace=orbit-system
 workload=deployment/orbit-policy-service
@@ -132,7 +132,7 @@ EOF
 dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=policy-gateway
-image=orbit-policy-gateway
+image=kora-policy-gateway
 values_key=policyGateway
 namespace=orbit-system
 workload=deployment/orbit-policy-gateway
@@ -144,19 +144,19 @@ EOF
 dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=egress-gateway
-image=orbit-egress-gateway
+image=kora-egress-gateway
 values_key=egressGateway
 namespace=orbit-system
 workload=deployment/orbit-egress-gateway
 restart=true
 EOF
       ;;
-    agents|orbit-agents)
+    agents|kora-agents)
       cat <<'EOF'
 dockerfile=backend/Dockerfile
 context=backend
-build_arg=SERVICE=orbit-agents
-image=orbit-agents
+build_arg=SERVICE=kora-agents
+image=kora-agents
 values_key=agents
 namespace=orbit-system
 workload=deployment/orbit-agents
@@ -168,31 +168,31 @@ EOF
 dockerfile=frontend/Dockerfile
 context=frontend
 build_arg=NEXT_PUBLIC_APP_URL=https://orbit.local.clearroute.io:8443
-image=orbit-frontend
+image=kora-frontend
 values_key=frontend
 namespace=orbit-system
 workload=deployment/orbit-frontend
 restart=true
 EOF
       ;;
-    orbit-mcp)
+    kora-mcp)
       cat <<'EOF'
 dockerfile=backend/Dockerfile
 context=backend
-build_arg=SERVICE=orbit-mcp
-image=orbit-mcp
+build_arg=SERVICE=kora-mcp
+image=kora-mcp
 values_key=orbitMcp
 namespace=orbit-system
 workload=deployment/orbit-mcp
 restart=true
 EOF
       ;;
-    orbit-triggers)
+    kora-triggers)
       cat <<'EOF'
 dockerfile=backend/Dockerfile
 context=backend
-build_arg=SERVICE=orbit-triggers
-image=orbit-triggers
+build_arg=SERVICE=kora-triggers
+image=kora-triggers
 values_key=triggers
 namespace=orbit-system
 workload=deployment/orbit-triggers
@@ -200,13 +200,13 @@ restart=true
 EOF
       ;;
     tool-gateway)
-      # The publisher runs the same orbit-tool-gateway image in a different mode,
+      # The publisher runs the same kora-tool-gateway image in a different mode,
       # so it must be rolled with the gateway or it keeps serving the old build.
       cat <<'EOF'
 dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=tool-gateway
-image=orbit-tool-gateway
+image=kora-tool-gateway
 values_key=toolGateway
 namespace=orbit-system
 workload=deployment/orbit-tool-gateway
@@ -221,7 +221,7 @@ EOF
 dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=migrate
-image=orbit-migrate
+image=kora-migrate
 values_key=migrate
 namespace=orbit-system
 workload=release
@@ -233,7 +233,7 @@ EOF
 dockerfile=Dockerfile.operator
 context=.
 build_arg=
-image=orbit-operator
+image=kora-operator
 values_key=operator
 namespace=orbit-system
 workload=deployment/orbit-operator
@@ -245,7 +245,7 @@ EOF
 dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=example
-image=orbit-example
+image=kora-example
 namespace=orbit-tenant-{tenant}
 workload=deployment/orbit-example
 restart=true
@@ -260,7 +260,7 @@ EOF
 dockerfile=backend/Dockerfile.session-manager
 context=backend
 build_arg=
-image=orbit-session-manager
+image=kora-session-manager
 namespace=orbit-tenant-{tenant}
 workload=statefulset/{slug}
 restart=true
@@ -273,7 +273,7 @@ EOF
 dockerfile=backend/Dockerfile.sandbox-mount
 context=backend
 build_arg=
-image=orbit-sandbox-mount
+image=kora-sandbox-mount
 values_key=sandboxMount
 namespace=
 workload=release
@@ -307,9 +307,9 @@ policy-gateway      (deployment, orbit-system)
 egress-gateway      (deployment, orbit-system)
 agents              (deployment, orbit-system)
 frontend            (deployment, orbit-system)
-orbit-mcp           (deployment, orbit-system)
+kora-mcp            (deployment, orbit-system)
 tool-gateway        (deployment, orbit-system; also rolls the publisher)
-orbit-triggers      (deployment, orbit-system)
+kora-triggers       (deployment, orbit-system)
 migrate             (hook Job; re-applies the orbit release so the schema migration runs)
 operator            (deployment, orbit-system)
 example             (deployment, orbit-tenant-<TENANT>)
@@ -367,7 +367,7 @@ pin_workload() {
     kubectl set image "$workload" \
       "$container_name=orbit-registry:5001/$IMAGE@$DIGEST" \
       -n "$NAMESPACE"
-    # Mark an agent StatefulSet as pinned so the orbit-agents reconcile keeps
+    # Mark an agent StatefulSet as pinned so the kora-agents reconcile keeps
     # this image instead of moving it to the release image.
     if [ "$kind" = "statefulset" ]; then
       kubectl annotate "$workload" orbit.io/session-manager-image-pinned=true \
@@ -388,12 +388,12 @@ layer_mkcert_ca() {
     info "secrets/mkcert-ca.pem not found; skipping CA layer (Dex TLS trust may break)"
     return 0
   fi
-  log "Layering mkcert CA into orbit-identity for local Dex TLS trust..."
+  log "Layering mkcert CA into kora-identity for local Dex TLS trust..."
   # The base image runs as uid 65532; update-ca-certificates needs root to
   # write /etc/ssl/certs, so switch for that step and drop back.
-  printf 'FROM orbit-identity:latest\nUSER 0\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\nUSER 65532:65532\n' | \
-    docker build -t orbit-identity:latest -f - secrets/
-  ok "orbit-identity:latest (with mkcert CA)"
+  printf 'FROM kora-identity:latest\nUSER 0\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\nUSER 65532:65532\n' | \
+    docker build -t kora-identity:latest -f - secrets/
+  ok "kora-identity:latest (with mkcert CA)"
 }
 
 # ── argument parsing ──────────────────────────────────────────────────────────

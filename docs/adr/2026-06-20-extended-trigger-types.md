@@ -94,7 +94,7 @@ Triggers went into `identity` in v1 because it was small. It is no longer small,
 - **Token minting was already designed for this.** `TokenMinter` is a one-method interface injected from main, and `internal/triggers/` never imports the identity feature package. Swapping the in-process implementation for a typed client is the platform-clients pattern used throughout the codebase, and `internal/triggers/` itself does not change.
 - **Migrations are a file move.** `make migrate-up` collects every `backend/cmd/*/migrations/*.sql` into one directory against a single `goose_db_version` table, ordered by timestamp prefix. Moving the trigger migrations to a new binary preserves filenames and ordering, so goose sees no change at all.
 
-What remains is mechanical and follows documented patterns: a `cmd/orbit-triggers/` main and config, an internal mint endpoint on `identity` with a typed client satisfying `TokenMinter`, a chart deployment and service, a client-mTLS DestinationRule and the app port in the mesh netpol, a Chart.yaml version bump and operator rebuild, and repointing in-mesh callers of the management API (the frontend BFF's `ORBIT_API_URL`, which gains a triggers base URL, and the MCP trigger tools).
+What remains is mechanical and follows documented patterns: a `cmd/kora-triggers/` main and config, an internal mint endpoint on `identity` with a typed client satisfying `TokenMinter`, a chart deployment and service, a client-mTLS DestinationRule and the app port in the mesh netpol, a Chart.yaml version bump and operator rebuild, and repointing in-mesh callers of the management API (the frontend BFF's `ORBIT_API_URL`, which gains a triggers base URL, and the MCP trigger tools).
 
 **Sequencing: extraction lands first, before any feature phase.** The package is the smallest it will ever be right now. Extracting after admission control, the worker loop and retention have been built means moving substantially more code. It ships as its own PR so the deployment and mesh changes are reviewable separately from the feature work.
 
@@ -833,7 +833,7 @@ Four signals, wired on the meter `orbit-triggers` builds in its own `main`:
 
 The queue and purge-freshness signals are observable gauges read at collection time rather than counters the code must remember to update, so they cannot drift from the table. A failed read of one gauge is logged and skipped rather than returned, so it does not abort the collection cycle and take the other instruments with it.
 
-The meter is set up in `cmd/orbit-triggers/main.go`, not in `internal/platform/observability/`. That package is traces-only and shared by every binary, so adding a metrics pipeline to it would change the runtime behaviour of a dozen services at once. Triggers is the first service to need metrics; the exporter selection deliberately mirrors `observability.Setup`, including its priority order, so traces and metrics are configured by the same two settings and cannot end up pointing at different collectors. This shape is what should be lifted into the platform package when a second service needs it. A `*Metrics` is nil-safe throughout, so a binary with no meter behaves exactly as it did before instrumentation existed.
+The meter is set up in `cmd/kora-triggers/main.go`, not in `internal/platform/observability/`. That package is traces-only and shared by every binary, so adding a metrics pipeline to it would change the runtime behaviour of a dozen services at once. Triggers is the first service to need metrics; the exporter selection deliberately mirrors `observability.Setup`, including its priority order, so traces and metrics are configured by the same two settings and cannot end up pointing at different collectors. This shape is what should be lifted into the platform package when a second service needs it. A `*Metrics` is nil-safe throughout, so a binary with no meter behaves exactly as it did before instrumentation existed.
 
 ---
 
@@ -875,8 +875,8 @@ The meter is set up in `cmd/orbit-triggers/main.go`, not in `internal/platform/o
 
 Lands first, as its own PR, before any feature work. No behaviour changes.
 
-1. `cmd/orbit-triggers/` with `main.go` and `config/`, wrapping `internal/triggers/` unchanged.
-2. `git mv backend/cmd/identity/migrations/*trigger*.sql backend/cmd/orbit-triggers/migrations/`. Filenames and timestamps preserved, so the pooled collection and `goose_db_version` see no change.
+1. `cmd/kora-triggers/` with `main.go` and `config/`, wrapping `internal/triggers/` unchanged.
+2. `git mv backend/cmd/identity/migrations/*trigger*.sql backend/cmd/kora-triggers/migrations/`. Filenames and timestamps preserved, so the pooled collection and `goose_db_version` see no change.
 3. Internal mint endpoint on `identity`; typed client in `internal/platform/clients/identity/` satisfying `TokenMinter`. The interface already exists and is injected from main, so nothing in `internal/triggers/` changes.
 4. Chart: deployment, service, client-mTLS DestinationRule, app port in the mesh netpol, Chart.yaml version bump, operator image rebuild.
 5. api VirtualService: repoint `/api/v1/webhooks/` to `orbit-triggers`. **The external URL is unchanged**; no source is re-pointed and no secret is re-issued.

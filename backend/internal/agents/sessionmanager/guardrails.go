@@ -119,7 +119,7 @@ const (
 // guardrail's attempts, and further requests are refused until the user replies.
 var ErrSandboxLost = errors.New("sandbox lost")
 
-// provisionWithRetry asks orbit-agents for a sandbox, retrying with a doubling
+// provisionWithRetry asks kora-agents for a sandbox, retrying with a doubling
 // backoff within the attempt count and the overall budget. Each attempt gets an
 // equal share of the budget, so one hung call cannot use up every retry. It
 // returns how many attempts it made.

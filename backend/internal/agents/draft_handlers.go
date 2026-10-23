@@ -14,7 +14,7 @@ import (
 // under /api/v1/agent-types: a nested GET /agent-types/drafts/{id} is
 // ambiguous with GET /agent-types/{id}/effective-access in Go's ServeMux
 // (registration panics). The sibling prefix carries its own route-scope
-// bindings in cmd/orbit-agents/main.go (GET → agents:types:read;
+// bindings in cmd/kora-agents/main.go (GET → agents:types:read;
 // POST/PATCH/DELETE are authenticated-only at the route layer, with the
 // DraftService requiring create authority for at least one identity mode).
 // See docs/adr/2026-07-17-agent-builder.md.

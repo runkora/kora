@@ -1,5 +1,5 @@
 // Package probes holds probe settings that must agree across more than one
-// binary: orbit-agents renders them onto the sandbox pod and the operator's
+// binary: kora-agents renders them onto the sandbox pod and the operator's
 // webhook onto its sidecars.
 package probes
 

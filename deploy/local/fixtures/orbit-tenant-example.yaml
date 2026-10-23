@@ -49,7 +49,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: orbit-example
-          image: orbit-registry:5001/orbit-example:latest
+          image: orbit-registry:5001/kora-example:latest
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false

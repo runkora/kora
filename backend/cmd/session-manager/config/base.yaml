@@ -12,7 +12,7 @@ observability:
 workspaces:
   basePath: /workspaces
 
-# orbit-agents overrides this with ORBIT_AGENTS_URL from its system namespace.
+# kora-agents overrides this with ORBIT_AGENTS_URL from its system namespace.
 orbitAgents:
   url: "http://orbit-agents.orbit-system.svc.cluster.local"
 
@@ -20,8 +20,8 @@ orbitAgents:
 runner:
   # Applies Landlock before the agent execs, for every framework.
   # See docs/adr/2026-06-04-per-session-home-isolation.md.
-  wrapperPath: orbit-session-runner
-  # The orbit-shell proxy. Exposed under a "bash" basename by
+  wrapperPath: kora-session-runner
+  # The kora-shell proxy. Exposed under a "bash" basename by
   # Dockerfile.session-manager, since shell detection keys on that.
   shellPath: /opt/orbit/shell/bash
 
@@ -36,17 +36,17 @@ opencode:
   binaryPath: opencode
 
 # inferenceGateway is the base for per-run Codex, OpenCode and summarizer URLs;
-# orbit-agents overrides it with ORBIT_INFERENCE_GATEWAY_URL from its system namespace.
+# kora-agents overrides it with ORBIT_INFERENCE_GATEWAY_URL from its system namespace.
 inferenceGateway:
   url: "http://orbit-inference-gateway.orbit-system.svc.cluster.local"
 
 # toolGateway is the MCP tool-gateway written into each run's MCP config; the identity-proxy sidecar adds the token.
-# orbit-agents overrides it with ORBIT_TOOL_GATEWAY_URL from its system namespace.
+# kora-agents overrides it with ORBIT_TOOL_GATEWAY_URL from its system namespace.
 toolGateway:
   url: "http://orbit-tool-gateway.orbit-system.svc.cluster.local"
 
 # auth guards the session-control API (create/message/interrupt/close). Every
-# caller must present a platform token AND be the orbit-agents control plane;
+# caller must present a platform token AND be the kora-agents control plane;
 # see internal/agents/sessionmanager/server.go Middleware. /health stays open
 # for the kubelet readiness probe, and /internal/* is loopback-only because its
 # callers are in-pod child processes that hold no token.

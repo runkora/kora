@@ -71,7 +71,7 @@ TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk -X POST \
 | Triggers              | `8097` |
 | Session Manager       | `8090` |
 
-(`orbit-agents` binds `8080` in-cluster; the `operator`, `identity-proxy`, and `sandbox-exec` are not host-facing HTTP. See [code-organization.md](docs/code-organization.md) for the full binary/port map.)
+(`kora-agents` binds `8080` in-cluster; the `operator`, `identity-proxy`, and `sandbox-exec` are not host-facing HTTP. See [code-organization.md](docs/code-organization.md) for the full binary/port map.)
 
 **If a call returns `{"code":"unauthorized","message":"invalid or expired platform token"}` (the token expired):**
 
@@ -177,13 +177,13 @@ kora follows a **feature-based architecture** with the repository pattern for da
 | `inference-gateway`                                                                         | `cmd/inference-gateway/` | OpenAI/Anthropic-compatible LLM gateway (port 8081)                                                                           |
 | `policy-service`                                                                            | `cmd/policy-service/`    | Authz data plane (PDP/PAP): grants, roles, OPA bundles (port 8083)                                                            |
 | `policy-gateway`                                                                            | `cmd/policy-gateway/`    | In-app authz API (PEP) (port 8084)                                                                                            |
-| `orbit-agents`                                                                              | `cmd/orbit-agents/`      | Agent control plane: runs, sessions, event streaming, k8s orchestration                                                       |
-| `orbit-triggers`                                                                            | `cmd/orbit-triggers/`    | Triggers: webhook ingestion, trigger API, cron scheduler, manual fire (port 8097)                                             |
+| `kora-agents`                                                                               | `cmd/kora-agents/`       | Agent control plane: runs, sessions, event streaming, k8s orchestration                                                       |
+| `kora-triggers`                                                                             | `cmd/kora-triggers/`     | Triggers: webhook ingestion, trigger API, cron scheduler, manual fire (port 8097)                                             |
 | `migrate`                                                                                   | `cmd/migrate/`           | Schema migrations: embeds every service's migrations, runs as the chart's pre-install/pre-upgrade hook Job                    |
 | `session-manager`                                                                           | `cmd/session-manager/`   | Per-tenant runner for the agent (Claude Code) subprocess (port 8090)                                                          |
 | `operator`                                                                                  | `cmd/operator/`          | Kubernetes operator: reconciles Tenant/Platform CRDs, injects sidecars                                                        |
 | `identity-proxy`                                                                            | `cmd/identity-proxy/`    | Envoy ext_proc sidecar: injects platform tokens into agent outbound calls                                                     |
-| `sandbox-exec`, `orbit-runtime-mcp`, `orbit-shell`, `orbit-session-runner`, `sandbox-mount` | `cmd/*/`                 | Agent sandbox/exec stack (gRPC exec, MCP provisioning, shell shim, isolation wrapper, node agent for sandbox working folders) |
+| `sandbox-exec`, `kora-runtime-mcp`, `kora-shell`, `kora-session-runner`, `sandbox-mount`    | `cmd/*/`                 | Agent sandbox/exec stack (gRPC exec, MCP provisioning, shell shim, isolation wrapper, node agent for sandbox working folders) |
 | `example`                                                                                   | `cmd/example/`           | Reference implementation (not production)                                                                                     |
 
 > There is **no `cmd/orbit`** binary; the main API is `cmd/identity`. See [docs/code-organization.md](docs/code-organization.md) for the complete map.

@@ -8,5 +8,5 @@ platform:
   policyServiceURL: ""
 
 agents:
-  sessionManagerImage: orbit-registry:5001/orbit-session-manager:latest
+  sessionManagerImage: orbit-registry:5001/kora-session-manager:latest
   sandboxImage: orbit-registry:5001/kora-sandbox-base:latest

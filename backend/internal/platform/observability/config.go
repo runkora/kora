@@ -100,7 +100,7 @@ func mustLoadConfig() *ObservabilityConfig {
 	return cfg
 }
 
-// applyGoSetEnv reads the collector settings orbit-agents and the operator set
+// applyGoSetEnv reads the collector settings kora-agents and the operator set
 // on the session-manager and identity-proxy containers they build, which have
 // no rendered config file (docs/adr/2026-10-06-rendered-service-config-files.md).
 func applyGoSetEnv(cfg *ObservabilityConfig, getenv func(string) string) error {

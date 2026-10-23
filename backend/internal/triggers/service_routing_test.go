@@ -435,7 +435,7 @@ func TestUpdateRoutedTrigger(t *testing.T) {
 	})
 }
 
-// runnable is orbit-agents' can_run for the caller; delegated agents are never runnable.
+// runnable is kora-agents' can_run for the caller; delegated agents are never runnable.
 func TestRoutingCandidates(t *testing.T) {
 	_, deps, _, _ := routedHarness(t)
 	for i := range deps.agents.agentTypes {
@@ -560,7 +560,7 @@ func TestDispatchRouted_OutcomeOrder(t *testing.T) {
 	}
 }
 
-// orbit-agents lists only the agent types the caller can read. The trigger's
+// kora-agents lists only the agent types the caller can read. The trigger's
 // grant must hold the read scope of every candidate for the model to be asked.
 func TestDispatchRouted_GrantLetsDecideReadCandidates(t *testing.T) {
 	svc, deps, decisions, src := routedHarness(t)

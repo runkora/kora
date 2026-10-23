@@ -712,7 +712,7 @@ func TestHandleGetRunUsage_RunAccess(t *testing.T) {
 	}{
 		{"unreadable run", &stubRunReader{err: agentsclient.ErrForbidden}, http.StatusForbidden},
 		{"run in no tenant the caller sees", &stubRunReader{err: agentsclient.ErrRunNotFound}, http.StatusNotFound},
-		{"orbit-agents unavailable", &stubRunReader{err: agentsclient.ErrUpstreamUnavailable}, http.StatusInternalServerError},
+		{"kora-agents unavailable", &stubRunReader{err: agentsclient.ErrUpstreamUnavailable}, http.StatusInternalServerError},
 		{"no run reader wired", nil, http.StatusForbidden},
 	}
 	for _, id := range []string{"stats", "run-123", "3F1C2A9E-8D4B-4C1A-9F2E-6B7A1D0C5E43"} {

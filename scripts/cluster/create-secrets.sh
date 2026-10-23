@@ -82,7 +82,7 @@ if should_run "orbit-system"; then
     || fail "BFF_SESSION_SECRET is not set. 'make setup' generates it into .env"
   [[ ${#BFF_SESSION_SECRET} -ge 32 ]] \
     || fail "BFF_SESSION_SECRET must be at least 32 characters (got ${#BFF_SESSION_SECRET})"
-  # orbit-triggers refuses to start without this: it encrypts every webhook
+  # kora-triggers refuses to start without this: it encrypts every webhook
   # source's signing secret at rest, and there is deliberately no in-code
   # fallback to boot without one.
   #

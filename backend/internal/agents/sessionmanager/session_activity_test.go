@@ -395,7 +395,7 @@ func TestInterrupt_RuntimeThatSurvivesTheStop(t *testing.T) {
 }
 
 // Text the agent wrote before a mid-turn message is recorded before the
-// message, which orbit-agents records once Send returns.
+// message, which kora-agents records once Send returns.
 func TestSend_RecordsTheTextBeforeAMidTurnMessage(t *testing.T) {
 	reg, r, n := startScripted(t, time.Minute)
 	t.Cleanup(func() { _ = reg.Close(context.Background(), "run-1") })

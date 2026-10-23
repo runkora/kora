@@ -192,7 +192,7 @@ func TestSandboxOwnerRef_PointsAtParentStatefulSet(t *testing.T) {
 	// Non-controller: the StatefulSet controller is not us; the reference
 	// exists only to gate GC.
 	if ref.Controller == nil || *ref.Controller {
-		t.Errorf("Controller = %v, want false (sandbox pods are not controlled by orbit-agents)", ref.Controller)
+		t.Errorf("Controller = %v, want false (sandbox pods are not controlled by kora-agents)", ref.Controller)
 	}
 	if ref.BlockOwnerDeletion == nil || *ref.BlockOwnerDeletion {
 		t.Errorf("BlockOwnerDeletion = %v, want false", ref.BlockOwnerDeletion)

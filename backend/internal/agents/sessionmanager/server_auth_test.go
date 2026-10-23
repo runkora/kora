@@ -97,7 +97,7 @@ func TestMiddleware_InternalRoutesAreLoopbackOnly(t *testing.T) {
 		wantReach  bool
 		wantStatus int
 	}{
-		// orbit-runtime-mcp and orbit-shell call http://localhost:8090 from
+		// kora-runtime-mcp and kora-shell call http://localhost:8090 from
 		// inside this container; the hop never leaves the pod.
 		{"ipv4 loopback", "127.0.0.1:41234", true, http.StatusOK},
 		{"ipv6 loopback", "[::1]:41234", true, http.StatusOK},

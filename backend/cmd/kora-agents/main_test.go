@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	agentsConfig "github.com/runkora/kora/backend/cmd/orbit-agents/config"
+	agentsConfig "github.com/runkora/kora/backend/cmd/kora-agents/config"
 	"github.com/runkora/kora/backend/internal/agents"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -69,7 +69,7 @@ func newAgentTypeService() *agents.AgentTypeService {
 }
 
 // TestInitScopeRegistrationPublishesRoutesAndSlugScopes asserts the register
-// function orbit-agents hands to KeepRegistered sends the right payload: the
+// function kora-agents hands to KeepRegistered sends the right payload: the
 // whole route table, authenticated-only routes included, and a vocabulary
 // covering both the static scopes and the per-agent-type ones.
 func TestInitScopeRegistrationPublishesRoutesAndSlugScopes(t *testing.T) {

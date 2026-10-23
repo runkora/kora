@@ -91,7 +91,7 @@ var allowedStatus = map[grantOp]int{opCreate: http.StatusCreated, opBudget: http
 // runGrantWrite sends one grant write as a caller of callerType in tenant t1 and
 // returns the status, the response body and the repository, for write-count
 // assertions. A SYSTEM caller has no tenant in its token and names the tenant in
-// the create body, as orbit-agents and identity do. The grant
+// the create body, as kora-agents and identity do. The grant
 // in the request (create) or in the store (budget, delete) has principal type
 // grantType in tenant grantTenant.
 func runGrantWrite(t *testing.T, op grantOp, callerType token.PrincipalType, grantType, grantTenant string) (int, string, *writeRecordingGrants) {
@@ -232,7 +232,7 @@ func TestGrantCreate_UnknownPrincipalTypeFailsClosed(t *testing.T) {
 }
 
 // A SYSTEM caller has no tenant of its own and writes into any tenant: the real
-// orbit-agents and identity path.
+// kora-agents and identity path.
 func TestGrantWrites_SystemWritesAnotherTenant(t *testing.T) {
 	for _, op := range allGrantOps {
 		t.Run(string(op), func(t *testing.T) {

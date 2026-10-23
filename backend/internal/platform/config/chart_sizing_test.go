@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/yaml"
 
-	agentsConfig "github.com/runkora/kora/backend/cmd/orbit-agents/config"
+	agentsConfig "github.com/runkora/kora/backend/cmd/kora-agents/config"
 	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
@@ -43,11 +43,11 @@ func renderChart(t *testing.T, values string, extra ...string) string {
 func TestChartMaxSizeFallsBackToDefaultSize(t *testing.T) {
 	out := renderChart(t, "agents:\n  environments:\n    defaultSize: {cpu: \"3\", memory: 6Gi, disk: 12Gi}\n    maxSize: {cpu: \"6\"}\n")
 	for _, root := range writeMountedConfig(t, out) {
-		if _, err := os.Stat(filepath.Join(root, "cmd", "orbit-agents.yaml")); err != nil {
+		if _, err := os.Stat(filepath.Join(root, "cmd", "kora-agents.yaml")); err != nil {
 			continue
 		}
 		config.SetOverlayRoot(root)
-		cfg, err := config.LoadService[agentsConfig.Config]("cmd/orbit-agents", "production")
+		cfg, err := config.LoadService[agentsConfig.Config]("cmd/kora-agents", "production")
 		config.SetOverlayRoot("/etc/orbit/config")
 		if err != nil {
 			t.Fatal(err)
@@ -117,11 +117,11 @@ func TestChartIdleTimeouts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			out := renderChart(t, tt.values)
 			for _, root := range writeMountedConfig(t, out) {
-				if _, err := os.Stat(filepath.Join(root, "cmd", "orbit-agents.yaml")); err != nil {
+				if _, err := os.Stat(filepath.Join(root, "cmd", "kora-agents.yaml")); err != nil {
 					continue
 				}
 				config.SetOverlayRoot(root)
-				cfg, err := config.LoadService[agentsConfig.Config]("cmd/orbit-agents", "production")
+				cfg, err := config.LoadService[agentsConfig.Config]("cmd/kora-agents", "production")
 				config.SetOverlayRoot("/etc/orbit/config")
 				if err != nil {
 					t.Fatal(err)

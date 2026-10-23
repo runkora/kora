@@ -104,7 +104,7 @@ For example, a `coder` agent type produces:
 
 ### Implementation
 
-`initScopeRegistration` is added to `cmd/orbit-agents/main.go`, mirroring inference-gateway's pattern:
+`initScopeRegistration` is added to `cmd/kora-agents/main.go`, mirroring inference-gateway's pattern:
 
 ```go
 func initScopeRegistration(ctx context.Context, logger logging.Logger, repo agents.Repository, svc *agents.Service) {

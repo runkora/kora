@@ -221,7 +221,7 @@ ingressGateway:
 operator:
   image:
     registry: ""
-    repository: orbit-operator
+    repository: kora-operator
     tag: ""
     digest: ""
     pullPolicy: ""
@@ -296,7 +296,7 @@ operator:
 identityProxy:
   image:
     registry: ""
-    repository: orbit-identity-proxy
+    repository: kora-identity-proxy
     tag: ""
     digest: ""
     pullPolicy: ""
@@ -313,7 +313,7 @@ identityProxy:
 migrate:
   image:
     registry: ""
-    repository: orbit-migrate
+    repository: kora-migrate
     tag: ""
     digest: ""
     pullPolicy: ""
@@ -345,7 +345,7 @@ migrate:
 identity:
   image:
     registry: ""
-    repository: orbit-identity
+    repository: kora-identity
     tag: ""
     digest: ""
     pullPolicy: ""
@@ -386,7 +386,7 @@ identity:
 inferenceGateway:
   image:
     registry: ""
-    repository: orbit-inference-gateway
+    repository: kora-inference-gateway
     tag: ""
     digest: ""
     pullPolicy: ""
@@ -430,7 +430,7 @@ inferenceGateway:
 orbitMcp:
   image:
     registry: ""
-    repository: orbit-mcp
+    repository: kora-mcp
     tag: ""
     digest: ""
     pullPolicy: ""
@@ -464,7 +464,7 @@ orbitMcp:
 toolGateway:
   image:
     registry: ""
-    repository: orbit-tool-gateway
+    repository: kora-tool-gateway
     tag: ""
     digest: ""
     pullPolicy: ""
@@ -502,7 +502,7 @@ toolGateway:
 frontend:
   image:
     registry: ""
-    repository: orbit-frontend
+    repository: kora-frontend
     tag: ""
     digest: ""
     pullPolicy: ""
@@ -550,7 +550,7 @@ frontend:
 agents:
   image:
     registry: ""
-    repository: orbit-agents
+    repository: kora-agents
     tag: ""
     digest: ""
     pullPolicy: ""
@@ -576,11 +576,11 @@ agents:
   serviceAccount:
     annotations: {}
   config:
-    # Images orbit-agents runs in tenant namespaces. Empty means <global.imageRegistry>/orbit-session-manager
+    # Images orbit-agents runs in tenant namespaces. Empty means <global.imageRegistry>/kora-session-manager
     # and kora-sandbox-base at global.imageTag or the appVersion. sandboxImage is registered per tenant as kora-base.
     sessionManagerImage: ""
-    # Digest of orbit-session-manager, set by the release. When set, the default image is
-    # <global.imageRegistry>/orbit-session-manager@<digest>, so a mirror keeps the pin.
+    # Digest of kora-session-manager, set by the release. When set, the default image is
+    # <global.imageRegistry>/kora-session-manager@<digest>, so a mirror keeps the pin.
     sessionManagerDigest: ""
     sandboxImage: ""
     # Git author name inside the sandbox. Empty means kora-agent.
@@ -594,7 +594,7 @@ agents:
   # -- Raw config merged last over orbit-agents' rendered config files, keyed by
   # config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys
   # follow the Go config structs; an unknown key fails startup.
-  # e.g. {cmd/orbit-agents: {drafts: {retentionDays: 7}}}
+  # e.g. {cmd/kora-agents: {drafts: {retentionDays: 7}}}
   configOverrides: {}
   # -- Seconds a sandbox container (sandbox-exec, identity-proxy, opa) may take to
   # start before its startup probe restarts it. A ceiling for a stuck container,
@@ -814,7 +814,7 @@ sandboxMount:
   port: 20490
   image:
     registry: ""
-    repository: orbit-sandbox-mount
+    repository: kora-sandbox-mount
     tag: ""
     digest: ""
     pullPolicy: ""
@@ -841,7 +841,7 @@ sandboxMount:
 policyService:
   image:
     registry: ""
-    repository: orbit-policy-service
+    repository: kora-policy-service
     tag: ""
     digest: ""
     pullPolicy: ""
@@ -876,7 +876,7 @@ policyService:
 policyGateway:
   image:
     registry: ""
-    repository: orbit-policy-gateway
+    repository: kora-policy-gateway
     tag: ""
     digest: ""
     pullPolicy: ""
@@ -909,7 +909,7 @@ policyGateway:
 triggers:
   image:
     registry: ""
-    repository: orbit-triggers
+    repository: kora-triggers
     tag: ""
     digest: ""
     pullPolicy: ""
@@ -979,7 +979,7 @@ egressGateway:
     enabled: true
   image:
     registry: ""
-    repository: orbit-egress-gateway
+    repository: kora-egress-gateway
     tag: ""
     digest: ""
     pullPolicy: ""

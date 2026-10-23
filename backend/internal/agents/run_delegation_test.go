@@ -283,7 +283,7 @@ func TestTransition_TerminalStatesRevokeDelegation(t *testing.T) {
 			if got := issuer.revokedJTIs(); len(got) != 1 || got[0] != jti {
 				t.Errorf("revoked = %v, want [%s]", got, jti)
 			}
-			// The revoke authenticated with orbit-agents' own service token.
+			// The revoke authenticated with kora-agents' own service token.
 			if len(issuer.revokeBearers) != 1 || issuer.revokeBearers[0] != "svc-token" {
 				t.Errorf("revoke bearer = %v, want [svc-token]", issuer.revokeBearers)
 			}

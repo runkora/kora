@@ -17,7 +17,7 @@ var ErrScopeCeiling = errors.New("agent scope ceiling")
 
 // errDelegatedCaller is returned when an agent acting for a person tries to
 // write an autonomous agent or confer scopes on an agent. Its grant is only a ceiling on the person's
-// access, which orbit-agents cannot resolve.
+// access, which kora-agents cannot resolve.
 var errDelegatedCaller = errors.New("an agent acting for a person cannot write an autonomous agent or confer scopes on an agent")
 
 // errNoCallerScopes is returned when no caller-scope source is configured.
@@ -29,7 +29,7 @@ type callerScopeSource interface {
 }
 
 // checkCeiling refuses an agent whose grant, resolved by r, would hold a scope
-// the caller does not. orbit-agents provisions the grant as SYSTEM, which the
+// the caller does not. kora-agents provisions the grant as SYSTEM, which the
 // policy service exempts from its own ceiling.
 func (s *AgentTypeService) checkCeiling(ctx context.Context, at AgentType, r *ScopeResolver) error {
 	return s.checkCeilingWith(ctx, at, r, s.callers)

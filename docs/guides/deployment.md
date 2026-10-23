@@ -88,7 +88,7 @@ agents:
     accessModes: [ReadWriteMany]
 ```
 
-A sandbox mounts its session-manager's workspace volume, so the moment the two run on different nodes that volume must be `ReadWriteMany` on a network filesystem, as above. The chart refuses to render a split placement over a workspace that is not `ReadWriteMany`, and `orbit-agents` repeats the check at startup and when it provisions an agent type. The check compares node selectors and required node affinity; pod anti-affinity can separate pods without naming a pool and is not inspected.
+A sandbox mounts its session-manager's workspace volume, so the moment the two run on different nodes that volume must be `ReadWriteMany` on a network filesystem, as above. The chart refuses to render a split placement over a workspace that is not `ReadWriteMany`, and `kora-agents` repeats the check at startup and when it provisions an agent type. The check compares node selectors and required node affinity; pod anti-affinity can separate pods without naming a pool and is not inspected.
 
 On a `ReadWriteOnce` workspace, kora pins each sandbox to the node running the session-manager replica whose workspace it mounts, since matching node selectors alone leave a pool free to place them apart. A sandbox waits for room on that node rather than starting elsewhere and failing to attach.
 
@@ -254,7 +254,7 @@ The operator needs `agents.sandboxImages.registryPorts` for a registry on a port
 
 `agents.workloads.common.podLabels` and `podAnnotations` reach both provisioned pods, for cost allocation, network policy selection, backup exclusion or an admission controller of your own. The per-workload blocks take the same keys and win where both set one.
 
-kora owns the labels identifying a pod to SPIRE, the sidecar injector and its StatefulSet, and the annotations wiring it into the mesh. Setting one of those fails `orbit-agents` at startup naming the key, rather than silently moving a pod off its attested identity.
+kora owns the labels identifying a pod to SPIRE, the sidecar injector and its StatefulSet, and the annotations wiring it into the mesh. Setting one of those fails `kora-agents` at startup naming the key, rather than silently moving a pod off its attested identity.
 
 `agents.workloads.sessionManager.serviceAccount.annotations` annotates the ServiceAccount provisioned for each agent, which is where cloud identity goes:
 
@@ -580,5 +580,5 @@ A failed migration fails the upgrade before any workload changes. Under Helm the
 - [Install and distribution model](../adr/2026-09-04-install-and-distribution-model.md): why kora ships as two charts and the operator manages only tenants.
 - [Enforcement sidecar injection and preflight](../adr/2026-09-04-enforcement-sidecar-injection-and-preflight.md): how kora injects its sidecars and runs preflight on the mesh before install.
 - [Service mesh and network enforcement](../adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md): the mesh and NetworkPolicy enforcement the platform runs on.
-- [Manifest patches](../adr/2026-09-15-manifest-patches-configmap.md): how operators patch the resources orbit-agents provisions in tenant namespaces.
+- [Manifest patches](../adr/2026-09-15-manifest-patches-configmap.md): how operators patch the resources kora-agents provisions in tenant namespaces.
 - [White-labelling theme](../adr/2026-10-12-white-labelling-theme.md): how a theme reaches a deployment, and where it is validated.

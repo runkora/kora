@@ -140,7 +140,7 @@ func TestServedHealth_Draining(t *testing.T) {
 	}
 }
 
-// A draining pod answers a new session with 503, which orbit-agents retries on another pod.
+// A draining pod answers a new session with 503, which kora-agents retries on another pod.
 func TestHandleCreateSession_Draining(t *testing.T) {
 	c, _ := sandboxTestController(t)
 	c.registry.Drain(context.Background(), time.Millisecond)

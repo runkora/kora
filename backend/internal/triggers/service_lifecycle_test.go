@@ -112,7 +112,7 @@ func TestCreateTrigger_AgentTypeNotFound(t *testing.T) {
 
 func TestCreateTrigger_AgentTypeWrongTenant(t *testing.T) {
 	// Defense in depth: an agent type reported under a different tenant must never
-	// bind, even if orbit-agents somehow returned it.
+	// bind, even if kora-agents somehow returned it.
 	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
 	deps.agents.atTenant = "other-tenant"
@@ -174,7 +174,7 @@ func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
 	}
 }
 
-// Binding hands the trigger principal the agent's run scopes. orbit-agents must say the caller can run the agent first.
+// Binding hands the trigger principal the agent's run scopes. kora-agents must say the caller can run the agent first.
 func TestCreateTrigger_RequiresCallerRunAccess(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -191,7 +191,7 @@ func TestCreateTrigger_RequiresCallerRunAccess(t *testing.T) {
 		{"manual refused", KindManual, true, 0, true},
 		{"caller cannot read the type", KindManual, false, http.StatusNotFound, true},
 		{"caller forbidden", KindManual, false, http.StatusForbidden, true},
-		{"orbit-agents failure fails closed", KindManual, false, http.StatusInternalServerError, true},
+		{"kora-agents failure fails closed", KindManual, false, http.StatusInternalServerError, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

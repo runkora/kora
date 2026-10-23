@@ -202,7 +202,7 @@ spire:
 
 Settings shared by every service live on `global`: log format, the Postgres SSL mode and query-text capture, the OTLP insecure flag, and the image registry and tag. A component block overrides one where it must. The chart reads the `global` value directly, so these fields are no longer repeated per component.
 
-The system namespace is variable. The chart renders every namespaced object into `.Release.Namespace` and the operator and orbit-agents receive `ORBIT_SYSTEM_NAMESPACE`; the literals in `registry.go`, `tenant_netpol.go`, `tenant_controller.go`, `agents/k8s.go` and `cmd/orbit-agents/config/base.yaml` are removed. `orbit-system` remains the default.
+The system namespace is variable. The chart renders every namespaced object into `.Release.Namespace` and the operator and orbit-agents receive `ORBIT_SYSTEM_NAMESPACE`; the literals in `registry.go`, `tenant_netpol.go`, `tenant_controller.go`, `agents/k8s.go` and `cmd/kora-agents/config/base.yaml` are removed. `orbit-system` remains the default.
 
 The chart renders the `orbit-config` ConfigMap from `config.*`. `config.platformSecretName` is the single Secret reference; the per-component `existingSecret` values collapse into it, with `frontend.existingSecret` kept because the BFF session secret is a different Secret. `platform.namespaces.tenants` is removed: tenant namespaces are created only by the operator from `OrbitTenant`, or adopted when `spec.namespace` names an existing one, which removes the coupling that made the platform release depend on tenant CR state.
 

@@ -1058,7 +1058,7 @@ func (r *postgresRepository) DueScheduledMinutesWithoutDelivery(ctx context.Cont
 // settledRunStatesSQL is the SQL value list of run states that no longer occupy
 // one of a trigger's parallel slots.
 //
-// 'idle' belongs here even though orbit-agents does not treat it as terminal. An
+// 'idle' belongs here even though kora-agents does not treat it as terminal. An
 // idle run has finished its turn and is waiting for a message that will never
 // come: a trigger-started run has no person on the other end. Counting it as
 // in-flight until the 30-minute run reaper collects it throttles a healthy
@@ -1269,7 +1269,7 @@ func (r *postgresRepository) InFlightCount(ctx context.Context, triggerID string
 	// trigger-started run has nobody to send it the next message), plus
 	// pending rows a worker has claimed but not yet dispatched
 	// (invisible to the fan-out until the outcome commits). The runs table is
-	// owned by orbit-agents; this read-only join is a deliberate deployment
+	// owned by kora-agents; this read-only join is a deliberate deployment
 	// coupling (one Postgres, pooled migrations) so max_parallel can mean
 	// "runs actually running" rather than "started within the horizon". The
 	// hour horizon stays as the backstop for a run whose terminal state was

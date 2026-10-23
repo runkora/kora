@@ -1,5 +1,5 @@
 // Package manifestpatch applies operator-authored kustomize patches to the
-// Kubernetes objects orbit-agents provisions, using the kustomize engine.
+// Kubernetes objects kora-agents provisions, using the kustomize engine.
 //
 // See docs/adr/2026-09-15-manifest-patches-configmap.md.
 package manifestpatch
@@ -13,7 +13,7 @@ type Patch struct {
 	Entry types.Patch
 }
 
-// apiVersions maps each Kind orbit-agents provisions to its apiVersion.
+// apiVersions maps each Kind kora-agents provisions to its apiVersion.
 // A patch can only target these Kinds.
 var apiVersions = map[string]string{
 	"StatefulSet":             "apps/v1",

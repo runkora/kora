@@ -17,7 +17,7 @@ COPY . .
 ARG TARGETOS TARGETARCH
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit ./cmd/sandbox-mount
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /kora ./cmd/sandbox-mount
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
@@ -27,6 +27,6 @@ RUN apk add --no-cache nfs-utils && mkdir -p /var/lib/nfs /exports
 
 WORKDIR /app
 COPY --from=builder /app/cmd/sandbox-mount/config/base.yaml ./cmd/sandbox-mount/config/base.yaml
-COPY --from=builder /orbit ./orbit
+COPY --from=builder /kora ./kora
 
-ENTRYPOINT ["/app/orbit"]
+ENTRYPOINT ["/app/kora"]

@@ -3,8 +3,8 @@
 // this token as the only thing distinguishing one run's sandbox from its
 // siblings (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 //
-// Four binaries agree on the key and env var here: orbit-agents sets the token
-// on the pod, sandbox-exec reads it back, session-manager and orbit-shell
+// Four binaries agree on the key and env var here: kora-agents sets the token
+// on the pod, sandbox-exec reads it back, session-manager and kora-shell
 // present it.
 package execauth
 

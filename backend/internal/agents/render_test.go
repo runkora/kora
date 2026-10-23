@@ -16,7 +16,7 @@ import (
 // unless RenderResources is updated to match.
 func TestRenderResources_ParityWithBuilders(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage:    "orbit-session-manager:render",
+		SessionManagerImage:    "kora-session-manager:render",
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
@@ -67,7 +67,7 @@ func TestRenderResources_ParityWithBuilders(t *testing.T) {
 // flavours and leaves the sandbox identity labels in place.
 func TestRenderResources_AppliesPatches(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage:    "orbit-session-manager:render",
+		SessionManagerImage:    "kora-session-manager:render",
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
@@ -149,7 +149,7 @@ patch: |
 // error on the first run into a startup failure.
 func TestRenderResources_SplitPoolRejectsReadWriteOnceWorkspace(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage:    "orbit-session-manager:render",
+		SessionManagerImage:    "kora-session-manager:render",
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
@@ -176,7 +176,7 @@ patch: |
 
 func TestRenderResources_SplitPoolAcceptsReadWriteManyWorkspace(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage:    "orbit-session-manager:render",
+		SessionManagerImage:    "kora-session-manager:render",
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
@@ -233,7 +233,7 @@ func TestRenderResources_SplitByNodeAffinityRejectsReadWriteOnceWorkspace(t *tes
 `
 	}
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage:    "orbit-session-manager:render",
+		SessionManagerImage:    "kora-session-manager:render",
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
@@ -270,7 +270,7 @@ patch: |
 // type at provisioning time.
 func TestCheckSandboxPlacement_CatchesPatchesScopedToOneAgentType(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage:    "orbit-session-manager:render",
+		SessionManagerImage:    "kora-session-manager:render",
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
@@ -318,7 +318,7 @@ patch: |
 // the pods, so a ReadWriteOnce workspace stays valid.
 func TestRenderResources_OneSidedPlacementKeepsReadWriteOnce(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage:    "orbit-session-manager:render",
+		SessionManagerImage:    "kora-session-manager:render",
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,

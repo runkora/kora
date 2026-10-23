@@ -27,7 +27,7 @@ type Config struct {
 		InternalURL string `yaml:"internalURL"`
 	} `yaml:"identity"`
 	Agents struct {
-		// InternalURL is the in-cluster base URL for orbit-agents. The run usage
+		// InternalURL is the in-cluster base URL for kora-agents. The run usage
 		// meter asks it whether the caller may read the run.
 		InternalURL string `yaml:"internalURL"`
 	} `yaml:"agents"`

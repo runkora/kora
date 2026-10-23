@@ -19,22 +19,22 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `policy-service` | Authorization data plane (PDP/PAP): grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`); metrics `9464` | ✅ |
 | `policy-gateway` | In-app authorization API (PEP): `/policy/check`, `/query`, `/scopes`, `/explain`, `/simulate` | `8084` (`/v1`); metrics `9464` | none |
 | `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer); backed by `internal/credentials` | `8085`; metrics `9464` | none |
-| `orbit-mcp` | Platform-management MCP server: exposes kora's own APIs as governed MCP tools | `8095`; metrics `9464` | none |
+| `kora-mcp` | Platform-management MCP server: exposes kora's own APIs as governed MCP tools | `8095`; metrics `9464` | none |
 | `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`); metrics `9464` | ✅ |
-| `orbit-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster); metrics `9464` | ✅ |
-| `orbit-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097`; metrics `9464` | ✅ |
+| `kora-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster); metrics `9464` | ✅ |
+| `kora-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097`; metrics `9464` | ✅ |
 | `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090`; metrics `9464` (Go-side only, no chart wiring: there is no `charts/orbit/templates/session-manager/`, so no Service port, scrape annotation, or NetworkPolicy allowance) | none |
 | `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar) | health `8081`, webhook `9443` | none |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |
 | `sandbox-exec` | gRPC exec server inside a sandbox pod: streams stdout/stderr/exit for commands | gRPC `50051` | none |
-| `orbit-runtime-mcp` | MCP server (stdio) spawned by the agent CLI: exposes the `list_environments`, `provision_sandbox` and `replace_environment` tools | stdio | none |
-| `orbit-shell` | `$SHELL` shim in the agent container: execs local bash or streams `-c` commands to the sandbox pod | none | none |
-| `orbit-session-runner` | Wrapper that applies Landlock, then `exec()`s the agent CLI | none | none |
+| `kora-runtime-mcp` | MCP server (stdio) spawned by the agent CLI: exposes the `list_environments`, `provision_sandbox` and `replace_environment` tools | stdio | none |
+| `kora-shell` | `$SHELL` shim in the agent container: execs local bash or streams `-c` commands to the sandbox pod | none | none |
+| `kora-session-runner` | Wrapper that applies Landlock, then `exec()`s the agent CLI | none | none |
 | `sandbox-mount` | Privileged node agent (DaemonSet): exports each sandbox's local working folder with the kernel NFS server and mounts it into the session-manager pod at `/workspaces/<run>/sandbox` | NFS `20490` (host network, `sandboxMount.port`) | none |
 | `migrate` | Schema migrations: embeds every service's `migrations/` and runs them as the chart's pre-install/pre-upgrade hook Job | none | none |
 | `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |
 
-> The sandbox, shell, MCP and session-runner binaries form the agent execution stack. `session-manager` runs Claude Code through `orbit-session-runner`, and Claude calls `orbit-runtime-mcp` to `list_environments`, `provision_sandbox` and `replace_environment`. The sandbox pod runs `sandbox-exec`, and Claude's `Bash` goes through `orbit-shell` to that pod. With `sandboxMount.enabled`, `sandbox-mount` shares the sandbox's local folder with the session-manager pod ([sandbox-workspace-mount](adr/2026-10-08-sandbox-workspace-mount.md)). See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
+> The sandbox, shell, MCP and session-runner binaries form the agent execution stack. `session-manager` runs Claude Code through `kora-session-runner`, and Claude calls `kora-runtime-mcp` to `list_environments`, `provision_sandbox` and `replace_environment`. The sandbox pod runs `sandbox-exec`, and Claude's `Bash` goes through `kora-shell` to that pod. With `sandboxMount.enabled`, `sandbox-mount` shares the sandbox's local folder with the session-manager pod ([sandbox-workspace-mount](adr/2026-10-08-sandbox-workspace-mount.md)). See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
 
 ### Feature packages (`backend/internal/`)
 
@@ -70,17 +70,17 @@ orbit/
 │   │   ├── policy-service/           # ... owns tables (migrations/)
 │   │   ├── policy-gateway/           # config only (no DB)
 │   │   ├── egress-gateway/           # JIT credential broker (no DB)
-│   │   ├── orbit-mcp/                # platform-management MCP server (no DB)
+│   │   ├── kora-mcp/                 # platform-management MCP server (no DB)
 │   │   ├── tool-gateway/             # governed MCP/tool gateway; owns tables (migrations/)
-│   │   ├── orbit-agents/             # ... owns tables (migrations/)
-│   │   ├── orbit-triggers/           # ... owns tables (migrations/)
+│   │   ├── kora-agents/              # ... owns tables (migrations/)
+│   │   ├── kora-triggers/            # ... owns tables (migrations/)
 │   │   ├── session-manager/          # config only
 │   │   ├── operator/                 # K8s operator (controller-runtime)
 │   │   ├── identity-proxy/           # ext_proc sidecar
 │   │   ├── sandbox-exec/             # gRPC exec server (no config/)
-│   │   ├── orbit-runtime-mcp/        # stdio MCP server (no config/)
-│   │   ├── orbit-shell/              # $SHELL shim (no config/)
-│   │   ├── orbit-session-runner/     # isolation wrapper (no config/)
+│   │   ├── kora-runtime-mcp/         # stdio MCP server (no config/)
+│   │   ├── kora-shell/               # $SHELL shim (no config/)
+│   │   ├── kora-session-runner/      # isolation wrapper (no config/)
 │   │   ├── sandbox-mount/            # node agent for sandbox working folders
 │   │   └── example/                  # Reference binary
 │   │
@@ -228,7 +228,7 @@ Use `errors.Is(err, pgx.ErrNoRows)` for not-found checks. `storage.WithTransacti
 
 ### 4. Redis access via `storage.RedisClient`
 
-Redis is a first-class storage primitive. `storage.RedisClient` wraps a `*redis.Client`; features that need it receive `*storage.RedisClient` via their constructor (the identity service writes the JTI blocklist; identity, orbit-agents, orbit-triggers, policy-service and the inference, tool, egress and policy gateways read it to refuse revoked delegations). `storage.NewRedis` never fails because Redis is unreachable. A background probe tracks reachability and publishes `orbit.redis.available`; while Redis is down the JTI blocklist fails open with an error log.
+Redis is a first-class storage primitive. `storage.RedisClient` wraps a `*redis.Client`; features that need it receive `*storage.RedisClient` via their constructor (the identity service writes the JTI blocklist; identity, kora-agents, kora-triggers, policy-service and the inference, tool, egress and policy gateways read it to refuse revoked delegations). `storage.NewRedis` never fails because Redis is unreachable. A background probe tracks reachability and publishes `orbit.redis.available`; while Redis is down the JTI blocklist fails open with an error log.
 
 ### 5. Service-to-service calls via platform clients
 
@@ -267,8 +267,8 @@ Each binary under `backend/cmd/` has its own `main.go` and is otherwise independ
 - **`cmd/identity`**: the main API (port 8080). Loads its config via `MustLoadService`, initializes observability, builds `*storage.DB` + `*storage.RedisClient` (`initStorage`), wires feature services and their `api.Controller`s (`initControllers`), and serves HTTP. Runs in the cluster; roll a change with `make redeploy SERVICE=identity`.
 - **`cmd/inference-gateway`**: the LLM gateway (port 8081); provider backends under `internal/inferencegw/providers/`.
 - **`cmd/policy-service`** / **`cmd/policy-gateway`**: the PDP/PAP (8083) and PEP (8084) split; see [policy-gateway-and-authorisation-model](adr/2026-04-14-policy-gateway-and-authorisation-model.md).
-- **`cmd/orbit-agents`**: the agent control plane; see [orbit-agents-service-architecture](adr/2026-05-11-orbit-agents-service-architecture.md).
-- **`cmd/orbit-triggers`**: the platform's front door for starting work; see [extended-trigger-types](adr/2026-06-20-extended-trigger-types.md).
+- **`cmd/kora-agents`**: the agent control plane; see [orbit-agents-service-architecture](adr/2026-05-11-orbit-agents-service-architecture.md).
+- **`cmd/kora-triggers`**: the platform's front door for starting work; see [extended-trigger-types](adr/2026-06-20-extended-trigger-types.md).
 - **`cmd/identity-proxy`**: the `ext_proc` sidecar; see [envoy-ext-proc-sidecar-token-injection](adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md).
 - **`cmd/operator`**: the Kubernetes operator; see [orbit-kubernetes-operator](adr/2026-03-31-orbit-kubernetes-operator.md).
 

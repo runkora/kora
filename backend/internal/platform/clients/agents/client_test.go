@@ -62,7 +62,7 @@ func TestStartRun_Success(t *testing.T) {
 	}
 }
 
-// The trigger backlink has to reach orbit-agents on the wire, under the field
+// The trigger backlink has to reach kora-agents on the wire, under the field
 // names the server decodes.
 func TestStartRun_SendsTriggerAttribution(t *testing.T) {
 	c, cap := newTestClient(t, http.StatusCreated, `{"id":"run-1","state":"active"}`)
@@ -171,7 +171,7 @@ func TestStartRun_StatusMapping(t *testing.T) {
 		{http.StatusUnauthorized, ErrForbidden},
 		{http.StatusNotFound, ErrAgentTypeNotFound},
 		// 5xx is the service failing, not the request being wrong. Callers that
-		// count failures against the requester (orbit-triggers' auto-pause) rely
+		// count failures against the requester (kora-triggers' auto-pause) rely
 		// on telling the two apart.
 		{http.StatusInternalServerError, ErrUpstreamUnavailable},
 		{http.StatusBadGateway, ErrUpstreamUnavailable},

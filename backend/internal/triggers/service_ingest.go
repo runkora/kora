@@ -449,7 +449,7 @@ func runStatusForDispatchError(err error) string {
 // futile and the failure is the trigger's own, so pausing stops the noise.
 //
 // Everything else is a platform condition that pausing cannot fix, and is
-// matched by exclusion rather than by name: orbit-agents unreachable (a raw
+// matched by exclusion rather than by name: kora-agents unreachable (a raw
 // transport error) or erroring (5xx), a dispatch that timed out, shutdown
 // canceling the call, or a token the identity service could not mint. Each of
 // those fails every trigger in the tenant at once, so counting them would pause
@@ -489,7 +489,7 @@ func (s *Service) runPrincipal(ctx context.Context, t Trigger) (principalID, dis
 }
 
 // startRunForTriggerWithFields renders the prompt and starts a run under the
-// trigger's resolved identity, telling orbit-agents which trigger and delivery
+// trigger's resolved identity, telling kora-agents which trigger and delivery
 // the run came from.
 //
 // The backlink is set in startRunAs, the only place a run is started from a trigger.
@@ -530,7 +530,7 @@ func (s *Service) startRunAs(ctx context.Context, t Trigger, tok, agentTypeID, p
 	req := agentsclient.StartRunRequest{
 		AgentTypeID:    agentTypeID,
 		InitialMessage: prompt,
-		// The name travels with the ids: orbit-agents does not read the triggers
+		// The name travels with the ids: kora-agents does not read the triggers
 		// database, and a run that outlives its trigger still has to render as
 		// something a person recognizes.
 		TriggerID:   t.ID,
@@ -554,7 +554,7 @@ func (s *Service) startRunAs(ctx context.Context, t Trigger, tok, agentTypeID, p
 // enough for it to be grant propagation.
 //
 // A trigger's grant is minted when the trigger is created, and is not visible
-// to orbit-agents or the inference gateway until their next OPA bundle poll. A
+// to kora-agents or the inference gateway until their next OPA bundle poll. A
 // trigger fired within that window is refused for a reason that is nothing to
 // do with the fire: the grant exists, it is merely young.
 //
@@ -612,11 +612,11 @@ func retryWhileGrantPropagates(ctx context.Context, retryable func(error) bool, 
 	}
 }
 
-// Retry budget for reaching orbit-agents under a just-created grant, used both
+// Retry budget for reaching kora-agents under a just-created grant, used both
 // when resolving the agent type at create and when starting the first run.
 //
-// The budget is sized against orbit-agents' OPA bundle poll interval
-// (policy.bundlePollIntervalSecs in backend/cmd/orbit-agents/config/base.yaml,
+// The budget is sized against kora-agents' OPA bundle poll interval
+// (policy.bundlePollIntervalSecs in backend/cmd/kora-agents/config/base.yaml,
 // currently 3s): it must comfortably exceed one poll, or a create request
 // returns "not found in this tenant" for a grant that is merely young. Raising
 // that interval without raising this budget breaks trigger creation.

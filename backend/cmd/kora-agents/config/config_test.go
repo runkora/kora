@@ -7,11 +7,11 @@ import (
 )
 
 func TestBaseDefaults_NoLocalRegistryOrTrustDomain(t *testing.T) {
-	cfg, err := config.LoadService[Config]("cmd/orbit-agents", "production")
+	cfg, err := config.LoadService[Config]("cmd/kora-agents", "production")
 	if err != nil {
 		t.Fatalf("load base config: %v", err)
 	}
-	if cfg.Agents.SessionManagerImage != "ghcr.io/runkora/orbit-session-manager:latest" {
+	if cfg.Agents.SessionManagerImage != "ghcr.io/runkora/kora-session-manager:latest" {
 		t.Errorf("sessionManagerImage = %q, want the ghcr.io default", cfg.Agents.SessionManagerImage)
 	}
 	if cfg.Agents.SandboxImage != "ghcr.io/runkora/kora-sandbox-base:latest" {
@@ -32,11 +32,11 @@ func TestBaseDefaults_NoLocalRegistryOrTrustDomain(t *testing.T) {
 }
 
 func TestLocalOverlay_KeepsLocalRegistryAndTrustDomain(t *testing.T) {
-	cfg, err := config.LoadService[Config]("cmd/orbit-agents", "local")
+	cfg, err := config.LoadService[Config]("cmd/kora-agents", "local")
 	if err != nil {
 		t.Fatalf("load local config: %v", err)
 	}
-	if cfg.Agents.SessionManagerImage != "orbit-registry:5001/orbit-session-manager:latest" {
+	if cfg.Agents.SessionManagerImage != "orbit-registry:5001/kora-session-manager:latest" {
 		t.Errorf("sessionManagerImage = %q, want the local registry image", cfg.Agents.SessionManagerImage)
 	}
 	if cfg.Agents.SandboxImage != "orbit-registry:5001/kora-sandbox-base:latest" {

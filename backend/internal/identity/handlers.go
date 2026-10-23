@@ -77,7 +77,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /session", c.handleSession)
 	mux.Handle("POST /exchange", c.handleExchange)
 	// Internal: mints a SERVICE token for a platform component that starts work
-	// on behalf of a tenant principal (orbit-triggers). Authenticated by the
+	// on behalf of a tenant principal (kora-triggers). Authenticated by the
 	// caller's mesh-attested SPIFFE identity, like /exchange — never a bearer
 	// token. Not exposed at the edge: the api VirtualService explicitly 404s
 	// the /api/v1/identity/internal/ prefix ahead of its /api/v1/identity/

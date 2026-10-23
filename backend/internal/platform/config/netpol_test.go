@@ -16,7 +16,7 @@ import (
 // scrape-ingress NetworkPolicies carry the ports and selectors they're meant
 // to: the generic rule opens only the shared metrics port on every pod, and
 // the operator's own rule opens its fixed controller-runtime port but only on
-// the operator's own pods. Port 8080 is also identity's and orbit-agents'
+// the operator's own pods. Port 8080 is also identity's and kora-agents'
 // real API port, so a regression that puts 8080 back onto the podSelector:{}
 // rule would open their application traffic to the scraper namespace — this
 // is exactly the mistake the two-rule split exists to prevent, and the one a

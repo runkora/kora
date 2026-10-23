@@ -25,7 +25,7 @@ import (
 func main() {
 	ctx := context.Background()
 
-	// orbit-agents sets ORBIT_PRODUCT_NAME on session pods, which the chart does not render.
+	// kora-agents sets ORBIT_PRODUCT_NAME on session pods, which the chart does not render.
 	// Load the brand first so a bad name exits before observability starts.
 	b, err := brand.Load()
 	if err != nil {

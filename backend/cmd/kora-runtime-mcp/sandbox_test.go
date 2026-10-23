@@ -135,7 +135,7 @@ func TestToolsList_EnvironmentTools(t *testing.T) {
 	}
 }
 
-// An orbit-agents from the previous release sends only name, and the line starts with it.
+// A kora-agents from the previous release sends only name, and the line starts with it.
 func TestListEnvironments_PreviousRelease(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"environments":[{"name":"go","image":"acme-go","size":{"cpu":"4","memory":"8Gi","disk":"20Gi"},"default":true}]}`))

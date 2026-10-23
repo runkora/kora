@@ -12,7 +12,7 @@ import (
 // A delegated agent's write also passes on agents:runs:delegated:write, which is
 // not a prefix cover of any per-agent scope and is therefore checked by name.
 // A context without verified claims is denied. delegated must come from the stored agent type.
-// orbit-agents uses it for every run check. orbit-triggers can call it for a trigger bind check.
+// kora-agents uses it for every run check. kora-triggers can call it for a trigger bind check.
 func AgentRunAllowed(ctx context.Context, eval Evaluator, slug string, delegated bool, action string) (bool, error) {
 	allowed, err := checkAgentRuns(ctx, eval, slug, action)
 	if err != nil || allowed || !delegated || action != "write" {

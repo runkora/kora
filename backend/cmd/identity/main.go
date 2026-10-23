@@ -201,7 +201,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		return nil, err
 	}
 
-	// Triggers moved to the orbit-triggers binary: inbound webhook ingestion is
+	// Triggers moved to the kora-triggers binary: inbound webhook ingestion is
 	// the platform's only unauthenticated, internet-reachable surface and must
 	// not share a process with the token authority. identity still mints each
 	// trigger's SERVICE token, now over the mesh via the internal service-token

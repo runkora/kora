@@ -17,17 +17,17 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 )
 
-// Integration tests: they run the orbit-session-runner binary with a /bin/sh
+// Integration tests: they run the kora-session-runner binary with a /bin/sh
 // payload and skip in short mode or where Landlock is not enabled.
 
-// buildRunnerBinary builds orbit-session-runner from this package's source, so
+// buildRunnerBinary builds kora-session-runner from this package's source, so
 // the tests exercise the code under test rather than an installed binary.
 func buildRunnerBinary(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "orbit-session-runner")
+	bin := filepath.Join(t.TempDir(), "kora-session-runner")
 	cmd := exec.Command("go", "build", "-o", bin, ".")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Skipf("could not build orbit-session-runner: %v\n%s", err, out)
+		t.Skipf("could not build kora-session-runner: %v\n%s", err, out)
 	}
 	return bin
 }
@@ -43,7 +43,7 @@ func requireLandlock(t *testing.T, minABI int) {
 	}
 }
 
-// runnerScript runs orbit-session-runner with a /bin/sh payload, returning
+// runnerScript runs kora-session-runner with a /bin/sh payload, returning
 // stdout and stderr separately. Fails the test immediately if the runner exits
 // non-zero (i.e. applyLandlock or exec itself failed — not the shell script).
 func runnerScript(t *testing.T, bin, workDir, script string) (stdout, stderr string) {
@@ -53,7 +53,7 @@ func runnerScript(t *testing.T, bin, workDir, script string) (stdout, stderr str
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("orbit-session-runner exited with error: %v\nstdout: %s\nstderr: %s", err, outBuf.String(), errBuf.String())
+		t.Fatalf("kora-session-runner exited with error: %v\nstdout: %s\nstderr: %s", err, outBuf.String(), errBuf.String())
 	}
 	return strings.TrimSpace(outBuf.String()), errBuf.String()
 }

@@ -1,5 +1,5 @@
 // Package folder is the contract for a sandbox's working folder between
-// orbit-agents, the session-manager and the sandbox-mount node agent
+// kora-agents, the session-manager and the sandbox-mount node agent
 // (docs/adr/2026-10-08-sandbox-workspace-mount.md). It imports nothing from
 // Kubernetes, so the session-manager can use it.
 package folder
@@ -41,7 +41,7 @@ const WorkspaceVolume = "workspaces"
 // StatefulSet's volumeClaimTemplate name, then the pod name.
 const workspaceClaimPrefix = WorkspaceVolume + "-"
 
-// SandboxPodName is the name orbit-agents gives a run's sandbox pod. Names are
+// SandboxPodName is the name kora-agents gives a run's sandbox pod. Names are
 // unique in a namespace, so at most one pod can claim a run's folder.
 func SandboxPodName(runID string) string { return "sandbox-" + runID }
 

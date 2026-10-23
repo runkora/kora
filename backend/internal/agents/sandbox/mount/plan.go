@@ -1,7 +1,7 @@
 //go:build linux
 
 // Package mount shares a sandbox's local folder with its session-manager pod
-// over kernel NFS (docs/adr/2026-10-08-sandbox-workspace-mount.md). orbit-agents
+// over kernel NFS (docs/adr/2026-10-08-sandbox-workspace-mount.md). kora-agents
 // marks the sandbox pod, and the node agent on each node exports or mounts the
 // folder for the pods it hosts.
 package mount

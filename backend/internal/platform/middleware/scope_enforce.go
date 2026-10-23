@@ -65,7 +65,7 @@ func ScopeEnforcementMiddleware(eval policy.Evaluator, routes []routescopes.Rout
 
 			claims, _ := token.ClaimsFromContext(ctx)
 
-			// SYSTEM principals are platform services (orbit-agents, identity,
+			// SYSTEM principals are platform services (kora-agents, identity,
 			// etc.) authenticated by SPIFFE/mTLS at the Istio layer. Their
 			// platform tokens carry empty tenant_id since they are infrastructure
 			// rather than tenant-scoped actors, so the per-tenant policy bundle

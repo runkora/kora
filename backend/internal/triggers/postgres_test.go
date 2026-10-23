@@ -753,7 +753,7 @@ func TestPostgres_StrandedClaimReleasesItsSlot(t *testing.T) {
 
 // seedRun stores an agent type and a run in the given state, so the ceiling
 // queries have a real row to join against. The runs table is owned by
-// orbit-agents; the triggers repository reads it, so the test writes it the same
+// kora-agents; the triggers repository reads it, so the test writes it the same
 // way — directly, with the FK the schema demands.
 func seedRun(t *testing.T, r *postgresRepository, tenant, state string) string {
 	t.Helper()

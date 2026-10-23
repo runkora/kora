@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/runkora/kora/backend/cmd/orbit-agents/migrations"
+	"github.com/runkora/kora/backend/cmd/kora-agents/migrations"
 )
 
 // TestRunStateOccupiesPod_AnswersEveryDeclaredState is the guard that matters:
@@ -150,7 +150,7 @@ func TestPodOccupancySQLList_MatchesPartialIndex(t *testing.T) {
 }
 
 // embeddedIndexDefinition finds the CREATE INDEX statement for name in the
-// orbit-agents migrations, whichever file carries it.
+// kora-agents migrations, whichever file carries it.
 func embeddedIndexDefinition(t *testing.T, name string) string {
 	t.Helper()
 	entries, err := fs.ReadDir(migrations.FS, ".")

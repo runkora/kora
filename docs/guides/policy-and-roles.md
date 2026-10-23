@@ -188,7 +188,7 @@ POST /api/v1/policy/grants
 }
 ```
 
-Only a SYSTEM caller may create, delete, or set the budget of a grant whose `principal_type` is `AGENT`, `SERVICE`, or `PAT`. Any other caller, tenant admins included, gets 403. The platform services that own those identities (orbit-agents, orbit-triggers, identity) write them as SYSTEM. Reads are unaffected.
+Only a SYSTEM caller may create, delete, or set the budget of a grant whose `principal_type` is `AGENT`, `SERVICE`, or `PAT`. Any other caller, tenant admins included, gets 403. The platform services that own those identities (kora-agents, kora-triggers, identity) write them as SYSTEM. Reads are unaffected.
 
 Grants accept vocabulary scopes, egress host scopes, repository-qualified connection scopes, and `trigger:<trigger-id>:fire`.
 
@@ -204,7 +204,7 @@ Grants have no update operation for scopes. Delete the grant and create a new on
 
 ## Route Registration
 
-Services declare which scope protects each route by registering with the policy service at startup. The edge gateway and each pod's OPA sidecar read these routes from the bundle. Platform services (inference gateway, egress gateway, tool gateway, orbit-agents, orbit-triggers) register globally. Identity registers its scope vocabulary and no routes, and its callers reach it east-west. Tenant-published services such as MCP servers register per-tenant routes.
+Services declare which scope protects each route by registering with the policy service at startup. The edge gateway and each pod's OPA sidecar read these routes from the bundle. Platform services (inference gateway, egress gateway, tool gateway, kora-agents, kora-triggers) register globally. Identity registers its scope vocabulary and no routes, and its callers reach it east-west. Tenant-published services such as MCP servers register per-tenant routes.
 
 A platform service registers with its own platform token. `SelfTokenSource` exchanges the pod's SPIFFE SVID for that token, and the `routescopes` client sends it on the registration call:
 

@@ -25,7 +25,7 @@ var ErrForbidden = errors.New("forbidden")
 // (delegated-agent-identity ADR, Decision 1).
 var ErrIdentityModeWriteForbidden = errors.New("missing identity-mode write scope")
 
-// authz is the thin authorization layer for orbit-agents. It wraps the
+// authz is the thin authorization layer for kora-agents. It wraps the
 // platform's policy.Evaluator so service-layer code can ask resource-shaped
 // questions ("can this principal read this agent type?") without rebuilding
 // CheckInput/QueryInput every time.
@@ -41,7 +41,7 @@ type Authz struct {
 
 // NewAuthz constructs an authz wrapper. Callers must call eval.Start before
 // the first request reaches handlers; bundle warmup is signaled via the
-// readiness probe in cmd/orbit-agents/main.go.
+// readiness probe in cmd/kora-agents/main.go.
 func NewAuthz(eval policy.Evaluator) *Authz { return &Authz{eval: eval} }
 
 // ── Agent types ───────────────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ func NewAuthz(eval policy.Evaluator) *Authz { return &Authz{eval: eval} }
 // loaded, evaluator failure) propagate as wrapped errors.
 //
 // action matches the route→scope vocabulary registered in
-// cmd/orbit-agents/main.go. In practice this is "read": agent-type WRITES are
+// cmd/kora-agents/main.go. In practice this is "read": agent-type WRITES are
 // authorized by checkAgentTypeModeWrite, whose required scope is qualified by
 // identity mode rather than slug.
 func (a *Authz) checkAgentType(ctx context.Context, at AgentType, action string) error {

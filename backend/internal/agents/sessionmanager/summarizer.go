@@ -48,7 +48,7 @@ var errSummarizerUnexpectedStatus = errors.New("unexpected status from inference
 // platform token, OPA authorizes it under the same grant, and the gateway
 // attributes the (tiny) cost to the run's budget via the /run/{id} path prefix.
 // This is the only place those three things hold — hence summarization lives in
-// the session-manager, not the orbit-agents control plane (which has no
+// the session-manager, not the kora-agents control plane (which has no
 // inference identity and does not know the run's effective model).
 type summarizer struct {
 	*httpclient.Base

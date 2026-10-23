@@ -63,7 +63,7 @@ func NewController(svc *Service, sources *SourceService, triggers *TriggerServic
 }
 
 // GroupedBy returns "" — routes are registered with paths relative to the
-// server base path, like the orbit-agents controller.
+// server base path, like the kora-agents controller.
 func (c *Controller) GroupedBy() string { return "" }
 
 // Middleware returns nil; auth is applied per-route so the public webhook
@@ -78,7 +78,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //
 // Management (platform-admin; triggers:read / triggers:write). Creating a
 // trigger, editing what it runs or when, replaying a delivery, and rotating, enabling
-// or disabling a source also need orbit-agents to report can_run for the caller
+// or disabling a source also need kora-agents to report can_run for the caller
 // on each agent involved:
 //
 //	POST   /api/v1/trigger-sources            Register a webhook source.
@@ -608,7 +608,7 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 type bearerKey struct{}
 
 // keepBearer stores the caller's bearer and any delegation the auth chain
-// verified, so the service can ask orbit-agents about the caller's own access.
+// verified, so the service can ask kora-agents about the caller's own access.
 var keepBearer = mw.NewMiddleware(func(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		caller := agentsclient.Caller{

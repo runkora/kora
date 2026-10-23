@@ -148,7 +148,7 @@ Each table-owning service keeps its [Goose](https://github.com/pressly/goose) mi
 **Never write migration files by hand.** Generate them:
 
 ```bash
-make migrate-create service=orbit-agents name=add_agent_sessions
+make migrate-create service=kora-agents name=add_agent_sessions
 ```
 
 Both `service=` and `name=` are required. It writes a timestamped file with the `-- +goose Up` and `-- +goose Down` annotations pre-populated.
@@ -183,7 +183,7 @@ There are no migration `Down` triggers in kora, a rollback via `helm rollback` w
 | `DB_PASSWORD` | Fixed default `orbit` | Postgres password. Baked into the volume at first initialisation. Changing it requires `make dev-down-clean` first. |
 | `REDIS_PASSWORD` | Fixed default `orbit` | Redis password. |
 | `BFF_SESSION_SECRET` | Generated with `openssl rand -base64 32` | Signs the frontend iron-session cookie. Written into `orbit-frontend-secrets`. |
-| `ORBIT_TRIGGERS_ENCRYPTION_KEY` | Generated with `openssl rand -base64 32` | Encrypts stored trigger credentials. `orbit-triggers` fails to start without it. |
+| `ORBIT_TRIGGERS_ENCRYPTION_KEY` | Generated with `openssl rand -base64 32` | Encrypts stored trigger credentials. `kora-triggers` fails to start without it. |
 
 `create-secrets.sh` reads these from `.env` and, together with `secrets/signing.key`, writes them into `orbit-secrets` and `orbit-frontend-secrets` in the cluster.
 
@@ -239,7 +239,7 @@ The backend discovers the provider's endpoints from its `/.well-known/openid-con
 
 ## Driving the kora MCP locally
 
-The cluster runs `orbit-mcp` behind the tool gateway. With kora running, point an MCP client at the gateway's OAuth endpoint:
+The cluster runs `kora-mcp` behind the tool gateway. With kora running, point an MCP client at the gateway's OAuth endpoint:
 
 ```json
 {

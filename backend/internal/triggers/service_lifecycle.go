@@ -41,7 +41,7 @@ type agentTypeReader interface {
 //
 // Its collaborators are the ones creation actually needs. A trigger is
 // provisioned with a principal and a grant (policy), reads the agent it binds,
-// or each candidate of a routed trigger, from orbit-agents as the caller
+// or each candidate of a routed trigger, from kora-agents as the caller
 // (agents), checks that the caller holds a routed trigger's decision model scopes
 // (eval), and enabling or disabling it moves work in the queue (admission).
 type TriggerService struct {
@@ -107,7 +107,7 @@ func (s *TriggerService) CreateTrigger(ctx context.Context, tenantID string, cla
 //
 // Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
 // Decision 6): a delegated agent acts on behalf of the person who runs it, so a
-// run with no person behind it is impossible — orbit-agents refuses
+// run with no person behind it is impossible — kora-agents refuses
 // SERVICE-principal starts at run time, and binding is refused here first (the
 // earlier, friendlier failure). identity_mode is immutable and the trigger's
 // agent binding is immutable, so checking at create time makes "no trigger ever
@@ -122,8 +122,8 @@ func refuseDelegatedBinding(at *agentsclient.AgentType, tenantID, agentTypeID st
 	return nil
 }
 
-// requireRunAuthority reads the agent type as the caller and requires orbit-agents to report can_run.
-// orbit-agents answers with its run-start check, so the creator, a per-agent run scope and a covering scope all count.
+// requireRunAuthority reads the agent type as the caller and requires kora-agents to report can_run.
+// kora-agents answers with its run-start check, so the creator, a per-agent run scope and a covering scope all count.
 // A trigger runs its agent under its own principal, so binding, steering and replaying it take that same authority.
 // The read also gives create the canonical slug, resolved server-side rather than taken from the request.
 func requireRunAuthority(ctx context.Context, agents agentTypeReader, agentTypeID string) (*agentsclient.AgentType, error) {

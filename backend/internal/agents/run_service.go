@@ -198,7 +198,7 @@ func (s *RunService) authorizeStart(ctx context.Context, span trace.Span, req St
 // Returns ErrForbidden if Authz.checkRun refuses the write: no
 // agents:runs:{slug}:write, no agents:runs:delegated:write for a delegated
 // agent, and no owner access. The handler maps that to 403, not 404 and not 500: a refusal is the
-// caller's answer, and orbit-triggers relies on being able to tell it apart
+// caller's answer, and kora-triggers relies on being able to tell it apart
 // from a broken service — it retries a 403 while a freshly created trigger's
 // grant propagates into the policy bundle, which it cannot do if a refusal
 // reads as an internal error.
@@ -269,7 +269,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 	// Mint the run's delegation from the CALLER's own bearer token (ADR Leg 1):
 	// identity never mints delegated authority the caller does not hold, and the
 	// response carries only the issuance record — the token never transits
-	// orbit-agents. Mint failure fails the run start (fail closed). The caller's
+	// kora-agents. Mint failure fails the run start (fail closed). The caller's
 	// token exists only in this request, so the mint happens here.
 	if at.IsDelegated() {
 		jti, mintErr := s.mintRunDelegation(ctx, span, run.ID, *at, s.cfg.TenantNamespaceFn(at.TenantID))
@@ -891,7 +891,7 @@ func (s *RunService) GetSandbox(ctx context.Context, runID string) (Sandbox, err
 	return sandbox, nil
 }
 
-// ProvisionSandbox is called by the session-manager (via orbit-runtime-mcp) to
+// ProvisionSandbox is called by the session-manager (via kora-runtime-mcp) to
 // request a sandbox pod for a run. Returns the gRPC endpoint ("podIP:port") and
 // the exec token that sandbox requires.
 //

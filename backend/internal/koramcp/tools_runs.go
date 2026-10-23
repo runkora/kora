@@ -16,7 +16,7 @@ const usageDescription = "Each run carries `usage`: cost_usd (estimated spend in
 
 // registerRunTools wires the runs domain: the lifecycle of an agent run (an
 // execution of an agent type). Reads and writes forward the caller's token to
-// orbit-agents, which enforces the real platform scope. Event streaming (SSE) is
+// kora-agents, which enforces the real platform scope. Event streaming (SSE) is
 // intentionally not exposed as a tool — poll runs.get for status and summary.
 func registerRunTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 	base := b.Agents + "/api/v1/runs"

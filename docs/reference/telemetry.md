@@ -41,7 +41,7 @@ policyService:
       samplingRate: 1.0
 ```
 
-The session-manager and the identity-proxy sidecar have no rendered file. orbit-agents and the operator pass them the endpoint and the sampling rate as `ORBIT_OTLP_ENDPOINT` and `ORBIT_SAMPLING_RATE`.
+The session-manager and the identity-proxy sidecar have no rendered file. kora-agents and the operator pass them the endpoint and the sampling rate as `ORBIT_OTLP_ENDPOINT` and `ORBIT_SAMPLING_RATE`.
 
 ## Configuration Modes
 

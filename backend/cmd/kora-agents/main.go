@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	agentsConfig "github.com/runkora/kora/backend/cmd/orbit-agents/config"
+	agentsConfig "github.com/runkora/kora/backend/cmd/kora-agents/config"
 	"github.com/runkora/kora/backend/internal/agents"
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/brand"
@@ -73,7 +73,7 @@ func realMain() error {
 	defer shutdownObs()
 
 	logger := initLogger()
-	logger.Info(ctx, "orbit-agents starting",
+	logger.Info(ctx, "kora-agents starting",
 		logging.Field{Key: "version", Value: agentsConfig.Current.App.Version},
 	)
 
@@ -100,12 +100,12 @@ func realMain() error {
 
 	eval := initPolicyEvaluator(ctx, logger)
 
-	// The identity client authenticates orbit-agents' own service-to-service
+	// The identity client authenticates kora-agents' own service-to-service
 	// calls: its mesh-attested exchange yields the platform token used as the
 	// bearer for the policy client, the session-manager API, delegation
 	// revocation and route registration. One cached token source serves them
 	// all, so the exchange stays off the hot path.
-	// Required, not optional. Without it orbit-agents has no bearer for the
+	// Required, not optional. Without it kora-agents has no bearer for the
 	// policy client, no bearer for the session-manager API, and no delegation
 	// broker, so the process would come up having silently dropped three
 	// security controls. Local development runs in Kubernetes with a real
@@ -312,7 +312,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 
 	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
 	// Decision 3): StartRun on a delegated agent mints a delegation forwarding
-	// the CALLER's bearer; terminal run states revoke it with orbit-agents' own
+	// the CALLER's bearer; terminal run states revoke it with kora-agents' own
 	// exchanged token (the same token source the policy client uses).
 	broker := agents.NewDelegationBroker(idClient, selfToken, cfg.Platform.TrustDomain, logger)
 	runSvc.SetDelegationBroker(broker)
@@ -362,7 +362,7 @@ type agentTypeSlugLister interface {
 	ListAllAgentTypeSlugs(ctx context.Context) ([]string, error)
 }
 
-// initScopeRegistration wires the policy-service scope vocabulary for orbit-agents.
+// initScopeRegistration wires the policy-service scope vocabulary for kora-agents.
 // It installs a hook on the agent type service so the vocabulary is re-synced
 // whenever an agent type is created or deleted, and returns the register
 // function; the caller hands it to routescopes.KeepRegistered, which owns the
@@ -399,7 +399,7 @@ func connectionCatalogRoutes() []routescopes.RouteScope {
 	}
 }
 
-// agentRoutes returns the static route→scope bindings for orbit-agents.
+// agentRoutes returns the static route→scope bindings for kora-agents.
 //
 // Registered with policy-service at startup (docs/adr/2026-05-11-orbit-agents-route-scope-registration.md) and also consumed at
 // request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Exact-method
@@ -539,7 +539,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, runSvc
 	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
-	logger.Info(ctx, "Shutting down orbit-agents...")
+	logger.Info(ctx, "Shutting down kora-agents...")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), agentsConfig.Current.ShutdownTimeout())
 	defer cancel()
@@ -554,5 +554,5 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, runSvc
 	<-scheduled
 	metrics.StopServer(shutdownCtx, logger)
 
-	logger.Info(ctx, "orbit-agents shutdown complete")
+	logger.Info(ctx, "kora-agents shutdown complete")
 }

@@ -110,9 +110,9 @@ infrastructure/overlays/*/charts
 
 # Stray binaries from `go build ./cmd/<svc>` with no -o (the binary lands in CWD).
 /backend/sandbox-exec
-/backend/orbit-shell
-/backend/orbit-mcp
+/backend/kora-shell
+/backend/kora-mcp
 /backend/tool-gateway
 /backend/identity
-/backend/orbit-agents
-/backend/orbit-triggers
+/backend/kora-agents
+/backend/kora-triggers

@@ -37,7 +37,7 @@
 
 **Decision:** authenticate `/internal/*` with the agent's platform JWT — already
 injected on every agent-pod outbound request by the identity-proxy ext_proc
-sidecar (`cmd/orbit-agents` k8s.go: *"actual auth is the identity-proxy-issued
+sidecar (`cmd/kora-agents` k8s.go: *"actual auth is the identity-proxy-issued
 JWT"*) — and bind the verified identity to the target run in-process:
 
 - Run `AuthMiddleware` on `/internal/*` (verify + populate claims). Do **not** run
@@ -212,7 +212,7 @@ Option 1 fails on fragility (forgotten checks). Option 2 fails on the platform-a
 
 ### Neutral
 
-- The `RunService` and `AgentTypeService` method signatures change to drop `tenantID` parameters in favour of reading from `ctx`. Call sites inside `cmd/orbit-agents/main.go` (the reaper, scope-registration hook) need claims-bearing contexts. The reaper is internal and operates on all tenants — it will use a privileged service context (covered in Implementation).
+- The `RunService` and `AgentTypeService` method signatures change to drop `tenantID` parameters in favour of reading from `ctx`. Call sites inside `cmd/kora-agents/main.go` (the reaper, scope-registration hook) need claims-bearing contexts. The reaper is internal and operates on all tenants — it will use a privileged service context (covered in Implementation).
 
 ---
 
@@ -229,7 +229,7 @@ internal/agents/
 ├── agent_type_service.go ← drops tenantID args; reads from claims
 └── ...
 
-cmd/orbit-agents/main.go  ← constructs policy.Evaluator; passes to services
+cmd/kora-agents/main.go  ← constructs policy.Evaluator; passes to services
 ```
 
 ### `authz.go` — the new file
@@ -377,7 +377,7 @@ func (s *RunService) ListRuns(ctx context.Context, tenantID string, q RunListQue
 }
 ```
 
-### Wiring in `cmd/orbit-agents/main.go`
+### Wiring in `cmd/kora-agents/main.go`
 
 ```go
 verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())

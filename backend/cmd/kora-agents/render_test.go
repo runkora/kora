@@ -9,7 +9,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	agentsConfig "github.com/runkora/kora/backend/cmd/orbit-agents/config"
+	agentsConfig "github.com/runkora/kora/backend/cmd/kora-agents/config"
 	"github.com/runkora/kora/backend/internal/agents"
 	"github.com/runkora/kora/backend/internal/platform/brand"
 )

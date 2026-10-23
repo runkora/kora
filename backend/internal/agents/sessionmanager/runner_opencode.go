@@ -25,26 +25,26 @@ type OpenCodeRunnerConfig struct {
 	// BinaryPath is the path to the opencode binary. Defaults to "opencode".
 	BinaryPath string
 
-	// WrapperPath is the path to orbit-session-runner. When set, opencode is
+	// WrapperPath is the path to kora-session-runner. When set, opencode is
 	// invoked as: WrapperPath <workDir> <BinaryPath> [args...] so Landlock is
 	// applied first. Empty invokes opencode directly, with no filesystem
 	// restriction (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 	WrapperPath string
 
 	// ShellPath is written into the OpenCode config as the "shell" key, so tool
-	// commands run through orbit-shell in the run's sandbox rather than in this
+	// commands run through kora-shell in the run's sandbox rather than in this
 	// container. Empty leaves OpenCode on the container's own shell.
 	ShellPath string
 
 	// ExtraEnv is appended to the subprocess environment (WORKSPACE and the
-	// orbit-shell callback variables).
+	// kora-shell callback variables).
 	ExtraEnv []string
 
 	// SystemPrompt, when non-empty, reaches OpenCode as an instructions file
 	// named in the OpenCode config. ACP has no field for it.
 	SystemPrompt string
 
-	// SessionManagerURL is where orbit-runtime-mcp calls back to provision a
+	// SessionManagerURL is where kora-runtime-mcp calls back to provision a
 	// sandbox. Always http://localhost:{port}, since it runs in this pod.
 	SessionManagerURL string
 
@@ -461,7 +461,7 @@ func (r *OpenCodeRunner) openCodeConfig(workDir string) ([]byte, error) {
 		cfg["instructions"] = []string{path}
 	}
 	// "shell" is the binary OpenCode's shell tool runs commands with. Pointing it
-	// at orbit-shell routes them to the run's sandbox.
+	// at kora-shell routes them to the run's sandbox.
 	if r.cfg.ShellPath != "" {
 		cfg["shell"] = r.cfg.ShellPath
 	}
@@ -478,7 +478,7 @@ func (r *OpenCodeRunner) mcpConfig() map[string]any {
 	mcp := map[string]any{
 		"runtime": map[string]any{
 			"type":    "local",
-			"command": []string{"orbit-runtime-mcp"},
+			"command": []string{"kora-runtime-mcp"},
 			"enabled": true,
 			"environment": map[string]string{
 				"ORBIT_SESSION_MANAGER_URL": r.cfg.SessionManagerURL,

@@ -37,7 +37,7 @@ type smClient interface {
 	CloseSession(ctx context.Context, podURL, runID string) error
 }
 
-// ServiceConfig holds runtime parameters. Kept for use in cmd/orbit-agents/main.go.
+// ServiceConfig holds runtime parameters. Kept for use in cmd/kora-agents/main.go.
 type ServiceConfig struct {
 	MaxConcurrentRunsPerPod int
 	TenantNamespaceFn       func(tenantID string) string // maps tenant ID → k8s namespace
@@ -121,7 +121,7 @@ type StartRunRequest struct {
 	//
 	// Unlike created_by these cannot be derived from the token: the token names
 	// the trigger's principal, not which of its deliveries is being dispatched,
-	// and orbit-agents does not read the triggers database.
+	// and kora-agents does not read the triggers database.
 	TriggerID   string `json:"trigger_id,omitempty"`
 	TriggerName string `json:"trigger_name,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`

@@ -12,11 +12,11 @@ import (
 )
 
 // ConnectionCatalogController serves the read-only connection catalog for the
-// caller's tenant on orbit-agents.
+// caller's tenant on kora-agents.
 //
 // The catalog was previously served by the egress-gateway, but that service is
 // a CONNECT/egress broker carrying special istio config the frontend cannot
-// reach over plain HTTP through the mesh. orbit-agents is a normal HTTP service
+// reach over plain HTTP through the mesh. kora-agents is a normal HTTP service
 // the frontend already reaches (it serves agent-types), so the read-only catalog
 // lives here. The egress-gateway reads the same orbit-tenant-connections
 // ConfigMap for brokering; this controller reads it only to render the picker.

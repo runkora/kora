@@ -14,7 +14,7 @@ import (
 
 // registerTriggerTools wires the triggers domain: webhook sources, the triggers
 // that fire agent runs off them, and the delivery history. Served by the
-// orbit-triggers binary (these endpoints moved out of identity; pointing them at
+// kora-triggers binary (these endpoints moved out of identity; pointing them at
 // b.Identity made every trigger tool 404). Reads require triggers:read, writes
 // triggers:write. Creating a trigger, or editing what it runs or when, also needs the run scope for the bound agent.
 func registerTriggerTools(srv *sdk.Server, b Backends, jc *korajson.Client, product string) {

@@ -17,7 +17,7 @@ import (
 //
 //  1. cmd/session-manager/config/base.yaml  — service defaults
 //  2. cmd/session-manager/config/{env}.yaml — env overrides (optional)
-//  3. environment variables orbit-agents sets on the agent pod (applyEnvOverrides)
+//  3. environment variables kora-agents sets on the agent pod (applyEnvOverrides)
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`
@@ -27,7 +27,7 @@ type Config struct {
 		Port                int    `yaml:"port"`
 		BasePath            string `yaml:"basePath"`
 		ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
-		// TerminationGracePeriodSecs is the pod's grace period, set by orbit-agents. Zero drains until the pod is stopped.
+		// TerminationGracePeriodSecs is the pod's grace period, set by kora-agents. Zero drains until the pod is stopped.
 		TerminationGracePeriodSecs int `yaml:"terminationGracePeriodSecs"`
 	} `yaml:"server"`
 
@@ -42,19 +42,19 @@ type Config struct {
 	} `yaml:"workspaces"`
 
 	KoraAgents struct {
-		// URL is the base URL of orbit-agents (e.g. "http://orbit-agents.orbit-system.svc.cluster.local").
-		// When empty, event push is disabled (local dev without orbit-agents).
+		// URL is the base URL of kora-agents (e.g. "http://orbit-agents.orbit-system.svc.cluster.local").
+		// When empty, event push is disabled (local dev without kora-agents).
 		URL string `yaml:"url"`
 	} `yaml:"orbitAgents"`
 
 	// Runner holds the settings that apply to every agent framework.
 	Runner struct {
-		// WrapperPath is the path to orbit-session-runner, used by every framework.
+		// WrapperPath is the path to kora-session-runner, used by every framework.
 		// When set, an agent is invoked as: WrapperPath <workDir> <binary> [args...]
 		// so Landlock is applied first. Empty disables it, which is local dev on macOS.
 		WrapperPath string `yaml:"wrapperPath"`
 
-		// ShellPath is the orbit-shell proxy each framework's shell resolves to, so
+		// ShellPath is the kora-shell proxy each framework's shell resolves to, so
 		// tool commands run in the run's sandbox. Claude Code reads it from
 		// CLAUDE_CODE_SHELL, Codex from the runtime user's passwd entry, and
 		// OpenCode from the "shell" key in its config. Empty leaves
@@ -62,7 +62,7 @@ type Config struct {
 		ShellPath string `yaml:"shellPath"`
 
 		// NodeMaxOldSpaceMB is the --max-old-space-size set in each run's
-		// NODE_OPTIONS. orbit-agents sets it per install through
+		// NODE_OPTIONS. kora-agents sets it per install through
 		// ORBIT_NODE_MAX_OLD_SPACE_MB; zero adds no NODE_OPTIONS.
 		NodeMaxOldSpaceMB int `yaml:"nodeMaxOldSpaceMB"`
 	} `yaml:"runner"`
@@ -129,7 +129,7 @@ const drainMargin = 30 * time.Second
 
 // Current holds all non-secret configuration for the session-manager.
 // Secrets must be supplied via environment variables. The session-manager
-// reaches no database: run events travel to orbit-agents over HTTP, which is
+// reaches no database: run events travel to kora-agents over HTTP, which is
 // what keeps database credentials out of the pod the agent runs in.
 var Current = func() *Config {
 	cfg := config.MustLoadService[Config]("cmd/session-manager", config.Environment())
@@ -139,7 +139,7 @@ var Current = func() *Config {
 	return cfg
 }()
 
-// applyEnvOverrides layers the values orbit-agents sets on the agent pod over
+// applyEnvOverrides layers the values kora-agents sets on the agent pod over
 // the YAML defaults. getenv is injected so tests can drive it.
 func applyEnvOverrides(cfg *Config, getenv func(string) string) error {
 	if v := getenv("ORBIT_AGENTS_URL"); v != "" {

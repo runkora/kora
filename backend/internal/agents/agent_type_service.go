@@ -435,7 +435,7 @@ type activeAgentTypeLister interface {
 }
 
 // ApplyAll applies the rendered resources of every active agent type, which
-// rolls an agent whose template changed. orbit-agents runs it at startup, so an
+// rolls an agent whose template changed. kora-agents runs it at startup, so an
 // upgrade reaches existing agents (docs/adr/2026-10-12-run-scheduling.md).
 func (s *AgentTypeService) ApplyAll(ctx context.Context, lister activeAgentTypeLister) {
 	ats, err := lister.ListActiveAgentTypes(ctx)
@@ -445,7 +445,7 @@ func (s *AgentTypeService) ApplyAll(ctx context.Context, lister activeAgentTypeL
 	}
 	for _, at := range ats {
 		if err := s.k8s.ProvisionAgentType(ctx, at, s.cfg.TenantNamespaceFn(at.TenantID)); err != nil {
-			// Another orbit-agents replica applying the same resources at startup causes update conflicts.
+			// Another kora-agents replica applying the same resources at startup causes update conflicts.
 			s.logger.Warn(ctx, "apply agent type resources failed",
 				logging.Field{Key: "agent_type_id", Value: at.ID},
 				logging.Field{Key: "slug", Value: at.Slug},

@@ -26,7 +26,7 @@ func podSecurityProvisioner() *K8sProvisioner {
 	return &K8sProvisioner{
 		logger: logging.NewLoggerWithOutput(io.Discard),
 		cfg: K8sProvisionerConfig{
-			SessionManagerImage: "ghcr.io/runkora/orbit-session-manager:1.0.0",
+			SessionManagerImage: "ghcr.io/runkora/kora-session-manager:1.0.0",
 			SandboxImage:        "ghcr.io/runkora/kora-sandbox-base:1.0.0",
 			SandboxGRPCPort:     50051,
 			ImagePullSecrets:    []string{"ghcr-pull", "mirror-pull"},

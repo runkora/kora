@@ -20,7 +20,7 @@ import (
 const (
 	// Namespace labels set by TenantReconciler.ensureNamespace.
 	nsLabelRole = "orbit.io/role"
-	// podLabelRole carries the same key on a pod. orbit-agents sets it to
+	// podLabelRole carries the same key on a pod. kora-agents sets it to
 	// "sandbox" on the pods it provisions per run.
 	podLabelRole   = "orbit.io/role"
 	podRoleSandbox = "sandbox"

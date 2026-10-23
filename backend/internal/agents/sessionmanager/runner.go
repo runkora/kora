@@ -64,7 +64,7 @@ type Runner interface {
 }
 
 // wrapExec returns the command and arguments to spawn an agent, through
-// orbit-session-runner when wrapperPath is set. The wrapper takes the work
+// kora-session-runner when wrapperPath is set. The wrapper takes the work
 // directory first, then the binary and its arguments, and applies Landlock before
 // exec'ing it. Empty runs the binary directly, which is local development on a
 // host without Landlock.

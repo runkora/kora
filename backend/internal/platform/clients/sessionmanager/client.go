@@ -28,7 +28,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-// ErrCodeSandboxUnschedulable marks orbit-agents' 503 for a sandbox pod that no node could place.
+// ErrCodeSandboxUnschedulable marks kora-agents' 503 for a sandbox pod that no node could place.
 // The error message is the scheduler's reason.
 const ErrCodeSandboxUnschedulable = "sandbox_unschedulable"
 
@@ -57,7 +57,7 @@ type StatusError struct {
 func (e *StatusError) Error() string { return e.Err.Error() }
 func (e *StatusError) Unwrap() error { return e.Err }
 
-// TokenFunc returns the caller's own platform token. orbit-agents supplies
+// TokenFunc returns the caller's own platform token. kora-agents supplies
 // identity.Client.SelfTokenSource(), which exchanges the pod's SPIRE SVID for a
 // SYSTEM token named "orbit-agents" and caches it until expiry — the same
 // mechanism the policy client uses (internal/platform/clients/policy).
@@ -70,7 +70,7 @@ type Client struct {
 }
 
 // NewClient creates a Client. The returned client is safe for concurrent use
-// and should be shared across calls — one Client per orbit-agents process.
+// and should be shared across calls — one Client per kora-agents process.
 //
 // tokenFunc authenticates every session-control call and is required. The
 // session-manager authenticates unconditionally, so a client without a token

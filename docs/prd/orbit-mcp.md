@@ -218,7 +218,7 @@ Most of this PRD's questions resolved during review:
 
 1. **Caller-identity propagation** — _Resolved:_ **passthrough** (forward the caller's token; downstream is the authoritative gate). Matches the BFF and keeps standalone testing safe.
 2. **Transport** — _Resolved:_ **Streamable HTTP** (aligns with the gateway; SSE is the deprecated transport).
-3. **Binary/package placement** — _Resolved:_ new standalone `cmd/orbit-mcp` + `internal/` package, mirroring existing service binaries.
+3. **Binary/package placement** — _Resolved:_ new standalone `cmd/kora-mcp` + `internal/` package, mirroring existing service binaries.
 4. **Tool naming** — _Resolved:_ domain-hierarchical `mcp:orbit:<domain>:<op>:use` with `:` path segments. _Dependency:_ a registration-ADR **amendment** to the introspection derivation (split tool names on a reserved `.` delimiter; per-segment charset; universal) — recorded in the registration ADR, not a mere clarification.
 5. **Read-only infra domains** — _Resolved:_ connections catalog + MCP server registry (read-only); tenant config out.
 

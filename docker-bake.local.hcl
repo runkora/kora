@@ -20,102 +20,102 @@ variable "GIT_SHA" {
 }
 
 // Re-tag every backend matrix target.
-target "orbit-identity" {
+target "kora-identity" {
   tags = [
-    "localhost:5001/orbit-identity:latest",
-    "localhost:5001/orbit-identity:${GIT_SHA}",
+    "localhost:5001/kora-identity:latest",
+    "localhost:5001/kora-identity:${GIT_SHA}",
   ]
 }
-target "orbit-identity-proxy" {
+target "kora-identity-proxy" {
   tags = [
-    "localhost:5001/orbit-identity-proxy:latest",
-    "localhost:5001/orbit-identity-proxy:${GIT_SHA}",
+    "localhost:5001/kora-identity-proxy:latest",
+    "localhost:5001/kora-identity-proxy:${GIT_SHA}",
   ]
 }
-target "orbit-inference-gateway" {
+target "kora-inference-gateway" {
   tags = [
-    "localhost:5001/orbit-inference-gateway:latest",
-    "localhost:5001/orbit-inference-gateway:${GIT_SHA}",
+    "localhost:5001/kora-inference-gateway:latest",
+    "localhost:5001/kora-inference-gateway:${GIT_SHA}",
   ]
 }
-target "orbit-policy-service" {
+target "kora-policy-service" {
   tags = [
-    "localhost:5001/orbit-policy-service:latest",
-    "localhost:5001/orbit-policy-service:${GIT_SHA}",
+    "localhost:5001/kora-policy-service:latest",
+    "localhost:5001/kora-policy-service:${GIT_SHA}",
   ]
 }
-target "orbit-policy-gateway" {
+target "kora-policy-gateway" {
   tags = [
-    "localhost:5001/orbit-policy-gateway:latest",
-    "localhost:5001/orbit-policy-gateway:${GIT_SHA}",
+    "localhost:5001/kora-policy-gateway:latest",
+    "localhost:5001/kora-policy-gateway:${GIT_SHA}",
   ]
 }
-target "orbit-egress-gateway" {
+target "kora-egress-gateway" {
   tags = [
-    "localhost:5001/orbit-egress-gateway:latest",
-    "localhost:5001/orbit-egress-gateway:${GIT_SHA}",
+    "localhost:5001/kora-egress-gateway:latest",
+    "localhost:5001/kora-egress-gateway:${GIT_SHA}",
   ]
 }
-target "orbit-tool-gateway" {
+target "kora-tool-gateway" {
   tags = [
-    "localhost:5001/orbit-tool-gateway:latest",
-    "localhost:5001/orbit-tool-gateway:${GIT_SHA}",
+    "localhost:5001/kora-tool-gateway:latest",
+    "localhost:5001/kora-tool-gateway:${GIT_SHA}",
   ]
 }
-target "orbit-migrate" {
+target "kora-migrate" {
   tags = [
-    "localhost:5001/orbit-migrate:latest",
-    "localhost:5001/orbit-migrate:${GIT_SHA}",
+    "localhost:5001/kora-migrate:latest",
+    "localhost:5001/kora-migrate:${GIT_SHA}",
   ]
 }
-target "orbit-example" {
+target "kora-example" {
   tags = [
-    "localhost:5001/orbit-example:latest",
-    "localhost:5001/orbit-example:${GIT_SHA}",
+    "localhost:5001/kora-example:latest",
+    "localhost:5001/kora-example:${GIT_SHA}",
   ]
 }
 
 // Re-tag the standalone targets (different Dockerfiles / non-matrix names).
-target "orbit-mcp" {
+target "kora-mcp" {
   tags = [
-    "localhost:5001/orbit-mcp:latest",
-    "localhost:5001/orbit-mcp:${GIT_SHA}",
+    "localhost:5001/kora-mcp:latest",
+    "localhost:5001/kora-mcp:${GIT_SHA}",
   ]
 }
-target "orbit-agents" {
+target "kora-agents" {
   tags = [
-    "localhost:5001/orbit-agents:latest",
-    "localhost:5001/orbit-agents:${GIT_SHA}",
+    "localhost:5001/kora-agents:latest",
+    "localhost:5001/kora-agents:${GIT_SHA}",
   ]
 }
-target "orbit-triggers" {
+target "kora-triggers" {
   tags = [
-    "localhost:5001/orbit-triggers:latest",
-    "localhost:5001/orbit-triggers:${GIT_SHA}",
+    "localhost:5001/kora-triggers:latest",
+    "localhost:5001/kora-triggers:${GIT_SHA}",
   ]
 }
-target "orbit-shell" {
+target "kora-shell" {
   tags = [
-    "localhost:5001/orbit-shell:latest",
-    "localhost:5001/orbit-shell:${GIT_SHA}",
+    "localhost:5001/kora-shell:latest",
+    "localhost:5001/kora-shell:${GIT_SHA}",
   ]
 }
-target "orbit-runtime-mcp" {
+target "kora-runtime-mcp" {
   tags = [
-    "localhost:5001/orbit-runtime-mcp:latest",
-    "localhost:5001/orbit-runtime-mcp:${GIT_SHA}",
+    "localhost:5001/kora-runtime-mcp:latest",
+    "localhost:5001/kora-runtime-mcp:${GIT_SHA}",
   ]
 }
-target "orbit-session-manager" {
+target "kora-session-manager" {
   tags = [
-    "localhost:5001/orbit-session-manager:latest",
-    "localhost:5001/orbit-session-manager:${GIT_SHA}",
+    "localhost:5001/kora-session-manager:latest",
+    "localhost:5001/kora-session-manager:${GIT_SHA}",
   ]
 }
-target "orbit-sandbox-mount" {
+target "kora-sandbox-mount" {
   tags = [
-    "localhost:5001/orbit-sandbox-mount:latest",
-    "localhost:5001/orbit-sandbox-mount:${GIT_SHA}",
+    "localhost:5001/kora-sandbox-mount:latest",
+    "localhost:5001/kora-sandbox-mount:${GIT_SHA}",
   ]
 }
 target "kora-sandbox-base" {
@@ -153,48 +153,48 @@ target "kora-sandbox-dev" {
     "localhost:5001/kora-sandbox-dev:${GIT_SHA}",
   ]
 }
-target "orbit-frontend" {
+target "kora-frontend" {
   args = {
     ORBIT_VERSION = GIT_SHA
   }
   tags = [
-    "localhost:5001/orbit-frontend:latest",
-    "localhost:5001/orbit-frontend:${GIT_SHA}",
+    "localhost:5001/kora-frontend:latest",
+    "localhost:5001/kora-frontend:${GIT_SHA}",
   ]
 }
-target "orbit-operator" {
+target "kora-operator" {
   tags = [
-    "localhost:5001/orbit-operator:latest",
-    "localhost:5001/orbit-operator:${GIT_SHA}",
+    "localhost:5001/kora-operator:latest",
+    "localhost:5001/kora-operator:${GIT_SHA}",
   ]
 }
 
 // Local platform bring-up group: every long-lived service the operator pulls
-// during `cluster-platform`. Excludes orbit-shell / orbit-runtime-mcp because
+// during `cluster-platform`. Excludes kora-shell / kora-runtime-mcp because
 // they're produced as side-effect binaries inside the session-manager image.
 group "local-platform" {
   targets = [
-    "orbit-identity",
-    "orbit-identity-proxy",
-    "orbit-inference-gateway",
-    "orbit-policy-service",
-    "orbit-policy-gateway",
-    "orbit-egress-gateway",
-    "orbit-agents",
-    "orbit-triggers",
-    "orbit-frontend",
-    "orbit-mcp",
-    "orbit-tool-gateway",
-    "orbit-migrate",
-    "orbit-operator",
-    "orbit-session-manager",
-    "orbit-sandbox-mount",
+    "kora-identity",
+    "kora-identity-proxy",
+    "kora-inference-gateway",
+    "kora-policy-service",
+    "kora-policy-gateway",
+    "kora-egress-gateway",
+    "kora-agents",
+    "kora-triggers",
+    "kora-frontend",
+    "kora-mcp",
+    "kora-tool-gateway",
+    "kora-migrate",
+    "kora-operator",
+    "kora-session-manager",
+    "kora-sandbox-mount",
     "kora-sandbox-base",
   ]
 }
 
 group "local-tenant" {
-  targets = ["orbit-example"]
+  targets = ["kora-example"]
 }
 
 group "local-sandbox-images" {

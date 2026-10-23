@@ -40,7 +40,7 @@ drafts:
 
 agents:
   # The chart renders the images for each install.
-  sessionManagerImage: ghcr.io/runkora/orbit-session-manager:latest
+  sessionManagerImage: ghcr.io/runkora/kora-session-manager:latest
   sandboxImage: ghcr.io/runkora/kora-sandbox-base:latest
   # Default and maximum environment sizes, rendered by the chart.
   environments:
