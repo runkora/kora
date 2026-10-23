@@ -1,0 +1,19 @@
+{{- if and .Values.inferenceGateway.podDisruptionBudget.enabled (gt (int .Values.inferenceGateway.replicas) 1) }}
+# PodDisruptionBudget for the inference gateway deployment.
+#
+# Only created when replicas > 1. With one replica, minAvailable: 1 blocks
+# every node drain. With more, a drain leaves a pod serving new requests while
+# the evicted pod finishes its streams.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: orbit-inference-gateway
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.inferenceGateway.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.inferenceGateway.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "kora.inferenceGateway.selectorLabels" . | nindent 6 }}
+{{- end }}

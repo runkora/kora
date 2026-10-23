@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-identity
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.identity.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.identity.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kora.identity.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kora.identity.selectorLabels" . | nindent 8 }}
+        {{- include "kora.identity.labels" . | nindent 8 }}
+        spiffe.io/component: identity
+        {{- include "kora.podLabels" (dict "root" $ "name" "identity") | nindent 8 }}
+      annotations:
+        {{- include "kora.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
+        # Postgres, Redis and the OIDC issuer are outside the mesh.
+        traffic.sidecar.istio.io/excludeOutboundPorts: "5432,6379,5556"
+        checksum/config: {{ include (print $.Template.BasePath "/identity/config.yaml") . | sha256sum }}
+        {{- include "kora.podAnnotations" (dict "root" $ "name" "identity") | nindent 8 }}
+    spec:
+      {{- with .Values.identity.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: orbit-identity
+      {{- include "kora.imagePullSecrets" . | nindent 6 }}
+      {{- include "kora.scheduling" (dict "root" $ "name" "identity") | nindent 6 }}
+      securityContext:
+        {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
+      volumes:
+        {{- include "kora.spireVolumes" . | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "identity" "configMap" "orbit-identity-config" "modules" (include "kora.identity.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "kora.redisCAVolume" . | nindent 8 }}
+        # Operator-owned tenant registries. All optional so identity starts before
+        # any tenant exists; identity watches the files and reloads on change.
+        - name: tenants-config
+          configMap:
+            name: {{ .Values.identity.tenantsConfigMap }}
+            optional: true
+        - name: tenant-client-secrets
+          secret:
+            secretName: {{ .Values.identity.clientSecretsSecret }}
+            optional: true
+        - name: oauth-clients
+          configMap:
+            name: {{ .Values.identity.oauthClientsConfigMap }}
+            optional: true
+        {{- include "kora.extraVolumes" (dict "root" $ "name" "identity") | nindent 8 }}
+      containers:
+        - name: orbit-identity
+          image: {{ include "kora.image" (dict "root" $ "name" "identity") | quote }}
+          imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "identity") }}
+          securityContext:
+            {{- include "kora.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/secrets/workload-spiffe-uds/socket"
+            {{- include "kora.platformEnv" (dict "root" $ "name" "identity" "keys" (list "DB_PASSWORD" "REDIS_PASSWORD" "ORBIT_TOKEN_SIGNING_KEY")) | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            {{- if .Values.global.metrics.enabled }}
+            - name: http-metrics
+              containerPort: {{ .Values.global.metrics.port | default 9464 }}
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.identity.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "kora.spireVolumeMount" . | nindent 12 }}
+            {{- include "kora.configVolumeMount" . | nindent 12 }}
+            {{- include "kora.redisCAVolumeMount" . | nindent 12 }}
+            - name: tenants-config
+              mountPath: /etc/orbit
+              readOnly: true
+            - name: tenant-client-secrets
+              mountPath: /etc/orbit/tenant-secrets
+              readOnly: true
+            - name: oauth-clients
+              mountPath: /etc/orbit/oauth-clients
+              readOnly: true
+            {{- include "kora.extraVolumeMounts" (dict "root" $ "name" "identity") | nindent 12 }}

@@ -13,7 +13,7 @@
 # to an IP literal carries no SNI for the interceptor to match.
 #
 # The API server listens on 6443, and the gateway may only dial 443 by default.
-# egressGateway.upstreamPorts in deploy/reference/values/orbit.local.yaml opens
+# egressGateway.upstreamPorts in deploy/reference/values/kora.local.yaml opens
 # it.
 apiVersion: orbit.io/v1alpha1
 kind: Connection

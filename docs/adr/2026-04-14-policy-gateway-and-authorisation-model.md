@@ -697,7 +697,7 @@ backend/internal/policygw/
 ├── handlers.go                     # POST /v1/policy/check, /v1/policy/query (utility API)
 └── models.go                       # Request/response types for utility HTTP API
 
-charts/orbit/templates/
+charts/kora/templates/
 └── policy-gateway/
     └── envoyfilter.yaml            # OPA ext_authz EnvoyFilter for agent pods (SIDECAR_OUTBOUND)
 

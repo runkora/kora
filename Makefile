@@ -447,7 +447,7 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm, helmfile,
 # Each composes the granular recipes below.
 # ===========================================
 
-# The schema is applied by the orbit chart's pre-install hook during
+# The schema is applied by the kora chart's pre-install hook during
 # cluster-platform, before any service starts.
 .PHONY: up
 up: dev-cluster cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, SPIRE + Istio + kora (schema applied by the chart's migrate hook), tenants. Idempotent.
@@ -1139,13 +1139,13 @@ hades-manifest: ## Regenerate the Hades theme surface manifest (manifest.json), 
 
 .PHONY: hades-chart-rules
 hades-chart-rules: ## Copy the product-name bounds from the Hades manifest into the chart, which validates the name at render time
-	@mkdir -p charts/orbit/files
-	@jq '.productName' $(HADES_DIR)/manifest.json > charts/orbit/files/hades-product-name.json
+	@mkdir -p charts/kora/files
+	@jq '.productName' $(HADES_DIR)/manifest.json > charts/kora/files/hades-product-name.json
 
 .PHONY: hades-chart-rules-check
 hades-chart-rules-check: ## Verify the chart's product-name rule is what the Hades manifest carries
-	@jq '.productName' $(HADES_DIR)/manifest.json | diff -q - charts/orbit/files/hades-product-name.json >/dev/null \
-		|| { echo "$(COLOR_RED)✗ charts/orbit/files/hades-product-name.json is out of sync with the Hades manifest. Run: make hades-manifest$(COLOR_RESET)"; exit 1; }
+	@jq '.productName' $(HADES_DIR)/manifest.json | diff -q - charts/kora/files/hades-product-name.json >/dev/null \
+		|| { echo "$(COLOR_RED)✗ charts/kora/files/hades-product-name.json is out of sync with the Hades manifest. Run: make hades-manifest$(COLOR_RESET)"; exit 1; }
 	@echo "$(COLOR_GREEN)✓ the chart's product-name rule matches the Hades manifest$(COLOR_RESET)"
 
 .PHONY: hades-manifest-check
@@ -1303,10 +1303,10 @@ HELM_DOCS_VERSION := v1.14.2
 
 .PHONY: chart-lint
 chart-lint: ## Lint the Helm charts (helm lint with ci/ values)
-	@helm lint charts/orbit -f charts/orbit/ci/default-values.yaml
-	@helm lint charts/orbit -f charts/orbit/ci/default-values.yaml -f charts/orbit/ci/theme-values.yaml
-	@helm lint charts/orbit -f charts/orbit/ci/default-values.yaml -f charts/orbit/ci/inference-gateway-ha-values.yaml
-	@helm lint charts/orbit-crds
+	@helm lint charts/kora -f charts/kora/ci/default-values.yaml
+	@helm lint charts/kora -f charts/kora/ci/default-values.yaml -f charts/kora/ci/theme-values.yaml
+	@helm lint charts/kora -f charts/kora/ci/default-values.yaml -f charts/kora/ci/inference-gateway-ha-values.yaml
+	@helm lint charts/kora-crds
 
 .PHONY: chart-docs
 chart-docs: ## Regenerate charts/*/README.md from values with helm-docs
@@ -1322,8 +1322,8 @@ chart-check: chart-lint chart-docs-check ## Lint the charts and verify their gen
 	@echo "$(COLOR_GREEN)✓ chart checks passed$(COLOR_RESET)"
 
 .PHONY: chart-deps
-chart-deps: ## Update charts/orbit/Chart.lock from its Chart.yaml dependencies
-	@helm dependency update charts/orbit
+chart-deps: ## Update charts/kora/Chart.lock from its Chart.yaml dependencies
+	@helm dependency update charts/kora
 
 .PHONY: check
 check: check-versions tidy fmt vet fix lint brand-tags-check deadcode secrets docs-check hades-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, fmt, vet, lint, brand-tags-check, deadcode, secrets, docs-check, hades-check, migrate-lint, test, frontend-check)

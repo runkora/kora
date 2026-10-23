@@ -160,7 +160,7 @@ None at this time.
 
 *   Dockerfiles: `backend/Dockerfile.sandbox-go`, `Dockerfile.sandbox-python`, `Dockerfile.sandbox-node` and `Dockerfile.sandbox-dev`.
 *   Build: `versions.hcl`, `docker-bake.hcl` and `docker-bake.local.hcl`.
-*   Chart: `charts/orbit/values.yaml` and `charts/orbit/templates/operator/config.yaml`.
+*   Chart: `charts/kora/values.yaml` and `charts/kora/templates/operator/config.yaml`.
 *   Operator: `backend/internal/operator/tenant_sandboximage.go`.
 
 ---

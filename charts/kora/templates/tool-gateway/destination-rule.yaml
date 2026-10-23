@@ -1,0 +1,20 @@
+{{- if .Values.platform.spiffe.enabled }}
+# Client mTLS policy for callers of the tool-gateway (the BFF reading the
+# catalog on GET /v1/catalog, and the Phase-4 MCP request path). Mirrors every
+# other in-mesh orbit service so a source Envoy uses ISTIO_MUTUAL mTLS.
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: orbit-tool-gateway-client-policy
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.toolGateway.labels" . | nindent 4 }}
+spec:
+  host: orbit-tool-gateway.{{ include "kora.systemNamespace" . }}.svc.cluster.local
+  exportTo: ["*"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+      subjectAltNames:
+        - "spiffe://{{ include "kora.trustDomain" . }}/system/tool-gateway"
+{{- end }}

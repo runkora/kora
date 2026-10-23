@@ -22,7 +22,7 @@ observability:
 *   **`samplingRate`:** The fraction of root spans sampled, from 0.0 to 1.0. It is 0.1 in `production.yaml` and 1.0 in `local.yaml`.
 *   **`logFormat`:** `console` or `json`. It is `json` in `production.yaml` and `console` in `local.yaml`.
 
-The `orbit` chart renders these keys from `global.observability.otlpEndpoint`, `global.observability.samplingRate` and `global.logFormat`:
+The `kora` chart renders these keys from `global.observability.otlpEndpoint`, `global.observability.samplingRate` and `global.logFormat`:
 
 ```yaml
 global:

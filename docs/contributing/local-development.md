@@ -39,7 +39,7 @@ make up
 
 - `dev-up`: Starts Postgres, Redis, glauth, and Dex in Docker Compose. Generates `secrets/signing.key` on first run.
 - `dev-cluster`: Creates the k3d cluster `orbit-local` with a registry at `orbit-registry:5001`, and patches CoreDNS so pods resolve `dex.orbit.local.clearroute.io`.
-- `cluster-platform`: Builds any missing service images, creates the `orbit-system` namespace, secrets and TLS, writes the Docker network values to `deploy/reference/environments/local.generated.yaml`, then runs `helmfile -e local apply` from `deploy/reference/`. That installs SPIRE, Istio and the two kora charts in dependency order, the same sequence on any cluster. The `orbit` chart's pre-install hook applies the database schema before any service starts. Helmfile diffs before applying, so an unchanged environment is a no-op.
+- `cluster-platform`: Builds any missing service images, creates the `orbit-system` namespace, secrets and TLS, writes the Docker network values to `deploy/reference/environments/local.generated.yaml`, then runs `helmfile -e local apply` from `deploy/reference/`. That installs SPIRE, Istio and the two kora charts in dependency order, the same sequence on any cluster. The `kora` chart's pre-install hook applies the database schema before any service starts. Helmfile diffs before applying, so an unchanged environment is a no-op.
 - `cluster-deploy`: Runs `create-secrets.sh`, applies the `OrbitTenant` resources, and deploys the workload fixtures.
 
 Endpoints once it finishes:
@@ -72,7 +72,7 @@ Local accounts are backed by `glauth` and surfaced to Dex over LDAP. Their defau
 | `dev@orbit.local.clearroute.io` | `platform-admin`, `engineer` | The admin. Policy administration and everything else. |
 | `engineer@orbit.local.clearroute.io` | `engineer` | Checking what a regular engineer can and cannot do. |
 
-Access tokens last four hours locally, set by `identity.config.accessTokenTtlMinutes` in `deploy/reference/values/orbit.local.yaml`. `make auth-refresh` rotates the pair when one expires. If the refresh token has expired too, run `make auth` again.
+Access tokens last four hours locally, set by `identity.config.accessTokenTtlMinutes` in `deploy/reference/values/kora.local.yaml`. `make auth-refresh` rotates the pair when one expires. If the refresh token has expired too, run `make auth` again.
 
 ## Using your token
 
@@ -143,7 +143,7 @@ See the [advanced customisations guide](../guides/advanced-customisations.md).
 
 ## Database migrations
 
-Each table-owning service keeps its [Goose](https://github.com/pressly/goose) migrations under `backend/cmd/{service}/migrations/`. `backend/cmd/migrate` embeds all of them and applies them as one set. In a cluster it runs as the `orbit` chart's pre-install and pre-upgrade hook Job. See the [database migrations ADR](../adr/2026-09-10-database-migrations.md).
+Each table-owning service keeps its [Goose](https://github.com/pressly/goose) migrations under `backend/cmd/{service}/migrations/`. `backend/cmd/migrate` embeds all of them and applies them as one set. In a cluster it runs as the `kora` chart's pre-install and pre-upgrade hook Job. See the [database migrations ADR](../adr/2026-09-10-database-migrations.md).
 
 **Never write migration files by hand.** Generate them:
 

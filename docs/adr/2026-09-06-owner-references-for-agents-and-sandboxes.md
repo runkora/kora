@@ -171,7 +171,7 @@ Code changes land in `backend/internal/agents/`:
 - In `ProvisionSandbox`, fetch the parent `StatefulSet` (already implicitly needed for PVC/ordinal accounting) and set its owner reference on the sandbox Pod.
 - Add unit tests alongside the existing `k8s_authorizationpolicy_test.go` / `k8s_overrides_test.go` / `k8s_sandbox_replace_test.go`, using the same fake-client pattern, asserting the owner reference on every created object and asserting graceful degradation when the tenant CR / CRD is missing.
 
-Helm change lands in `charts/orbit`:
+Helm change lands in `charts/kora`:
 
 - Extend the `orbit-agents` ClusterRole with `get` on `orbittenants.orbit.io`. No other verbs.
 
@@ -182,7 +182,7 @@ No explicit migration. Each `ensureX` follows a create-then-backfill pattern: on
 ### Timeline
 
 - ADR ratified: 2026-09-06.
-- Implementation PR: single change against `backend/internal/agents/` and `charts/orbit/`, gated by `make check`.
+- Implementation PR: single change against `backend/internal/agents/` and `charts/kora/`, gated by `make check`.
 
 ---
 

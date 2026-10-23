@@ -86,7 +86,7 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 
 ### 1. The `InferenceProvider` resource
 
-`orbit.io/v1alpha1`, kind `InferenceProvider`, short name `oip`, namespaced, status subresource. It ships in `charts/orbit-crds`. The Go types live in `internal/platform/inferenceproviders/v1alpha1`.
+`orbit.io/v1alpha1`, kind `InferenceProvider`, short name `oip`, namespaced, status subresource. It ships in `charts/kora-crds`. The Go types live in `internal/platform/inferenceproviders/v1alpha1`.
 
 | Type | Fields | Credential |
 |---|---|---|
@@ -98,7 +98,7 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 - CEL requires the block named by `spec.type` and forbids the others. `metadata.name` is a DNS label.
 - The provider name is `<type>:<metadata.name>`. Routes, overrides and usage filters accept only that form.
 - `spec.models` optionally limits the offered models. When the upstream has no model list, it is the list.
-- A ValidatingAdmissionPolicy in the `orbit` chart rejects an InferenceProvider outside the system namespace.
+- A ValidatingAdmissionPolicy in the `kora` chart rejects an InferenceProvider outside the system namespace.
 
 ### 2. The `compatible` type
 
@@ -202,7 +202,7 @@ One typed kind gives admission-time validation per provider with one list. A dec
 
 ## Implementation
 
-- `charts/orbit-crds/templates/crd-inferenceprovider.yaml`.
+- `charts/kora-crds/templates/crd-inferenceprovider.yaml`.
 - `backend/internal/platform/inferenceproviders/v1alpha1/`: API types.
 - `backend/internal/inferencegw/providers/registry/`: build per type, the watcher and status writes.
 - `backend/internal/inferencegw/providers/compatible/`: the compatible connector.
@@ -210,8 +210,8 @@ One typed kind gives admission-time validation per provider with one list. A dec
 - `backend/cmd/inference-gateway/`: start the watcher and seed the routing engine; the CHECK widening migration.
 - `backend/internal/koramcp/tools_models.go`: `models.providers.status`.
 - `frontend/src/app/(dashboard)/model-gateway/catalog/`: the Providers tab.
-- `charts/orbit/`: the gateway Role, API server label, namespace env and the admission policy.
-- `backend/internal/operator/inferenceprovider_serviceentry.go` and `charts/orbit/templates/operator/role.yaml`: Amendment 1.
+- `charts/kora/`: the gateway Role, API server label, namespace env and the admission policy.
+- `backend/internal/operator/inferenceprovider_serviceentry.go` and `charts/kora/templates/operator/role.yaml`: Amendment 1.
 - `scripts/cluster/refresh-bedrock-creds.sh`, `scripts/cluster/create-secrets.sh`, `Makefile`, `.env.example`.
 - `docs/guides/register-inference-provider.md`.
 

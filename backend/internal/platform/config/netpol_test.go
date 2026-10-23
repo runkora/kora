@@ -23,7 +23,7 @@ import (
 // prior version of this policy made. Needs helm and the chart's dependencies
 // (make chart-deps).
 func TestChartMetricsNetworkPolicies_ScopesOperatorSeparately(t *testing.T) {
-	chart := filepath.Join("..", "..", "..", "..", "charts", "orbit")
+	chart := filepath.Join("..", "..", "..", "..", "charts", "kora")
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not installed")
 	}

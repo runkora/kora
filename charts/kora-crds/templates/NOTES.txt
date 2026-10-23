@@ -1,0 +1,10 @@
+kora CRDs installed: orbittenants, connections, oauthclients, mcpservers, inferenceproviders, sandboximages (orbit.io).
+
+Install the kora chart next, into the namespace kora will run in:
+
+  helm upgrade --install orbit oci://ghcr.io/runkora/charts/kora \
+    --version {{ .Chart.Version }} --namespace {{ .Release.Namespace }}
+
+The CRDs carry helm.sh/resource-policy: keep. Uninstalling this release leaves
+them, and every OrbitTenant, Connection, OAuthClient, MCPServer,
+InferenceProvider and SandboxImage, in place.

@@ -239,7 +239,7 @@ func declaredHostOnly(baseHost string) []string {
 // requires a DNS hostname and baseHost is a bare IP literal. TLS ClientHellos
 // never carry SNI for an IP-literal destination (per spec), and the sandbox's
 // transparent-egress interceptor
-// (charts/orbit/templates/egress-gateway/transparent-egress.yaml) authorizes
+// (charts/kora/templates/egress-gateway/transparent-egress.yaml) authorizes
 // outbound HTTPS by matching that SNI against the connection's granted
 // egress:<host>:connect scope, so an IP-literal connection can never be
 // authorized through a live agent sandbox. See

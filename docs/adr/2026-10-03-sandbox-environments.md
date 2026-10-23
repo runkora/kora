@@ -11,7 +11,7 @@
 
 ## Context
 
-Every sandbox runs the image set in `agents.config.sandboxImage` (`charts/orbit/values.yaml`), and `AgentType` has no image field (`backend/internal/agents/models.go`). An environment holds only egress hosts and connectors (`backend/internal/agents/environments.go`), and an agent links to at most one environment through `agent_types.environment_id`.
+Every sandbox runs the image set in `agents.config.sandboxImage` (`charts/kora/values.yaml`), and `AgentType` has no image field (`backend/internal/agents/models.go`). An environment holds only egress hosts and connectors (`backend/internal/agents/environments.go`), and an agent links to at most one environment through `agent_types.environment_id`.
 
 `runfs.InstallEnv` (`backend/internal/agents/sandbox/runfs/runfs.go`) places `GOPATH`, `GOCACHE`, the npm and pip caches and tool installs under the run's HOME. In prod, HOME sits on the shared NFS workspace volume, and no cache survives the run. Prod runs show the cost:
 
@@ -132,7 +132,7 @@ Each tenant will register sandbox images as `SandboxImage` resources built on `k
 
 ### 2. The `SandboxImage` Resource
 
-`SandboxImage` will be a namespaced `orbit.io/v1alpha1` resource (`charts/orbit-crds/templates/crd-sandboximage.yaml`) with these fields:
+`SandboxImage` will be a namespaced `orbit.io/v1alpha1` resource (`charts/kora-crds/templates/crd-sandboximage.yaml`) with these fields:
 
 *   `spec.image`, `spec.description`, `spec.pullSecretRef.name` and `spec.warm`.
 *   `status.image`, `status.digest` and the `Valid` and `Warm` conditions.
@@ -201,13 +201,13 @@ None at this time.
 ## Implementation
 
 *   `backend/Dockerfile.sandbox-exec`, `docker-bake.hcl` and `Makefile`: the `kora-sandbox-base` image.
-*   `charts/orbit-crds/templates/crd-sandboximage.yaml` and `backend/internal/platform/sandboximages/v1alpha1/`: the `SandboxImage` resource and its types.
+*   `charts/kora-crds/templates/crd-sandboximage.yaml` and `backend/internal/platform/sandboximages/v1alpha1/`: the `SandboxImage` resource and its types.
 *   `backend/internal/operator/sandboximage_controller.go`, `sandboximage_registry.go` and `tenant_sandboximage.go`: validation, digest pinning, warmers and `kora-base`.
 *   `backend/cmd/kora-agents/migrations/20261003023303_sandbox_environments.sql`: the expand-only migration.
 *   `backend/internal/agents/`: environments, attachments, the access union, environment selection, run events and the sandbox volume.
 *   `backend/cmd/kora-runtime-mcp/main.go` and `backend/internal/agents/sessionmanager/`: the `list_environments`, `provision_sandbox` and `replace_environment` tools.
 *   `frontend/src/app/(dashboard)/environments/` and the agent builder and configuration tab: environment images and sizes, and several environments per agent.
-*   `charts/orbit/values.yaml`: `agents.sandboxImages` and `agents.environments` with `defaultSize` and `maxSize`.
+*   `charts/kora/values.yaml`: `agents.sandboxImages` and `agents.environments` with `defaultSize` and `maxSize`.
 *   `docs/guides/deployment.md`: sandbox images and environments.
 
 ---

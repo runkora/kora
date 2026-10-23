@@ -1,0 +1,29 @@
+{{- if .Values.platform.spiffe.enabled }}
+# DestinationRule for orbit-frontend mTLS peer authentication.
+#
+# Configures Istio to use ISTIO_MUTUAL (SPIFFE-backed mTLS) for all traffic
+# to the orbit-frontend service. Without this, Istio's auto-detection may not
+# set tlsMode=istio on the endpoint for the Istio Gateway proxy (which is not
+# a regular sidecar), causing it to attempt plain-text when the sidecar
+# expects mTLS.
+#
+# subjectAltNames validates the SERVER's SPIFFE SAN (what callers verify on
+# the frontend's cert) — this is the SVID issued to the frontend workload.
+#
+# Ref: ADR-0034 (frontend cluster deployment and ingress routing)
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: orbit-frontend-client-policy
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.frontend.labels" . | nindent 4 }}
+spec:
+  host: orbit-frontend.{{ include "kora.systemNamespace" . }}.svc.cluster.local
+  exportTo: ["*"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+      subjectAltNames:
+        - "spiffe://{{ include "kora.trustDomain" . }}/system/frontend"
+{{- end }}

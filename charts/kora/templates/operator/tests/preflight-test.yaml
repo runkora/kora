@@ -1,0 +1,35 @@
+# helm test entry point for the prerequisites preflight; same checks as the
+# operator's periodic run.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: orbit-preflight-test
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.operator.labels" . | nindent 4 }}
+    spiffe.io/component: operator
+    orbit.io/kube-api-client: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    sidecar.istio.io/inject: "false"
+spec:
+  serviceAccountName: orbit-operator
+  restartPolicy: Never
+  {{- include "kora.imagePullSecrets" . | nindent 2 }}
+  securityContext:
+    {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 4 }}
+  volumes:
+    {{- include "kora.spireVolumes" . | nindent 4 }}
+    {{- include "kora.configVolume" (dict "root" $ "name" "operator" "configMap" "orbit-operator-config" "modules" (include "kora.operator.configModules" . | fromYaml)) | nindent 4 }}
+  containers:
+    - name: preflight
+      image: {{ include "kora.image" (dict "root" $ "name" "operator") | quote }}
+      imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "operator") }}
+      command: ["./kora"]
+      args: ["preflight"]
+      securityContext:
+        {{- include "kora.containerSecurityContext" (dict) | nindent 8 }}
+      volumeMounts:
+        {{- include "kora.spireVolumeMount" . | nindent 8 }}
+        {{- include "kora.configVolumeMount" . | nindent 8 }}

@@ -60,7 +60,7 @@ RUN mkdir -p /configs && \
 FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
 
 # Non-root user matching the chart securityContext (runAsUser: 65532,
-# runAsNonRoot: true, per charts/orbit/templates/*/deployment.yaml). Baking the
+# runAsNonRoot: true, per charts/kora/templates/*/deployment.yaml). Baking the
 # drop into the image keeps the guarantee wherever the chart is not the
 # deployment surface (direct docker run, forensics, ad-hoc orchestrators) and
 # mirrors Dockerfile.operator's user model.

@@ -1,8 +1,8 @@
 # Deploying kora
 
-kora is two Helm charts. `orbit-crds` installs the custom resources; `orbit` installs the operator, the cluster-scoped identity and gateway resources, and the platform services.
+kora is two Helm charts. `kora-crds` installs the custom resources; `kora` installs the operator, the cluster-scoped identity and gateway resources, and the platform services.
 
-The `orbit` chart installs the operator alongside the platform services. Once running, the operator watches the kora CRDs and reconciles them into live tenants: it creates tenant namespaces, mints the per-tenant CA and OPA config, aggregates the registries, and serves the admission webhooks. 
+The `kora` chart installs the operator alongside the platform services. Once running, the operator watches the kora CRDs and reconciles them into live tenants: it creates tenant namespaces, mints the per-tenant CA and OPA config, aggregates the registries, and serves the admission webhooks. 
 
 ## Installation paths
 
@@ -23,7 +23,7 @@ kora is tested on Kubernetes 1.34 to 1.36. The charts require 1.34 or later.
 The cluster must provide:
 
 - Cluster-admin access for the initial installation. The charts install CRDs, cluster roles, admission webhooks, and other cluster-scoped resources.
-- A CNI that enforces Kubernetes `NetworkPolicy`. The `orbit` chart installs a default-deny policy in the system namespace and explicit rules for the mesh, gateway, Kubernetes API, DNS, and declared external services. Set `networkPolicy.enabled: false` only where the CNI cannot enforce them.
+- A CNI that enforces Kubernetes `NetworkPolicy`. The `kora` chart installs a default-deny policy in the system namespace and explicit rules for the mesh, gateway, Kubernetes API, DNS, and declared external services. Set `networkPolicy.enabled: false` only where the CNI cannot enforce them.
 - A StorageClass for agent workspace volumes, either the cluster default or one named in `agents.workspace.storageClassName`. `ReadWriteMany` when sandboxes run on their own node pool.
 - Working cluster DNS and a route from workloads to the Kubernetes API.
 - A `LoadBalancer` implementation for the default gateway, or another way to expose the Istio gateway when using `NodePort` or `ClusterIP`.
@@ -58,7 +58,7 @@ The platform's SPIFFE trust domain is part of every workload identity kora issue
 
 PostgreSQL and Redis must be reachable from the system namespace. kora does not provision, back up, patch, or replicate either service.
 
-The `orbit` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (`orbit-migrate`) runs every pending migration before any workload rolls; Argo CD runs it as a `PreSync` hook. The Job connects with the services' credentials. That role needs `CREATE` on schema `public` and owns every table the migrations create. PostgreSQL 14 through 18 are supported. The Job runs without an Istio sidecar and needs the same network path to the database as the services.
+The `kora` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (`orbit-migrate`) runs every pending migration before any workload rolls; Argo CD runs it as a `PreSync` hook. The Job connects with the services' credentials. That role needs `CREATE` on schema `public` and owns every table the migrations create. PostgreSQL 14 through 18 are supported. The Job runs without an Istio sidecar and needs the same network path to the database as the services.
 
 - Use private endpoints and TLS in production.
 - When either service sits outside the cluster network, add its CIDR and port to `networkPolicy.externalServices`. The default-deny policy otherwise blocks the connection.
@@ -298,7 +298,7 @@ Each tenant can have an isolated OIDC client. This allows for custom tenancy and
 
 Platform credentials and signing keys come from an external secret manager. [Secrets](../reference/secrets.md) describes the ownership and projection model.
 
-Platform credentials must be projected into Kubernetes Secrets in the system namespace before installing the `orbit` chart.
+Platform credentials must be projected into Kubernetes Secrets in the system namespace before installing the `kora` chart.
 
 The platform services read these keys from `orbit-secrets`, which can be customised using `config.platformSecretName`:
 
@@ -315,7 +315,7 @@ Your secret manager owns rotation. The kora operator does not watch these Secret
 
 ## Configure the chart
 
-The example at `deploy/reference/values/orbit.yaml` can be copied directly into your repository, a full list of values can be found in the chart schema. The fields most installs will set:
+The example at `deploy/reference/values/kora.yaml` can be copied directly into your repository, a full list of values can be found in the chart schema. The fields most installs will set:
 
 ```yaml
 global:
@@ -429,9 +429,9 @@ Host them anywhere the browsers of your users can reach over HTTPS, such as an o
 The chart takes the document itself, passed as a file, so the committed `theme.yaml` is the one thing you edit:
 
 ```bash
-helm upgrade --install orbit oci://ghcr.io/clear-route/charts/orbit \
+helm upgrade --install orbit oci://ghcr.io/runkora/charts/kora \
   --namespace orbit-system \
-  --values orbit.yaml \
+  --values kora.yaml \
   --set-file theme.document=theme.yaml
 ```
 
@@ -440,7 +440,7 @@ Under Argo CD, `fileParameters` is the `--set-file` equivalent. With the referen
 ```yaml
 helm:
   valueFiles:
-    - $values/orbit.yaml
+    - $values/kora.yaml
   fileParameters:
     - name: theme.document
       path: $values/theme.yaml
@@ -482,7 +482,7 @@ Points 3 and 4 give your gateway a SPIRE identity, required to interact with kor
 
 The reference Helmfile in `deploy/reference/` installs SPIRE, Istio, and the two kora charts in dependency order. 
 
-Copy `deploy/reference/` into your own repository, and edit the two files: `environments/example.yaml` (or whatever you name it) for the cluster facts, and `values/orbit.yaml` for the chart config.
+Copy `deploy/reference/` into your own repository, and edit the two files: `environments/example.yaml` (or whatever you name it) for the cluster facts, and `values/kora.yaml` for the chart config.
 
 To apply from your local copy:
 
@@ -494,7 +494,7 @@ If SPIRE and Istio are already running in your cluster, you can skip the helmfil
 
 ### Direct Helm (existing mesh)
 
-With SPIRE and Istio already running, you install the two kora charts directly. First label the system namespace, then install `orbit-crds`, and then `orbit`.
+With SPIRE and Istio already running, you install the two kora charts directly. First label the system namespace, then install `kora-crds`, and then `kora`.
 
 ```bash
 kubectl create namespace orbit-system
@@ -504,16 +504,16 @@ kubectl label namespace orbit-system \
   pod-security.kubernetes.io/warn=restricted \
   pod-security.kubernetes.io/audit=restricted
 
-helm upgrade --install orbit-crds oci://ghcr.io/runkora/charts/orbit-crds \
+helm upgrade --install orbit-crds oci://ghcr.io/runkora/charts/kora-crds \
   --namespace orbit-system
 
-helm upgrade --install orbit oci://ghcr.io/runkora/charts/orbit \
+helm upgrade --install orbit oci://ghcr.io/runkora/charts/kora \
   --namespace orbit-system \
-  --values orbit.yaml
+  --values kora.yaml
 ```
 
 Pin `--version` on both to install a specific release rather than the latest.
-Your `orbit.yaml` must also set `global.trustDomain`, which the Helmfile injected for you but helm does not. 
+Your `kora.yaml` must also set `global.trustDomain`, which the Helmfile injected for you but helm does not. 
 
 ### Argo CD (GitOps)
 
@@ -557,13 +557,13 @@ Now that the platform is running, you can configure it through the following gui
 
 ## Upgrade
 
-Upgrade `orbit-crds` before `orbit`, on every upgrade.
+Upgrade `kora-crds` before `kora`, on every upgrade.
 
 ```bash
-helm upgrade orbit-crds oci://ghcr.io/runkora/charts/orbit-crds \
+helm upgrade orbit-crds oci://ghcr.io/runkora/charts/kora-crds \
   --namespace orbit-system --version <target>
-helm upgrade orbit oci://ghcr.io/runkora/charts/orbit \
-  --namespace orbit-system --version <target> --values orbit.yaml
+helm upgrade orbit oci://ghcr.io/runkora/charts/kora \
+  --namespace orbit-system --version <target> --values kora.yaml
 ```
 
 - Under GitOps, bump the chart `targetRevision` on both Applications in the same order.

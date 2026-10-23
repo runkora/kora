@@ -5,7 +5,7 @@
 package ports
 
 // EgressGatewayCONNECT is the egress gateway's HTTP CONNECT port. It must match
-// charts/orbit/values.yaml and charts/orbit/templates/egress-gateway/service.yaml.
+// charts/kora/values.yaml and charts/kora/templates/egress-gateway/service.yaml.
 const EgressGatewayCONNECT = 8085
 
 // SandboxExecGRPC is the sandbox-exec gRPC port. kora-agents renders it onto

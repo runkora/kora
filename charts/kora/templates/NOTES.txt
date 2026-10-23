@@ -1,0 +1,21 @@
+kora {{ .Chart.AppVersion }} installed in namespace {{ include "kora.systemNamespace" . }}.
+
+Hosts:
+  dashboard  https://{{ include "kora.frontendHost" . }}
+  api        https://{{ include "kora.apiHost" . }}
+{{- if .Values.gateway.create }}
+
+Ingress gateway Service: {{ .Values.ingressGateway.name }} (type {{ .Values.ingressGateway.service.type }}).
+Point DNS for both hosts at it.
+{{- else }}
+
+Bound to the customer-owned Istio Gateway "{{ .Values.gateway.name }}". That gateway
+must carry the SPIRE wiring in deploy/reference/values/gateway-byo.yaml.
+{{- end }}
+
+Prerequisites are verified by the operator's preflight. Check it with:
+
+  kubectl get orbittenants -A
+  kubectl logs deployment/orbit-operator -n {{ include "kora.systemNamespace" . }}
+
+Register a tenant by applying an OrbitTenant. See docs/guides/deployment.md.

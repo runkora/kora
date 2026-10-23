@@ -165,7 +165,7 @@ Referenced by VirtualServices as `orbit-system/orbit-gateway`.
 
 ### Frontend Service
 
-The frontend is deployed in `orbit-system` as a platform service via the `orbit` chart, following the identity service pattern exactly:
+The frontend is deployed in `orbit-system` as a platform service via the `kora` chart, following the identity service pattern exactly:
 
 | Attribute | Value |
 |-----------|-------|

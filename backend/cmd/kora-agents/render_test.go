@@ -119,7 +119,7 @@ func TestLoadWorkloads_RejectsUnparseableSize(t *testing.T) {
 	}
 }
 
-// defaultChartWorkloads is what charts/orbit renders with no values set. Every
+// defaultChartWorkloads is what charts/kora renders with no values set. Every
 // key is present and empty, which is the case most likely to leak an empty
 // struct into a provisioned manifest.
 const defaultChartWorkloads = `workloads:

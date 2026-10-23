@@ -129,7 +129,7 @@ func TestChartSandboxMountConfig(t *testing.T) {
 		}
 	}
 	// renderChart above skipped the test if helm or the chart dependencies are missing.
-	chart := filepath.Join("..", "..", "..", "..", "charts", "orbit")
+	chart := filepath.Join("..", "..", "..", "..", "charts", "kora")
 	out, err := exec.Command("helm", "template", "orbit", chart, "-n", "orbit-system", "-f", filepath.Join(chart, "ci", "default-values.yaml"), "--set", "sandboxMount.enabled=true", "--set", "sandboxMount.port=70000").CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "sandboxMount.port must be a TCP port") {
 		t.Errorf("port 70000 rendered: %v\n%s", err, out)

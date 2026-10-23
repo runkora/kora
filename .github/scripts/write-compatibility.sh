@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Writes compatibility.yaml. Istio minors come from the orbit chart's preflight
+# Writes compatibility.yaml. Istio minors come from the kora chart's preflight
 # list and the SPIRE chart from the reference install; tooling comes from
 # versions.env. Keep the Kubernetes list in step with the charts CI render
 # matrix. Env: TAG.
 set -euo pipefail
 : "${TAG:?}"
 source scripts/cluster/versions.env
-istio=$(yq -o=json -I=0 '.operator.preflight.supportedIstioMinors' charts/orbit/values.yaml)
+istio=$(yq -o=json -I=0 '.operator.preflight.supportedIstioMinors' charts/kora/values.yaml)
 spire=$(yq '.versions.spire' deploy/reference/environments/example.yaml)
 cat > compatibility.yaml <<YAML
 release: ${TAG}

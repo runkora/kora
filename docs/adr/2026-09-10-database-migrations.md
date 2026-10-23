@@ -58,7 +58,7 @@ A Helm or Argo CD install of the published charts does not apply the schema. The
 
 ### Option 1: Helm hook Job running an embedded migrate binary
 
-**Description:** A `cmd/migrate` binary embeds every service's migrations, runs goose as a library, and ships as its own image. The `orbit` chart renders it as a `pre-install,pre-upgrade` hook Job.
+**Description:** A `cmd/migrate` binary embeds every service's migrations, runs goose as a library, and ships as its own image. The `kora` chart renders it as a `pre-install,pre-upgrade` hook Job.
 
 **Pros:**
 - Runs once per release before any Deployment rolls. Failure fails the release.
@@ -167,7 +167,7 @@ Development history is discarded. Each table-owning service's directory is rewri
 
 ### Decision 9: Chart
 
-`charts/orbit/templates/migrate/job.yaml` renders the Job with:
+`charts/kora/templates/migrate/job.yaml` renders the Job with:
 
 - `helm.sh/hook: pre-install,pre-upgrade`, `helm.sh/hook-weight: "-10"`, `helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded`.
 - `sidecar.istio.io/inject: "false"`. The Job needs no SVID and no Envoy for a Postgres connection.
@@ -184,7 +184,7 @@ Values: `migrate.image`, `migrate.activeDeadlineSeconds`, `migrate.config`, and 
 
 ### Decision 10: Local development
 
-`make up` no longer runs `migrate-up`. The reference Helmfile applies the `orbit` chart and the hook runs in-cluster against the compose Postgres through the resolved Docker IP. Helmfile upgrades only a release whose rendered output changed, so every target that destroys the Postgres volume stamps a reset time onto the Job as a pod annotation in `local.generated.yaml`; the next `make up` renders a different Job and the hook re-applies the schema.
+`make up` no longer runs `migrate-up`. The reference Helmfile applies the `kora` chart and the hook runs in-cluster against the compose Postgres through the resolved Docker IP. Helmfile upgrades only a release whose rendered output changed, so every target that destroys the Postgres volume stamps a reset time onto the Job as a pod annotation in `local.generated.yaml`; the next `make up` renders a different Job and the hook re-applies the schema.
 
 `make redeploy`, for any service, hashes `backend/cmd/*/migrations/*.sql` and compares it with the hash recorded in `local.generated.yaml`. On a change it rebuilds and pushes the migrate image, records the digest under `migrate.image.digest` and the hash beside it, and runs `helmfile -e local apply` for the `orbit` release. Helmfile upgrades the release on the digest change and the hook fires.
 
@@ -253,7 +253,7 @@ No upgrade path is supported for schemas created before the 0.1.0 baseline.
 
 ## Validation
 
-- `helm install` of the `orbit` chart on a blank cluster with an empty database reaches every service Ready with no manual step.
+- `helm install` of the `kora` chart on a blank cluster with an empty database reaches every service Ready with no manual step.
 - `helm upgrade` from N-1 to N with N-1 pods serving throughout, then `helm rollback` to N-1 against the N schema, verified on the local cluster before each release.
 - `make migrate-lint` fails on a migration that violates any clause of Decision 7.
 

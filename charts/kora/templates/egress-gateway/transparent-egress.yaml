@@ -1,0 +1,205 @@
+# EnvoyFilter: TRANSPARENT egress encapsulation for sandbox pods.
+#
+# This is the enforced egress chokepoint (docs/adr/2026-06-06-jit-credential-
+# brokering-egress-gateway.md, Amendment 2). It does NOT rely on the agent
+# honouring HTTPS_PROXY; a hostile agent using a raw socket is caught the same
+# way, because the sandbox Envoy itself rewrites the traffic.
+#
+# Data path for a plain `curl https://example.com` from the agent (no proxy):
+#
+#   agent raw TLS :443
+#     │  (iptables → sandbox istio-proxy; agent is non-root, no NET_ADMIN, so
+#     │   it cannot escape this interception)
+#     ▼
+#   listener 0.0.0.0_443, TLS filter chain (added by patch 4)
+#     │  tls_inspector (patch 3) parses the ClientHello → SNI = example.com
+#     │  tcp_proxy tunneling_config wraps the raw bytes in a GENERATED
+#     │  CONNECT example.com:443 and sends it to the internal listener.
+#     ▼
+#   internal listener orbit_egress_encap (patch 1): an HCM that runs the SAME
+#   two filters the explicit-proxy path already used:
+#     │  ext_proc  → identity-proxy stamps Authorization: Bearer <platform JWT>
+#     │  ext_authz → OPA evaluates egress:<host>:connect posture (fail-closed)
+#     │  connect_matcher route → egress-gateway cluster in PROXY mode
+#     ▼
+#   egress gateway :8085: terminates the CONNECT, TLS-intercepts with the
+#   per-tenant CA, runs connection authz + JIT mint, re-originates upstream.
+#
+# Why an internal listener: removing HTTPS_PROXY means *Envoy* must generate the
+# CONNECT (the agent no longer sends one). tcp_proxy tunneling generates that
+# CONNECT at the upstream edge, which would skip the outbound HCM where ext_proc
+# + ext_authz live. Routing the generated CONNECT through an internal-listener
+# HCM is what re-runs those existing filters on it. The identity-proxy and OPA
+# binaries take no part in it; this is Envoy config alone, scoped to sandbox pods.
+#
+# Scope: mesh services (orbit-system, kube-dns, istiod, …) have their own
+# dedicated outbound listeners that match the original destination first, so
+# platform-internal mTLS traffic is untouched. Only external egress is rewritten.
+#
+# Coverage (Amendment 2 "Protocols"): ALL outbound TCP is intercepted and
+# OPA-gated, in two places:
+#   - :443 (patch 3/4) tunnels using the TLS SNI as the CONNECT host, so
+#     hostname posture (*.example.com) works for HTTPS.
+#   - every other port (patch 5) is the virtualOutbound catch-all: it tunnels
+#     using the ORIGINAL destination (ip:port) as the CONNECT host, so posture
+#     for raw TCP is IP-based (fail-closed for hostname whitelists). Empty-SNI
+#     TLS on :443 likewise tunnels with an empty host and is fail-closed.
+# A DENIED connection is reset at this sandbox's OPA before reaching the gateway
+# (no data leaves the pod). For an ALLOWED non-443 raw-TCP connection the gateway
+# still needs a raw-passthrough mode (it only TLS-intercepts today), tracked
+# follow-up. UDP is not CONNECT-tunnellable (DNS→CoreDNS only; deny the rest).
+{{- if .Values.egressGateway.transparentEgress.enabled }}
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: egress-transparent-encap
+  namespace: {{ .Values.istio.namespace }}
+  labels:
+    {{- include "kora.egressGateway.labels" . | nindent 4 }}
+spec:
+  # Sandbox pods are labelled orbit.io/role=sandbox by the orbit-agents
+  # provisioner. Selector lives in istio-system so it applies across every
+  # tenant namespace's sandbox pods (same pattern as egress-gateway-connect-*).
+  workloadSelector:
+    labels:
+      orbit.io/role: sandbox
+  configPatches:
+    # 1) Internal listener: HCM that re-runs ext_proc + ext_authz on the
+    #    Envoy-generated CONNECT, then forwards it (proxy mode) to the gateway.
+    - applyTo: LISTENER
+      match:
+        context: SIDECAR_OUTBOUND
+      patch:
+        operation: ADD
+        value:
+          name: orbit_egress_encap
+          internal_listener: {}
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: orbit_egress_encap
+                    upgrade_configs:
+                      - upgrade_type: CONNECT
+                    route_config:
+                      name: orbit_egress_encap
+                      virtual_hosts:
+                        - name: encap
+                          domains: ["*"]
+                          routes:
+                            - match:
+                                connect_matcher: {}
+                              route:
+                                cluster: "outbound|{{ .Values.egressGateway.connectPort }}||orbit-egress-gateway.{{ include "kora.systemNamespace" . }}.svc.cluster.local"
+                                # PROXY mode (no connect_config): forward the
+                                # CONNECT with the ext_proc-injected Bearer to
+                                # the gateway rather than terminating locally.
+                                upgrade_configs:
+                                  - upgrade_type: CONNECT
+                    http_filters:
+                      # identity-proxy ext_proc: stamps the platform JWT.
+                      - name: envoy.filters.http.ext_proc
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+                          grpc_service:
+                            envoy_grpc:
+                              cluster_name: identity_proxy_local
+                          # Envoy defaults to 200ms; the header phase is a cache read, and 1s is
+                          # headroom against a slow path silently overrunning.
+                          message_timeout: 1s
+                          failure_mode_allow: true
+                          processing_mode:
+                            request_header_mode: SEND
+                            response_header_mode: SKIP
+                      # OPA ext_authz: egress posture (fail-closed).
+                      - name: envoy.filters.http.ext_authz
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+                          grpc_service:
+                            envoy_grpc:
+                              cluster_name: opa_policy_local
+                            timeout: 2s
+                          failure_mode_allow: false
+                          transport_api_version: V3
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+    # 2) Cluster targeting the internal listener (the tunnel's upstream).
+    - applyTo: CLUSTER
+      match:
+        context: SIDECAR_OUTBOUND
+      patch:
+        operation: ADD
+        value:
+          name: orbit_egress_encap_cluster
+          connect_timeout: 5s
+          load_assignment:
+            cluster_name: orbit_egress_encap_cluster
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        envoy_internal_address:
+                          server_listener_name: orbit_egress_encap
+    # 3) tls_inspector on the catch-all :443 listener → SNI (REQUESTED_SERVER_NAME)
+    #    is available to use as the generated CONNECT host.
+    - applyTo: LISTENER_FILTER
+      match:
+        context: SIDECAR_OUTBOUND
+        listener:
+          name: 0.0.0.0_443
+      patch:
+        operation: INSERT_FIRST
+        value:
+          name: envoy.filters.listener.tls_inspector
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
+    # 4) TLS filter chain on 0.0.0.0_443: tunnel (CONNECT) to the internal
+    #    listener using the SNI as the host: replaces raw passthrough for TLS.
+    - applyTo: FILTER_CHAIN
+      match:
+        context: SIDECAR_OUTBOUND
+        listener:
+          name: 0.0.0.0_443
+      patch:
+        operation: ADD
+        value:
+          filter_chain_match:
+            transport_protocol: tls
+          filters:
+            - name: envoy.filters.network.tcp_proxy
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+                stat_prefix: orbit_egress_tunnel
+                cluster: orbit_egress_encap_cluster
+                tunneling_config:
+                  hostname: "%REQUESTED_SERVER_NAME%:443"
+    # 5) Catch-all for every other TCP port. Istio's virtualOutbound listener
+    #    sends traffic to any port WITHOUT a dedicated listener (i.e. not 80/443
+    #    and not a mesh service) to PassthroughCluster: a direct, ungoverned
+    #    egress. Replace that with the same tunnel, using the ORIGINAL
+    #    destination (ip:port) as the CONNECT host since there is no SNI to read.
+    #    OPA then gates it by IP; a non-whitelisted connection is reset before
+    #    any bytes leave the pod. Targets the named `virtualOutbound-catchall-tcp`
+    #    chain so the port-15001 self-blackhole chain is left intact.
+    - applyTo: NETWORK_FILTER
+      match:
+        context: SIDECAR_OUTBOUND
+        listener:
+          name: virtualOutbound
+          filterChain:
+            name: virtualOutbound-catchall-tcp
+            filter:
+              name: envoy.filters.network.tcp_proxy
+      patch:
+        operation: REPLACE
+        value:
+          name: envoy.filters.network.tcp_proxy
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+            stat_prefix: orbit_egress_catchall
+            cluster: orbit_egress_encap_cluster
+            tunneling_config:
+              hostname: "%DOWNSTREAM_LOCAL_ADDRESS%"
+{{- end }}

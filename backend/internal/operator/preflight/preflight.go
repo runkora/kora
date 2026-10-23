@@ -315,7 +315,7 @@ func (r *Runner) clusterSPIFFEIDs(ctx context.Context) Check {
 		}
 	}
 	if koraOwned == 0 {
-		return Check{Name: name, OK: false, Message: "no kora ClusterSPIFFEIDs found; is the orbit chart installed"}
+		return Check{Name: name, OK: false, Message: "no kora ClusterSPIFFEIDs found; is the kora chart installed"}
 	}
 	return Check{Name: name, OK: true, Message: fmt.Sprintf("%d kora registrations for class %s", koraOwned, r.Config.SPIREClassName)}
 }

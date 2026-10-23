@@ -1,0 +1,10 @@
+{{- /*
+migrate config files (docs/adr/2026-10-06-rendered-service-config-files.md). A
+hook like the Job, so it exists before the Job runs on install and upgrade.
+*/}}
+{{- define "kora.migrate.configModules" -}}
+{{ include "kora.observabilityConfigModule" . }}
+{{ include "kora.storageConfigModule" . }}
+{{- end }}
+{{- $hook := dict "helm.sh/hook" "pre-install,pre-upgrade" "helm.sh/hook-weight" "-20" "helm.sh/hook-delete-policy" "before-hook-creation" }}
+{{- include "kora.configMap" (dict "root" $ "name" "migrate" "configMap" "orbit-migrate-config" "annotations" $hook "modules" (include "kora.migrate.configModules" . | fromYaml)) }}

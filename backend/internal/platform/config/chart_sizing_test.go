@@ -16,11 +16,11 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
-// renderChart renders the orbit chart over the CI values plus values, passing
+// renderChart renders the kora chart over the CI values plus values, passing
 // extra helm arguments through. Needs helm and the chart's dependencies.
 func renderChart(t *testing.T, values string, extra ...string) string {
 	t.Helper()
-	chart := filepath.Join("..", "..", "..", "..", "charts", "orbit")
+	chart := filepath.Join("..", "..", "..", "..", "charts", "kora")
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not installed")
 	}

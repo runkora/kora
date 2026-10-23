@@ -253,7 +253,7 @@ s.mu.RUnlock()
 
 ### Helm Chart Changes
 
-#### `charts/orbit/templates/deployment-identity.yaml`
+#### `charts/kora/templates/deployment-identity.yaml`
 
 1. Add volume mount for the aggregated Secret:
    ```yaml

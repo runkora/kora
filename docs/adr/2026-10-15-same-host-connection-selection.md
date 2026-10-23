@@ -17,7 +17,7 @@ The egress gateway resolves the connection for a request by tenant and destinati
 
 The operator's `ConnectionAggregator.collect` (`backend/internal/operator/connection_aggregator.go`) renders every active tenant's connections into one ConfigMap, `orbit-tenant-connections`, sorted by tenant and then by connection name. `collect` already skips a single connection with a warning when its base host is invalid or its Secret is missing.
 
-The operator serves admission webhooks on port 9443 behind the `orbit-operator-webhook` Service (`charts/orbit/templates/operator/webhook.yaml`). The `orbit-agent-pod-validator` ValidatingWebhookConfiguration routes pod creation in tenant namespaces to `/validate-pod`. `webhookcert.Manager.wire` (`backend/internal/operator/webhookcert/manager.go:266`) sets the CA bundle and `failurePolicy: Fail` on every entry of that configuration, and the `orbit-webhooks` preflight check (`backend/internal/operator/preflight/preflight.go`) requires `Fail`. `TenantReconciler` watches every Connection (`backend/internal/operator/tenant_controller.go:327`), and the manager's cache holds them all.
+The operator serves admission webhooks on port 9443 behind the `orbit-operator-webhook` Service (`charts/kora/templates/operator/webhook.yaml`). The `orbit-agent-pod-validator` ValidatingWebhookConfiguration routes pod creation in tenant namespaces to `/validate-pod`. `webhookcert.Manager.wire` (`backend/internal/operator/webhookcert/manager.go:266`) sets the CA bundle and `failurePolicy: Fail` on every entry of that configuration, and the `orbit-webhooks` preflight check (`backend/internal/operator/preflight/preflight.go`) requires `Fail`. `TenantReconciler` watches every Connection (`backend/internal/operator/tenant_controller.go:327`), and the manager's cache holds them all.
 
 Every github.com `github_app` connection claims the same host family: `github.com`, `api.github.com`, `codeload.github.com` and `*.githubusercontent.com` (`githubEgressHosts` in `backend/internal/platform/connections/adapters.go`). A GitHub Enterprise connection claims only its own base host.
 
@@ -182,7 +182,7 @@ The egress gateway resolves every connection in the caller's tenant that serves 
 ## Implementation
 
 1.  **Registry and broker selection:** `ConfigMapRegistry` returns every connection that serves a host. The `github_app` connector reports its configured owner and the owner a request addresses. `Broker.resolveConnection` selects among the candidates and returns the `connection_unresolved` denial.
-2.  **Registration guard and aggregation backstop:** One conflict function in `backend/internal/operator` serves the Connection webhook handler and `ConnectionAggregator.collect`. The chart change sits in `charts/orbit/templates/operator/webhook.yaml`, and the handler is wired in `backend/cmd/operator/main.go`.
+2.  **Registration guard and aggregation backstop:** One conflict function in `backend/internal/operator` serves the Connection webhook handler and `ConnectionAggregator.collect`. The chart change sits in `charts/kora/templates/operator/webhook.yaml`, and the handler is wired in `backend/cmd/operator/main.go`.
 3.  **GraphQL and search owners:** The GraphQL walk returns the owners and node ids a document names, `/search` parses its owner qualifiers, and the broker resolves node ids through the lookup and its cache.
 
 ---

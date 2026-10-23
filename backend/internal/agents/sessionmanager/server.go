@@ -168,7 +168,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 // (internal/platform/middleware/scope_enforce.go). Without a caller check, any
 // component's token would unlock every session route on every agent pod in
 // every tenant. The same reasoning drives the kora-triggers
-// AuthorizationPolicy (charts/orbit/templates/triggers/authorizationpolicy.yaml).
+// AuthorizationPolicy (charts/kora/templates/triggers/authorizationpolicy.yaml).
 func (c *Controller) requireExpectedCaller(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()

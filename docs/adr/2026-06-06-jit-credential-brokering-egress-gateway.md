@@ -423,7 +423,7 @@ The mechanism was proven on a live k3d sandbox before building, then productised
 
 What shipped:
 
-- `charts/orbit/templates/egress-gateway/transparent-egress.yaml` — the sandbox-scoped EnvoyFilter (internal-listener HCM running the existing `identity_proxy_local` ext_proc + `opa_policy_local` ext_authz). **All** outbound TCP is intercepted and OPA-gated: `tls_inspector` + SNI-tunnel chain on `0.0.0.0_443` (hostname posture), and the `virtualOutbound-catchall-tcp` chain retargeted to tunnel every other port using the **original destination** (`%DOWNSTREAM_LOCAL_ADDRESS%`) as the CONNECT host (IP posture). identity-proxy / OPA / gateway binaries unchanged.
+- `charts/kora/templates/egress-gateway/transparent-egress.yaml` — the sandbox-scoped EnvoyFilter (internal-listener HCM running the existing `identity_proxy_local` ext_proc + `opa_policy_local` ext_authz). **All** outbound TCP is intercepted and OPA-gated: `tls_inspector` + SNI-tunnel chain on `0.0.0.0_443` (hostname posture), and the `virtualOutbound-catchall-tcp` chain retargeted to tunnel every other port using the **original destination** (`%DOWNSTREAM_LOCAL_ADDRESS%`) as the CONNECT host (IP posture). identity-proxy / OPA / gateway binaries unchanged.
 - `internal/agents/k8s.go` — `HTTPS_PROXY`/`HTTP_PROXY` removed from the sandbox env (transparent only; CA-trust hints kept); sandbox-exec container hardened (`drop ALL` caps, `allowPrivilegeEscalation: false`) on top of the pod's `runAsNonRoot`.
 - `internal/operator/tenant_netpol.go` — `0.0.0.0/0` hole removed, DNS scoped to CoreDNS (prod defense-in-depth).
 
