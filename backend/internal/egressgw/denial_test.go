@@ -143,7 +143,7 @@ func TestHandleBrokerError_CredentialRefused(t *testing.T) {
 	cause := errors.New("installation permissions rejected; token ghs_secret")
 	err := deny(DenialCredentialRefused, "api.github.com",
 		&credentials.Connection{Name: "github"},
-		credentials.Classification{Action: "issues:write", Qualifier: "orbit"},
+		credentials.Classification{Action: "issues:write", Qualifier: "kora"},
 		errors.Join(credentials.ErrCredentialScopeRejected, cause))
 
 	rec := httptest.NewRecorder()
@@ -153,7 +153,7 @@ func TestHandleBrokerError_CredentialRefused(t *testing.T) {
 	if body.Details["reason"] != string(DenialCredentialRefused) {
 		t.Errorf("reason = %v, want credential_refused", body.Details["reason"])
 	}
-	for _, want := range []string{"issues:write for orbit", "connection github", "App installation"} {
+	for _, want := range []string{"issues:write for kora", "connection github", "App installation"} {
 		if !strings.Contains(body.Message, want) {
 			t.Errorf("message %q does not contain %q", body.Message, want)
 		}
@@ -175,11 +175,11 @@ func TestDenial_Unwraps(t *testing.T) {
 // A qualified action names its resource and the qualified scope a grant needs.
 func TestDeny_NotGrantedQualified(t *testing.T) {
 	d := deny(DenialNotGranted, "api.github.com", &credentials.Connection{Name: "github"},
-		credentials.Classification{Action: "pulls:read", Qualifier: "orbit"}, nil)
-	if d.RequiredScope != "connection:github:pulls:orbit:read" {
-		t.Errorf("RequiredScope = %q, want connection:github:pulls:orbit:read", d.RequiredScope)
+		credentials.Classification{Action: "pulls:read", Qualifier: "kora"}, nil)
+	if d.RequiredScope != "connection:github:pulls:kora:read" {
+		t.Errorf("RequiredScope = %q, want connection:github:pulls:kora:read", d.RequiredScope)
 	}
-	want := "Acme egress policy denied api.github.com: this agent is not granted pulls:read for orbit on connection github. To allow it, grant connection:github:pulls:orbit:read."
+	want := "Acme egress policy denied api.github.com: this agent is not granted pulls:read for kora on connection github. To allow it, grant connection:github:pulls:kora:read."
 	if d.Message("Acme") != want {
 		t.Errorf("Message() = %q, want %q", d.Message("Acme"), want)
 	}
@@ -189,9 +189,9 @@ func TestDeny_NotGrantedQualified(t *testing.T) {
 // narrowest grant that allows the call.
 func TestDeny_ScopeNamesClassifiedActionNotAlternate(t *testing.T) {
 	d := deny(DenialNotGranted, "api.github.com", &credentials.Connection{Name: "github"},
-		credentials.Classification{Action: "issues:read", Qualifier: "orbit", Alternates: []string{"pulls:read"}}, nil)
-	if d.RequiredScope != "connection:github:issues:orbit:read" {
-		t.Errorf("RequiredScope = %q, want connection:github:issues:orbit:read", d.RequiredScope)
+		credentials.Classification{Action: "issues:read", Qualifier: "kora", Alternates: []string{"pulls:read"}}, nil)
+	if d.RequiredScope != "connection:github:issues:kora:read" {
+		t.Errorf("RequiredScope = %q, want connection:github:issues:kora:read", d.RequiredScope)
 	}
 }
 

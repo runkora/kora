@@ -21,7 +21,7 @@ import { PUT } from './[id]/route';
 import { getSession } from '@runkora/server/session';
 
 const session = {
-  user: { sub: 'sub', email: 'test@orbit.local', name: 'Test' },
+  user: { sub: 'sub', email: 'test@runkora.test', name: 'Test' },
   accessToken: 'token',
   refreshToken: 'refresh',
   expiresAt: Math.floor(Date.now() / 1000) + 3600,

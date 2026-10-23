@@ -30,7 +30,7 @@ SECRET_NAME="kora-local-token"
 # ServiceAccount and silently revoke the first.
 ROLE_NAME="kora-egress-local-reader-${NAMESPACE}"
 TOKEN_TTL="24h"
-API_HOST="k3d-orbit-local-server-0:6443"
+API_HOST="k3d-kora-local-server-0:6443"
 
 echo "Registering the local Kubernetes connection in ${NAMESPACE}"
 
@@ -94,7 +94,7 @@ echo "Applying the Connection resource"
 apiVersion: runkora.io/v1alpha1
 kind: Connection
 metadata:
-  name: orbit-local
+  name: kora-local
   namespace: ${NAMESPACE}
 spec:
   adapter: kubernetes
@@ -106,5 +106,5 @@ EOF
   echo "${CA_CERT}" | sed 's/^/    /'
 } | kubectl apply -f -
 
-echo "✓ Kubernetes connection registered as 'orbit-local' in ${NAMESPACE}"
-echo "  Grant an agent connection:orbit-local:workloads:read to use it."
+echo "✓ Kubernetes connection registered as 'kora-local' in ${NAMESPACE}"
+echo "  Grant an agent connection:kora-local:workloads:read to use it."

@@ -27,7 +27,7 @@ func (e *checkRecorder) Check(_ context.Context, in policy.CheckInput) (policy.R
 // Policy routes verify a delegated run's delegation, refuse a revoked one, and
 // pass the verified delegation into the scope check.
 func TestMiddleware_Delegation(t *testing.T) {
-	const agent = "spiffe://orbit.test/tenant/acme/agent/coder"
+	const agent = "spiffe://runkora.test/tenant/acme/agent/coder"
 	s := tokentest.NewSigner(t)
 	bearer := s.Agent(t, agent, "acme")
 	cases := []struct {
@@ -70,7 +70,7 @@ func TestMiddleware_Delegation(t *testing.T) {
 func TestEnforceScopeCeiling_RefusesDelegated(t *testing.T) {
 	c := NewController(nil, logging.NewLogger(), nil, nil, nil, nil, "")
 	claims := &token.PlatformClaims{}
-	claims.Subject = "spiffe://orbit.test/tenant/acme/agent/coder"
+	claims.Subject = "spiffe://runkora.test/tenant/acme/agent/coder"
 	claims.Kora.TenantID = "acme"
 	claims.Kora.PrincipalType = token.PrincipalTypeAgent
 	ctx := policy.WithDelegation(context.Background(), &policy.DelegationClaims{Sub: "person-1", ActSub: claims.Subject, RunID: "run-1"})
@@ -88,7 +88,7 @@ func TestEnforceScopeCeiling_RefusesDelegated(t *testing.T) {
 func TestHandleDeleteRole_RefusesDelegated(t *testing.T) {
 	c := NewController(nil, logging.NewLogger(), nil, nil, nil, nil, "")
 	claims := &token.PlatformClaims{}
-	claims.Subject = "spiffe://orbit.test/tenant/acme/agent/coder"
+	claims.Subject = "spiffe://runkora.test/tenant/acme/agent/coder"
 	claims.Kora.TenantID = "acme"
 	claims.Kora.PrincipalType = token.PrincipalTypeAgent
 	ctx := policy.WithDelegation(token.WithClaims(context.Background(), claims), &policy.DelegationClaims{Sub: "person-1", ActSub: claims.Subject, RunID: "run-1"})

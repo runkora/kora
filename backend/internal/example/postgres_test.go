@@ -16,7 +16,7 @@ import (
 // KORA_EXAMPLE_TEST_DB_URL points at a database where cmd/example/migrations
 // has been applied by hand; otherwise they skip.
 //
-//	KORA_EXAMPLE_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
+//	KORA_EXAMPLE_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora?sslmode=disable' \
 //	  go test ./internal/example/ -run Postgres
 func testRepo(t *testing.T) *PostgresRepository {
 	t.Helper()

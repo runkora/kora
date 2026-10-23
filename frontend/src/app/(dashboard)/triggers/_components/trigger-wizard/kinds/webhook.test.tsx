@@ -11,7 +11,7 @@ import type { TriggerWizardSource, WizardContext } from '../types';
 const CONTEXT: WizardContext = {
   agents: [{ id: 'at-1', slug: 'coder', name: 'Coder' }],
   sources: [{ id: 'src-1', name: 'acme/widgets', provider: 'github', category: 'webhook' }],
-  ingestHost: 'orbit.local.clearroute.io:8443',
+  ingestHost: 'local.runkora.io:8443',
 };
 
 function renderDone(props: { endpoint?: string; secret?: string }) {
@@ -22,18 +22,18 @@ function renderDone(props: { endpoint?: string; secret?: string }) {
 
 describe('webhook DoneContent', () => {
   it('shows the required application/json content type beside a new source secret', () => {
-    renderDone({ endpoint: 'https://orbit.local/api/v1/webhooks/src-1', secret: 'whsec_abc' });
+    renderDone({ endpoint: 'https://runkora.test/api/v1/webhooks/src-1', secret: 'whsec_abc' });
     expect(screen.getByText('application/json')).toBeInTheDocument();
     expect(screen.getByText(/content type/, { selector: 'span' })).toBeInTheDocument();
   });
 
   it('shows the content type when reusing an existing source without a secret', () => {
-    renderDone({ endpoint: 'https://orbit.local/api/v1/webhooks/src-1' });
+    renderDone({ endpoint: 'https://runkora.test/api/v1/webhooks/src-1' });
     expect(screen.getByText('application/json')).toBeInTheDocument();
   });
 
   it('names no provider in its own wording', () => {
-    renderDone({ endpoint: 'https://orbit.local/api/v1/webhooks/src-1', secret: 'whsec_abc' });
+    renderDone({ endpoint: 'https://runkora.test/api/v1/webhooks/src-1', secret: 'whsec_abc' });
     expect(screen.queryByText(/Slack/)).toBeNull();
   });
 
@@ -64,7 +64,7 @@ const SLACK_SOURCE: TriggerWizardSource = {
 
 describe('chat DoneContent', () => {
   const DoneContent = chatKind.doneContent;
-  const endpoint = 'https://orbit.local/api/v1/webhooks/src-9';
+  const endpoint = 'https://runkora.test/api/v1/webhooks/src-9';
 
   it('shows a new Slack source its request URL and the next steps in Slack', () => {
     const state = {

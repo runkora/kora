@@ -30,7 +30,7 @@ export const Overview: Story = {
       <Example title="With a value">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="overview-email">Email</Label>
-          <Input id="overview-email" type="email" defaultValue="dev@orbit.local" />
+          <Input id="overview-email" type="email" defaultValue="dev@runkora.test" />
         </div>
       </Example>
     </div>

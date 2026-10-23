@@ -41,7 +41,7 @@ defining principle:
 4. **Read** `AGENTS.md` + `docs/contributing/local-development.md` for conventions and make targets.
 5. **Switch kube context before any redeploy** — `make redeploy-*` uses the *default*
    context, so targeting EKS dev by mistake is the #1 footgun (ArgoCD then masks it as a
-   no-op): `kubectl config use-context k3d-orbit-local`.
+   no-op): `kubectl config use-context k3d-kora-local`.
 6. `mkdir -p .scratch/shots` — gitignored workspace for the audit doc + screenshots. Write
    findings here as you go; never trust your memory of a 15-PR queue.
 
@@ -85,9 +85,9 @@ may predate behaviour the catalog/fixtures now rely on.
 
 ### 3a. Cluster healthy?
 ```bash
-kubectl --context k3d-orbit-local get pods -A | grep -vE 'Running|Completed'
+kubectl --context k3d-kora-local get pods -A | grep -vE 'Running|Completed'
 ```
-If pods CrashLoop after a Colima/k3d restart (DNS `no such host` for `orbit-postgres`, or
+If pods CrashLoop after a Colima/k3d restart (DNS `no such host` for `kora-postgres`, or
 SPIRE `Trust Bundle and Server don't agree`), **rebuild — don't debug Istio/SPIRE** (confirm
 with the user first; ~20-40 min):
 ```bash
@@ -98,7 +98,7 @@ network. `make cluster-restore` only re-pushes images after a restart — it won
 
 ### 3b. Authenticate
 ```bash
-make auth-device-k3d     # device grant → browser → dev@orbit.local.clearroute.io / password
+make auth-device-k3d     # device grant → browser → dev@local.runkora.io / password
                          # token → /tmp/kora_credentials.json
 make auth-refresh-k3d    # tokens expire (~15 min); refresh, don't re-auth, while iterating
 ```
@@ -120,18 +120,18 @@ make redeploy SERVICE=identity                       # background it + poll the 
 Then **prove behaviour**, not just that it built:
 - **Backend** — capture a *baseline on main first* where it helps (an endpoint that should
   now behave differently), then deploy the branch and hit the real endpoint with curl; read
-  pod logs (`kubectl -n kora-system logs <pod> -c orbit-<svc>`) to confirm the code path,
+  pod logs (`kubectl -n kora-system logs <pod> -c kora-<svc>`) to confirm the code path,
   region/endpoint, error codes.
-- **Frontend** — served at `https://orbit.local.clearroute.io` (an HAProxy container maps host 443 to the k3d load balancer;
+- **Frontend** — served at `https://local.runkora.io` (an HAProxy container maps host 443 to the k3d load balancer;
   mkcert cert trusted). Drive Safari + screenshot (a locked Private window blocks scripting;
   `open location` opens a normal one), then `Read` the PNG:
   ```bash
-  osascript -e 'tell application "Safari" to open location "https://orbit.local.clearroute.io/<route>"'
+  osascript -e 'tell application "Safari" to open location "https://local.runkora.io/<route>"'
   WID=$(osascript -e 'tell application "Safari" to id of front window')
   screencapture -x -o -l "$WID" .scratch/shots/prNN-<view>.png
   ```
 - **Need data?** Seed it directly in Postgres
-  (`docker exec orbit-postgres psql -U orbit -d orbit -c "…"`). Read the query/handler first
+  (`docker exec kora-postgres psql -U kora -d kora -c "…"`). Read the query/handler first
   so rows match how it's read (e.g. usage keyed by the agent SPIFFE principal
   `spiffe://{trust-domain}/tenant/kora-tenant-{tenant}/agent/{slug}`; deliveries that satisfy the `WHERE`/`JOIN`). Note
   what you seeded — harmless in dev.
@@ -174,8 +174,8 @@ Sound feature, mechanical blocker → fix on the branch and push:
 ## Phase 6 — Address review comments
 
 ```bash
-gh api repos/clear-route/orbit/pulls/N/comments  --jq '.[]|{user:.user.login,path,line,body}'
-gh api repos/clear-route/orbit/pulls/N/reviews   --jq '.[]|{user:.user.login,state,body}'
+gh api repos/runkora/kora/pulls/N/comments  --jq '.[]|{user:.user.login,path,line,body}'
+gh api repos/runkora/kora/pulls/N/reviews   --jq '.[]|{user:.user.login,state,body}'
 ```
 **Assess each on its merits against the actual code — the bot's "blockers" are frequently
 false positives.** Verify before acting: a "SQL injection" claim where the value is a bind
@@ -190,20 +190,20 @@ ones** (cite exact lines), then re-run CI to green.
 
 | Need | Command |
 | --- | --- |
-| Switch to local cluster | `kubectl config use-context k3d-orbit-local` |
+| Switch to local cluster | `kubectl config use-context k3d-kora-local` |
 | Cluster health | `kubectl get pods -A \| grep -vE 'Running\|Completed'` |
 | Rebuild cluster (confirm first) | `make dev-cluster-down && make dev-cluster && make cluster-platform && make cluster-deploy` |
 | Auth / refresh | `make auth-device-k3d` · `make auth-refresh-k3d` (token: `/tmp/kora_credentials.json`) |
 | Redeploy a service | `make redeploy SERVICE=<svc>` · `make redeploy-frontend` · `make redeploy-list` |
-| Postgres | `docker exec orbit-postgres psql -U orbit -d orbit -c "…"` |
-| Frontend URL | `https://orbit.local.clearroute.io` |
+| Postgres | `docker exec kora-postgres psql -U kora -d kora -c "…"` |
+| Frontend URL | `https://local.runkora.io` |
 | CI failure log / re-run | `gh run view <run-id> --log-failed` · `gh run rerun <run-id> --failed` |
 | Quality gate | `make check` (backend) · `cd frontend && pnpm lint && pnpm tsc --noEmit` |
 
 ## Hard-won gotchas (do not relearn these)
 
 1. **CI green ≠ working** — verify real behaviour before calling an agent PR done.
-2. **`make redeploy-*` uses the default kube context** — switch to `k3d-orbit-local` first.
+2. **`make redeploy-*` uses the default kube context** — switch to `k3d-kora-local` first.
 3. **Stale k3d after restart → rebuild, don't debug** (CrashLoop + DNS/SPIRE errors).
 4. **Pre-commit hook reformats after staging** → format-then-stage, or commit the reformat.
 5. **The static/CI lint count is incomplete** — run the full `golangci-lint` / `tsc` yourself.

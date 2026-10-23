@@ -167,7 +167,7 @@ EOF
       cat <<'EOF'
 dockerfile=frontend/Dockerfile
 context=frontend
-build_arg=NEXT_PUBLIC_APP_URL=https://orbit.local.clearroute.io:8443
+build_arg=NEXT_PUBLIC_APP_URL=https://local.runkora.io:8443
 image=kora-frontend
 values_key=frontend
 namespace=kora-system
@@ -356,16 +356,16 @@ pin_workload() {
     # source unchanged, Docker often produces a fresh manifest digest because
     # the runtime-stage export isn't deterministic (timestamps, layer order).
     current=$(printf '%s\n' "$containers" | awk -v c="$container_name" '$1 == c {print $2; exit}')
-    if [ "$current" = "orbit-registry:5001/$IMAGE@$DIGEST" ]; then
+    if [ "$current" = "kora-registry:5001/$IMAGE@$DIGEST" ]; then
       ok "$workload already at $IMAGE@${DIGEST:0:19}; no rollout needed"
       return 0
     fi
     log "Pinning $workload ($container_name) to $IMAGE@${DIGEST:0:19}..."
     # Push uses localhost:5001 (host perspective) but cluster nodes resolve
-    # the registry as orbit-registry:5001. Digests are content-addressed so
+    # the registry as kora-registry:5001. Digests are content-addressed so
     # they're identical from either side.
     kubectl set image "$workload" \
-      "$container_name=orbit-registry:5001/$IMAGE@$DIGEST" \
+      "$container_name=kora-registry:5001/$IMAGE@$DIGEST" \
       -n "$NAMESPACE"
     # Mark an agent StatefulSet as pinned so the kora-agents reconcile keeps
     # this image instead of moving it to the release image.
@@ -485,15 +485,15 @@ fi
 # ── preflight ─────────────────────────────────────────────────────────────────
 # Without this, a torn-down cluster surfaces as a raw
 # `dial tcp [::1]:5001: connect: connection refused` from `docker push`.
-if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "orbit-registry"; then
-  err "The local image registry (orbit-registry) is not running."
+if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "kora-registry"; then
+  err "The local image registry (kora-registry) is not running."
   echo "  k3d owns it, so the cluster is down. Bring it up with: make up" >&2
   exit 1
 fi
 # Every kubectl and helmfile call below uses the current context. Refuse
 # anything but the local cluster: a default context left on a shared cluster
 # would receive the rollout. KORA_KUBE_CONTEXT overrides the expected name.
-EXPECTED_CONTEXT="${KORA_KUBE_CONTEXT:-k3d-orbit-local}"
+EXPECTED_CONTEXT="${KORA_KUBE_CONTEXT:-k3d-kora-local}"
 CURRENT_CONTEXT="$(kubectl config current-context 2>/dev/null || echo '<none>')"
 if [ "$CURRENT_CONTEXT" != "$EXPECTED_CONTEXT" ]; then
   err "kubectl context is '$CURRENT_CONTEXT', expected '$EXPECTED_CONTEXT'."

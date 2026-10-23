@@ -10,10 +10,10 @@ data:
   # Mounted as the storage config file the loader merges last.
   storage.yaml: |
     postgres:
-      host: orbit-postgres
+      host: kora-postgres
       port: 5432
-      database: orbit
-      user: orbit
+      database: kora
+      user: kora
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -49,7 +49,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: kora-example
-          image: orbit-registry:5001/kora-example:latest
+          image: kora-registry:5001/kora-example:latest
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false

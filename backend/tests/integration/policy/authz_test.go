@@ -38,8 +38,8 @@ import (
 
 const (
 	defaultPolicyServiceURL = "http://localhost:8083"
-	defaultGatewayAPIURL    = "https://api.orbit.local.clearroute.io:8443"
-	defaultFrontendURL      = "https://orbit.local.clearroute.io:8443"
+	defaultGatewayAPIURL    = "https://api.local.runkora.io:8443"
+	defaultFrontendURL      = "https://local.runkora.io:8443"
 	defaultTenantID         = "example"
 	defaultTenantNamespace  = "kora-tenant-example"
 	defaultExamplePodLabel  = "app=kora-example"
@@ -47,7 +47,7 @@ const (
 	// testAgentID is the SPIFFE ID of the kora-example pod's agent container.
 	// It must match the ClusterSPIFFEID-issued SVID so the identity-proxy JWT
 	// sub claim lines up with the grant principal_id checked by OPA.
-	testAgentID = "spiffe://orbit.test/tenant/kora-tenant-example/agent/example"
+	testAgentID = "spiffe://runkora.test/tenant/kora-tenant-example/agent/example"
 
 	// skipAgentGrantSeeding explains why the tests that seed an AGENT grant are
 	// skipped. Only a SYSTEM caller may write AGENT grants, and ensureGrant
@@ -400,7 +400,7 @@ func jwtSub(t *testing.T, rawToken string) string {
 // Layer 3: OPA gateway ext_authz (external Istio ingress)
 //
 // These tests hit the cluster through the public Istio ingress gateway at
-// api.orbit.local.clearroute.io:8443. The opa-gateway pod acts as the
+// api.local.runkora.io:8443. The opa-gateway pod acts as the
 // ext_authz filter — authz_gateway.rego is evaluated for every request.
 //
 // Prerequisites: same as Layer 1/2 plus the opa-gateway pod must be Ready

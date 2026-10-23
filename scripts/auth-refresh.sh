@@ -19,7 +19,7 @@
 # re-authenticating from scratch with auth-device.sh.
 #
 # Note: the in-cluster Istio gateway does not admit unauthenticated calls to
-# the session endpoint, so refreshing against https://api.orbit.local.… fails
+# the session endpoint, so refreshing against https://api.local.… fails
 # with an empty 403. Use `make auth-refresh-k3d`, which port-forwards to the
 # identity service directly.
 #

@@ -39,7 +39,7 @@ spec:
       values: |
         global:
           spire:
-            trustDomain: orbit.example.com
+            trustDomain: example.com
             clusterName: kora
         spire-server:
           controllerManager:
@@ -140,7 +140,7 @@ spec:
     helm:
       values: |
         meshConfig:
-          trustDomain: orbit.example.com
+          trustDomain: example.com
           defaultConfig:
             discoveryAddress: istiod.istio-system.svc:15012
         pilot:

@@ -298,7 +298,7 @@ func TestAuthz_Egress_Delegated_AgentPostureStillBounds(t *testing.T) {
 
 func TestGateway_DelegatorLeg_RoleDerivedAllow(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/role-leg-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/role-leg-agent"
 	delegatorID := "user-role-only"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
@@ -339,7 +339,7 @@ func TestGateway_DelegatorLeg_RoleDerivedAllow(t *testing.T) {
 
 func TestGateway_DelegatorLeg_RequiresProjection(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/projection-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/projection-agent"
 
 	vocab := []*vocabulary.ScopeEntry{
 		{

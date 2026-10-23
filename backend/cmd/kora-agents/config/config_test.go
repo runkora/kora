@@ -36,14 +36,14 @@ func TestLocalOverlay_KeepsLocalRegistryAndTrustDomain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load local config: %v", err)
 	}
-	if cfg.Agents.SessionManagerImage != "orbit-registry:5001/kora-session-manager:latest" {
+	if cfg.Agents.SessionManagerImage != "kora-registry:5001/kora-session-manager:latest" {
 		t.Errorf("sessionManagerImage = %q, want the local registry image", cfg.Agents.SessionManagerImage)
 	}
-	if cfg.Agents.SandboxImage != "orbit-registry:5001/kora-sandbox-base:latest" {
+	if cfg.Agents.SandboxImage != "kora-registry:5001/kora-sandbox-base:latest" {
 		t.Errorf("sandboxImage = %q, want the local registry image", cfg.Agents.SandboxImage)
 	}
-	if cfg.Platform.TrustDomain != "orbit.test" {
-		t.Errorf("trustDomain = %q, want orbit.test", cfg.Platform.TrustDomain)
+	if cfg.Platform.TrustDomain != "runkora.test" {
+		t.Errorf("trustDomain = %q, want runkora.test", cfg.Platform.TrustDomain)
 	}
 }
 
@@ -63,7 +63,7 @@ func TestValidate_RequiresTrustDomainInCluster(t *testing.T) {
 	if err := Validate(cfg); err == nil {
 		t.Fatal("empty trust domain in cluster must fail validation")
 	}
-	cfg.Platform.TrustDomain = "orbit.test"
+	cfg.Platform.TrustDomain = "runkora.test"
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

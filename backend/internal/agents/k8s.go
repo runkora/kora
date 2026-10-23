@@ -101,7 +101,7 @@ type K8sProvisionerConfig struct {
 	// ImagePullSecrets names the Secrets, present in every tenant namespace,
 	// that runtime-created pods pull the session-manager and sandbox images with.
 	ImagePullSecrets []string
-	// TrustDomain is the SPIFFE trust domain (e.g. "orbit.test").
+	// TrustDomain is the SPIFFE trust domain (e.g. "runkora.test").
 	// Used to build the agent's SPIFFE principal ID for grant creation.
 	TrustDomain string
 	// SystemNamespace is the namespace where kora-agents runs.
@@ -1364,7 +1364,7 @@ var errSandboxSize = errors.New("invalid sandbox size")
 
 // agentSpiffeID returns the SPIFFE principal ID for an agent type's pods.
 // The identity proxy attests pods using their SPIFFE cert; the slug makes the
-// ID human-readable (e.g. spiffe://orbit.test/tenant/kora-tenant-example/agent/coder).
+// ID human-readable (e.g. spiffe://runkora.test/tenant/kora-tenant-example/agent/coder).
 func (p *K8sProvisioner) agentSpiffeID(at AgentType, namespace string) string {
 	return fmt.Sprintf("spiffe://%s/tenant/%s/agent/%s", p.cfg.TrustDomain, namespace, at.Slug)
 }

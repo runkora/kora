@@ -28,8 +28,8 @@
 #
 #     ./scripts/auth-device.sh --tenant-id example
 #
-#   Test user:  dev@orbit.local.clearroute.io / password
-#   Client ID:  orbit-local  (public client, no secret)
+#   Test user:  dev@local.runkora.io / password
+#   Client ID:  kora-local  (public client, no secret)
 #
 # ─── Real provider (Entra, Okta, …) ──────────────────────────────────────────
 #

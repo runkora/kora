@@ -7,7 +7,7 @@ This guide covers the failures you are most likely to meet in the local k3d envi
 Before debugging an individual service, check that you are looking at the local cluster and that each layer of the environment is running.
 
 ```bash
-kubectl config current-context                    # expected: k3d-orbit-local
+kubectl config current-context                    # expected: k3d-kora-local
 docker compose ps                                 # Postgres, Redis, glauth, Dex, HAProxy
 kubectl get orbitplatform orbit                   # operator reconciliation state
 kubectl get pods -n kora-system                  # control-plane services
@@ -66,7 +66,7 @@ If the logs contain `too many open files`, the Docker VM has exhausted its inoti
 Check the value seen by the k3d node:
 
 ```bash
-docker exec k3d-orbit-local-server-0 \
+docker exec k3d-kora-local-server-0 \
   cat /proc/sys/fs/inotify/max_user_instances
 ```
 
@@ -102,7 +102,7 @@ After restarting them, wait for both health checks to pass before running `make 
 The local domain must resolve to `127.0.0.1`, HAProxy must own host ports 80 and 443, and the k3d gateway must be running.
 
 ```bash
-dig +short orbit.local.clearroute.io              # expected: 127.0.0.1
+dig +short local.runkora.io              # expected: 127.0.0.1
 docker compose ps port-proxy
 kubectl get pods -n istio-system
 kubectl get service -n istio-system
@@ -117,7 +117,7 @@ docker compose logs port-proxy
 lsof -nP -iTCP:443 -sTCP:LISTEN
 ```
 
-The k3d load balancer remains available directly on `https://orbit.local.clearroute.io:8443`, which helps distinguish a host-port conflict from a cluster ingress failure.
+The k3d load balancer remains available directly on `https://local.runkora.io:8443`, which helps distinguish a host-port conflict from a cluster ingress failure.
 
 If the browser reports a certificate error rather than a connection failure, regenerate and trust the local certificates:
 

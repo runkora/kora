@@ -22,7 +22,7 @@ variable "REPOSITORY_URL" {
 }
 
 variable "NEXT_PUBLIC_APP_URL" {
-  default = "https://orbit.local.clearroute.io:8443"
+  default = "https://local.runkora.io:8443"
 }
 
 // Set from versions.hcl, which every build passes as a second file. A build

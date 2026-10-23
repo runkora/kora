@@ -160,12 +160,12 @@ func TestBuildMCPRegistry(t *testing.T) {
 
 	entries, skipped := buildMCPRegistry(servers, nsToTenant)
 
-	// Two valid servers, sorted by (tenant_id, name): "" < "acme" so orbit first.
+	// Two valid servers, sorted by (tenant_id, name): "" < "acme" so kora first.
 	if len(entries) != 2 {
 		t.Fatalf("got %d entries, want 2: %+v", len(entries), entries)
 	}
 	if entries[0].Name != "kora" || entries[0].TenantID != "" {
-		t.Errorf("entry[0] = %+v, want global orbit", entries[0])
+		t.Errorf("entry[0] = %+v, want global kora", entries[0])
 	}
 	if entries[0].CallerIdentity != CallerIdentityForward {
 		t.Errorf("global server caller_identity = %q, want forward", entries[0].CallerIdentity)

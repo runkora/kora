@@ -262,7 +262,7 @@ func TestOAuth_DCRDisabled(t *testing.T) {
 
 // ── Pre-registered (static) client redirect handling ──────────────────────────
 
-const testHostedRedirect = "https://app.example.com/api/auth/callback/orbit"
+const testHostedRedirect = "https://app.example.com/api/auth/callback/kora"
 
 // seedStaticClient stores a client with a non-loopback redirect URI directly in
 // the service's client repository, bypassing RegisterClient's DCR validation.

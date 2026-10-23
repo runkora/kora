@@ -24,7 +24,7 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-	testAgentID    = "spiffe://orbit.test/tenant/test-tenant/agent/test-agent"
+	testAgentID    = "spiffe://runkora.test/tenant/test-tenant/agent/test-agent"
 	testHumanID    = "test-human-001"
 	testDelegateID = "test-delegator-001"
 )
@@ -462,8 +462,8 @@ func TestAuthz_AgentAllowedWithGrant(t *testing.T) {
 func TestAuthz_QualifiedConnectionScopes(t *testing.T) {
 	pq := compileAndPrepare(t, bundleOpts{
 		grants: []*grants.Grant{agentGrant(testAgentID,
-			"connection:github:issues:write",          // unqualified — all repos
-			"connection:github:contents:orbit:read")}, // qualified — one repo
+			"connection:github:issues:write",         // unqualified — all repos
+			"connection:github:contents:kora:read")}, // qualified — one repo
 	})
 
 	cases := []struct {
@@ -472,13 +472,13 @@ func TestAuthz_QualifiedConnectionScopes(t *testing.T) {
 		verb  string
 		allow bool
 	}{
-		{"unqualified_grant_covers_qualified_request", []string{"github", "issues", "orbit"}, "write", true},
+		{"unqualified_grant_covers_qualified_request", []string{"github", "issues", "kora"}, "write", true},
 		{"unqualified_grant_covers_other_repo", []string{"github", "issues", "webapp"}, "write", true},
 		{"unqualified_grant_covers_unqualified_request", []string{"github", "issues"}, "write", true},
-		{"qualified_grant_matches_its_repo", []string{"github", "contents", "orbit"}, "read", true},
+		{"qualified_grant_matches_its_repo", []string{"github", "contents", "kora"}, "read", true},
 		{"qualified_grant_denies_sibling_repo", []string{"github", "contents", "webapp"}, "read", false},
 		{"qualified_grant_denies_unqualified_request", []string{"github", "contents"}, "read", false},
-		{"category_grant_denies_other_category", []string{"github", "admin", "orbit"}, "write", false},
+		{"category_grant_denies_other_category", []string{"github", "admin", "kora"}, "write", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

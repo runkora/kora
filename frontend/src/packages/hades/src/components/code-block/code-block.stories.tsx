@@ -18,7 +18,7 @@ const meta: Meta<typeof CodeBlock> = {
 export default meta;
 type Story = StoryObj<typeof CodeBlock>;
 
-const ENV_FILE = `KORA_API_URL="https://api.orbit.example.com"
+const ENV_FILE = `KORA_API_URL="https://api.example.com"
 KORA_AGENT_ID="apollo-3"`;
 
 const PAYLOAD = `{

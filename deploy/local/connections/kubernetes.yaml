@@ -18,11 +18,11 @@
 apiVersion: runkora.io/v1alpha1
 kind: Connection
 metadata:
-  name: orbit-local
+  name: kora-local
   namespace: kora-tenant-example
 spec:
   adapter: kubernetes
-  baseHost: k3d-orbit-local-server-0:6443
+  baseHost: k3d-kora-local-server-0:6443
   secretRef: kora-local-token
   secretKey: token
   caCert: |

@@ -726,7 +726,7 @@ func TestListBudgetPrincipals_WeeklyBlockedReportedAndTypeInferred(t *testing.T)
 	// and inferred type AGENT. The attribution counter is deliberately stale
 	// (zero) — weekly spend must come from the usage log, matching enforcement,
 	// so a freshly re-windowed assignment never reads as zero usage.
-	pid := "spiffe://orbit.test/tenant/t/agent/coder"
+	pid := "spiffe://runkora.test/tenant/t/agent/coder"
 	eval := &stubEvaluator{
 		allBudgets: map[string]policy.PrincipalBudget{
 			pid: {

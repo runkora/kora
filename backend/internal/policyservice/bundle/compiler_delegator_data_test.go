@@ -82,7 +82,7 @@ func TestCompile_EmitsPrincipalRolesAndVocabRequires(t *testing.T) {
 }
 
 func TestCompileGateway_EmitsPrincipalRolesAndVocabulary(t *testing.T) {
-	cfg := Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "kora", Audience: "kora-platform", FrontendHost: "orbit.example.com"}
+	cfg := Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "kora", Audience: "kora-platform", FrontendHost: "example.com"}
 	compiler := NewCompiler(cfg, routes.NewStore())
 
 	cached, err := compiler.CompileGateway(

@@ -26,7 +26,7 @@ func (e *checkRecorder) Check(_ context.Context, in policy.CheckInput) (policy.R
 
 // The check API refuses a revoked delegation and passes a verified one to policy.
 func TestHandleCheck_DelegationBlocklist(t *testing.T) {
-	const agent = "spiffe://orbit.test/tenant/acme/agent/coder"
+	const agent = "spiffe://runkora.test/tenant/acme/agent/coder"
 	s := tokentest.NewSigner(t)
 	bearer := s.Agent(t, agent, "acme")
 	cases := []struct {

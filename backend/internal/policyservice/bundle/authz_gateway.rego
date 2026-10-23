@@ -211,7 +211,7 @@ _delegation_scope_satisfied if delegation_covers_required_scope
 # bypassed here. The BFF calls backend services east-west (internal cluster DNS)
 # and those paths are enforced by per-service OPA sidecars or this gateway rule.
 #
-# The :authority header may include a port (e.g. "orbit.local.clearroute.io:8443"
+# The :authority header may include a port (e.g. "local.runkora.io:8443"
 # in local dev). We strip the port before comparing against data.config.frontend_host
 # so the same config value works for both standard (443) and non-standard ports.
 

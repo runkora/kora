@@ -23,7 +23,7 @@ const WORK_EMAIL = 'alice@acme.example.com';
 const DISCOVER_RESPONSE = {
   tenant_id: 'tenant-acme',
   issuer_url: 'https://idp.acme.example.com',
-  client_id: 'orbit-acme',
+  client_id: 'kora-acme',
   scopes: ['openid', 'profile', 'email'],
 };
 

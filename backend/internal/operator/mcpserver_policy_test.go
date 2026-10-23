@@ -114,7 +114,7 @@ func TestMCPServer_AuthorizationPolicy(t *testing.T) {
 
 	original := trustDomain
 	t.Cleanup(func() { trustDomain = original })
-	trustDomain = "orbit.example.com"
+	trustDomain = "example.com"
 
 	policy := srv.authorizationPolicy(8000)
 	if policy == nil {
@@ -131,7 +131,7 @@ func TestMCPServer_AuthorizationPolicy(t *testing.T) {
 	from, _ := rule["from"].([]any)
 	source, _ := from[0].(map[string]any)
 	principals, _ := source["source"].(map[string]any)["principals"].([]any)
-	if want := "orbit.example.com/system/tool-gateway"; principals[0] != want {
+	if want := "example.com/system/tool-gateway"; principals[0] != want {
 		t.Errorf("principal: got %v, want %q without the spiffe:// prefix", principals[0], want)
 	}
 }
@@ -165,7 +165,7 @@ func TestMCPServer_DestinationRule(t *testing.T) {
 
 	original := trustDomain
 	t.Cleanup(func() { trustDomain = original })
-	trustDomain = "orbit.example.com"
+	trustDomain = "example.com"
 
 	rule := srv.destinationRule(8000, "github-mcp.kora-tenant-acme.svc.cluster.local")
 
@@ -192,7 +192,7 @@ func TestMCPServer_DestinationRule(t *testing.T) {
 		t.Errorf("tls mode: got %v", tls["mode"])
 	}
 	sans, _ := tls["subjectAltNames"].([]any)
-	if want := "spiffe://orbit.example.com/tenant/kora-tenant-acme/service/github"; sans[0] != want {
+	if want := "spiffe://example.com/tenant/kora-tenant-acme/service/github"; sans[0] != want {
 		t.Errorf("SAN: got %v, want %q", sans[0], want)
 	}
 }

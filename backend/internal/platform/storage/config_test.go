@@ -4,9 +4,9 @@ import "testing"
 
 func TestLoadPostgresConfig_RequiresConnectionSettings(t *testing.T) {
 	tests := map[string]PostgresConfig{
-		"host":     {Database: "orbit", User: "orbit"},
-		"database": {Host: "db", User: "orbit"},
-		"user":     {Host: "db", Database: "orbit"},
+		"host":     {Database: "kora", User: "kora"},
+		"database": {Host: "db", User: "kora"},
+		"user":     {Host: "db", Database: "kora"},
 	}
 	for missing, cfg := range tests {
 		t.Run(missing, func(t *testing.T) {
@@ -20,7 +20,7 @@ func TestLoadPostgresConfig_RequiresConnectionSettings(t *testing.T) {
 
 func TestLoadPostgresConfig_ReadsPasswordFromEnv(t *testing.T) {
 	t.Setenv("DB_PASSWORD", "secret")
-	cfg := PostgresConfig{Host: "db", Database: "orbit", User: "orbit"}
+	cfg := PostgresConfig{Host: "db", Database: "kora", User: "kora"}
 	if err := loadPostgresConfig(&cfg); err != nil || cfg.Password != "secret" {
 		t.Fatalf("loadPostgresConfig() = %v, password %q", err, cfg.Password)
 	}

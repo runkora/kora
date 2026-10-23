@@ -31,7 +31,7 @@ spec:
 
   oidc:
     issuerURL: https://idp.example.com/oauth2/default
-    clientID: orbit-production
+    clientID: kora-production
     clientSecretRef:
       name: kora-example-oidc
       namespace: kora-system

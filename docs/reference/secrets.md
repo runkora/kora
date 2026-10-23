@@ -57,7 +57,7 @@ MIIEowIBAAKCAQEA...
 
 Dex authenticates the local test user against `glauth`, an in-memory LDAP server, not against a static password list. The password hash is `GLAUTH_DEV_PASSWORD_HASH`, a sha256 of the literal `password`, defaulted in `docker-compose.yml` and rendered into `config/glauth/config.cfg` at container start.
 
-Nothing to generate. The test user is `dev@orbit.local.clearroute.io` with password `password`. Override the hash in `.env` if you want a different one.
+Nothing to generate. The test user is `dev@local.runkora.io` with password `password`. Override the hash in `.env` if you want a different one.
 
 ---
 
@@ -73,13 +73,13 @@ Nothing to generate. The test user is `dev@orbit.local.clearroute.io` with passw
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `DB_PASSWORD` | `.env` / secret manager | PostgreSQL password. Generated into `.env` by `make setup` (value `orbit`), defaulted in `docker-compose.yml`. |
+| `DB_PASSWORD` | `.env` / secret manager | PostgreSQL password. Generated into `.env` by `make setup` (value `kora`), defaulted in `docker-compose.yml`. |
 
 ### Redis
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `REDIS_PASSWORD` | `.env` / secret manager | Redis password. Required in all environments. Generated into `.env` by `make setup` (value `orbit`), defaulted in `docker-compose.yml`. |
+| `REDIS_PASSWORD` | `.env` / secret manager | Redis password. Required in all environments. Generated into `.env` by `make setup` (value `kora`), defaulted in `docker-compose.yml`. |
 
 ### Token Signing
 
@@ -92,7 +92,7 @@ Nothing to generate. The test user is `dev@orbit.local.clearroute.io` with passw
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `KORA_OIDC_CLIENT_ID` | `.env` / secret manager | OAuth2 client ID. For local Dex: `orbit-local`. |
+| `KORA_OIDC_CLIENT_ID` | `.env` / secret manager | OAuth2 client ID. For local Dex: `kora-local`. |
 | `KORA_OIDC_CLIENT_SECRET` | `.env` / secret manager | OAuth2 client secret. Empty for public clients (local Dex is a public client). |
 | `KORA_OIDC_ISSUER_URL` | `.env` / secret manager | Runtime override for the OIDC issuer URL. Not strictly a secret, but can encode tenant IDs. |
 

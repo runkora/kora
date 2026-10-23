@@ -26,7 +26,7 @@ const SOURCES_URL = 'http://test-triggers-svc/trigger-sources';
 
 function makeSession() {
   return {
-    user: { sub: 'test-sub', email: 'test@orbit.local', name: 'Test' },
+    user: { sub: 'test-sub', email: 'test@runkora.test', name: 'Test' },
     accessToken: 'test-access-token',
     refreshToken: 'test-refresh',
     expiresAt: Math.floor(Date.now() / 1000) + 3600,

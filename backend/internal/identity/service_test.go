@@ -106,7 +106,7 @@ func xfccRequest(spiffeID string) *http.Request {
 func TestExchangeSVID_Success(t *testing.T) {
 	svc, sessions, _, _, _ := newFullTestService(t)
 
-	r := xfccRequest("spiffe://orbit.test/tenant/platform-team/agent/agent-1")
+	r := xfccRequest("spiffe://runkora.test/tenant/platform-team/agent/agent-1")
 	resp, err := svc.ExchangeSVID(context.Background(), r)
 	if err != nil {
 		t.Fatalf("ExchangeSVID: %v", err)
@@ -137,7 +137,7 @@ func TestExchangeSVID_Success(t *testing.T) {
 }
 
 func TestExchangeSVID_TokenParses(t *testing.T) {
-	const spiffeID = "spiffe://orbit.test/tenant/platform-team/agent/agent-99"
+	const spiffeID = "spiffe://runkora.test/tenant/platform-team/agent/agent-99"
 	svc, _, _, _, _ := newFullTestService(t)
 
 	resp, err := svc.ExchangeSVID(context.Background(), xfccRequest(spiffeID))
@@ -167,7 +167,7 @@ func TestExchangeSVID_TenantFromSPIFFEPath(t *testing.T) {
 	// Tenant ID is derived from the SPIFFE URI path — no caller override is allowed.
 	svc, _, _, _, _ := newFullTestService(t)
 
-	r := xfccRequest("spiffe://orbit.test/tenant/acme-corp/agent/deploy-bot")
+	r := xfccRequest("spiffe://runkora.test/tenant/acme-corp/agent/deploy-bot")
 	resp, err := svc.ExchangeSVID(context.Background(), r)
 	if err != nil {
 		t.Fatalf("ExchangeSVID: %v", err)
@@ -198,7 +198,7 @@ func TestExchangeSVID_SessionPersistError(t *testing.T) {
 	sessions.createErr = errors.New("db unavailable")
 	svc := newTestService(t, sessions, newMockRefreshTokenRepo(), newMockBlocklistRepo(), newMockPATRepo())
 
-	r := xfccRequest("spiffe://orbit.test/tenant/platform-team/agent/agent-1")
+	r := xfccRequest("spiffe://runkora.test/tenant/platform-team/agent/agent-1")
 	_, err := svc.ExchangeSVID(context.Background(), r)
 	if err == nil {
 		t.Fatal("expected error when session persistence fails")
@@ -744,12 +744,12 @@ func TestExchangeIDToken_PropagatesRoles(t *testing.T) {
 
 	kora, ok := claims["kora"].(map[string]any)
 	if !ok {
-		t.Fatal("expected orbit claims object")
+		t.Fatal("expected kora claims object")
 	}
 
 	koraClaims, ok := kora["claims"].(map[string]any)
 	if !ok {
-		t.Fatal("expected orbit.claims map")
+		t.Fatal("expected kora.claims map")
 	}
 
 	rolesRaw, ok := koraClaims["roles"]
@@ -807,7 +807,7 @@ func TestExchangeIDToken_PropagatesGroupsAsRoles(t *testing.T) {
 
 func TestExchangeIDToken_NoRolesOmitsClaimField(t *testing.T) {
 	// When the OIDC token has no roles claim, the platform token should NOT
-	// have a roles field in orbit.claims (avoids empty string pollution).
+	// have a roles field in kora.claims (avoids empty string pollution).
 	issuer, issueIDToken := newSigningOIDCTestServer(t)
 	svc := newTestServiceWithOIDC(t, issuer,
 		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
@@ -833,7 +833,7 @@ func TestExchangeIDToken_NoRolesOmitsClaimField(t *testing.T) {
 	kora := claims["kora"].(map[string]any)
 	koraClaims, ok := kora["claims"].(map[string]any)
 	if !ok {
-		t.Fatal("expected orbit.claims map")
+		t.Fatal("expected kora.claims map")
 	}
 
 	if _, hasRoles := koraClaims["roles"]; hasRoles {

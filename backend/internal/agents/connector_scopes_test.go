@@ -14,16 +14,16 @@ import (
 // take no qualifier.
 func TestConnectorScopes_ResourceQualifiers(t *testing.T) {
 	at := AgentType{Connectors: []Connector{
-		{Connection: "github", Actions: []string{"issues:write", "contents:read"}, Resources: []string{"Orbit", " webapp "}},
+		{Connection: "github", Actions: []string{"issues:write", "contents:read"}, Resources: []string{"Kora", " webapp "}},
 		{Connection: "public-api", Actions: []string{"use"}, Resources: []string{"ignored"}},
 		{Connection: "gh-all", Actions: []string{"issues:read"}},
 	}}
 
 	got := at.ConnectorScopes()
 	want := []string{
-		"connection:github:issues:orbit:write",
+		"connection:github:issues:kora:write",
 		"connection:github:issues:webapp:write",
-		"connection:github:contents:orbit:read",
+		"connection:github:contents:kora:read",
 		"connection:github:contents:webapp:read",
 		// single-word action: qualifier not applicable, stays unqualified
 		"connection:public-api:use",
@@ -39,8 +39,8 @@ func TestConnectorScopes_ResourceQualifiers(t *testing.T) {
 // union, and any all-resources contribution (empty Resources) dominates.
 func TestMergeConnectors_ResourceUnion(t *testing.T) {
 	merged := mergeConnectors([]Connector{
-		{Connection: "github", Actions: []string{"issues:write"}, Resources: []string{"orbit"}},
-		{Connection: "github", Actions: []string{"contents:read"}, Resources: []string{"webapp", "orbit"}},
+		{Connection: "github", Actions: []string{"issues:write"}, Resources: []string{"kora"}},
+		{Connection: "github", Actions: []string{"contents:read"}, Resources: []string{"webapp", "kora"}},
 		{Connection: "cluster", Actions: []string{"workloads:read"}, Resources: []string{"staging"}},
 		{Connection: "cluster", Actions: []string{"workloads:read"}}, // all resources — dominates
 	})
@@ -49,8 +49,8 @@ func TestMergeConnectors_ResourceUnion(t *testing.T) {
 		t.Fatalf("merged = %v, want 2 connectors", merged)
 	}
 	gh := merged[0]
-	if gh.Connection != "github" || !slices.Equal(gh.Resources, []string{"orbit", "webapp"}) {
-		t.Errorf("github merged = %+v, want resources [orbit webapp]", gh)
+	if gh.Connection != "github" || !slices.Equal(gh.Resources, []string{"kora", "webapp"}) {
+		t.Errorf("github merged = %+v, want resources [kora webapp]", gh)
 	}
 	cl := merged[1]
 	if cl.Connection != "cluster" || cl.Resources != nil {
@@ -77,7 +77,7 @@ func TestEffectiveScopes_BaselineActions(t *testing.T) {
 	at := AgentType{
 		TenantID: "acme",
 		Connectors: []Connector{
-			{Connection: "github", Actions: []string{"issues:write"}, Resources: []string{"orbit"}},
+			{Connection: "github", Actions: []string{"issues:write"}, Resources: []string{"kora"}},
 		},
 	}
 
@@ -87,7 +87,7 @@ func TestEffectiveScopes_BaselineActions(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"connection:github:issues:orbit:write",
+		"connection:github:issues:kora:write",
 		"connection:github:metadata:read", // baseline, unqualified
 		"egress:github.com:connector",     // connector auto-egress
 	} {
@@ -127,7 +127,7 @@ func TestValidateConnectors_Resources(t *testing.T) {
 	}{
 		{name: "bare repository name", resources: []string{"constellation-iac"}},
 		{name: "mixed case is lowercased at compile time", resources: []string{"Constellation-IAC"}},
-		{name: "several resources", resources: []string{"orbit", "webapp"}},
+		{name: "several resources", resources: []string{"kora", "webapp"}},
 		{name: "no resources", resources: nil},
 		{name: "kubernetes namespace, a different adapter's resource shape", resources: []string{"staging"}},
 		{name: "owner/repo", resources: []string{"clear-route/constellation-iac"}, wantErr: true},

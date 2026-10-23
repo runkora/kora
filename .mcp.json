@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "kora": {
-      "url": "https://api.orbit.local.clearroute.io/v1/mcp/kora",
+      "url": "https://api.local.runkora.io/v1/mcp/kora",
       "type": "streamable-http"
     }
   }

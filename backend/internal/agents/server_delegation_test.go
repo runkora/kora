@@ -27,7 +27,7 @@ func (e *checkRecorder) Check(_ context.Context, in policy.CheckInput) (policy.R
 // Public routes refuse a revoked delegation and pass a verified one into the
 // scope check.
 func TestMiddleware_DelegationBlocklist(t *testing.T) {
-	const agent = "spiffe://orbit.test/tenant/acme/agent/coder"
+	const agent = "spiffe://runkora.test/tenant/acme/agent/coder"
 	s := tokentest.NewSigner(t)
 	bearer := s.Agent(t, agent, "acme")
 	cases := []struct {

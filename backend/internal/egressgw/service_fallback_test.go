@@ -55,12 +55,12 @@ func TestProxy_AnonymousReadFallback(t *testing.T) {
 	}{
 		{"classify error read falls back", http.MethodGet, "/octocat/hello-world.git/info/refs?service=git-upload-pack", true, nil, http.StatusOK, ""},
 		{"foreign fetch falls back", http.MethodPost, "/octocat/hello-world.git/git-upload-pack", true, nil, http.StatusOK, ""},
-		{"policy deny read falls back", http.MethodGet, "/orbital/orbit/pulls", true, nil, http.StatusOK, ""},
+		{"policy deny read falls back", http.MethodGet, "/orbital/kora/pulls", true, nil, http.StatusOK, ""},
 		{"write denied", http.MethodPost, "/octocat/hello-world.git/git-receive-pack", true, nil, http.StatusForbidden, DenialUnclassified},
 		{"push discovery denied", http.MethodGet, "/octocat/hello-world.git/info/refs?service=git-receive-pack", true, nil, http.StatusForbidden, DenialUnclassified},
-		{"granted-repo write denied by policy", http.MethodPost, "/orbital/orbit.git/git-receive-pack", true, nil, http.StatusForbidden, DenialNotGranted},
+		{"granted-repo write denied by policy", http.MethodPost, "/orbital/kora.git/git-receive-pack", true, nil, http.StatusForbidden, DenialNotGranted},
 		{"closed egress with connector scope only denied", http.MethodGet, "/octocat/hello-world.git/info/refs?service=git-upload-pack", false, nil, http.StatusForbidden, DenialUnclassified},
-		{"policy unavailable never falls back", http.MethodGet, "/orbital/orbit/pulls", true, errors.New("opa down"), http.StatusForbidden, DenialPolicyUnavailable},
+		{"policy unavailable never falls back", http.MethodGet, "/orbital/kora/pulls", true, errors.New("opa down"), http.StatusForbidden, DenialPolicyUnavailable},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -126,9 +126,9 @@ func TestAuthorize_FallbackLogsOneLine(t *testing.T) {
 		want, notWant      string
 	}{
 		{"unclassified read served", http.MethodGet, "/octocat/hello-world.git/info/refs?service=git-upload-pack", true, "egress authorized: anonymous read", "egress denied"},
-		{"policy-denied read served", http.MethodGet, "/orbital/orbit/pulls", true, "egress authorized: anonymous read", "egress denied"},
+		{"policy-denied read served", http.MethodGet, "/orbital/kora/pulls", true, "egress authorized: anonymous read", "egress denied"},
 		{"unclassified read declined", http.MethodGet, "/octocat/hello-world.git/info/refs?service=git-upload-pack", false, "egress denied: adapter could not classify action", "anonymous read"},
-		{"policy-denied write declined", http.MethodPost, "/orbital/orbit/pulls", true, "egress denied by policy", "anonymous read"},
+		{"policy-denied write declined", http.MethodPost, "/orbital/kora/pulls", true, "egress denied by policy", "anonymous read"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

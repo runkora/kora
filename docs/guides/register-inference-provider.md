@@ -99,8 +99,8 @@ spec:
   type: bedrock
   bedrock:
     region: ap-southeast-2
-    assumeRoleARN: arn:aws:iam::123456789012:role/orbit-bedrock
-    externalID: orbit
+    assumeRoleARN: arn:aws:iam::123456789012:role/kora-bedrock
+    externalID: kora
 ```
 
 **Fields**

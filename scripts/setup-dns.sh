@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# setup-dns.sh — Verify DNS for *.orbit.local.clearroute.io
+# setup-dns.sh — Verify DNS for *.local.runkora.io
 #
-# With a real wildcard DNS record (*.orbit.local.clearroute.io → 127.0.0.1),
+# With a real wildcard DNS record (*.local.runkora.io → 127.0.0.1),
 # no local DNS tooling is needed — the OS resolves it like any other domain.
 #
 # This script verifies that the DNS record is in place and reachable.
@@ -10,7 +10,7 @@
 #
 # Prerequisites (one-time, done in your DNS provider):
 #   Type: A
-#   Name: *.orbit.local
+#   Name: *.local
 #   Value: 127.0.0.1
 #   TTL: 60
 # =============================================================================
@@ -27,8 +27,8 @@ ok()    { echo -e "${GREEN}✓ $*${RESET}"; }
 warn()  { echo -e "${YELLOW}⚠ $*${RESET}"; }
 die()   { echo -e "${RED}✗ $*${RESET}" >&2; exit 1; }
 
-APEX="orbit.local.clearroute.io"
-WILDCARD_TEST="dex.orbit.local.clearroute.io"
+APEX="local.runkora.io"
+WILDCARD_TEST="dex.local.runkora.io"
 
 info "Checking DNS for *.${APEX}..."
 
@@ -46,15 +46,15 @@ if [[ ${#MISSING[@]} -eq 0 ]]; then
   ok "*.${APEX} → 127.0.0.1  ✓"
 else
   echo ""
-  echo -e "${RED}Missing DNS records in your clearroute.io provider:${RESET}"
+  echo -e "${RED}Missing DNS records in your runkora.io provider:${RESET}"
   echo ""
   if [[ " ${MISSING[*]} " == *" wildcard "* ]]; then
-    echo "  Type: A  |  Name: *.orbit.local  |  Value: 127.0.0.1  |  TTL: 60"
-    echo "    covers: dex.orbit.local.clearroute.io, api.orbit.local.clearroute.io, ..."
+    echo "  Type: A  |  Name: *.local  |  Value: 127.0.0.1  |  TTL: 60"
+    echo "    covers: dex.local.runkora.io, api.local.runkora.io, ..."
   fi
   if [[ " ${MISSING[*]} " == *" apex "* ]]; then
-    echo "  Type: A  |  Name: orbit.local     |  Value: 127.0.0.1  |  TTL: 60"
-    echo "    covers: orbit.local.clearroute.io (frontend)"
+    echo "  Type: A  |  Name: local    |  Value: 127.0.0.1  |  TTL: 60"
+    echo "    covers: local.runkora.io (frontend)"
   fi
   echo ""
   die "Add the missing record(s) above, then re-run: make setup-dns"
@@ -62,12 +62,12 @@ fi
 
 echo ""
 echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
-echo -e "${GREEN}  DNS for *.orbit.local.clearroute.io is ready   ${RESET}"
+echo -e "${GREEN}  DNS for *.local.runkora.io is ready   ${RESET}"
 echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
 echo ""
 echo "  No local DNS tooling required — resolves via public DNS."
 echo "  The k3d cluster is patched automatically during: make up"
 echo ""
-echo "  Test:  dig +short dex.orbit.local.clearroute.io"
-echo "  Dex:   https://dex.orbit.local.clearroute.io:5556/dex"
+echo "  Test:  dig +short dex.local.runkora.io"
+echo "  Dex:   https://dex.local.runkora.io:5556/dex"
 echo ""

@@ -4,9 +4,9 @@ kubernetes:
 # Leave policyServiceURL empty so grant management is skipped when running locally
 # outside the cluster (no policy service reachable).
 platform:
-  trustDomain: "orbit.test"
+  trustDomain: "runkora.test"
   policyServiceURL: ""
 
 agents:
-  sessionManagerImage: orbit-registry:5001/kora-session-manager:latest
-  sandboxImage: orbit-registry:5001/kora-sandbox-base:latest
+  sessionManagerImage: kora-registry:5001/kora-session-manager:latest
+  sandboxImage: kora-registry:5001/kora-sandbox-base:latest

@@ -71,7 +71,7 @@ describe('AnalyticsPrincipalsTable — row click navigation', () => {
       principalRow({
         principal_id: 'dev-user-1',
         display_name: 'Dev User',
-        email: 'dev@orbit.local.clearroute.io',
+        email: 'dev@local.runkora.io',
       }),
     ]);
 

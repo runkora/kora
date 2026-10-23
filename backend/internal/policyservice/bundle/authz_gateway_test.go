@@ -198,7 +198,7 @@ func compileAndPrepareGateway(t *testing.T, opts gatewayBundleOpts) rego.Prepare
 	t.Helper()
 
 	if opts.frontendHost == "" {
-		opts.frontendHost = "orbit.example.com"
+		opts.frontendHost = "example.com"
 	}
 	jwksURL := "http://127.0.0.1:1/jwks"
 	if opts.jwksURL != "" {
@@ -293,8 +293,8 @@ func evalGateway(t *testing.T, pq rego.PreparedEvalQuery, method, path string, h
 // self-enforce (i.e. bypass edge scope enforcement for) an unrelated sibling like
 // "/v1/mcpx".
 func TestGateway_SelfEnforcedMCP_PathBoundary(t *testing.T) {
-	pq := compileAndPrepareGateway(t, gatewayBundleOpts{frontendHost: "orbit.example.com"})
-	hdr := map[string]string{":authority": "api.orbit.example.com"}
+	pq := compileAndPrepareGateway(t, gatewayBundleOpts{frontendHost: "example.com"})
+	hdr := map[string]string{":authority": "api.example.com"}
 
 	// The MCP gateway is self-enforcing → its paths are allowed unauthenticated so
 	// it can issue its own 401 challenge.
@@ -312,11 +312,11 @@ func TestGateway_SelfEnforcedMCP_PathBoundary(t *testing.T) {
 
 func TestGateway_FrontendBypass_ExactHost(t *testing.T) {
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
-		frontendHost: "orbit.example.com",
+		frontendHost: "example.com",
 	})
 
 	allow, _ := evalGateway(t, pq, "GET", "/", map[string]string{
-		":authority": "orbit.example.com",
+		":authority": "example.com",
 	})
 	if !allow {
 		t.Error("expected frontend host to be bypassed")
@@ -325,12 +325,12 @@ func TestGateway_FrontendBypass_ExactHost(t *testing.T) {
 
 func TestGateway_FrontendBypass_HostWithPort(t *testing.T) {
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
-		frontendHost: "orbit.example.com",
+		frontendHost: "example.com",
 	})
 
 	// Local dev sends :authority with a non-standard port.
 	allow, _ := evalGateway(t, pq, "GET", "/login", map[string]string{
-		":authority": "orbit.example.com:8443",
+		":authority": "example.com:8443",
 	})
 	if !allow {
 		t.Error("expected frontend host with port to be bypassed")
@@ -339,12 +339,12 @@ func TestGateway_FrontendBypass_HostWithPort(t *testing.T) {
 
 func TestGateway_FrontendBypass_WrongHost_Denied(t *testing.T) {
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
-		frontendHost: "orbit.example.com",
+		frontendHost: "example.com",
 	})
 
-	// api.orbit.example.com is NOT the frontend host.
+	// api.example.com is NOT the frontend host.
 	allow, reason := evalGateway(t, pq, "GET", "/v1/models", map[string]string{
-		":authority": "api.orbit.example.com",
+		":authority": "api.example.com",
 	})
 	if allow {
 		t.Error("expected non-frontend host to NOT be bypassed")
@@ -520,7 +520,7 @@ func TestGateway_TenantRoute_Matched(t *testing.T) {
 func TestGateway_CrossTenant_GrantsIsolated(t *testing.T) {
 	tenantA := "tenant-a"
 	tenantB := "tenant-b"
-	agentID := "spiffe://orbit.test/tenant/tenant-a/agent/agent-1"
+	agentID := "spiffe://runkora.test/tenant/tenant-a/agent/agent-1"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		tenantIDs: []string{tenantA, tenantB},
@@ -613,14 +613,14 @@ func TestGateway_MultiTenantBundle_GlobalRoutesPresent(t *testing.T) {
 
 func TestGateway_FrontendBypass_PathVariants(t *testing.T) {
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
-		frontendHost: "orbit.example.com",
+		frontendHost: "example.com",
 	})
 
 	// Various browser-originated paths all bypass via the host check.
 	paths := []string{"/", "/login", "/dashboard", "/_next/static/abc.js", "/api/auth/session"}
 	for _, path := range paths {
 		allow, _ := evalGateway(t, pq, "GET", path, map[string]string{
-			":authority": "orbit.example.com",
+			":authority": "example.com",
 		})
 		if !allow {
 			t.Errorf("expected frontend bypass for path %s", path)
@@ -637,7 +637,7 @@ func TestGateway_Reason_FrontendBypass(t *testing.T) {
 
 	// Frontend bypass sets allow=true; reason should not be a deny.
 	allow, reason := evalGateway(t, pq, "GET", "/dashboard", map[string]string{
-		":authority": "orbit.example.com",
+		":authority": "example.com",
 	})
 	if !allow {
 		t.Errorf("expected allow for frontend, got deny (reason: %s)", reason)
@@ -652,7 +652,7 @@ func TestGateway_Reason_InvalidToken_NotFrontend(t *testing.T) {
 	})
 
 	_, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-		":authority": "api.orbit.example.com",
+		":authority": "api.example.com",
 	})
 	if !strings.Contains(reason, "invalid_token") {
 		t.Errorf("expected deny:invalid_token for non-frontend request without token, got %q", reason)
@@ -728,7 +728,7 @@ func TestGateway_Delegation_NoMainJWT(t *testing.T) {
 // does not carry the required scope.
 func TestGateway_Delegation_NoDelegationScope(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/del-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/del-agent"
 	delegatorID := "user-delegator-001"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
@@ -765,7 +765,7 @@ func TestGateway_Delegation_NoDelegationScope(t *testing.T) {
 // the delegation token covers the required scope but the delegator has no grant.
 func TestGateway_Delegation_NoDelegatorGrant(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/del-agent-2"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/del-agent-2"
 	delegatorID := "user-no-grant-001"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
@@ -810,7 +810,7 @@ func TestGateway_Delegation_NoDelegatorGrant(t *testing.T) {
 // to the Authorization: Bearer path.
 func TestGateway_XAPIKey_WithKoraPrefix_Allowed(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/xapikey-agent-1"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/xapikey-agent-1"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		jwksURL:   jwksSrv.URL + "/jwks",
@@ -839,7 +839,7 @@ func TestGateway_XAPIKey_WithKoraPrefix_Allowed(t *testing.T) {
 // kora_ prefix is also accepted (trim_prefix is a no-op when the prefix is absent).
 func TestGateway_XAPIKey_WithoutKoraPrefix_Allowed(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/xapikey-agent-2"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/xapikey-agent-2"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		jwksURL:   jwksSrv.URL + "/jwks",

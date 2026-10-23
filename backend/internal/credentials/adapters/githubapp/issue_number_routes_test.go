@@ -30,20 +30,20 @@ func TestClassify_IssueNumberRoutesCarryPullsAlternate(t *testing.T) {
 		action     string
 		alternates []string
 	}{
-		{"react on an issue or PR body", http.MethodPost, "/repos/orbital/orbit/issues/1054/reactions", "issues:write", []string{"pulls:write"}},
-		{"comment on the conversation", http.MethodPost, "/repos/orbital/orbit/issues/1054/comments", "issues:write", []string{"pulls:write"}},
-		{"read one by number", http.MethodGet, "/repos/orbital/orbit/issues/1054", "issues:read", []string{"pulls:read"}},
-		{"react on a conversation comment", http.MethodPost, "/repos/orbital/orbit/issues/comments/99/reactions", "issues:write", []string{"pulls:write"}},
-		{"label by number", http.MethodPost, "/repos/orbital/orbit/issues/1054/labels", "issues:write", []string{"pulls:write"}},
-		{"read one event by ID", http.MethodGet, "/repos/orbital/orbit/issues/events/77", "issues:read", []string{"pulls:read"}},
+		{"react on an issue or PR body", http.MethodPost, "/repos/orbital/kora/issues/1054/reactions", "issues:write", []string{"pulls:write"}},
+		{"comment on the conversation", http.MethodPost, "/repos/orbital/kora/issues/1054/comments", "issues:write", []string{"pulls:write"}},
+		{"read one by number", http.MethodGet, "/repos/orbital/kora/issues/1054", "issues:read", []string{"pulls:read"}},
+		{"react on a conversation comment", http.MethodPost, "/repos/orbital/kora/issues/comments/99/reactions", "issues:write", []string{"pulls:write"}},
+		{"label by number", http.MethodPost, "/repos/orbital/kora/issues/1054/labels", "issues:write", []string{"pulls:write"}},
+		{"read one event by ID", http.MethodGet, "/repos/orbital/kora/issues/events/77", "issues:read", []string{"pulls:read"}},
 
 		// No ambiguity, so no alternate.
-		{"create an issue", http.MethodPost, "/repos/orbital/orbit/issues", "issues:write", nil},
-		{"list issues", http.MethodGet, "/repos/orbital/orbit/issues", "issues:read", nil},
-		{"repository labels", http.MethodPost, "/repos/orbital/orbit/labels", "issues:write", nil},
-		{"repository-wide comments", http.MethodGet, "/repos/orbital/orbit/issues/comments", "issues:read", nil},
-		{"repository-wide events", http.MethodGet, "/repos/orbital/orbit/issues/events", "issues:read", nil},
-		{"pull request route", http.MethodPost, "/repos/orbital/orbit/pulls/1054/reviews", "pulls:write", nil},
+		{"create an issue", http.MethodPost, "/repos/orbital/kora/issues", "issues:write", nil},
+		{"list issues", http.MethodGet, "/repos/orbital/kora/issues", "issues:read", nil},
+		{"repository labels", http.MethodPost, "/repos/orbital/kora/labels", "issues:write", nil},
+		{"repository-wide comments", http.MethodGet, "/repos/orbital/kora/issues/comments", "issues:read", nil},
+		{"repository-wide events", http.MethodGet, "/repos/orbital/kora/issues/events", "issues:read", nil},
+		{"pull request route", http.MethodPost, "/repos/orbital/kora/pulls/1054/reviews", "pulls:write", nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -97,7 +97,7 @@ func mintPermissions(t *testing.T, id credentials.CallerIdentity) map[string]str
 func TestMint_AlsoAuthorizedWidensByExactlyThoseActions(t *testing.T) {
 	t.Run("pulls authorized", func(t *testing.T) {
 		perms := mintPermissions(t, credentials.CallerIdentity{
-			TenantID: "acme", Action: "issues:write", Qualifier: "orbit",
+			TenantID: "acme", Action: "issues:write", Qualifier: "kora",
 			AlsoAuthorized: []string{"pulls:write"},
 		})
 		if perms["issues"] != "write" || perms["pull_requests"] != "write" {
@@ -110,7 +110,7 @@ func TestMint_AlsoAuthorizedWidensByExactlyThoseActions(t *testing.T) {
 
 	t.Run("pulls not authorized", func(t *testing.T) {
 		perms := mintPermissions(t, credentials.CallerIdentity{
-			TenantID: "acme", Action: "issues:write", Qualifier: "orbit",
+			TenantID: "acme", Action: "issues:write", Qualifier: "kora",
 		})
 		if perms["issues"] != "write" {
 			t.Errorf("permissions = %v, want issues:write", perms)
@@ -122,7 +122,7 @@ func TestMint_AlsoAuthorizedWidensByExactlyThoseActions(t *testing.T) {
 
 	t.Run("a read alternate does not lower a write", func(t *testing.T) {
 		perms := mintPermissions(t, credentials.CallerIdentity{
-			TenantID: "acme", Action: "pulls:write", Qualifier: "orbit",
+			TenantID: "acme", Action: "pulls:write", Qualifier: "kora",
 			AlsoAuthorized: []string{"pulls:read"},
 		})
 		if perms["pull_requests"] != "write" {

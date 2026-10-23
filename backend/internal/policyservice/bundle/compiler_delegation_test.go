@@ -47,7 +47,7 @@ func delegationTestGrants() []*grants.Grant {
 			ID:                 "grant-delegated",
 			TenantID:           "acme",
 			PrincipalType:      grants.PrincipalTypeAgent,
-			PrincipalID:        "spiffe://orbit.test/tenant/acme/agent/reviewer",
+			PrincipalID:        "spiffe://runkora.test/tenant/acme/agent/reviewer",
 			Scopes:             []string{"inference:invoke"},
 			DelegationRequired: true,
 		},
@@ -55,7 +55,7 @@ func delegationTestGrants() []*grants.Grant {
 			ID:            "grant-autonomous",
 			TenantID:      "acme",
 			PrincipalType: grants.PrincipalTypeAgent,
-			PrincipalID:   "spiffe://orbit.test/tenant/acme/agent/coder",
+			PrincipalID:   "spiffe://runkora.test/tenant/acme/agent/coder",
 			Scopes:        []string{"inference:invoke"},
 		},
 	}
@@ -110,7 +110,7 @@ func TestCompile_EmitsDelegationRequiredMarker(t *testing.T) {
 // TestCompileGateway_EmitsDelegationRequiredMarker verifies the marker also
 // flows into the gateway bundle's per-tenant grants document.
 func TestCompileGateway_EmitsDelegationRequiredMarker(t *testing.T) {
-	cfg := Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "kora", Audience: "kora-platform", FrontendHost: "orbit.example.com"}
+	cfg := Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "kora", Audience: "kora-platform", FrontendHost: "example.com"}
 	compiler := NewCompiler(cfg, routes.NewStore())
 
 	cached, err := compiler.CompileGateway(

@@ -84,7 +84,7 @@ global:
   topologySpreadConstraints: []
   priorityClassName: ""
 
-# The external frontend host, e.g. orbit.example.com. The API host is
+# The external frontend host, e.g. example.com. The API host is
 # api.<frontendHost> (ADR 2026-07-04). Required.
 frontendHost: ""
 
@@ -104,8 +104,8 @@ config:
   db:
     host: ""
     port: 5432
-    name: orbit
-    user: orbit
+    name: kora
+    user: kora
   redis:
     host: ""
     port: 6379

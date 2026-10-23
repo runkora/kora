@@ -3,9 +3,9 @@
  *
  * Strategy:
  * - `@runkora/server/config` is vi.mock'd so `config.koraApiUrl` resolves to
- *   `http://test-orbit-api` without triggering `requireEnv` at import time.
+ *   `http://test-kora-api` without triggering `requireEnv` at import time.
  * - MSW intercepts the upstream fetch to the Go identity service
- *   (`http://test-orbit-api/identity/tenants/discover`).
+ *   (`http://test-kora-api/identity/tenants/discover`).
  * - `server-only` is shimmed by the Vitest alias so the bare import at the
  *   top of the route module does not throw in Node/jsdom.
  */
@@ -17,7 +17,7 @@ import { server } from '@runkora/test-utils';
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
 vi.mock('@runkora/server/config', () => ({
-  config: { koraApiUrl: 'http://test-orbit-api' },
+  config: { koraApiUrl: 'http://test-kora-api' },
 }));
 
 // ── Import under test ─────────────────────────────────────────────────────────
@@ -33,12 +33,12 @@ function makeGetRequest(email?: string): NextRequest {
   return new NextRequest(url, { method: 'GET' });
 }
 
-const UPSTREAM_URL = 'http://test-orbit-api/identity/tenants/discover';
+const UPSTREAM_URL = 'http://test-kora-api/identity/tenants/discover';
 
 const tenantConfig = {
   tenant_id: 'acme-corp',
   issuer_url: 'https://auth.acme.com',
-  client_id: 'orbit-acme',
+  client_id: 'kora-acme',
   scopes: ['openid', 'profile', 'email'],
 };
 
@@ -71,7 +71,7 @@ describe('GET /api/auth/discover', () => {
       const body = (await res.json()) as typeof tenantConfig;
       expect(body.tenant_id).toBe('acme-corp');
       expect(body.issuer_url).toBe('https://auth.acme.com');
-      expect(body.client_id).toBe('orbit-acme');
+      expect(body.client_id).toBe('kora-acme');
       expect(body.scopes).toEqual(['openid', 'profile', 'email']);
     });
 

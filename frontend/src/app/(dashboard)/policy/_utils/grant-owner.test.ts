@@ -6,7 +6,7 @@ describe('grantOwnerLink', () => {
     expect(
       grantOwnerLink({
         principal_type: 'AGENT',
-        principal_id: 'spiffe://orbit.test/tenant/acme/agent/ci-investigator',
+        principal_id: 'spiffe://runkora.test/tenant/acme/agent/ci-investigator',
       }),
     ).toEqual({ href: '/agents/ci-investigator', label: 'Open agent' });
   });

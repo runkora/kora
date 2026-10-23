@@ -98,7 +98,7 @@ func TestRelayTCP_Bidirectional(t *testing.T) {
 		done <- counts{s, r}
 	}()
 
-	msg := []byte("hello-orbit")
+	msg := []byte("hello-kora")
 	if _, err := clientLocal.Write(msg); err != nil {
 		t.Fatalf("write: %v", err)
 	}

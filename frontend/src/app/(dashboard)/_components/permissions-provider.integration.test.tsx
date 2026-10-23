@@ -69,7 +69,7 @@ describe('PermissionsProvider', () => {
   });
 
   it('extracts user from data.user in the response', async () => {
-    const user = createSessionUser({ email: 'alice@orbit.local', name: 'Alice' });
+    const user = createSessionUser({ email: 'alice@runkora.test', name: 'Alice' });
     server.use(
       http.get('/api/auth/session', () =>
         HttpResponse.json({
@@ -81,7 +81,7 @@ describe('PermissionsProvider', () => {
 
     renderProvider();
     await waitFor(() => {
-      expect(screen.getByTestId('user-email').textContent).toBe('alice@orbit.local');
+      expect(screen.getByTestId('user-email').textContent).toBe('alice@runkora.test');
     });
   });
 

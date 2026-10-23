@@ -3,10 +3,10 @@
  *
  * Strategy:
  * - `@runkora/server/config` is vi.mock'd so `config.koraApiUrl` resolves to
- *   `http://test-orbit-api` without triggering `requireEnv` at import time.
+ *   `http://test-kora-api` without triggering `requireEnv` at import time.
  * - `@runkora/server/session` is vi.mock'd so tests control the session state
  *   (logged-in or logged-out) without a real iron-session cookie.
- * - MSW intercepts calls to `http://test-orbit-api/identity/revoke` so
+ * - MSW intercepts calls to `http://test-kora-api/identity/revoke` so
  *   revocation behaviour (success, failure, network error) can be exercised.
  * - `server-only` is shimmed by the Vitest alias so the bare import at the
  *   top of the route module does not throw in Node/jsdom.
@@ -28,7 +28,7 @@ vi.mock('next/headers', () => ({
 }));
 
 vi.mock('@runkora/server/config', () => ({
-  config: { koraApiUrl: 'http://test-orbit-api' },
+  config: { koraApiUrl: 'http://test-kora-api' },
 }));
 
 vi.mock('@runkora/server/session', () => ({
@@ -42,7 +42,7 @@ import { getSession } from '@runkora/server/session';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const REVOKE_URL = 'http://test-orbit-api/identity/revoke';
+const REVOKE_URL = 'http://test-kora-api/identity/revoke';
 
 function makePostRequest(): NextRequest {
   return new NextRequest('http://localhost/api/auth/logout', { method: 'POST' });

@@ -10,7 +10,7 @@ Run this **once** to create the k3d cluster. After the cluster exists, use
 - [k3d](https://k3d.io/) ≥ v5
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)
 - [helm](https://helm.sh/) and [helmfile](https://helmfile.readthedocs.io/)
-- Docker running with the `orbit-network` bridge network (created by `make dev-up`)
+- Docker running with the `kora-network` bridge network (created by `make dev-up`)
 
 ## Create the cluster
 
@@ -21,7 +21,7 @@ make dev-cluster
 This will:
 1. Start Postgres + Redis + Dex via `make dev-up` (if not already running)
 2. Create the k3d cluster from `infrastructure/bootstrap/k3d-config.yaml`
-3. Patch CoreDNS to resolve `dex.orbit.local.clearroute.io` → Docker bridge gateway
+3. Patch CoreDNS to resolve `dex.local.runkora.io` → Docker bridge gateway
 
 **This command is idempotent**: re-running it when the cluster already exists is a no-op.
 

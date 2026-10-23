@@ -23,7 +23,7 @@ type knownVocab struct{ idempotentVocab }
 
 func (knownVocab) Exists(context.Context, string) (bool, error) { return true, nil }
 
-const serviceSubject = "spiffe://orbit.local/tenant/kora-tenant-example/service/billing"
+const serviceSubject = "spiffe://runkora.test/tenant/kora-tenant-example/service/billing"
 
 var registeredRoutes = []routes.RouteScope{{PathPrefix: "/v1/thing", Method: "GET", RequiredScope: "thing:read"}}
 
@@ -50,7 +50,7 @@ func newRoutesController() *Controller {
 func TestHandleRegisterRoutes_CallerService(t *testing.T) {
 	system := func(name string) *token.PlatformClaims {
 		return &token.PlatformClaims{
-			RegisteredClaims: jwt.RegisteredClaims{Subject: "spiffe://orbit.local/system/" + name},
+			RegisteredClaims: jwt.RegisteredClaims{Subject: "spiffe://runkora.test/system/" + name},
 			Kora:             token.KoraClaims{PrincipalType: token.PrincipalTypeSystem, DisplayName: name},
 		}
 	}

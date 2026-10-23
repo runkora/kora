@@ -45,8 +45,8 @@ func (f failingOn) Check(_ context.Context, in policy.CheckInput) (policy.Result
 func (f failingOn) Scopes(context.Context, policy.ScopesInput) ([]string, error) { return nil, nil }
 
 func TestEvaluatePolicy_AlsoRequiredEvaluatorErrorFailsClosed(t *testing.T) {
-	cls := credentials.Classification{Action: "pulls:read", AlsoRequired: []string{"contents:read"}, Qualifier: "orbit"}
-	b := NewBroker(failingOn("github:contents:orbit:read"), nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+	cls := credentials.Classification{Action: "pulls:read", AlsoRequired: []string{"contents:read"}, Qualifier: "kora"}
+	b := NewBroker(failingOn("github:contents:kora:read"), nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
 	got, err := b.evaluatePolicy(context.Background(), &token.PlatformClaims{}, &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "POST"})
 	if !errors.Is(err, ErrForbidden) {
 		t.Fatalf("want ErrForbidden, got %v (authorized %v)", err, got)
@@ -57,17 +57,17 @@ func TestEvaluatePolicy_AlsoRequired(t *testing.T) {
 	conn := &credentials.Connection{Name: "github"}
 	cls := credentials.Classification{
 		Action: "issues:read", Alternates: []string{"pulls:read"},
-		AlsoRequired: []string{"contents:read"}, Qualifier: "orbit",
+		AlsoRequired: []string{"contents:read"}, Qualifier: "kora",
 	}
 	cases := []struct {
 		name string
 		held heldScopes
 		want []string
 	}{
-		{"all held", heldScopes{"github:issues:orbit:read", "github:contents:orbit:read"}, []string{"issues:read", "contents:read"}},
-		{"alternate and required held", heldScopes{"github:pulls:orbit:read", "github:contents:orbit:read"}, []string{"pulls:read", "contents:read"}},
-		{"required missing", heldScopes{"github:issues:orbit:read", "github:pulls:orbit:read"}, nil},
-		{"only required held", heldScopes{"github:contents:orbit:read"}, nil},
+		{"all held", heldScopes{"github:issues:kora:read", "github:contents:kora:read"}, []string{"issues:read", "contents:read"}},
+		{"alternate and required held", heldScopes{"github:pulls:kora:read", "github:contents:kora:read"}, []string{"pulls:read", "contents:read"}},
+		{"required missing", heldScopes{"github:issues:kora:read", "github:pulls:kora:read"}, nil},
+		{"only required held", heldScopes{"github:contents:kora:read"}, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -92,8 +92,8 @@ func TestEvaluatePolicy_AlsoRequired(t *testing.T) {
 // A missing required action is named in the denial, with the scope that
 // would allow it.
 func TestEvaluatePolicy_AlsoRequiredDenialNamesAction(t *testing.T) {
-	cls := credentials.Classification{Action: "pulls:read", AlsoRequired: []string{"contents:read"}, Qualifier: "orbit"}
-	b := NewBroker(heldScopes{"github:pulls:orbit:read"}, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+	cls := credentials.Classification{Action: "pulls:read", AlsoRequired: []string{"contents:read"}, Qualifier: "kora"}
+	b := NewBroker(heldScopes{"github:pulls:kora:read"}, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
 	_, err := b.evaluatePolicy(context.Background(), &token.PlatformClaims{}, &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "POST"})
 	var d *Denial
 	if !errors.As(err, &d) {
@@ -120,7 +120,7 @@ func (d *delegationRecorder) Scopes(context.Context, policy.ScopesInput) ([]stri
 // delegation. Policy decides which of them intersect with the delegator.
 func TestBrokerChecks_CarryDelegation(t *testing.T) {
 	delegation := &policy.DelegationClaims{Sub: "person-1", DelegatorPrincipalType: "HUMAN", RunID: "run-1"}
-	cls := credentials.Classification{Action: "issues:read", Alternates: []string{"pulls:read"}, AlsoRequired: []string{"contents:read"}, Qualifier: "orbit"}
+	cls := credentials.Classification{Action: "issues:read", Alternates: []string{"pulls:read"}, AlsoRequired: []string{"contents:read"}, Qualifier: "kora"}
 	cases := []struct {
 		name       string
 		delegation *policy.DelegationClaims
@@ -156,7 +156,7 @@ func TestBrokerChecks_CarryDelegation(t *testing.T) {
 // and a delegated caller with no attested run is refused before any lookup.
 // The evaluator is the real engine with no bundle. The binding denial needs none.
 func TestBrokerAuthorize_DelegationRunBinding(t *testing.T) {
-	const agent = "spiffe://orbit.test/tenant/acme/agent/coder"
+	const agent = "spiffe://runkora.test/tenant/acme/agent/coder"
 	delegation := &policy.DelegationClaims{Sub: "person-1", DelegatorPrincipalType: "HUMAN", ActSub: agent, RunID: "run-a"}
 	claimsFor := func(runID string) *token.PlatformClaims {
 		c := &token.PlatformClaims{}
@@ -174,7 +174,7 @@ func TestBrokerAuthorize_DelegationRunBinding(t *testing.T) {
 
 	t.Run("connection check for another run", func(t *testing.T) {
 		b := NewBroker(engine, nil, nil, nil, logger)
-		cls := credentials.Classification{Action: "issues:read", Qualifier: "orbit"}
+		cls := credentials.Classification{Action: "issues:read", Qualifier: "kora"}
 		_, err := b.evaluatePolicy(ctx, claimsFor("run-b"), &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "GET"})
 		var d *Denial
 		if !errors.As(err, &d) || d.decision != policy.ReasonDelegationRunMismatch {

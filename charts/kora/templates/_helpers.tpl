@@ -32,7 +32,7 @@ Namespace kora runs in: global.systemNamespace when set, else the release namesp
 The external frontend host and the derived API host (ADR 2026-07-04).
 */}}
 {{- define "kora.frontendHost" -}}
-{{- required "frontendHost must be set: the external host of the frontend, e.g. orbit.example.com" .Values.frontendHost }}
+{{- required "frontendHost must be set: the external host of the frontend, e.g. example.com" .Values.frontendHost }}
 {{- end }}
 
 {{/*
