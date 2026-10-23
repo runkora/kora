@@ -18,7 +18,6 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@runkora/hades": "workspace:*",
     "@radix-ui/react-collapsible": "^1.1.20",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-label": "^2.1.15",
@@ -28,6 +27,7 @@
     "@radix-ui/react-slot": "^1.3.3",
     "@radix-ui/react-tabs": "^1.1.21",
     "@radix-ui/react-tooltip": "^1.2.16",
+    "@runkora/hades": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "iron-session": "^8.0.4",
@@ -58,7 +58,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
-    "@vitest/coverage-v8": "^4.1.3",
+    "@vitest/coverage-v8": "^4.1.12",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
     "eslint-config-prettier": "^10.1.8",
@@ -68,7 +68,7 @@
     "storybook": "^10.6.2",
     "tailwindcss": "^4.3.3",
     "typescript": "^5",
-    "vitest": "^4.1.3"
+    "vitest": "^4.1.12"
   },
   "pnpm": {
     "overrides": {
@@ -95,7 +95,8 @@
       "eslint-plugin-react-hooks": "7.0.1",
       "pbkdf2@<3.1.7": "^3.1.7",
       "source-map-js@<1.2.2": "^1.2.2",
-      "webpack-dev-middleware@<7.4.6": "^7.4.6"
+      "webpack-dev-middleware@<7.4.6": "^7.4.6",
+      "zod@<4.6.6": "^4.6.6"
     }
   },
   "engines": {
