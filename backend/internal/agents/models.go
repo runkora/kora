@@ -226,7 +226,7 @@ type AgentType struct {
 	CreatedBy string         `json:"created_by,omitempty"`
 	State     AgentTypeState `json:"state"`
 	// ActivatedAt is when the type last became active; zero if it never has. The run start budget runs from it.
-	ActivatedAt time.Time `json:"activated_at"`
+	ActivatedAt time.Time `json:"activated_at,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 	ModelID     *string   `json:"model_id,omitempty"`
