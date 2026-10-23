@@ -239,11 +239,12 @@ func (m *GatewayManager) reconcile(ctx context.Context, sessions map[string]*gat
 				logging.Field{Key: "source_id", Value: id}, logging.Field{Key: "error", Value: err.Error()})
 			continue
 		}
-		sctx, cancel := context.WithCancel(ctx)
 		s := &gatewaySession{
 			sourceID: id, rotatedAt: src.SecretRotatedAt, token: token, adapter: adapter,
-			cancel: cancel, done: make(chan struct{}), msgs: make(chan []byte, gatewayMessageQueue),
+			done: make(chan struct{}), msgs: make(chan []byte, gatewayMessageQueue),
 		}
+		sctx, cancel := context.WithCancel(ctx)
+		s.cancel = cancel
 		sessions[id] = s
 		m.wg.Add(1)
 		go m.ingestLoop(sctx, s)
