@@ -17,7 +17,7 @@ const Module = "internal/platform/brand"
 
 // EnvProductName sets the product name on session-manager pods, which the chart does not render.
 // It is the one non-secret passed as an env var.
-const EnvProductName = "ORBIT_PRODUCT_NAME"
+const EnvProductName = "KORA_PRODUCT_NAME"
 
 // Sentinel errors for an unusable product name.
 var (

@@ -24,9 +24,9 @@
 # identity service directly.
 #
 # Options:
-#   --api-base <url>     API base URL (default: $ORBIT_API_BASE or http://localhost:8080/api/v1)
-#   --tenant-id <id>     Tenant ID for the session (default: $ORBIT_TENANT_ID or example)
-#   --creds <path>       Credentials file (default: /tmp/orbit_credentials.json)
+#   --api-base <url>     API base URL (default: $KORA_API_BASE or http://localhost:8080/api/v1)
+#   --tenant-id <id>     Tenant ID for the session (default: $KORA_TENANT_ID or example)
+#   --creds <path>       Credentials file (default: /tmp/kora_credentials.json)
 #   --help, -h           Show this help message and exit
 #
 # Prerequisites: curl, jq
@@ -56,9 +56,9 @@ done
 
 # ─── Arguments ────────────────────────────────────────────────────────────────
 
-API_BASE="${ORBIT_API_BASE:-http://localhost:8080/api/v1}"
-TENANT_ID="${ORBIT_TENANT_ID:-example}"
-CREDS_FILE="/tmp/orbit_credentials.json"
+API_BASE="${KORA_API_BASE:-http://localhost:8080/api/v1}"
+TENANT_ID="${KORA_TENANT_ID:-example}"
+CREDS_FILE="/tmp/kora_credentials.json"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -82,7 +82,7 @@ REFRESH_TOKEN=$(jq -r '.refresh_token // ""' "$CREDS_FILE" 2>/dev/null) ||
 
 info "Refreshing session at ${API_BASE}/identity/session (tenant: ${TENANT_ID})"
 
-BODY_FILE=$(mktemp /tmp/orbit_refresh_resp.XXXXXX)
+BODY_FILE=$(mktemp /tmp/kora_refresh_resp.XXXXXX)
 trap 'rm -f "$BODY_FILE"' EXIT
 chmod 600 "$BODY_FILE"
 

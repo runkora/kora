@@ -29,7 +29,7 @@ func TestValidateImageConfig(t *testing.T) {
 		{"uid only", imageConfig{User: "100", Labels: base}, ""},
 		{"uid and gid", imageConfig{User: "100:100", Labels: base}, ""},
 		{"root", imageConfig{User: "", Labels: base}, reasonWrongUser},
-		{"named user", imageConfig{User: "orbit", Labels: base}, reasonWrongUser},
+		{"named user", imageConfig{User: "kora", Labels: base}, reasonWrongUser},
 		{"other uid", imageConfig{User: "1000", Labels: base}, reasonWrongUser},
 		{"no label", imageConfig{User: "100"}, reasonMissingBaseLabel},
 		{"empty label", imageConfig{User: "100", Labels: map[string]string{si.BaseLabel: ""}}, reasonMissingBaseLabel},

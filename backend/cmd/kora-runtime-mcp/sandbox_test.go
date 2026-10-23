@@ -22,7 +22,7 @@ func TestProvisionSandbox_SendsTheRunToken(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	t.Setenv("ORBIT_RUN_TOKEN", "run-token-abc")
+	t.Setenv("KORA_RUN_TOKEN", "run-token-abc")
 
 	s := &mcpServer{sessionManagerURL: srv.URL, runID: "run-1", httpClient: srv.Client()}
 	if err := s.post("provision-sandbox", ""); err != nil {

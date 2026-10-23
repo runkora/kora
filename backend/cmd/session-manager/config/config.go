@@ -63,7 +63,7 @@ type Config struct {
 
 		// NodeMaxOldSpaceMB is the --max-old-space-size set in each run's
 		// NODE_OPTIONS. kora-agents sets it per install through
-		// ORBIT_NODE_MAX_OLD_SPACE_MB; zero adds no NODE_OPTIONS.
+		// KORA_NODE_MAX_OLD_SPACE_MB; zero adds no NODE_OPTIONS.
 		NodeMaxOldSpaceMB int `yaml:"nodeMaxOldSpaceMB"`
 	} `yaml:"runner"`
 
@@ -142,26 +142,26 @@ var Current = func() *Config {
 // applyEnvOverrides layers the values kora-agents sets on the agent pod over
 // the YAML defaults. getenv is injected so tests can drive it.
 func applyEnvOverrides(cfg *Config, getenv func(string) string) error {
-	if v := getenv("ORBIT_AGENTS_URL"); v != "" {
+	if v := getenv("KORA_AGENTS_URL"); v != "" {
 		cfg.KoraAgents.URL = v
 	}
-	if v := getenv("ORBIT_INFERENCE_GATEWAY_URL"); v != "" {
+	if v := getenv("KORA_INFERENCE_GATEWAY_URL"); v != "" {
 		cfg.InferenceGateway.URL = v
 	}
-	if v := getenv("ORBIT_TOOL_GATEWAY_URL"); v != "" {
+	if v := getenv("KORA_TOOL_GATEWAY_URL"); v != "" {
 		cfg.ToolGateway.URL = v
 	}
-	if v := getenv("ORBIT_TERMINATION_GRACE_PERIOD_SECS"); v != "" {
+	if v := getenv("KORA_TERMINATION_GRACE_PERIOD_SECS"); v != "" {
 		secs, err := strconv.Atoi(v)
 		if err != nil || secs < 0 {
-			return fmt.Errorf("ORBIT_TERMINATION_GRACE_PERIOD_SECS must be a non-negative integer, got %q", v)
+			return fmt.Errorf("KORA_TERMINATION_GRACE_PERIOD_SECS must be a non-negative integer, got %q", v)
 		}
 		cfg.Server.TerminationGracePeriodSecs = secs
 	}
-	if v := getenv("ORBIT_NODE_MAX_OLD_SPACE_MB"); v != "" {
+	if v := getenv("KORA_NODE_MAX_OLD_SPACE_MB"); v != "" {
 		mb, err := strconv.Atoi(v)
 		if err != nil || mb < 0 {
-			return fmt.Errorf("ORBIT_NODE_MAX_OLD_SPACE_MB must be a non-negative integer, got %q", v)
+			return fmt.Errorf("KORA_NODE_MAX_OLD_SPACE_MB must be a non-negative integer, got %q", v)
 		}
 		cfg.Runner.NodeMaxOldSpaceMB = mb
 	}

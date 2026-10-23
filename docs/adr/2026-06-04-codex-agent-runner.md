@@ -131,7 +131,7 @@ model          = "<model>"
 [model_providers.orbit]
 name     = "Orbit"
 base_url = "<inferenceGatewayURL>/run/<runID>"
-env_key  = "ORBIT_INFERENCE_KEY"
+env_key  = "KORA_INFERENCE_KEY"
 wire_api = "responses"
 
 [projects."<workDir>"]
@@ -140,7 +140,7 @@ trust_level = "trusted"
 
 #### Bearer token: `env_key` not inline
 
-The `env_key` field names an environment variable from which Codex reads the bearer token at startup. The runner sets `ORBIT_INFERENCE_KEY=orbit-managed` in the subprocess environment — the identity-proxy sidecar intercepts outbound calls and injects the real platform token, so `orbit-managed` is a placeholder that is never sent to the upstream provider.
+The `env_key` field names an environment variable from which Codex reads the bearer token at startup. The runner sets `KORA_INFERENCE_KEY=orbit-managed` in the subprocess environment — the identity-proxy sidecar intercepts outbound calls and injects the real platform token, so `orbit-managed` is a placeholder that is never sent to the upstream provider.
 
 This is preferable to passing the token via a `-c` CLI flag because process argv is world-readable on Linux (`/proc/<pid>/cmdline`) and would expose the token to any process on the same node. Passing it as an environment variable scopes it to the subprocess and its children, which is the standard safe approach for secrets in child processes.
 
@@ -313,7 +313,7 @@ Touches *What can it access?* Codex approvals were never a kora enforcement poin
 **Decision.**
 
 - The per-run `config.toml` sets `approval_policy = "never"` at the top level and `default_tools_approval_mode = "approve"` on every `[mcp_servers.*]` table. Codex then sends no approval or elicitation request for shell commands, file changes or MCP tool calls. A command that asks for escalated permissions is rejected back to the model instead.
-- The `[mcp_servers.runtime]` table sets `env_vars = ["ORBIT_RUN_TOKEN"]`. Codex starts stdio MCP servers with a filtered environment, so without it `orbit-runtime-mcp` has no run token and the session-manager rejects `provision_sandbox` with 403.
+- The `[mcp_servers.runtime]` table sets `env_vars = ["KORA_RUN_TOKEN"]`. Codex starts stdio MCP servers with a filtered environment, so without it `orbit-runtime-mcp` has no run token and the session-manager rejects `provision_sandbox` with 403.
 - The `accept` handlers for the two approval requests are removed. Any server request the runner receives gets an immediate JSON-RPC error (`-32601`, method not supported) and a warning log, so an unexpected request after a Codex upgrade fails that call instead of hanging the run.
 
 **Consequences.** The "Approval requests" section above and the negative consequence about auto-approving in the read loop no longer describe the runner.

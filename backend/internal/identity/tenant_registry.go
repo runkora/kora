@@ -11,7 +11,7 @@ import (
 // ─── Tenant Registry ──────────────────────────────────────────────────────────
 //
 // The tenant registry is a YAML file read from Config.Registry.TenantsPath: the
-// orbit-tenants ConfigMap, managed by the operator, mounted at /etc/orbit/tenants.yaml.
+// orbit-tenants ConfigMap, managed by the operator, mounted at /etc/kora/tenants.yaml.
 //
 // Schema:
 //

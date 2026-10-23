@@ -492,12 +492,12 @@ if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "orbit-registry"; th
 fi
 # Every kubectl and helmfile call below uses the current context. Refuse
 # anything but the local cluster: a default context left on a shared cluster
-# would receive the rollout. ORBIT_KUBE_CONTEXT overrides the expected name.
-EXPECTED_CONTEXT="${ORBIT_KUBE_CONTEXT:-k3d-orbit-local}"
+# would receive the rollout. KORA_KUBE_CONTEXT overrides the expected name.
+EXPECTED_CONTEXT="${KORA_KUBE_CONTEXT:-k3d-orbit-local}"
 CURRENT_CONTEXT="$(kubectl config current-context 2>/dev/null || echo '<none>')"
 if [ "$CURRENT_CONTEXT" != "$EXPECTED_CONTEXT" ]; then
   err "kubectl context is '$CURRENT_CONTEXT', expected '$EXPECTED_CONTEXT'."
-  echo "  Run with KUBECONFIG pointed at the local cluster, or set ORBIT_KUBE_CONTEXT." >&2
+  echo "  Run with KUBECONFIG pointed at the local cluster, or set KORA_KUBE_CONTEXT." >&2
   exit 1
 fi
 if ! kubectl cluster-info >/dev/null 2>&1; then
@@ -522,7 +522,7 @@ DIGEST=""
 if [ "$NO_BUILD" -eq 0 ]; then
   log "Building $IMAGE:$GIT_SHA from $DOCKERFILE (context=$CONTEXT)..."
   # The frontend shows the version it was built from.
-  build_args=(--build-arg "ORBIT_VERSION=$GIT_SHA")
+  build_args=(--build-arg "KORA_VERSION=$GIT_SHA")
   GO_VERSION="$(sed -n 's/^GO_VERSION *= *"\(.*\)"/\1/p' versions.hcl)"
   for arg in $BUILD_ARG; do
     arg="${arg//\{sha\}/$GIT_SHA}"

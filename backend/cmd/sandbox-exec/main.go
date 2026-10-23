@@ -287,7 +287,7 @@ func setRunHome() error {
 const kubeconfigPath = ".kube/config"
 
 // writeKubeconfig renders the credential-less kubeconfig for the Kubernetes
-// connections named in ORBIT_KUBE_CLUSTERS. It is a no-op when the agent holds
+// connections named in KORA_KUBE_CLUSTERS. It is a no-op when the agent holds
 // no Kubernetes connection.
 func writeKubeconfig() error {
 	clusters, err := kubeconfig.Decode(os.Getenv(kubeconfig.ClustersEnvVar))

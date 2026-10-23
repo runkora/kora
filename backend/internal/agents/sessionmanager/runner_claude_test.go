@@ -593,11 +593,11 @@ func TestWriteMCPConfig(t *testing.T) {
 		t.Fatal("missing mcpServers.runtime")
 	}
 	env, _ := runtime["env"].(map[string]any)
-	if env["ORBIT_SESSION_MANAGER_URL"] != "http://localhost:8090" {
-		t.Errorf("ORBIT_SESSION_MANAGER_URL = %v", env["ORBIT_SESSION_MANAGER_URL"])
+	if env["KORA_SESSION_MANAGER_URL"] != "http://localhost:8090" {
+		t.Errorf("KORA_SESSION_MANAGER_URL = %v", env["KORA_SESSION_MANAGER_URL"])
 	}
-	if env["ORBIT_RUN_ID"] != "run-42" {
-		t.Errorf("ORBIT_RUN_ID = %v", env["ORBIT_RUN_ID"])
+	if env["KORA_RUN_ID"] != "run-42" {
+		t.Errorf("KORA_RUN_ID = %v", env["KORA_RUN_ID"])
 	}
 	// No gateway URL configured — no governed MCP entry.
 	if _, ok := servers["orbit"]; ok {

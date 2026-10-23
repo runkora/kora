@@ -20,9 +20,9 @@ policy:
   bundlePollIntervalSecs: 30
 
 secrets:
-  tenantCARoot: "/var/run/orbit/tenant-ca"
-  connectionSecretRoot: "/var/run/orbit/connection-secrets"
-  connectionRegistryPath: "/var/run/orbit/connections/connections.json"
+  tenantCARoot: "/var/run/kora/tenant-ca"
+  connectionSecretRoot: "/var/run/kora/connection-secrets"
+  connectionRegistryPath: "/var/run/kora/connections/connections.json"
 
 observability:
   serviceName: "egress-gateway"

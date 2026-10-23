@@ -124,8 +124,8 @@ type Service struct {
 // every active tenant found in the tenant registry (cfg.Registry.TenantsPath).
 // Tenants without a configured OIDC issuer URL are skipped.
 //
-// The RSA signing key is read from the ORBIT_TOKEN_SIGNING_KEY_FILE or
-// ORBIT_TOKEN_SIGNING_KEY environment variables (via initSigningKey).
+// The RSA signing key is read from the KORA_TOKEN_SIGNING_KEY_FILE or
+// KORA_TOKEN_SIGNING_KEY environment variables (via initSigningKey).
 // In local development, if neither is set, a throwaway key is generated
 // and a prominent warning is logged. Never use auto-generated keys in production.
 func NewService(
@@ -1555,23 +1555,23 @@ func isRelevantRegistryEvent(event fsnotify.Event, base string) bool {
 
 // initSigningKey loads the RSA private key from one of three sources, in order:
 //
-//  1. ORBIT_TOKEN_SIGNING_KEY_FILE — path to a PEM file on disk (recommended
+//  1. KORA_TOKEN_SIGNING_KEY_FILE — path to a PEM file on disk (recommended
 //     for local dev: avoids multiline env-var problems entirely).
-//  2. ORBIT_TOKEN_SIGNING_KEY — PEM value inline. Real newlines and literal \n
+//  2. KORA_TOKEN_SIGNING_KEY — PEM value inline. Real newlines and literal \n
 //     escape sequences are both accepted.
 //  3. Auto-generate a throwaway 2048-bit key — permitted only when
-//     ORBIT_ALLOW_EPHEMERAL_KEY=true. Any other case fails fast with a clear
+//     KORA_ALLOW_EPHEMERAL_KEY=true. Any other case fails fast with a clear
 //     error; silently accepting a missing signing key would be a security flaw.
 func (s *Service) initSigningKey(ctx context.Context) error {
 	// 1. File path takes priority — cleanest for local dev.
-	if path := os.Getenv("ORBIT_TOKEN_SIGNING_KEY_FILE"); path != "" {
+	if path := os.Getenv("KORA_TOKEN_SIGNING_KEY_FILE"); path != "" {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return fmt.Errorf("read ORBIT_TOKEN_SIGNING_KEY_FILE %q: %w", path, err)
+			return fmt.Errorf("read KORA_TOKEN_SIGNING_KEY_FILE %q: %w", path, err)
 		}
 		key, err := parseRSAPrivateKey(string(data))
 		if err != nil {
-			return fmt.Errorf("parse ORBIT_TOKEN_SIGNING_KEY_FILE %q: %w", path, err)
+			return fmt.Errorf("parse KORA_TOKEN_SIGNING_KEY_FILE %q: %w", path, err)
 		}
 		s.signingKey = key
 		s.logger.Info(ctx, "RSA signing key loaded from file", logging.Field{Key: "path", Value: path})
@@ -1579,23 +1579,23 @@ func (s *Service) initSigningKey(ctx context.Context) error {
 	}
 
 	// 2. Inline PEM value — used in CI / production secret injection.
-	if pemData := os.Getenv("ORBIT_TOKEN_SIGNING_KEY"); pemData != "" {
+	if pemData := os.Getenv("KORA_TOKEN_SIGNING_KEY"); pemData != "" {
 		key, err := parseRSAPrivateKey(pemData)
 		if err != nil {
-			return fmt.Errorf("parse ORBIT_TOKEN_SIGNING_KEY: %w", err)
+			return fmt.Errorf("parse KORA_TOKEN_SIGNING_KEY: %w", err)
 		}
 		s.signingKey = key
 		s.logger.Info(ctx, "RSA signing key loaded from environment")
 		return nil
 	}
 
-	// 3. Auto-generate a throwaway key — only when ORBIT_ALLOW_EPHEMERAL_KEY=true.
+	// 3. Auto-generate a throwaway key — only when KORA_ALLOW_EPHEMERAL_KEY=true.
 	// A missing signing key is always a misconfiguration in production; silently
 	// papering over it with an ephemeral key would be a security flaw. Tests and
-	// local dev without a key file set ORBIT_ALLOW_EPHEMERAL_KEY=true explicitly.
-	if os.Getenv("ORBIT_ALLOW_EPHEMERAL_KEY") != "true" {
+	// local dev without a key file set KORA_ALLOW_EPHEMERAL_KEY=true explicitly.
+	if os.Getenv("KORA_ALLOW_EPHEMERAL_KEY") != "true" {
 		return fmt.Errorf(
-			"no RSA signing key configured: set ORBIT_TOKEN_SIGNING_KEY_FILE or ORBIT_TOKEN_SIGNING_KEY before starting the server (or ORBIT_ALLOW_EPHEMERAL_KEY=true for local dev only)",
+			"no RSA signing key configured: set KORA_TOKEN_SIGNING_KEY_FILE or KORA_TOKEN_SIGNING_KEY before starting the server (or KORA_ALLOW_EPHEMERAL_KEY=true for local dev only)",
 		)
 	}
 

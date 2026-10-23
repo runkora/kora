@@ -82,7 +82,7 @@ A single `app/api/policy/[...path]/route.ts` that forwards all requests to the p
 
 ### Rationale
 
-The BFF already connects to three backends (`ORBIT_API_URL`, `INFERENCE_GATEWAY_URL`, `POLICY_GATEWAY_URL`). Adding `POLICY_SERVICE_URL` as a fourth is consistent with the established pattern. The policy service and policy gateway have distinct responsibilities — administration vs. evaluation — and routing through one to reach the other would create unnecessary coupling. Individual BFF route handlers per resource type (grants, roles, vocabulary, routes, evaluate) provide type-safe request/response handling and per-endpoint error messages.
+The BFF already connects to three backends (`KORA_API_URL`, `INFERENCE_GATEWAY_URL`, `POLICY_GATEWAY_URL`). Adding `POLICY_SERVICE_URL` as a fourth is consistent with the established pattern. The policy service and policy gateway have distinct responsibilities — administration vs. evaluation — and routing through one to reach the other would create unnecessary coupling. Individual BFF route handlers per resource type (grants, roles, vocabulary, routes, evaluate) provide type-safe request/response handling and per-endpoint error messages.
 
 ---
 

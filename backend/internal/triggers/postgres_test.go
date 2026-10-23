@@ -16,17 +16,17 @@ import (
 )
 
 // Postgres integration tests for the Triggers repository. They run only when
-// ORBIT_TEST_DB_URL points at a database with the trigger tables migrated
+// KORA_TEST_DB_URL points at a database with the trigger tables migrated
 // (e.g. the local docker-compose Postgres after `make migrate-up`); otherwise
 // they skip. Each test isolates itself under a random tenant id and cleans up.
 //
-//	ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
 //	  go test ./internal/triggers/ -run Postgres
 func testRepo(t *testing.T) (*postgresRepository, string) {
 	t.Helper()
-	dsn := os.Getenv("ORBIT_TEST_DB_URL")
+	dsn := os.Getenv("KORA_TEST_DB_URL")
 	if dsn == "" {
-		t.Skip("set ORBIT_TEST_DB_URL to run Triggers Postgres integration tests")
+		t.Skip("set KORA_TEST_DB_URL to run Triggers Postgres integration tests")
 	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)

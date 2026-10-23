@@ -89,12 +89,12 @@ spec:
             {{- include "kora.configVolumeMount" . | nindent 12 }}
             {{- include "kora.redisCAVolumeMount" . | nindent 12 }}
             - name: tenant-cas
-              mountPath: /var/run/orbit/tenant-ca
+              mountPath: /var/run/kora/tenant-ca
               readOnly: true
             - name: connection-secrets
-              mountPath: /var/run/orbit/connection-secrets
+              mountPath: /var/run/kora/connection-secrets
               readOnly: true
             - name: tenant-connections
-              mountPath: /var/run/orbit/connections
+              mountPath: /var/run/kora/connections
               readOnly: true
             {{- include "kora.extraVolumeMounts" (dict "root" $ "name" "egressGateway") | nindent 12 }}

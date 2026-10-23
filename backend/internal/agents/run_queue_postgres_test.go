@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// The run scheduling queue against real SQL; gated on ORBIT_TEST_DB_URL (see testRunRepo).
+// The run scheduling queue against real SQL; gated on KORA_TEST_DB_URL (see testRunRepo).
 
 // queueRun writes a pending run with an initial message and sets its queue columns.
 func queueRun(t *testing.T, r *PostgresRepository, tenant, agentTypeID string, createdAt time.Time, notBefore *time.Time) string {

@@ -26,7 +26,7 @@ func loadRendered[T any](t *testing.T, rendered, module string) *T {
 		}
 		config.SetOverlayRoot(root)
 		cfg, err := config.LoadService[T](module, "production")
-		config.SetOverlayRoot("/etc/orbit/config")
+		config.SetOverlayRoot("/etc/kora/config")
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -68,7 +68,7 @@ type Notifier interface {
 }
 
 // NoopNotifier silently discards all events.
-// Used when ORBIT_AGENTS_URL is not configured (local dev without kora-agents).
+// Used when KORA_AGENTS_URL is not configured (local dev without kora-agents).
 type NoopNotifier struct{}
 
 func (NoopNotifier) Notify(_ context.Context, _ string, _ Event) error               { return nil }

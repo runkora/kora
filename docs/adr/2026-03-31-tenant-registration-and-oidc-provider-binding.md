@@ -252,7 +252,7 @@ The current schema version is `v1`.
 The identity service reads the file path from the `ORBIT_TENANTS_CONFIG` environment variable at startup.
 
 ```
-ORBIT_TENANTS_CONFIG=/etc/orbit/tenants.yaml
+ORBIT_TENANTS_CONFIG=/etc/kora/tenants.yaml
 ```
 
 If the environment variable is not set, or the file at the given path does not exist, the service **fails to start** with a clear error message. Tenant configuration is required — an identity service with no tenant registry cannot safely issue tokens. This is the correct safe-fail behaviour.
@@ -331,14 +331,14 @@ When `claimBinding` is absent, the issuer URL alone determines membership. When 
 
 ## Removal of the Global OIDCConfig
 
-The current `internal/identity/config.go` `OIDCConfig` struct and the associated environment variables (`ORBIT_OIDC_ISSUER_URL`, `ORBIT_OIDC_CLIENT_ID`, `ORBIT_OIDC_CLIENT_SECRET`) are **removed in the same PR as this implementation**. They are not deprecated and deferred — they are removed.
+The current `internal/identity/config.go` `OIDCConfig` struct and the associated environment variables (`KORA_OIDC_ISSUER_URL`, `KORA_OIDC_CLIENT_ID`, `KORA_OIDC_CLIENT_SECRET`) are **removed in the same PR as this implementation**. They are not deprecated and deferred — they are removed.
 
 Rationale: with `ORBIT_TENANTS_CONFIG` required for startup, the global OIDC vars become dead configuration. Dead configuration is confusing to operators (which variables take effect?) and creates a correctness risk if both code paths co-exist (which provider is used?). There is no migration burden because the current single-provider config has never been used in production.
 
 **What is removed:**
 - `OIDCConfig` struct and its fields in `internal/identity/config.go`
-- The `ORBIT_OIDC_ISSUER_URL` env var read and override in `LoadConfig`
-- The `ORBIT_OIDC_CLIENT_ID` and `ORBIT_OIDC_CLIENT_SECRET` env var reads
+- The `KORA_OIDC_ISSUER_URL` env var read and override in `LoadConfig`
+- The `KORA_OIDC_CLIENT_ID` and `KORA_OIDC_CLIENT_SECRET` env var reads
 - The `cfg.OIDC.IssuerURL != "" && cfg.OIDC.ClientID == ""` validation check
 - The `s.oidcProvider` single global field on `Service`
 - `initOIDCProvider()` — replaced by per-tenant provider init in `TenantRegistry`
@@ -407,10 +407,10 @@ Docker Compose bind-mounts the same file and populates the env var:
 services:
   identity:
     environment:
-      ORBIT_TENANTS_CONFIG: /etc/orbit/tenants.yaml
+      ORBIT_TENANTS_CONFIG: /etc/kora/tenants.yaml
       ORBIT_TENANT_LOCAL_OIDC_CLIENT_SECRET: ""
     volumes:
-      - ./config/tenants.yaml:/etc/orbit/tenants.yaml:ro
+      - ./config/tenants.yaml:/etc/kora/tenants.yaml:ro
 ```
 
 ---
@@ -434,7 +434,7 @@ orbit:
 
 The Helm chart renders:
 1. A `ConfigMap` from the non-secret tenant values (id, displayName, state, oidc.issuerURL, oidc.clientID, oidc.clientSecretEnv, claimBinding if present). The rendered YAML always includes `version: "v1"`.
-2. The ConfigMap is mounted at `/etc/orbit/tenants.yaml` in the identity service pod
+2. The ConfigMap is mounted at `/etc/kora/tenants.yaml` in the identity service pod
 3. Client secrets are stored in Kubernetes Secrets and exposed as environment variables in the pod spec via `env[].valueFrom.secretKeyRef`
 
 The deployment repository owns the tenant configuration. The kora repository owns the schema and the loader. Neither owns the other's data.
@@ -526,7 +526,7 @@ No changes required. The SVID path derives `tenant_id` from the cryptographicall
        Get(tenantID string) (*TenantConfig, error)
    }
    ```
-5. Remove `OIDCConfig` from `internal/identity/config.go`, remove all global OIDC env var reads (`ORBIT_OIDC_ISSUER_URL`, `ORBIT_OIDC_CLIENT_ID`, `ORBIT_OIDC_CLIENT_SECRET`), remove the `OIDCConfig` validation check
+5. Remove `OIDCConfig` from `internal/identity/config.go`, remove all global OIDC env var reads (`KORA_OIDC_ISSUER_URL`, `KORA_OIDC_CLIENT_ID`, `KORA_OIDC_CLIENT_SECRET`), remove the `OIDCConfig` validation check
 
 ### Phase 2 — Identity Service Wiring and Device Auth Validation
 
@@ -546,7 +546,7 @@ No changes required. The SVID path derives `tenant_id` from the cryptographicall
     ORBIT_TENANTS_CONFIG=./config/tenants.yaml
     ORBIT_TENANT_LOCAL_OIDC_CLIENT_SECRET=
     ```
-15. Update `docker-compose.yml` identity service to bind-mount `config/tenants.yaml` at `/etc/orbit/tenants.yaml` and set `ORBIT_TENANTS_CONFIG`
+15. Update `docker-compose.yml` identity service to bind-mount `config/tenants.yaml` at `/etc/kora/tenants.yaml` and set `ORBIT_TENANTS_CONFIG`
 16. Update `AGENTS.md` dev setup section to document the new env vars
 17. Verify `make dev-up` + `make auth-device` works end-to-end with `tenant_id: "local"` in the device auth request
 18. Verify `make dev` works end-to-end (direct binary, sourcing from `.env`)
@@ -555,7 +555,7 @@ No changes required. The SVID path derives `tenant_id` from the cryptographicall
 
 19. Add `orbit.tenants` values block to the Helm chart (schema mirrors the YAML file structure)
 20. Render `tenants.yaml` ConfigMap from values, always including `version: "v1"` as the first line
-21. Mount ConfigMap at `/etc/orbit/tenants.yaml` in identity service Deployment
+21. Mount ConfigMap at `/etc/kora/tenants.yaml` in identity service Deployment
 22. Document in chart README: how to add a tenant, how to provide client secrets via Kubernetes Secrets
 
 ### Migration Path

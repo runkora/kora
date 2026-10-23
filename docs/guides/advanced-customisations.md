@@ -51,7 +51,7 @@ go run ./cmd/kora-agents -render \
   -sandbox
 ```
 
-- `-patch-dir`: directory of `*.yaml` or `*.yml` patch files. Write each `agents.manifestPatches` key as a file named `<key>.yaml` in this directory, holding that key's entry. It mirrors what the Helm chart mounts at `/etc/orbit/manifest-patches`.
+- `-patch-dir`: directory of `*.yaml` or `*.yml` patch files. Write each `agents.manifestPatches` key as a file named `<key>.yaml` in this directory, holding that key's entry. It mirrors what the Helm chart mounts at `/etc/kora/manifest-patches`.
 - `-agent-slug`: required, the agent type slug to render.
 - `-agent-type-id`: the agent type's ID, for patches that select on the `orbit.io/agent-type` label. Defaults to `render-<slug>`.
 - `-namespace`: tenant namespace to render into. Defaults to `tenant-example`.
@@ -71,7 +71,7 @@ If a patch fails to load, `kora-agents` fails to start and the error names the f
 
 ## Migrate from environment variable overrides
 
-Older installs set `ORBIT_MANIFEST__<Kind>__<name>__<path>` environment variables on the `kora-agents` pod. These are no longer read. `kora-agents` logs a warning at startup for each one it finds. Move each override into a patch under `agents.manifestPatches`, then remove the variable.
+Older installs set `KORA_MANIFEST__<Kind>__<name>__<path>` environment variables on the `kora-agents` pod. These are no longer read. `kora-agents` logs a warning at startup for each one it finds. Move each override into a patch under `agents.manifestPatches`, then remove the variable.
 
 ## References
 

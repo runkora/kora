@@ -115,7 +115,7 @@ The identity service needs OIDC client secret values for confidential tenants at
 
 ### Option 3: Aggregated Secret Mounted as a File, Read via File Watcher
 
-**Description:** The operator maintains a single Secret (`orbit-tenant-oidc-secrets`) in `orbit-system`. Its data contains one key (`client-secrets.yaml`) whose value is a YAML map of `tenantID → clientSecret`. The identity service Deployment mounts this Secret as a volume at a well-known path (e.g. `/etc/orbit/tenant-secrets/client-secrets.yaml`). The identity service adds a second `fsnotify` watcher on this file's directory — identical in structure to the existing `watchTenantRegistry` watcher. When the Secret is updated by the operator, the kubelet rewrites the volume via the same atomic symlink swap used for ConfigMaps. The watcher detects the `..data` RENAME/CREATE event, debounces, and reloads the in-memory `tenantClientSecrets` map under `s.mu`.
+**Description:** The operator maintains a single Secret (`orbit-tenant-oidc-secrets`) in `orbit-system`. Its data contains one key (`client-secrets.yaml`) whose value is a YAML map of `tenantID → clientSecret`. The identity service Deployment mounts this Secret as a volume at a well-known path (e.g. `/etc/kora/tenant-secrets/client-secrets.yaml`). The identity service adds a second `fsnotify` watcher on this file's directory — identical in structure to the existing `watchTenantRegistry` watcher. When the Secret is updated by the operator, the kubelet rewrites the volume via the same atomic symlink swap used for ConfigMaps. The watcher detects the `..data` RENAME/CREATE event, debounces, and reloads the in-memory `tenantClientSecrets` map under `s.mu`.
 
 **Pros:**
 - No pod restart on tenant add, update, or secret rotation
@@ -207,7 +207,7 @@ The `clientSecretEnv` field in the tenant registry YAML written to `orbit-tenant
 #### 1. New Environment Variable
 
 ```
-ORBIT_TENANT_SECRETS_CONFIG=/etc/orbit/tenant-secrets/client-secrets.yaml
+ORBIT_TENANT_SECRETS_CONFIG=/etc/kora/tenant-secrets/client-secrets.yaml
 ```
 
 Set in the `orbit-identity` Deployment via the Helm chart values.
@@ -259,7 +259,7 @@ s.mu.RUnlock()
    ```yaml
    volumeMounts:
      - name: tenant-secrets
-       mountPath: /etc/orbit/tenant-secrets
+       mountPath: /etc/kora/tenant-secrets
        readOnly: true
    ```
 
@@ -277,7 +277,7 @@ s.mu.RUnlock()
    ```yaml
    env:
      - name: ORBIT_TENANT_SECRETS_CONFIG
-       value: /etc/orbit/tenant-secrets/client-secrets.yaml
+       value: /etc/kora/tenant-secrets/client-secrets.yaml
    ```
 
 #### `charts/orbit-operator/templates/clusterrole.yaml`

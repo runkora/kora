@@ -14,7 +14,7 @@ import (
 //
 //  1. cmd/policy-service/config/base.yaml        — service defaults
 //  2. cmd/policy-service/config/{env}.yaml       — env overrides (optional)
-//  3. /etc/orbit/config/cmd/policy-service.yaml  — rendered by the chart
+//  3. /etc/kora/config/cmd/policy-service.yaml  — rendered by the chart
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`

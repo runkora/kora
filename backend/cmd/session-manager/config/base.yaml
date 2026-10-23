@@ -12,7 +12,7 @@ observability:
 workspaces:
   basePath: /workspaces
 
-# kora-agents overrides this with ORBIT_AGENTS_URL from its system namespace.
+# kora-agents overrides this with KORA_AGENTS_URL from its system namespace.
 orbitAgents:
   url: "http://orbit-agents.orbit-system.svc.cluster.local"
 
@@ -23,7 +23,7 @@ runner:
   wrapperPath: kora-session-runner
   # The kora-shell proxy. Exposed under a "bash" basename by
   # Dockerfile.session-manager, since shell detection keys on that.
-  shellPath: /opt/orbit/shell/bash
+  shellPath: /opt/kora/shell/bash
 
 claude:
   binaryPath: claude
@@ -36,12 +36,12 @@ opencode:
   binaryPath: opencode
 
 # inferenceGateway is the base for per-run Codex, OpenCode and summarizer URLs;
-# kora-agents overrides it with ORBIT_INFERENCE_GATEWAY_URL from its system namespace.
+# kora-agents overrides it with KORA_INFERENCE_GATEWAY_URL from its system namespace.
 inferenceGateway:
   url: "http://orbit-inference-gateway.orbit-system.svc.cluster.local"
 
 # toolGateway is the MCP tool-gateway written into each run's MCP config; the identity-proxy sidecar adds the token.
-# kora-agents overrides it with ORBIT_TOOL_GATEWAY_URL from its system namespace.
+# kora-agents overrides it with KORA_TOOL_GATEWAY_URL from its system namespace.
 toolGateway:
   url: "http://orbit-tool-gateway.orbit-system.svc.cluster.local"
 

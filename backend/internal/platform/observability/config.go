@@ -104,13 +104,13 @@ func mustLoadConfig() *ObservabilityConfig {
 // on the session-manager and identity-proxy containers they build, which have
 // no rendered config file (docs/adr/2026-10-06-rendered-service-config-files.md).
 func applyGoSetEnv(cfg *ObservabilityConfig, getenv func(string) string) error {
-	if v := getenv("ORBIT_OTLP_ENDPOINT"); v != "" {
+	if v := getenv("KORA_OTLP_ENDPOINT"); v != "" {
 		cfg.OTLPEndpoint = v
 	}
-	if v := getenv("ORBIT_SAMPLING_RATE"); v != "" {
+	if v := getenv("KORA_SAMPLING_RATE"); v != "" {
 		f, err := strconv.ParseFloat(v, 64)
 		if err != nil {
-			return fmt.Errorf("ORBIT_SAMPLING_RATE %q is not a number: %w", v, err)
+			return fmt.Errorf("KORA_SAMPLING_RATE %q is not a number: %w", v, err)
 		}
 		cfg.SamplingRate = &f
 	}

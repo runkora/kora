@@ -13,13 +13,13 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-// testPricingRepo connects to ORBIT_TEST_DB_URL and removes the rows a test
+// testPricingRepo connects to KORA_TEST_DB_URL and removes the rows a test
 // writes under its random provider name.
 func testPricingRepo(t *testing.T) (*PostgresPricingCatalogRepository, ProviderName) {
 	t.Helper()
-	dsn := os.Getenv("ORBIT_TEST_DB_URL")
+	dsn := os.Getenv("KORA_TEST_DB_URL")
 	if dsn == "" {
-		t.Skip("set ORBIT_TEST_DB_URL to run pricing catalog Postgres integration tests")
+		t.Skip("set KORA_TEST_DB_URL to run pricing catalog Postgres integration tests")
 	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)

@@ -21,9 +21,9 @@ Everything with a safe default lives elsewhere: compose settings in `docker-comp
 Read secrets directly from the environment using `os.Getenv`. Never store them in a config struct or pass them through YAML.
 
 ```go
-clientID := os.Getenv("ORBIT_OIDC_CLIENT_ID")
+clientID := os.Getenv("KORA_OIDC_CLIENT_ID")
 if clientID == "" {
-    return fmt.Errorf("ORBIT_OIDC_CLIENT_ID is required")
+    return fmt.Errorf("KORA_OIDC_CLIENT_ID is required")
 }
 ```
 
@@ -35,7 +35,7 @@ Fail fast on startup if a required secret is missing, don't let the service star
 
 RSA private keys are PEM-encoded and multi-line. Standard `.env` parsers do not reliably preserve newlines, and `pem.Decode` requires real newlines to parse PEM headers and footers.
 
-**For local development**, `make gen-signing-key` writes the key to `secrets/signing.key` (gitignored). `make up` generates it automatically if absent, then loads it into the cluster's `orbit-secrets` as the inline `ORBIT_TOKEN_SIGNING_KEY`.
+**For local development**, `make gen-signing-key` writes the key to `secrets/signing.key` (gitignored). `make up` generates it automatically if absent, then loads it into the cluster's `orbit-secrets` as the inline `KORA_TOKEN_SIGNING_KEY`.
 
 ```bash
 make gen-signing-key          # writes secrets/signing.key (gitignored)
@@ -44,12 +44,12 @@ make gen-signing-key          # writes secrets/signing.key (gitignored)
 **For CI/production**, secret managers (GitHub Actions secrets, Kubernetes Secrets, Vault) inject multi-line values with real newlines. Use the inline variable:
 
 ```bash
-ORBIT_TOKEN_SIGNING_KEY=-----BEGIN RSA PRIVATE KEY-----
+KORA_TOKEN_SIGNING_KEY=-----BEGIN RSA PRIVATE KEY-----
 MIIEowIBAAKCAQEA...
 -----END RSA PRIVATE KEY-----
 ```
 
-**Priority**: `ORBIT_TOKEN_SIGNING_KEY_FILE` is checked first. `ORBIT_TOKEN_SIGNING_KEY` is the fallback. If neither is set and `APP_ENV=local`, an ephemeral key is generated at startup (tokens do not survive a restart, and a warning is logged).
+**Priority**: `KORA_TOKEN_SIGNING_KEY_FILE` is checked first. `KORA_TOKEN_SIGNING_KEY` is the fallback. If neither is set and `APP_ENV=local`, an ephemeral key is generated at startup (tokens do not survive a restart, and a warning is logged).
 
 ---
 
@@ -85,16 +85,16 @@ Nothing to generate. The test user is `dev@orbit.local.clearroute.io` with passw
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `ORBIT_TOKEN_SIGNING_KEY_FILE` | code fallback | Path to an RSA private key PEM file (mode 600). Checked first by the code. |
-| `ORBIT_TOKEN_SIGNING_KEY` | `orbit-secrets` (local) / secret manager | Inline RSA private key PEM. Local dev generates `secrets/signing.key` with `make gen-signing-key`; `make up` injects it here. |
+| `KORA_TOKEN_SIGNING_KEY_FILE` | code fallback | Path to an RSA private key PEM file (mode 600). Checked first by the code. |
+| `KORA_TOKEN_SIGNING_KEY` | `orbit-secrets` (local) / secret manager | Inline RSA private key PEM. Local dev generates `secrets/signing.key` with `make gen-signing-key`; `make up` injects it here. |
 
 ### OIDC / Federated Identity
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `ORBIT_OIDC_CLIENT_ID` | `.env` / secret manager | OAuth2 client ID. For local Dex: `orbit-local`. |
-| `ORBIT_OIDC_CLIENT_SECRET` | `.env` / secret manager | OAuth2 client secret. Empty for public clients (local Dex is a public client). |
-| `ORBIT_OIDC_ISSUER_URL` | `.env` / secret manager | Runtime override for the OIDC issuer URL. Not strictly a secret, but can encode tenant IDs. |
+| `KORA_OIDC_CLIENT_ID` | `.env` / secret manager | OAuth2 client ID. For local Dex: `orbit-local`. |
+| `KORA_OIDC_CLIENT_SECRET` | `.env` / secret manager | OAuth2 client secret. Empty for public clients (local Dex is a public client). |
+| `KORA_OIDC_ISSUER_URL` | `.env` / secret manager | Runtime override for the OIDC issuer URL. Not strictly a secret, but can encode tenant IDs. |
 
 ### Dex (Local Dev Only)
 

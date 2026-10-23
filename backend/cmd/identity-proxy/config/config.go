@@ -16,7 +16,7 @@ import (
 //  1. cmd/identity-proxy/config/base.yaml  — service defaults
 //  2. cmd/identity-proxy/config/{env}.yaml — service env overrides (optional)
 //
-// Secrets (ORBIT_IDENTITY_SERVICE_URL, SPIFFE_ENDPOINT_SOCKET) are supplied
+// Secrets (KORA_IDENTITY_SERVICE_URL, SPIFFE_ENDPOINT_SOCKET) are supplied
 // via environment variables and must not appear in YAML files.
 type Config struct {
 	App struct {

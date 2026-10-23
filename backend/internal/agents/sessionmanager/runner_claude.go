@@ -294,8 +294,8 @@ func (r *ClaudeRunner) writeMCPConfig(workDir string) (string, error) {
 			"command": "kora-runtime-mcp",
 			"args":    []string{},
 			"env": map[string]string{
-				"ORBIT_SESSION_MANAGER_URL": r.cfg.SessionManagerURL,
-				"ORBIT_RUN_ID":              r.cfg.RunID,
+				"KORA_SESSION_MANAGER_URL": r.cfg.SessionManagerURL,
+				"KORA_RUN_ID":              r.cfg.RunID,
 			},
 		},
 	}

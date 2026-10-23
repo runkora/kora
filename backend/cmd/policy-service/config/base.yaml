@@ -11,7 +11,7 @@ bundle:
   issuer: "orbit"
   audience: "orbit-platform"
   # Where the chart mounts the orbit-tenants ConfigMap.
-  tenantsPath: /etc/orbit/tenants.yaml
+  tenantsPath: /etc/kora/tenants.yaml
 
 observability:
   serviceName: "policy-service"

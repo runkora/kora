@@ -306,8 +306,8 @@ The platform services read these keys from `orbit-secrets`, which can be customi
 |---|---|
 | `DB_PASSWORD` | PostgreSQL password. |
 | `REDIS_PASSWORD` | Redis password. |
-| `ORBIT_TOKEN_SIGNING_KEY` | RSA private key used to sign platform tokens. |
-| `ORBIT_TRIGGERS_ENCRYPTION_KEY` | Base64-encoded 32-byte key used to encrypt stored trigger credentials. |
+| `KORA_TOKEN_SIGNING_KEY` | RSA private key used to sign platform tokens. |
+| `KORA_TRIGGERS_ENCRYPTION_KEY` | Base64-encoded 32-byte key used to encrypt stored trigger credentials. |
 
 The dashboard reads `BFF_SESSION_SECRET` from a separate secret, `orbit-frontend-secrets` by default. This can be configured via `frontend.existingSecret`. You must use at least 32 random characters.
 
@@ -358,7 +358,7 @@ Redis TLS is on by default. Set `config.redis.tls.enabled: false` for a Redis th
 
 `global` holds the values every service shares: trust domain, image registry and tag, log format, Postgres SSL mode, and OTLP settings.
 
-The chart renders each service's settings into a ConfigMap of config files mounted at `/etc/orbit/config` ([rendered service config files](../adr/2026-10-06-rendered-service-config-files.md)). A component's `configOverrides` merges last, keyed by config module, and its keys follow the Go config structs:
+The chart renders each service's settings into a ConfigMap of config files mounted at `/etc/kora/config` ([rendered service config files](../adr/2026-10-06-rendered-service-config-files.md)). A component's `configOverrides` merges last, keyed by config module, and its keys follow the Go config structs:
 
 ```yaml
 policyService:
@@ -450,7 +450,7 @@ The chart renders the document into a ConfigMap for the frontend and reads `prod
 
 ### Roll out a theme
 
-A theme change is a values change: a changed document, rolled out by the standard rolling update and rolled back by a revert. The frontend pod mounts the document read-only at `/etc/orbit/theme/theme.yaml` and runs a `validate-theme` init container before the application starts. It validates the document against the kora release the image is (a theme of the same major passes). A fault stops the pod there: the rollout stalls, the previous pods keep serving, and under Argo CD the Application goes Degraded once the Deployment's progress deadline passes.
+A theme change is a values change: a changed document, rolled out by the standard rolling update and rolled back by a revert. The frontend pod mounts the document read-only at `/etc/kora/theme/theme.yaml` and runs a `validate-theme` init container before the application starts. It validates the document against the kora release the image is (a theme of the same major passes). A fault stops the pod there: the rollout stalls, the previous pods keep serving, and under Argo CD the Application goes Degraded once the Deployment's progress deadline passes.
 
 When a rollout stalls, read the init container's log on the new pod:
 

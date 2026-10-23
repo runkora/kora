@@ -10,16 +10,16 @@ import (
 )
 
 // Postgres integration test for the run→trigger backlink. Runs only when
-// ORBIT_TEST_DB_URL points at a database with the kora-agents migrations
+// KORA_TEST_DB_URL points at a database with the kora-agents migrations
 // applied; otherwise it skips. Mirrors drafts_postgres_test.go.
 //
-//	ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
 //	  go test ./internal/agents/ -run Postgres_RunTrigger
 func testRunRepo(t *testing.T) (*PostgresRepository, string) {
 	t.Helper()
-	dsn := os.Getenv("ORBIT_TEST_DB_URL")
+	dsn := os.Getenv("KORA_TEST_DB_URL")
 	if dsn == "" {
-		t.Skip("set ORBIT_TEST_DB_URL to run run-attribution Postgres integration tests")
+		t.Skip("set KORA_TEST_DB_URL to run run-attribution Postgres integration tests")
 	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)

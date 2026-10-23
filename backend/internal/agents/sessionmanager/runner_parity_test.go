@@ -46,7 +46,7 @@ func TestWrapExec(t *testing.T) {
 
 // OpenCode takes the shell its tool commands run through from its config.
 func TestOpenCodeConfig_ShellPath(t *testing.T) {
-	const shellPath = "/opt/orbit/shell/bash"
+	const shellPath = "/opt/kora/shell/bash"
 
 	read := func(t *testing.T, cfg OpenCodeRunnerConfig) map[string]any {
 		t.Helper()
@@ -95,9 +95,9 @@ func TestRunEnv(t *testing.T) {
 		"PATH=/usr/bin:/bin:/usr/local/go/bin:/usr/local/cargo/bin:/workspaces/.runlocal/run-42/.local/bin:/workspaces/.runlocal/run-42/go/bin:/workspaces/.runlocal/run-42/.cargo/bin",
 		// The sandbox mounts its local disk at the same path.
 		"GOCACHE=/workspaces/.runlocal/run-42/.cache/go-build",
-		"ORBIT_SESSION_MANAGER_URL=http://localhost:8090",
-		"ORBIT_RUN_ID=run-42",
-		"ORBIT_RUN_TOKEN=tok-42",
+		"KORA_SESSION_MANAGER_URL=http://localhost:8090",
+		"KORA_RUN_ID=run-42",
+		"KORA_RUN_TOKEN=tok-42",
 	}
 	for _, w := range want {
 		if !slices.Contains(got, w) {
@@ -177,7 +177,7 @@ func TestCodexConfig_MCPServers(t *testing.T) {
 	// Each server table carries its keys ahead of any subtable such as
 	// [mcp_servers.runtime.env], or they land in the subtable and Codex rejects the file.
 	for server, keys := range map[string][]string{
-		"runtime": {`default_tools_approval_mode = "approve"`, `env_vars = ["ORBIT_RUN_TOKEN"]`},
+		"runtime": {`default_tools_approval_mode = "approve"`, `env_vars = ["KORA_RUN_TOKEN"]`},
 		"github":  {`default_tools_approval_mode = "approve"`},
 	} {
 		header := "[mcp_servers." + server + "]\n"
@@ -207,8 +207,8 @@ func TestCodexConfig_MCPServers(t *testing.T) {
 		"shell_snapshot = false",
 		"[mcp_servers.runtime]",
 		`command = "kora-runtime-mcp"`,
-		`ORBIT_SESSION_MANAGER_URL = "http://localhost:8090"`,
-		`ORBIT_RUN_ID              = "run-1"`,
+		`KORA_SESSION_MANAGER_URL = "http://localhost:8090"`,
+		`KORA_RUN_ID              = "run-1"`,
 		"[mcp_servers.github]",
 		`url = "http://orbit-tool-gateway/run/run-1/v1/mcp/github"`,
 	} {
@@ -252,7 +252,7 @@ func TestOpenCodeConfig_MCPServers(t *testing.T) {
 	if rt.Type != "local" || len(rt.Command) != 1 || rt.Command[0] != "kora-runtime-mcp" || !rt.Enabled {
 		t.Errorf("runtime entry = %+v", rt)
 	}
-	if rt.Environment["ORBIT_RUN_ID"] != "run-1" || rt.Environment["ORBIT_SESSION_MANAGER_URL"] != "http://localhost:8090" {
+	if rt.Environment["KORA_RUN_ID"] != "run-1" || rt.Environment["KORA_SESSION_MANAGER_URL"] != "http://localhost:8090" {
 		t.Errorf("runtime environment = %v", rt.Environment)
 	}
 

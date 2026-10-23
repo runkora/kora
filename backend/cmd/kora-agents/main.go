@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -212,21 +211,6 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	pc := policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
 
 	patchDir := cfg.Agents.ManifestPatchDir
-
-	// Legacy env-var overrides were removed in favor of the ConfigMap-mounted
-	// patch directory (docs/guides/advanced-customisations.md).
-	// Operators who set ORBIT_MANIFEST__* directly on the pod spec would
-	// silently lose their customization, so warn loudly at startup with the
-	// migration path.
-	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "ORBIT_MANIFEST__") {
-			key, _, _ := strings.Cut(e, "=")
-			logger.Warn(ctx,
-				"legacy ORBIT_MANIFEST__ env var is ignored: migrate it to a patch file under "+patchDir+" (docs/guides/advanced-customisations.md)",
-				logging.Field{Key: "key", Value: key},
-			)
-		}
-	}
 
 	patches, workloads, err := loadProvisioning(cfg, patchDir, b)
 	if err != nil {

@@ -19,9 +19,9 @@ policy:
 registry:
   # Rendered by the operator's MCPServerAggregator into the orbit-mcp-servers
   # ConfigMap, mounted here and hot-reloaded on change.
-  serversPath: "/var/run/orbit/mcp-servers/servers.json"
+  serversPath: "/var/run/kora/mcp-servers/servers.json"
   # The orbit-mcp-server-secrets Secret, read on each upstream request.
-  secretsDir: "/var/run/orbit/mcp-server-secrets"
+  secretsDir: "/var/run/kora/mcp-server-secrets"
 
 introspection:
   reintrospectIntervalSecs: 300

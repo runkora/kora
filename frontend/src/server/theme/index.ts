@@ -1,6 +1,6 @@
 /**
  * The loaded theme, read once from `theme.yaml` in the mounted theme directory and held per process.
- * An invalid document throws, so no page serves. `ORBIT_THEME_DIR` overrides the directory for tests.
+ * An invalid document throws, so no page serves. `KORA_THEME_DIR` overrides the directory for tests.
  */
 import 'server-only';
 
@@ -21,7 +21,7 @@ import { instanceKoraVersion } from '@runkora/lib/kora-version';
 import { defaultTheme, type IdentityTheme } from '@runkora/theme/default';
 import { ThemeYamlTooLargeError, isMissing, readThemeDocument } from '@runkora/lib/theme-document';
 
-export const DEFAULT_THEME_DIR = '/etc/orbit/theme';
+export const DEFAULT_THEME_DIR = '/etc/kora/theme';
 
 // The JSON import widens the manifest's unions to string; the cast restores them.
 const hadesManifest = manifest as ThemeManifest;
@@ -64,7 +64,7 @@ const EMPTY_REPORT: ThemeReport = {
 
 /** The directory `theme.yaml` is read from. */
 export function themeDir(): string {
-  return process.env.ORBIT_THEME_DIR || DEFAULT_THEME_DIR;
+  return process.env.KORA_THEME_DIR || DEFAULT_THEME_DIR;
 }
 
 async function directoryExists(dir: string): Promise<boolean> {

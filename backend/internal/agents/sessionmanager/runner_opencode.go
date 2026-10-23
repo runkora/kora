@@ -481,8 +481,8 @@ func (r *OpenCodeRunner) mcpConfig() map[string]any {
 			"command": []string{"kora-runtime-mcp"},
 			"enabled": true,
 			"environment": map[string]string{
-				"ORBIT_SESSION_MANAGER_URL": r.cfg.SessionManagerURL,
-				"ORBIT_RUN_ID":              r.cfg.RunID,
+				"KORA_SESSION_MANAGER_URL": r.cfg.SessionManagerURL,
+				"KORA_RUN_ID":              r.cfg.RunID,
 			},
 		},
 	}

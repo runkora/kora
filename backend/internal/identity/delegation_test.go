@@ -120,9 +120,9 @@ func (m *mockDelegationRepository) ListActiveByDelegator(_ context.Context, tena
 // repository and blocklist, mirroring newTestService.
 func newDelegationTestService(t *testing.T) (*Service, *mockDelegationRepository, *mockJTIBlocklistRepository) {
 	t.Helper()
-	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("KORA_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY", "")
 
 	cfg := &Config{
 		Token: TokenConfig{
@@ -163,9 +163,9 @@ func newDelegationTestService(t *testing.T) (*Service, *mockDelegationRepository
 // repo so the PAT-revocation cascade can be exercised end to end.
 func newDelegationTestServiceWithPAT(t *testing.T) (*Service, *mockDelegationRepository, *mockJTIBlocklistRepository, *mockPATRepository) {
 	t.Helper()
-	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("KORA_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY", "")
 
 	cfg := &Config{
 		Token: TokenConfig{

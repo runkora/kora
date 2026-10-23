@@ -4,7 +4,7 @@ Each kora config module (e.g. `cmd/identity`, `internal/platform/storage`) loads
 
 1.  `{module}/config/base.yaml` when the binary loads it with `LoadService`.
 2.  `{module}/config/{APP_ENV}.yaml`. `APP_ENV` defaults to `production`, and binaries run on the host set `APP_ENV=local`.
-3.  `/etc/orbit/config/{module}.yaml`, the file the chart renders for the install.
+3.  `/etc/kora/config/{module}.yaml`, the file the chart renders for the install.
 
 Decoding is strict. An unknown key or a value of the wrong type fails startup.
 
@@ -86,13 +86,13 @@ func LoadConfig() (*Config, error) {
     }
 
     // Overlay secrets from environment — never from YAML.
-    cfg.TokenSigningKeyFile = os.Getenv("ORBIT_TOKEN_SIGNING_KEY_FILE")
-    cfg.TokenSigningKey     = os.Getenv("ORBIT_TOKEN_SIGNING_KEY")
-    cfg.OIDCClientID        = os.Getenv("ORBIT_OIDC_CLIENT_ID")
-    cfg.OIDCClientSecret    = os.Getenv("ORBIT_OIDC_CLIENT_SECRET")
+    cfg.TokenSigningKeyFile = os.Getenv("KORA_TOKEN_SIGNING_KEY_FILE")
+    cfg.TokenSigningKey     = os.Getenv("KORA_TOKEN_SIGNING_KEY")
+    cfg.OIDCClientID        = os.Getenv("KORA_OIDC_CLIENT_ID")
+    cfg.OIDCClientSecret    = os.Getenv("KORA_OIDC_CLIENT_SECRET")
 
     // Runtime override: allows pointing at a real provider without editing YAML.
-    if url := os.Getenv("ORBIT_OIDC_ISSUER_URL"); url != "" {
+    if url := os.Getenv("KORA_OIDC_ISSUER_URL"); url != "" {
         cfg.OIDC.IssuerURL = url
     }
 
@@ -104,7 +104,7 @@ func LoadConfig() (*Config, error) {
 
 ## Rendered Config Files
 
-The `kora` chart renders each workload's per-install config into a ConfigMap and mounts it at `/etc/orbit/config`. Each config module the workload loads is one file, `{module}.yaml`, and a change to it rolls the workload through its `checksum/config` annotation. Env vars carry only secrets and third-party conventions such as `SPIFFE_ENDPOINT_SOCKET`.
+The `kora` chart renders each workload's per-install config into a ConfigMap and mounts it at `/etc/kora/config`. Each config module the workload loads is one file, `{module}.yaml`, and a change to it rolls the workload through its `checksum/config` annotation. Env vars carry only secrets and third-party conventions such as `SPIFFE_ENDPOINT_SOCKET`.
 
 *   **Curated values:** Chart keys such as `global.logFormat`, `config.db` and `identity.config.accessTokenTtlMinutes` render into the files.
 *   **Overrides:** `<component>.configOverrides` merges last, keyed by config module. Its keys follow the Go config structs.
@@ -187,7 +187,7 @@ func LoadConfig() (*Config, error) {
     if err != nil {
         return nil, err
     }
-    cfg.APIKey = os.Getenv("ORBIT_FEATURE_API_KEY")
+    cfg.APIKey = os.Getenv("KORA_FEATURE_API_KEY")
     return cfg, nil
 }
 ```

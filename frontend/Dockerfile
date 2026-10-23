@@ -51,20 +51,20 @@ ARG NEXT_PUBLIC_APP_URL=https://orbit.local.clearroute.io:8443
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 
 # The release tag the image is built for, shown in the sidebar.
-ARG ORBIT_VERSION=dev
-ENV NEXT_PUBLIC_ORBIT_VERSION=${ORBIT_VERSION}
+ARG KORA_VERSION=dev
+ENV NEXT_PUBLIC_KORA_VERSION=${KORA_VERSION}
 
-# ORBIT_API_URL and BFF_SESSION_SECRET are server-side only, but Next.js
+# KORA_API_URL and BFF_SESSION_SECRET are server-side only, but Next.js
 # evaluates server modules during `next build` to collect page data, so they
 # must be present at build time to pass validation. These placeholder values
 # are never used at runtime — the real values are injected via the
 # orbit-frontend-config ConfigMap and orbit-frontend-secrets Secret.
-ARG ORBIT_API_URL=http://orbit-identity.orbit-system/api/v1
+ARG KORA_API_URL=http://orbit-identity.orbit-system/api/v1
 ARG INFERENCE_GATEWAY_URL=http://orbit-inference-gateway.orbit-system/v1
 ARG POLICY_GATEWAY_URL=http://orbit-policy-gateway.orbit-system/v1
 ARG POLICY_SERVICE_URL=http://orbit-policy-service.orbit-system/api/v1
-ARG ORBIT_AGENTS_URL=http://orbit-agents.orbit-system
-ARG ORBIT_TRIGGERS_URL=http://orbit-triggers.orbit-system/api/v1
+ARG KORA_AGENTS_URL=http://orbit-agents.orbit-system
+ARG KORA_TRIGGERS_URL=http://orbit-triggers.orbit-system/api/v1
 ARG TOOL_GATEWAY_URL=http://orbit-tool-gateway.orbit-system
 # hadolint ignore=DL3025
 # BFF_SESSION_SECRET is a placeholder value only — Next.js evaluates server
@@ -72,12 +72,12 @@ ARG TOOL_GATEWAY_URL=http://orbit-tool-gateway.orbit-system
 # to pass validation. The real secret is injected at runtime via the
 # orbit-frontend-secrets Kubernetes Secret and never baked into the image.
 ARG BFF_SESSION_SECRET=build-time-placeholder-not-used-at-runtime
-ENV ORBIT_API_URL=${ORBIT_API_URL} \
+ENV KORA_API_URL=${KORA_API_URL} \
     INFERENCE_GATEWAY_URL=${INFERENCE_GATEWAY_URL} \
     POLICY_GATEWAY_URL=${POLICY_GATEWAY_URL} \
     POLICY_SERVICE_URL=${POLICY_SERVICE_URL} \
-    ORBIT_AGENTS_URL=${ORBIT_AGENTS_URL} \
-    ORBIT_TRIGGERS_URL=${ORBIT_TRIGGERS_URL} \
+    KORA_AGENTS_URL=${KORA_AGENTS_URL} \
+    KORA_TRIGGERS_URL=${KORA_TRIGGERS_URL} \
     TOOL_GATEWAY_URL=${TOOL_GATEWAY_URL} \
     BFF_SESSION_SECRET=${BFF_SESSION_SECRET}
 

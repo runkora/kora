@@ -30,7 +30,7 @@ func redisCAUsers(t *testing.T, rendered string) (mounts map[string]string, caFi
 		if err := yaml.Unmarshal([]byte(doc), &obj); err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(obj.Data["internal.platform.storage.yaml"], "caFile: /etc/orbit/redis-ca/ca.crt") {
+		if strings.Contains(obj.Data["internal.platform.storage.yaml"], "caFile: /etc/kora/redis-ca/ca.crt") {
 			caFileConfigs = append(caFileConfigs, obj.Metadata.Name)
 		}
 		for _, c := range obj.Spec.Template.Spec.Containers {
@@ -81,7 +81,7 @@ func TestChartRedisTLSWithCA(t *testing.T) {
 	}
 	mounts, cfgs := redisCAUsers(t, out)
 	for name, path := range mounts {
-		if path != "/etc/orbit/redis-ca" {
+		if path != "/etc/kora/redis-ca" {
 			t.Errorf("%s mounts the CA at %s", name, path)
 		}
 	}

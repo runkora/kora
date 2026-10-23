@@ -48,7 +48,7 @@ func TestChartMaxSizeFallsBackToDefaultSize(t *testing.T) {
 		}
 		config.SetOverlayRoot(root)
 		cfg, err := config.LoadService[agentsConfig.Config]("cmd/kora-agents", "production")
-		config.SetOverlayRoot("/etc/orbit/config")
+		config.SetOverlayRoot("/etc/kora/config")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -122,7 +122,7 @@ func TestChartIdleTimeouts(t *testing.T) {
 				}
 				config.SetOverlayRoot(root)
 				cfg, err := config.LoadService[agentsConfig.Config]("cmd/kora-agents", "production")
-				config.SetOverlayRoot("/etc/orbit/config")
+				config.SetOverlayRoot("/etc/kora/config")
 				if err != nil {
 					t.Fatal(err)
 				}

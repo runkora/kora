@@ -118,8 +118,8 @@ config:
       caSecret: ""
       # -- Name checked against the Redis certificate. Empty uses config.redis.host.
       serverName: ""
-  # Holds DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY,
-  # ORBIT_TRIGGERS_ENCRYPTION_KEY. Not created by the chart.
+  # Holds DB_PASSWORD, REDIS_PASSWORD, KORA_TOKEN_SIGNING_KEY,
+  # KORA_TRIGGERS_ENCRYPTION_KEY. Not created by the chart.
   platformSecretName: orbit-secrets
 
 istio:

@@ -19,7 +19,7 @@ The change touches none of the three questions. Secrets keep their env path, and
 
 Each image copies its modules' `config/` directories into `/app` (`backend/Dockerfile:43-51`, `backend/Dockerfile:71`, `backend/Dockerfile.session-manager:34-41`, `Dockerfile.operator:30-36`). The `kora` chart never sets `APP_ENV`, and every in-cluster service loads the `production` layer. No module under `backend/cmd/` has a `production.yaml` file for that layer to load. `backend/cmd/operator/config/development.yaml` states that it loads when `APP_ENV=development`, and nothing in the repository sets that value. The same holds for `backend/internal/platform/observability/config/development.yaml` and `backend/internal/platform/storage/config/development.yaml`.
 
-Per-install values therefore reach services as env vars. The chart sets 104 literal `env` values across 11 Deployments and the migrate Job in `charts/kora/templates/`. Of these, 46 carry five platform settings (`ORBIT_LOG_FORMAT`, `ORBIT_OTLP_ENDPOINT`, `ORBIT_SAMPLING_RATE`, `ORBIT_POSTGRES_SSL_MODE`, `ORBIT_POSTGRES_CAPTURE_QUERY_TEXT`) repeated per workload. 44 of the 46 go through `orbit.serviceConfig` (`charts/kora/templates/_helpers.tpl:83-90`), and the operator Deployment sets the other two directly. DB and Redis hosts reach eight Deployments through the `orbit-config` ConfigMap (`charts/kora/templates/platform/configmap-orbit-config.yaml:11-16`) and `orbit.platformEnvFrom` (`_helpers.tpl:271-277`). No workload carries a checksum of `orbit-config`.
+Per-install values therefore reach services as env vars. The chart sets 104 literal `env` values across 11 Deployments and the migrate Job in `charts/kora/templates/`. Of these, 46 carry five platform settings (`ORBIT_LOG_FORMAT`, `KORA_OTLP_ENDPOINT`, `KORA_SAMPLING_RATE`, `ORBIT_POSTGRES_SSL_MODE`, `ORBIT_POSTGRES_CAPTURE_QUERY_TEXT`) repeated per workload. 44 of the 46 go through `orbit.serviceConfig` (`charts/kora/templates/_helpers.tpl:83-90`), and the operator Deployment sets the other two directly. DB and Redis hosts reach eight Deployments through the `orbit-config` ConfigMap (`charts/kora/templates/platform/configmap-orbit-config.yaml:11-16`) and `orbit.platformEnvFrom` (`_helpers.tpl:271-277`). No workload carries a checksum of `orbit-config`.
 
 Lists travel as comma-separated strings (`charts/kora/templates/operator/deployment.yaml:64`, `:93`, `charts/kora/templates/agents/deployment.yaml:105`). Resource requirements travel as JSON (`charts/kora/templates/operator/deployment.yaml:73`, `:85`). Each service layers these values over its YAML by hand:
 
@@ -31,7 +31,7 @@ Lists travel as comma-separated strings (`charts/kora/templates/operator/deploym
 - `backend/internal/platform/storage/postgres_config.go:45-78` and `redis_config.go:36-56`: hosts, SSL mode, query capture and TLS.
 - `backend/cmd/inference-gateway/config/config.go:93` and `backend/cmd/policy-service/config/config.go:63`: single values.
 
-Several of these parsers drop a bad value without an error. `intEnv` returns the default when `strconv.Atoi` fails (`backend/cmd/operator/config/config.go:162-169`). The `orbit-agents` guardrail integers keep their YAML value on a parse failure (`backend/cmd/kora-agents/config/config.go:224-228`). `overrideInt` ignores a non-positive or unparseable value (`backend/internal/identity/config.go:91-98`). `ORBIT_SAMPLING_RATE` is ignored when it is not a float (`backend/internal/platform/observability/config.go:113-117`).
+Several of these parsers drop a bad value without an error. `intEnv` returns the default when `strconv.Atoi` fails (`backend/cmd/operator/config/config.go:162-169`). The `orbit-agents` guardrail integers keep their YAML value on a parse failure (`backend/cmd/kora-agents/config/config.go:224-228`). `overrideInt` ignores a non-positive or unparseable value (`backend/internal/identity/config.go:91-98`). `KORA_SAMPLING_RATE` is ignored when it is not a float (`backend/internal/platform/observability/config.go:113-117`).
 
 The current loader cannot decode `corev1.ResourceRequirements`. Viper with `yaml` tags fails on `limits: {cpu: 500m}` with `'resources.Limits[cpu]' expected a map or struct, got "string"`.
 
@@ -98,11 +98,11 @@ It exposes internal config as the public chart API against the product surface t
 
 ### 1. Rendered files
 
-The chart will render each service's per-install config as YAML into a ConfigMap, with one file per config module. The ConfigMap will mount at `/etc/orbit/config/`, and `items[].path` will place each module's file at `/etc/orbit/config/{module}.yaml`. The config files baked into the image will stay visible under `/app`. The chart will derive service URLs from the system namespace when it renders these files (clear-route/orbit#402). The migrate Job's ConfigMap will be a `pre-install,pre-upgrade` hook with a lower hook weight than the Job.
+The chart will render each service's per-install config as YAML into a ConfigMap, with one file per config module. The ConfigMap will mount at `/etc/kora/config/`, and `items[].path` will place each module's file at `/etc/kora/config/{module}.yaml`. The config files baked into the image will stay visible under `/app`. The chart will derive service URLs from the system namespace when it renders these files (clear-route/orbit#402). The migrate Job's ConfigMap will be a `pre-install,pre-upgrade` hook with a lower hook weight than the Job.
 
 ### 2. Loader
 
-`config.LoadService` and `config.Load` will merge `/etc/orbit/config/{module}.yaml` as the last layer. Decoding will stay strict, and an unknown key will fail startup. A decode hook will decode Kubernetes types such as `corev1.ResourceRequirements`. A missing file will mean no overlay.
+`config.LoadService` and `config.Load` will merge `/etc/kora/config/{module}.yaml` as the last layer. Decoding will stay strict, and an unknown key will fail startup. A decode hook will decode Kubernetes types such as `corev1.ResourceRequirements`. A missing file will mean no overlay.
 
 ### 3. Rollout
 

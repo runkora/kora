@@ -26,9 +26,9 @@ func writeRegistryFile(t *testing.T, path string) {
 // signing key, no OIDC providers at startup, no real repos.
 func newWatcherTestService(t *testing.T) *Service {
 	t.Helper()
-	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("KORA_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY", "")
 
 	cfg := &Config{
 		Token: TokenConfig{

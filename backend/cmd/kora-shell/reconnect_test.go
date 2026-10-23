@@ -33,8 +33,8 @@ func TestReprovisionSandbox_RewritesAndReturnsEndpoint(t *testing.T) {
 	defer srv.Close()
 
 	t.Setenv("WORKSPACE", ws)
-	t.Setenv("ORBIT_SESSION_MANAGER_URL", srv.URL)
-	t.Setenv("ORBIT_RUN_ID", "run-1")
+	t.Setenv("KORA_SESSION_MANAGER_URL", srv.URL)
+	t.Setenv("KORA_RUN_ID", "run-1")
 
 	got, err := reprovisionSandbox()
 	if err != nil {
@@ -55,8 +55,8 @@ func TestReprovisionSandbox_RewritesAndReturnsEndpoint(t *testing.T) {
 }
 
 func TestReprovisionSandbox_MissingEnv(t *testing.T) {
-	t.Setenv("ORBIT_SESSION_MANAGER_URL", "")
-	t.Setenv("ORBIT_RUN_ID", "")
+	t.Setenv("KORA_SESSION_MANAGER_URL", "")
+	t.Setenv("KORA_RUN_ID", "")
 	if _, err := reprovisionSandbox(); err == nil {
 		t.Fatal("expected error when session-manager env is unset")
 	}
@@ -69,8 +69,8 @@ func TestReprovisionSandbox_Non2xx(t *testing.T) {
 	defer srv.Close()
 
 	t.Setenv("WORKSPACE", t.TempDir())
-	t.Setenv("ORBIT_SESSION_MANAGER_URL", srv.URL)
-	t.Setenv("ORBIT_RUN_ID", "run-1")
+	t.Setenv("KORA_SESSION_MANAGER_URL", srv.URL)
+	t.Setenv("KORA_RUN_ID", "run-1")
 
 	if _, err := reprovisionSandbox(); err == nil {
 		t.Fatal("expected error on non-2xx provision response")
@@ -86,8 +86,8 @@ func TestReprovisionSandbox_RelaysLostSandboxMessage(t *testing.T) {
 	defer srv.Close()
 
 	t.Setenv("WORKSPACE", t.TempDir())
-	t.Setenv("ORBIT_SESSION_MANAGER_URL", srv.URL)
-	t.Setenv("ORBIT_RUN_ID", "run-1")
+	t.Setenv("KORA_SESSION_MANAGER_URL", srv.URL)
+	t.Setenv("KORA_RUN_ID", "run-1")
 
 	_, err := reprovisionSandbox()
 	if err == nil || err.Error() != "The sandbox for this run is gone." {

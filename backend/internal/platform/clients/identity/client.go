@@ -94,7 +94,7 @@ type Client struct {
 	// e.g. "http://orbit-identity.orbit-system.svc.cluster.local".
 	// Do NOT include a path suffix or trailing slash.
 	// Note: plain HTTP — Istio handles the mTLS upgrade transparently.
-	// Supplied via ORBIT_IDENTITY_SERVICE_URL environment variable.
+	// Supplied via KORA_IDENTITY_SERVICE_URL environment variable.
 	baseURL string
 }
 

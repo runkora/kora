@@ -11,17 +11,17 @@ import (
 )
 
 // Postgres integration tests for the grants Repository. They run only when
-// ORBIT_TEST_DB_URL points at a database with policy_grants migrated;
+// KORA_TEST_DB_URL points at a database with policy_grants migrated;
 // otherwise they skip. Each test isolates itself under a random tenant and
 // cleans up on exit.
 //
-//	ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
 //	  go test ./internal/policyservice/grants/ -run Postgres
 func testGrantsRepo(t *testing.T) (Repository, string) {
 	t.Helper()
-	dsn := os.Getenv("ORBIT_TEST_DB_URL")
+	dsn := os.Getenv("KORA_TEST_DB_URL")
 	if dsn == "" {
-		t.Skip("set ORBIT_TEST_DB_URL to run grants Postgres integration tests")
+		t.Skip("set KORA_TEST_DB_URL to run grants Postgres integration tests")
 	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)

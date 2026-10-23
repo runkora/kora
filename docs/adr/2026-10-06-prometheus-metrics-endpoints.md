@@ -11,7 +11,7 @@
 
 ## Context
 
-`backend/internal/platform/observability/metrics.go` builds an OTel `MeterProvider` whose only reader is an OTLP `PeriodicReader`, attached only when `ORBIT_OTLP_ENDPOINT` is configured; otherwise the provider has no reader and records nothing. The only existing caller is `orbit-triggers`, which built its own instrument set in `internal/triggers/metrics.go` on the OTel `metric.Meter` API. No service exposes a pull-based `/metrics` endpoint. No Prometheus exporter dependency is wired for application use: `go.opentelemetry.io/otel/exporters/prometheus` is absent from `go.mod`, and `github.com/prometheus/client_golang` is present only as an indirect transitive dependency (pulled in by OPA/controller-runtime). No ServiceMonitor/PodMonitor CRD, and no Prometheus server, exists anywhere in this repo's dev stack.
+`backend/internal/platform/observability/metrics.go` builds an OTel `MeterProvider` whose only reader is an OTLP `PeriodicReader`, attached only when `KORA_OTLP_ENDPOINT` is configured; otherwise the provider has no reader and records nothing. The only existing caller is `orbit-triggers`, which built its own instrument set in `internal/triggers/metrics.go` on the OTel `metric.Meter` API. No service exposes a pull-based `/metrics` endpoint. No Prometheus exporter dependency is wired for application use: `go.opentelemetry.io/otel/exporters/prometheus` is absent from `go.mod`, and `github.com/prometheus/client_golang` is present only as an indirect transitive dependency (pulled in by OPA/controller-runtime). No ServiceMonitor/PodMonitor CRD, and no Prometheus server, exists anywhere in this repo's dev stack.
 
 Two existing PRDs already specify Prometheus metrics that are unmet: `docs/prd/inference-gateway.md` US-013 and `docs/prd/agent-control-plane.md`'s Observability NFR. `docs/adr/2026-04-01-inference-gateway-architecture.md` already states the intended direction: metrics via the OTel metric API, with no direct `client_golang` dependency required. `docs/adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md` separately flags identity-proxy's missing `/metrics` as a known, deferred gap, distinct from this decision.
 
@@ -144,7 +144,7 @@ A precise "active users" metric is a known, separate gap: no `last_seen`/`last_a
 
 ### Success Metrics
 
-- `curl :9464/metrics` on every rolled-out service returns live OTel-fed series with `ORBIT_OTLP_ENDPOINT` unset.
+- `curl :9464/metrics` on every rolled-out service returns live OTel-fed series with `KORA_OTLP_ENDPOINT` unset.
 - `make check` green with the new dependency.
 - `helm template` with `global.metrics.serviceMonitor.enabled=true` and the CRD absent renders no `ServiceMonitor` resources (guard holds).
 

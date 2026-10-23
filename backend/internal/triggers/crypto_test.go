@@ -88,7 +88,7 @@ func TestGenerateSecret(t *testing.T) {
 // protects every tenant's webhook signing secrets, so booting without one would
 // mean encrypting them under whatever constant the fallback used.
 func TestLoadCipherKey_UnsetIsFatal(t *testing.T) {
-	t.Setenv("ORBIT_TRIGGERS_ENCRYPTION_KEY", "")
+	t.Setenv("KORA_TRIGGERS_ENCRYPTION_KEY", "")
 	key, err := LoadCipherKey()
 	if !errors.Is(err, ErrCipherKey) {
 		t.Fatalf("expected ErrCipherKey when env unset, got err=%v", err)
@@ -103,7 +103,7 @@ func TestLoadCipherKey_FromEnv(t *testing.T) {
 	for i := range raw {
 		raw[i] = byte(i)
 	}
-	t.Setenv("ORBIT_TRIGGERS_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(raw))
+	t.Setenv("KORA_TRIGGERS_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(raw))
 	key, err := LoadCipherKey()
 	if err != nil {
 		t.Fatalf("unexpected error for valid env key: %v", err)
@@ -122,7 +122,7 @@ func TestLoadCipherKey_SetButInvalidIsFatal(t *testing.T) {
 	}
 	for name, val := range cases {
 		t.Run(name, func(t *testing.T) {
-			t.Setenv("ORBIT_TRIGGERS_ENCRYPTION_KEY", val)
+			t.Setenv("KORA_TRIGGERS_ENCRYPTION_KEY", val)
 			key, err := LoadCipherKey()
 			if !errors.Is(err, ErrCipherKey) {
 				t.Fatalf("expected ErrCipherKey for a set-but-invalid key, got err=%v", err)

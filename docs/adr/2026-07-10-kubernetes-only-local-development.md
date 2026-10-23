@@ -93,7 +93,7 @@ Postgres, Redis and Dex stay in Docker Compose. They are dependencies of the clu
 
 `.env` currently holds three kinds of value, and the first kind dies with this decision.
 
-**Host-process config.** `ORBIT_API_URL`, `INFERENCE_GATEWAY_URL`, `POLICY_GATEWAY_URL`, `POLICY_SERVICE_URL`, `TOOL_GATEWAY_URL`, `ORBIT_AGENTS_URL`, `APP_ENV`, `DB_HOST`, `REDIS_HOST`, `ORBIT_ACCESS_TOKEN_TTL_MINUTES`, `ORBIT_TENANTS_CONFIG`, `ORBIT_TOKEN_JWKS_URL`, `ORBIT_TOKEN_SIGNING_KEY_FILE`, `VERTEX_ANTHROPIC_LOCATION`. These are read by a backend or frontend process running on the host. In the cluster the same settings come from chart values (`deploy/local/orbit-values.yaml` is what sets the local 4h token TTL, not `.env`). They are removed.
+**Host-process config.** `KORA_API_URL`, `INFERENCE_GATEWAY_URL`, `POLICY_GATEWAY_URL`, `POLICY_SERVICE_URL`, `TOOL_GATEWAY_URL`, `KORA_AGENTS_URL`, `APP_ENV`, `DB_HOST`, `REDIS_HOST`, `ORBIT_ACCESS_TOKEN_TTL_MINUTES`, `ORBIT_TENANTS_CONFIG`, `ORBIT_TOKEN_JWKS_URL`, `KORA_TOKEN_SIGNING_KEY_FILE`, `VERTEX_ANTHROPIC_LOCATION`. These are read by a backend or frontend process running on the host. In the cluster the same settings come from chart values (`deploy/local/orbit-values.yaml` is what sets the local 4h token TTL, not `.env`). They are removed.
 
 `NEXT_PUBLIC_OIDC_REDIRECT_URI` has no consumer anywhere in the tree. It is removed.
 

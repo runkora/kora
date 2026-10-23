@@ -61,7 +61,7 @@ spec:
           env:
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
-            {{- include "kora.platformEnv" (dict "root" $ "name" "identity" "keys" (list "DB_PASSWORD" "REDIS_PASSWORD" "ORBIT_TOKEN_SIGNING_KEY")) | nindent 12 }}
+            {{- include "kora.platformEnv" (dict "root" $ "name" "identity" "keys" (list "DB_PASSWORD" "REDIS_PASSWORD" "KORA_TOKEN_SIGNING_KEY")) | nindent 12 }}
           ports:
             - name: http
               containerPort: 8080
@@ -94,12 +94,12 @@ spec:
             {{- include "kora.configVolumeMount" . | nindent 12 }}
             {{- include "kora.redisCAVolumeMount" . | nindent 12 }}
             - name: tenants-config
-              mountPath: /etc/orbit
+              mountPath: /etc/kora
               readOnly: true
             - name: tenant-client-secrets
-              mountPath: /etc/orbit/tenant-secrets
+              mountPath: /etc/kora/tenant-secrets
               readOnly: true
             - name: oauth-clients
-              mountPath: /etc/orbit/oauth-clients
+              mountPath: /etc/kora/oauth-clients
               readOnly: true
             {{- include "kora.extraVolumeMounts" (dict "root" $ "name" "identity") | nindent 12 }}

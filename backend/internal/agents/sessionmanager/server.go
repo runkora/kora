@@ -465,7 +465,7 @@ func (c *Controller) prepareRun(w http.ResponseWriter, r *http.Request, req Crea
 //
 // WORKSPACE is where kora-shell reads the sandbox descriptor. The URL and run
 // ID let it call back here, which it needs to replace a sandbox whose pod has
-// gone. ORBIT_RUN_TOKEN is how that call proves which run it is: loopback only
+// gone. KORA_RUN_TOKEN is how that call proves which run it is: loopback only
 // proves the caller is in this pod, which every run here satisfies.
 // kora-shell is a child of the agent and inherits this environment.
 //
@@ -475,9 +475,9 @@ func (c *Controller) runEnv(runID, runToken string) []string {
 	workspace := filepath.Join(c.cfg.WorkspacesBasePath, runID)
 	env := []string{
 		"WORKSPACE=" + workspace,
-		fmt.Sprintf("ORBIT_SESSION_MANAGER_URL=http://localhost:%d", c.cfg.SelfPort),
-		"ORBIT_RUN_ID=" + runID,
-		"ORBIT_RUN_TOKEN=" + runToken,
+		fmt.Sprintf("KORA_SESSION_MANAGER_URL=http://localhost:%d", c.cfg.SelfPort),
+		"KORA_RUN_ID=" + runID,
+		"KORA_RUN_TOKEN=" + runToken,
 	}
 	if c.cfg.NodeMaxOldSpaceMB > 0 {
 		env = append(env, fmt.Sprintf("NODE_OPTIONS=--max-old-space-size=%d", c.cfg.NodeMaxOldSpaceMB))

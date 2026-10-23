@@ -4,9 +4,9 @@ The product name for every string a client's people or agents read: guardrail me
 
 ## Configuration
 
-The package loads the `internal/platform/brand` config module: `config/base.yaml` (default `productName: kora`), the `{APP_ENV}.yaml` overlay if one exists, and the file the chart renders at `/etc/orbit/config/internal/platform/brand.yaml`, decoded strictly. The chart extracts the name from the theme document, so the backend and the frontend render the same name.
+The package loads the `internal/platform/brand` config module: `config/base.yaml` (default `productName: kora`), the `{APP_ENV}.yaml` overlay if one exists, and the file the chart renders at `/etc/kora/config/internal/platform/brand.yaml`, decoded strictly. The chart extracts the name from the theme document, so the backend and the frontend render the same name.
 
-Session-manager pods are created by kora-agents, not rendered by the chart, so they carry no rendered file. kora-agents sets `ORBIT_PRODUCT_NAME` on each pod it builds, and `Load` reads it when set. That read lives in this package only.
+Session-manager pods are created by kora-agents, not rendered by the chart, so they carry no rendered file. kora-agents sets `KORA_PRODUCT_NAME` on each pod it builds, and `Load` reads it when set. That read lives in this package only.
 
 `Load` rejects an empty name and a name with control characters. Every other bound on the name is the theme contract's and is checked by the frontend's init container, not here.
 

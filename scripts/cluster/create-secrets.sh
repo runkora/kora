@@ -18,8 +18,8 @@
 #   DB_PASSWORD              Postgres password
 #   REDIS_PASSWORD           Redis password           (orbit-system only)
 #   BFF_SESSION_SECRET       Frontend session secret  (orbit-system only, min 32 chars)
-#   ORBIT_TRIGGERS_ENCRYPTION_KEY  At-rest key for webhook signing secrets (base64, 32 bytes)
-#   ORBIT_OIDC_CLIENT_SECRET Dex client secret        (optional — public client)
+#   KORA_TRIGGERS_ENCRYPTION_KEY  At-rest key for webhook signing secrets (base64, 32 bytes)
+#   KORA_OIDC_CLIENT_SECRET Dex client secret        (optional — public client)
 #
 # Required files:
 #   secrets/signing.key      RSA private key for JWT signing (orbit-system only)
@@ -90,30 +90,30 @@ if should_run "orbit-system"; then
   # predates this key does not stop mid-`make up`. It cannot come from `make
   # env`: the Makefile parses .env once at startup, so a key appended during the
   # same run is invisible to this script's environment.
-  if [[ -z "${ORBIT_TRIGGERS_ENCRYPTION_KEY:-}" ]]; then
+  if [[ -z "${KORA_TRIGGERS_ENCRYPTION_KEY:-}" ]]; then
     ENV_FILE="${REPO_ROOT}/.env"
-    if [[ -f "$ENV_FILE" ]] && grep -q '^ORBIT_TRIGGERS_ENCRYPTION_KEY=' "$ENV_FILE"; then
-      ORBIT_TRIGGERS_ENCRYPTION_KEY=$(grep '^ORBIT_TRIGGERS_ENCRYPTION_KEY=' "$ENV_FILE" | cut -d= -f2-)
+    if [[ -f "$ENV_FILE" ]] && grep -q '^KORA_TRIGGERS_ENCRYPTION_KEY=' "$ENV_FILE"; then
+      KORA_TRIGGERS_ENCRYPTION_KEY=$(grep '^KORA_TRIGGERS_ENCRYPTION_KEY=' "$ENV_FILE" | cut -d= -f2-)
     else
-      ORBIT_TRIGGERS_ENCRYPTION_KEY=$(openssl rand -base64 32)
+      KORA_TRIGGERS_ENCRYPTION_KEY=$(openssl rand -base64 32)
       {
         printf '\n%s\n' "# At-rest key for webhook signing secrets, generated on first use."
-        printf '%s\n' "ORBIT_TRIGGERS_ENCRYPTION_KEY=${ORBIT_TRIGGERS_ENCRYPTION_KEY}"
+        printf '%s\n' "KORA_TRIGGERS_ENCRYPTION_KEY=${KORA_TRIGGERS_ENCRYPTION_KEY}"
       } >> "$ENV_FILE"
-      warn "generated ORBIT_TRIGGERS_ENCRYPTION_KEY into .env"
+      warn "generated KORA_TRIGGERS_ENCRYPTION_KEY into .env"
       warn "webhook sources created before this used a built-in dev key and can no longer be decrypted; rotate their secrets"
     fi
-    export ORBIT_TRIGGERS_ENCRYPTION_KEY
+    export KORA_TRIGGERS_ENCRYPTION_KEY
   fi
-  [[ $(printf %s "${ORBIT_TRIGGERS_ENCRYPTION_KEY}" | base64 -d 2>/dev/null | wc -c) -eq 32 ]] \
-    || fail "ORBIT_TRIGGERS_ENCRYPTION_KEY must be base64 of exactly 32 bytes (openssl rand -base64 32)"
+  [[ $(printf %s "${KORA_TRIGGERS_ENCRYPTION_KEY}" | base64 -d 2>/dev/null | wc -c) -eq 32 ]] \
+    || fail "KORA_TRIGGERS_ENCRYPTION_KEY must be base64 of exactly 32 bytes (openssl rand -base64 32)"
 fi
 
 ok "Prerequisites satisfied"
 
 # ── orbit-system (identity service) ──────────────────────────────────────────
 # Needs: Postgres, Redis, RSA signing key.
-# ORBIT_OIDC_CLIENT_SECRET is optional — Dex is configured as a public client
+# KORA_OIDC_CLIENT_SECRET is optional — Dex is configured as a public client
 # for Device Grant so no secret is required. Include it only when set.
 if should_run "orbit-system"; then
   step "Creating secrets for orbit-system"
@@ -121,14 +121,14 @@ if should_run "orbit-system"; then
   IDENTITY_SECRET_ARGS=(
     --from-literal=DB_PASSWORD="${DB_PASSWORD}"
     --from-literal=REDIS_PASSWORD="${REDIS_PASSWORD}"
-    --from-file=ORBIT_TOKEN_SIGNING_KEY="${SECRETS_DIR}/signing.key"
-    --from-literal=ORBIT_TRIGGERS_ENCRYPTION_KEY="${ORBIT_TRIGGERS_ENCRYPTION_KEY}"
+    --from-file=KORA_TOKEN_SIGNING_KEY="${SECRETS_DIR}/signing.key"
+    --from-literal=KORA_TRIGGERS_ENCRYPTION_KEY="${KORA_TRIGGERS_ENCRYPTION_KEY}"
   )
-  if [[ -n "${ORBIT_OIDC_CLIENT_SECRET:-}" ]]; then
-    IDENTITY_SECRET_ARGS+=(--from-literal=ORBIT_OIDC_CLIENT_SECRET="${ORBIT_OIDC_CLIENT_SECRET}")
-    ok "ORBIT_OIDC_CLIENT_SECRET included (confidential client)"
+  if [[ -n "${KORA_OIDC_CLIENT_SECRET:-}" ]]; then
+    IDENTITY_SECRET_ARGS+=(--from-literal=KORA_OIDC_CLIENT_SECRET="${KORA_OIDC_CLIENT_SECRET}")
+    ok "KORA_OIDC_CLIENT_SECRET included (confidential client)"
   else
-    warn "ORBIT_OIDC_CLIENT_SECRET is empty — skipping (public client mode)"
+    warn "KORA_OIDC_CLIENT_SECRET is empty — skipping (public client mode)"
   fi
 
   create_secret "orbit-system" "${IDENTITY_SECRET_ARGS[@]}"

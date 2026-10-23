@@ -88,7 +88,7 @@ export function DashboardHeader() {
 
       <Stack direction="horizontal" align="center" gap="snug">
         <Badge variant="outline" size="sm">
-          {process.env.NEXT_PUBLIC_ORBIT_VERSION ?? 'dev'}
+          {process.env.NEXT_PUBLIC_KORA_VERSION ?? 'dev'}
         </Badge>
         <ThemeToggle />
       </Stack>

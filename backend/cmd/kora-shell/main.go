@@ -7,7 +7,7 @@ package main
 // CLAUDE_CODE_SHELL, which it only honors when the path's basename is a known shell
 // (bash/zsh/fish) — any other basename (e.g. "kora-shell") is silently rejected and
 // Claude falls back to /bin/bash. So the deploy image exposes this binary under a
-// "bash" basename symlink (/opt/orbit/shell/bash) and sets CLAUDE_CODE_SHELL to it.
+// "bash" basename symlink (/opt/kora/shell/bash) and sets CLAUDE_CODE_SHELL to it.
 // This was validated empirically against the real claude binary.
 //
 // It checks $WORKSPACE/.sandbox-exec/endpoint on every invocation:
@@ -198,15 +198,15 @@ func execOne(sb sandbox, command string) (exitCode int, err error) {
 // fetchSandbox asks the session-manager for this run's sandbox. The bool reports
 // whether the run has one at all, which is false for a run that never asked.
 //
-// A missing ORBIT_SESSION_MANAGER_URL or ORBIT_RUN_ID is an error, not an
+// A missing KORA_SESSION_MANAGER_URL or KORA_RUN_ID is an error, not an
 // absent sandbox. Read as the latter it routes the agent's command to a local
 // shell in this container, for an environment bug rather than anything the run
 // asked for. reprovisionSandbox treats the same condition as fatal.
 func fetchSandbox() (sandbox, bool, error) {
-	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
-	runID := os.Getenv("ORBIT_RUN_ID")
+	smURL := os.Getenv("KORA_SESSION_MANAGER_URL")
+	runID := os.Getenv("KORA_RUN_ID")
 	if smURL == "" || runID == "" {
-		return sandbox{}, false, fmt.Errorf("missing ORBIT_SESSION_MANAGER_URL/ORBIT_RUN_ID")
+		return sandbox{}, false, fmt.Errorf("missing KORA_SESSION_MANAGER_URL/KORA_RUN_ID")
 	}
 
 	url := fmt.Sprintf("%s/internal/session/%s/sandbox", smURL, runID)
@@ -216,7 +216,7 @@ func fetchSandbox() (sandbox, bool, error) {
 	if err != nil {
 		return sandbox{}, false, fmt.Errorf("build sandbox request: %w", err)
 	}
-	req.Header.Set(runTokenHeader, os.Getenv("ORBIT_RUN_TOKEN"))
+	req.Header.Set(runTokenHeader, os.Getenv("KORA_RUN_TOKEN"))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return sandbox{}, false, fmt.Errorf("get sandbox: %w", err)
@@ -247,10 +247,10 @@ func fetchSandbox() (sandbox, bool, error) {
 // existing endpoint and replaces a dead sandbox, then rewrites
 // $WORKSPACE/.sandbox-exec/endpoint, which we re-read here.
 func reprovisionSandbox() (sandbox, error) {
-	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
-	runID := os.Getenv("ORBIT_RUN_ID")
+	smURL := os.Getenv("KORA_SESSION_MANAGER_URL")
+	runID := os.Getenv("KORA_RUN_ID")
 	if smURL == "" || runID == "" {
-		return sandbox{}, fmt.Errorf("missing ORBIT_SESSION_MANAGER_URL/ORBIT_RUN_ID")
+		return sandbox{}, fmt.Errorf("missing KORA_SESSION_MANAGER_URL/KORA_RUN_ID")
 	}
 
 	url := fmt.Sprintf("%s/internal/session/%s/provision-sandbox", smURL, runID)
@@ -261,7 +261,7 @@ func reprovisionSandbox() (sandbox, error) {
 		return sandbox{}, fmt.Errorf("build provision request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(runTokenHeader, os.Getenv("ORBIT_RUN_TOKEN"))
+	req.Header.Set(runTokenHeader, os.Getenv("KORA_RUN_TOKEN"))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return sandbox{}, fmt.Errorf("post provision-sandbox: %w", err)

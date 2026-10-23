@@ -139,7 +139,7 @@ Infrastructure shared by all features. Platform packages **never import feature 
 | Package | Purpose |
 |---------|---------|
 | `api` | HTTP `Mux`, `Controller` interface, `DecodeJSON`/`JSON`/`ErrorResponse` helpers, typed `APIError` |
-| `brand` | The product name (`productName`, default `kora`) every speaking service reads for the text people or agents see; chart-rendered, `ORBIT_PRODUCT_NAME` on session pods |
+| `brand` | The product name (`productName`, default `kora`) every speaking service reads for the text people or agents see; chart-rendered, `KORA_PRODUCT_NAME` on session pods |
 | `clients` | Typed service-to-service HTTP clients; `httpclient.Base` owns OTel spans + W3C trace propagation + structured logging |
 | `config` | Generic YAML loaders: `Load[T]` / `MustLoad[T]` and the service variants `LoadService[T]` / `MustLoadService[T]`, keyed by `APP_ENV`, with the chart-rendered file merged last |
 | `logging` | `Logger` interface + implementation; injected via constructors, never global |
@@ -238,7 +238,7 @@ All outbound HTTP to other kora services goes through a typed client in `interna
 
 ### 6. Configuration via `config.LoadService[T]` + `base.yaml`
 
-Each binary has a typed config struct loaded at startup from `backend/cmd/{binary}/config/base.yaml`, an optional `{APP_ENV}.yaml` overlay (`APP_ENV` defaults to `production`) and the file the chart renders at `/etc/orbit/config/cmd/{binary}.yaml`:
+Each binary has a typed config struct loaded at startup from `backend/cmd/{binary}/config/base.yaml`, an optional `{APP_ENV}.yaml` overlay (`APP_ENV` defaults to `production`) and the file the chart renders at `/etc/kora/config/cmd/{binary}.yaml`:
 
 ```go
 // Per-service config loader (most binaries)

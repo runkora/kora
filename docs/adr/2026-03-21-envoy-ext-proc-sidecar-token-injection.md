@@ -230,7 +230,7 @@ identity-proxy binary
 │     Ensures token is always bound to the current SVID before it is injected.
 │
 └── ext_proc gRPC server
-      Listens on Unix domain socket (e.g. /run/orbit/identity-proxy.sock).
+      Listens on Unix domain socket (e.g. /run/kora/identity-proxy.sock).
       Implements envoy.service.ext_proc.v3.ExternalProcessor.
       On ProcessingRequest (request_headers phase):
         1. Acquire RLock on TokenCache.
@@ -257,8 +257,8 @@ identity-proxy binary
 5. Waits for Envoy to be xDS-ready by polling localhost:15021/healthz/ready.
    This ensures iptables intercept is active before any outbound call is made.
 6. Performs initial exchange:
-   POST {ORBIT_IDENTITY_SERVICE_URL}/api/v1/identity/exchange
-   where ORBIT_IDENTITY_SERVICE_URL is the scheme+host only, e.g.
+   POST {KORA_IDENTITY_SERVICE_URL}/api/v1/identity/exchange
+   where KORA_IDENTITY_SERVICE_URL is the scheme+host only, e.g.
    "http://orbit-identity.orbit-system.svc.cluster.local".
    The "/api/v1/identity/exchange" suffix is appended by Exchange() —
    do NOT include it in the env var.
@@ -303,7 +303,7 @@ containers:
   - name: identity-proxy
     image: orbit/identity-proxy:<version>
     env:
-      - name: ORBIT_IDENTITY_SERVICE_URL
+      - name: KORA_IDENTITY_SERVICE_URL
         value: http://orbit-identity.orbit-system.svc.cluster.local
       - name: SPIFFE_ENDPOINT_SOCKET
         value: unix:///run/secrets/workload-spiffe-uds/socket
@@ -312,10 +312,10 @@ containers:
         mountPath: /run/secrets/workload-spiffe-uds
         readOnly: true
       - name: identity-proxy-socket
-        mountPath: /run/orbit
+        mountPath: /run/kora
 ```
 
-Envoy is configured (via Istio `EnvoyFilter` CRD) with an `ext_proc` filter on its outbound HTTP listener pointing at `/run/orbit/identity-proxy.sock`. The filter is applied to all outbound requests from the pod.
+Envoy is configured (via Istio `EnvoyFilter` CRD) with an `ext_proc` filter on its outbound HTTP listener pointing at `/run/kora/identity-proxy.sock`. The filter is applied to all outbound requests from the pod.
 
 Future: sidecar injection can be automated via a Kubernetes `MutatingAdmissionWebhook` that injects the identity-proxy container and the Envoy filter config into pods carrying a well-known label (e.g. `orbit.io/identity-proxy: enabled`).
 
@@ -341,7 +341,7 @@ Future: sidecar injection can be automated via a Kubernetes `MutatingAdmissionWe
 ### Neutral
 
 - The SPIRE CSI driver (node-level DaemonSet) continues to serve its existing role unchanged — mounting the Workload API socket into pods. identity-proxy adds a second independent Workload API consumer alongside `istio-proxy` — this is additive, not a change to the existing node infrastructure
-- The `ORBIT_IDENTITY_SERVICE_URL` environment variable becomes a platform convention for all agent pod specs — injected by the reference pod template or mutating webhook
+- The `KORA_IDENTITY_SERVICE_URL` environment variable becomes a platform convention for all agent pod specs — injected by the reference pod template or mutating webhook
 
 ---
 
@@ -432,11 +432,11 @@ spec:
                   - endpoint:
                       address:
                         pipe:
-                          path: /run/orbit/identity-proxy.sock
+                          path: /run/kora/identity-proxy.sock
           http2_protocol_options: {}
 ```
 
-The filter references `cluster_name: identity_proxy_local`. The second `configPatches` entry above defines that cluster as a static STATIC cluster resolving to the Unix domain socket at `/run/orbit/identity-proxy.sock`. Both patches must be deployed together — the filter patch alone is not deployable.
+The filter references `cluster_name: identity_proxy_local`. The second `configPatches` entry above defines that cluster as a static STATIC cluster resolving to the Unix domain socket at `/run/kora/identity-proxy.sock`. Both patches must be deployed together — the filter patch alone is not deployable.
 
 #### Fail-open posture (`failure_mode_allow: true`)
 
@@ -468,7 +468,7 @@ securityContext:
     drop: [ALL]
 ```
 
-`readOnlyRootFilesystem: true` is safe because identity-proxy writes nothing to the container filesystem at runtime. The Unix domain socket at `/run/orbit/identity-proxy.sock` and the SPIRE Workload API socket at `/run/secrets/workload-spiffe-uds/socket` are both `emptyDir` or CSI volume mounts — writable at the volume level regardless of the container root filesystem restriction.
+`readOnlyRootFilesystem: true` is safe because identity-proxy writes nothing to the container filesystem at runtime. The Unix domain socket at `/run/kora/identity-proxy.sock` and the SPIRE Workload API socket at `/run/secrets/workload-spiffe-uds/socket` are both `emptyDir` or CSI volume mounts — writable at the volume level regardless of the container root filesystem restriction.
 
 The health endpoint port in the sidecar template is named `health` (not `metrics`). No Prometheus `/metrics` scrape endpoint is exposed in this revision. The port name reflects what the endpoint actually serves. Metrics instrumentation is deferred to a follow-on iteration.
 

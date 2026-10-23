@@ -101,12 +101,12 @@ help: ## Display this help screen
 env: ## Generate .env with machine-local secrets (existing .env keeps its values; missing keys are appended)
 	@if [ -f .env ]; then \
 		echo "$(COLOR_YELLOW).env already exists, leaving its values alone$(COLOR_RESET)"; \
-		if ! grep -q '^ORBIT_TRIGGERS_ENCRYPTION_KEY=' .env; then \
+		if ! grep -q '^KORA_TRIGGERS_ENCRYPTION_KEY=' .env; then \
 			printf '\n%s\n%s\n%s\n' \
 				"# At-rest key for webhook signing secrets. kora-triggers refuses to" \
 				"# start without it; there is no in-code fallback." \
-				"ORBIT_TRIGGERS_ENCRYPTION_KEY=$$(openssl rand -base64 32)" >> .env; \
-			echo "$(COLOR_GREEN)✓ appended a generated ORBIT_TRIGGERS_ENCRYPTION_KEY$(COLOR_RESET)"; \
+				"KORA_TRIGGERS_ENCRYPTION_KEY=$$(openssl rand -base64 32)" >> .env; \
+			echo "$(COLOR_GREEN)✓ appended a generated KORA_TRIGGERS_ENCRYPTION_KEY$(COLOR_RESET)"; \
 			echo "$(COLOR_YELLOW)  Webhook sources created before this used the old built-in dev key and can no longer be decrypted; rotate their secrets.$(COLOR_RESET)"; \
 		fi; \
 	else \
@@ -125,7 +125,7 @@ env: ## Generate .env with machine-local secrets (existing .env keeps its values
 			"" \
 			"# At-rest key for webhook signing secrets. kora-triggers refuses to" \
 			"# start without it; there is no in-code fallback." \
-			"ORBIT_TRIGGERS_ENCRYPTION_KEY=$$(openssl rand -base64 32)" \
+			"KORA_TRIGGERS_ENCRYPTION_KEY=$$(openssl rand -base64 32)" \
 			> .env; \
 		echo "$(COLOR_GREEN)✓ .env generated with machine-local secrets$(COLOR_RESET)"; \
 	fi
@@ -471,7 +471,7 @@ reset: dev-cluster-down up ## Recreate the cluster from scratch. Keeps Postgres 
 auth: auth-device-k3d ## Authenticate against the cluster (Device Authorization Grant)
 
 .PHONY: auth-refresh
-auth-refresh: auth-refresh-k3d ## Refresh the access token in /tmp/orbit_credentials.json
+auth-refresh: auth-refresh-k3d ## Refresh the access token in /tmp/kora_credentials.json
 
 .PHONY: dev-cluster
 dev-cluster: dev-up ## Bring up the local k3d cluster. Starts postgres + Redis + Dex first, then creates the k3d cluster. Run 'make cluster-platform' next.
@@ -544,13 +544,13 @@ docker-pull-third-party: ## Pull third-party sidecar images and push to local re
 # and cluster-update — anything that needs the local registry seeded but does
 # its own restart logic later. Serial by default (parallel builds overload
 # low-spec Docker VMs and cascade into mesh/Postgres failures). On machines
-# with the headroom, set ORBIT_PARALLEL_BUILDS=1 in .env to switch to a single
+# with the headroom, set KORA_PARALLEL_BUILDS=1 in .env to switch to a single
 # parallel `docker buildx bake` graph — see the local development guide and
 # docs/adr/2026-07-21-ci-pipeline-and-local-build-parallelisation.md.
 # One prune at the end instead of per-service so cache pruning happens once.
 .PHONY: redeploy-platform
-redeploy-platform: ## Build + push every platform service to the local registry (no rollout). ORBIT_PARALLEL_BUILDS=1 builds them in parallel.
-ifeq ($(ORBIT_PARALLEL_BUILDS),1)
+redeploy-platform: ## Build + push every platform service to the local registry (no rollout). KORA_PARALLEL_BUILDS=1 builds them in parallel.
+ifeq ($(KORA_PARALLEL_BUILDS),1)
 	@$(MAKE) --no-print-directory redeploy-platform-bake
 else
 	@for svc in $(REDEPLOY_PLATFORM_SERVICES); do \
@@ -598,7 +598,7 @@ redeploy-tenant-missing: ## Build + push only the tenant images absent from the 
 redeploy-warm: redeploy-platform redeploy-tenant ## Pre-build every service to warm BuildKit caches (no rollout) — run once at start of session for fast subsequent redeploys
 	@echo "$(COLOR_GREEN)✓ All caches warm — single-service redeploys should now be fast$(COLOR_RESET)"
 
-# redeploy-platform-bake — the ORBIT_PARALLEL_BUILDS=1 path behind
+# redeploy-platform-bake — the KORA_PARALLEL_BUILDS=1 path behind
 # redeploy-platform. One `docker buildx bake` invocation over the whole
 # local-platform group: BuildKit builds every image concurrently and dedups the
 # shared mod-download + COPY layers across the graph, which the serial
@@ -616,7 +616,7 @@ BAKE_PLATFORM_IMAGES := \
 	kora-operator kora-session-manager kora-sandbox-mount kora-sandbox-base
 
 .PHONY: redeploy-platform-bake
-redeploy-platform-bake: ## Build + push every platform service in one parallel docker buildx bake graph (the ORBIT_PARALLEL_BUILDS=1 path)
+redeploy-platform-bake: ## Build + push every platform service in one parallel docker buildx bake graph (the KORA_PARALLEL_BUILDS=1 path)
 	@GIT_SHA="$$(git rev-parse --short HEAD 2>/dev/null || echo dev)"; \
 	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then GIT_SHA="$${GIT_SHA}-dirty"; fi; \
 	echo "$(COLOR_YELLOW)Baking platform images in parallel (GIT_SHA=$$GIT_SHA)...$(COLOR_RESET)"; \
@@ -698,10 +698,10 @@ cluster-restore: ## Re-push locally-built images to the registry after a Colima/
 
 .PHONY: cluster-platform
 cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install SPIRE, Istio and kora from deploy/reference/helmfile.yaml.gotmpl
-	@EXPECTED="$${ORBIT_KUBE_CONTEXT:-k3d-orbit-local}"; \
+	@EXPECTED="$${KORA_KUBE_CONTEXT:-k3d-orbit-local}"; \
 	 CURRENT="$$(kubectl config current-context 2>/dev/null || echo '<none>')"; \
 	 if [ "$$CURRENT" != "$$EXPECTED" ]; then \
-	   echo "$(COLOR_RED)✗ kube context is '$$CURRENT', expected '$$EXPECTED'. Switch context or set ORBIT_KUBE_CONTEXT.$(COLOR_RESET)"; exit 1; \
+	   echo "$(COLOR_RED)✗ kube context is '$$CURRENT', expected '$$EXPECTED'. Switch context or set KORA_KUBE_CONTEXT.$(COLOR_RESET)"; exit 1; \
 	 fi
 	@echo "$(COLOR_YELLOW)Preparing the orbit-system namespace...$(COLOR_RESET)"
 	@kubectl create namespace orbit-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -932,7 +932,7 @@ build-backend: proto-gen ## Build every cmd/ binary to .bin (runs proto-gen firs
 .PHONY: test-integration
 test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d cluster (dev-cluster + cluster-platform + cluster-deploy + auth-device-k3d). Not run by CI or `make check`.
 	@echo "$(COLOR_YELLOW)Running integration tests...$(COLOR_RESET)"
-	@kubectl port-forward svc/orbit-policy-service -n orbit-system 8083:80 >/tmp/orbit-pf-policy.log 2>&1 & \
+	@kubectl port-forward svc/orbit-policy-service -n orbit-system 8083:80 >/tmp/kora-pf-policy.log 2>&1 & \
 		PF_PID=$$!; \
 		sleep 2; \
 		cd $(BACKEND_DIR) && $(GOTEST) -v -race -timeout=5m -tags=integration ./...; \
@@ -945,7 +945,7 @@ test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d
 test-postgres: ## Postgres-backed repository tests against the local Postgres. Needs the compose Postgres up. Not run by CI or `make check`.
 	@$(MIGRATE) up
 	@echo "$(COLOR_YELLOW)Running Postgres-backed repository tests...$(COLOR_RESET)"
-	@cd $(BACKEND_DIR) && ORBIT_TEST_DB_URL="$(DB_URL)" $(GOTEST) -race -timeout=5m ./... -run Postgres
+	@cd $(BACKEND_DIR) && KORA_TEST_DB_URL="$(DB_URL)" $(GOTEST) -race -timeout=5m ./... -run Postgres
 
 .PHONY: test
 test: ## Run unit tests with coverage (no cluster required)
@@ -1225,25 +1225,25 @@ clean-all: clean ## DESTRUCTIVE: clean build artifacts and delete the Postgres a
 auth-device-k3d: ## Authenticate via Device Authorization Grant (k3d cluster via port-forward)
 	@chmod +x scripts/auth-device.sh
 	@echo "$(COLOR_CYAN)→ Starting port-forward orbit-identity → localhost:6069$(COLOR_RESET)"
-	@kubectl port-forward svc/orbit-identity -n orbit-system 6069:80 >/tmp/orbit-pf.log 2>&1 & \
+	@kubectl port-forward svc/orbit-identity -n orbit-system 6069:80 >/tmp/kora-pf.log 2>&1 & \
 		PF_PID=$$!; \
 		sleep 2; \
 		./scripts/auth-device.sh \
 			--api-base "http://localhost:6069/api/v1" \
-			--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),example)}"; \
+			--tenant-id "$${KORA_TENANT_ID:-$(or $(tenant),example)}"; \
 		STATUS=$$?; \
 		kill $$PF_PID 2>/dev/null || true; \
 		exit $$STATUS
 
 .PHONY: auth-refresh-k3d
-auth-refresh-k3d: ## Refresh the access token in /tmp/orbit_credentials.json (k3d cluster via port-forward)
+auth-refresh-k3d: ## Refresh the access token in /tmp/kora_credentials.json (k3d cluster via port-forward)
 	@chmod +x scripts/auth-refresh.sh
 	@echo "$(COLOR_CYAN)→ Starting port-forward orbit-identity → localhost:6069$(COLOR_RESET)"
-	@kubectl port-forward svc/orbit-identity -n orbit-system 6069:80 >/tmp/orbit-pf.log 2>&1 & \
+	@kubectl port-forward svc/orbit-identity -n orbit-system 6069:80 >/tmp/kora-pf.log 2>&1 & \
 		PF_PID=$$!; \
 		./scripts/auth-refresh.sh \
 			--api-base "http://localhost:6069/api/v1" \
-			--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),example)}"; \
+			--tenant-id "$${KORA_TENANT_ID:-$(or $(tenant),example)}"; \
 		STATUS=$$?; \
 		kill $$PF_PID 2>/dev/null || true; \
 		exit $$STATUS
@@ -1288,7 +1288,7 @@ gen-signing-key: ## Write a 4096-bit RSA signing key to secrets/signing.key
 	@echo ""
 	@echo "Make sure your .env contains:"
 	@echo ""
-	@echo "  ORBIT_TOKEN_SIGNING_KEY_FILE=secrets/signing.key"
+	@echo "  KORA_TOKEN_SIGNING_KEY_FILE=secrets/signing.key"
 	@echo ""
 
 # ===========================================

@@ -117,7 +117,7 @@ func TestChartRenderedConfigDecodes(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			config.SetOverlayRoot("/etc/orbit/config")
+			config.SetOverlayRoot("/etc/kora/config")
 		})
 	}
 }

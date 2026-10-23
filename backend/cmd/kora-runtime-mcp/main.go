@@ -28,8 +28,8 @@ const provisionTimeout = 720 * time.Second
 
 func main() {
 	srv := &mcpServer{
-		sessionManagerURL: requireEnv("ORBIT_SESSION_MANAGER_URL"),
-		runID:             requireEnv("ORBIT_RUN_ID"),
+		sessionManagerURL: requireEnv("KORA_SESSION_MANAGER_URL"),
+		runID:             requireEnv("KORA_RUN_ID"),
 		httpClient:        &http.Client{Timeout: provisionTimeout},
 	}
 	if err := srv.serve(os.Stdin, os.Stdout); err != nil && !errors.Is(err, io.EOF) {
@@ -302,7 +302,7 @@ func (s *mcpServer) call(method, action string, body io.Reader) ([]byte, error) 
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Orbit-Run-Token", os.Getenv("ORBIT_RUN_TOKEN"))
+	req.Header.Set("X-Orbit-Run-Token", os.Getenv("KORA_RUN_TOKEN"))
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, err

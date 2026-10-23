@@ -22,7 +22,7 @@ func TestApplyEnvOverrides_NodeMaxOldSpaceMB(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{}
 			cfg.Runner.NodeMaxOldSpaceMB = 7
-			env := map[string]string{"ORBIT_NODE_MAX_OLD_SPACE_MB": tt.value}
+			env := map[string]string{"KORA_NODE_MAX_OLD_SPACE_MB": tt.value}
 			err := applyEnvOverrides(cfg, func(k string) string { return env[k] })
 			if tt.wantErr {
 				if err == nil {
@@ -45,16 +45,16 @@ func TestApplyEnvOverrides_GatewayURLs(t *testing.T) {
 	cfg.InferenceGateway.URL = "http://yaml-inference"
 	cfg.ToolGateway.URL = "http://yaml-tool"
 	env := map[string]string{
-		"ORBIT_INFERENCE_GATEWAY_URL": "http://orbit-inference-gateway.orbit-prod.svc.cluster.local",
-		"ORBIT_TOOL_GATEWAY_URL":      "http://orbit-tool-gateway.orbit-prod.svc.cluster.local",
+		"KORA_INFERENCE_GATEWAY_URL": "http://orbit-inference-gateway.orbit-prod.svc.cluster.local",
+		"KORA_TOOL_GATEWAY_URL":      "http://orbit-tool-gateway.orbit-prod.svc.cluster.local",
 	}
 	if err := applyEnvOverrides(cfg, func(k string) string { return env[k] }); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got, want := cfg.InferenceGateway.URL, env["ORBIT_INFERENCE_GATEWAY_URL"]; got != want {
+	if got, want := cfg.InferenceGateway.URL, env["KORA_INFERENCE_GATEWAY_URL"]; got != want {
 		t.Errorf("InferenceGateway.URL = %q, want %q", got, want)
 	}
-	if got, want := cfg.ToolGateway.URL, env["ORBIT_TOOL_GATEWAY_URL"]; got != want {
+	if got, want := cfg.ToolGateway.URL, env["KORA_TOOL_GATEWAY_URL"]; got != want {
 		t.Errorf("ToolGateway.URL = %q, want %q", got, want)
 	}
 }
@@ -68,7 +68,7 @@ func TestDrainTimeout(t *testing.T) {
 		cfg := &Config{}
 		cfg.Server.ShutdownTimeoutSecs = 30
 		if err := applyEnvOverrides(cfg, func(k string) string {
-			if k == "ORBIT_TERMINATION_GRACE_PERIOD_SECS" {
+			if k == "KORA_TERMINATION_GRACE_PERIOD_SECS" {
 				return tc.grace
 			}
 			return ""

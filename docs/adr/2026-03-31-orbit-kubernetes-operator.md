@@ -206,7 +206,7 @@ spec:
   # and projects them into orbit-system. The Secrets must exist before the
   # operator reconciles — they are not created by the operator.
   secrets:
-    # Secret containing: DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY
+    # Secret containing: DB_PASSWORD, REDIS_PASSWORD, KORA_TOKEN_SIGNING_KEY
     platformSecretRef:
       name: orbit-platform-secrets
       namespace: orbit-system       # defaults to orbit-system if omitted
@@ -642,9 +642,9 @@ Operators who manage their own SPIRE and Istio upgrades independently set `spec.
 
 [helm-chart-distribution-and-gitops-repository-structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md)'s `deploy/local/orbit-system-namespace.yaml` pre-creates the namespace without Helm ownership labels, causing `helm upgrade orbit-platform` to fail with an ownership conflict. The operator sidesteps this entirely: it creates the namespace directly via `client-go` (`CreateOrUpdate`), not via Helm's `--create-namespace` flag. The namespace is owned by the operator's reconciler, not by Helm. This eliminates the lookup guard workaround in `charts/orbit-platform/templates/namespaces.yaml`.
 
-**On the `ORBIT_OIDC_CLIENT_ID` global variable:**
+**On the `KORA_OIDC_CLIENT_ID` global variable:**
 
-[tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) noted that `OIDCConfig` global vars (`ORBIT_OIDC_CLIENT_ID`, `ORBIT_OIDC_ISSUER_URL`) must be removed in the same PR that adds multi-tenant support. With the operator, these env vars are no longer placed in the `orbit-config` ConfigMap by the operator — they are derived from `OrbitTenant` CRs and written into the `orbit-tenants` ConfigMap. The `orbit-config` ConfigMap created by the operator contains only infrastructure config (DB host, Redis host) that is not tenant-specific. This aligns with [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md)'s requirement to remove the global OIDC vars.
+[tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) noted that `OIDCConfig` global vars (`KORA_OIDC_CLIENT_ID`, `KORA_OIDC_ISSUER_URL`) must be removed in the same PR that adds multi-tenant support. With the operator, these env vars are no longer placed in the `orbit-config` ConfigMap by the operator — they are derived from `OrbitTenant` CRs and written into the `orbit-tenants` ConfigMap. The `orbit-config` ConfigMap created by the operator contains only infrastructure config (DB host, Redis host) that is not tenant-specific. This aligns with [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md)'s requirement to remove the global OIDC vars.
 
 **On ESO and secret management:**
 
