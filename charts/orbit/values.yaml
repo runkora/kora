@@ -151,6 +151,13 @@ networkPolicy:
   # Permit kube-apiserver access to the admission webhook.
   apiServerCIDRs:
     - 0.0.0.0/0
+  # CIDRs allowed as egress destinations for pods that need to reach the
+  # Kubernetes API server (orbit.io/kube-api-client=true). Default is
+  # 0.0.0.0/0 for compatibility, but should be narrowed to the ClusterIP of
+  # the kubernetes Service in the default namespace (e.g. 172.20.0.1/32 on
+  # EKS) to prevent pods from reaching arbitrary external HTTPS endpoints.
+  kubeApiServerCIDRs:
+    - 0.0.0.0/0
 
 gateway:
   # Set false to use an existing Istio Gateway (see deploy/reference/values/gateway-byo.yaml).
