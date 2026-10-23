@@ -11,6 +11,7 @@ import {
   fmtTokens,
   fmtUsd,
   isExpired,
+  plural,
 } from './format';
 
 describe('fmtNum', () => {
@@ -214,5 +215,16 @@ describe('isExpired', () => {
 
   it('returns false for a future timestamp', () => {
     expect(isExpired('2099-01-01T00:00:00.000Z')).toBe(false);
+  });
+});
+
+describe('plural', () => {
+  it('uses the singular for exactly one', () => {
+    expect(plural(1, 'scope', 'scopes')).toBe('1 scope');
+  });
+
+  it('uses the plural for zero and many', () => {
+    expect(plural(0, 'scope', 'scopes')).toBe('0 scopes');
+    expect(plural(3, 'day', 'days')).toBe('3 days');
   });
 });

@@ -6,7 +6,16 @@
  * SYSTEM caller. */
 
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, Button, Heading, Icon, SectionHeading, Stack, Text, Wizard } from '@runkora/hades';
+import {
+  Alert,
+  Button,
+  Icon,
+  SectionHeading,
+  Stack,
+  Text,
+  Wizard,
+  useWizardSteps,
+} from '@runkora/hades';
 import {
   BudgetLimitFields,
   EMPTY_BUDGET_LIMIT_VALUES,
@@ -17,7 +26,7 @@ import {
   budgetLimitsAnyOn,
 } from '@runkora/components';
 import type { BudgetLimitValues, ScopeOption } from '@runkora/components';
-import { fmtUsd } from '@runkora/utils';
+import { fmtUsd, plural } from '@runkora/utils';
 import type { PATAttributionEntry } from '../../model-gateway/_services/tokens-server';
 import { createGrantAction } from '../_actions/grants';
 import { UserPicker } from './user-picker';
@@ -44,16 +53,12 @@ const SCOPES = 1;
 const BUDGET = 2;
 const REVIEW = 3;
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
 export function CreateGrantWizard({
   availableScopes,
   scopeOptions,
   onClose,
   onCreated,
 }: CreateGrantWizardProps) {
-  const [step, setStep] = useState(USER);
-  const [maxVisited, setMaxVisited] = useState(USER);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [created, setCreated] = useState(false);
@@ -91,18 +96,13 @@ export function CreateGrantWizard({
     budgetProblem ?? undefined,
     undefined,
   ];
-  // Review stands for every step before it, so it cannot be reached with one of them invalid.
-  const hint = step === REVIEW ? (hints.find((h) => h !== undefined) ?? undefined) : hints[step];
-
-  const goTo = useCallback(
-    (target: number) => {
-      if (submitting) return;
-      setStep(target);
-      setMaxVisited((m) => Math.max(m, target));
-      setSubmitError(null);
-    },
-    [submitting],
-  );
+  const steps = useWizardSteps({
+    stepCount: STEPS.length,
+    hints,
+    locked: submitting,
+    reviewStep: REVIEW,
+    onNavigate: () => setSubmitError(null),
+  });
 
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
@@ -129,8 +129,7 @@ export function CreateGrantWizard({
   }, [userId, scopes, budget, onCreated]);
 
   const createAnother = () => {
-    setStep(USER);
-    setMaxVisited(USER);
+    steps.reset();
     setUserId('');
     setUser(null);
     setScopes([]);
@@ -140,7 +139,7 @@ export function CreateGrantWizard({
   };
 
   const body = (() => {
-    switch (step) {
+    switch (steps.step) {
       case USER:
         return (
           <SectionHeading
@@ -198,7 +197,7 @@ export function CreateGrantWizard({
               <Wizard.ReviewCard
                 icon="user"
                 title="User"
-                onEdit={() => goTo(USER)}
+                onEdit={() => steps.goTo(USER)}
                 rows={[
                   { label: 'Name', value: userName || 'Not set' },
                   ...(user?.display_name && user.email
@@ -210,7 +209,7 @@ export function CreateGrantWizard({
               <Wizard.ReviewCard
                 icon="shield-check"
                 title="Scopes"
-                onEdit={() => goTo(SCOPES)}
+                onEdit={() => steps.goTo(SCOPES)}
                 rows={[{ label: 'Selected', value: plural(scopes.length, 'scope', 'scopes') }]}
               >
                 <Stack paddingBlock="snug">
@@ -220,7 +219,7 @@ export function CreateGrantWizard({
               <Wizard.ReviewCard
                 icon="dollar-sign"
                 title="Budget"
-                onEdit={() => goTo(BUDGET)}
+                onEdit={() => steps.goTo(BUDGET)}
                 rows={budgetRows}
               />
             </Wizard.ReviewStep>
@@ -235,58 +234,42 @@ export function CreateGrantWizard({
       onClose={submitting ? () => undefined : onClose}
       icon="shield-check"
       title="Create grant"
-      hint={created ? undefined : hint}
+      hint={created ? undefined : steps.hint}
       rail={
         <Wizard.Rail
           label="Create grant"
           steps={STEPS}
-          current={step}
-          maxVisited={maxVisited}
-          onGoTo={goTo}
+          current={steps.step}
+          maxVisited={steps.maxVisited}
+          onGoTo={steps.goTo}
         />
       }
       footer={
         <Wizard.Footer
-          step={step}
+          step={steps.step}
           totalSteps={STEPS.length}
-          onBack={step > USER ? () => goTo(step - 1) : undefined}
-          onNext={() => goTo(step + 1)}
-          nextDisabled={hint !== undefined}
-          onSubmit={step === REVIEW ? () => void handleSubmit() : undefined}
+          onBack={steps.isFirst ? undefined : steps.back}
+          onNext={steps.next}
+          nextDisabled={steps.nextDisabled}
+          onSubmit={steps.isLast ? () => void handleSubmit() : undefined}
           submitLabel="Create grant"
           pending={submitting}
         />
       }
     >
       {created ? (
-        <Wizard.Step fullPage>
-          <Stack
-            grow
-            align="center"
-            justify="center"
-            gap="comfortable"
-            padding="loose"
-            overflowY="auto"
-          >
-            <Stack align="center" gap="snug">
-              <Icon
-                name="check-circle"
-                size="xl"
-                color="accent"
-                container
-                containerVariant="accent"
-                circle
-                label=""
-              />
-              <Heading variant="subsection">Grant created</Heading>
-              <Text size="supporting" color="muted" align="center">
-                <Text as="span" size="supporting" weight="heavy">
-                  {userName}
-                </Text>{' '}
-                now has {plural(scopes.length, 'scope', 'scopes')}.
-              </Text>
-            </Stack>
-            <Stack direction="horizontal" gap="cozy">
+        <Wizard.Success
+          title="Grant created"
+          description={
+            <>
+              <Text as="span" size="supporting" weight="heavy">
+                {userName}
+              </Text>{' '}
+              now has {plural(scopes.length, 'scope', 'scopes')}.
+            </>
+          }
+          actions={
+            <>
               <Button variant="secondary" onClick={onClose}>
                 Done
               </Button>
@@ -294,9 +277,9 @@ export function CreateGrantWizard({
                 Create another
                 <Icon name="plus" />
               </Button>
-            </Stack>
-          </Stack>
-        </Wizard.Step>
+            </>
+          }
+        />
       ) : (
         <Stack grow overflowY="auto" padding="loose" gap="relaxed">
           {body}
