@@ -65,7 +65,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^5",
     "vite": "^8.2.4",
-    "vitest": "^4.1.3"
+    "vitest": "^4.1.12"
   },
   "peerDependencies": {
     "@radix-ui/react-collapsible": ">=1",
