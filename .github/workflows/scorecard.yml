@@ -16,16 +16,14 @@ jobs:
     name: Scorecard analysis
     runs-on: ubuntu-latest
     permissions:
-      # Job-level permissions replace the top-level set. The checkout and the
-      # analysis need these reads. On a private repository the analysis also
-      # walks pull requests, issues, and checks.
+      # Job-level permissions replace the top-level set. Explicit reads for the
+      # checkout and the analysis.
       contents: read
       actions: read
-      issues: read
-      pull-requests: read
-      checks: read
       # Upload the SARIF result to code scanning.
       security-events: write
+      # OIDC token that signs the published result for the scorecard.dev API.
+      id-token: write
 
     steps:
       - name: Checkout code
@@ -38,8 +36,8 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          # Publishing requires a public repository. Set to true once it is.
-          publish_results: false
+          # Publishes to the scorecard.dev API, which serves the README badge.
+          publish_results: true
 
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
