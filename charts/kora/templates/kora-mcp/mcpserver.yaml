@@ -1,9 +1,9 @@
 {{- if .Values.koraMcp.register }}
-# Registers the platform kora MCP as a GLOBAL MCPServer (orbit-system). The
-# operator's MCPServerAggregator renders it into the orbit-mcp-servers registry
+# Registers the platform kora MCP as a GLOBAL MCPServer (kora-system). The
+# operator's MCPServerAggregator renders it into the kora-mcp-servers registry
 # and the tool-gateway introspects its tools into mcp:orbit:<tool>:use scopes.
 # callerIdentity: forward — the kora MCP acts AS the caller against first-party
-# kora APIs (valid only for orbit-system/global servers).
+# kora APIs (valid only for kora-system/global servers).
 apiVersion: runkora.io/v1alpha1
 kind: MCPServer
 metadata:
@@ -14,7 +14,7 @@ metadata:
 spec:
   displayName: {{ printf "%s Platform MCP" (include "kora.themeProductName" .) | quote }}
   description: "The control plane itself: manage agents, models, policy and runs through governed tools."
-  endpoint: "http://orbit-mcp.{{ include "kora.systemNamespace" . }}.svc:8095/mcp"
+  endpoint: "http://kora-mcp.{{ include "kora.systemNamespace" . }}.svc:8095/mcp"
   transport: streamable-http
   reintrospectIntervalSeconds: 900
   callerIdentity: forward

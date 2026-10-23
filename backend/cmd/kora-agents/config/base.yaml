@@ -16,8 +16,8 @@ metrics:
 
 kubernetes:
   inCluster: true
-  tenantNamespacePrefix: orbit-tenant-
-  systemNamespace: orbit-system
+  tenantNamespacePrefix: kora-tenant-
+  systemNamespace: kora-system
 
 # The chart renders the trust domain and the identity and policy service URLs.
 platform:
@@ -83,7 +83,7 @@ agents:
   # means no customization.
   workloadsFile: /etc/kora/workloads/workloads.yaml
   sessionManager:
-    # Restricts each agent pod's session-manager port to the orbit-agents
+    # Restricts each agent pod's session-manager port to the kora-agents
     # SPIFFE principal at the mesh layer. Requires SPIFFE.
     authorizationPolicyEnabled: true
     # Heap cap (MB) for Node processes a run starts on its agent pod. 0 disables it.

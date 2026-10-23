@@ -37,7 +37,7 @@ type ConnectionQualifierEntry struct {
 
 // connectionRegistryEntry is the wire shape of one element of connections.json,
 // the registry the operator's ConnectionAggregator renders into the
-// orbit-tenant-connections ConfigMap. secret_ref is intentionally ignored.
+// kora-tenant-connections ConfigMap. secret_ref is intentionally ignored.
 // base_host IS read: it is the upstream authority, not a secret, and the grant
 // compiler needs it to derive a connector's auto-egress hosts via the shared
 // adapter metadata table. Adapter config is not read here at all.

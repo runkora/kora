@@ -11,11 +11,11 @@
 
 ### Background
 
-kora ships three Helm charts (`charts/orbit-operator`, `charts/orbit-platform`, `charts/orbit`) and installs them through the operator. The [operator ADR](2026-03-31-orbit-kubernetes-operator.md) made the operator the single install entry point: an `OrbitPlatform` custom resource drives seven Helm releases (spire-crds, spire, istio-base, istiod, gateway, orbit-platform, orbit) with chart versions pinned as Go constants in `backend/internal/operator/util.go`. The operator image bakes `charts/` and `deploy/local/` in at build time (`Dockerfile.operator`), and `loadValuesFile` reads the local development values as the production fallback.
+kora ships three Helm charts (`charts/kora-operator`, `charts/orbit-platform`, `charts/orbit`) and installs them through the operator. The [operator ADR](2026-03-31-orbit-kubernetes-operator.md) made the operator the single install entry point: an `OrbitPlatform` custom resource drives seven Helm releases (spire-crds, spire, istio-base, istiod, gateway, orbit-platform, orbit) with chart versions pinned as Go constants in `backend/internal/operator/util.go`. The operator image bakes `charts/` and `deploy/local/` in at build time (`Dockerfile.operator`), and `loadValuesFile` reads the local development values as the production fallback.
 
 The operator's second job grew after that ADR: tenant namespaces, per-tenant CA minting, per-tenant OPA configuration, the sandbox egress NetworkPolicy, six aggregators (tenants, OIDC client secrets, tenant CAs, connections, OAuth clients, MCP servers) and a pod mutating webhook that stamps tenant identity and injection templates onto every tenant pod. None of that appears in the ADR, and all of it is continuous reconciliation of state that changes after install.
 
-Several documented behaviours do not exist in code. `spec.version` is echoed into status and drives nothing. `upgradeStrategy` is read by nothing. `spire.enabled: false` and `istio.enabled: false` skip the install with no validation of what is present. `deleteNamespaceOnRemoval` has no finalizer. `docs/guides/deployment.md` points at `oci://ghcr.io/runkora/charts/orbit-operator`, which has never been published.
+Several documented behaviours do not exist in code. `spec.version` is echoed into status and drives nothing. `upgradeStrategy` is read by nothing. `spire.enabled: false` and `istio.enabled: false` skip the install with no validation of what is present. `deleteNamespaceOnRemoval` has no finalizer. `docs/guides/deployment.md` points at `oci://ghcr.io/runkora/charts/kora-operator`, which has never been published.
 
 ### Problem Statement
 
@@ -138,14 +138,14 @@ Two charts.
 
 **`kora`** carries the operator, cluster-scoped identity and gateway resources, and every service. Chart version and application version are one number for one product. A chart-only fix therefore requires a full release; that cost is accepted for one version to reason about.
 
-Folding today's `orbit-operator` and `orbit-platform` templates into `kora` is a rewrite of their helpers, not a move: the operator's selector labels include the release name, its namespace comes from a value, `orbit-platform` labels lack `app.kubernetes.io/name`, and helper names collide with `orbit.*`. Objects that are recreated rather than upgraded: the operator Deployment (namespace changes), the webhook Service, the ClusterRole and ClusterRoleBinding, the webhook configurations, and the `orbit-operator` namespace is deleted.
+Folding today's `kora-operator` and `orbit-platform` templates into `kora` is a rewrite of their helpers, not a move: the operator's selector labels include the release name, its namespace comes from a value, `orbit-platform` labels lack `app.kubernetes.io/name`, and helper names collide with `orbit.*`. Objects that are recreated rather than upgraded: the operator Deployment (namespace changes), the webhook Service, the ClusterRole and ClusterRoleBinding, the webhook configurations, and the `kora-operator` namespace is deleted.
 
 No toggles on required parts. The services, the ClusterSPIFFEIDs and the operator are one system; switches on required components produce untested combinations. Switches exist only where the customer has a substitute:
 
 | Value | Default | Purpose |
 |---|---|---|
 | `networkPolicy.enabled` | `true` | CNIs that do not enforce policy |
-| `gateway.create` / `gateway.name` | `true` / `orbit-gateway` | `true`: the chart deploys kora's own Istio ingress gateway pods in the system namespace (upstream `istio/gateway` as a subchart) plus the `Gateway` resource; `false`: bind VirtualServices to a customer-owned Istio Gateway named by `gateway.name` |
+| `gateway.create` / `gateway.name` | `true` / `kora-gateway` | `true`: the chart deploys kora's own Istio ingress gateway pods in the system namespace (upstream `istio/gateway` as a subchart) plus the `Gateway` resource; `false`: bind VirtualServices to a customer-owned Istio Gateway named by `gateway.name` |
 | `gateway.ingress.enabled`, `frontend.ingress.enabled` | `false` | Kubernetes Ingress in front of the Istio gateway |
 | `agents.imageWarmer.enabled`, `agents.warmHeadroom.enabled` | `false` | existing sandbox warm-start opt-ins |
 
@@ -191,7 +191,7 @@ global:
 config:
   db:    { host: "", port: 5432, name: orbit, user: orbit }
   redis: { host: "", port: 6379 }
-  platformSecretName: orbit-secrets
+  platformSecretName: kora-secrets
 istio:
   namespace: istio-system
   revision: ""                       # empty = default revision, label istio-injection: enabled
@@ -202,11 +202,11 @@ spire:
 
 Settings shared by every service live on `global`: log format, the Postgres SSL mode and query-text capture, the OTLP insecure flag, and the image registry and tag. A component block overrides one where it must. The chart reads the `global` value directly, so these fields are no longer repeated per component.
 
-The system namespace is variable. The chart renders every namespaced object into `.Release.Namespace` and the operator and orbit-agents receive `KORA_SYSTEM_NAMESPACE`; the literals in `registry.go`, `tenant_netpol.go`, `tenant_controller.go`, `agents/k8s.go` and `cmd/kora-agents/config/base.yaml` are removed. `orbit-system` remains the default.
+The system namespace is variable. The chart renders every namespaced object into `.Release.Namespace` and the operator and kora-agents receive `KORA_SYSTEM_NAMESPACE`; the literals in `registry.go`, `tenant_netpol.go`, `tenant_controller.go`, `agents/k8s.go` and `cmd/kora-agents/config/base.yaml` are removed. `kora-system` remains the default.
 
 The chart renders the `orbit-config` ConfigMap from `config.*`. `config.platformSecretName` is the single Secret reference; the per-component `existingSecret` values collapse into it, with `frontend.existingSecret` kept because the BFF session secret is a different Secret. `platform.namespaces.tenants` is removed: tenant namespaces are created only by the operator from `KoraTenant`, or adopted when `spec.namespace` names an existing one, which removes the coupling that made the platform release depend on tenant CR state.
 
-The `orbit-tenants` ConfigMap stays operator-owned and is never rendered by the chart; a chart-owned object the operator patches is a perpetual GitOps diff that self-heal reverts. The identity Deployment's `tenants-config` volume becomes `optional: true` so identity starts before any tenant exists.
+The `kora-tenants` ConfigMap stays operator-owned and is never rendered by the chart; a chart-owned object the operator patches is a perpetual GitOps diff that self-heal reverts. The identity Deployment's `tenants-config` volume becomes `optional: true` so identity starts before any tenant exists.
 
 Status that lived on `OrbitPlatform` moves to operator metrics, events and `KoraTenant` conditions. There is no platform status CRD.
 
@@ -214,7 +214,7 @@ Status that lived on `OrbitPlatform` moves to operator metrics, events and `Kora
 
 The charts render identically under `helm template` with no cluster access and produce no perpetual diff:
 
-- No `lookup`, `genCA`, `genSignedCert`, `randAlphaNum` or `now`. Today `lookup` appears in `charts/orbit-platform/templates/namespaces.yaml` and `charts/orbit-operator/templates/webhook.yaml`; both templates go. Webhook TLS moves to the operator (companion ADR).
+- No `lookup`, `genCA`, `genSignedCert`, `randAlphaNum` or `now`. Today `lookup` appears in `charts/orbit-platform/templates/namespaces.yaml` and `charts/kora-operator/templates/webhook.yaml`; both templates go. Webhook TLS moves to the operator (companion ADR).
 - No Helm hooks required for correctness.
 - Every credential is an existing Secret; the charts create none.
 - The system namespace is created and labelled outside the chart. Helmfile: `createNamespace` creates it and a `presync` hook labels it with `istio-injection: enabled` (or the `istio.io/rev` label) and `pod-security.kubernetes.io/enforce: restricted`. Argo CD: `managedNamespaceMetadata`. The deployment guide gives both.
@@ -256,11 +256,11 @@ releases:
     needs: [istio-system/istio-base, istio-system/istio-cni]
     values: [values/istiod.yaml]              # what Orbit requires of istiod: pilot.cni.enabled, discoveryAddress
     set: [{ name: meshConfig.trustDomain, value: '{{`{{ .Values.trustDomain }}`}}' }]
-  - name: orbit-crds  { namespace: '{{`{{ .Values.systemNamespace }}`}}', chart: '{{`{{ .Values.kora.crdsChart }}`}}' }
-  - name: orbit
+  - name: kora-crds  { namespace: '{{`{{ .Values.systemNamespace }}`}}', chart: '{{`{{ .Values.kora.crdsChart }}`}}' }
+  - name: kora
     namespace: '{{`{{ .Values.systemNamespace }}`}}'
     chart: '{{`{{ .Values.kora.chart }}`}}'  # oci://ghcr.io/runkora/charts/kora in production
-    needs: ['{{`{{ .Values.systemNamespace }}`}}/orbit-crds', spire-system/spire, istio-system/istiod]
+    needs: ['{{`{{ .Values.systemNamespace }}`}}/kora-crds', spire-system/spire, istio-system/istiod]
     values: [values/kora.yaml]               # the consumer's chart values
     set:                                       # the two facts SPIRE, Istio and Orbit share
       - { name: global.trustDomain,    value: '{{`{{ .Values.trustDomain }}`}}' }
@@ -275,11 +275,11 @@ There is no separate gateway release. kora's ingress gateway pods, their `Gatewa
 
 **Local development is an overlay, not the shipped reference.** The image digests `redeploy.sh` records, the k3s CNI paths, and the identity `hostAliases` and external-service CIDRs `resolve-docker-ips.sh` generates are local concerns. They live in `values/kora.local.yaml`, `values/cni.local.yaml` and the gitignored `local.generated.yaml`, which the local environment layers onto the base values. The base `values/kora.yaml` carries none of them.
 
-`deploy/reference/argocd/` holds an app-of-apps: one `Application` per release with `argocd.argoproj.io/sync-wave` on the `Application` objects, since an `ApplicationSet` gives no ordering between the Applications it generates. The `orbit` Application points its values at the consumer's own GitOps repository, the values `values/kora.yaml` demonstrates. While `ghcr.io/runkora/charts` is private, pulling `orbit-crds`/`orbit` needs OCI registry credentials the app-of-apps does not provide; a comment marks where they belong, and the repository credential itself is the consumer's Argo CD setup (`argocd repo add` or a Repository credential template). Flux is not a supported install path in v1; the charts are standard Helm charts and would work under it, but no example is published or maintained.
+`deploy/reference/argocd/` holds an app-of-apps: one `Application` per release with `argocd.argoproj.io/sync-wave` on the `Application` objects, since an `ApplicationSet` gives no ordering between the Applications it generates. The `orbit` Application points its values at the consumer's own GitOps repository, the values `values/kora.yaml` demonstrates. While `ghcr.io/runkora/charts` is private, pulling `kora-crds`/`orbit` needs OCI registry credentials the app-of-apps does not provide; a comment marks where they belong, and the repository credential itself is the consumer's Argo CD setup (`argocd repo add` or a Repository credential template). Flux is not a supported install path in v1; the charts are standard Helm charts and would work under it, but no example is published or maintained.
 
 `make up` becomes: `dev-cluster` (k3d, Postgres, Redis, Dex), create and label the system namespace, `create-secrets.sh`, `resolve-docker-ips.sh`, `helmfile -e local apply`, then tenant fixtures. `cluster-operator`, `cluster-operator-chart` and the Makefile's readiness waits are removed. `redeploy.sh` changes: the operator's namespace comes from the system namespace, `cluster-update` no longer calls `cluster-operator-chart`, and after each push `redeploy.sh` pins the workload with `kubectl set image` and records the digest under `<component>.image.digest` in `local.generated.yaml`; the next `helmfile apply` renders the same image. `make up` runs `helmfile apply` unconditionally; Helmfile diffs before applying, so an unchanged environment is a no-op.
 
-`deploy/local/` is reduced to tenant fixtures and connection examples. `Dockerfile.operator` copies the binary and the per-binary `config/*.yaml` defaults, no charts or `deploy/` content. orbit-agents' sandbox and session-manager images and trust domain move from `base.yaml` literals to env overrides in the existing `ORBIT_SESSION_MANAGER_*` pattern, set by the chart from `agents.config.*`; the `production.yaml` file overlay is not used.
+`deploy/local/` is reduced to tenant fixtures and connection examples. `Dockerfile.operator` copies the binary and the per-binary `config/*.yaml` defaults, no charts or `deploy/` content. kora-agents' sandbox and session-manager images and trust domain move from `base.yaml` literals to env overrides in the existing `ORBIT_SESSION_MANAGER_*` pattern, set by the chart from `agents.config.*`; the `production.yaml` file overlay is not used.
 
 ### Decision 7: Publishing, versioning and verification
 
@@ -298,7 +298,7 @@ While the repository is private, the GHCR packages are private. The quickstart c
 
 ### Decision 8: Compatibility statement, upgrades and rollback
 
-Each release names: Kubernetes minors (CI matrix), Istio minors (current and previous, sidecar mode, CNI required), the SPIRE chart range, Helm 4, and the Helmfile and helm-diff minimums that support it. Istio ambient and managed meshes are listed as unsupported until validated. Minor version skipping is unsupported for chart upgrades. CRD schemas are backward compatible within a major version, and `orbit-crds` upgrades before `orbit` on every upgrade, not only on install.
+Each release names: Kubernetes minors (CI matrix), Istio minors (current and previous, sidecar mode, CNI required), the SPIRE chart range, Helm 4, and the Helmfile and helm-diff minimums that support it. Istio ambient and managed meshes are listed as unsupported until validated. Minor version skipping is unsupported for chart upgrades. CRD schemas are backward compatible within a major version, and `kora-crds` upgrades before `orbit` on every upgrade, not only on install.
 
 Rollback is `helm rollback orbit` (or the GitOps equivalent). CRDs are never rolled back; a release that adds a field keeps the field. Schema migration ordering is outside this ADR.
 
@@ -326,14 +326,14 @@ Rollback is `helm rollback orbit` (or the GitOps equivalent). CRDs are never rol
                     │            resource, ingress gateway pods (gateway.create),│
                     │            NetworkPolicies incl. apiserver → webhook       │
                     │  services: identity, policy, inference, agents, egress,    │
-                    │            tool-gateway, orbit-mcp, triggers, frontend,    │
+                    │            tool-gateway, kora-mcp, triggers, frontend,    │
                     │            opa-gateway                                     │
                     └──────────────────────────────────────────────────────────┘
                                              │  KoraTenant CRs (GitOps)
                     ┌──────────────────────────────────────────────────────────┐
   per tenant        │  namespace (PSA restricted), tenant CA, OPA config,       │
   (operator-owned)  │  sandbox netpol, replicated pull secrets,                  │
-                    │  agent StatefulSets + sandboxes (orbit-agents at runtime) │
+                    │  agent StatefulSets + sandboxes (kora-agents at runtime) │
                     └──────────────────────────────────────────────────────────┘
 ```
 
@@ -360,13 +360,13 @@ global:
   priorityClassName: ""
 frontendHost: ""                  # required; api.<frontendHost> is the API host
 publicHosts: []
-config: { db: {...}, redis: {...}, platformSecretName: orbit-secrets }
+config: { db: {...}, redis: {...}, platformSecretName: kora-secrets }
 istio: { namespace: istio-system, revision: "", outboundTrafficPolicy: ALLOW_ANY }
 spire: { className: spire-system-spire }
 platform: { spiffe: { enabled: true } }
 networkPolicy: { enabled: true, externalServices: [], apiServerCIDRs: ["0.0.0.0/0"] }
-gateway: { create: true, name: orbit-gateway, ports: {...}, tls: {...}, ingress: {...}, byo: {...} }   # create=false: bind to an existing Gateway named here; service.type lives under ingressGateway
-ingressGateway: { name: orbit-gateway, service: {type: LoadBalancer}, env: {...}, volumes: [...] }     # upstream istio/gateway subchart values, used when gateway.create is true
+gateway: { create: true, name: kora-gateway, ports: {...}, tls: {...}, ingress: {...}, byo: {...} }   # create=false: bind to an existing Gateway named here; service.type lives under ingressGateway
+ingressGateway: { name: kora-gateway, service: {type: LoadBalancer}, env: {...}, volumes: [...] }     # upstream istio/gateway subchart values, used when gateway.create is true
 operator: { image: {...}, replicas: 2, podDisruptionBudget: {...}, webhook: {...}, injection: {...}, preflight: {...} }
 identityProxy: { image: {...}, resources: {...} }   # the injected sidecar's own image and resources; operator.injection has no image block (Decision 4 of the companion ADR)
 identity: ...
@@ -382,7 +382,7 @@ frontend: ...                     # includes existingSecret, ingress
 opaGateway: ...                   # the gateway-level OPA's own image, distinct from the tenant sidecar OPA the webhook injects
 ```
 
-Every component block accepts `image.{registry,repository,tag,digest,pullPolicy}`, `replicas`, `resources`, `nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints`, `priorityClassName`, `podAnnotations`, `podLabels`, `extraEnv`, `extraVolumes`, `extraVolumeMounts`, `serviceAccount.annotations`, and the service-config keys (log format, Postgres SSL mode, OTLP) that default from `global`. Global values are defaults; component values override. Pods orbit-agents creates at runtime (not managed by Helm directly) take scheduling, storage, and other field-level customisation through `agents.manifestPatches`, a map of operator-authored kustomize patches mounted into orbit-agents via a ConfigMap (see [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md)), plus a first-class `ORBIT_AGENTS_IMAGE_PULL_SECRETS` setting for `global.imagePullSecrets`. The operator replicates the named pull Secrets into every tenant namespace during tenant reconcile so that runtime-created and webhook-injected containers can pull.
+Every component block accepts `image.{registry,repository,tag,digest,pullPolicy}`, `replicas`, `resources`, `nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints`, `priorityClassName`, `podAnnotations`, `podLabels`, `extraEnv`, `extraVolumes`, `extraVolumeMounts`, `serviceAccount.annotations`, and the service-config keys (log format, Postgres SSL mode, OTLP) that default from `global`. Global values are defaults; component values override. Pods kora-agents creates at runtime (not managed by Helm directly) take scheduling, storage, and other field-level customisation through `agents.manifestPatches`, a map of operator-authored kustomize patches mounted into kora-agents via a ConfigMap (see [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md)), plus a first-class `ORBIT_AGENTS_IMAGE_PULL_SECRETS` setting for `global.imagePullSecrets`. The operator replicates the named pull Secrets into every tenant namespace during tenant reconcile so that runtime-created and webhook-injected containers can pull.
 
 ### Image reference helper
 
@@ -399,7 +399,7 @@ Every component block accepts `image.{registry,repository,tag,digest,pullPolicy}
 {{- end }}
 ```
 
-Takes `(dict "root" $ "name" "<values key>")`, the values key being the component's top-level block. Tag resolution is component `image.tag`, then `global.imageTag`, then the chart appVersion, so local development pins every deployed image with one `global.imageTag` and a release pins each with a `digest`. This covers the twelve chart-deployed images. The two images orbit-agents runs at runtime, `orbit-session-manager` and `kora-sandbox-base`, are referenced by full string in `agents.config`. A release pins `orbit-session-manager` through `agents.config.sessionManagerDigest`, and `kora-sandbox-base` resolves by tag. A sibling `kora.imageRef` takes `(dict "root" $ "image" <image map>)` for a nested image block that isn't a top-level values key, such as `identityProxy.image` or `opaGateway.image`.
+Takes `(dict "root" $ "name" "<values key>")`, the values key being the component's top-level block. Tag resolution is component `image.tag`, then `global.imageTag`, then the chart appVersion, so local development pins every deployed image with one `global.imageTag` and a release pins each with a `digest`. This covers the twelve chart-deployed images. The two images kora-agents runs at runtime, `orbit-session-manager` and `kora-sandbox-base`, are referenced by full string in `agents.config`. A release pins `orbit-session-manager` through `agents.config.sessionManagerDigest`, and `kora-sandbox-base` resolves by tag. A sibling `kora.imageRef` takes `(dict "root" $ "image" <image map>)` for a nested image block that isn't a top-level values key, such as `identityProxy.image` or `opaGateway.image`.
 
 ---
 
@@ -407,10 +407,10 @@ Takes `(dict "root" $ "name" "<values key>")`, the values key being the componen
 
 ### Phase 1: Chart reshaping
 
-1. Create `charts/kora-crds` from the CRD templates in `charts/orbit-operator/templates/crd-*.yaml` minus `crd-orbitplatform.yaml`; remove `deleteNamespaceOnRemoval` from the `KoraTenant` schema; annotate `keep`; add `Chart.yaml`, `values.schema.json`, `NOTES.txt` stating the install order.
-2. Rewrite the operator and platform templates into `charts/orbit/templates/operator/` and `templates/platform/` with `kora.*` helpers and `.Release.Namespace`; delete `namespaces.yaml`; scope the ClusterSPIFFEIDs to kora's namespaces; add `allow-apiserver-webhook`; add the `istio/gateway` subchart dependency under `gateway.create` with kora's SPIRE proxy wiring, service type and scheduling passed through values. Delete `charts/orbit-operator` and `charts/orbit-platform`.
+1. Create `charts/kora-crds` from the CRD templates in `charts/kora-operator/templates/crd-*.yaml` minus `crd-orbitplatform.yaml`; remove `deleteNamespaceOnRemoval` from the `KoraTenant` schema; annotate `keep`; add `Chart.yaml`, `values.schema.json`, `NOTES.txt` stating the install order.
+2. Rewrite the operator and platform templates into `charts/orbit/templates/operator/` and `templates/platform/` with `kora.*` helpers and `.Release.Namespace`; delete `namespaces.yaml`; scope the ClusterSPIFFEIDs to kora's namespaces; add `allow-apiserver-webhook`; add the `istio/gateway` subchart dependency under `gateway.create` with kora's SPIRE proxy wiring, service type and scheduling passed through values. Delete `charts/kora-operator` and `charts/orbit-platform`.
 3. Introduce `kora.image`, `kora.scheduling` and `kora.imagePullSecrets` helpers; apply to every Deployment, DaemonSet, StatefulSet template and to the operator. Add the cross-cutting `global` settings (`logFormat`, `postgres.sslMode`, `postgres.captureQueryText`, `observability.otlpInsecure`, `imageTag`) and default every component's service-config and image to them, removing the per-component repetition of these fields from `values.yaml`.
-4. Close the configuration gaps: `agents.config.*` rendered as env overrides for session-manager image, sandbox image, git author and trust domain; `agents.extraEnv`; `agents.runtimePods.*`; `inferenceGateway.bedrock.accounts[]`; `inferenceGateway.serviceAccount.annotations`; identity mounts `orbit-tenant-oauth-clients`; identity's tenants mount `optional: true`; ext_proc `message_timeout: 1s`; policy-service bundle AuthorizationPolicy `ports`; `gateway.create`/`gateway.name`; `gateway.ingress` and `frontend.ingress`, which when enabled also set `x-forwarded-proto: https` on API routes because the fronting Ingress terminates TLS; warmer and headroom templates.
+4. Close the configuration gaps: `agents.config.*` rendered as env overrides for session-manager image, sandbox image, git author and trust domain; `agents.extraEnv`; `agents.runtimePods.*`; `inferenceGateway.bedrock.accounts[]`; `inferenceGateway.serviceAccount.annotations`; identity mounts `kora-tenant-oauth-clients`; identity's tenants mount `optional: true`; ext_proc `message_timeout: 1s`; policy-service bundle AuthorizationPolicy `ports`; `gateway.create`/`gateway.name`; `gateway.ingress` and `frontend.ingress`, which when enabled also set `x-forwarded-proto: https` on API routes because the fronting Ingress terminates TLS; warmer and headroom templates.
 5. Render `orbit-config` from `config.*`. Remove `platform.namespaces.tenants`. Collapse `existingSecret` values into `config.platformSecretName`.
 6. Switch defaults to `ghcr.io/runkora`; remove every `orbit-registry:5001` default outside `deploy/reference/environments/local.yaml`.
 7. `values.schema.json` for both charts; helm-docs README; the ownership table in `docs/guides/deployment.md`.
@@ -444,11 +444,11 @@ Local development: `make down && make up` after Phase 3 lands. No data migration
 A deployment driven from its own GitOps repository with copied charts:
 
 1. Annotate the four CRDs, the ClusterRole, ClusterRoleBinding and webhook configuration with `helm.sh/resource-policy: keep`.
-2. Remove the `orbit-operator` and `orbit-platform` release records (delete their `sh.helm.release.v1.*` Secrets) so no uninstall runs against them.
-3. Relabel the kept cluster-scoped objects with `meta.helm.sh/release-name` and `meta.helm.sh/release-namespace` for `orbit-crds` (CRDs) and `orbit` (the rest).
+2. Remove the `kora-operator` and `orbit-platform` release records (delete their `sh.helm.release.v1.*` Secrets) so no uninstall runs against them.
+3. Relabel the kept cluster-scoped objects with `meta.helm.sh/release-name` and `meta.helm.sh/release-namespace` for `kora-crds` (CRDs) and `orbit` (the rest).
 4. Replace the three chart sources with `oci://ghcr.io/runkora/charts/kora-crds` and `oci://ghcr.io/runkora/charts/kora`; move environment values into the single `kora` values file; install.
 5. Recreated objects: the operator Deployment, webhook Service, ClusterRole, ClusterRoleBinding and webhook configurations. Deployment `spec.selector` is immutable, so any service Deployment whose selector changes is deleted and recreated in a maintenance window.
-6. Delete the replicated istiod injection templates and the vendored charts; delete the `orbit-operator` namespace.
+6. Delete the replicated istiod injection templates and the vendored charts; delete the `kora-operator` namespace.
 
 Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouched throughout.
 

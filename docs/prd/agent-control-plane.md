@@ -209,7 +209,7 @@ kora's identity, policy, and inference infrastructure already supports agents as
 
 ### High-Level Approach
 
-The Agent Control Plane consists of a new platform service (`orbit-agents`) that owns agent type registration, run lifecycle, session routing, and event streaming. Agent workloads run as StatefulSets in tenant namespaces — one StatefulSet per agent type per tenant — with a platform-built session-manager process as the main container. The session-manager wraps the agentic CLI (Claude Code, Codex, OpenCode) via a per-framework transform layer that normalises all output to a standard kora event format. Events are persisted to a run event log, enabling full context replay on reconnect. The platform issues agent identity, governs LLM access, and manages workspaces transparently — agent code has no awareness of these concerns.
+The Agent Control Plane consists of a new platform service (`kora-agents`) that owns agent type registration, run lifecycle, session routing, and event streaming. Agent workloads run as StatefulSets in tenant namespaces — one StatefulSet per agent type per tenant — with a platform-built session-manager process as the main container. The session-manager wraps the agentic CLI (Claude Code, Codex, OpenCode) via a per-framework transform layer that normalises all output to a standard kora event format. Events are persisted to a run event log, enabling full context replay on reconnect. The platform issues agent identity, governs LLM access, and manages workspaces transparently — agent code has no awareness of these concerns.
 
 ### Agent Definition Model
 
@@ -222,11 +222,11 @@ A managed agent type is defined by:
 | Framework | Which CLI to wrap: `claude-code`, `codex`, `opencode` |
 | System prompt | Instructions passed to the framework at session start |
 
-The definition is stored in the `orbit-agents` database. It drives the creation of the StatefulSet, SPIRE entry, and policy grants. Users do not configure infrastructure directly.
+The definition is stored in the `kora-agents` database. It drives the creation of the StatefulSet, SPIRE entry, and policy grants. Users do not configure infrastructure directly.
 
 ### Execution Model
 
-Each agent type runs as a Kubernetes StatefulSet in the tenant namespace. Pods have stable, predictable DNS names that allow the `orbit-agents` service to route to specific pods. Each pod contains three containers:
+Each agent type runs as a Kubernetes StatefulSet in the tenant namespace. Pods have stable, predictable DNS names that allow the `kora-agents` service to route to specific pods. Each pod contains three containers:
 
 - **session-manager** — kora-built process; manages multiple concurrent sessions, owns worktrees and subprocess lifecycle
 - **identity-proxy** — existing sidecar; exchanges SPIFFE SVID for platform JWT, injects it on outbound LLM calls
@@ -266,17 +266,17 @@ There is no timeout on an active run. Cleanup is triggered by the CLI subprocess
 
 ### Event Log and Context Retention
 
-All events emitted by the transform layer are persisted to a `run_events` table in PostgreSQL as they occur. On reconnect, `orbit-agents` replays the full event log for the run to the new SSE connection, then attaches to the live stream. The user always sees the full run history regardless of when they connect or how many times they have disconnected.
+All events emitted by the transform layer are persisted to a `run_events` table in PostgreSQL as they occur. On reconnect, `kora-agents` replays the full event log for the run to the new SSE connection, then attaches to the live stream. The user always sees the full run history regardless of when they connect or how many times they have disconnected.
 
 The `run_events` table is also the source of truth for run resume (not v1) — a fresh CLI subprocess can reconstruct conversation context from the persisted event log without any separate conversation storage.
 
 ### Session Routing
 
-New sessions are routed to any available pod for the agent type. Existing sessions are pinned to the pod where they were created — the subprocess and worktree are local to that pod. The `orbit-agents` service stores `run_id → pod_ordinal` in its database and routes subsequent requests via the pod's stable StatefulSet DNS name. Routing is cross-namespace (orbit-system → orbit-tenant-{id}), secured by Istio mTLS.
+New sessions are routed to any available pod for the agent type. Existing sessions are pinned to the pod where they were created — the subprocess and worktree are local to that pod. The `kora-agents` service stores `run_id → pod_ordinal` in its database and routes subsequent requests via the pod's stable StatefulSet DNS name. Routing is cross-namespace (kora-system → kora-tenant-{id}), secured by Istio mTLS.
 
 ### BYOC Agent Visibility
 
-`orbit-agents` watches Kubernetes pod events across all `orbit-tenant-*` namespaces. Pods with a kora SPIFFE identity (identified by annotations set during SPIRE attestation) are surfaced in the agent portal. LLM usage is already attributed to BYOC agents via the inference-gateway JWT — no additional instrumentation is required. BYOC agents appear in the same portal view as managed agents but without chat, lifecycle, or workspace capabilities.
+`kora-agents` watches Kubernetes pod events across all `kora-tenant-*` namespaces. Pods with a kora SPIFFE identity (identified by annotations set during SPIRE attestation) are surfaced in the agent portal. LLM usage is already attributed to BYOC agents via the inference-gateway JWT — no additional instrumentation is required. BYOC agents appear in the same portal view as managed agents but without chat, lifecycle, or workspace capabilities.
 
 ### Streaming Architecture
 
@@ -285,7 +285,7 @@ User (browser)
    │  SSE (EventSource) ← streaming output
    │  POST per message  → user input
    ▼
-orbit-agents service
+kora-agents service
    │  Postgres LISTEN/NOTIFY (live events)
    │  Postgres SELECT (event replay on connect)
    │  POST (session claim + message relay)
@@ -302,7 +302,7 @@ CLI subprocess (Claude Code / Codex / OpenCode)
 inference-gateway → LLM provider
 ```
 
-### orbit-agents Service
+### kora-agents Service
 
 New backend service (`backend/cmd/kora-agents`) following all existing platform conventions.
 
@@ -405,7 +405,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 - Agent type provisioning complete within 60 seconds of creation
 - First token delivered to browser within 5 seconds of session start
 - Event replay on reconnect within 2 seconds for runs up to 1 hour of history
-- `orbit-agents` API response latency ≤ 100ms p95 (excluding streaming)
+- `kora-agents` API response latency ≤ 100ms p95 (excluding streaming)
 
 **Security:**
 - All agent-to-platform communication over mTLS (Istio) — no token validation burden on session-manager for intra-cluster calls
@@ -415,20 +415,20 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 - BYOC agents have no elevated permissions beyond standard SPIFFE attestation
 
 **Reliability:**
-- Runs survive `orbit-agents` restarts — state is in PostgreSQL
+- Runs survive `kora-agents` restarts — state is in PostgreSQL
 - Runs survive session-manager pod restarts only via the resume flow (not v1)
 - Pod scale-down never terminates a pod with an active run
 - Event log writes are durable — no event is emitted to SSE without being persisted
 
 **Scalability:**
 - StatefulSet HPA scales on CPU/memory — platform manages pod count transparently
-- `orbit-agents` is stateless — scales horizontally; session routing state in PostgreSQL
+- `kora-agents` is stateless — scales horizontally; session routing state in PostgreSQL
 - Event log read path supports concurrent observers on the same run
 
 **Observability:**
 - All run lifecycle transitions emitted as structured log events
 - All agent LLM calls attributed in inference-gateway usage records
-- `orbit-agents` exposes Prometheus metrics: active runs, active sessions, events written/sec, session routing latency
+- `kora-agents` exposes Prometheus metrics: active runs, active sessions, events written/sec, session routing latency
 - BYOC agent discovery events logged on pod add/remove
 
 ---
@@ -446,7 +446,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 | Policy service / grants ([policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md)) | Implemented | Grant creation for agent types |
 | kora Operator ([orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md)) | Implemented | Operator manages platform infrastructure; untouched by this feature |
 | PostgreSQL | Implemented | Agent type registry, run/session state, event log |
-| Istio / Envoy | Implemented | mTLS between orbit-agents and session-manager pods |
+| Istio / Envoy | Implemented | mTLS between kora-agents and session-manager pods |
 | Object storage (S3-compatible) | Planned | Workspace snapshot destination |
 
 ### External Dependencies
@@ -457,7 +457,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 | Codex CLI | Secondary managed agent framework | Same — needs validation spike |
 | OpenCode | Tertiary managed agent framework | Same — needs validation spike |
 | Kubernetes StatefulSet / HPA | Agent pod lifecycle and scaling | Standard k8s primitives |
-| SPIRE registration API | Dynamic SPIRE entry management | SPIRE server must be reachable from orbit-system |
+| SPIRE registration API | Dynamic SPIRE entry management | SPIRE server must be reachable from kora-system |
 
 ---
 
@@ -471,7 +471,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 | Cross-namespace mTLS routing misconfigured for new agent namespaces | Medium | Medium | Istio AuthorizationPolicy template validated as part of agent type provisioning; integration tested |
 | Workspace snapshot to object storage fails on run completion | Medium | Medium | Retry with exponential backoff; run marked completed regardless of snapshot result; alert on snapshot failure |
 | BYOC agent discovery creates excessive k8s API watch load at scale | Low | Low | Single watch per namespace; filtered by label selector; reconnect with backoff |
-| orbit-agents becomes a single point of failure for all active sessions | High | Medium | Stateless design; PostgreSQL as state store; session routing survives restart; SSE client reconnects automatically |
+| kora-agents becomes a single point of failure for all active sessions | High | Medium | Stateless design; PostgreSQL as state store; session routing survives restart; SSE client reconnects automatically |
 
 ---
 
@@ -533,10 +533,10 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 |---|---|---|
 | 1 | Do Claude Code, Codex, and OpenCode support interactive subprocess mode (long-running process, stdin for user messages, structured stdout output)? | **Open — spike required** |
 | 2 | What is the exact stdout format of each CLI in interactive mode, and does it include tool call events? | **Open — spike required** |
-| 3 | What is the reconnection behaviour for SSE clients that drop mid-stream? Does the client need to send a `Last-Event-ID` or does `orbit-agents` always replay from start? | Open |
+| 3 | What is the reconnection behaviour for SSE clients that drop mid-stream? Does the client need to send a `Last-Event-ID` or does `kora-agents` always replay from start? | Open |
 | 4 | What is the object storage interface for workspace snapshots? S3-compatible client? Platform-owned abstraction? | Open — deferred |
 | 5 | What are the HPA thresholds for agent StatefulSets? CPU/memory targets need calibration per framework | Open — requires load testing |
-| 6 | How does `orbit-agents` authenticate to the SPIRE registration gRPC API? Via its own SVID (SPIFFE x509 mTLS)? | Open |
+| 6 | How does `kora-agents` authenticate to the SPIRE registration gRPC API? Via its own SVID (SPIFFE x509 mTLS)? | Open |
 | 7 | What pod labels should BYOC agents carry to appear in the portal? Platform-defined convention or operator annotation? | Open |
 
 ---
@@ -547,7 +547,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 
 **Goal:** Agent types can be created and deleted; infrastructure is provisioned correctly; agent pods start and receive platform identity.
 
-- `orbit-agents` service scaffold (API server, database, config)
+- `kora-agents` service scaffold (API server, database, config)
 - Agent type CRUD API (`POST`, `GET`, `PATCH`, `DELETE /api/v1/agent-types`)
 - StatefulSet + headless Service provisioning on agent type creation
 - SPIRE entry registration on agent type creation
@@ -580,7 +580,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 **Goal:** Real-time streaming to the browser; full event log persistence; reconnect replays history.
 
 - Event log persistence (`run_events` table, written by session-manager)
-- `orbit-agents` SSE endpoint (`GET /runs/{id}/events`)
+- `kora-agents` SSE endpoint (`GET /runs/{id}/events`)
 - Postgres LISTEN/NOTIFY for live event tailing
 - Event replay on connect (full log replay then live attach)
 - User message relay (`POST /runs/{id}/messages` → session-manager → subprocess stdin)
@@ -595,7 +595,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 
 **Goal:** BYOC agents visible in portal; unified agent portal with usage stats and run history.
 
-- k8s pod watch across `orbit-tenant-*` namespaces
+- k8s pod watch across `kora-tenant-*` namespaces
 - BYOC agent registration and de-registration on pod lifecycle events
 - BYOC agents surfaced in agent portal with usage data from inference-gateway logs
 - Agent portal: unified list (managed + BYOC), run history, usage stats

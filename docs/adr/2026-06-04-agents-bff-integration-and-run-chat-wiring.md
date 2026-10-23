@@ -3,7 +3,7 @@
 **Status:** Accepted  
 **Date:** 2026-06-04
 **Deciders:** Platform Engineering  
-**Technical Story:** The agents portal UI ([agent-portal-and-chat-ui](2026-05-11-agent-portal-and-chat-ui.md)) is fully scaffolded against static mock data. The `orbit-agents` backend ([orbit-agents-service-architecture](2026-05-11-orbit-agents-service-architecture.md)) has a complete REST + SSE API surface. This ADR closes the gap by wiring every BFF route to the real backend and replacing the static run chat with a live SSE-backed implementation.
+**Technical Story:** The agents portal UI ([agent-portal-and-chat-ui](2026-05-11-agent-portal-and-chat-ui.md)) is fully scaffolded against static mock data. The `kora-agents` backend ([orbit-agents-service-architecture](2026-05-11-orbit-agents-service-architecture.md)) has a complete REST + SSE API surface. This ADR closes the gap by wiring every BFF route to the real backend and replacing the static run chat with a live SSE-backed implementation.
 
 ---
 
@@ -11,23 +11,23 @@
 
 ### Background
 
-[agent-portal-and-chat-ui](2026-05-11-agent-portal-and-chat-ui.md) established the agents portal architecture: Next.js RSC pages for initial data, client-side BFF routes for mutations, and an `EventSource` SSE connection for the run chat. [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) defines the kora standard event format emitted by the session-manager through `orbit-agents`. [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) established the BFF session pattern — the browser never holds a platform JWT; the BFF extracts it from the session cookie and forwards it to backend services.
+[agent-portal-and-chat-ui](2026-05-11-agent-portal-and-chat-ui.md) established the agents portal architecture: Next.js RSC pages for initial data, client-side BFF routes for mutations, and an `EventSource` SSE connection for the run chat. [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) defines the kora standard event format emitted by the session-manager through `kora-agents`. [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) established the BFF session pattern — the browser never holds a platform JWT; the BFF extracts it from the session cookie and forwards it to backend services.
 
-The portal implementation went through a UI-first build phase where all BFF routes (`/api/agents/**`) return static mock data. The run chat hook (`useRun`) is backed entirely by hardcoded turns. Nothing calls the real `orbit-agents` service.
+The portal implementation went through a UI-first build phase where all BFF routes (`/api/agents/**`) return static mock data. The run chat hook (`useRun`) is backed entirely by hardcoded turns. Nothing calls the real `kora-agents` service.
 
 ### Problem Statement
 
-The agents portal is non-functional in any environment where the backend is reachable. Every meaningful user action — listing agents, starting runs, sending messages — silently operates against mock fixtures. There is no path from the browser to `orbit-agents`.
+The agents portal is non-functional in any environment where the backend is reachable. Every meaningful user action — listing agents, starting runs, sending messages — silently operates against mock fixtures. There is no path from the browser to `kora-agents`.
 
 ### Goals
 
-- Wire all ten BFF route handlers to the real `orbit-agents` REST API
-- Implement an SSE proxy BFF route that pipes the `orbit-agents` event stream to the browser
+- Wire all ten BFF route handlers to the real `kora-agents` REST API
+- Implement an SSE proxy BFF route that pipes the `kora-agents` event stream to the browser
 - Replace the static `useRun` hook with a live SSE-backed implementation
 - Wire user message sending to `POST /api/v1/runs/{id}/messages`
 - Ensure agent settings save (name, description, framework, system prompt, model, concurrency) persists to the backend
 - Add `model_id` to the `AgentType` schema (backend + migration)
-- Add the missing `PATCH /api/v1/agent-types/{id}` handler to `orbit-agents`
+- Add the missing `PATCH /api/v1/agent-types/{id}` handler to `kora-agents`
 
 ### Non-Goals
 
@@ -35,15 +35,15 @@ The agents portal is non-functional in any environment where the backend is reac
 - **Tool permission UI to policy wiring**: The allow/approve/block toggles in the settings tab remain UI-only placeholders; policy integration is a separate story.
 - **Canvas views**: The `CanvasPanel` and `CanvasView` types are defined. They will light up automatically once `tool_result` events carry canvas payloads — no frontend changes required.
 - **Multi-observer**: Only one active SSE subscriber per run, per [agent-portal-and-chat-ui](2026-05-11-agent-portal-and-chat-ui.md).
-- **Horizontal scaling of the SSE path**: Sticky routing for `orbit-agents` is deferred per [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md).
+- **Horizontal scaling of the SSE path**: Sticky routing for `kora-agents` is deferred per [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md).
 - **Webhooks**: Outbound webhook callbacks on run completion or failure are not part of this integration. Deferred to a future story.
 
 ---
 
 ## Decision Drivers
 
-- [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) mandates the BFF pattern — the browser never calls `orbit-agents` directly
-- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md)'s event format is already implemented in `orbit-agents` and the session-manager; the frontend must map those event types to `Turn` state, not invent a new protocol
+- [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) mandates the BFF pattern — the browser never calls `kora-agents` directly
+- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md)'s event format is already implemented in `kora-agents` and the session-manager; the frontend must map those event types to `Turn` state, not invent a new protocol
 - `EventSource` reconnect with `Last-Event-ID` is handled natively by the browser; the BFF proxy must forward this header to preserve replay semantics
 - The `orbitClient` / `agentsClient` pattern already used by other BFF routes (models, identity) keeps backend call logic consistent
 
@@ -53,7 +53,7 @@ The agents portal is non-functional in any environment where the backend is reac
 
 ### Option A: Direct browser → orbit-agents calls
 
-**Description:** Remove the BFF proxy. The browser holds a platform JWT and calls `orbit-agents` directly for CRUD and SSE.
+**Description:** Remove the BFF proxy. The browser holds a platform JWT and calls `kora-agents` directly for CRUD and SSE.
 
 **Pros:**
 - One fewer network hop for SSE events (lower latency)
@@ -61,17 +61,17 @@ The agents portal is non-functional in any environment where the backend is reac
 
 **Cons:**
 - Violates [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md): platform JWTs must never be exposed to the browser
-- CORS policy and cluster-internal `orbit-agents` URL would need to be opened to the public internet
+- CORS policy and cluster-internal `kora-agents` URL would need to be opened to the public internet
 - Inconsistent with every other feature in the portal
 
 ### Option B: BFF proxy for all routes (chosen)
 
-**Description:** All browser requests go through the Next.js BFF. The BFF validates the session cookie, extracts the platform JWT, and forwards it to `orbit-agents` as `Authorization: Bearer`. The SSE stream is proxied without buffering via the Next.js Route Handler streaming API.
+**Description:** All browser requests go through the Next.js BFF. The BFF validates the session cookie, extracts the platform JWT, and forwards it to `kora-agents` as `Authorization: Bearer`. The SSE stream is proxied without buffering via the Next.js Route Handler streaming API.
 
 **Pros:**
 - Consistent with [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) and all other portal features
-- `orbit-agents` remains cluster-internal — never exposed to the public internet
-- Session validation at the BFF layer means `orbit-agents` can trust the JWT without additional OIDC round-trips
+- `kora-agents` remains cluster-internal — never exposed to the public internet
+- Session validation at the BFF layer means `kora-agents` can trust the JWT without additional OIDC round-trips
 
 **Cons:**
 - BFF adds one network hop on the SSE path — acceptable given in-cluster latency
@@ -90,7 +90,7 @@ The `AgentType` model and its settings form include a model selector. The curren
 
 **PATCH handler for agent type updates**
 
-`orbit-agents` currently exposes `POST` (create) and `DELETE` for agent types but no `PATCH`. The settings tab calls `PATCH /api/agents/types/{id}` on save. Three additions are required:
+`kora-agents` currently exposes `POST` (create) and `DELETE` for agent types but no `PATCH`. The settings tab calls `PATCH /api/agents/types/{id}` on save. Three additions are required:
 
 1. A new `UpdateAgentTypeRequest` struct in `models.go` (all fields optional): `name`, `description`, `framework`, `system_prompt`, `max_concurrent_runs_per_pod`, `model_id`.
 2. An `UpdateAgentType(ctx, req)` method on the `Service` that applies partial updates via the existing `repo.UpdateAgentType`.
@@ -102,7 +102,7 @@ A new environment variable `KORA_AGENTS_URL` is added to `frontend/src/server/co
 
 ### BFF route wiring
 
-All ten existing BFF route handlers under `frontend/src/app/api/agents/` replace their mock returns with real backend calls via `agentsClient`. The `withAuth` wrapper already validates the session; handlers extract `session.accessToken` and `session.tenantId` for each call. `tenantId` is passed as a query parameter on all list endpoints and in the request body for `POST /api/v1/runs` — `orbit-agents` has no JWT-based tenant extraction and requires it to be supplied explicitly.
+All ten existing BFF route handlers under `frontend/src/app/api/agents/` replace their mock returns with real backend calls via `agentsClient`. The `withAuth` wrapper already validates the session; handlers extract `session.accessToken` and `session.tenantId` for each call. `tenantId` is passed as a query parameter on all list endpoints and in the request body for `POST /api/v1/runs` — `kora-agents` has no JWT-based tenant extraction and requires it to be supplied explicitly.
 
 Note: the PATCH handler for `types/[typeId]/route.ts` does not yet exist (the file currently only exports `GET` and `DELETE`). It must be added as a new export alongside the existing handlers.
 
@@ -136,7 +136,7 @@ A new route handler `frontend/src/app/api/agents/runs/[runId]/events/route.ts` i
 4. Constructs a streaming `NextResponse` that pipes the backend response body directly — no buffering
 5. Sets response headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`
 
-The proxy does not parse or re-encode events — it is a transparent byte pipe. This preserves SSE `id:`, `event:`, and `data:` framing exactly as `orbit-agents` emits it, including sequence numbers for browser-native `Last-Event-ID` replay.
+The proxy does not parse or re-encode events — it is a transparent byte pipe. This preserves SSE `id:`, `event:`, and `data:` framing exactly as `kora-agents` emits it, including sequence numbers for browser-native `Last-Event-ID` replay.
 
 ### Frontend run chat hook
 
@@ -172,7 +172,7 @@ The "Stop run" action in the run topbar calls `DELETE /api/agents/runs/{runId}` 
 
 ### Positive
 
-- The agents portal becomes functional end-to-end in any environment with `orbit-agents` reachable
+- The agents portal becomes functional end-to-end in any environment with `kora-agents` reachable
 - SSE proxy preserves all [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) semantics (sequence numbers, replay, backpressure) without frontend complexity
 - `EventSource` reconnect is browser-native — the hook handles only the error-case backoff, not the reconnect protocol itself
 - No approval UI is shipped until the session-manager protocol is stable — no incomplete UI surfaces
@@ -185,7 +185,7 @@ The "Stop run" action in the run topbar calls `DELETE /api/agents/runs/{runId}` 
 
 ### Neutral
 
-- Mock data in `_mock/data.ts`, `agents-server.ts`, and `agent-detail-server.ts` is removed; local development requires `orbit-agents` to be running or a local stub
+- Mock data in `_mock/data.ts`, `agents-server.ts`, and `agent-detail-server.ts` is removed; local development requires `kora-agents` to be running or a local stub
 - `KORA_AGENTS_URL` is a new required environment variable in all deployment environments
 
 ---
@@ -226,7 +226,7 @@ Claude Code currently runs headless. The session-manager does not expose a stabl
 ### Success Metrics
 
 - Agent list page renders real agents (not mocks) within 3 seconds of navigation
-- Agent settings save persists name, description, system prompt, and model to `orbit-agents` without error
+- Agent settings save persists name, description, system prompt, and model to `kora-agents` without error
 - First `text_delta` event renders in the run chat within 2 seconds of the agent emitting it
 - Browser reconnect (simulated by dropping and restoring network) replays durable event history without a page reload
 - Run termination (DELETE) transitions run to failed state and disables chat input
@@ -236,7 +236,7 @@ Claude Code currently runs headless. The session-manager does not expose a stabl
 ## Related Decisions
 
 - [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) — BFF session pattern; platform JWTs never exposed to browser
-- [orbit-agents-service-architecture](2026-05-11-orbit-agents-service-architecture.md) — `orbit-agents` REST API surface this ADR wires to
+- [orbit-agents-service-architecture](2026-05-11-orbit-agents-service-architecture.md) — `kora-agents` REST API surface this ADR wires to
 - [run-and-session-lifecycle](2026-05-11-run-and-session-lifecycle.md) — Run and session lifecycle model
 - [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — kora standard event format; event table ownership; replay semantics
 - [agent-portal-and-chat-ui](2026-05-11-agent-portal-and-chat-ui.md) — Portal architecture this ADR implements

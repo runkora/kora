@@ -12,7 +12,7 @@ observability:
 
 # Defaults for a binary run outside the chart. The chart renders every key per install.
 install:
-  systemNamespace: orbit-system
+  systemNamespace: kora-system
   istioNamespace: istio-system
   spireClassName: spire-system-spire
   injection:

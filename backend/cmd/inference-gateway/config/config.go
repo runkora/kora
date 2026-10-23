@@ -41,12 +41,12 @@ type ProvidersConfig struct {
 // PolicyConfig configures the in-process OPA policy evaluator.
 type PolicyConfig struct {
 	// BundleEndpoint is the base URL for the policy-service bundle API.
-	// e.g. http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles
+	// e.g. http://kora-policy-service.kora-system.svc/api/v1/policy/bundles
 	BundleEndpoint         string `yaml:"bundleEndpoint"`
 	BundlePollIntervalSecs int    `yaml:"bundlePollIntervalSecs"`
 	// PolicyServiceURL is the base URL of the policy service.
 	// Used for route registration at startup.
-	// e.g. http://orbit-policy-service.orbit-system.svc
+	// e.g. http://kora-policy-service.kora-system.svc
 	PolicyServiceURL string `yaml:"policyServiceURL"`
 }
 

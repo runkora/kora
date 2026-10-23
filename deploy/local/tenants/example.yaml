@@ -1,9 +1,9 @@
 # KoraTenant CR for the local k3d development tenant.
 #
 # The operator will:
-#   1. Auto-derive the namespace as "orbit-tenant-example" (spec.namespace omitted)
+#   1. Auto-derive the namespace as "kora-tenant-example" (spec.namespace omitted)
 #   2. Create that namespace with SPIRE + Istio injection labels
-#   3. Add this tenant to the orbit-tenants ConfigMap registry
+#   3. Add this tenant to the kora-tenants ConfigMap registry
 #   4. The identity service picks up the registry update automatically
 #
 # The OIDC client is public (no client secret); Dex is configured with

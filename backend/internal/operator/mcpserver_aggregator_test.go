@@ -26,12 +26,12 @@ func TestValidateMCPServerSpec(t *testing.T) {
 		{
 			name:      "valid tenant server",
 			spec:      MCPServerSpec{Endpoint: "http://gh.acme.svc:8080/mcp"},
-			namespace: "orbit-tenant-acme",
+			namespace: "kora-tenant-acme",
 			wantErr:   nil,
 		},
 		{
 			name:      "valid global forward server",
-			spec:      MCPServerSpec{Endpoint: "http://orbit-mcp.svc/mcp", CallerIdentity: CallerIdentityForward},
+			spec:      MCPServerSpec{Endpoint: "http://kora-mcp.svc/mcp", CallerIdentity: CallerIdentityForward},
 			namespace: systemNamespace,
 			wantErr:   nil,
 		},
@@ -44,25 +44,25 @@ func TestValidateMCPServerSpec(t *testing.T) {
 		{
 			name:      "userinfo rejected",
 			spec:      MCPServerSpec{Endpoint: "https://user:s3cret@mcp.example.com/mcp"},
-			namespace: "orbit-tenant-acme",
+			namespace: "kora-tenant-acme",
 			wantErr:   ErrMCPServerBadEndpoint,
 		},
 		{
 			name:      "query string rejected",
 			spec:      MCPServerSpec{Endpoint: "https://mcp.example.com/mcp?key=s3cret"},
-			namespace: "orbit-tenant-acme",
+			namespace: "kora-tenant-acme",
 			wantErr:   ErrMCPServerBadEndpoint,
 		},
 		{
 			name:      "empty query rejected",
 			spec:      MCPServerSpec{Endpoint: "https://mcp.example.com/mcp?"},
-			namespace: "orbit-tenant-acme",
+			namespace: "kora-tenant-acme",
 			wantErr:   ErrMCPServerBadEndpoint,
 		},
 		{
 			name:      "unparseable endpoint rejected",
 			spec:      MCPServerSpec{Endpoint: "https://s3cret@[::1/mcp"},
-			namespace: "orbit-tenant-acme",
+			namespace: "kora-tenant-acme",
 			wantErr:   ErrMCPServerBadEndpoint,
 		},
 		{
@@ -75,13 +75,13 @@ func TestValidateMCPServerSpec(t *testing.T) {
 			// The security-critical rule: a tenant CR cannot set forward.
 			name:      "forward rejected in tenant namespace",
 			spec:      MCPServerSpec{Endpoint: "http://x/mcp", CallerIdentity: CallerIdentityForward},
-			namespace: "orbit-tenant-acme",
+			namespace: "kora-tenant-acme",
 			wantErr:   ErrMCPServerForwardNotGlobal,
 		},
 		{
 			name:      "none allowed in tenant namespace",
 			spec:      MCPServerSpec{Endpoint: "http://x/mcp", CallerIdentity: CallerIdentityNone},
-			namespace: "orbit-tenant-acme",
+			namespace: "kora-tenant-acme",
 			wantErr:   nil,
 		},
 	}
@@ -115,43 +115,43 @@ func TestEffectiveDefaults(t *testing.T) {
 }
 
 func TestResolveTenantID(t *testing.T) {
-	nsToTenant := map[string]string{"orbit-tenant-acme": "acme", "custom-ns": "beta"}
+	nsToTenant := map[string]string{"kora-tenant-acme": "acme", "custom-ns": "beta"}
 
 	if id, ok := resolveTenantID(systemNamespace, nsToTenant); !ok || id != "" {
-		t.Errorf("orbit-system → (%q,%v), want (\"\",true)", id, ok)
+		t.Errorf("kora-system → (%q,%v), want (\"\",true)", id, ok)
 	}
-	if id, ok := resolveTenantID("orbit-tenant-acme", nsToTenant); !ok || id != "acme" {
+	if id, ok := resolveTenantID("kora-tenant-acme", nsToTenant); !ok || id != "acme" {
 		t.Errorf("tenant ns → (%q,%v), want (acme,true)", id, ok)
 	}
 	if id, ok := resolveTenantID("custom-ns", nsToTenant); !ok || id != "beta" {
 		t.Errorf("custom ns → (%q,%v), want (beta,true)", id, ok)
 	}
-	if _, ok := resolveTenantID("orbit-tenant-ghost", nsToTenant); ok {
+	if _, ok := resolveTenantID("kora-tenant-ghost", nsToTenant); ok {
 		t.Error("namespace with no active tenant should not resolve")
 	}
 }
 
 func TestBuildMCPRegistry(t *testing.T) {
-	nsToTenant := map[string]string{"orbit-tenant-acme": "acme"}
+	nsToTenant := map[string]string{"kora-tenant-acme": "acme"}
 
 	servers := []MCPServer{
 		// Global server with forward — valid, tenant_id "".
 		mcpSrv("orbit", systemNamespace, MCPServerSpec{
-			Endpoint:                    "http://orbit-mcp.orbit-system.svc:8095/mcp",
+			Endpoint:                    "http://kora-mcp.kora-system.svc:8095/mcp",
 			ReintrospectIntervalSeconds: 900,
 			CallerIdentity:              CallerIdentityForward,
 		}),
 		// Tenant server — valid, tenant_id "acme", defaults applied.
-		mcpSrv("github", "orbit-tenant-acme", MCPServerSpec{
-			Endpoint: "http://github-mcp.orbit-tenant-acme.svc:8080/mcp",
+		mcpSrv("github", "kora-tenant-acme", MCPServerSpec{
+			Endpoint: "http://github-mcp.kora-tenant-acme.svc:8080/mcp",
 		}),
 		// Tenant server setting forward — excluded (forward is global-only).
-		mcpSrv("evil", "orbit-tenant-acme", MCPServerSpec{
+		mcpSrv("evil", "kora-tenant-acme", MCPServerSpec{
 			Endpoint:       "http://evil.acme.svc/mcp",
 			CallerIdentity: CallerIdentityForward,
 		}),
 		// Server in a namespace with no active tenant — excluded.
-		mcpSrv("orphan", "orbit-tenant-ghost", MCPServerSpec{
+		mcpSrv("orphan", "kora-tenant-ghost", MCPServerSpec{
 			Endpoint: "http://ghost/mcp",
 		}),
 		// Invalid spec (no endpoint) — excluded.

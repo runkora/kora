@@ -9,13 +9,13 @@
 
 > **Amended 2026-06-07** — egress authorization is **two complementary layers**: the sandbox OPA enforces connectivity **posture** (`egress:<host>:connect`), and per-connection authorization (`connection:<name>:<action>`) is enforced at the **gateway**, not the sandbox OPA. The sandbox OPA cannot evaluate the connection scope (it sees only the CONNECT host, never the connection name or the inner-request action). See [Amendment — 2026-06-07](#amendment--2026-06-07-two-layer-egress-authorization), which supersedes the "sandbox OPA authorizes `connection:<name>:<action>`" statements below.
 
-> **Amended 2026-06-12** — connection registration is **GitOps**. A `Connection` is a tenant-namespaced CRD carrying credential-source identity only (`adapter`, `secretRef`, `config`); the secret is referenced and materialised by the deployer's secret pipeline, never handled by kora. The **operator aggregates** the CRs (and their referenced Secrets) into `orbit-system` config the gateway **mounts** — mirroring the tenant-CA aggregator — and the Postgres registry + `/api/v1/connections` admin CRUD API are **removed**. See [Amendment 3 — 2026-06-12](#amendment-3--2026-06-12-connections-are-gitops-crs-not-a-crud-registry), which supersedes the "connection-registration control plane / admin CRUD" statements below.
+> **Amended 2026-06-12** — connection registration is **GitOps**. A `Connection` is a tenant-namespaced CRD carrying credential-source identity only (`adapter`, `secretRef`, `config`); the secret is referenced and materialised by the deployer's secret pipeline, never handled by kora. The **operator aggregates** the CRs (and their referenced Secrets) into `kora-system` config the gateway **mounts** — mirroring the tenant-CA aggregator — and the Postgres registry + `/api/v1/connections` admin CRUD API are **removed**. See [Amendment 3 — 2026-06-12](#amendment-3--2026-06-12-connections-are-gitops-crs-not-a-crud-registry), which supersedes the "connection-registration control plane / admin CRUD" statements below.
 
 ---
 
 ## Context
 
-kora agents execute shell commands and tools inside a per-run **sandbox pod** (`sandbox-{run-id}`, provisioned by orbit-agents — see [sandbox-provisioning-and-shell-proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md)). To be useful, those tools — `git`, `gh`, `aws`, `kubectl`, language SDKs, `curl` — must reach external services. Today they cannot do so in any governed way, and there is no mechanism to inject third-party credentials without exposing them to the agent.
+kora agents execute shell commands and tools inside a per-run **sandbox pod** (`sandbox-{run-id}`, provisioned by kora-agents — see [sandbox-provisioning-and-shell-proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md)). To be useful, those tools — `git`, `gh`, `aws`, `kubectl`, language SDKs, `curl` — must reach external services. Today they cannot do so in any governed way, and there is no mechanism to inject third-party credentials without exposing them to the agent.
 
 This ADR supersedes [credential-aware-outbound-gateway](2026-03-05-credential-aware-outbound-gateway.md). That ADR proposed an **explicit reverse proxy**: agents would rewrite their outbound calls to `/proxy/{service-name}/{path}` and the gateway would forward them with credentials injected. That model does not survive contact with real agents:
 
@@ -237,7 +237,7 @@ name             github                      # agent-facing connection name
 adapter          github_app
 base_host        github.com                  # the upstream the gateway terminates + re-originates
 authority        bot                         # v1; "delegated" deferred
-secret_ref       k8s:orbit-conn-acme-github  # reference, never a raw value
+secret_ref       k8s:kora-conn-acme-github  # reference, never a raw value
 scope_ceiling    [repo:read, repo:write]     # max any grant may reach
 adapter_config   { app_id, installation_id, repos, permissions }
 ```
@@ -248,7 +248,7 @@ A new resource type `connection` enters the scope vocabulary: `connection:<name>
 
 ### Identity & attestation
 
-- New `orbit-tenant-sandbox` ClusterSPIFFEID templating `spiffe://<td>/tenant/{ns}/agent/{label:runkora.io/agent-slug}/sandbox/{label:runkora.io/run-id}`, selecting `runkora.io/role: sandbox`. The sandbox is labelled `runkora.io/agent-slug` (not `spiffe.io/agent`, to avoid double-matching the existing `orbit-tenant-agent` ID) and already carries `runkora.io/run-id`. Add the SPIRE `csi.spiffe.io` workload-socket volume to the sandbox pod.
+- New `kora-tenant-sandbox` ClusterSPIFFEID templating `spiffe://<td>/tenant/{ns}/agent/{label:runkora.io/agent-slug}/sandbox/{label:runkora.io/run-id}`, selecting `runkora.io/role: sandbox`. The sandbox is labelled `runkora.io/agent-slug` (not `spiffe.io/agent`, to avoid double-matching the existing `kora-tenant-agent` ID) and already carries `runkora.io/run-id`. Add the SPIRE `csi.spiffe.io` workload-socket volume to the sandbox pod.
 - `internal/identity/principal_extractor.go`: recognize the `…/agent/<slug>/sandbox/<run-id>` form → `Type=AGENT`, **normalize `ID` to `…/agent/<slug>`** for authorization, add `run_id` (and the full SVID) to `Claims`.
 
 ### TLS interception & per-tenant CA
@@ -468,7 +468,7 @@ metadata:
   namespace: tenant-acme
 spec:
   adapter: github_app
-  secretRef: orbit-conn-acme-github   # a k8s Secret in this namespace — a name, never a value
+  secretRef: kora-conn-acme-github   # a k8s Secret in this namespace — a name, never a value
   config:
     app_id: "4015347"          # string
     installation_id: 139299720 # number
@@ -494,13 +494,13 @@ Three ways to get a tenant's connection config to the egress-gateway were consid
 
 - **(a)** the operator reconciles CRs into the gateway's existing **Postgres registry** — rejected: it couples a control-plane reconciler to a data-plane service's private database schema, and keeps two sources of truth in sync.
 - **(b)** the gateway **watches the CRs directly** (its own informer, cluster-wide `connections`+`secrets` read, a new k8s-API secret resolver) — a clean "single source of truth," but it gives the shared, crown-jewel gateway pod Kubernetes API access it does not have today, needs a new secret resolver, and introduces a **second** mechanism for getting per-tenant material to the gateway.
-- **(c)** the **operator aggregates** the CRs (and their referenced Secrets) into `orbit-system` config the gateway **mounts** — the gateway stays a pure data-plane pod with no Kubernetes API access. **We choose (c).**
+- **(c)** the **operator aggregates** the CRs (and their referenced Secrets) into `kora-system` config the gateway **mounts** — the gateway stays a pure data-plane pod with no Kubernetes API access. **We choose (c).**
 
-The deciding fact: the gateway **already** receives its most security-critical per-tenant material — the per-tenant CA — exactly this way. `tenant_ca_aggregator.go` watches each tenant's `orbit-tenant-ca` Secret and aggregates them into one `orbit-tenant-cas` Secret in `orbit-system` that the gateway mounts. Connections are the same class of problem (per-tenant material a shared gateway needs), so they take the same path rather than inventing a second one. (c) is also strictly less code in the risky data-plane gateway — it reuses the existing mounted-secret resolver and the CA-aggregator as a template — and it keeps the CRD Go type in `internal/operator` (the gateway, a feature package, never imports it).
+The deciding fact: the gateway **already** receives its most security-critical per-tenant material — the per-tenant CA — exactly this way. `tenant_ca_aggregator.go` watches each tenant's `kora-tenant-ca` Secret and aggregates them into one `kora-tenant-cas` Secret in `kora-system` that the gateway mounts. Connections are the same class of problem (per-tenant material a shared gateway needs), so they take the same path rather than inventing a second one. (c) is also strictly less code in the risky data-plane gateway — it reuses the existing mounted-secret resolver and the CA-aggregator as a template — and it keeps the CRD Go type in `internal/operator` (the gateway, a feature package, never imports it).
 
 Mechanism:
 
-- A new **`ConnectionAggregator`** in the operator (mirroring `tenant_ca_aggregator.go`) watches `Connection` CRs across tenant namespaces and renders two `orbit-system` objects: a **connection-registry ConfigMap** (`orbit-tenant-connections` — the non-secret metadata: tenant, name, adapter, base_host, secret_ref, config) and the **connection-secrets Secret** (`orbit-tenant-connection-secrets` — each referenced Secret's material, keyed by a path the gateway's resolver expects). It re-renders on any `Connection` or referenced-Secret change.
+- A new **`ConnectionAggregator`** in the operator (mirroring `tenant_ca_aggregator.go`) watches `Connection` CRs across tenant namespaces and renders two `kora-system` objects: a **connection-registry ConfigMap** (`kora-tenant-connections` — the non-secret metadata: tenant, name, adapter, base_host, secret_ref, config) and the **connection-secrets Secret** (`kora-tenant-connection-secrets` — each referenced Secret's material, keyed by a path the gateway's resolver expects). It re-renders on any `Connection` or referenced-Secret change.
 - The gateway **mounts** both. Its connection registry becomes a ConfigMap-backed reader (parse + `fsnotify` reload, mirroring `cabundle`), replacing the Postgres registry. The `k8sfile` secret resolver is **unchanged** — it already reads connection secrets from a mounted path.
 - On registry reload the gateway **republishes** the `connection:<name>:<action>` vocabulary via the existing `ScopePublisher` (it holds the egress-gateway service identity the policy service requires for scope registration).
 

@@ -15,7 +15,7 @@ import (
 const assumeRoleResponse = `<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
 <AssumeRoleResult><Credentials><AccessKeyId>ASIAASSUMED</AccessKeyId><SecretAccessKey>assumed-secret</SecretAccessKey>
 <SessionToken>assumed-token</SessionToken><Expiration>2099-01-01T00:00:00Z</Expiration></Credentials>
-<AssumedRoleUser><Arn>arn:aws:sts::123456789012:assumed-role/bedrock/orbit-inference-gateway</Arn><AssumedRoleId>AROA:orbit</AssumedRoleId></AssumedRoleUser>
+<AssumedRoleUser><Arn>arn:aws:sts::123456789012:assumed-role/bedrock/kora-inference-gateway</Arn><AssumedRoleId>AROA:orbit</AssumedRoleId></AssumedRoleUser>
 </AssumeRoleResult><ResponseMetadata><RequestId>r1</RequestId></ResponseMetadata></AssumeRoleResponse>`
 
 // TestAssumeRoleCredentials checks the STS call the gateway makes on top of its

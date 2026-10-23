@@ -6,7 +6,7 @@
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
-  name: orbit-sandbox-headroom
+  name: kora-sandbox-headroom
   labels:
     {{- include "kora.agents.labels" . | nindent 4 }}
     app.kubernetes.io/component: sandbox-headroom
@@ -18,7 +18,7 @@ description: Low-priority placeholder for kora sandbox warm capacity.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-sandbox-headroom
+  name: kora-sandbox-headroom
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.agents.labels" . | nindent 4 }}
@@ -27,13 +27,13 @@ spec:
   replicas: {{ $warming.replicas | int }}
   selector:
     matchLabels:
-      app: orbit-sandbox-headroom
+      app: kora-sandbox-headroom
   template:
     metadata:
       # Values are quoted because label and annotation values are strings, and
       # an unquoted `true` in values.yaml reaches the API server as a boolean.
       labels:
-        {{- range $k, $v := merge (dict "app" "orbit-sandbox-headroom") $warming.podLabels }}
+        {{- range $k, $v := merge (dict "app" "kora-sandbox-headroom") $warming.podLabels }}
         {{ $k }}: {{ $v | quote }}
         {{- end }}
       # A node holding only this placeholder reads as idle, so both mainstream
@@ -46,9 +46,9 @@ spec:
         {{ $k }}: {{ $v | quote }}
         {{- end }}
     spec:
-      priorityClassName: orbit-sandbox-headroom
+      priorityClassName: kora-sandbox-headroom
       {{- include "kora.imagePullSecrets" . | nindent 6 }}
-      {{- include "kora.sandboxWarmingScheduling" (dict "root" $ "spreadApp" "orbit-sandbox-headroom") | nindent 6 }}
+      {{- include "kora.sandboxWarmingScheduling" (dict "root" $ "spreadApp" "kora-sandbox-headroom") | nindent 6 }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 0
       securityContext:

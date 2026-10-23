@@ -15,7 +15,7 @@ apiVersion: runkora.io/v1alpha1
 kind: Connection
 metadata:
   name: github
-  namespace: orbit-tenant-example
+  namespace: kora-tenant-example
 spec:
   adapter: github_app
   baseHost: github.com
@@ -35,7 +35,7 @@ spec:
 A `Connection` is declarative, applied the way you manage the rest of your cluster. Commit it to your GitOps repository, or `kubectl apply` it for a quick start. To list what a tenant has:
 
 ```bash
-kubectl get connections -n orbit-tenant-example
+kubectl get connections -n kora-tenant-example
 ```
 
 ## Adapters

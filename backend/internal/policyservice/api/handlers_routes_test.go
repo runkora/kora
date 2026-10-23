@@ -23,7 +23,7 @@ type knownVocab struct{ idempotentVocab }
 
 func (knownVocab) Exists(context.Context, string) (bool, error) { return true, nil }
 
-const serviceSubject = "spiffe://orbit.local/tenant/orbit-tenant-example/service/billing"
+const serviceSubject = "spiffe://orbit.local/tenant/kora-tenant-example/service/billing"
 
 var registeredRoutes = []routes.RouteScope{{PathPrefix: "/v1/thing", Method: "GET", RequiredScope: "thing:read"}}
 
@@ -42,7 +42,7 @@ func newRoutesController() *Controller {
 		gatewayRecompileHealthy: true,
 	}
 	s.routeStore.Register(&routes.Registration{Service: "inference-gateway", Routes: registeredRoutes})
-	s.routeStore.Register(&routes.Registration{Service: "orbit-agents", Routes: registeredRoutes})
+	s.routeStore.Register(&routes.Registration{Service: "kora-agents", Routes: registeredRoutes})
 	s.routeStore.Register(&routes.Registration{Service: serviceSubject, TenantID: "example", Routes: registeredRoutes})
 	return &Controller{svc: s, logger: s.logger}
 }
@@ -59,7 +59,7 @@ func TestHandleRegisterRoutes_CallerService(t *testing.T) {
 		Kora:             token.KoraClaims{PrincipalType: token.PrincipalTypeService, TenantID: "example", DisplayName: "billing"},
 	}
 	unnamedSystem := &token.PlatformClaims{
-		RegisteredClaims: jwt.RegisteredClaims{Subject: "orbit-identity-service"},
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "kora-identity-service"},
 		Kora:             token.KoraClaims{PrincipalType: token.PrincipalTypeSystem},
 	}
 
@@ -73,7 +73,7 @@ func TestHandleRegisterRoutes_CallerService(t *testing.T) {
 		want    int
 	}{
 		{"system registers its own service", system("inference-gateway"), "inference-gateway", nil, http.StatusNoContent},
-		{"system registers another service", system("orbit-agents"), "inference-gateway", nil, http.StatusForbidden},
+		{"system registers another service", system("kora-agents"), "inference-gateway", nil, http.StatusForbidden},
 		{"system token without a component name", unnamedSystem, "inference-gateway", nil, http.StatusForbidden},
 		{"service registers its own identity", service, serviceSubject, nil, http.StatusNoContent},
 		{"service registers another service", service, "inference-gateway", nil, http.StatusForbidden},

@@ -202,7 +202,7 @@ Codex ships **musl-only** Linux binaries (`codex-x86_64-unknown-linux-musl`, `co
 
 ## Framework Dispatch Wiring
 
-Three files require changes to thread the framework value from orbit-agents to runner selection in the session-manager. These changes are shared with the OpenCode runner (see [opencode-agent-runner](2026-06-04-opencode-agent-runner.md)) and are documented together here since they are implemented as a single unit.
+Three files require changes to thread the framework value from kora-agents to runner selection in the session-manager. These changes are shared with the OpenCode runner (see [opencode-agent-runner](2026-06-04-opencode-agent-runner.md)) and are documented together here since they are implemented as a single unit.
 
 ### `internal/platform/clients/sessionmanager/client.go`
 
@@ -212,7 +212,7 @@ Add `Framework` to `CreateSessionRequest`:
 Framework string `json:"framework,omitempty"`
 ```
 
-**Note:** There are two independent `CreateSessionRequest` types in separate packages — one in `internal/platform/clients/sessionmanager/client.go` (used by orbit-agents to build outbound HTTP requests) and one in `internal/agents/sessionmanager/server.go` (used by the session-manager to decode inbound HTTP requests). Both must have `Framework` added independently. Each should carry a comment explaining the duplication: the client package cannot import the server package (the dependency direction would be backwards) and a shared type in `internal/platform/` would pull session-manager domain concepts into the platform layer.
+**Note:** There are two independent `CreateSessionRequest` types in separate packages — one in `internal/platform/clients/sessionmanager/client.go` (used by kora-agents to build outbound HTTP requests) and one in `internal/agents/sessionmanager/server.go` (used by the session-manager to decode inbound HTTP requests). Both must have `Framework` added independently. Each should carry a comment explaining the duplication: the client package cannot import the server package (the dependency direction would be backwards) and a shared type in `internal/platform/` would pull session-manager domain concepts into the platform layer.
 
 ### `internal/agents/service.go`
 
@@ -257,7 +257,7 @@ codex:
   defaultModel: "anthropic/claude-sonnet-4-6"
 
 inferenceGateway:
-  url: "http://inference-gateway.orbit-system.svc.cluster.local"
+  url: "http://inference-gateway.kora-system.svc.cluster.local"
 ```
 
 Model resolution in `handleCreateSession`:

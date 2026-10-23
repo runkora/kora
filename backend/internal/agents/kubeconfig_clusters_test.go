@@ -95,7 +95,7 @@ func TestKubeClusters_NoResolverWired(t *testing.T) {
 // reach the sandbox as KORA_KUBE_CLUSTERS, and that an agent with none gets no
 // env var at all rather than an empty/"null" one.
 func TestSandboxContainerEnv_KubeClusters(t *testing.T) {
-	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "orbit-system"}
+	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "kora-system"}
 
 	env := sandboxContainerEnv(cfg, []kubeconfig.Cluster{{Name: "c", Server: "https://x:443"}}, "/workspaces/run-1", "test-exec-token")
 	var got string
@@ -126,7 +126,7 @@ func TestSandboxContainerEnv_KubeClusters(t *testing.T) {
 // the bare PVC root — so a run's sandbox pod cannot see a sibling run's
 // directory.
 func TestSandboxContainer_WorkspaceMountScopedToRunID(t *testing.T) {
-	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "orbit-system"}
+	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "kora-system"}
 	runID := "run-abc-123"
 
 	c, err := sandboxContainer(cfg, testSandboxSpec(), runID, "test-exec-token")
@@ -169,7 +169,7 @@ func TestSandboxContainer_WorkspaceMountScopedToRunID(t *testing.T) {
 // The sandbox reports Ready as soon as its port opens. A startup probe checks
 // every second until then, and the readiness probe has no initial delay.
 func TestSandboxContainer_StartupProbe(t *testing.T) {
-	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "orbit-system"}
+	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "kora-system"}
 	c, err := sandboxContainer(cfg, testSandboxSpec(), "run-1", "token")
 	if err != nil {
 		t.Fatal(err)

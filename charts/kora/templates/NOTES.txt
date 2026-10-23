@@ -16,6 +16,6 @@ must carry the SPIRE wiring in deploy/reference/values/gateway-byo.yaml.
 Prerequisites are verified by the operator's preflight. Check it with:
 
   kubectl get koratenants -A
-  kubectl logs deployment/orbit-operator -n {{ include "kora.systemNamespace" . }}
+  kubectl logs deployment/kora-operator -n {{ include "kora.systemNamespace" . }}
 
 Register a tenant by applying an KoraTenant. See docs/guides/deployment.md.

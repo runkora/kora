@@ -53,7 +53,7 @@ We need a way to: (1) declare an MCP server as infrastructure, tenant-scoped or 
 
 ### Decision 1 — How a server is declared
 
-- **Option A: `MCPServer` CRD, operator-reconciled (chosen).** Tenant-namespaced for a tenant's own servers; `orbit-system` for platform-global. Mirrors `Connection` ([jit-credential ADR, Amendment 3](2026-06-06-jit-credential-brokering-egress-gateway.md)). GitOps-native, no mutation API, isolation via namespace.
+- **Option A: `MCPServer` CRD, operator-reconciled (chosen).** Tenant-namespaced for a tenant's own servers; `kora-system` for platform-global. Mirrors `Connection` ([jit-credential ADR, Amendment 3](2026-06-06-jit-credential-brokering-egress-gateway.md)). GitOps-native, no mutation API, isolation via namespace.
 - **Option B: CRUD API + Postgres registry.** A `POST /mcp/servers` admin API. Rejected for exactly the reasons the credential broker rejected it: no human-usable front, a security-critical resource behind a raw API, and config split from its lifecycle. The credential broker already walked this back to CRs.
 - **Option C: Static config (`mcpservers.yaml`).** Too static — no per-tenant story, no reconcile loop, no status.
 
@@ -61,7 +61,7 @@ We need a way to: (1) declare an MCP server as infrastructure, tenant-scoped or 
 
 Introspection means opening an MCP session to a (running) server and calling `tools/list`; the discovered tools then become published `mcp` scopes. This splits cleanly along the boundary kora already drew for connections (jit-credential ADR, Amendment 3): the **operator aggregates CRs into mounted config**, and the **gateway does the domain work and holds the policy-service identity**.
 
-- **Option A: The tool-gateway introspects and publishes; the operator only aggregates (chosen).** The operator runs an `MCPServerAggregator` (mirror of `ConnectionAggregator`) that reconciles `MCPServer` CRs into one `orbit-system` ConfigMap — and nothing more; it stays purely Kubernetes-facing. The **tool-gateway** mounts that registry and, on reload, introspects each server (it is *already* an MCP client — proxying MCP is its job) and publishes the union `mcp` vocabulary via `ScopePublisher` — exactly as the egress-gateway republishes `connection` scopes and holds the service identity policy-service requires. This keeps each component to one concern and matches the connection precedent verbatim.
+- **Option A: The tool-gateway introspects and publishes; the operator only aggregates (chosen).** The operator runs an `MCPServerAggregator` (mirror of `ConnectionAggregator`) that reconciles `MCPServer` CRs into one `kora-system` ConfigMap — and nothing more; it stays purely Kubernetes-facing. The **tool-gateway** mounts that registry and, on reload, introspects each server (it is *already* an MCP client — proxying MCP is its job) and publishes the union `mcp` vocabulary via `ScopePublisher` — exactly as the egress-gateway republishes `connection` scopes and holds the service identity policy-service requires. This keeps each component to one concern and matches the connection precedent verbatim.
 - **Option B: The operator reconciler introspects and registers scopes.** Puts MCP-protocol calls and policy-service registration into a pod whose only job is reconciling Kubernetes objects — breaking single-concern and diverging from the connection split. It would also give the operator its first outbound service calls and a new SPIFFE identity for policy-service. Rejected: the only thing it bought was writing introspection health onto CR status, and that is the wrong home for runtime state (see Decision below).
 - **Option C: A dedicated `mcp-registry` service.** A third deployment that watches CRs and introspects. More moving parts than warranted; introspection is the gateway's own MCP concern.
 
@@ -96,7 +96,7 @@ The scope *string* is tenant-free for both; the tenant/global distinction is **n
 - **Charset unchanged per segment.** Each resulting segment is still normalised to `[a-z0-9_-]` (the charset rule above now applies *per segment*, not to the whole tool name).
 - **Backward compatible.** A tool name with no `.` registers as a single segment exactly as before.
 - **Universal, not convention-scoped.** The split is applied by the shared introspector to **every** server, first-party and third-party alike. A third-party tool named `foo.bar` therefore registers `mcp:<server>:foo:bar:use` and gains a `mcp:<server>:foo:use` rollup — intended and harmless (still default-deny; still per-tool grantable). Server authors who want a flat tool simply avoid `.`.
-- **Leaf-vs-prefix collision (flagged).** A leaf tool whose name equals another tool's *domain prefix* collides on the rollup string: `search` registers `mcp:<server>:search:use`, which is *also* the rollup that prefix-covers `search.advanced` (`mcp:<server>:search:advanced:use`) — so granting the leaf `search` silently grants its siblings. First-party servers (orbit-mcp) avoid this by naming convention; for arbitrary third-party servers introspection **detects** the case (a tool's full scope path being a strict prefix of another tool's path) and flags it in the catalog (and the server `Degraded`) rather than registering a silently-over-granting scope.
+- **Leaf-vs-prefix collision (flagged).** A leaf tool whose name equals another tool's *domain prefix* collides on the rollup string: `search` registers `mcp:<server>:search:use`, which is *also* the rollup that prefix-covers `search.advanced` (`mcp:<server>:search:advanced:use`) — so granting the leaf `search` silently grants its siblings. First-party servers (kora-mcp) avoid this by naming convention; for arbitrary third-party servers introspection **detects** the case (a tool's full scope path being a strict prefix of another tool's path) and flags it in the catalog (and the server `Degraded`) rather than registering a silently-over-granting scope.
 
 This is a real dependency for any server wanting domain rollups, not a cosmetic clarification.
 
@@ -106,10 +106,10 @@ This is a real dependency for any server wanting domain rollups, not a cosmetic 
 
 | # | Decision |
 |---|----------|
-| 1 | MCP servers are declared as an `MCPServer` CRD, operator-reconciled — tenant-namespaced or `orbit-system` (global). No CRUD API, no UI create. |
+| 1 | MCP servers are declared as an `MCPServer` CRD, operator-reconciled — tenant-namespaced or `kora-system` (global). No CRUD API, no UI create. |
 | 2 | The **operator only aggregates** CRs into a mounted registry. The **tool-gateway** introspects (`tools/list`) and publishes scopes from a **`replicas=1` publisher deployment** of the same binary (single-writer by topology — no lease/k8s-API — because `DeleteOrphans` is destructive), with a prune-guard against cold/partial keep-lists. CR status is reconciliation state; introspection health is gateway runtime state. |
 | 3 | MCP tool scopes are published to the vocabulary by a single owner with a union keep-list across all servers, mirroring the connection `ScopePublisher`; the existing `DeleteOrphans` retires names no server exposes. |
-| 4 | Tenancy is carried by the grant and the tenant-dimensioned catalog. Tenant CRs populate that tenant's catalog; `orbit-system` CRs (kora-applied) populate every tenant's catalog. |
+| 4 | Tenancy is carried by the grant and the tenant-dimensioned catalog. Tenant CRs populate that tenant's catalog; `kora-system` CRs (kora-applied) populate every tenant's catalog. |
 | 5 | Scope path is `mcp:<server>:<tool>:use`; renames are new scopes; vanished names are pruned and default-denied. |
 
 ### Rationale
@@ -126,7 +126,7 @@ Lives in `internal/operator` (the operator owns CRD Go types; feature packages n
 
 ```go
 // MCPServer declares one MCP server Orbit governs. Tenant-namespaced for a
-// tenant's own server; in orbit-system for a platform-global server.
+// tenant's own server; in kora-system for a platform-global server.
 type MCPServer struct {
     metav1.TypeMeta   `json:",inline"`
     metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -152,13 +152,13 @@ type MCPServerSpec struct {
     // caller against first-party Orbit APIs.
     //
     // ENFORCED GLOBAL-ONLY: "forward" is valid ONLY on Orbit-applied global servers
-    // (orbit-system namespace). A tenant-namespaced CR that sets "forward" is
+    // (kora-system namespace). A tenant-namespaced CR that sets "forward" is
     // REJECTED at reconcile (Status Invalid) — otherwise a tenant admin (who holds
     // CR-apply RBAC in their own namespace) could harvest every caller's full-power
     // token via a pod they control and replay it across all of Orbit. The gateway
-    // additionally honors "forward" only for orbit-system servers (belt-and-braces).
+    // additionally honors "forward" only for kora-system servers (belt-and-braces).
     // (Future: "exchange" — RFC 8693 narrowed delegated token; see the gateway/OAuth ADRs.)
-    CallerIdentity string `json:"callerIdentity,omitempty"` // none (default) | forward (orbit-system only)
+    CallerIdentity string `json:"callerIdentity,omitempty"` // none (default) | forward (kora-system only)
 }
 
 // Status is reconciliation state owned by the operator — whether the CR was
@@ -178,17 +178,17 @@ apiVersion: runkora.io/v1alpha1
 kind: MCPServer
 metadata:
   name: github           # → scope mcp:github:<tool>:use; stable slug, no tenant in path
-  namespace: orbit-tenant-acme
+  namespace: kora-tenant-acme
 spec:
   displayName: "GitHub"
-  endpoint: http://github-mcp.orbit-tenant-acme.svc:8080/mcp
+  endpoint: http://github-mcp.kora-tenant-acme.svc:8080/mcp
   transport: streamable-http
   reintrospectIntervalSeconds: 900
   # callerIdentity omitted → "none": the caller's token is NOT forwarded to this
   # third-party server; it acts as itself with its own backend credential.
 ```
 
-kora registers the global kora MCP identically, in `orbit-system` — same kind, different namespace — but with `callerIdentity: forward`, because the kora MCP must act *as the caller* against first-party kora APIs (it holds no standing authority). That flag is the **only** thing that makes the gateway convey the caller's token to an upstream, and it is **enforced global-only**: because CR-apply authority is the tenant's own namespace RBAC, a guidance comment is not enough — a tenant CR setting `callerIdentity: forward` is **rejected at reconcile** (`Status: Invalid`), since otherwise a tenant admin could point it at a pod they control and harvest every caller's full-power `aud=orbit-platform` token to replay across all of kora (same-tenant escalation). `forward` is honoured only on `orbit-system` (kora-applied) servers.
+kora registers the global kora MCP identically, in `kora-system` — same kind, different namespace — but with `callerIdentity: forward`, because the kora MCP must act *as the caller* against first-party kora APIs (it holds no standing authority). That flag is the **only** thing that makes the gateway convey the caller's token to an upstream, and it is **enforced global-only**: because CR-apply authority is the tenant's own namespace RBAC, a guidance comment is not enough — a tenant CR setting `callerIdentity: forward` is **rejected at reconcile** (`Status: Invalid`), since otherwise a tenant admin could point it at a pod they control and harvest every caller's full-power `aud=orbit-platform` token to replay across all of kora (same-tenant escalation). `forward` is honoured only on `kora-system` (kora-applied) servers.
 
 ### Two loops: operator aggregation, gateway introspection
 
@@ -199,8 +199,8 @@ Responsibility splits exactly as it does for connections.
 ```
 Reconcile(MCPServer):
   1. validate spec; phase = Invalid(reason) on bad spec, else continue
-  2. re-render the orbit-system registry ConfigMap "orbit-mcp-servers" =
-        every active MCPServer across all tenant namespaces + orbit-system
+  2. re-render the kora-system registry ConfigMap "kora-mcp-servers" =
+        every active MCPServer across all tenant namespaces + kora-system
         (name, endpoint, transport, tenant_id, reintrospectIntervalSeconds)
   3. phase = Aggregated, condition Aggregated=True, lastReconciledAt = now
 ```
@@ -244,7 +244,7 @@ The platform never creates a grant. A new tool is reachable only where the exist
 
 Vocabulary holds the grantable scope; the **display** metadata (description, input schema) lives in a small catalog table.
 
-> **Amendment (2026-07-01) — the catalog is owned by the tool-gateway, not orbit-agents.** This ADR originally placed `mcp_tools` with "the orbit-agents/registry feature," by analogy to the egress gateway's connection catalog (which was offloaded to orbit-agents *because the egress gateway is a CONNECT broker, not reachable over plain HTTP through the mesh*). That analogy does not hold here: the **tool-gateway is a plain-HTTP Streamable-HTTP service the BFF can reach directly**, and the catalog is an MCP-governance concern — not the agent control plane's. So the table, repository, and the tenant-scoped read API all live **with the tool-gateway** (`cmd/tool-gateway/migrations`, `internal/toolgateway`), and the gateway — already the sole introspector — is also the sole writer. The surrogate `id` is dropped in favour of the natural composite primary key.
+> **Amendment (2026-07-01) — the catalog is owned by the tool-gateway, not kora-agents.** This ADR originally placed `mcp_tools` with "the kora-agents/registry feature," by analogy to the egress gateway's connection catalog (which was offloaded to kora-agents *because the egress gateway is a CONNECT broker, not reachable over plain HTTP through the mesh*). That analogy does not hold here: the **tool-gateway is a plain-HTTP Streamable-HTTP service the BFF can reach directly**, and the catalog is an MCP-governance concern — not the agent control plane's. So the table, repository, and the tenant-scoped read API all live **with the tool-gateway** (`cmd/tool-gateway/migrations`, `internal/toolgateway`), and the gateway — already the sole introspector — is also the sole writer. The surrogate `id` is dropped in favour of the natural composite primary key.
 
 ```sql
 -- +goose Up
@@ -271,7 +271,7 @@ The scope vocabulary is a shared registry of capability names; tenant isolation 
 
 - **Tenant-scoped grants** are the authorisation boundary: a grant belongs to a tenant and can only be created within it, so a principal is authorised only on its own tenant's (and global) scope names — and the gateway resolves the *caller's* tenant's server, so a shared name like `mcp:github:create_issue:use` always means *that tenant's* github.
 - **Tenant-dimensioned catalog:** `mcp_tools` carries `tenant_id`; every catalog read filters `WHERE tenant_id = $1 OR tenant_id = ''` (own + global), never another tenant's — so a tenant's admin UI can only see and grant its own (and global) servers' tools.
-- **CR-apply authority** is the registration enforcement point: who can `kubectl apply` an `MCPServer` into `orbit-tenant-{id}` is governed by the tenant's RBAC, tied to the identity model — there is no create API at all, so nothing can register a server cross-tenant. Global (`orbit-system`) CRs are applicable only by kora, never a tenant.
+- **CR-apply authority** is the registration enforcement point: who can `kubectl apply` an `MCPServer` into `kora-tenant-{id}` is governed by the tenant's RBAC, tied to the identity model — there is no create API at all, so nothing can register a server cross-tenant. Global (`kora-system`) CRs are applicable only by kora, never a tenant.
 
 ### MCP client (introspection)
 
@@ -307,7 +307,7 @@ MVP speaks **Streamable HTTP** MCP and uses only `initialize` + `tools/list`. We
 
 ## Implementation
 
-- **Phase 1 — CRD + operator aggregator.** `MCPServer` types, scheme registration, and an `MCPServerAggregator` that renders the `orbit-mcp-servers` registry ConfigMap. RBAC: operator gains read/watch on `MCPServer` (it already manages ConfigMaps). No operator outbound calls, no new operator identity.
+- **Phase 1 — CRD + operator aggregator.** `MCPServer` types, scheme registration, and an `MCPServerAggregator` that renders the `kora-mcp-servers` registry ConfigMap. RBAC: operator gains read/watch on `MCPServer` (it already manages ConfigMaps). No operator outbound calls, no new operator identity.
 - **Phase 2 — Publisher deployment + introspection.** The `tool-gateway` binary in publisher mode as a `replicas=1` deployment: mount the registry, MCP client (`initialize` + `tools/list`), Degraded/retain-on-failure handling, `reintrospectIntervalSeconds` timer.
 - **Phase 3 — Scope publishing + prune-guard.** `ScopePublisher` → global union-keep-list publish (`registeredBy = "tool-gateway"`, `tenantID = ""`), reusing the gateway's policy-service identity as the egress-gateway does; implement the prune-guard (Upsert-only until the keep-list is complete); verify drift end-to-end (add, remove, rename, shared-name retention) **and** the cold-start/partial-mount case does not revoke grants.
 - **Phase 4 — Catalog table + read-only API.** `mcp_tools` migration, repository, and a tenant-scoped list endpoint for the UI (consumed by the gateway/dashboard ADRs).

@@ -248,7 +248,7 @@ func (r *SandboxImageReconciler) reconcileWarmer(ctx context.Context, img *si.Sa
 	return nil
 }
 
-// applyWarmer server-side applies the warmer as orbit-operator. A field the
+// applyWarmer server-side applies the warmer as kora-operator. A field the
 // operator applied before and omits from this apply is removed.
 func (r *SandboxImageReconciler) applyWarmer(ctx context.Context, ds *appsv1.DaemonSet) error {
 	u, err := runtime.DefaultUnstructuredConverter.ToUnstructured(ds)
@@ -258,7 +258,7 @@ func (r *SandboxImageReconciler) applyWarmer(ctx context.Context, ds *appsv1.Dae
 	delete(u, "status")
 	unstructured.RemoveNestedField(u, "metadata", "creationTimestamp")
 	cfg := client.ApplyConfigurationFromUnstructured(&unstructured.Unstructured{Object: u})
-	if err := r.Client.Apply(ctx, cfg, client.FieldOwner("orbit-operator"), client.ForceOwnership); err != nil {
+	if err := r.Client.Apply(ctx, cfg, client.FieldOwner("kora-operator"), client.ForceOwnership); err != nil {
 		return fmt.Errorf("apply DaemonSet %q in %q: %w", ds.Name, ds.Namespace, err)
 	}
 	return nil
@@ -279,7 +279,7 @@ func warmerName(img *si.SandboxImage) string { return "sandbox-image-" + img.Nam
 func (r *SandboxImageReconciler) warmerDaemonSet(img *si.SandboxImage) *appsv1.DaemonSet {
 	labels := map[string]string{
 		"app.kubernetes.io/component":  warmerComponent,
-		"app.kubernetes.io/managed-by": "orbit-operator",
+		"app.kubernetes.io/managed-by": "kora-operator",
 		labelSandboxImage:              img.Name,
 		// The tenant-service SPIFFE identity gives the injected istio-proxy its certificate.
 		podLabelSpiffeService: warmerComponent,

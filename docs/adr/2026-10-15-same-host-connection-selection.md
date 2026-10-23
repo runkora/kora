@@ -15,9 +15,9 @@
 
 The egress gateway resolves the connection for a request by tenant and destination host. `Broker.resolveConnection` (`backend/internal/egressgw/service.go`) is the only selection point, and it calls `ConfigMapRegistry.GetByHost` (`backend/internal/credentials/configmap.go`). `GetByHost` returns the first connection in load order whose base host or adapter host family matches.
 
-The operator's `ConnectionAggregator.collect` (`backend/internal/operator/connection_aggregator.go`) renders every active tenant's connections into one ConfigMap, `orbit-tenant-connections`, sorted by tenant and then by connection name. `collect` already skips a single connection with a warning when its base host is invalid or its Secret is missing.
+The operator's `ConnectionAggregator.collect` (`backend/internal/operator/connection_aggregator.go`) renders every active tenant's connections into one ConfigMap, `kora-tenant-connections`, sorted by tenant and then by connection name. `collect` already skips a single connection with a warning when its base host is invalid or its Secret is missing.
 
-The operator serves admission webhooks on port 9443 behind the `orbit-operator-webhook` Service (`charts/kora/templates/operator/webhook.yaml`). The `orbit-agent-pod-validator` ValidatingWebhookConfiguration routes pod creation in tenant namespaces to `/validate-pod`. `webhookcert.Manager.wire` (`backend/internal/operator/webhookcert/manager.go:266`) sets the CA bundle and `failurePolicy: Fail` on every entry of that configuration, and the `orbit-webhooks` preflight check (`backend/internal/operator/preflight/preflight.go`) requires `Fail`. `TenantReconciler` watches every Connection (`backend/internal/operator/tenant_controller.go:327`), and the manager's cache holds them all.
+The operator serves admission webhooks on port 9443 behind the `kora-operator-webhook` Service (`charts/kora/templates/operator/webhook.yaml`). The `kora-agent-pod-validator` ValidatingWebhookConfiguration routes pod creation in tenant namespaces to `/validate-pod`. `webhookcert.Manager.wire` (`backend/internal/operator/webhookcert/manager.go:266`) sets the CA bundle and `failurePolicy: Fail` on every entry of that configuration, and the `kora-webhooks` preflight check (`backend/internal/operator/preflight/preflight.go`) requires `Fail`. `TenantReconciler` watches every Connection (`backend/internal/operator/tenant_controller.go:327`), and the manager's cache holds them all.
 
 Every github.com `github_app` connection claims the same host family: `github.com`, `api.github.com`, `codeload.github.com` and `*.githubusercontent.com` (`githubEgressHosts` in `backend/internal/platform/connections/adapters.go`). A GitHub Enterprise connection claims only its own base host.
 
@@ -79,7 +79,7 @@ This decision touches **How does it connect?** It changes which connection and u
 
 **Option 2c (rejected):** Read the held connections from the platform token. `PlatformClaims` (`backend/internal/platform/token/claims.go:65`) carries no scopes.
 
-**Option 2d (rejected):** Fetch the agent's connectors from `orbit-agents`. The gateway would need a new typed client and a service call per request. The grant compiled from those connectors is already in the gateway's bundle.
+**Option 2d (rejected):** Fetch the agent's connectors from `kora-agents`. The gateway would need a new typed client and a service call per request. The grant compiled from those connectors is already in the gateway's bundle.
 
 **Option 2e (chosen):** Select GraphQL and search requests by the owners the document or query names, and fall back to the held-connection rule when they name none. `classifyGraphQL` already walks every `repository(owner:, name:)` call, including variables and fragments (`backend/internal/credentials/adapters/githubapp/graphql.go:483`). An agent that holds several GitHub connections otherwise has no way to call GraphQL or search. The anonymous fallback cannot serve these requests. Anonymous GraphQL returns 403, anonymous `/user` returns 401, and anonymous search omits private repositories.
 
@@ -95,7 +95,7 @@ This decision touches **How does it connect?** It changes which connection and u
 
 **Option 4b (rejected):** Drop conflicting connections at aggregation only, with a warning. The Connection is accepted by the API server, and the conflict appears only in operator logs.
 
-**Option 4c (rejected):** Fail the render of `orbit-tenant-connections`. The ConfigMap holds every tenant's connections. One tenant's misconfiguration would freeze connection changes for all tenants.
+**Option 4c (rejected):** Fail the render of `kora-tenant-connections`. The ConfigMap holds every tenant's connections. One tenant's misconfiguration would freeze connection changes for all tenants.
 
 ### D5. Which connection the aggregation backstop keeps
 
@@ -148,7 +148,7 @@ The egress gateway resolves every connection in the caller's tenant that serves 
 *   **Ambiguous requests:** An owner-less request from a caller that holds two or more candidates is denied.
 *   **Denial:** Both denials use a new reason, `connection_unresolved`. The denial body lists the candidate connection names, states which part of the request could not be tied to an owner, and states that owner-addressed requests use the connection bound to that owner. A denial names only owners the caller wrote in the path, document or query. An owner resolved from a node id does not appear in a denial.
 *   **Conflict rule:** Two connections in one tenant namespace conflict when they cannot be told apart. For an adapter that declares an owner (`github_app`), that is when their host families intersect and either side has no `owner` or both declare the same `owner`, compared case-insensitively. For every other pair, that is when their host families intersect.
-*   **Registration guard:** The operator registers a Connection handler on its webhook server and adds a Connection entry to `orbit-agent-pod-validator`. The entry covers CREATE and UPDATE in namespaces labeled `runkora.io/role: tenant` and inherits the CA bundle and `failurePolicy: Fail` from `webhookcert.Manager`. The handler lists the namespace's Connections from the manager's cached client. A CREATE is rejected when it conflicts with any of them. An UPDATE is rejected only for a conflict its previous version did not have. The rejection message cites the conflicting connection. The existing connection is never changed.
+*   **Registration guard:** The operator registers a Connection handler on its webhook server and adds a Connection entry to `kora-agent-pod-validator`. The entry covers CREATE and UPDATE in namespaces labeled `runkora.io/role: tenant` and inherits the CA bundle and `failurePolicy: Fail` from `webhookcert.Manager`. The handler lists the namespace's Connections from the manager's cached client. A CREATE is rejected when it conflicts with any of them. An UPDATE is rejected only for a conflict its previous version did not have. The rejection message cites the conflicting connection. The existing connection is never changed.
 *   **Aggregation backstop:** `ConnectionAggregator.collect` orders each tenant's connections by creation timestamp and then by name. It drops a connection that conflicts with an earlier kept connection and logs a warning that cites both. The conflict is decided by the spec alone, and an earlier connection whose Secret is missing still wins. This covers connections created before the webhook existed and concurrent creates admitted against a stale cache.
 
 ---

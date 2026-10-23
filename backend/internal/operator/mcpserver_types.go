@@ -3,7 +3,7 @@
 // An MCPServer declares one MCP server kora governs. There are two types,
 // distinguished only by where the CR is applied:
 //
-//   - Global: applied in orbit-system (e.g. the platform kora MCP). tenant_id
+//   - Global: applied in kora-system (e.g. the platform kora MCP). tenant_id
 //     is "" and its tools' scopes appear in every tenant's catalog. Only a
 //     global server may set callerIdentity: forward (act AS the caller against
 //     first-party kora APIs).
@@ -13,7 +13,7 @@
 //     every caller's full-power platform token via a pod they control.
 //
 // The operator's MCPServerAggregator reads these CRs and renders the
-// orbit-system "orbit-mcp-servers" ConfigMap the tool-gateway mounts. The
+// kora-system "kora-mcp-servers" ConfigMap the tool-gateway mounts. The
 // gateway, a feature package, never imports this CRD type; it reads the mounted
 // ConfigMap instead. Introspection health is gateway runtime state — NOT CR
 // status (which reflects only operator reconciliation).
@@ -34,7 +34,7 @@ const (
 	// MCPServerPhasePending is the initial/unreconciled state.
 	MCPServerPhasePending = "Pending"
 	// MCPServerPhaseAggregated means the CR was accepted and folded into the
-	// orbit-mcp-servers registry ConfigMap.
+	// kora-mcp-servers registry ConfigMap.
 	MCPServerPhaseAggregated = "Aggregated"
 	// MCPServerPhaseInvalid means the spec was rejected (bad spec, or a
 	// tenant-namespaced CR setting callerIdentity: forward). The server is NOT
@@ -50,7 +50,7 @@ const (
 	CallerIdentityNone = "none"
 	// CallerIdentityForward: the gateway forwards the caller's bearer so the
 	// server acts AS the caller against first-party kora APIs. Valid ONLY on
-	// global (orbit-system) servers.
+	// global (kora-system) servers.
 	CallerIdentityForward = "forward"
 )
 
@@ -58,7 +58,7 @@ const (
 const transportStreamableHTTP = "streamable-http"
 
 // -----------------------------------------------------------------------------
-// MCPServer — namespaced; orbit-system for global, tenant namespace for tenant
+// MCPServer — namespaced; kora-system for global, tenant namespace for tenant
 // -----------------------------------------------------------------------------
 
 // MCPServer declares one MCP server kora governs.

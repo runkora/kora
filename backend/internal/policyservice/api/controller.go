@@ -64,10 +64,10 @@ func (c *Controller) GroupedBy() string { return "/policy" }
 // except bundle polling endpoints.
 //
 // GET /bundles/{tenant_id} — polled by per-tenant OPA sidecars in tenant namespaces.
-// GET /bundles/gateway     — polled by the OPA gateway pod in orbit-system only;
+// GET /bundles/gateway     — polled by the OPA gateway pod in kora-system only;
 //
 //	an Istio AuthorizationPolicy (authorizationpolicy-policy-service.yaml) denies
-//	access from outside orbit-system, since the gateway bundle contains all tenants'
+//	access from outside kora-system, since the gateway bundle contains all tenants'
 //	grants, roles, and routes.
 func (c *Controller) Middleware() mw.MiddlewareHandler {
 	// The verified delegation bounds a delegated run's scope check by the person's access.

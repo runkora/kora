@@ -9,13 +9,13 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// orbit-agents gets, creates and deletes run pods, and lists a StatefulSet's
+// kora-agents gets, creates and deletes run pods, and lists a StatefulSet's
 // pods to find the Ready ones before a run starts (internal/agents/k8s.go).
 func TestChartAgentsClusterRoleGrantsPodVerbs(t *testing.T) {
 	out := renderChart(t, "{}\n")
 	var role rbacv1.ClusterRole
 	for doc := range strings.SplitSeq(out, "\n---\n") {
-		if strings.Contains(doc, "kind: ClusterRole\n") && strings.Contains(doc, "name: orbit-agents\n") {
+		if strings.Contains(doc, "kind: ClusterRole\n") && strings.Contains(doc, "name: kora-agents\n") {
 			if err := yaml.Unmarshal([]byte(doc), &role); err != nil {
 				t.Fatal(err)
 			}
@@ -29,7 +29,7 @@ func TestChartAgentsClusterRoleGrantsPodVerbs(t *testing.T) {
 	}
 	for _, want := range []string{"get", "list", "create", "delete"} {
 		if !slices.Contains(verbs, want) {
-			t.Errorf("orbit-agents ClusterRole pod verbs = %v, missing %q", verbs, want)
+			t.Errorf("kora-agents ClusterRole pod verbs = %v, missing %q", verbs, want)
 		}
 	}
 }

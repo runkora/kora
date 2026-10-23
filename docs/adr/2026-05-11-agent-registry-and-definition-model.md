@@ -46,7 +46,7 @@ There is no data model or API for agent types. Every agent that exists today req
 
 ### Option A: Database-backed registry with API and UI
 
-**Description:** Agent types are records in the `orbit-agents` PostgreSQL database. Users create them via REST API or UI. The `orbit-agents` service translates definitions into k8s and SPIRE resources imperatively.
+**Description:** Agent types are records in the `kora-agents` PostgreSQL database. Users create them via REST API or UI. The `kora-agents` service translates definitions into k8s and SPIRE resources imperatively.
 
 **Pros:**
 - Simple user-facing model — no k8s concepts exposed
@@ -56,7 +56,7 @@ There is no data model or API for agent types. Every agent that exists today req
 
 **Cons:**
 - Not GitOps-native — agent types cannot be version-controlled as YAML
-- Requires `orbit-agents` to be running for lifecycle operations
+- Requires `kora-agents` to be running for lifecycle operations
 
 ### Option B: OrbitAgent CRD (GitOps-native)
 
@@ -153,7 +153,7 @@ Option A keeps the user-facing surface clean while giving the platform full cont
 ### Negative
 
 - Not GitOps-native in v1 — agent type definitions cannot be applied via `kubectl` or ArgoCD
-- `orbit-agents` must be healthy for provisioning and teardown — no automatic reconciliation from stored state if the service is down during provisioning
+- `kora-agents` must be healthy for provisioning and teardown — no automatic reconciliation from stored state if the service is down during provisioning
 
 ### Neutral
 
@@ -165,7 +165,7 @@ Option A keeps the user-facing surface clean while giving the platform full cont
 
 ### Migration
 
-New table `agent_types` in the `orbit-agents` service database. No migration to existing tables required.
+New table `agent_types` in the `kora-agents` service database. No migration to existing tables required.
 
 ### Scope Registration
 

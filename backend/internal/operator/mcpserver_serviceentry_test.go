@@ -21,11 +21,11 @@ func mcpEntry(name, endpoint string) mcpServerRegistryEntry {
 
 func TestMCPServiceEntries(t *testing.T) {
 	ses, skipped := mcpServiceEntries([]mcpServerRegistryEntry{
-		mcpEntry("github", "http://github-mcp.orbit-tenant-acme.svc:8000/mcp"),
+		mcpEntry("github", "http://github-mcp.kora-tenant-acme.svc:8000/mcp"),
 		mcpEntry("local", "http://10.0.0.5:8000/mcp"),
-		mcpEntry("cased", "http://Orbit-Identity.Orbit-System.SVC.Cluster.Local:8080/mcp"),
-		mcpEntry("dotted", "http://orbit-identity.orbit-system.svc.cluster.local.:8080/mcp"),
-		mcpEntry("short", "http://Orbit-Identity:8080/mcp"),
+		mcpEntry("cased", "http://Kora-Identity.Kora-System.SVC.Cluster.Local:8080/mcp"),
+		mcpEntry("dotted", "http://kora-identity.kora-system.svc.cluster.local.:8080/mcp"),
+		mcpEntry("short", "http://Kora-Identity:8080/mcp"),
 		mcpEntry("exa-dot", "https://mcp.exa.ai./mcp"),
 		mcpEntry("exa", "https://MCP.exa.ai/mcp"),
 		mcpEntry("exa-alt", "https://mcp.exa.ai:8443/mcp"),
@@ -33,13 +33,13 @@ func TestMCPServiceEntries(t *testing.T) {
 		mcpEntry("plain", "http://tools.example.com/mcp"),
 		mcpEntry("clash", "http://mcp.exa.ai:443/mcp"),
 		mcpEntry("provider", "https://openrouter.ai/mcp"),
-		mcpEntry("svc-ns", "http://orbit-identity.Orbit-System:8080/mcp"),
-		mcpEntry("headless", "http://pod-0.mcp.orbit-tenant-acme:8080/mcp"),
-		mcpEntry("pod", "http://10-42-2-6.orbit-system.pod:8080/mcp"),
-		mcpEntry("pod-fqdn", "http://10-42-2-6.orbit-system.pod.cluster.local:8080/mcp"),
-		mcpEntry("default-ns", "http://orbit-identity.default:8080/mcp"),
+		mcpEntry("svc-ns", "http://kora-identity.Kora-System:8080/mcp"),
+		mcpEntry("headless", "http://pod-0.mcp.kora-tenant-acme:8080/mcp"),
+		mcpEntry("pod", "http://10-42-2-6.kora-system.pod:8080/mcp"),
+		mcpEntry("pod-fqdn", "http://10-42-2-6.kora-system.pod.cluster.local:8080/mcp"),
+		mcpEntry("default-ns", "http://kora-identity.default:8080/mcp"),
 		mcpEntry("public-default", "https://mcp.default.io/mcp"),
-	}, map[string]bool{"openrouter.ai": true}, map[string]bool{"orbit-system": true, "orbit-tenant-acme": true, "default": true})
+	}, map[string]bool{"openrouter.ai": true}, map[string]bool{"kora-system": true, "kora-tenant-acme": true, "default": true})
 
 	var names []string
 	for _, sk := range skipped {
@@ -92,7 +92,7 @@ func TestMCPAggregator_SyncsServiceEntries(t *testing.T) {
 		Spec:       MCPServerSpec{Endpoint: "https://mcp.exa.ai/mcp"},
 	}
 	provider := externalServiceEntry("inference-provider-openrouter", systemNamespace,
-		map[string]any{"app.kubernetes.io/managed-by": "orbit-operator"}, tlsEndpoints("openrouter.ai"))
+		map[string]any{"app.kubernetes.io/managed-by": "kora-operator"}, tlsEndpoints("openrouter.ai"))
 	var writes int
 	c := fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(tenant("acme", true), exa, provider).
 		WithInterceptorFuncs(interceptor.Funcs{

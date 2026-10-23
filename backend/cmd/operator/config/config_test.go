@@ -15,7 +15,7 @@ func TestBaseDefaults(t *testing.T) {
 		t.Fatalf("load base config: %v", err)
 	}
 	in := cfg.Install
-	if in.SystemNamespace != "orbit-system" || in.PodSecurity.Enforce != "restricted" || in.Injection.BundlePollingMaxDelay != 60 {
+	if in.SystemNamespace != "kora-system" || in.PodSecurity.Enforce != "restricted" || in.Injection.BundlePollingMaxDelay != 60 {
 		t.Errorf("install defaults = %+v", in)
 	}
 	if in.SandboxImages.BaseImage != "ghcr.io/runkora/kora-sandbox-base:latest" || in.SandboxImages.WarmBase {

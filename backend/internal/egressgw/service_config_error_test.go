@@ -46,7 +46,7 @@ func TestAuthorize_UnreadableConnectionDenies(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodGet, "https://github.com/orbital/orbit", nil)
 	_, err := broker.Authorize(context.Background(),
-		claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-1"),
+		claimsFor("acme", "spiffe://orbit.test/tenant/kora-tenant-acme/agent/coder", "run-1"),
 		FromHTTP(req))
 
 	if !errors.Is(err, credentials.ErrInvalidConfig) {

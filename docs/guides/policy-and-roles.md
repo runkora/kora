@@ -245,7 +245,7 @@ The edge OPA, the sidecar OPA, and the in-process `ScopeEnforcementMiddleware` r
 
 Route registrations live in the policy service's memory. After a restart, bundles hold no routes until services re-register. The policy service must run as a single replica.
 
-The bundle endpoint `GET /api/v1/policy/bundles/{tenant_id}` is unauthenticated and restricted by Istio `PeerAuthentication` STRICT mTLS. Keep STRICT mode enabled for `orbit-system` in every environment.
+The bundle endpoint `GET /api/v1/policy/bundles/{tenant_id}` is unauthenticated and restricted by Istio `PeerAuthentication` STRICT mTLS. Keep STRICT mode enabled for `kora-system` in every environment.
 
 ## Propagation Timing
 

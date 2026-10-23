@@ -1,7 +1,7 @@
 {{- if and .Values.platform.spiffe.enabled .Values.triggers.authorizationPolicy.enabled }}
-# AuthorizationPolicy: restrict who may reach orbit-triggers at all.
+# AuthorizationPolicy: restrict who may reach kora-triggers at all.
 #
-# orbit-triggers holds every webhook source's signing secret and can start a run
+# kora-triggers holds every webhook source's signing secret and can start a run
 # under any trigger's own principal. Its own scope enforcement treats a SYSTEM
 # principal as unrestricted — the platform-wide convention — so a token minted by
 # any other in-mesh component reaches every triggers route. Mesh-wide
@@ -19,7 +19,7 @@
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: orbit-triggers-callers
+  name: kora-triggers-callers
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.triggers.labels" . | nindent 4 }}

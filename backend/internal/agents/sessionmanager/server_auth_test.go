@@ -137,10 +137,10 @@ func TestRequireExpectedCaller(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name: "orbit-agents system token is accepted",
+			name: "kora-agents system token is accepted",
 			claims: &token.PlatformClaims{Kora: token.KoraClaims{
 				PrincipalType: token.PrincipalTypeSystem,
-				DisplayName:   "orbit-agents",
+				DisplayName:   "kora-agents",
 			}},
 			wantReach:  true,
 			wantStatus: http.StatusOK,
@@ -151,7 +151,7 @@ func TestRequireExpectedCaller(t *testing.T) {
 			name: "another system component is rejected",
 			claims: &token.PlatformClaims{Kora: token.KoraClaims{
 				PrincipalType: token.PrincipalTypeSystem,
-				DisplayName:   "orbit-triggers",
+				DisplayName:   "kora-triggers",
 			}},
 			wantStatus: http.StatusForbidden,
 		},
@@ -159,7 +159,7 @@ func TestRequireExpectedCaller(t *testing.T) {
 			name: "an agent's own token is rejected",
 			claims: &token.PlatformClaims{Kora: token.KoraClaims{
 				PrincipalType: token.PrincipalTypeAgent,
-				DisplayName:   "orbit-agents",
+				DisplayName:   "kora-agents",
 			}},
 			wantStatus: http.StatusForbidden,
 		},

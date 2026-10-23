@@ -47,12 +47,12 @@ function analyticsPayload(overrides: Record<string, unknown> = {}) {
 let fetchAnalyticsPrincipalByIdFromGateway: typeof import('./analytics-server').fetchAnalyticsPrincipalByIdFromGateway;
 
 beforeAll(async () => {
-  vi.stubEnv('KORA_API_URL', 'http://orbit-api.test');
+  vi.stubEnv('KORA_API_URL', 'http://kora-api.test');
   vi.stubEnv('INFERENCE_GATEWAY_URL', GATEWAY_URL);
   vi.stubEnv('POLICY_GATEWAY_URL', 'http://policy-gateway.test');
   vi.stubEnv('POLICY_SERVICE_URL', 'http://policy-service.test');
-  vi.stubEnv('KORA_AGENTS_URL', 'http://orbit-agents.test');
-  vi.stubEnv('KORA_TRIGGERS_URL', 'http://orbit-triggers.test');
+  vi.stubEnv('KORA_AGENTS_URL', 'http://kora-agents.test');
+  vi.stubEnv('KORA_TRIGGERS_URL', 'http://kora-triggers.test');
   vi.stubEnv('TOOL_GATEWAY_URL', 'http://tool-gateway.test');
 
   ({ fetchAnalyticsPrincipalByIdFromGateway } = await import('./analytics-server'));

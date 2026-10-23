@@ -88,7 +88,7 @@ func TestChartRenderedConfigDecodes(t *testing.T) {
 	}
 	for name, files := range valueSets {
 		t.Run(name, func(t *testing.T) {
-			args := []string{"template", "orbit", chart, "-n", "orbit-system"}
+			args := []string{"template", "kora", chart, "-n", "kora-system"}
 			for _, f := range files {
 				args = append(args, "-f", f)
 			}

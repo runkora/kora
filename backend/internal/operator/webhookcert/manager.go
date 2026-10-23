@@ -28,7 +28,7 @@ import (
 
 const (
 	// SecretName holds the CA and serving key pair in the operator's namespace.
-	SecretName = "orbit-operator-webhook-tls"
+	SecretName = "kora-operator-webhook-tls"
 
 	keyCACert       = "ca.crt"
 	keyCAKey        = "ca.key"
@@ -48,8 +48,8 @@ var Webhooks = struct {
 	Mutating   string
 	Validating string
 }{
-	Mutating:   "aaa-orbit-agent-pod-mutator",
-	Validating: "orbit-agent-pod-validator",
+	Mutating:   "aaa-kora-agent-pod-mutator",
+	Validating: "kora-agent-pod-validator",
 }
 
 // Manager owns the webhook certificate lifecycle for one operator process.
@@ -182,7 +182,7 @@ func (m *Manager) ensureSecret(ctx context.Context) (*corev1.Secret, error) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      SecretName,
 			Namespace: m.Namespace,
-			Labels:    map[string]string{"app.kubernetes.io/managed-by": "orbit-operator"},
+			Labels:    map[string]string{"app.kubernetes.io/managed-by": "kora-operator"},
 		},
 		Type: corev1.SecretTypeTLS,
 		Data: map[string][]byte{keyCACert: ca, keyCAKey: caKey, keyTLSCert: cert, keyTLSKey: key},
@@ -299,7 +299,7 @@ func newCA() (certPEM, keyPEM []byte, err error) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "orbit-operator-webhook-ca"},
+		Subject:               pkix.Name{CommonName: "kora-operator-webhook-ca"},
 		NotBefore:             time.Now().Add(-5 * time.Minute),
 		NotAfter:              time.Now().Add(caValidity),
 		IsCA:                  true,

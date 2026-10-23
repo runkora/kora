@@ -37,7 +37,7 @@ func TestMCPServer_Classifies(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			srv := mcpWorkloadSrv("gh", "orbit-tenant-acme", "http://gh:8000/mcp", c.selector)
+			srv := mcpWorkloadSrv("gh", "kora-tenant-acme", "http://gh:8000/mcp", c.selector)
 			if got := srv.classifies(c.podLabels); got != c.want {
 				t.Errorf("classifies = %v, want %v", got, c.want)
 			}
@@ -59,7 +59,7 @@ func TestMCPServer_EndpointPort(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			srv := mcpWorkloadSrv("gh", "orbit-tenant-acme", c.endpoint, map[string]string{"app": "gh"})
+			srv := mcpWorkloadSrv("gh", "kora-tenant-acme", c.endpoint, map[string]string{"app": "gh"})
 			got, err := srv.endpointPort()
 			if c.wantErr {
 				if err == nil {
@@ -80,11 +80,11 @@ func TestMCPServer_EndpointPort(t *testing.T) {
 // The ingress policy admits the tool-gateway in the system namespace and
 // nothing else, on the endpoint's port.
 func TestMCPServer_IngressPolicy(t *testing.T) {
-	srv := mcpWorkloadSrv("gh", "orbit-tenant-acme", "http://gh:8000/mcp", map[string]string{"app": "gh"})
+	srv := mcpWorkloadSrv("gh", "kora-tenant-acme", "http://gh:8000/mcp", map[string]string{"app": "gh"})
 
 	policy := srv.ingressPolicy(8000)
 
-	if policy.Namespace != "orbit-tenant-acme" {
+	if policy.Namespace != "kora-tenant-acme" {
 		t.Errorf("namespace: got %q", policy.Namespace)
 	}
 	if policy.Spec.PodSelector.MatchLabels["app"] != "gh" {
@@ -110,7 +110,7 @@ func TestMCPServer_IngressPolicy(t *testing.T) {
 
 // Istio prepends spiffe://, so the principal is written without it.
 func TestMCPServer_AuthorizationPolicy(t *testing.T) {
-	srv := mcpWorkloadSrv("gh", "orbit-tenant-acme", "http://gh:8000/mcp", map[string]string{"app": "gh"})
+	srv := mcpWorkloadSrv("gh", "kora-tenant-acme", "http://gh:8000/mcp", map[string]string{"app": "gh"})
 
 	original := trustDomain
 	t.Cleanup(func() { trustDomain = original })
@@ -120,7 +120,7 @@ func TestMCPServer_AuthorizationPolicy(t *testing.T) {
 	if policy == nil {
 		t.Fatal("expected a policy")
 	}
-	if policy.GetKind() != "AuthorizationPolicy" || policy.GetNamespace() != "orbit-tenant-acme" {
+	if policy.GetKind() != "AuthorizationPolicy" || policy.GetNamespace() != "kora-tenant-acme" {
 		t.Errorf("got %s in %q", policy.GetKind(), policy.GetNamespace())
 	}
 	rules, found, err := unstructuredSlice(policy.Object, "spec", "rules")
@@ -161,19 +161,19 @@ func TestMCPServer_EndpointHost(t *testing.T) {
 // Istio derives the expected SAN from the destination ServiceAccount, which
 // never matches a SPIRE-issued identity, so the rule names it explicitly.
 func TestMCPServer_DestinationRule(t *testing.T) {
-	srv := mcpWorkloadSrv("github", "orbit-tenant-acme", "http://github-mcp.orbit-tenant-acme.svc:8000/mcp", map[string]string{"app": "gh"})
+	srv := mcpWorkloadSrv("github", "kora-tenant-acme", "http://github-mcp.kora-tenant-acme.svc:8000/mcp", map[string]string{"app": "gh"})
 
 	original := trustDomain
 	t.Cleanup(func() { trustDomain = original })
 	trustDomain = "orbit.example.com"
 
-	rule := srv.destinationRule(8000, "github-mcp.orbit-tenant-acme.svc.cluster.local")
+	rule := srv.destinationRule(8000, "github-mcp.kora-tenant-acme.svc.cluster.local")
 
-	if rule.GetKind() != "DestinationRule" || rule.GetNamespace() != "orbit-tenant-acme" {
+	if rule.GetKind() != "DestinationRule" || rule.GetNamespace() != "kora-tenant-acme" {
 		t.Errorf("got %s in %q", rule.GetKind(), rule.GetNamespace())
 	}
 	spec, _ := rule.Object["spec"].(map[string]any)
-	if spec["host"] != "github-mcp.orbit-tenant-acme.svc.cluster.local" {
+	if spec["host"] != "github-mcp.kora-tenant-acme.svc.cluster.local" {
 		t.Errorf("host: got %v", spec["host"])
 	}
 	// The caller is in the system namespace, so a rule in the server's own
@@ -192,7 +192,7 @@ func TestMCPServer_DestinationRule(t *testing.T) {
 		t.Errorf("tls mode: got %v", tls["mode"])
 	}
 	sans, _ := tls["subjectAltNames"].([]any)
-	if want := "spiffe://orbit.example.com/tenant/orbit-tenant-acme/service/github"; sans[0] != want {
+	if want := "spiffe://orbit.example.com/tenant/kora-tenant-acme/service/github"; sans[0] != want {
 		t.Errorf("SAN: got %v, want %q", sans[0], want)
 	}
 }
@@ -200,7 +200,7 @@ func TestMCPServer_DestinationRule(t *testing.T) {
 // A workload block with no selector would classify every pod in the namespace.
 func TestValidateMCPServerSpec_WorkloadSelectorRequired(t *testing.T) {
 	spec := MCPServerSpec{Endpoint: "http://gh:8000/mcp", Workload: &MCPServerWorkload{}}
-	if err := validateMCPServerSpec(spec, "gh", "orbit-tenant-acme"); err != ErrMCPServerNoWorkloadSelector {
+	if err := validateMCPServerSpec(spec, "gh", "kora-tenant-acme"); err != ErrMCPServerNoWorkloadSelector {
 		t.Errorf("got %v, want ErrMCPServerNoWorkloadSelector", err)
 	}
 }
@@ -210,17 +210,17 @@ func TestValidateMCPServerSpec_WorkloadSelectorRequired(t *testing.T) {
 func TestValidateMCPServerSpec_NameBoundedByLabelValue(t *testing.T) {
 	spec := MCPServerSpec{Endpoint: "http://gh:8000/mcp"}
 
-	if err := validateMCPServerSpec(spec, strings.Repeat("g", 63), "orbit-tenant-acme"); err != nil {
+	if err := validateMCPServerSpec(spec, strings.Repeat("g", 63), "kora-tenant-acme"); err != nil {
 		t.Errorf("63 characters should be accepted, got %v", err)
 	}
-	if err := validateMCPServerSpec(spec, strings.Repeat("g", 64), "orbit-tenant-acme"); err != ErrMCPServerNameTooLong {
+	if err := validateMCPServerSpec(spec, strings.Repeat("g", 64), "kora-tenant-acme"); err != ErrMCPServerNameTooLong {
 		t.Errorf("got %v, want ErrMCPServerNameTooLong", err)
 	}
 }
 
 // The spec carries a map, so a shallow copy would alias it between CRs.
 func TestMCPServer_DeepCopyIsolatesTheSelector(t *testing.T) {
-	srv := mcpWorkloadSrv("gh", "orbit-tenant-acme", "http://gh:8000/mcp", map[string]string{"app": "gh"})
+	srv := mcpWorkloadSrv("gh", "kora-tenant-acme", "http://gh:8000/mcp", map[string]string{"app": "gh"})
 
 	copied := srv.DeepCopy()
 	copied.Spec.Workload.Selector["app"] = "changed"
@@ -254,7 +254,7 @@ func TestMutateMCPServer_SkipsAgentEnforcement(t *testing.T) {
 	m := testMutator()
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "github-mcp-1", Namespace: "orbit-tenant-acme",
+			Name: "github-mcp-1", Namespace: "kora-tenant-acme",
 			Labels: map[string]string{"app": "gh"},
 		},
 		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "server", Image: "gh"}}},

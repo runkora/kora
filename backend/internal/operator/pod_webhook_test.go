@@ -13,7 +13,7 @@ import (
 
 func testMutator() *PodMutator {
 	return &PodMutator{Config: InjectionConfig{
-		SystemNamespace:         "orbit-system",
+		SystemNamespace:         "kora-system",
 		ImagePullSecrets:        []string{"regcred"},
 		OTLPEndpoint:            "http://otel-collector.observability.svc:4317",
 		SamplingRate:            "1.0",
@@ -28,7 +28,7 @@ func testMutator() *PodMutator {
 func sandboxLikePod() *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "sandbox-1", Namespace: "orbit-tenant-example",
+			Name: "sandbox-1", Namespace: "kora-tenant-example",
 			Labels: map[string]string{"runkora.io/role": "sandbox"},
 			Annotations: map[string]string{
 				"proxy.istio.io/config":                        `{"holdApplicationUntilProxyStarts": true}`,

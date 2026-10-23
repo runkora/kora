@@ -10,15 +10,15 @@ Before debugging an individual service, check that you are looking at the local 
 kubectl config current-context                    # expected: k3d-orbit-local
 docker compose ps                                 # Postgres, Redis, glauth, Dex, HAProxy
 kubectl get orbitplatform orbit                   # operator reconciliation state
-kubectl get pods -n orbit-system                  # control-plane services
-kubectl get pods -n orbit-tenant-example          # example tenant workloads
+kubectl get pods -n kora-system                  # control-plane services
+kubectl get pods -n kora-tenant-example          # example tenant workloads
 ```
 
 The operator's preflight reports whether SPIRE and Istio meet kora's prerequisites. If a tenant is not `Ready`, check its `PrerequisitesSatisfied` condition and the operator log before chasing an application pod:
 
 ```bash
 kubectl describe koratenant <name>
-kubectl logs deployment/orbit-operator -n orbit-system
+kubectl logs deployment/kora-operator -n kora-system
 ```
 
 `make up` is idempotent. Re-running it is the first recovery step when setup stopped partway through or the cluster drifted after a Docker restart.
@@ -28,12 +28,12 @@ kubectl logs deployment/orbit-operator -n orbit-system
 A pod can be running while one of its containers is unready or repeatedly restarting. Check the containers separately.
 
 ```bash
-kubectl get pod <pod> -n orbit-system \
+kubectl get pod <pod> -n kora-system \
   -o jsonpath='{range .status.initContainerStatuses[*]}{.name}{"\t"}{.ready}{"\t"}{.restartCount}{"\n"}{end}{range .status.containerStatuses[*]}{.name}{"\t"}{.ready}{"\t"}{.restartCount}{"\n"}{end}'
 
-kubectl logs <pod> -n orbit-system -c <container>
-kubectl logs <pod> -n orbit-system -c <container> --previous
-kubectl describe pod <pod> -n orbit-system
+kubectl logs <pod> -n kora-system -c <container>
+kubectl logs <pod> -n kora-system -c <container> --previous
+kubectl describe pod <pod> -n kora-system
 ```
 
 Use `--previous` for a crash loop: it shows the logs from the container invocation that has already failed. `kubectl describe` shows scheduling failures, image-pull errors, failed probes, and recent pod events.
@@ -57,7 +57,7 @@ First, re-run the idempotent setup and check the identity logs:
 
 ```bash
 make up
-kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity \
+kubectl logs deployment/kora-identity -n kora-system -c kora-identity \
   | grep -E 'OIDC provider initialized|hot-reload disabled|no tenants in registry'
 ```
 
@@ -75,8 +75,8 @@ If it is below 1024, apply the same recovery performed by `make up`, then restar
 ```bash
 docker run --rm --privileged alpine:3.20 \
   sysctl -w fs.inotify.max_user_instances=1024
-kubectl rollout restart deployment/orbit-identity -n orbit-system
-kubectl rollout status deployment/orbit-identity -n orbit-system
+kubectl rollout restart deployment/kora-identity -n kora-system
+kubectl rollout status deployment/kora-identity -n kora-system
 ```
 
 Run `make auth` again once the identity logs show that the OIDC provider has been initialised.

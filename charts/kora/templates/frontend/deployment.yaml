@@ -2,7 +2,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-frontend
+  name: kora-frontend
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.frontend.labels" . | nindent 4 }}
@@ -27,7 +27,7 @@ spec:
         {{- end }}
         {{- include "kora.podAnnotations" (dict "root" $ "name" "frontend") | nindent 8 }}
     spec:
-      serviceAccountName: orbit-frontend
+      serviceAccountName: kora-frontend
       {{- include "kora.imagePullSecrets" . | nindent 6 }}
       {{- include "kora.scheduling" (dict "root" $ "name" "frontend") | nindent 6 }}
       securityContext:
@@ -37,7 +37,7 @@ spec:
         {{- if $theme }}
         - name: theme-document
           configMap:
-            name: orbit-frontend-theme
+            name: kora-frontend-theme
         {{- end }}
         {{- include "kora.extraVolumes" (dict "root" $ "name" "frontend") | nindent 8 }}
       {{- if $theme }}
@@ -56,7 +56,7 @@ spec:
             {{- include "kora.themeVolumeMounts" . | nindent 12 }}
       {{- end }}
       containers:
-        - name: orbit-frontend
+        - name: kora-frontend
           image: {{ include "kora.image" (dict "root" $ "name" "frontend") | quote }}
           imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "frontend") }}
           securityContext:
@@ -65,7 +65,7 @@ spec:
             {{- include "kora.extraEnv" (dict "root" $ "name" "frontend") | nindent 12 }}
           envFrom:
             - configMapRef:
-                name: orbit-frontend-config
+                name: kora-frontend-config
             - secretRef:
                 name: {{ .Values.frontend.existingSecret }}
           ports:

@@ -44,18 +44,18 @@ A run's cost is available only from `GET /usage/run/{runID}` on the inference ga
 - The database migrations ADR allows cross-service reads at query time.
 
 **Cons:**
-- orbit-agents depends on the shape of a table the gateway owns.
+- kora-agents depends on the shape of a table the gateway owns.
 
 ### Option 2: orbit-agents calls a batch endpoint on the inference gateway
 
-**Description:** Add `POST /usage/runs` to the gateway and a typed client in orbit-agents.
+**Description:** Add `POST /usage/runs` to the gateway and a typed client in kora-agents.
 
 **Pros:**
 - The gateway keeps sole access to its table.
 
 **Cons:**
 - A new endpoint, client, service-to-service credential and failure mode on every run read.
-- The gateway would have to trust orbit-agents for the run access decision, or repeat it per run.
+- The gateway would have to trust kora-agents for the run access decision, or repeat it per run.
 
 ### Option 3: Copy totals onto `runs`
 
@@ -66,13 +66,13 @@ A run's cost is available only from `GET /usage/run/{runID}` on the inference ga
 
 **Cons:**
 - Two writers for one fact, with drift when a usage write succeeds and the run update fails.
-- The gateway would write to a table orbit-agents owns.
+- The gateway would write to a table kora-agents owns.
 
 ---
 
 ## Decision
 
-**Chosen Option:** Option 1, a query-time read of `inference_usage` by orbit-agents.
+**Chosen Option:** Option 1, a query-time read of `inference_usage` by kora-agents.
 
 ### Rationale
 
@@ -98,7 +98,7 @@ A live run reports its total so far. The query does not filter by run state, and
 
 ### Negative
 - `GET /api/v1/runs/{id}` and each list page cost one more query.
-- A change to `inference_usage` column names breaks orbit-agents.
+- A change to `inference_usage` column names breaks kora-agents.
 
 ### Neutral
 - The run page meter still reads the gateway endpoint.

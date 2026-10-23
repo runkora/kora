@@ -65,7 +65,7 @@ The preview omits `metadata.ownerReferences`. The runtime resolves those from a 
 
 ## Deploy the patch
 
-Set `agents.manifestPatches` in your values and upgrade the release. The chart writes each patch into the `orbit-agents-manifest-patches` ConfigMap and rolls the `kora-agents` pod. Patches load once at startup, so a change takes effect on that roll.
+Set `agents.manifestPatches` in your values and upgrade the release. The chart writes each patch into the `kora-agents-manifest-patches` ConfigMap and rolls the `kora-agents` pod. Patches load once at startup, so a change takes effect on that roll.
 
 If a patch fails to load, `kora-agents` fails to start and the error names the file. Fix the patch and upgrade again.
 

@@ -53,7 +53,7 @@ func TestOpenCodeConfig_ShellPath(t *testing.T) {
 		workDir := t.TempDir()
 		cfg.Logger = logging.NewLoggerWithOutput(io.Discard)
 		cfg.RunID = "run-1"
-		cfg.InferenceGatewayURL = "http://orbit-inference-gateway"
+		cfg.InferenceGatewayURL = "http://kora-inference-gateway"
 		r := NewOpenCodeRunner(cfg)
 		data, err := r.openCodeConfig(workDir)
 		if err != nil {
@@ -149,9 +149,9 @@ func TestCodexConfig_MCPServers(t *testing.T) {
 		Logger:              logging.NewLoggerWithOutput(io.Discard),
 		RunID:               "run-1",
 		Model:               "anthropic/claude-sonnet-4-6",
-		InferenceGatewayURL: "http://orbit-inference-gateway",
+		InferenceGatewayURL: "http://kora-inference-gateway",
 		SessionManagerURL:   "http://localhost:8090",
-		ToolGatewayURL:      "http://orbit-tool-gateway/run/run-1",
+		ToolGatewayURL:      "http://kora-tool-gateway/run/run-1",
 		MCPServers:          []string{"github"},
 	})
 	codexHome, err := r.writeCodexConfig(workDir)
@@ -210,7 +210,7 @@ func TestCodexConfig_MCPServers(t *testing.T) {
 		`KORA_SESSION_MANAGER_URL = "http://localhost:8090"`,
 		`KORA_RUN_ID              = "run-1"`,
 		"[mcp_servers.github]",
-		`url = "http://orbit-tool-gateway/run/run-1/v1/mcp/github"`,
+		`url = "http://kora-tool-gateway/run/run-1/v1/mcp/github"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("config.toml is missing %q:\n%s", want, got)
@@ -223,9 +223,9 @@ func TestOpenCodeConfig_MCPServers(t *testing.T) {
 	r := NewOpenCodeRunner(OpenCodeRunnerConfig{
 		Logger:              logging.NewLoggerWithOutput(io.Discard),
 		RunID:               "run-1",
-		InferenceGatewayURL: "http://orbit-inference-gateway",
+		InferenceGatewayURL: "http://kora-inference-gateway",
 		SessionManagerURL:   "http://localhost:8090",
-		ToolGatewayURL:      "http://orbit-tool-gateway/run/run-1",
+		ToolGatewayURL:      "http://kora-tool-gateway/run/run-1",
 		MCPServers:          []string{"github"},
 	})
 	data, err := r.openCodeConfig(workDir)
@@ -260,7 +260,7 @@ func TestOpenCodeConfig_MCPServers(t *testing.T) {
 	if !ok {
 		t.Fatalf("no github MCP server in %v", cfg.MCP)
 	}
-	if gh.Type != "remote" || gh.URL != "http://orbit-tool-gateway/run/run-1/v1/mcp/github" || !gh.Enabled {
+	if gh.Type != "remote" || gh.URL != "http://kora-tool-gateway/run/run-1/v1/mcp/github" || !gh.Enabled {
 		t.Errorf("github entry = %+v", gh)
 	}
 }

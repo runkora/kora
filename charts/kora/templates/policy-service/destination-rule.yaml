@@ -2,12 +2,12 @@
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: orbit-policy-service-client-policy
+  name: kora-policy-service-client-policy
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.policyService.labels" . | nindent 4 }}
 spec:
-  host: orbit-policy-service.{{ include "kora.systemNamespace" . }}.svc.cluster.local
+  host: kora-policy-service.{{ include "kora.systemNamespace" . }}.svc.cluster.local
   exportTo: ["*"]
   trafficPolicy:
     tls:

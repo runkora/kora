@@ -1,7 +1,7 @@
 /**
  * Integration tests for POST /api/trigger-sources and PATCH /api/trigger-sources/[id].
  *
- * Both routes copy an explicit list of fields to orbit-triggers, so the
+ * Both routes copy an explicit list of fields to kora-triggers, so the
  * write-only signing secret needs a test that each route forwards it.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';

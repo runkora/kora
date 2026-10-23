@@ -108,7 +108,7 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 	_ = repo.Create(context.Background(), &credentials.Connection{
 		ID: "conn-1", TenantID: "acme", Name: "github",
 		Adapter: credentials.AdapterGitHubApp, BaseHost: upstreamHost,
-		SecretRef: "k8s:orbit-conn-acme-github", Config: cfg,
+		SecretRef: "k8s:kora-conn-acme-github", Config: cfg,
 	})
 
 	gh := githubapp.New(ghclient.NewClient(githubAPI.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
@@ -123,7 +123,7 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 	proxyInner := NewProxyHandler(broker, forwardTransport, testBrand, logger)
 
 	// Wrap proxyInner with claims-injection so the broker sees a verified caller.
-	innerWithAuth := authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), proxyInner)
+	innerWithAuth := authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/kora-tenant-acme/agent/coder", "run-9"), proxyInner)
 
 	// Wrap the single test CA in a one-tenant bundle so it satisfies
 	// CABundle. In production this comes from cabundle.LoadEager scanning the
@@ -138,7 +138,7 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 	// We bypass http.ServeMux because its routing is path-based and CONNECT
 	// requests carry host:port in the request-target (no path). The simplest
 	// correct behavior is to register a handler that always runs.
-	gatewayHandler := authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), connect)
+	gatewayHandler := authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/kora-tenant-acme/agent/coder", "run-9"), connect)
 
 	// httptest.NewServer is plain HTTP, which is what we want here: the proxy
 	// connection itself doesn't need TLS in the test (in production it sits

@@ -9,16 +9,16 @@ cmd/inference-gateway:
     enabled: {{ .Values.global.metrics.enabled }}
     port: {{ .Values.global.metrics.port | default 9464 }}
   identity:
-    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
+    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-identity") | toJson }}
   agents:
-    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-agents") | toJson }}
+    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-agents") | toJson }}
   policy:
     bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}
-    policyServiceURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
+    policyServiceURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-policy-service") | toJson }}
   providers:
     namespace: {{ include "kora.systemNamespace" . | toJson }}
 {{ include "kora.observabilityConfigModule" . }}
 {{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "kora.tokenConfigModule" . }}
 {{- end }}
-{{- include "kora.configMap" (dict "root" $ "name" "inferenceGateway" "configMap" "orbit-inference-gateway-config" "modules" (include "kora.inferenceGateway.configModules" . | fromYaml)) }}
+{{- include "kora.configMap" (dict "root" $ "name" "inferenceGateway" "configMap" "kora-inference-gateway-config" "modules" (include "kora.inferenceGateway.configModules" . | fromYaml)) }}

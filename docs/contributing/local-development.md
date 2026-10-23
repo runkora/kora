@@ -39,7 +39,7 @@ make up
 
 - `dev-up`: Starts Postgres, Redis, glauth, and Dex in Docker Compose. Generates `secrets/signing.key` on first run.
 - `dev-cluster`: Creates the k3d cluster `orbit-local` with a registry at `orbit-registry:5001`, and patches CoreDNS so pods resolve `dex.orbit.local.clearroute.io`.
-- `cluster-platform`: Builds any missing service images, creates the `orbit-system` namespace, secrets and TLS, writes the Docker network values to `deploy/reference/environments/local.generated.yaml`, then runs `helmfile -e local apply` from `deploy/reference/`. That installs SPIRE, Istio and the two kora charts in dependency order, the same sequence on any cluster. The `kora` chart's pre-install hook applies the database schema before any service starts. Helmfile diffs before applying, so an unchanged environment is a no-op.
+- `cluster-platform`: Builds any missing service images, creates the `kora-system` namespace, secrets and TLS, writes the Docker network values to `deploy/reference/environments/local.generated.yaml`, then runs `helmfile -e local apply` from `deploy/reference/`. That installs SPIRE, Istio and the two kora charts in dependency order, the same sequence on any cluster. The `kora` chart's pre-install hook applies the database schema before any service starts. Helmfile diffs before applying, so an unchanged environment is a no-op.
 - `cluster-deploy`: Runs `create-secrets.sh`, applies the `KoraTenant` resources, and deploys the workload fixtures.
 
 Endpoints once it finishes:
@@ -113,7 +113,7 @@ make check                       # run the full verify gate
 Edit `deploy/reference/environments/local.yaml`, then re-apply from `deploy/reference/`:
 
 ```bash
-helmfile -e local apply --selector name=orbit
+helmfile -e local apply --selector name=kora
 ```
 
 `helmfile -e example apply` renders the same charts against a starting point for a real cluster (`deploy/reference/environments/example.yaml`), not the local one.
@@ -182,10 +182,10 @@ There are no migration `Down` triggers in kora, a rollback via `helm rollback` w
 |---|---|---|
 | `DB_PASSWORD` | Fixed default `orbit` | Postgres password. Baked into the volume at first initialisation. Changing it requires `make dev-down-clean` first. |
 | `REDIS_PASSWORD` | Fixed default `orbit` | Redis password. |
-| `BFF_SESSION_SECRET` | Generated with `openssl rand -base64 32` | Signs the frontend iron-session cookie. Written into `orbit-frontend-secrets`. |
+| `BFF_SESSION_SECRET` | Generated with `openssl rand -base64 32` | Signs the frontend iron-session cookie. Written into `kora-frontend-secrets`. |
 | `KORA_TRIGGERS_ENCRYPTION_KEY` | Generated with `openssl rand -base64 32` | Encrypts stored trigger credentials. `kora-triggers` fails to start without it. |
 
-`create-secrets.sh` reads these from `.env` and, together with `secrets/signing.key`, writes them into `orbit-secrets` and `orbit-frontend-secrets` in the cluster.
+`create-secrets.sh` reads these from `.env` and, together with `secrets/signing.key`, writes them into `kora-secrets` and `kora-frontend-secrets` in the cluster.
 
 `.env.example` lists the optional overrides. Copy a line into `.env` only when you need to change it.
 
@@ -218,7 +218,7 @@ make test-postgres
 
 OIDC configuration is per-tenant, defined in the tenant registry.
 
-Local tenants are `KoraTenant` resources under `deploy/local/tenants/`, reconciled into the `orbit-tenants` ConfigMap by the operator. To bind a tenant to Microsoft Entra or any OIDC-compliant provider, edit the tenant's `oidc` block and re-apply:
+Local tenants are `KoraTenant` resources under `deploy/local/tenants/`, reconciled into the `kora-tenants` ConfigMap by the operator. To bind a tenant to Microsoft Entra or any OIDC-compliant provider, edit the tenant's `oidc` block and re-apply:
 
 ```yaml
 spec:
@@ -261,17 +261,17 @@ The client runs the MCP OAuth flow and opens the consent screen in your browser.
 1. **Name it.** `metadata.name` identifies the target cluster (not the adapter); a tenant can register more than one `adapter: kubernetes` connection.
 2. **Provision a bearer token** against the target cluster, with least-privilege RBAC:
    ```bash
-   kubectl create serviceaccount orbit-agent -n default --context <target-cluster-context>
-   kubectl create clusterrolebinding orbit-agent-view \
-     --clusterrole=view --serviceaccount=default:orbit-agent --context <target-cluster-context>
-   kubectl create token orbit-agent --duration=8760h --context <target-cluster-context>
+   kubectl create serviceaccount kora-agent -n default --context <target-cluster-context>
+   kubectl create clusterrolebinding kora-agent-view \
+     --clusterrole=view --serviceaccount=default:kora-agent --context <target-cluster-context>
+   kubectl create token kora-agent --duration=8760h --context <target-cluster-context>
    ```
    Store it in your local k3d cluster, where kora runs, under the name `spec.secretRef` points at:
    ```bash
-   kubectl create secret generic ${cluster}-token -n orbit-tenant-example \
+   kubectl create secret generic ${cluster}-token -n kora-tenant-example \
      --from-literal=token=<ServiceAccount token> --dry-run=client -o yaml | kubectl apply -f -
    ```
-   `make cluster-deploy` applies the shipped CR only once `orbit-local-token` exists; a copied CR under another name is applied by hand.
+   `make cluster-deploy` applies the shipped CR only once `kora-local-token` exists; a copied CR under another name is applied by hand.
 3. **Get the target cluster's CA cert** and put it inline in `spec.caCert` (it's not a secret):
    ```bash
    kubectl config view --raw \

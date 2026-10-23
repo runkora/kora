@@ -21,7 +21,7 @@ describe('toEnvironmentRow', () => {
     expect(toEnvironmentRow(env)).toMatchObject({ slug: 'go', name: 'Go services' });
   });
 
-  it('takes the name as the slug from an orbit-agents that sends none', () => {
+  it('takes the name as the slug from a kora-agents that sends none', () => {
     const previous = { ...env, slug: undefined, name: 'go' } as unknown as Environment;
     expect(toEnvironmentRow(previous).slug).toBe('go');
   });

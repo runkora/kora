@@ -11,7 +11,7 @@ import (
 // ─── Tenant Registry ──────────────────────────────────────────────────────────
 //
 // The tenant registry is a YAML file read from Config.Registry.TenantsPath: the
-// orbit-tenants ConfigMap, managed by the operator, mounted at /etc/kora/tenants.yaml.
+// kora-tenants ConfigMap, managed by the operator, mounted at /etc/kora/tenants.yaml.
 //
 // Schema:
 //
@@ -26,7 +26,7 @@ import (
 //	      scopes: [openid, profile, email]
 //
 // OIDC client secrets are NOT stored in this file. They are read from the
-// aggregated Secret orbit-tenant-oidc-secrets (managed by the orbit-operator)
+// aggregated Secret kora-tenant-oidc-secrets (managed by the kora-operator)
 // and passed to loadTenantRegistry as the clientSecrets map.
 // See docs/adr/2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md
 
@@ -73,7 +73,7 @@ type TenantOIDCConfig struct {
 // loadTenantRegistry reads the tenant registry at path and returns a map keyed
 // by tenant ID. Client secrets
 // are resolved from clientSecrets (keyed by tenant ID), which is populated
-// from the aggregated Secret orbit-tenant-oidc-secrets.
+// from the aggregated Secret kora-tenant-oidc-secrets.
 //
 // An empty path is not an error — it returns an empty map,
 // which causes tenantOIDC to return ErrOIDCNotConfigured for any tenant,

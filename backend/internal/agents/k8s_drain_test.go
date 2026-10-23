@@ -18,18 +18,18 @@ func TestSessionManagerScaleAndDrain(t *testing.T) {
 	p.cfg.DrainGracePeriodSecs = 3600
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 
-	ss := p.buildSessionManagerStatefulSet(at, "orbit-tenant-acme", podLabels(at))
+	ss := p.buildSessionManagerStatefulSet(at, "kora-tenant-acme", podLabels(at))
 	if *ss.Spec.Replicas != 2 || ss.Spec.Template.Spec.TerminationGracePeriodSeconds == nil || *ss.Spec.Template.Spec.TerminationGracePeriodSeconds != 3600 {
 		t.Errorf("replicas = %d, grace = %v, want 2 and 3600", *ss.Spec.Replicas, ss.Spec.Template.Spec.TerminationGracePeriodSeconds)
 	}
-	if hpa := p.buildHPA(at.Slug, "orbit-tenant-acme", nil); *hpa.Spec.MinReplicas != 2 {
+	if hpa := p.buildHPA(at.Slug, "kora-tenant-acme", nil); *hpa.Spec.MinReplicas != 2 {
 		t.Errorf("HPA minimum = %d, want 2", *hpa.Spec.MinReplicas)
 	}
 }
 
 // The headless Service keeps a draining pod in DNS, including on an existing Service.
 func TestHeadlessService_PublishesNotReadyAddresses(t *testing.T) {
-	const ns, name = "orbit-tenant-acme", "coder"
+	const ns, name = "kora-tenant-acme", "coder"
 	p := podSecurityProvisioner()
 	p.client = fake.NewSimpleClientset(&corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
@@ -50,7 +50,7 @@ func TestHeadlessService_PublishesNotReadyAddresses(t *testing.T) {
 
 // Deleting an agent deletes its pods instead of leaving them to drain.
 func TestDeprovision_DeletesAgentPods(t *testing.T) {
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	p := podSecurityProvisioner()
 	p.client = fake.NewSimpleClientset(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "coder-0", Namespace: ns, Labels: podLabels(at)}})
@@ -79,13 +79,13 @@ func TestBuildPDB_SingleReplicaAllowsDrain(t *testing.T) {
 	labels := map[string]string{"app": "coder"}
 
 	p.cfg.MinReplicas = 1
-	spec := p.buildPDB("coder", "orbit-tenant-acme", labels).Spec
+	spec := p.buildPDB("coder", "kora-tenant-acme", labels).Spec
 	if spec.MinAvailable != nil || spec.MaxUnavailable == nil || spec.MaxUnavailable.IntValue() != 1 {
 		t.Errorf("1 replica: minAvailable = %v, maxUnavailable = %v, want nil and 1", spec.MinAvailable, spec.MaxUnavailable)
 	}
 
 	p.cfg.MinReplicas = 2
-	spec = p.buildPDB("coder", "orbit-tenant-acme", labels).Spec
+	spec = p.buildPDB("coder", "kora-tenant-acme", labels).Spec
 	if spec.MaxUnavailable != nil || spec.MinAvailable == nil || spec.MinAvailable.IntValue() != 1 {
 		t.Errorf("2 replicas: minAvailable = %v, maxUnavailable = %v, want 1 and nil", spec.MinAvailable, spec.MaxUnavailable)
 	}

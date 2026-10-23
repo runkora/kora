@@ -69,7 +69,7 @@ func mcpServiceEntries(entries []mcpServerRegistryEntry, taken, namespaces map[s
 	}
 	sort.Strings(hosts)
 	out := make([]*unstructured.Unstructured, 0, len(hosts))
-	labels := map[string]any{"app.kubernetes.io/managed-by": "orbit-operator", componentLabel: mcpServerHostComponent}
+	labels := map[string]any{"app.kubernetes.io/managed-by": "kora-operator", componentLabel: mcpServerHostComponent}
 	for _, h := range hosts {
 		name := "mcp-server-" + h
 		if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 {
@@ -121,7 +121,7 @@ func (a *MCPServerAggregator) syncServiceEntries(ctx context.Context, entries []
 				return fmt.Errorf("create ServiceEntry %q: %w", name, err)
 			}
 		}
-		if err := a.client.Patch(ctx, se, client.Merge, client.FieldOwner("orbit-operator")); err != nil {
+		if err := a.client.Patch(ctx, se, client.Merge, client.FieldOwner("kora-operator")); err != nil {
 			return fmt.Errorf("patch ServiceEntry %q: %w", name, err)
 		}
 	}
@@ -138,7 +138,7 @@ func (a *MCPServerAggregator) syncServiceEntries(ctx context.Context, entries []
 func (a *MCPServerAggregator) operatorServiceEntries(ctx context.Context) (map[string]*unstructured.Unstructured, map[string]bool, error) {
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(serviceEntryGVK.GroupVersion().WithKind(serviceEntryGVK.Kind + "List"))
-	if err := a.client.List(ctx, list, client.InNamespace(systemNamespace), client.MatchingLabels{"app.kubernetes.io/managed-by": "orbit-operator"}); err != nil {
+	if err := a.client.List(ctx, list, client.InNamespace(systemNamespace), client.MatchingLabels{"app.kubernetes.io/managed-by": "kora-operator"}); err != nil {
 		return nil, nil, fmt.Errorf("list ServiceEntries: %w", err)
 	}
 	ours := make(map[string]*unstructured.Unstructured, len(list.Items))

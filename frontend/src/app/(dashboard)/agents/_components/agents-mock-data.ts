@@ -682,7 +682,7 @@ export const SCALE_USAGE: AgentTypeUsage[] = SCALE_AGENT_TYPES.map((a, i) => {
 
 // ── Run stats ────────────────────────────────────────────────────────────────
 
-/** The run stats orbit-agents would return for these rows, all inside the window. */
+/** The run stats kora-agents would return for these rows, all inside the window. */
 export function mockRunStats(rows: RunRow[]): AgentRunStats {
   const byState: AgentRunStats['current']['by_state'] = {};
   const liveByAgentType: Record<string, number> = {};

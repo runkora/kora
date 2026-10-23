@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	webhookServiceName = "orbit-operator-webhook"
+	webhookServiceName = "kora-operator-webhook"
 	spiffeSocket       = "unix:///run/secrets/workload-spiffe-uds/socket"
 )
 
@@ -70,18 +70,18 @@ func main() {
 		os.Exit(code)
 	}
 
-	logger.Info(ctx, "orbit-operator starting",
+	logger.Info(ctx, "kora-operator starting",
 		logging.Field{Key: "version", Value: oc.Current.App.Version},
 		logging.Field{Key: "environment", Value: config.Environment()},
 		logging.Field{Key: "systemNamespace", Value: oc.Current.Install.SystemNamespace},
 	)
 
 	if err := run(ctx, restCfg, logger); err != nil {
-		logger.Error(ctx, "orbit-operator exited with error", logging.Field{Key: "error", Value: err.Error()})
+		logger.Error(ctx, "kora-operator exited with error", logging.Field{Key: "error", Value: err.Error()})
 		shutdownObservability()
 		os.Exit(1)
 	}
-	logger.Info(ctx, "orbit-operator shutdown complete")
+	logger.Info(ctx, "kora-operator shutdown complete")
 }
 
 func run(ctx context.Context, restCfg *rest.Config, logger logging.Logger) error {
@@ -252,7 +252,7 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 		},
 		LeaderElection:          oc.Current.Operator.LeaderElection,
 		LeaderElectionNamespace: install.SystemNamespace,
-		LeaderElectionID:        "orbit-operator-leader",
+		LeaderElectionID:        "kora-operator-leader",
 		HealthProbeBindAddress:  ":8081",
 		WebhookServer: webhook.NewServer(webhook.Options{
 			Port:    9443,

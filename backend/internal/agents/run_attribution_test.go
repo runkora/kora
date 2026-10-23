@@ -109,10 +109,10 @@ func TestStartRun_TriggerAttribution_RefusedForNonServicePrincipals(t *testing.T
 // thing in the console.
 func TestStartRun_TriggerAttribution_RefusedForUnrelatedServicePrincipals(t *testing.T) {
 	for _, principal := range []string{
-		"session-manager",         // an ordinary in-mesh workload
-		"trigger:some-other-id",   // a real trigger naming a sibling
-		"prefix-trigger:trig-1",   // suffix lookalike
-		"orbit-inference-gateway", // another platform service
+		"session-manager",        // an ordinary in-mesh workload
+		"trigger:some-other-id",  // a real trigger naming a sibling
+		"prefix-trigger:trig-1",  // suffix lookalike
+		"kora-inference-gateway", // another platform service
 	} {
 		t.Run(principal, func(t *testing.T) {
 			f, repo, _, _ := newTestService(t)

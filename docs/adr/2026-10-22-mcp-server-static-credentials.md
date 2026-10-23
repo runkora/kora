@@ -19,8 +19,8 @@ This decision touches *How does it connect?*. The gateway presents a service cre
 
 The current code behaves as follows:
 
-*   `MCPServerSpec` (`internal/operator/mcpserver_types.go`) has no credential field. The operator renders every valid `MCPServer` into the `orbit-mcp-servers` ConfigMap (`servers.json`) in the system namespace. Both tool-gateway deployments mount it. The gateway has no Kubernetes API access.
-*   `ConnectionAggregator` (`internal/operator/connection_aggregator.go`) copies the Secrets that tenant `Connection` CRs reference into the `orbit-tenant-connection-secrets` Secret in the system namespace, and the egress gateway mounts it. The operator reads Secrets uncached and holds no Secret informer (`cmd/operator/main.go`). The tenant reconciler re-runs every aggregator on a five-minute requeue.
+*   `MCPServerSpec` (`internal/operator/mcpserver_types.go`) has no credential field. The operator renders every valid `MCPServer` into the `kora-mcp-servers` ConfigMap (`servers.json`) in the system namespace. Both tool-gateway deployments mount it. The gateway has no Kubernetes API access.
+*   `ConnectionAggregator` (`internal/operator/connection_aggregator.go`) copies the Secrets that tenant `Connection` CRs reference into the `kora-tenant-connection-secrets` Secret in the system namespace, and the egress gateway mounts it. The operator reads Secrets uncached and holds no Secret informer (`cmd/operator/main.go`). The tenant reconciler re-runs every aggregator on a five-minute requeue.
 *   The `MCPServer` reconciler sets the CR's `Aggregated` condition on spec changes only.
 *   The proxy dials with `http.DefaultClient`, and the introspector dials with a tracing client. Both follow redirects. `validateMCPServerSpec` checks only that `spec.endpoint` is non-empty.
 *   On a non-2xx response, the MCP Go SDK places the upstream's JSON-RPC error body in the returned error. The introspector logs that error with the endpoint and keeps it in the server snapshot.
@@ -62,7 +62,7 @@ The current code behaves as follows:
 
 ### D2. Delivery to the gateway
 
-*   **Option A (chosen):** The operator copies each referenced value into one Secret in the system namespace, `orbit-mcp-server-secrets`, and both tool-gateway deployments mount it. `servers.json` carries the header name, the prefix and the data key in that Secret.
+*   **Option A (chosen):** The operator copies each referenced value into one Secret in the system namespace, `kora-mcp-server-secrets`, and both tool-gateway deployments mount it. `servers.json` carries the header name, the prefix and the data key in that Secret.
 *   **Option B (rejected):** The gateway watches `MCPServer` CRs and Secrets itself, as the inference gateway does for InferenceProviders. Tenant Secrets live in tenant namespaces. The gateway would need cluster-wide Secret read.
 *   **Option C (rejected):** A `Connection` brokered by the egress gateway. The tool-gateway's upstream calls do not pass through the egress gateway. A `Connection` would also add `connection:` scopes as a second gate beside the tool scope.
 
@@ -112,7 +112,7 @@ apiVersion: runkora.io/v1alpha1
 kind: MCPServer
 metadata:
   name: exa
-  namespace: orbit-tenant-example
+  namespace: kora-tenant-example
 spec:
   endpoint: https://mcp.exa.ai/mcp
   auth:
@@ -137,7 +137,7 @@ Tenant and global `MCPServer` CRs follow the same rules and the same path.
 
 ### 2. Operator aggregation
 
-*   `MCPServerAggregator` reads each referenced Secret from the CR's namespace and writes the value into the `orbit-mcp-server-secrets` Secret in the system namespace. The data key is derived from the namespace, the server name and the lowercased header name. A reordered header list cannot send a value under another header. The operator creates the Secret on its first pass, empty or not.
+*   `MCPServerAggregator` reads each referenced Secret from the CR's namespace and writes the value into the `kora-mcp-server-secrets` Secret in the system namespace. The data key is derived from the namespace, the server name and the lowercased header name. A reordered header list cannot send a value under another header. The operator creates the Secret on its first pass, empty or not.
 *   The operator trims one trailing `\n`, `\r\n` or `\r` from the value. An empty value, a value over 4 KiB, or one that still contains a control character other than tab, is treated as missing. A value in a Secret the operator manages, such as a copied registry pull secret, is treated as missing.
 *   The server's `servers.json` entry lists each header's name, prefix and data key. It never holds the value.
 *   When a Secret or key is missing, the entry keeps the header and the aggregated Secret omits the key. The `Aggregated` condition stays `True` with reason `CredentialUnavailable` and a message that cites the Secret and the key.

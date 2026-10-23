@@ -607,7 +607,7 @@ func TestWriteMCPConfig(t *testing.T) {
 
 func TestWriteMCPConfig_ToolGateway(t *testing.T) {
 	r := newTestRunner()
-	r.cfg.ToolGatewayURL = "http://orbit-tool-gateway.orbit-system.svc.cluster.local/"
+	r.cfg.ToolGatewayURL = "http://kora-tool-gateway.kora-system.svc.cluster.local/"
 	// The agent has grants on two servers → one governed entry each.
 	r.cfg.MCPServers = []string{"orbit", "github"}
 
@@ -625,7 +625,7 @@ func TestWriteMCPConfig_ToolGateway(t *testing.T) {
 		t.Fatalf("unmarshal config: %v", err)
 	}
 	servers, _ := cfg["mcpServers"].(map[string]any)
-	base := "http://orbit-tool-gateway.orbit-system.svc.cluster.local/v1/mcp/"
+	base := "http://kora-tool-gateway.kora-system.svc.cluster.local/v1/mcp/"
 	for _, name := range []string{"orbit", "github"} {
 		entry, _ := servers[name].(map[string]any)
 		if entry == nil {

@@ -1,7 +1,7 @@
 package credentials
 
 // ConfigMapRegistry is the gateway's connection registry, read from the file
-// the operator renders into orbit-system. The ConnectionAggregator writes one
+// the operator renders into kora-system. The ConnectionAggregator writes one
 // ConfigMap key, connections.json, holding a JSON array of registry entries;
 // the gateway mounts it and parses it into Connection values, serving the
 // ListByHost and ListByTenant lookups the broker and ScopePublisher use.

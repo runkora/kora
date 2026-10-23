@@ -16,7 +16,7 @@ It no longer describes the platform. kora's behaviour now lives in the parts tha
 - **Identity.** SVID exchange and workload attestation come from SPIRE. There is no SPIRE on the host.
 - **Policy.** Enforcement happens at the edge, in Envoy with OPA, before a request reaches application code. On the host, that layer is absent, so a request takes a different path through the system than it takes anywhere else.
 - **Credentials.** The `identity-proxy` sidecar and `egress-gateway` inject credentials into outbound calls. Neither exists on the host.
-- **Agents.** `orbit-agents`, `session-manager` and `sandbox-exec` orchestrate pods. They have no meaning outside a cluster.
+- **Agents.** `kora-agents`, `session-manager` and `sandbox-exec` orchestrate pods. They have no meaning outside a cluster.
 
 `make dev` starts the `identity` binary and nothing else (`Makefile:762`). It does not start the inference gateway, the policy service, the policy gateway, the tool gateway, or the agent control plane. An engineer running Tier 1 is exercising one service with its enforcement layer removed.
 
@@ -99,7 +99,7 @@ Postgres, Redis and Dex stay in Docker Compose. They are dependencies of the clu
 
 **Compose inputs.** `DB_USER`, `DB_NAME`, `DB_PORT`, `DB_PASSWORD`, `REDIS_PORT`, `REDIS_PASSWORD`, `GLAUTH_DEV_PASSWORD_HASH`. These stay, but as defaults inside `docker-compose.yml` (`${DB_PORT:-5432}`) rather than as lines a human must copy.
 
-**Cluster secret inputs.** `create-secrets.sh` reads `BFF_SESSION_SECRET`, `DB_PASSWORD`, `REDIS_PASSWORD` and the tenant OIDC client secret from `.env` and writes them into `orbit-secrets`. These stay, and are generated.
+**Cluster secret inputs.** `create-secrets.sh` reads `BFF_SESSION_SECRET`, `DB_PASSWORD`, `REDIS_PASSWORD` and the tenant OIDC client secret from `.env` and writes them into `kora-secrets`. These stay, and are generated.
 
 ### How `.env` gets built
 

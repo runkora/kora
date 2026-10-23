@@ -93,8 +93,8 @@ func TestInitScopeRegistrationPublishesRoutesAndSlugScopes(t *testing.T) {
 		t.Fatal("policy service received no registration")
 	}
 
-	if reg.Service != "orbit-agents" {
-		t.Errorf("registered as %q, want orbit-agents", reg.Service)
+	if reg.Service != "kora-agents" {
+		t.Errorf("registered as %q, want kora-agents", reg.Service)
 	}
 	if want := len(agentRoutes()); len(reg.Routes) != want {
 		t.Fatalf("registered %d routes, want %d", len(reg.Routes), want)

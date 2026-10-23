@@ -46,7 +46,7 @@ global:
   metrics:
     enabled: true
     port: 9464
-    # The namespace running a scraper that reaches into orbit-system (e.g.
+    # The namespace running a scraper that reaches into kora-system (e.g.
     # Prometheus / Prometheus Operator / Grafana Alloy). Empty opens no
     # ingress. Only takes effect while networkPolicy.enabled is true. This
     # grants NetworkPolicy ingress only — it does not by itself satisfy this
@@ -120,7 +120,7 @@ config:
       serverName: ""
   # Holds DB_PASSWORD, REDIS_PASSWORD, KORA_TOKEN_SIGNING_KEY,
   # KORA_TRIGGERS_ENCRYPTION_KEY. Not created by the chart.
-  platformSecretName: orbit-secrets
+  platformSecretName: kora-secrets
 
 istio:
   namespace: istio-system
@@ -155,7 +155,7 @@ networkPolicy:
 gateway:
   # Set false to use an existing Istio Gateway (see deploy/reference/values/gateway-byo.yaml).
   create: true
-  name: orbit-gateway
+  name: kora-gateway
   ports:
     http: 80
     https: 443
@@ -163,7 +163,7 @@ gateway:
     # HTTPS with HTTP-to-HTTPS redirect. Needs a kubernetes.io/tls Secret named
     # credentialName, in the namespace the gateway pods run in.
     enabled: false
-    credentialName: orbit-gateway-tls
+    credentialName: kora-gateway-tls
   # Kubernetes Ingress in front of the Istio gateway Service (Traefik, ALB).
   # TLS terminates there; API routes force x-forwarded-proto=https.
   ingress:
@@ -183,12 +183,12 @@ gateway:
 # gateway.create is true. The SPIRE wiring is what lets DestinationRules and
 # gateway-level OPA pin the proxy by SPIFFE identity instead of an istiod cert.
 ingressGateway:
-  name: orbit-gateway
+  name: kora-gateway
   service:
     type: LoadBalancer
   labels:
-    app: orbit-gateway
-    istio: orbit-gateway
+    app: kora-gateway
+    istio: kora-gateway
     # Matches the system-component registration for spiffe://<td>/system/ingress-gateway.
     spiffe.io/component: ingress-gateway
   env:
@@ -375,9 +375,9 @@ identity:
     accessTokenTtlMinutes: 15
   # Operator-owned ConfigMaps and Secrets identity reads. Mounts are optional:
   # identity starts before any tenant exists.
-  tenantsConfigMap: orbit-tenants
-  clientSecretsSecret: orbit-tenant-oidc-secrets
-  oauthClientsConfigMap: orbit-tenant-oauth-clients
+  tenantsConfigMap: kora-tenants
+  clientSecretsSecret: kora-tenant-oidc-secrets
+  oauthClientsConfigMap: kora-tenant-oauth-clients
   # -- Raw config merged last over the rendered config files, keyed by config
   # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
   # the Go config structs; an unknown key fails startup.
@@ -478,9 +478,9 @@ toolGateway:
   # Request-path proxy replicas. The publisher runs one.
   proxyReplicas: 1
   httpPort: 8096
-  mcpServersConfigMapName: orbit-mcp-servers
+  mcpServersConfigMapName: kora-mcp-servers
   # Holds MCPServer spec.auth values. The operator renders it.
-  mcpServerSecretsName: orbit-mcp-server-secrets
+  mcpServerSecretsName: kora-mcp-server-secrets
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -537,7 +537,7 @@ frontend:
     toolGatewayUrl: ""
     nextPublicAppUrl: ""
   # Holds BFF_SESSION_SECRET.
-  existingSecret: orbit-frontend-secrets
+  existingSecret: kora-frontend-secrets
   # Kubernetes Ingress straight to the frontend Service, for an edge that is
   # not the Istio gateway.
   ingress:
@@ -576,7 +576,7 @@ agents:
   serviceAccount:
     annotations: {}
   config:
-    # Images orbit-agents runs in tenant namespaces. Empty means <global.imageRegistry>/kora-session-manager
+    # Images kora-agents runs in tenant namespaces. Empty means <global.imageRegistry>/kora-session-manager
     # and kora-sandbox-base at global.imageTag or the appVersion. sandboxImage is registered per tenant as kora-base.
     sessionManagerImage: ""
     # Digest of kora-session-manager, set by the release. When set, the default image is
@@ -591,7 +591,7 @@ agents:
     # heap OOM instead of taking every run with it. The agent harnesses and
     # sandbox commands are not capped. 0 disables the cap.
     nodeMaxOldSpaceMB: 512
-  # -- Raw config merged last over orbit-agents' rendered config files, keyed by
+  # -- Raw config merged last over kora-agents' rendered config files, keyed by
   # config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys
   # follow the Go config structs; an unknown key fails startup.
   # e.g. {cmd/kora-agents: {drafts: {retentionDays: 7}}}
@@ -619,9 +619,9 @@ agents:
     manualSecs: 1200
     # -- Seconds a run a trigger started may stay idle. Shorter, because nobody is watching it.
     triggerSecs: 300
-  # The run scheduler in each orbit-agents replica starts pending runs on agent pods.
+  # The run scheduler in each kora-agents replica starts pending runs on agent pods.
   scheduling:
-    # -- Runs one orbit-agents replica starts at once.
+    # -- Runs one kora-agents replica starts at once.
     workerConcurrency: 16
     # -- Seconds between polls for pending runs, and before a run with no free pod is tried again.
     pollIntervalSecs: 1
@@ -634,11 +634,11 @@ agents:
     # -- Seconds a terminating session-manager pod waits for its runs to end before it is stopped.
     drainGracePeriodSecs: 3600
   # Per-agent AuthorizationPolicy restricting the session-manager port to the
-  # orbit-agents principal. orbit-agents creates one alongside each StatefulSet.
+  # kora-agents principal. kora-agents creates one alongside each StatefulSet.
   authorizationPolicy:
     enabled: true
-  tenantConnectionsConfigMapName: orbit-tenant-connections
-  # Kustomize patches applied to the resources orbit-agents provisions in
+  tenantConnectionsConfigMapName: kora-tenant-connections
+  # Kustomize patches applied to the resources kora-agents provisions in
   # tenant namespaces: StatefulSet, PersistentVolumeClaim (the StatefulSet's
   # workspace template), Service, ServiceAccount, HorizontalPodAutoscaler,
   # PodDisruptionBudget and the sandbox Pod. Each value is one kustomize
@@ -662,14 +662,14 @@ agents:
   #               nodeSelector:
   #                 disktype: ssd
   manifestPatches: {}
-  # Customisation for the workloads orbit-agents provisions in tenant
+  # Customisation for the workloads kora-agents provisions in tenant
   # namespaces. Applied before manifestPatches, so a patch still wins on a
   # field both set. See docs/adr/2026-09-16-first-class-workload-placement.md.
   #
   # Identity labels (spiffe.io/agent, runkora.io/tenant, runkora.io/agent-type,
   # runkora.io/role and the rest), the mesh annotations, security context and
   # service account name stay platform-owned: podLabels or podAnnotations that
-  # collide with them fail orbit-agents at startup.
+  # collide with them fail kora-agents at startup.
   workloads:
     # Applied to the session-manager pods and sandbox pods alike.
     common:
@@ -804,7 +804,7 @@ sandboxMount:
   enabled: false
   # -- Namespace of the node agent. The system namespace's Pod Security level
   # rejects privileged pods.
-  namespace: orbit-sandbox-mount
+  namespace: kora-sandbox-mount
   # -- Create the namespace at the privileged Pod Security level. Set false to
   # use a namespace you manage.
   createNamespace: true
@@ -846,7 +846,7 @@ policyService:
     digest: ""
     pullPolicy: ""
   # -- Operator-owned tenant registry ConfigMap; the gateway bundle lists every tenant in it.
-  tenantsConfigMap: orbit-tenants
+  tenantsConfigMap: kora-tenants
   replicas: 1
   resources:
     requests:
@@ -942,7 +942,7 @@ triggers:
     enabled: true
     systemPrincipals:
       - frontend
-      - orbit-mcp
+      - kora-mcp
       - ingress-gateway
     # Mesh identities without a kora registration. kora's own gateway is
     # registered as a system component; an existing gateway goes here as
@@ -1009,9 +1009,9 @@ egressGateway:
   # NetworkPolicy.
   connectPort: 8085
   adminPort: 8086
-  tenantCASecretName: orbit-tenant-cas
-  connectionSecretName: orbit-tenant-connection-secrets
-  tenantConnectionsConfigMapName: orbit-tenant-connections
+  tenantCASecretName: kora-tenant-cas
+  connectionSecretName: kora-tenant-connection-secrets
+  tenantConnectionsConfigMapName: kora-tenant-connections
   # -- Raw config merged last over the rendered config files, keyed by config
   # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
   # the Go config structs; an unknown key fails startup.

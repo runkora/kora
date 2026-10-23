@@ -53,7 +53,7 @@ type Client struct {
 }
 
 // NewClient creates a Client targeting the inference gateway base URL,
-// e.g. "http://orbit-inference-gateway.orbit-system.svc.cluster.local". The
+// e.g. "http://kora-inference-gateway.kora-system.svc.cluster.local". The
 // returned client is safe for concurrent use and should be shared across calls.
 func NewClient(baseURL string, logger logging.Logger) *Client {
 	return newClient(baseURL, logger, clientTimeout)

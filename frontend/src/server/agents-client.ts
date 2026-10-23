@@ -1,5 +1,5 @@
 /**
- * orbit-agents HTTP client — server-side only.
+ * kora-agents HTTP client — server-side only.
  *
  * Wraps fetch with base URL resolution, bearer token forwarding, and a
  * unified error type matching the Go backend's error envelope.
@@ -73,7 +73,7 @@ export function agentsClient(accessToken: string) {
 
 /**
  * Fetches the resolved effective-access view for an agent type (by UUID) from
- * orbit-agents. Returns the union of its own egress posture, its referenced
+ * kora-agents. Returns the union of its own egress posture, its referenced
  * environment, and connector-derived auto-egress.
  */
 export async function fetchEffectiveAccess(
@@ -101,7 +101,7 @@ export async function previewEffectiveAccess(
   });
 }
 
-/** One page of the runs the caller may read, newest first. orbit-agents validates the params. */
+/** One page of the runs the caller may read, newest first. kora-agents validates the params. */
 export async function listRuns(
   accessToken: string,
   params: URLSearchParams,

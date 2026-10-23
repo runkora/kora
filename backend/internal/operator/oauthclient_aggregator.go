@@ -1,13 +1,13 @@
 // OAuthClient aggregator for the identity authorization server (GitOps
 // hosted-app registration).
 //
-// The identity service runs in orbit-system but needs every tenant's
+// The identity service runs in kora-system but needs every tenant's
 // pre-registered OAuth clients to serve the authorize endpoint. Pods can only
 // mount ConfigMaps from their own namespace, so the operator aggregates each
-// tenant's OAuthClient CRs (in the tenant namespace) into one orbit-system
+// tenant's OAuthClient CRs (in the tenant namespace) into one kora-system
 // ConfigMap the identity service mounts:
 //
-//   - ConfigMap orbit-tenant-oauth-clients — one data key, oauth-clients.json,
+//   - ConfigMap kora-tenant-oauth-clients — one data key, oauth-clients.json,
 //     a JSON array of registry entries (tenant, client_id, client_name,
 //     redirect_uris). All non-secret: OAuth clients are public (PKCE only).
 //
@@ -35,11 +35,11 @@ import (
 )
 
 const (
-	// aggregatedOAuthClientsConfigMapName is the ConfigMap in orbit-system that
+	// aggregatedOAuthClientsConfigMapName is the ConfigMap in kora-system that
 	// collects every tenant's OAuth client registrations. Its single data key
 	// is oauth-clients.json — the JSON array the identity service's mounted
 	// static-client source parses.
-	aggregatedOAuthClientsConfigMapName = "orbit-tenant-oauth-clients"
+	aggregatedOAuthClientsConfigMapName = "kora-tenant-oauth-clients"
 
 	// aggregatedOAuthClientsConfigMapKey is the data key within the ConfigMap.
 	aggregatedOAuthClientsConfigMapKey = "oauth-clients.json"
@@ -57,8 +57,8 @@ type oauthClientRegistryEntry struct {
 }
 
 // OAuthClientAggregator reads each active tenant's OAuthClient CRs from its
-// namespace and renders the aggregated orbit-tenant-oauth-clients ConfigMap in
-// orbit-system. Re-run on every reconcile (and on any OAuthClient change) so a
+// namespace and renders the aggregated kora-tenant-oauth-clients ConfigMap in
+// kora-system. Re-run on every reconcile (and on any OAuthClient change) so a
 // newly-applied client appears in the identity service's mount within a
 // kubelet projection-update cycle.
 type OAuthClientAggregator struct {
@@ -240,7 +240,7 @@ func (a *OAuthClientAggregator) upsertConfigMap(ctx context.Context, registryJSO
 				Name:      aggregatedOAuthClientsConfigMapName,
 				Namespace: systemNamespace,
 				Labels: map[string]string{
-					"app.kubernetes.io/managed-by": "orbit-operator",
+					"app.kubernetes.io/managed-by": "kora-operator",
 					"runkora.io/component":         "tenant-oauth-clients",
 				},
 			},

@@ -11,7 +11,7 @@
 #
 # NEXT_PUBLIC_APP_URL must be provided as a build arg because Next.js inlines
 # NEXT_PUBLIC_* variables into the client-side JavaScript bundle at build time.
-# It is also injected at runtime via the orbit-frontend-config ConfigMap for
+# It is also injected at runtime via the kora-frontend-config ConfigMap for
 # server-side code that reads process.env.NEXT_PUBLIC_APP_URL directly.
 # =============================================================================
 
@@ -58,19 +58,19 @@ ENV NEXT_PUBLIC_KORA_VERSION=${KORA_VERSION}
 # evaluates server modules during `next build` to collect page data, so they
 # must be present at build time to pass validation. These placeholder values
 # are never used at runtime — the real values are injected via the
-# orbit-frontend-config ConfigMap and orbit-frontend-secrets Secret.
-ARG KORA_API_URL=http://orbit-identity.orbit-system/api/v1
-ARG INFERENCE_GATEWAY_URL=http://orbit-inference-gateway.orbit-system/v1
-ARG POLICY_GATEWAY_URL=http://orbit-policy-gateway.orbit-system/v1
-ARG POLICY_SERVICE_URL=http://orbit-policy-service.orbit-system/api/v1
-ARG KORA_AGENTS_URL=http://orbit-agents.orbit-system
-ARG KORA_TRIGGERS_URL=http://orbit-triggers.orbit-system/api/v1
-ARG TOOL_GATEWAY_URL=http://orbit-tool-gateway.orbit-system
+# kora-frontend-config ConfigMap and kora-frontend-secrets Secret.
+ARG KORA_API_URL=http://kora-identity.kora-system/api/v1
+ARG INFERENCE_GATEWAY_URL=http://kora-inference-gateway.kora-system/v1
+ARG POLICY_GATEWAY_URL=http://kora-policy-gateway.kora-system/v1
+ARG POLICY_SERVICE_URL=http://kora-policy-service.kora-system/api/v1
+ARG KORA_AGENTS_URL=http://kora-agents.kora-system
+ARG KORA_TRIGGERS_URL=http://kora-triggers.kora-system/api/v1
+ARG TOOL_GATEWAY_URL=http://kora-tool-gateway.kora-system
 # hadolint ignore=DL3025
 # BFF_SESSION_SECRET is a placeholder value only — Next.js evaluates server
 # modules at build time to collect page data, so the variable must be present
 # to pass validation. The real secret is injected at runtime via the
-# orbit-frontend-secrets Kubernetes Secret and never baked into the image.
+# kora-frontend-secrets Kubernetes Secret and never baked into the image.
 ARG BFF_SESSION_SECRET=build-time-placeholder-not-used-at-runtime
 ENV KORA_API_URL=${KORA_API_URL} \
     INFERENCE_GATEWAY_URL=${INFERENCE_GATEWAY_URL} \

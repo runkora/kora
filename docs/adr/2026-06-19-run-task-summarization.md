@@ -23,9 +23,9 @@ kora already has the building blocks to solve this:
 
 ### Critical constraint (learned during implementation)
 
-A first implementation generated the summary **in the `orbit-agents` control plane**, calling the inference gateway directly. It does not work, and cannot:
+A first implementation generated the summary **in the `kora-agents` control plane**, calling the inference gateway directly. It does not work, and cannot:
 
-- **No inference identity.** `orbit-agents` is not an agent. Its direct call to the gateway carries no agent token, so OPA rejects it — observed as `403 {"code":"policy_denied"}`. There is no policy that authorizes the control plane to perform inference, nor should there be.
+- **No inference identity.** `kora-agents` is not an agent. Its direct call to the gateway carries no agent token, so OPA rejects it — observed as `403 {"code":"policy_denied"}`. There is no policy that authorizes the control plane to perform inference, nor should there be.
 - **Wrong / unknown model.** The control plane only knows the agent type's *default* `model_id`, which may be empty or overridden. The summary must use the agent's **effective** model, which is resolved at session-manager start.
 - **No budget attribution.** A control-plane call has no `run/{runID}` context, so the cost cannot be attributed or enforced.
 
@@ -55,7 +55,7 @@ How should kora generate and store a short, human-readable summary of each run's
 * **Authorized inference only**: The summary's LLM call must go through the agent's own identity, grant, and per-run budget — the platform must never grant the control plane a side-channel to perform inference.
 * **Effective model**: The summary must be generated with the model the agent actually runs, resolved at session-manager start, not the agent type's default.
 * **Non-blocking**: Summarization failures must never affect run lifecycle or API response latency.
-* **Reuse the existing callback surface**: The session-manager already POSTs run state and events back to orbit-agents over `/internal/runs/{id}/*`; a summary callback fits the same pattern.
+* **Reuse the existing callback surface**: The session-manager already POSTs run state and events back to kora-agents over `/internal/runs/{id}/*`; a summary callback fits the same pattern.
 * **Testability**: The summarizer and the callback must be unit-testable without a live gateway.
 * **Consistency with existing patterns**: Follow the repository pattern, use `httpclient.Base` for the gateway call, log warnings on failure.
 
@@ -65,17 +65,17 @@ How should kora generate and store a short, human-readable summary of each run's
 
 ### Option 1: Async goroutine in `StartRun` calling the gateway from orbit-agents ❌ (rejected — attempted, does not work)
 
-**Description:** Immediately after the initial message is sent, `StartRun` spawns a background goroutine in `orbit-agents` that calls the inference gateway directly and persists the result via `SetRunSummary`.
+**Description:** Immediately after the initial message is sent, `StartRun` spawns a background goroutine in `kora-agents` that calls the inference gateway directly and persists the result via `SetRunSummary`.
 
-**Why it fails:** `orbit-agents` has no agent identity, so OPA denies the call (`403 policy_denied`); it only knows the agent type's *default* model, not the effective one; and a control-plane call has no per-run budget context. See *Critical constraint* above. This was implemented first and reverted.
+**Why it fails:** `kora-agents` has no agent identity, so OPA denies the call (`403 policy_denied`); it only knows the agent type's *default* model, not the effective one; and a control-plane call has no per-run budget context. See *Critical constraint* above. This was implemented first and reverted.
 
 ### Option 3 (chosen): Generate in the session-manager over the agent's authorized path, report back via callback
 
-**Description:** When the session-manager receives the run's **first user message**, it spawns a detached background goroutine that calls `{ANTHROPIC_BASE_URL}/run/{runID}/v1/messages` — the same authorized path the agent uses — with the session's **effective model**. The identity-proxy injects the agent token, OPA authorizes it, and the gateway attributes the (tiny) cost to the run's budget. The session-manager then reports the summary to orbit-agents via a new best-effort callback, `POST /internal/runs/{runID}/summary`, which persists it set-once.
+**Description:** When the session-manager receives the run's **first user message**, it spawns a detached background goroutine that calls `{ANTHROPIC_BASE_URL}/run/{runID}/v1/messages` — the same authorized path the agent uses — with the session's **effective model**. The identity-proxy injects the agent token, OPA authorizes it, and the gateway attributes the (tiny) cost to the run's budget. The session-manager then reports the summary to kora-agents via a new best-effort callback, `POST /internal/runs/{runID}/summary`, which persists it set-once.
 
 **Pros:**
 - The only design where inference identity, effective model, and budget attribution all hold.
-- Reuses the existing session-manager → orbit-agents callback surface (`/internal/runs/{id}/*`).
+- Reuses the existing session-manager → kora-agents callback surface (`/internal/runs/{id}/*`).
 - Non-blocking: detached goroutine, `StartRun` and the run lifecycle are untouched.
 - Summary is durable (DB row), survives reconnects and SSE replay.
 
@@ -139,13 +139,13 @@ It keeps `StartRun` fast (the call is a detached goroutine in the session-manage
 
 - All run list views become meaningfully scannable.
 - The summary call is correctly authorized, attributed, and uses the agent's real model — it cannot bypass policy or budget.
-- Reuses the existing session-manager → orbit-agents callback surface; no new external services or network policies.
+- Reuses the existing session-manager → kora-agents callback surface; no new external services or network policies.
 - Testable in isolation (the summarizer and the `SetSummary` callback are unit-tested with `httptest`).
 - Failure is silent to the user (graceful degradation).
 
 ### Negative
 
-- Spans two binaries: generation in the session-manager, persistence in orbit-agents via a new `/internal/runs/{id}/summary` callback.
+- Spans two binaries: generation in the session-manager, persistence in kora-agents via a new `/internal/runs/{id}/summary` callback.
 - The `StartRun` response does not include the summary; callers see `null` initially.
 - One additional ~80-token LLM call per run with an initial message, attributed to the run's budget.
 
@@ -153,7 +153,7 @@ It keeps `StartRun` fast (the call is a detached goroutine in the session-manage
 
 - A new `summary TEXT` nullable column is added to the `runs` table; existing rows keep `null` with no schema issues.
 - `SetRunSummary` is set-once (`WHERE summary IS NULL`) so a resumed session never clobbers the original label.
-- No inference-gateway URL config is added to orbit-agents — the session-manager reuses the `ANTHROPIC_BASE_URL` already present in its pod.
+- No inference-gateway URL config is added to kora-agents — the session-manager reuses the `ANTHROPIC_BASE_URL` already present in its pod.
 
 ---
 
@@ -190,7 +190,7 @@ It embeds `httpclient.Base` (satisfies the no-raw-HTTP-client lint rule) and tru
 
 `handleCreateSession` computes `inferenceURL` from the pod's `ANTHROPIC_BASE_URL` and passes it plus the model into `SessionConfig`. On the **first** user message (`session.summarizeOnce`), `Registry.Send` spawns a detached goroutine (15 s timeout) that calls the summarizer and then `Notifier.SetSummary(ctx, runID, summary)`.
 
-`HTTPNotifier.SetSummary` POSTs `{"summary": …}` to `POST /internal/runs/{runID}/summary` on orbit-agents. The orbit-agents handler (`handleSetRunSummary`, behind the same `authorizeCallback` as the other internal callbacks) calls `RunService.SetRunSummary` → `repo.SetRunSummary`. Both generation and callback are best-effort: failures log at WARN and never affect the run.
+`HTTPNotifier.SetSummary` POSTs `{"summary": …}` to `POST /internal/runs/{runID}/summary` on kora-agents. The kora-agents handler (`handleSetRunSummary`, behind the same `authorizeCallback` as the other internal callbacks) calls `RunService.SetRunSummary` → `repo.SetRunSummary`. Both generation and callback are best-effort: failures log at WARN and never affect the run.
 
 ### Frontend
 

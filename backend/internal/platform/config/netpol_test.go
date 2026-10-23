@@ -44,7 +44,7 @@ func TestChartMetricsNetworkPolicies_ScopesOperatorSeparately(t *testing.T) {
 	}
 
 	args := []string{
-		"template", "orbit", chart, "-n", "orbit-system",
+		"template", "kora", chart, "-n", "kora-system",
 		"-f", filepath.Join(chart, "ci", "default-values.yaml"),
 		"-f", overrides,
 		"-s", "templates/platform/netpols.yaml",
@@ -83,8 +83,8 @@ func TestChartMetricsNetworkPolicies_ScopesOperatorSeparately(t *testing.T) {
 	if !ok {
 		t.Fatal("allow-prometheus-scrape-ingress-operator not rendered")
 	}
-	if got := operator.Spec.PodSelector.MatchLabels["app"]; got != "orbit-operator" {
-		t.Errorf("allow-prometheus-scrape-ingress-operator podSelector app label = %q, want orbit-operator", got)
+	if got := operator.Spec.PodSelector.MatchLabels["app"]; got != "kora-operator" {
+		t.Errorf("allow-prometheus-scrape-ingress-operator podSelector app label = %q, want kora-operator", got)
 	}
 	if ports := collectPorts(t, operator); !equalPortSets(ports, []string{"8080"}) {
 		t.Errorf("allow-prometheus-scrape-ingress-operator ports = %v, want [8080]", ports)

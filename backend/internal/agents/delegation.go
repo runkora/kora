@@ -52,7 +52,7 @@ type ServiceTokenSource func(ctx context.Context) (string, error)
 
 // DelegationBroker mints delegation issuances at run start (forwarding the
 // caller's bearer) and revokes them on terminal run state (authenticating as
-// kora-agents' own SYSTEM principal, spiffe://<td>/system/orbit-agents).
+// kora-agents' own SYSTEM principal, spiffe://<td>/system/kora-agents).
 type DelegationBroker struct {
 	issuer      delegationIssuer
 	tokenSource ServiceTokenSource

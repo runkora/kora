@@ -6,7 +6,7 @@ You do not have to run more than one. A single tenant is enough when you do not 
 
 A tenant is isolated on several axes: 
 
-- **Namespace:** the tenant's agents and resources run in their own `orbit-tenant-<name>` namespace.
+- **Namespace:** the tenant's agents and resources run in their own `kora-tenant-<name>` namespace.
 - **Identity:** workloads get SPIFFE identities scoped to the tenant, backed by a per-tenant CA. Humans are governed by tenant-scoped `Principal`s.
 - **Network:** a default-deny policy and a per-tenant egress policy bind what the tenant's agents and services can reach.
 - **Policy:** grants and roles are scoped to the tenant.
@@ -33,21 +33,21 @@ spec:
     issuerURL: https://idp.example.com/oauth2/default
     clientID: orbit-production
     clientSecretRef:
-      name: orbit-example-oidc
-      namespace: orbit-system
+      name: kora-example-oidc
+      namespace: kora-system
     scopes: [openid, profile, email, groups]
     emailDomains: [example.com]
 
   deleteNamespaceOnRemoval: false
 ```
 
-To adopt an existing namespace you can set it explicitly: `spec.namespace`. kora derives `orbit-tenant-<name>` if you omit this field.
+To adopt an existing namespace you can set it explicitly: `spec.namespace`. kora derives `kora-tenant-<name>` if you omit this field.
 
 A confidential client needs a Secret in the `clientSecretRef` namespace, carrying the client secret under the key `OIDC_CLIENT_SECRET`. Project it through your secret manager, the same as the platform secrets. A public client does not need to set a `clientSecretRef`. For local use you can create a secret directly:
 
 ```bash
-kubectl create secret generic orbit-example-oidc \
-  --namespace orbit-system \
+kubectl create secret generic kora-example-oidc \
+  --namespace kora-system \
   --from-literal=OIDC_CLIENT_SECRET='<oidc client secret>'
 ```
 
@@ -55,7 +55,7 @@ An `KoraTenant` is a declarative resource, applied the way you manage the rest o
 
 ```bash
 kubectl get koratenant example -w
-kubectl get namespace orbit-tenant-example
+kubectl get namespace kora-tenant-example
 ```
 
 Set `deleteNamespaceOnRemoval: true` only when deleting the `KoraTenant` must delete every workload in its namespace.

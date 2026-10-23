@@ -16,7 +16,7 @@ The budget system enforces exactly one ceiling type: per-principal, monthly. The
 
 Constraints discovered during design:
 
-1. **Agent tokens carry no run identifier** (`token.KoraClaims` has session/tenant/display-name/SPIFFE claims only; run binding happens at the orbit-agents service layer by tenant+slug). Run identity must reach the gateway another way.
+1. **Agent tokens carry no run identifier** (`token.KoraClaims` has session/tenant/display-name/SPIFFE claims only; run binding happens at the kora-agents service layer by tenant+slug). Run identity must reach the gateway another way.
 2. **Role membership is request-time knowledge** (IDP-asserted JWT roles), so pool counters cannot be rebuilt from the database unless usage rows record the caller's roles.
 3. A weekly and a monthly assignment can apply to the same principal simultaneously; their limits cannot be merged by MAX (different windows).
 
@@ -70,8 +70,8 @@ A pod-level sidecar cannot supply run identity (the session-manager pod hosts mu
 **Run identity travels in the URL.** The runner sets the runtime's base-URL env per subprocess, carrying the run as a path prefix:
 
 ```
-ANTHROPIC_BASE_URL=http://orbit-inference-gateway.../run/{run_id}            (Claude Code)
-OPENAI_BASE_URL=http://orbit-inference-gateway.../run/{run_id}/v1            (Codex-style runtimes)
+ANTHROPIC_BASE_URL=http://kora-inference-gateway.../run/{run_id}            (Claude Code)
+OPENAI_BASE_URL=http://kora-inference-gateway.../run/{run_id}/v1            (Codex-style runtimes)
 ```
 
 Every runtime that supports a custom base URL preserves its path component (OpenAI-style base URLs conventionally end in `/v1`, which SDKs must preserve), so this is runtime-agnostic by construction — the same property the gateway's dialect support already relies on. The gateway's root handler recognises the `/run/{run_id}` prefix, stores the run ID in request context, strips the prefix, and processing continues on the normal paths. No new components, no data-path hops, sidecar token injection unchanged.
@@ -94,7 +94,7 @@ Deny rules (any):
 
 ### 7. Run lifecycle on exhaustion
 
-When the subprocess surfaces `BUDGET_EXCEEDED` (gateway **403**), the runner emits `run_error` with code `budget_exhausted`; the session-manager closes the session immediately and orbit-agents transitions the run to a new terminal state `budget_exhausted` (distinct from `failed` — the run did nothing wrong; its budget ended).
+When the subprocess surfaces `BUDGET_EXCEEDED` (gateway **403**), the runner emits `run_error` with code `budget_exhausted`; the session-manager closes the session immediately and kora-agents transitions the run to a new terminal state `budget_exhausted` (distinct from `failed` — the run did nothing wrong; its budget ended).
 
 > **Why 403, not 429.** Budget exhaustion is not transient: the ceiling holds until the window resets or an admin raises it. Agent runtimes (Claude Code, Codex, OpenCode) auto-retry 429 with minutes of exponential backoff — observed live as a ~3-minute storm of doomed calls before the runtime gave up, sometimes reporting the truncated turn as a *success*, which left the run idle instead of `budget_exhausted`. None of the runtimes retry 403, so the first rejection is final: the turn fails immediately with the budget message in the error result, and classification is deterministic.
 

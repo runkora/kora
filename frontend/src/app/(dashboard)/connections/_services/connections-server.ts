@@ -23,7 +23,7 @@ export type ConnectionsResult =
  *
  * Two upstreams:
  *   - the egress gateway's connection catalog (via `listConnections`), and
- *   - the orbit-agents agent-type list (via `agentsClient`, the same client
+ *   - the kora-agents agent-type list (via `agentsClient`, the same client
  *     the /agents page uses) to derive `usedBy`.
  *
  * Degradation: the connection catalog degrades to an empty list when the

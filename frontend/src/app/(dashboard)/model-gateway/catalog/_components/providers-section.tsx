@@ -19,7 +19,7 @@ const EXAMPLE = `apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: openrouter
-  namespace: orbit-system
+  namespace: kora-system
 spec:
   type: compatible
   compatible:

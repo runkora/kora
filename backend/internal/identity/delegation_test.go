@@ -346,7 +346,7 @@ func TestHandleCreateDelegation_RefusesNonPersonPrincipals(t *testing.T) {
 	}{
 		{"agent", agentClaims("t1", testAgentSpiffeID)},
 		{"service", serviceClaims("t1", "webhook-source-1")},
-		{"system", systemClaims("orbit-identity-service")},
+		{"system", systemClaims("kora-identity-service")},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -674,8 +674,8 @@ func TestHandleRevokeDelegation_Authorization(t *testing.T) {
 		{"another human refused", humanClaims("t1", "user-2"), http.StatusForbidden},
 		{"same user other tenant refused", humanClaims("t2", "user-1"), http.StatusForbidden},
 		{"agent refused", agentClaims("t1", testAgentSpiffeID), http.StatusForbidden},
-		{"service allowed", serviceClaims("t1", "orbit-agents"), http.StatusNoContent},
-		{"system allowed", systemClaims("orbit-identity-service"), http.StatusNoContent},
+		{"service allowed", serviceClaims("t1", "kora-agents"), http.StatusNoContent},
+		{"system allowed", systemClaims("kora-identity-service"), http.StatusNoContent},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

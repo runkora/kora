@@ -36,7 +36,7 @@ func TestConnect_IdleTunnelClosed(t *testing.T) {
 		logger,
 	)
 	gw := httptest.NewServer(authInjector(
-		claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-1"), connect))
+		claimsFor("acme", "spiffe://orbit.test/tenant/kora-tenant-acme/agent/coder", "run-1"), connect))
 	defer gw.Close()
 
 	conn, err := net.Dial("tcp", gw.Listener.Addr().String())

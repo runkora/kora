@@ -106,28 +106,28 @@ This touches *What can it access?*, because it removes every destination the pla
    |---|---|---|
    | `kube-system` pods `k8s-app=kube-dns` | 53 UDP and TCP | Service name resolution |
    | Istio namespace | 15012 TCP | Envoy xDS from istiod |
-   | `orbit-system` `app=orbit-identity` | 8080 TCP | identity-proxy SVID exchange and refresh; OPA JWKS |
-   | `orbit-system` `app=orbit-agents` | 8080 TCP | session-manager run events, state, summaries and sandbox provisioning |
-   | `orbit-system` `app=orbit-inference-gateway` | 8081 TCP | every runtime's model calls; the run summariser |
-   | `orbit-system` `app=orbit-tool-gateway` | 8096 TCP | governed MCP servers |
-   | `orbit-system` `app=orbit-policy-service` | 8083 TCP | OPA bundle polling |
+   | `kora-system` `app=kora-identity` | 8080 TCP | identity-proxy SVID exchange and refresh; OPA JWKS |
+   | `kora-system` `app=kora-agents` | 8080 TCP | session-manager run events, state, summaries and sandbox provisioning |
+   | `kora-system` `app=kora-inference-gateway` | 8081 TCP | every runtime's model calls; the run summariser |
+   | `kora-system` `app=kora-tool-gateway` | 8096 TCP | governed MCP servers |
+   | `kora-system` `app=kora-policy-service` | 8083 TCP | OPA bundle polling |
    | this namespace, `runkora.io/role=sandbox` pods | 50051 TCP | orbit-shell, the session registry and the egress canary to `sandbox-exec` |
    | the collector: its namespace when in the cluster, otherwise the `networkPolicy.externalServices` ranges serving its port | the collector's port | OTLP export from the session-manager, identity-proxy and Claude Code ([2026-09-18: Telemetry Collector](2026-09-18-telemetry-collector-platform-destination.md)) |
 
-   SPIRE needs no rule: SVIDs arrive over the CSI-mounted socket. The pod makes no Kubernetes API call; the session-manager provisions sandboxes through orbit-agents. The collector is the tenant collector endpoint of [2026-09-18: Telemetry Collector](2026-09-18-telemetry-collector-platform-destination.md). When `global.observability.collectorNamespace` is set, the rule names that namespace. Otherwise the rule names the `networkPolicy.externalServices` CIDRs whose ports include the collector's port, the same entries that already open the collector for the platform services. No new value is added.
+   SPIRE needs no rule: SVIDs arrive over the CSI-mounted socket. The pod makes no Kubernetes API call; the session-manager provisions sandboxes through kora-agents. The collector is the tenant collector endpoint of [2026-09-18: Telemetry Collector](2026-09-18-telemetry-collector-platform-destination.md). When `global.observability.collectorNamespace` is set, the rule names that namespace. Otherwise the rule names the `networkPolicy.externalServices` CIDRs whose ports include the collector's port, the same entries that already open the collector for the platform services. No new value is added.
 
    The pod's only stdio MCP server is `orbit-runtime-mcp`, the same for all three runtimes. It calls the session-manager on loopback, which no policy covers. `orbit-shell` calls the session-manager on loopback and `sandbox-exec` on the sandbox pod. Governed MCP servers are remote entries through the tool gateway.
 
-2. **Istio Sidecar `agent-egress`.** Reconciled beside it, selecting the same pods, with `outboundTrafficPolicy.mode: REGISTRY_ONLY` and `egress.hosts` listing the Service FQDNs of identity, orbit-agents, the inference gateway, the tool gateway and the policy service in the system namespace, plus the collector: every service in its namespace when it runs in the cluster, or its host when it does not. An external host resolves only through a ServiceEntry, which [2026-09-18: Telemetry Collector](2026-09-18-telemetry-collector-platform-destination.md) already requires the install to provide for an out-of-cluster collector.
+2. **Istio Sidecar `agent-egress`.** Reconciled beside it, selecting the same pods, with `outboundTrafficPolicy.mode: REGISTRY_ONLY` and `egress.hosts` listing the Service FQDNs of identity, kora-agents, the inference gateway, the tool gateway and the policy service in the system namespace, plus the collector: every service in its namespace when it runs in the cluster, or its host when it does not. An external host resolves only through a ServiceEntry, which [2026-09-18: Telemetry Collector](2026-09-18-telemetry-collector-platform-destination.md) already requires the install to provide for an out-of-cluster collector.
 
-3. **No bypass ports.** `5432` is removed from the agent pod's `traffic.sidecar.istio.io/excludeOutboundPorts`: the session-manager holds no database credential and reaches Postgres through orbit-agents. `50051` stays excluded, as decided in [2026-09-18: Authenticated Sandbox Exec](2026-09-18-sandbox-exec-trust-boundary.md), and the NetworkPolicy limits it to the namespace's sandbox pods.
+3. **No bypass ports.** `5432` is removed from the agent pod's `traffic.sidecar.istio.io/excludeOutboundPorts`: the session-manager holds no database credential and reaches Postgres through kora-agents. `50051` stays excluded, as decided in [2026-09-18: Authenticated Sandbox Exec](2026-09-18-sandbox-exec-trust-boundary.md), and the NetworkPolicy limits it to the namespace's sandbox pods.
 
 4. **Runtime switches.** Each runtime is configured not to make background calls the lockdown blocks:
    - Claude Code: `DISABLE_AUTOUPDATER`, `DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING`, `DISABLE_FEEDBACK_COMMAND`, `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY` and `CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL`. `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is not used: it also turns off `CLAUDE_CODE_ENABLE_TELEMETRY`, which carries run traces to the platform collector.
    - Codex: `check_for_update_on_startup = false`, `[analytics] enabled = false`, `[feedback] enabled = false`, `[features] plugins = false` (the curated plugin sync clones `github.com/openai/plugins` at start), and `web_search = "disabled"`.
    - OpenCode: already configured by its runner (Amendment 1).
 
-5. **Enforcement is unconditional.** Like the sandbox policies, the agent policies do not depend on `networkPolicy.enabled`, which governs the chart's own `orbit-system` policies. A cluster whose CNI does not enforce NetworkPolicy keeps the Sidecar's host restriction.
+5. **Enforcement is unconditional.** Like the sandbox policies, the agent policies do not depend on `networkPolicy.enabled`, which governs the chart's own `kora-system` policies. A cluster whose CNI does not enforce NetworkPolicy keeps the Sidecar's host restriction.
 
 A run without a sandbox therefore has no external egress except through governed MCP servers via the tool gateway. A run with a sandbox also reaches external hosts through the sandbox shell, and so through the egress gateway and its policy.
 

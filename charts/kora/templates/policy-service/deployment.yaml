@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-policy-service
+  name: kora-policy-service
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.policyService.labels" . | nindent 4 }}
@@ -24,14 +24,14 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/policy-service/config.yaml") . | sha256sum }}
         {{- include "kora.podAnnotations" (dict "root" $ "name" "policyService") | nindent 8 }}
     spec:
-      serviceAccountName: orbit-policy-service
+      serviceAccountName: kora-policy-service
       {{- include "kora.imagePullSecrets" . | nindent 6 }}
       {{- include "kora.scheduling" (dict "root" $ "name" "policyService") | nindent 6 }}
       securityContext:
         {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "kora.spireVolumes" . | nindent 8 }}
-        {{- include "kora.configVolume" (dict "root" $ "name" "policyService" "configMap" "orbit-policy-service-config" "modules" (include "kora.policyService.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "policyService" "configMap" "kora-policy-service-config" "modules" (include "kora.policyService.configModules" . | fromYaml)) | nindent 8 }}
         # Operator-owned tenant registry: the gateway bundle lists every
         # registered tenant, with or without policy rows. Optional so the
         # service starts before any tenant exists; re-read on every compile.
@@ -42,7 +42,7 @@ spec:
         {{- include "kora.redisCAVolume" . | nindent 8 }}
         {{- include "kora.extraVolumes" (dict "root" $ "name" "policyService") | nindent 8 }}
       containers:
-        - name: orbit-policy-service
+        - name: kora-policy-service
           image: {{ include "kora.image" (dict "root" $ "name" "policyService") | quote }}
           imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "policyService") }}
           securityContext:

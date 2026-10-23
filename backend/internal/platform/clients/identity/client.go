@@ -91,7 +91,7 @@ type exchangeResponse struct {
 type Client struct {
 	*httpclient.Base
 	// baseURL is the scheme+host base URL of the identity service,
-	// e.g. "http://orbit-identity.orbit-system.svc.cluster.local".
+	// e.g. "http://kora-identity.kora-system.svc.cluster.local".
 	// Do NOT include a path suffix or trailing slash.
 	// Note: plain HTTP — Istio handles the mTLS upgrade transparently.
 	// Supplied via KORA_IDENTITY_SERVICE_URL environment variable.
@@ -101,7 +101,7 @@ type Client struct {
 // NewClient constructs a Client for the kora identity service.
 //
 // baseURL must be the in-cluster scheme+host only, e.g.
-// "http://orbit-identity.orbit-system.svc.cluster.local" (no path, no trailing
+// "http://kora-identity.kora-system.svc.cluster.local" (no path, no trailing
 // slash). The full exchange path (/api/v1/identity/exchange) is appended by
 // Exchange().
 func NewClient(baseURL string, logger logging.Logger) *Client {
@@ -119,7 +119,7 @@ func NewClient(baseURL string, logger logging.Logger) *Client {
 //
 // Full URL example:
 //
-//	http://orbit-identity.orbit-system.svc.cluster.local/api/v1/identity/exchange
+//	http://kora-identity.kora-system.svc.cluster.local/api/v1/identity/exchange
 //
 // Returns the platform token string and its absolute expiry time.
 func (c *Client) Exchange(ctx context.Context) (token string, expiry time.Time, err error) {

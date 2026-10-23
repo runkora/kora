@@ -56,7 +56,7 @@ type upstreamCredentials struct {
 }
 
 // NewUpstreamCredentials returns the gateway's credential lookup over the
-// mounted orbit-mcp-server-secrets directory.
+// mounted kora-mcp-server-secrets directory.
 func NewUpstreamCredentials(secretsDir string) UpstreamCredentials {
 	return upstreamCredentials{secretsDir: secretsDir}
 }

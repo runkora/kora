@@ -406,7 +406,7 @@ func (e *usersReadEvaluator) Check(_ context.Context, in policy.CheckInput) (pol
 }
 
 func TestAuthorizeUserRead(t *testing.T) {
-	system := humanClaims("t1", "orbit-agents")
+	system := humanClaims("t1", "kora-agents")
 	system.Kora.PrincipalType = token.PrincipalTypeSystem
 	boom := errors.New("bundle not loaded")
 

@@ -3,7 +3,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: orbit-preflight-test
+  name: kora-preflight-test
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.operator.labels" . | nindent 4 }}
@@ -14,14 +14,14 @@ metadata:
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
     sidecar.istio.io/inject: "false"
 spec:
-  serviceAccountName: orbit-operator
+  serviceAccountName: kora-operator
   restartPolicy: Never
   {{- include "kora.imagePullSecrets" . | nindent 2 }}
   securityContext:
     {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 4 }}
   volumes:
     {{- include "kora.spireVolumes" . | nindent 4 }}
-    {{- include "kora.configVolume" (dict "root" $ "name" "operator" "configMap" "orbit-operator-config" "modules" (include "kora.operator.configModules" . | fromYaml)) | nindent 4 }}
+    {{- include "kora.configVolume" (dict "root" $ "name" "operator" "configMap" "kora-operator-config" "modules" (include "kora.operator.configModules" . | fromYaml)) | nindent 4 }}
   containers:
     - name: preflight
       image: {{ include "kora.image" (dict "root" $ "name" "operator") | quote }}

@@ -105,7 +105,7 @@ The trace exporter is chosen at startup in priority order: an OTLP endpoint alwa
 
 ## Validation
 
-Check a workload's rendered values with `kubectl -n orbit-system get configmap orbit-identity-config -o yaml`, and its startup logs for "Observability initialized".
+Check a workload's rendered values with `kubectl -n kora-system get configmap kora-identity-config -o yaml`, and its startup logs for "Observability initialized".
 
 ## Troubleshooting
 

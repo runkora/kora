@@ -13,7 +13,7 @@ deploy/local/
 
 ## Tenant Registry
 
-The operator derives `orbit-tenants` in `orbit-system` from `KoraTenant` resources.
+The operator derives `kora-tenants` in `kora-system` from `KoraTenant` resources.
 
 ## Adding or Updating a Tenant
 
@@ -30,10 +30,10 @@ kubectl apply -f deploy/local/tenants/example.yaml
 | Connection | Credential |
 |---|---|
 | `github.yaml` | GitHub App private key at `secrets/orbit-github-app.pem` |
-| `kubernetes.yaml` | A `Secret` named `orbit-local-token` in `orbit-tenant-example`, holding a bearer token for the target cluster. `scripts/cluster/register-k8s-connection.sh` creates it, along with the ServiceAccount and the connection itself. |
+| `kubernetes.yaml` | A `Secret` named `kora-local-token` in `kora-tenant-example`, holding a bearer token for the target cluster. `scripts/cluster/register-k8s-connection.sh` creates it, along with the ServiceAccount and the connection itself. |
 
 A connection without its credential is skipped, not failed.
 
 ## Fixtures
 
-`fixtures/orbit-tenant-example.yaml` is the example tenant's workload: a self-contained `Deployment` and `Service` for local testing.
+`fixtures/kora-tenant-example.yaml` is the example tenant's workload: a self-contained `Deployment` and `Service` for local testing.

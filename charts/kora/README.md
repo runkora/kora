@@ -32,7 +32,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.config.sandboxImage | string | `""` |  |
 | agents.config.sessionManagerDigest | string | `""` |  |
 | agents.config.sessionManagerImage | string | `""` |  |
-| agents.configOverrides | object | `{}` | Raw config merged last over orbit-agents' rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. e.g. {cmd/kora-agents: {drafts: {retentionDays: 7}}} |
+| agents.configOverrides | object | `{}` | Raw config merged last over kora-agents' rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. e.g. {cmd/kora-agents: {drafts: {retentionDays: 7}}} |
 | agents.environments.defaultSize | object | `{"cpu":"2","disk":"10Gi","memory":"4Gi"}` | Size for an environment that sets none, and for the built-in default. |
 | agents.environments.maxSize | object | `{}` | Largest size an environment may request. An unset field takes the value of `defaultSize`. Raise it to what a sandbox node holds: see the deployment guide. |
 | agents.extraEnv | list | `[]` |  |
@@ -86,9 +86,9 @@ Kubernetes: `>=1.34.0-0`
 | agents.scheduling.pollIntervalSecs | int | `1` | Seconds between polls for pending runs, and before a run with no free pod is tried again. |
 | agents.scheduling.provisionBudgetSecs | int | `600` | Seconds a run may wait for its agent to finish provisioning before it fails. |
 | agents.scheduling.startBudgetSecs | int | `180` | Seconds a run may stay pending before it fails. |
-| agents.scheduling.workerConcurrency | int | `16` | Runs one orbit-agents replica starts at once. |
+| agents.scheduling.workerConcurrency | int | `16` | Runs one kora-agents replica starts at once. |
 | agents.serviceAccount.annotations | object | `{}` |  |
-| agents.tenantConnectionsConfigMapName | string | `"orbit-tenant-connections"` |  |
+| agents.tenantConnectionsConfigMapName | string | `"kora-tenant-connections"` |  |
 | agents.tolerations | list | `[]` |  |
 | agents.topologySpreadConstraints | list | `[]` |  |
 | agents.workloads.common.podAnnotations | object | `{}` |  |
@@ -115,7 +115,7 @@ Kubernetes: `>=1.34.0-0`
 | config.db.name | string | `"orbit"` |  |
 | config.db.port | int | `5432` |  |
 | config.db.user | string | `"orbit"` |  |
-| config.platformSecretName | string | `"orbit-secrets"` |  |
+| config.platformSecretName | string | `"kora-secrets"` |  |
 | config.redis.host | string | `""` |  |
 | config.redis.port | int | `6379` |  |
 | config.redis.tls.caSecret | string | `""` | Secret in the system namespace holding the CA bundle under key ca.crt. Empty trusts the system roots. |
@@ -125,7 +125,7 @@ Kubernetes: `>=1.34.0-0`
 | egressGateway.affinity | object | `{}` |  |
 | egressGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | egressGateway.connectPort | int | `8085` |  |
-| egressGateway.connectionSecretName | string | `"orbit-tenant-connection-secrets"` |  |
+| egressGateway.connectionSecretName | string | `"kora-tenant-connection-secrets"` |  |
 | egressGateway.extraEnv | list | `[]` |  |
 | egressGateway.extraVolumeMounts | list | `[]` |  |
 | egressGateway.extraVolumes | list | `[]` |  |
@@ -144,8 +144,8 @@ Kubernetes: `>=1.34.0-0`
 | egressGateway.resources.requests.cpu | string | `"100m"` |  |
 | egressGateway.resources.requests.memory | string | `"64Mi"` |  |
 | egressGateway.serviceAccount.annotations | object | `{}` |  |
-| egressGateway.tenantCASecretName | string | `"orbit-tenant-cas"` |  |
-| egressGateway.tenantConnectionsConfigMapName | string | `"orbit-tenant-connections"` |  |
+| egressGateway.tenantCASecretName | string | `"kora-tenant-cas"` |  |
+| egressGateway.tenantConnectionsConfigMapName | string | `"kora-tenant-connections"` |  |
 | egressGateway.tolerations | list | `[]` |  |
 | egressGateway.topologySpreadConstraints | list | `[]` |  |
 | egressGateway.transparentEgress.enabled | bool | `true` |  |
@@ -159,7 +159,7 @@ Kubernetes: `>=1.34.0-0`
 | frontend.config.policyGatewayUrl | string | `""` |  |
 | frontend.config.policyServiceUrl | string | `""` |  |
 | frontend.config.toolGatewayUrl | string | `""` |  |
-| frontend.existingSecret | string | `"orbit-frontend-secrets"` |  |
+| frontend.existingSecret | string | `"kora-frontend-secrets"` |  |
 | frontend.extraEnv | list | `[]` |  |
 | frontend.extraVolumeMounts | list | `[]` |  |
 | frontend.extraVolumes | list | `[]` |  |
@@ -194,10 +194,10 @@ Kubernetes: `>=1.34.0-0`
 | gateway.ingress.enabled | bool | `false` |  |
 | gateway.ingress.hosts | list | `[]` |  |
 | gateway.ingress.tls | list | `[]` |  |
-| gateway.name | string | `"orbit-gateway"` |  |
+| gateway.name | string | `"kora-gateway"` |  |
 | gateway.ports.http | int | `80` |  |
 | gateway.ports.https | int | `443` |  |
-| gateway.tls.credentialName | string | `"orbit-gateway-tls"` |  |
+| gateway.tls.credentialName | string | `"kora-gateway-tls"` |  |
 | gateway.tls.enabled | bool | `false` |  |
 | global.affinity | object | `{}` |  |
 | global.imagePullPolicy | string | `"IfNotPresent"` |  |
@@ -223,7 +223,7 @@ Kubernetes: `>=1.34.0-0`
 | global.topologySpreadConstraints | list | `[]` |  |
 | global.trustDomain | string | `""` |  |
 | identity.affinity | object | `{}` |  |
-| identity.clientSecretsSecret | string | `"orbit-tenant-oidc-secrets"` |  |
+| identity.clientSecretsSecret | string | `"kora-tenant-oidc-secrets"` |  |
 | identity.config.accessTokenTtlMinutes | int | `15` |  |
 | identity.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | identity.extraEnv | list | `[]` |  |
@@ -236,7 +236,7 @@ Kubernetes: `>=1.34.0-0`
 | identity.image.repository | string | `"kora-identity"` |  |
 | identity.image.tag | string | `""` |  |
 | identity.nodeSelector | object | `{}` |  |
-| identity.oauthClientsConfigMap | string | `"orbit-tenant-oauth-clients"` |  |
+| identity.oauthClientsConfigMap | string | `"kora-tenant-oauth-clients"` |  |
 | identity.podAnnotations | object | `{}` |  |
 | identity.podLabels | object | `{}` |  |
 | identity.priorityClassName | string | `""` |  |
@@ -246,7 +246,7 @@ Kubernetes: `>=1.34.0-0`
 | identity.resources.requests.cpu | string | `"100m"` |  |
 | identity.resources.requests.memory | string | `"128Mi"` |  |
 | identity.serviceAccount.annotations | object | `{}` |  |
-| identity.tenantsConfigMap | string | `"orbit-tenants"` |  |
+| identity.tenantsConfigMap | string | `"kora-tenants"` |  |
 | identity.tolerations | list | `[]` |  |
 | identity.topologySpreadConstraints | list | `[]` |  |
 | identityProxy.image.digest | string | `""` |  |
@@ -290,9 +290,9 @@ Kubernetes: `>=1.34.0-0`
 | ingressGateway.env.PILOT_CERT_PROVIDER | string | `"spire"` |  |
 | ingressGateway.env.SPIFFE_ENDPOINT_SOCKET | string | `"unix:///run/secrets/workload-spiffe-uds/socket"` |  |
 | ingressGateway.labels."spiffe.io/component" | string | `"ingress-gateway"` |  |
-| ingressGateway.labels.app | string | `"orbit-gateway"` |  |
-| ingressGateway.labels.istio | string | `"orbit-gateway"` |  |
-| ingressGateway.name | string | `"orbit-gateway"` |  |
+| ingressGateway.labels.app | string | `"kora-gateway"` |  |
+| ingressGateway.labels.istio | string | `"kora-gateway"` |  |
+| ingressGateway.name | string | `"kora-gateway"` |  |
 | ingressGateway.podAnnotations."inject.istio.io/templates" | string | `"gateway"` |  |
 | ingressGateway.podAnnotations."sidecar.istio.io/inject" | string | `"true"` |  |
 | ingressGateway.securityContext.runAsNonRoot | bool | `true` |  |
@@ -448,7 +448,7 @@ Kubernetes: `>=1.34.0-0`
 | policyService.resources.requests.cpu | string | `"100m"` |  |
 | policyService.resources.requests.memory | string | `"64Mi"` |  |
 | policyService.serviceAccount.annotations | object | `{}` |  |
-| policyService.tenantsConfigMap | string | `"orbit-tenants"` | Operator-owned tenant registry ConfigMap; the gateway bundle lists every tenant in it. |
+| policyService.tenantsConfigMap | string | `"kora-tenants"` | Operator-owned tenant registry ConfigMap; the gateway bundle lists every tenant in it. |
 | policyService.tolerations | list | `[]` |  |
 | policyService.topologySpreadConstraints | list | `[]` |  |
 | publicHosts | list | `[]` |  |
@@ -462,7 +462,7 @@ Kubernetes: `>=1.34.0-0`
 | sandboxMount.image.repository | string | `"kora-sandbox-mount"` |  |
 | sandboxMount.image.tag | string | `""` |  |
 | sandboxMount.kubeletDir | string | `"/var/lib/kubelet"` | The kubelet's root directory on the nodes. |
-| sandboxMount.namespace | string | `"orbit-sandbox-mount"` | Namespace of the node agent. The system namespace's Pod Security level rejects privileged pods. |
+| sandboxMount.namespace | string | `"kora-sandbox-mount"` | Namespace of the node agent. The system namespace's Pod Security level rejects privileged pods. |
 | sandboxMount.nodeSelector | object | `{}` | The agent must run on every node that hosts sandboxes or session-manager pods, so global.nodeSelector and global.affinity do not apply to it. |
 | sandboxMount.port | int | `20490` | TCP port nfsd listens on, on every node. NFSv4 only, with no rpcbind or mountd port. |
 | sandboxMount.priorityClassName | string | `""` | Falls back to global.priorityClassName. |
@@ -483,8 +483,8 @@ Kubernetes: `>=1.34.0-0`
 | toolGateway.image.registry | string | `""` |  |
 | toolGateway.image.repository | string | `"kora-tool-gateway"` |  |
 | toolGateway.image.tag | string | `""` |  |
-| toolGateway.mcpServerSecretsName | string | `"orbit-mcp-server-secrets"` |  |
-| toolGateway.mcpServersConfigMapName | string | `"orbit-mcp-servers"` |  |
+| toolGateway.mcpServerSecretsName | string | `"kora-mcp-server-secrets"` |  |
+| toolGateway.mcpServersConfigMapName | string | `"kora-mcp-servers"` |  |
 | toolGateway.nodeSelector | object | `{}` |  |
 | toolGateway.podAnnotations | object | `{}` |  |
 | toolGateway.podLabels | object | `{}` |  |
@@ -503,7 +503,7 @@ Kubernetes: `>=1.34.0-0`
 | triggers.authorizationPolicy.metricsScraperIPBlocks | list | `[]` |  |
 | triggers.authorizationPolicy.metricsScraperPrincipals | list | `[]` | Mesh identities (ns/<namespace>/sa/<serviceaccount>) allowed to reach ONLY the metrics port (global.metrics.port). Separate from meshPrincipals: a scraper needs no triggers-management authority, so it is scoped by port rather than added to the broad caller list above. Empty by default: nothing is allowed through until an operator names their scraper's identity. See docs/adr/2026-10-06-prometheus-metrics-endpoints.md, Decision. |
 | triggers.authorizationPolicy.systemPrincipals[0] | string | `"frontend"` |  |
-| triggers.authorizationPolicy.systemPrincipals[1] | string | `"orbit-mcp"` |  |
+| triggers.authorizationPolicy.systemPrincipals[1] | string | `"kora-mcp"` |  |
 | triggers.authorizationPolicy.systemPrincipals[2] | string | `"ingress-gateway"` |  |
 | triggers.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | triggers.extraEnv | list | `[]` |  |

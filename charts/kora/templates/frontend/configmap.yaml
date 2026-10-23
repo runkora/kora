@@ -6,16 +6,16 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: orbit-frontend-config
+  name: kora-frontend-config
   namespace: {{ $ns }}
   labels:
     {{- include "kora.frontend.labels" . | nindent 4 }}
 data:
-  KORA_API_URL: {{ $c.koraApiUrl | default (printf "http://orbit-identity.%s.svc.cluster.local/api/v1" $ns) | quote }}
-  KORA_TRIGGERS_URL: {{ $c.koraTriggersUrl | default (printf "http://orbit-triggers.%s.svc.cluster.local/api/v1" $ns) | quote }}
-  INFERENCE_GATEWAY_URL: {{ $c.inferenceGatewayUrl | default (printf "http://orbit-inference-gateway.%s.svc.cluster.local/v1" $ns) | quote }}
-  POLICY_GATEWAY_URL: {{ $c.policyGatewayUrl | default (printf "http://orbit-policy-gateway.%s.svc.cluster.local/v1" $ns) | quote }}
-  POLICY_SERVICE_URL: {{ $c.policyServiceUrl | default (printf "http://orbit-policy-service.%s.svc.cluster.local/api/v1" $ns) | quote }}
-  KORA_AGENTS_URL: {{ $c.koraAgentsUrl | default (printf "http://orbit-agents.%s.svc.cluster.local" $ns) | quote }}
-  TOOL_GATEWAY_URL: {{ $c.toolGatewayUrl | default (printf "http://orbit-tool-gateway.%s.svc.cluster.local" $ns) | quote }}
+  KORA_API_URL: {{ $c.koraApiUrl | default (printf "http://kora-identity.%s.svc.cluster.local/api/v1" $ns) | quote }}
+  KORA_TRIGGERS_URL: {{ $c.koraTriggersUrl | default (printf "http://kora-triggers.%s.svc.cluster.local/api/v1" $ns) | quote }}
+  INFERENCE_GATEWAY_URL: {{ $c.inferenceGatewayUrl | default (printf "http://kora-inference-gateway.%s.svc.cluster.local/v1" $ns) | quote }}
+  POLICY_GATEWAY_URL: {{ $c.policyGatewayUrl | default (printf "http://kora-policy-gateway.%s.svc.cluster.local/v1" $ns) | quote }}
+  POLICY_SERVICE_URL: {{ $c.policyServiceUrl | default (printf "http://kora-policy-service.%s.svc.cluster.local/api/v1" $ns) | quote }}
+  KORA_AGENTS_URL: {{ $c.koraAgentsUrl | default (printf "http://kora-agents.%s.svc.cluster.local" $ns) | quote }}
+  TOOL_GATEWAY_URL: {{ $c.toolGatewayUrl | default (printf "http://kora-tool-gateway.%s.svc.cluster.local" $ns) | quote }}
   NEXT_PUBLIC_APP_URL: {{ $c.nextPublicAppUrl | default (printf "https://%s" (include "kora.frontendHost" .)) | quote }}

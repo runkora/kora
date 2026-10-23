@@ -1,5 +1,5 @@
 {{- /*
-orbit-operator config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+kora-operator config files (docs/adr/2026-10-06-rendered-service-config-files.md).
 The preflight helm test mounts the same ConfigMap.
 */}}
 {{- define "kora.operator.configModules" -}}
@@ -58,4 +58,4 @@ cmd/operator:
 {{ include "kora.observabilityConfigModule" . }}
 {{ include "kora.brandConfigModule" . }}
 {{- end }}
-{{- include "kora.configMap" (dict "root" $ "name" "operator" "configMap" "orbit-operator-config" "modules" (include "kora.operator.configModules" . | fromYaml)) }}
+{{- include "kora.configMap" (dict "root" $ "name" "operator" "configMap" "kora-operator-config" "modules" (include "kora.operator.configModules" . | fromYaml)) }}

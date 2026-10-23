@@ -5,18 +5,18 @@
 **Status:** Accepted
 **Date:** 2026-09-15
 **Deciders:** Tom Morelly, Justin Wilkin
-**Technical Story:** Productionise the operator surface for customising the Kubernetes resources orbit-agents provisions in tenant namespaces. Supersedes [2026-06-12: K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md).
+**Technical Story:** Productionise the operator surface for customising the Kubernetes resources kora-agents provisions in tenant namespaces. Supersedes [2026-06-12: K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md).
 
 ---
 
 ## Context
 
-`orbit-agents` provisions a fixed set of Kubernetes resources for each managed agent type: a `StatefulSet`, a headless `Service`, a `ServiceAccount`, a `HorizontalPodAutoscaler`, a `PodDisruptionBudget`, and a `PersistentVolumeClaim` embedded as a `VolumeClaimTemplate` on the StatefulSet. It also creates a `Pod` for every run's sandbox. All manifests are built as typed Go structs in `backend/internal/agents/k8s.go`.
+`kora-agents` provisions a fixed set of Kubernetes resources for each managed agent type: a `StatefulSet`, a headless `Service`, a `ServiceAccount`, a `HorizontalPodAutoscaler`, a `PodDisruptionBudget`, and a `PersistentVolumeClaim` embedded as a `VolumeClaimTemplate` on the StatefulSet. It also creates a `Pod` for every run's sandbox. All manifests are built as typed Go structs in `backend/internal/agents/k8s.go`.
 
 [ADR 2026-06-12](2026-06-12-k8s-manifest-overrides-via-env-vars.md) introduced a per-field override mechanism: env vars of the form `ORBIT_MANIFEST__<Kind>__<name>__<path>=<value>` parsed at startup and applied to the built typed object via a JSON round-trip using `github.com/tidwall/sjson`. The mechanism works for shallow scalar overrides but has hard limits:
 
 - **Poor ergonomics for structured fields.** Anything list-shaped (`imagePullSecrets`, `tolerations`, `resources`, node affinities) must be embedded as a raw JSON string inside an env var value. The Helm chart did this seven times for `runtimePods.*`.
-- **One env var per field.** Non-trivial customisations bloat the orbit-agents pod spec.
+- **One env var per field.** Non-trivial customisations bloat the kora-agents pod spec.
 - **No selector semantics beyond `Kind + slug|*`.** No `labelSelector`, no `annotationSelector`, no way to say "every sandbox pod, whatever the slug", and no way to touch a specific list index without JSON-string overrides.
 - **No debug or preview path.** An operator authoring an override has to `kubectl apply` and diff by hand.
 
@@ -31,29 +31,29 @@ Each entry carries the patch body in `patch:` and an optional `target:` selector
 
 ### Problem Statement
 
-Give operators a maintainable, familiar mechanism for customising the Kubernetes resources orbit-agents provisions, with selector semantics rich enough to cover the real needs (image pull secrets, storage class, labels and annotations, resource limits, tolerations, priority class, node selector), and a way to preview the final manifest before deploying.
+Give operators a maintainable, familiar mechanism for customising the Kubernetes resources kora-agents provisions, with selector semantics rich enough to cover the real needs (image pull secrets, storage class, labels and annotations, resource limits, tolerations, priority class, node selector), and a way to preview the final manifest before deploying.
 
 ### Goals
 
 - Operators author patches as kustomize `patches:` entries, the format they already know.
-- Patches are loaded at orbit-agents startup and applied to every provisioned resource without a code change per new field.
-- Patches cannot change the identity, security context or workspace isolation orbit-agents builds.
+- Patches are loaded at kora-agents startup and applied to every provisioned resource without a code change per new field.
+- Patches cannot change the identity, security context or workspace isolation kora-agents builds.
 - A CLI mode renders the final YAML for a given agent slug (plus optional sandbox) so operators can diff patches locally or in CI before deploying.
 - Fail loud: a patch that does not load or apply fails startup with the filename in the error.
 
 ### Non-Goals
 
 - Full `kustomization.yaml` surface (`replacements`, `images`, `namePrefix`, `generators`, `components`, `commonLabels`, …). Operators get `patches:` only.
-- Per-tenant patches. All tenants sharing an orbit-agents pod get the same patches.
+- Per-tenant patches. All tenants sharing a kora-agents pod get the same patches.
 - Patching the Istio `DestinationRule` and `AuthorizationPolicy`, which are created as `unstructured`.
-- Editing patches at runtime. Patches are loaded once at startup; a `ConfigMap` change rolls the orbit-agents pod through a Helm-computed `checksum/patches` annotation.
+- Editing patches at runtime. Patches are loaded once at startup; a `ConfigMap` change rolls the kora-agents pod through a Helm-computed `checksum/patches` annotation.
 
 ---
 
 ## Decision Drivers
 
 - **Battle-tested UX.** Operators already know kustomize patch syntax.
-- **Exact kustomize semantics.** A patch should behave in orbit-agents as it does under `kustomize build`, including `$patch: delete`, list-merge keys and selectors.
+- **Exact kustomize semantics.** A patch should behave in kora-agents as it does under `kustomize build`, including `$patch: delete`, list-merge keys and selectors.
 - **Least code to maintain.** Parsing, flavour detection and patch application are solved problems.
 - **Protected invariants.** The typed builder stays the source of truth for identity, pod security and per-run workspace isolation.
 - **Deterministic ordering.** Lex-sorted filenames with a numeric prefix (`010-*.yaml`, `020-*.yaml`) decide which patch applies first.
@@ -66,7 +66,7 @@ Give operators a maintainable, familiar mechanism for customising the Kubernetes
 
 ### Option 1: Embed the kustomize engine, patches only (chosen)
 
-**Description:** Each patch file is one kustomize `patches:` entry. For every resource orbit-agents builds, it runs `sigs.k8s.io/kustomize/api/krusty` over an in-memory kustomization containing that one resource and one patch, once per matching patch in file order. Only the `patches:` field is exposed.
+**Description:** Each patch file is one kustomize `patches:` entry. For every resource kora-agents builds, it runs `sigs.k8s.io/kustomize/api/krusty` over an in-memory kustomization containing that one resource and one patch, once per matching patch in file order. Only the `patches:` field is exposed.
 
 **Pros:**
 - Exact kustomize behaviour, because it is kustomize: SMP, JSON6902, `$patch` directives and target selectors.
@@ -104,11 +104,11 @@ Give operators a maintainable, familiar mechanism for customising the Kubernetes
 
 ### Option 4: Full user-supplied manifests via a Helm-shipped ConfigMap
 
-**Description:** Instead of patching over orbit-agents' built manifests, the operator provides the complete Kubernetes manifests (StatefulSet, Service, ServiceAccount, HPA, PDB, sandbox Pod) as YAML in a Helm-managed ConfigMap, which orbit-agents applies with minimal substitution instead of building typed Go structs.
+**Description:** Instead of patching over kora-agents' built manifests, the operator provides the complete Kubernetes manifests (StatefulSet, Service, ServiceAccount, HPA, PDB, sandbox Pod) as YAML in a Helm-managed ConfigMap, which kora-agents applies with minimal substitution instead of building typed Go structs.
 
 **Feasibility analysis.** Every field a manifest needs must either be static across tenants and agent types or knowable at ConfigMap-generation time. What `buildSessionManagerStatefulSet` and `buildSandboxPod` compute at provisioning time:
 
-Fields orbit-agents computes per agent type at runtime:
+Fields kora-agents computes per agent type at runtime:
 - `metadata.name` = agent type slug (`at.Slug`); StatefulSet, Service, ServiceAccount, HPA and PDB are all named after it.
 - `metadata.namespace` = the tenant namespace, one per tenant.
 - `metadata.labels` = `{app: {slug}, runkora.io/agent-type: {at.ID}, runkora.io/tenant: {at.TenantID}}`; the agent-type UUID exists only once the row is written.
@@ -120,7 +120,7 @@ Fields orbit-agents computes per agent type at runtime:
 - StatefulSet pod template `env` includes URLs built from the system namespace (`ANTHROPIC_BASE_URL`, `KORA_AGENTS_URL`).
 - HPA `spec.scaleTargetRef.name` = agent slug.
 
-Fields orbit-agents computes per run at runtime for the sandbox Pod:
+Fields kora-agents computes per run at runtime for the sandbox Pod:
 - `metadata.name` = `sandbox-{run.ID}`.
 - `metadata.labels` = `{runkora.io/role: sandbox, runkora.io/run-id: {run.ID}, runkora.io/agent-slug: {slug}}`; the run ID is a database-generated UUID.
 - PVC volume reference = `workspaces-{slug}-{run.PodOrdinal}`, the StatefulSet's per-ordinal claim name.
@@ -128,7 +128,7 @@ Fields orbit-agents computes per run at runtime for the sandbox Pod:
 - Container env includes `WORKSPACE`, `SANDBOX_EXEC_PORT`, per-tenant CA paths and a base64-encoded kubeconfig built from the granted Kubernetes clusters.
 - Owner reference = the parent StatefulSet's UID, looked up at provision time.
 
-None of these fields is static. A "fully user-supplied manifest" can only be a template that orbit-agents renders with the runtime variables above, which means a template engine plus a documented variable contract.
+None of these fields is static. A "fully user-supplied manifest" can only be a template that kora-agents renders with the runtime variables above, which means a template engine plus a documented variable contract.
 
 **Pros:**
 - Maximum control for operators who want to hand-craft every field.
@@ -136,20 +136,20 @@ None of these fields is static. A "fully user-supplied manifest" can only be a t
 **Cons:**
 - Requires a template engine and a variable contract, not plain YAML.
 - Deletes the compile-time guarantees on pod security, SPIFFE labels, per-run subpath isolation and cross-resource identity.
-- Every new field orbit-agents needs becomes a breaking template contract change.
+- Every new field kora-agents needs becomes a breaking template contract change.
 - The render mode can only echo the template with variables substituted.
 
 ---
 
 ## Decision
 
-**Chosen Option:** Option 1. orbit-agents embeds the kustomize engine and exposes only its `patches:` entries, loaded from a ConfigMap-mounted directory, one entry per file, with every entry targeting a kind.
+**Chosen Option:** Option 1. kora-agents embeds the kustomize engine and exposes only its `patches:` entries, loaded from a ConfigMap-mounted directory, one entry per file, with every entry targeting a kind.
 
 ### Rationale
 
 Option 1 gives operators kustomize itself rather than an approximation of it, with no patching code of our own beyond the resource round-trip and the invariant check. Option 2 avoids the dependency but reimplements parsing, selection and application that kustomize already gets right, in a format operators cannot carry over from their existing kustomizations. Option 3 runs out of expressive power at the first `remove` or list-index edit. Option 4 replaces typed builders with templates and loses the identity and isolation guarantees along the way.
 
-Protection is checked on the patched object, not on patch paths. After each patch, orbit-agents compares a fixed set of fields against the object it built and rejects the patch if any differ. This catches every way of reaching a field (an SMP merge, a JSON6902 op on the field, or a removal of its parent) with one check.
+Protection is checked on the patched object, not on patch paths. After each patch, kora-agents compares a fixed set of fields against the object it built and rejects the patch if any differ. This catches every way of reaching a field (an SMP merge, a JSON6902 op on the field, or a removal of its parent) with one check.
 
 Failing hard on a broken patch file departs from ADR 2026-06-12's warn-and-continue posture on malformed env var keys. A file explicitly authored into a ConfigMap is under direct operator control and behaves like a broken manifest anywhere else.
 
@@ -161,7 +161,7 @@ Failing hard on a broken patch file departs from ADR 2026-06-12's warn-and-conti
 
 - Operators use kustomize's own `patches:` format and semantics.
 - Every field on every provisioned resource outside the protected set is reachable without a code change.
-- A patch that does not load, does not apply, names a field the target type does not have, or changes a protected field fails orbit-agents at startup with the filename.
+- A patch that does not load, does not apply, names a field the target type does not have, or changes a protected field fails kora-agents at startup with the filename.
 - The `-render` CLI mode previews the final YAML before deploying.
 - The Helm chart is a thin passthrough: each `agents.manifestPatches` entry is written into the ConfigMap as is.
 - Patch changes reach existing agents on the next reconcile, which runs before every run.
@@ -169,9 +169,9 @@ Failing hard on a broken patch file departs from ADR 2026-06-12's warn-and-conti
 ### Negative
 
 - Installations using the `ORBIT_MANIFEST__*` env vars or the chart's earlier `agents.runtimePods.*` values must migrate to `agents.manifestPatches`. No deprecation window is offered.
-- orbit-agents depends on the v0.x `sigs.k8s.io/kustomize/api`.
+- kora-agents depends on the v0.x `sigs.k8s.io/kustomize/api`.
 - SMP bodies need a placeholder `metadata.name`, which reads oddly to operators used to name-targeted patches.
-- ConfigMap changes require an orbit-agents pod restart. There is no live reload.
+- ConfigMap changes require a kora-agents pod restart. There is no live reload.
 
 ### Neutral
 
@@ -244,7 +244,7 @@ Fields absent from both objects are equal, so a patch may add volumes, container
 
 - `K8sProvisionerConfig.Patches []manifestpatch.Patch` replaces `ManifestOverrides`.
 - `ensureServiceAccount`, `ensureStatefulSet` (and its `VolumeClaimTemplates[0]` as `PersistentVolumeClaim`), `ensureHeadlessService`, `ensureHPA`, `ensurePDB` and `ProvisionSandbox` call `manifestpatch.Apply` on the built object.
-- `ProvisionAgentType` runs on agent-type create and at every orbit-agents startup. Run start creates only missing resources ([Run Scheduling](2026-10-12-run-scheduling.md)). When the resource already exists, `ProvisionAgentType` writes the patched object's mutable fields onto the live one:
+- `ProvisionAgentType` runs on agent-type create and at every kora-agents startup. Run start creates only missing resources ([Run Scheduling](2026-10-12-run-scheduling.md)). When the resource already exists, `ProvisionAgentType` writes the patched object's mutable fields onto the live one:
 
   | Kind | Synced on reconcile | Create-only |
   |------|--------------------|-------------|
@@ -262,11 +262,11 @@ Fields absent from both objects are equal, so a patch may add volumes, container
 
 ### Debug render mode
 
-`orbit-agents -render -agent-slug=<slug> [-agent-type-id=<id>] [-tenant-id=<id>] [-namespace=<ns>] [-patch-dir=<dir>] [-sandbox]` loads the service config and patches, runs the same startup validation, calls `agents.RenderResources` and prints each object as YAML separated by `---`. It needs no kubeconfig or database. `-agent-type-id` sets the `runkora.io/agent-type` label so patches selecting on it match; it defaults to `render-<slug>`. `metadata.ownerReferences` is omitted: the runtime resolves it from live KoraTenant and StatefulSet lookups.
+`kora-agents -render -agent-slug=<slug> [-agent-type-id=<id>] [-tenant-id=<id>] [-namespace=<ns>] [-patch-dir=<dir>] [-sandbox]` loads the service config and patches, runs the same startup validation, calls `agents.RenderResources` and prints each object as YAML separated by `---`. It needs no kubeconfig or database. `-agent-type-id` sets the `runkora.io/agent-type` label so patches selecting on it match; it defaults to `render-<slug>`. `metadata.ownerReferences` is omitted: the runtime resolves it from live KoraTenant and StatefulSet lookups.
 
 ### Helm chart
 
-- `templates/agents/patches-configmap.yaml` renders `agents.manifestPatches` into the `orbit-agents-manifest-patches` ConfigMap. `agents.manifestPatches` is a map from a bare patch name to a kustomize `patches:` entry; each entry is written as `<key>.yaml`, so keys decide apply order.
+- `templates/agents/patches-configmap.yaml` renders `agents.manifestPatches` into the `kora-agents-manifest-patches` ConfigMap. `agents.manifestPatches` is a map from a bare patch name to a kustomize `patches:` entry; each entry is written as `<key>.yaml`, so keys decide apply order.
 - `templates/agents/deployment.yaml` drops the `ORBIT_MANIFEST__*` env stanzas, mounts the ConfigMap at `/etc/kora/manifest-patches`, and adds a `checksum/patches` pod annotation.
 - `values.yaml` removes `agents.runtimePods.*` and adds `agents.manifestPatches: {}`.
 
@@ -320,7 +320,7 @@ This ADR supersedes ADR 2026-06-12.
 
 ### Timeline
 
-Ships as a single PR covering the Go package, the Helm chart and the ADR set. The rollout is a rolling restart of `orbit-agents`; no tenant coordination is required.
+Ships as a single PR covering the Go package, the Helm chart and the ADR set. The rollout is a rolling restart of `kora-agents`; no tenant coordination is required.
 
 ---
 
@@ -330,7 +330,7 @@ Ships as a single PR covering the Go package, the Helm chart and the ADR set. Th
 
 - With no patches configured, every provisioned object is identical to the pre-change build.
 - `make check` passes, with table-driven tests covering SMP merges, `$patch: delete`, JSON6902, selector matching, sequential application, strict decoding, protected-field rejection and loader errors.
-- `orbit-agents -render -patch-dir=<dir> -agent-slug=coder -sandbox | kubectl apply --dry-run=server -f -` is accepted by the local k3d API server.
+- `kora-agents -render -patch-dir=<dir> -agent-slug=coder -sandbox | kubectl apply --dry-run=server -f -` is accepted by the local k3d API server.
 
 ### Monitoring
 
@@ -343,7 +343,7 @@ Ships as a single PR covering the Go package, the Helm chart and the ADR set. Th
 
 - [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md): superseded by this ADR.
 - [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md): the Kubernetes resources being patched.
-- [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md): overall orbit-agents architecture.
+- [kora-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md): overall kora-agents architecture.
 
 ---
 

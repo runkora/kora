@@ -31,13 +31,13 @@ Lists travel as comma-separated strings (`charts/kora/templates/operator/deploym
 - `backend/internal/platform/storage/postgres_config.go:45-78` and `redis_config.go:36-56`: hosts, SSL mode, query capture and TLS.
 - `backend/cmd/inference-gateway/config/config.go:93` and `backend/cmd/policy-service/config/config.go:63`: single values.
 
-Several of these parsers drop a bad value without an error. `intEnv` returns the default when `strconv.Atoi` fails (`backend/cmd/operator/config/config.go:162-169`). The `orbit-agents` guardrail integers keep their YAML value on a parse failure (`backend/cmd/kora-agents/config/config.go:224-228`). `overrideInt` ignores a non-positive or unparseable value (`backend/internal/identity/config.go:91-98`). `KORA_SAMPLING_RATE` is ignored when it is not a float (`backend/internal/platform/observability/config.go:113-117`).
+Several of these parsers drop a bad value without an error. `intEnv` returns the default when `strconv.Atoi` fails (`backend/cmd/operator/config/config.go:162-169`). The `kora-agents` guardrail integers keep their YAML value on a parse failure (`backend/cmd/kora-agents/config/config.go:224-228`). `overrideInt` ignores a non-positive or unparseable value (`backend/internal/identity/config.go:91-98`). `KORA_SAMPLING_RATE` is ignored when it is not a float (`backend/internal/platform/observability/config.go:113-117`).
 
 The current loader cannot decode `corev1.ResourceRequirements`. Viper with `yaml` tags fails on `limits: {cpu: 500m}` with `'resources.Limits[cpu]' expected a map or struct, got "string"`.
 
-[2026-09-16](2026-09-16-first-class-workload-placement.md) rejected JSON in env vars for structured values and chose a rendered ConfigMap. [2026-09-15](2026-09-15-manifest-patches-configmap.md) moved manifest patches to a mounted ConfigMap and superseded the env-var overrides of [2026-06-12](2026-06-12-k8s-manifest-overrides-via-env-vars.md). `charts/kora/templates/agents/workloads-configmap.yaml` is the working precedent. It renders values with `toYaml`, the `orbit-agents` Deployment mounts it and rolls on its `checksum/workloads` annotation (`charts/kora/templates/agents/deployment.yaml:30`), and `loadWorkloads` fails startup when `Validate()` rejects the file (`backend/cmd/kora-agents/render.go:28-47`).
+[2026-09-16](2026-09-16-first-class-workload-placement.md) rejected JSON in env vars for structured values and chose a rendered ConfigMap. [2026-09-15](2026-09-15-manifest-patches-configmap.md) moved manifest patches to a mounted ConfigMap and superseded the env-var overrides of [2026-06-12](2026-06-12-k8s-manifest-overrides-via-env-vars.md). `charts/kora/templates/agents/workloads-configmap.yaml` is the working precedent. It renders values with `toYaml`, the `kora-agents` Deployment mounts it and rolls on its `checksum/workloads` annotation (`charts/kora/templates/agents/deployment.yaml:30`), and `loadWorkloads` fails startup when `Validate()` rejects the file (`backend/cmd/kora-agents/render.go:28-47`).
 
-The chart renders neither the session-manager pod nor the identity-proxy sidecar. `orbit-agents` writes the session-manager container env in Go (`backend/internal/agents/k8s.go:1549-1560`), and the operator webhook writes the sidecar env (`backend/internal/operator/pod_webhook.go:233-243`).
+The chart renders neither the session-manager pod nor the identity-proxy sidecar. `kora-agents` writes the session-manager container env in Go (`backend/internal/agents/k8s.go:1549-1560`), and the operator webhook writes the sidecar env (`backend/internal/operator/pod_webhook.go:233-243`).
 
 ### Problem Statement
 
@@ -52,7 +52,7 @@ Per-install settings travel as untyped env strings that each service parses by h
 ### Non-Goals
 
 - Hot reload of config.
-- The `orbit-secrets` fan-out to every service (clear-route/orbit#403).
+- The `kora-secrets` fan-out to every service (clear-route/orbit#403).
 
 ---
 
@@ -126,7 +126,7 @@ The `{env}.yaml` layer will stay for binaries that run on the host. The `develop
 
 ### 8. Phasing
 
-1. The loader change, `orbit-agents` and the operator.
+1. The loader change, `kora-agents` and the operator.
 2. The shared platform settings and `orbit-config`.
 3. The remaining single values.
 
@@ -140,7 +140,7 @@ None at this time.
 
 ### Positive
 
-- The hand-written env parsers in the operator, `orbit-agents`, identity, observability and storage will be deleted.
+- The hand-written env parsers in the operator, `kora-agents`, identity, observability and storage will be deleted.
 - The effective per-install config of each service will be readable in one ConfigMap.
 
 ### Negative
@@ -180,8 +180,8 @@ None at this time.
 
 ## References
 
-- [clear-route/orbit#402: Service URLs hardcode the orbit-system namespace](https://github.com/clear-route/orbit/issues/402)
-- [clear-route/orbit#403: Every service receives every orbit-secrets key](https://github.com/clear-route/orbit/issues/403)
+- [clear-route/orbit#402: Service URLs hardcode the kora-system namespace](https://github.com/clear-route/orbit/issues/402)
+- [clear-route/orbit#403: Every service receives every kora-secrets key](https://github.com/clear-route/orbit/issues/403)
 
 ---
 

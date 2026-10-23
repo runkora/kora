@@ -1,11 +1,11 @@
 // MCPServer reconciler (Phase 3: MCP Tool Gateway).
 //
 // Unlike Connection (which has no status and is aggregated off the tenant
-// reconcile), an MCPServer carries its own Status and can live in orbit-system
+// reconcile), an MCPServer carries its own Status and can live in kora-system
 // (global) where there is no owning KoraTenant. It gets its own
 // reconciler. On each MCPServer change this validates the spec, sets the CR's
 // reconciliation Status (Pending|Aggregated|Invalid), and re-renders the
-// orbit-mcp-servers registry ConfigMap via the shared MCPServerAggregator.
+// kora-mcp-servers registry ConfigMap via the shared MCPServerAggregator.
 //
 // Tenant active/suspend changes that affect which servers are included are
 // handled by the TenantReconciler, which runs the same aggregator.
@@ -49,7 +49,7 @@ type mcpPolicyResult struct {
 }
 
 func (res mcpPolicyResult) message() string {
-	const base = "rendered into the orbit-mcp-servers registry"
+	const base = "rendered into the kora-mcp-servers registry"
 	switch {
 	case !res.applies:
 		return base
@@ -61,7 +61,7 @@ func (res mcpPolicyResult) message() string {
 }
 
 // MCPServerReconciler reconciles MCPServer CRs: it sets each CR's reconciliation
-// Status and re-aggregates the orbit-mcp-servers registry ConfigMap.
+// Status and re-aggregates the kora-mcp-servers registry ConfigMap.
 type MCPServerReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -215,7 +215,7 @@ func (r *MCPServerReconciler) apply(ctx context.Context, obj client.Object) erro
 	if !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create %T %q in %q: %w", obj, obj.GetName(), obj.GetNamespace(), err)
 	}
-	if err := r.Patch(ctx, obj, client.Merge, client.FieldOwner("orbit-operator")); err != nil {
+	if err := r.Patch(ctx, obj, client.Merge, client.FieldOwner("kora-operator")); err != nil {
 		return fmt.Errorf("patch %T %q in %q: %w", obj, obj.GetName(), obj.GetNamespace(), err)
 	}
 	return nil

@@ -43,7 +43,7 @@ type KoraTenantSpec struct {
 	Active bool `json:"active"`
 
 	// Namespace selects the tenant workload namespace, defaulting to
-	// orbit-tenant-<name>. The operator labels it but never deletes it.
+	// kora-tenant-<name>. The operator labels it but never deletes it.
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 

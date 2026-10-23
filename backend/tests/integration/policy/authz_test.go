@@ -41,13 +41,13 @@ const (
 	defaultGatewayAPIURL    = "https://api.orbit.local.clearroute.io:8443"
 	defaultFrontendURL      = "https://orbit.local.clearroute.io:8443"
 	defaultTenantID         = "example"
-	defaultTenantNamespace  = "orbit-tenant-example"
-	defaultExamplePodLabel  = "app=orbit-example"
+	defaultTenantNamespace  = "kora-tenant-example"
+	defaultExamplePodLabel  = "app=kora-example"
 
-	// testAgentID is the SPIFFE ID of the orbit-example pod's agent container.
+	// testAgentID is the SPIFFE ID of the kora-example pod's agent container.
 	// It must match the ClusterSPIFFEID-issued SVID so the identity-proxy JWT
 	// sub claim lines up with the grant principal_id checked by OPA.
-	testAgentID = "spiffe://orbit.test/tenant/orbit-tenant-example/agent/example"
+	testAgentID = "spiffe://orbit.test/tenant/kora-tenant-example/agent/example"
 
 	// skipAgentGrantSeeding explains why the tests that seed an AGENT grant are
 	// skipped. Only a SYSTEM caller may write AGENT grants, and ensureGrant
@@ -84,7 +84,7 @@ func TestLiveCluster_Layer1_AllowWithGrant(t *testing.T) {
 	waitForBundleRefresh(t)
 
 	pod := findExamplePod(t)
-	status := kubectlExecWget(t, pod, "http://orbit-inference-gateway.orbit-system.svc/v1/models")
+	status := kubectlExecWget(t, pod, "http://kora-inference-gateway.kora-system.svc/v1/models")
 
 	// 503 is acceptable — OPA allowed the request but the upstream has no
 	// providers configured. Only 403 means the policy denied the request.
@@ -96,7 +96,7 @@ func TestLiveCluster_Layer1_AllowWithGrant(t *testing.T) {
 func TestLiveCluster_Layer1_DenyWithoutGrant(t *testing.T) {
 	pod := findExamplePod(t)
 	// The agent should have no grant for platform:roles:read.
-	status := kubectlExecWget(t, pod, "http://orbit-policy-service.orbit-system.svc/api/v1/policy/roles")
+	status := kubectlExecWget(t, pod, "http://kora-policy-service.kora-system.svc/api/v1/policy/roles")
 	if status != 403 {
 		t.Errorf("expected 403 for unauthorized route, got %d", status)
 	}
@@ -107,7 +107,7 @@ func TestLiveCluster_Layer1_PlatformBypass(t *testing.T) {
 	// Identity exchange is a platform-internal path — allowed without JWT.
 	// The POST returns a non-403 error (empty body → 400/500), which proves
 	// OPA's ext_authz did not block it.
-	status := kubectlExecWget(t, pod, "http://orbit-identity.orbit-system.svc.cluster.local/api/v1/identity/exchange")
+	status := kubectlExecWget(t, pod, "http://kora-identity.kora-system.svc.cluster.local/api/v1/identity/exchange")
 	if status == 403 {
 		t.Error("expected platform bypass to allow identity exchange (got 403)")
 	}
@@ -179,7 +179,7 @@ func kubectlExecWget(t *testing.T, pod, url string) int {
 	t.Helper()
 	cmd := exec.Command("kubectl", "exec", pod,
 		"-n", defaultTenantNamespace,
-		"-c", "orbit-example",
+		"-c", "kora-example",
 		"--",
 		"wget", "-q", "-O-", "-S", "--timeout=5", url,
 	)

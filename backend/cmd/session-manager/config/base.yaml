@@ -14,7 +14,7 @@ workspaces:
 
 # kora-agents overrides this with KORA_AGENTS_URL from its system namespace.
 orbitAgents:
-  url: "http://orbit-agents.orbit-system.svc.cluster.local"
+  url: "http://kora-agents.kora-system.svc.cluster.local"
 
 # Settings shared by every agent framework.
 runner:
@@ -38,12 +38,12 @@ opencode:
 # inferenceGateway is the base for per-run Codex, OpenCode and summarizer URLs;
 # kora-agents overrides it with KORA_INFERENCE_GATEWAY_URL from its system namespace.
 inferenceGateway:
-  url: "http://orbit-inference-gateway.orbit-system.svc.cluster.local"
+  url: "http://kora-inference-gateway.kora-system.svc.cluster.local"
 
 # toolGateway is the MCP tool-gateway written into each run's MCP config; the identity-proxy sidecar adds the token.
 # kora-agents overrides it with KORA_TOOL_GATEWAY_URL from its system namespace.
 toolGateway:
-  url: "http://orbit-tool-gateway.orbit-system.svc.cluster.local"
+  url: "http://kora-tool-gateway.kora-system.svc.cluster.local"
 
 # auth guards the session-control API (create/message/interrupt/close). Every
 # caller must present a platform token AND be the kora-agents control plane;

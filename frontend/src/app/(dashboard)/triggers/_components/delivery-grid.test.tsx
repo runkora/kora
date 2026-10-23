@@ -57,13 +57,13 @@ describe('rows', () => {
           makeDelivery({
             status: 'failed',
             error:
-              'start run: unexpected status from orbit-agents: status 500: {"code":"internal_error","message":"failed to start run"}',
+              'start run: unexpected status from kora-agents: status 500: {"code":"internal_error","message":"failed to start run"}',
           }),
         ],
       }),
     );
     expect(screen.getByText('failed to start run')).toBeTruthy();
-    expect(screen.queryByText(/unexpected status from orbit-agents/)).toBeNull();
+    expect(screen.queryByText(/unexpected status from kora-agents/)).toBeNull();
   });
 
   it('shows the arrival time relatively, with the exact time on hover', () => {

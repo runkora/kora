@@ -17,7 +17,7 @@ A **hosted web application** — a server-rendered app a user reaches in their b
 
 The naive fix is to relax the loopback rule and let hosted apps register their HTTPS callback. But an open registration surface that accepts arbitrary remote redirect URIs is an open-redirect / token-theft risk. Hosted-app registration must be **admin-reviewed**, not self-service.
 
-The question is **where that admin-reviewed registration lives**. kora already has an answer for every other admin-declared registration: a **CRD reconciled by `orbit-operator`**, authored in the deployment's GitOps repo. Connectors are the `Connection` CRD (`oconn`); governed tool servers are the `MCPServer` CRD (`omcp`). Both are aggregated by the operator into an `orbit-system` ConfigMap the consuming service mounts and hot-reloads (see the JIT credential-brokering ADR, Amendment 3). A hosted-app OAuth client is the same class of object — an operator-declared registration — and should take the same path.
+The question is **where that admin-reviewed registration lives**. kora already has an answer for every other admin-declared registration: a **CRD reconciled by `kora-operator`**, authored in the deployment's GitOps repo. Connectors are the `Connection` CRD (`oconn`); governed tool servers are the `MCPServer` CRD (`omcp`). Both are aggregated by the operator into an `kora-system` ConfigMap the consuming service mounts and hot-reloads (see the JIT credential-brokering ADR, Amendment 3). A hosted-app OAuth client is the same class of object — an operator-declared registration — and should take the same path.
 
 ## Decision
 
@@ -25,7 +25,7 @@ Add a first-class **`OAuthClient` CRD** and consume it exactly like `Connection`
 
 1. **CRD `OAuthClient`** (`runkora.io/v1alpha1`, namespaced, shortName `oauthc`) in the tenant namespace. Spec: `clientId`, optional `clientName`, and `redirectUris` (≥1). No secret — all kora OAuth clients are public (PKCE is the proof of possession), so unlike `Connection` there is no `secretRef`.
 
-2. **`OAuthClientAggregator`** in the operator collects every active tenant's `OAuthClient` CRs and renders the `orbit-system` ConfigMap **`orbit-tenant-oauth-clients`** (key `oauth-clients.json`, a JSON array of `{tenant_id, client_id, client_name, redirect_uris}`). It is driven by the `TenantReconciler` and re-runs on any `OAuthClient` change, tenant suspend/reactivate, or tenant delete — mirroring `ConnectionAggregator` minus the Secret half. A `client_id` is globally unique; a duplicate across CRs is dropped (first by sort order) and logged.
+2. **`OAuthClientAggregator`** in the operator collects every active tenant's `OAuthClient` CRs and renders the `kora-system` ConfigMap **`kora-tenant-oauth-clients`** (key `oauth-clients.json`, a JSON array of `{tenant_id, client_id, client_name, redirect_uris}`). It is driven by the `TenantReconciler` and re-runs on any `OAuthClient` change, tenant suspend/reactivate, or tenant delete — mirroring `ConnectionAggregator` minus the Secret half. A `client_id` is globally unique; a duplicate across CRs is dropped (first by sort order) and logged.
 
 3. **Identity consumes the mounted file.** A `StaticClientSource` (`internal/identity/oauth_static_clients.go`) reads `oauth-clients.json` from `ORBIT_OAUTH_CLIENTS_CONFIG`, holds the parsed clients behind an `RWMutex` keyed by `client_id`, and hot-reloads on change via the same fsnotify directory-watch the client-secrets and connection registries use. A `layeredClientRepository` resolves a client from the static source first, then the dynamic (Redis) DCR store; writes (DCR) go only to the dynamic store. The identity service never imports the CRD type — it reads the mounted file, exactly as the egress gateway reads `connections.json`.
 
@@ -44,6 +44,6 @@ Add a first-class **`OAuthClient` CRD** and consume it exactly like `Connection`
 ## Consequences
 
 - A platform operator brings their own hosted-app clients by committing an `OAuthClient` manifest to the GitOps repo in their tenant namespace; the operator aggregates it and identity picks it up within a projection-update cycle, no pod restart. Removing the manifest revokes the client on the next reconcile.
-- The identity Deployment must mount `orbit-tenant-oauth-clients` at `ORBIT_OAUTH_CLIENTS_CONFIG` (deployment-side wiring, same shape as the egress gateway's connection mount).
+- The identity Deployment must mount `kora-tenant-oauth-clients` at `ORBIT_OAUTH_CLIENTS_CONFIG` (deployment-side wiring, same shape as the egress gateway's connection mount).
 - Hosted-app clients and DCR clients share one lookup surface but two stores; a static `client_id` shadows a dynamic one of the same id (pre-registration is authoritative).
 - `client_id` is globally unique across the authorization server; the CRD carries `tenant_id` for provenance only.

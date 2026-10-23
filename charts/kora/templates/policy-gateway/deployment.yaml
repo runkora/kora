@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-policy-gateway
+  name: kora-policy-gateway
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.policyGateway.labels" . | nindent 4 }}
@@ -22,18 +22,18 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/policy-gateway/config.yaml") . | sha256sum }}
         {{- include "kora.podAnnotations" (dict "root" $ "name" "policyGateway") | nindent 8 }}
     spec:
-      serviceAccountName: orbit-policy-gateway
+      serviceAccountName: kora-policy-gateway
       {{- include "kora.imagePullSecrets" . | nindent 6 }}
       {{- include "kora.scheduling" (dict "root" $ "name" "policyGateway") | nindent 6 }}
       securityContext:
         {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "kora.spireVolumes" . | nindent 8 }}
-        {{- include "kora.configVolume" (dict "root" $ "name" "policyGateway" "configMap" "orbit-policy-gateway-config" "modules" (include "kora.policyGateway.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "policyGateway" "configMap" "kora-policy-gateway-config" "modules" (include "kora.policyGateway.configModules" . | fromYaml)) | nindent 8 }}
         {{- include "kora.redisCAVolume" . | nindent 8 }}
         {{- include "kora.extraVolumes" (dict "root" $ "name" "policyGateway") | nindent 8 }}
       containers:
-        - name: orbit-policy-gateway
+        - name: kora-policy-gateway
           image: {{ include "kora.image" (dict "root" $ "name" "policyGateway") | quote }}
           imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "policyGateway") }}
           securityContext:

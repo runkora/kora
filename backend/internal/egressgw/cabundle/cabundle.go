@@ -79,7 +79,7 @@ func (b *Bundle) For(tenant string) (egressgw.IssuingCA, error) {
 //
 // This is a flat layout because Kubernetes Secret data keys cannot contain
 // "/", and the operator's ClusterCAAggregator writes the aggregated
-// orbit-tenant-cas Secret with keys like "acme.ca.crt" / "acme.ca.key".
+// kora-tenant-cas Secret with keys like "acme.ca.crt" / "acme.ca.key".
 // When projected as a volume, those become files at the root of the mount.
 // Dev and test setups use the same layout so what we test is what
 // production runs.

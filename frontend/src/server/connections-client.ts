@@ -15,12 +15,12 @@ interface GatewayConnection {
 }
 
 /**
- * Lists the caller's tenant's registered connections from orbit-agents.
+ * Lists the caller's tenant's registered connections from kora-agents.
  *
- * The read-only catalog is served by orbit-agents — a normal HTTP service the
+ * The read-only catalog is served by kora-agents — a normal HTTP service the
  * frontend reaches through the mesh (it also serves agent-types) — rather than
  * the egress-gateway, which is a CONNECT/egress broker the frontend cannot reach
- * over plain HTTP. orbit-agents reads the same orbit-tenant-connections registry
+ * over plain HTTP. kora-agents reads the same kora-tenant-connections registry
  * the gateway brokers from. We forward the session token and hit the service
  * directly; the result is scoped to the caller's tenant from the token, so no
  * tenant param is needed. `actions` is the connection's adapter's declared
@@ -39,7 +39,7 @@ export async function listConnections(accessToken: string): Promise<ConnectionCa
     throw new ApiError(
       res.status,
       'UPSTREAM_ERROR',
-      `orbit-agents list connections failed: ${res.status}`,
+      `kora-agents list connections failed: ${res.status}`,
     );
   }
   const body = (await res.json()) as { connections?: GatewayConnection[] };

@@ -36,7 +36,7 @@ func NewVerifierFromConfig(ctx context.Context, cfg Config) *Verifier {
 //
 // jwksURL   — full URL of the identity service JWKS endpoint, e.g.:
 //
-//	http://orbit-identity.orbit-system.svc.cluster.local/api/v1/identity/.well-known/jwks.json
+//	http://kora-identity.kora-system.svc.cluster.local/api/v1/identity/.well-known/jwks.json
 //
 // issuer    — must match the "iss" claim in platform tokens (default: "orbit")
 // audience  — must match the "aud" claim in platform tokens (default: "orbit-platform")

@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-03-31
 **Deciders:** Engineering Team
-**Technical Story:** `KoraTenant.spec.oidc.clientSecretRef` is defined in the CRD and data model but the operator does not act on it — the OIDC client secret is never delivered to the `orbit-identity` service. Any tenant using a confidential OIDC client (Okta, Azure AD, Google Workspace, Auth0, etc.) cannot complete device authorization because the identity service has no client secret to supply to the token endpoint. This is a blocking gap for all enterprise tenants.
+**Technical Story:** `KoraTenant.spec.oidc.clientSecretRef` is defined in the CRD and data model but the operator does not act on it — the OIDC client secret is never delivered to the `kora-identity` service. Any tenant using a confidential OIDC client (Okta, Azure AD, Google Workspace, Auth0, etc.) cannot complete device authorization because the identity service has no client secret to supply to the token endpoint. This is a blocking gap for all enterprise tenants.
 
 ---
 
@@ -11,9 +11,9 @@
 
 ### Background
 
-[tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) established the tenant registry model: per-tenant OIDC configuration is stored in the `orbit-tenants` ConfigMap and the identity service reads it at startup, reloading automatically via an `fsnotify` file watcher when the ConfigMap volume is updated by the operator. [orbit-kubernetes-operator](2026-03-31-orbit-kubernetes-operator.md) introduced the kora operator and `KoraTenant` CRD, which includes a `spec.oidc.clientSecretRef` field pointing to a pre-existing `Secret` containing the OIDC client secret.
+[tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) established the tenant registry model: per-tenant OIDC configuration is stored in the `kora-tenants` ConfigMap and the identity service reads it at startup, reloading automatically via an `fsnotify` file watcher when the ConfigMap volume is updated by the operator. [orbit-kubernetes-operator](2026-03-31-orbit-kubernetes-operator.md) introduced the kora operator and `KoraTenant` CRD, which includes a `spec.oidc.clientSecretRef` field pointing to a pre-existing `Secret` containing the OIDC client secret.
 
-The tenant registry format (`orbit-tenants` ConfigMap) includes a `clientSecretEnv` field per tenant — a named environment variable the identity service will read to obtain the client secret at runtime:
+The tenant registry format (`kora-tenants` ConfigMap) includes a `clientSecretEnv` field per tenant — a named environment variable the identity service will read to obtain the client secret at runtime:
 
 ```yaml
 tenants:
@@ -24,11 +24,11 @@ tenants:
       clientSecretEnv: ORBIT_TENANT_ACME_CORP_OIDC_CLIENT_SECRET
 ```
 
-The operator derives this env var name from the tenant ID via a deterministic convention, writes it into the ConfigMap, but **never delivers the actual secret value** to the identity service. The env var referenced in `clientSecretEnv` does not exist in the `orbit-identity` pod's environment unless it is manually injected outside the operator's control.
+The operator derives this env var name from the tenant ID via a deterministic convention, writes it into the ConfigMap, but **never delivers the actual secret value** to the identity service. The env var referenced in `clientSecretEnv` does not exist in the `kora-identity` pod's environment unless it is manually injected outside the operator's control.
 
 ### Why This Cannot Use `envFrom` or Deployment Patching
 
-The operator could add a new env var to the `orbit-identity` Deployment whenever a tenant with a `clientSecretRef` is registered. This is the obvious approach but it is incompatible with a core architectural constraint established in [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) and [orbit-kubernetes-operator](2026-03-31-orbit-kubernetes-operator.md):
+The operator could add a new env var to the `kora-identity` Deployment whenever a tenant with a `clientSecretRef` is registered. This is the obvious approach but it is incompatible with a core architectural constraint established in [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) and [orbit-kubernetes-operator](2026-03-31-orbit-kubernetes-operator.md):
 
 > **Tenant registration must not cause a pod restart of the identity service.**
 
@@ -38,7 +38,7 @@ The same constraint eliminates `envFrom` referencing individual per-tenant Secre
 
 ### How the Tenant Registry Hot-Reload Works Today
 
-The `orbit-identity` service uses `fsnotify` to watch the directory in which the `orbit-tenants` ConfigMap is mounted. Kubernetes ConfigMap volume updates use an atomic symlink swap on the `..data` directory — `fsnotify` detects the `RENAME`/`CREATE` event, debounces for 200ms, and calls `reloadTenantOIDCProviders`. The in-memory tenant map is replaced under a `sync.RWMutex` with zero downtime. No pod restart is needed when tenants are added, changed, or removed.
+The `kora-identity` service uses `fsnotify` to watch the directory in which the `kora-tenants` ConfigMap is mounted. Kubernetes ConfigMap volume updates use an atomic symlink swap on the `..data` directory — `fsnotify` detects the `RENAME`/`CREATE` event, debounces for 200ms, and calls `reloadTenantOIDCProviders`. The in-memory tenant map is replaced under a `sync.RWMutex` with zero downtime. No pod restart is needed when tenants are added, changed, or removed.
 
 A parallel mechanism is needed for OIDC client secrets.
 
@@ -52,7 +52,7 @@ The identity service needs OIDC client secret values for confidential tenants at
 
 ### Goals
 
-- Deliver OIDC client secrets from tenant-declared `clientSecretRef` references to the `orbit-identity` service
+- Deliver OIDC client secrets from tenant-declared `clientSecretRef` references to the `kora-identity` service
 - Do not restart the identity service pod when a tenant is added, updated, or has their client secret rotated
 - Reuse the established hot-reload pattern (file watcher) to keep the mechanism consistent and auditable
 - Work in all deployment environments: local k3d, EKS, customer self-hosted (i.e. be compatible with ESO, Vault Agent, SealedSecret, and manual Secret creation)
@@ -70,7 +70,7 @@ The identity service needs OIDC client secret values for confidential tenants at
 
 * **No pod restarts on tenant events** — the hot-reload architecture is a first-class constraint, not a preference
 * **Secret rotation propagation** — a solution that works for initial delivery but breaks on rotation is not acceptable
-* **Consistency with existing patterns** — the `orbit-tenants` ConfigMap file-watcher pattern is already implemented, understood, and tested; the client secret mechanism should mirror it
+* **Consistency with existing patterns** — the `kora-tenants` ConfigMap file-watcher pattern is already implemented, understood, and tested; the client secret mechanism should mirror it
 * **Cross-namespace RBAC** — the operator needs to read Secrets from tenant namespaces; the RBAC grant must be explicit and minimal
 * **No secret exposure in non-secret resources** — Kubernetes Secrets have restricted RBAC; ConfigMaps do not. Secret values must never be written into a ConfigMap
 
@@ -80,7 +80,7 @@ The identity service needs OIDC client secret values for confidential tenants at
 
 ### Option 1: Patch the `orbit-identity` Deployment With Per-Tenant Env Vars
 
-**Description:** When the tenant controller reconciles a tenant with a `clientSecretRef`, it patches the `orbit-identity` Deployment to add an explicit env var entry sourced from the referenced Secret.
+**Description:** When the tenant controller reconciles a tenant with a `clientSecretRef`, it patches the `kora-identity` Deployment to add an explicit env var entry sourced from the referenced Secret.
 
 **Pros:**
 - Simple to understand
@@ -99,7 +99,7 @@ The identity service needs OIDC client secret values for confidential tenants at
 
 ### Option 2: `envFrom` Referencing an Aggregated Secret
 
-**Description:** Operator maintains a single Secret (`orbit-tenant-oidc-secrets`) in `orbit-system` containing all tenant client secrets keyed by the env var convention (`ORBIT_TENANT_ACME_CORP_OIDC_CLIENT_SECRET=s3cr3t`). The identity service Deployment references this Secret via `envFrom`. The operator updates the Secret contents when tenants change.
+**Description:** Operator maintains a single Secret (`kora-tenant-oidc-secrets`) in `kora-system` containing all tenant client secrets keyed by the env var convention (`ORBIT_TENANT_ACME_CORP_OIDC_CLIENT_SECRET=s3cr3t`). The identity service Deployment references this Secret via `envFrom`. The operator updates the Secret contents when tenants change.
 
 **Pros:**
 - Single Deployment reference (no per-tenant Deployment patching)
@@ -115,13 +115,13 @@ The identity service needs OIDC client secret values for confidential tenants at
 
 ### Option 3: Aggregated Secret Mounted as a File, Read via File Watcher
 
-**Description:** The operator maintains a single Secret (`orbit-tenant-oidc-secrets`) in `orbit-system`. Its data contains one key (`client-secrets.yaml`) whose value is a YAML map of `tenantID → clientSecret`. The identity service Deployment mounts this Secret as a volume at a well-known path (e.g. `/etc/kora/tenant-secrets/client-secrets.yaml`). The identity service adds a second `fsnotify` watcher on this file's directory — identical in structure to the existing `watchTenantRegistry` watcher. When the Secret is updated by the operator, the kubelet rewrites the volume via the same atomic symlink swap used for ConfigMaps. The watcher detects the `..data` RENAME/CREATE event, debounces, and reloads the in-memory `tenantClientSecrets` map under `s.mu`.
+**Description:** The operator maintains a single Secret (`kora-tenant-oidc-secrets`) in `kora-system`. Its data contains one key (`client-secrets.yaml`) whose value is a YAML map of `tenantID → clientSecret`. The identity service Deployment mounts this Secret as a volume at a well-known path (e.g. `/etc/kora/tenant-secrets/client-secrets.yaml`). The identity service adds a second `fsnotify` watcher on this file's directory — identical in structure to the existing `watchTenantRegistry` watcher. When the Secret is updated by the operator, the kubelet rewrites the volume via the same atomic symlink swap used for ConfigMaps. The watcher detects the `..data` RENAME/CREATE event, debounces, and reloads the in-memory `tenantClientSecrets` map under `s.mu`.
 
 **Pros:**
 - No pod restart on tenant add, update, or secret rotation
 - Consistent with and structurally identical to the existing `watchTenantRegistry` hot-reload pattern
 - Secret values stay in a Secret resource — not exposed in ConfigMaps, logs, or events
-- Operator only needs to update one Secret object in `orbit-system`, not patch Deployments
+- Operator only needs to update one Secret object in `kora-system`, not patch Deployments
 - Kubelet handles propagation latency (~10–30s for Secret volume updates, same as ConfigMap volumes)
 - Works identically in all environments — the operator writes the aggregated Secret; ESO/Vault Agent/SealedSecret manages the source Secrets in tenant namespaces
 - Handles rotation: tenant rotates their source Secret → operator detects change → rebuilds aggregated Secret → kubelet propagates → watcher reloads → no restart
@@ -144,7 +144,7 @@ The aggregated-file approach is the only design that simultaneously satisfies th
 
 ### Rationale
 
-The `orbit-tenants` ConfigMap file-watcher pattern is already proven in production. Secret volumes in Kubernetes use the same atomic symlink swap mechanism as ConfigMap volumes — the existing `fsnotify` watcher that detects `..data` RENAME/CREATE events works unchanged for Secret volumes. Extending the pattern to client secrets requires adding one watcher goroutine and one in-memory map to the identity service — the structural work is already done.
+The `kora-tenants` ConfigMap file-watcher pattern is already proven in production. Secret volumes in Kubernetes use the same atomic symlink swap mechanism as ConfigMap volumes — the existing `fsnotify` watcher that detects `..data` RENAME/CREATE events works unchanged for Secret volumes. Extending the pattern to client secrets requires adding one watcher goroutine and one in-memory map to the identity service — the structural work is already done.
 
 The alternative options both require pod restarts, which is a non-starter given that tenant registration is a routine operational event that should be zero-impact on the running platform.
 
@@ -164,7 +164,7 @@ The operator's `ClusterRole` must be extended to permit `get`, `list`, and `watc
   verbs: ["get", "list", "watch", "create", "update", "patch"]
 ```
 
-The `create`/`update`/`patch` verbs are scoped to `orbit-system` via a separate `Role` + `RoleBinding` — the operator writes the aggregated Secret only in `orbit-system`. The `get`/`list`/`watch` on the ClusterRole cover tenant namespace reads.
+The `create`/`update`/`patch` verbs are scoped to `kora-system` via a separate `Role` + `RoleBinding` — the operator writes the aggregated Secret only in `kora-system`. The `get`/`list`/`watch` on the ClusterRole cover tenant namespace reads.
 
 #### 2. Tenant Controller — Read and Aggregate Client Secrets
 
@@ -180,7 +180,7 @@ In `backend/internal/operator/tenant_controller.go`, after reconciling the tenan
    acme-corp: "s3cr3t-value"
    globalcorp: "another-s3cr3t"
    ```
-3. Create or update `orbit-tenant-oidc-secrets` Secret in `orbit-system` with this YAML as the value of key `client-secrets.yaml`
+3. Create or update `kora-tenant-oidc-secrets` Secret in `kora-system` with this YAML as the value of key `client-secrets.yaml`
 
 The aggregated Secret is always rebuilt from scratch across all tenants on each reconcile — this ensures deletions (tenant removed, `clientSecretRef` cleared) are reflected correctly.
 
@@ -200,7 +200,7 @@ Register a `Watches` on `v1.Secret` in the controller setup, filtered to Secrets
 
 #### 4. Remove `clientSecretEnv` from Registry Format
 
-The `clientSecretEnv` field in the tenant registry YAML written to `orbit-tenants` ConfigMap is no longer needed — the identity service will not read client secrets from env vars. Remove it from `registryOIDC` struct and the ConfigMap builder in `registry.go`.
+The `clientSecretEnv` field in the tenant registry YAML written to `kora-tenants` ConfigMap is no longer needed — the identity service will not read client secrets from env vars. Remove it from `registryOIDC` struct and the ConfigMap builder in `registry.go`.
 
 ### Identity Service Changes
 
@@ -210,7 +210,7 @@ The `clientSecretEnv` field in the tenant registry YAML written to `orbit-tenant
 ORBIT_TENANT_SECRETS_CONFIG=/etc/kora/tenant-secrets/client-secrets.yaml
 ```
 
-Set in the `orbit-identity` Deployment via the Helm chart values.
+Set in the `kora-identity` Deployment via the Helm chart values.
 
 #### 2. New In-Memory Map and Watcher
 
@@ -268,7 +268,7 @@ s.mu.RUnlock()
    volumes:
      - name: tenant-secrets
        secret:
-         secretName: orbit-tenant-oidc-secrets
+         secretName: kora-tenant-oidc-secrets
          optional: true   # graceful startup before any confidential tenants exist
    ```
    `optional: true` is critical — if no tenants have `clientSecretRef` set, the Secret may not exist and the pod must still start cleanly.
@@ -295,8 +295,8 @@ Existing deployments with no `clientSecretRef` set on any `KoraTenant` CR are un
 To migrate a tenant to use a confidential client:
 1. Create the OIDC client secret as a Kubernetes `Secret` in the tenant namespace (via ESO, Vault Agent, SealedSecret, or manually)
 2. Set `spec.oidc.clientSecretRef` on the `KoraTenant` CR pointing to that Secret
-3. The operator reconciles, reads the source Secret, builds/updates `orbit-tenant-oidc-secrets` in `orbit-system`
-4. The kubelet propagates the updated Secret volume to the `orbit-identity` pod (10–30s)
+3. The operator reconciles, reads the source Secret, builds/updates `kora-tenant-oidc-secrets` in `kora-system`
+4. The kubelet propagates the updated Secret volume to the `kora-identity` pod (10–30s)
 5. The `watchClientSecrets` goroutine detects the `..data` event, reloads, logs `"tenant client secrets reloaded"`
 6. No pod restart at any step
 
@@ -316,7 +316,7 @@ To migrate a tenant to use a confidential client:
 
 - Propagation latency: kubelet updates Secret volumes on its sync period (default 10–30s). There is a brief window during rotation where the old client secret is still active. This is operationally acceptable — OIDC providers support overlapping secrets during rotation periods.
 - The operator's ClusterRole requires cross-namespace `get`/`list`/`watch` on `secrets`. This is a broad permission. It is necessary and is the minimum viable grant, but should be documented and reviewed in security audits.
-- One additional goroutine per `orbit-identity` pod for the secrets watcher — negligible resource impact.
+- One additional goroutine per `kora-identity` pod for the secrets watcher — negligible resource impact.
 
 ### Neutral
 
@@ -329,17 +329,17 @@ To migrate a tenant to use a confidential client:
 
 ### Success Metrics
 
-- An `KoraTenant` with `spec.oidc.clientSecretRef` completes device authorization against a confidential OIDC client without a pod restart of `orbit-identity`
+- An `KoraTenant` with `spec.oidc.clientSecretRef` completes device authorization against a confidential OIDC client without a pod restart of `kora-identity`
 - Rotating the source Secret (updating its value) propagates to the identity service within 60 seconds without a pod restart
 - Removing `clientSecretRef` from an `KoraTenant` CR removes the tenant entry from the aggregated Secret within one reconcile cycle
-- `orbit-identity` starts cleanly when `orbit-tenant-oidc-secrets` does not exist (no confidential tenants)
-- `orbit-identity` logs `"tenant client secrets reloaded"` within 200ms of the kubelet propagating a Secret volume update
+- `kora-identity` starts cleanly when `kora-tenant-oidc-secrets` does not exist (no confidential tenants)
+- `kora-identity` logs `"tenant client secrets reloaded"` within 200ms of the kubelet propagating a Secret volume update
 
 ### Monitoring
 
 - Log line `"tenant client secrets reloaded"` on each successful reload — observable in structured logs
 - Log line `"watching tenant client secrets for changes"` on startup confirms watcher is active
-- Operator logs `"reconciled orbit-tenant-oidc-secrets"` after each aggregated Secret write
+- Operator logs `"reconciled kora-tenant-oidc-secrets"` after each aggregated Secret write
 - Error path: if the operator cannot `GET` a referenced source Secret, it logs the error and sets the tenant condition to `Degraded` with a descriptive message — the aggregated Secret retains the last known good value for that tenant
 
 ---

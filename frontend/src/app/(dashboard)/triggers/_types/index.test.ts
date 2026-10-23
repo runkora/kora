@@ -163,7 +163,7 @@ describe('failureSummary', () => {
   it('lifts the message out of a trailing JSON error body', () => {
     expect(
       failureSummary(
-        'start run: unexpected status from orbit-agents: status 500: {"code":"internal_error","message":"failed to start run"}',
+        'start run: unexpected status from kora-agents: status 500: {"code":"internal_error","message":"failed to start run"}',
       ),
     ).toBe('failed to start run');
   });
@@ -352,7 +352,7 @@ describe('deliverySummary', () => {
   it('lifts the human message out of a wrapped failure chain', () => {
     const r = row({
       error:
-        'start run: unexpected status from orbit-agents: status 500: {"code":"internal_error","message":"failed to start run"}',
+        'start run: unexpected status from kora-agents: status 500: {"code":"internal_error","message":"failed to start run"}',
     });
     expect(deliverySummary(r)).toEqual({ kind: 'error', text: 'failed to start run' });
   });

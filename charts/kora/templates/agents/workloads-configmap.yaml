@@ -1,13 +1,13 @@
 {{- /*
 Workload customisation ConfigMap (docs/adr/2026-09-16-first-class-workload-placement.md).
 
-Mounted at /etc/kora/workloads inside the orbit-agents pod and applied to the
+Mounted at /etc/kora/workloads inside the kora-agents pod and applied to the
 resources it provisions in tenant namespaces, before manifest patches.
 */}}
 {{- /*
   A sandbox mounts its session-manager's workspace, so pinning the two to
   different nodes over a volume that cannot cross them fails at attach time on
-  the first run. Reject it here instead, matching the check orbit-agents runs
+  the first run. Reject it here instead, matching the check kora-agents runs
   for splits expressed as manifest patches: both sides must be pinned for the
   answer to be conclusive, and pinning counts whether it is written as a
   nodeSelector or as required node affinity, since one of each separates the
@@ -29,7 +29,7 @@ resources it provisions in tenant namespaces, before manifest patches.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: orbit-agents-workloads
+  name: kora-agents-workloads
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.agents.labels" . | nindent 4 }}

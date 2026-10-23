@@ -27,16 +27,16 @@
 #          app: istio-ingressgateway
 #        servers:
 #          - port: { number: 443, name: https, protocol: HTTPS }
-#            tls: { mode: SIMPLE, credentialName: orbit-gateway-tls }
+#            tls: { mode: SIMPLE, credentialName: kora-gateway-tls }
 #            hosts: [orbit.example.com, api.orbit.example.com]
 #
 # 3. A SPIRE registration for the gateway pods. The chart's
-#    orbit-system-component registration covers only the system namespace:
+#    kora-system-component registration covers only the system namespace:
 #
 #      apiVersion: spire.spiffe.io/v1alpha1
 #      kind: ClusterSPIFFEID
 #      metadata:
-#        name: orbit-byo-ingress-gateway
+#        name: kora-byo-ingress-gateway
 #      spec:
 #        className: spire-system-spire
 #        spiffeIDTemplate: "spiffe://<trustDomain>/system/ingress-gateway"

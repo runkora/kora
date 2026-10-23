@@ -5,7 +5,7 @@ versions:
   spire: "0.30.2"
   istio: "1.31.1"
 
-systemNamespace: orbit-system
+systemNamespace: kora-system
 trustDomain: orbit.test
 clusterName: orbit-local
 # Pins every helm and kubectl call in this Helmfile to the k3d cluster.
@@ -23,7 +23,7 @@ istio:
 cniValuesFiles:
   - values/cni.local.yaml
 
-# Chart-values overlays merged onto values/kora.yaml for the orbit release.
+# Chart-values overlays merged onto values/kora.yaml for the kora release.
 # local.generated.yaml is written by make up (Dex hostAlias, egress CIDRs,
 # pushed image digests).
 koraValuesFiles:

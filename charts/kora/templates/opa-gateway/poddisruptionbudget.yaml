@@ -8,7 +8,7 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: orbit-opa-gateway
+  name: kora-opa-gateway
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.opaGateway.labels" . | nindent 4 }}

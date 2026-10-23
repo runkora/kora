@@ -70,7 +70,7 @@ func TestRegister_Non204IsError(t *testing.T) {
 	token := func(context.Context) (string, error) { return "self-token", nil }
 	c := NewClient(srv.URL, token, logging.NewLoggerWithOutput(io.Discard))
 
-	if err := c.Register(t.Context(), "orbit-agents", testRoutes, nil); !errors.Is(err, ErrRegistrationFailed) {
+	if err := c.Register(t.Context(), "kora-agents", testRoutes, nil); !errors.Is(err, ErrRegistrationFailed) {
 		t.Fatalf("Register error = %v, want %v", err, ErrRegistrationFailed)
 	}
 }

@@ -9,7 +9,7 @@
 // raw value never enters kora's application layer.
 //
 // The operator's ConnectionAggregator reads these CRs (and their referenced
-// Secrets) and renders the orbit-system config the egress gateway mounts —
+// Secrets) and renders the kora-system config the egress gateway mounts —
 // mirroring the per-tenant CA aggregator. The gateway, a feature package,
 // never imports this CRD type; it reads the mounted ConfigMap/Secret instead.
 //

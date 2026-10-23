@@ -1,4 +1,4 @@
-/** Integration tests for GET /api/agents/runs/stats. MSW stands in for orbit-agents. */
+/** Integration tests for GET /api/agents/runs/stats. MSW stands in for kora-agents. */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { NextRequest } from 'next/server';
@@ -27,7 +27,7 @@ describe('GET /api/agents/runs/stats', () => {
     } as never);
   });
 
-  it('asks orbit-agents for the period, 7 days by default, and returns its stats', async () => {
+  it('asks kora-agents for the period, 7 days by default, and returns its stats', async () => {
     const periods: (string | null)[] = [];
     server.use(
       http.get(STATS_URL, ({ request }) => {

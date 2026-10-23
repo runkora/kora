@@ -85,12 +85,12 @@ func assertTenantOwnerRef(t *testing.T, refs []metav1.OwnerReference, tenantName
 
 func TestProvisionAgentType_SetsTenantOwnerReferenceOnEveryObject(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SystemNamespace:            "orbit-system",
+		SystemNamespace:            "kora-system",
 		TrustDomain:                "orbit.test",
 		AuthorizationPolicyEnabled: true,
 	}
 	const tenantID = "acme"
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	p, typed, dc := ownerRefFixture(t, cfg, tenantID)
 
 	at := AgentType{ID: "coder", Slug: "coder", TenantID: tenantID}
@@ -128,7 +128,7 @@ func TestProvisionAgentType_SetsTenantOwnerReferenceOnEveryObject(t *testing.T) 
 	}
 	assertTenantOwnerRef(t, pdb.OwnerReferences, tenantID)
 
-	// DestinationRule lives in orbit-system; a cluster-scoped KoraTenant owner
+	// DestinationRule lives in kora-system; a cluster-scoped KoraTenant owner
 	// is legal for a namespaced child in any namespace.
 	dr, err := dc.Resource(destinationRuleGVR).Namespace(cfg.SystemNamespace).Get(context.Background(), "agent-coder", metav1.GetOptions{})
 	if err != nil {
@@ -145,14 +145,14 @@ func TestProvisionAgentType_SetsTenantOwnerReferenceOnEveryObject(t *testing.T) 
 
 func TestProvisionAgentType_MissingTenantCRDegradesGracefully(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SystemNamespace: "orbit-system",
+		SystemNamespace: "kora-system",
 		TrustDomain:     "orbit.test",
 	}
 	// Fixture seeded with a DIFFERENT tenant name — Get(tenantID) returns NotFound.
 	p, typed, _ := ownerRefFixture(t, cfg, "someone-else")
 
 	const tenantID = "acme"
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	at := AgentType{ID: "coder", Slug: "coder", TenantID: tenantID}
 	if err := p.ProvisionAgentType(context.Background(), at, ns); err != nil {
 		t.Fatalf("ProvisionAgentType must not fail when KoraTenant is missing: %v", err)
@@ -172,7 +172,7 @@ func TestSandboxOwnerRef_PointsAtParentStatefulSet(t *testing.T) {
 	// dynamic client (unused here); build both directly rather than through
 	// the ProvisionSandbox path, which requires Istio injection state we do
 	// not have in the fake.
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	ss := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: "coder", Namespace: ns, UID: types.UID("sts-uid-coder")},
 	}
@@ -210,7 +210,7 @@ func TestSandboxOwnerRef_MissingStatefulSetIsZero(t *testing.T) {
 	typed := fake.NewSimpleClientset()
 	p := &K8sProvisioner{client: typed, logger: logging.NewLoggerWithOutput(io.Discard)}
 
-	ref := p.statefulSetOwnerRef(context.Background(), "coder", "orbit-tenant-acme")
+	ref := p.statefulSetOwnerRef(context.Background(), "coder", "kora-tenant-acme")
 	if ref.Kind != "" {
 		t.Fatalf("ref = %+v, want zero value when StatefulSet does not exist", ref)
 	}
@@ -292,12 +292,12 @@ func TestApplyOwnerRef_ReplacesExistingEntry(t *testing.T) {
 // on this behaviour.
 func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SystemNamespace:            "orbit-system",
+		SystemNamespace:            "kora-system",
 		TrustDomain:                "orbit.test",
 		AuthorizationPolicyEnabled: true,
 	}
 	const tenantID = "acme"
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 
 	// Seed unowned versions of every object ProvisionAgentType manages.
 	typed := fake.NewSimpleClientset(

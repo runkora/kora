@@ -62,7 +62,7 @@ Separately, `session-manager`'s loopback `/internal/runs/{id}/provision-sandbox`
 
 #### Option A1: Per-run bearer token in gRPC metadata
 
-**Description:** `orbit-agents` mints a random per-run token when it provisions the sandbox, sets it in the sandbox pod's environment, and returns it in the provisioning response. `sandbox-exec` rejects any `Execute` whose metadata does not carry that exact token. `session-manager` holds it for the session and publishes it into the run's workspace directory alongside the endpoint, so `orbit-shell` can read it.
+**Description:** `kora-agents` mints a random per-run token when it provisions the sandbox, sets it in the sandbox pod's environment, and returns it in the provisioning response. `sandbox-exec` rejects any `Execute` whose metadata does not carry that exact token. `session-manager` holds it for the session and publishes it into the run's workspace directory alongside the endpoint, so `orbit-shell` can read it.
 
 **Pros:**
 - Scopes to the run, which is the only granularity that addresses the threat.
@@ -184,7 +184,7 @@ Confidentiality of both the token and the endpoint rests on Landlock, the same m
 
 ## Implementation
 
-- `orbit-agents` mints the token at sandbox provisioning and sets it on the sandbox pod. The provisioning response carries it to `session-manager`.
+- `kora-agents` mints the token at sandbox provisioning and sets it on the sandbox pod. The provisioning response carries it to `session-manager`.
 - `sandbox-exec` compares the metadata value against its own environment with a constant-time comparison, and refuses the call when absent or different.
 - `session-manager` writes the token into the run's `.sandbox-exec` directory with owner-only permissions, next to the endpoint, and `orbit-shell` sends it as gRPC metadata.
 - Both interceptor surfaces are registered on the exec server, streaming and unary, so a unary RPC added later cannot land unauthenticated.
@@ -198,7 +198,7 @@ Confidentiality of both the token and the endpoint rests on Landlock, the same m
 - Codex is put on its one-shot shell tool rather than unified exec. Unified exec runs a persistent shell session fed by a startup script; `orbit-shell` issues one stateless call per command, the shape Claude Code's Bash tool has.
 - The sandbox image provides the same shell path as the agent pod. Codex bakes its resolved shell into a snapshot prefixed onto every command, so a command arriving in the sandbox names that path. In the agent pod it routes commands out; in the sandbox it runs them.
 - `orbit-runtime-mcp` answers `resources/list` with an empty list. It exposes tools only and says so, and Codex probes for resources regardless.
-- A sandbox is provisioned only when the agent calls `provision_sandbox`, in the environment it names or in its default. A run start creates no sandbox pod. Pre-provisioning at run start is removed: it ignored the environment the agent would have chosen, and `orbit-agents` warming the pod itself left the descriptor unwritten, so the pod sat idle.
+- A sandbox is provisioned only when the agent calls `provision_sandbox`, in the environment it names or in its default. A run start creates no sandbox pod. Pre-provisioning at run start is removed: it ignored the environment the agent would have chosen, and `kora-agents` warming the pod itself left the descriptor unwritten, so the pod sat idle.
 
 ### Migration Path
 
@@ -221,7 +221,7 @@ A Codex run executes its commands in its own sandbox, reported back as the sandb
 - [sandbox-provisioning-and-shell-proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) - Establishes `orbit-shell`, the endpoint file and the re-provision retry this decision authenticates
 - [per-session-home-isolation](2026-06-04-per-session-home-isolation.md) - Supplies the Landlock confinement extended here to every runner
 - [jit-credential-brokering-egress-gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) - Rejoins the sandbox to the mesh for outbound enforcement and excludes port 50051 inbound
-- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) - Defines the event path that carries provisioning between `orbit-agents` and `session-manager`
+- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) - Defines the event path that carries provisioning between `kora-agents` and `session-manager`
 
 ---
 

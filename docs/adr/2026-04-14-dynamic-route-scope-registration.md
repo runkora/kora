@@ -220,9 +220,9 @@ Touches *How does it connect?* and *Who is this agent?* A platform service's tok
 
 - Platform services carry no identity-proxy. Each fetches its own platform token in-process with the identity client's `SelfTokenSource()`, which exchanges the pod's SVID at `POST /api/v1/identity/exchange` over the mesh and caches the token until shortly before expiry. Each service's config sets `identity.internalURL`.
 - `routescopes.NewClient` takes a token source and sets `Authorization: Bearer <token>` on the registration request only. `routescopes.KeepRegistered` retries until identity and the policy service are both reachable.
-- `routescopes.Client` is the one registration client. orbit-triggers uses it, and `policyclient.RegisterRoutes` is removed.
+- `routescopes.Client` is the one registration client. kora-triggers uses it, and `policyclient.RegisterRoutes` is removed.
 - A SYSTEM caller may register, and so prune, only its own service. `service` must equal the token's `display_name`, the `<name>` in `spiffe://<trust-domain>/system/<name>`. A SERVICE caller's `service` must equal the token subject, as before. A mismatch returns 403.
-- Each platform service registers under its `spiffe.io/component` label: `orbit-agents`, `inference-gateway`, `egress-gateway`, `tool-gateway`, `orbit-triggers`. The policy service registers itself in-process.
+- Each platform service registers under its `spiffe.io/component` label: `kora-agents`, `inference-gateway`, `egress-gateway`, `tool-gateway`, `kora-triggers`. The policy service registers itself in-process.
 - Tool-gateway introspection sends no credential. Servers may be tenant-owned, and `tools/list` needs none. *Amended 2026-10-22 by [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md): introspection sends a server's `spec.auth` headers.*
 
 **Consequences.** The Design lines saying the identity-proxy injects the registration token, and the "Registration is global" line covering SERVICE principals, no longer describe the system. Registration depends on identity being reachable; a failed exchange fails that attempt and `KeepRegistered` retries it. A SYSTEM token can no longer overwrite or prune another service's routes and scopes. Plain-HTTP calls from platform services carry no platform token.

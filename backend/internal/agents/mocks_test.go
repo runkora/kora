@@ -861,7 +861,7 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 		repo, repo, k8s, authz,
 		AgentTypeServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
-			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
+			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
 		},
 		logger,
 	)
@@ -870,7 +870,7 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 		RunServiceConfig{
 			DefaultEnvironmentSize:  testSizes.Default,
 			MaxConcurrentRunsPerPod: 5,
-			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
+			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
 			SandboxGuardrails:       SandboxGuardrails{ProvisionAttempts: 2, ProvisionBackoffSecs: 1, ProvisionBudgetSecs: 60},
 			Brand:                   brand.MustNew("kora"),
 		},
@@ -910,7 +910,7 @@ func withAgentCtx(ctx context.Context, tenantID, slug string) context.Context {
 			PrincipalType: token.PrincipalTypeAgent,
 			TenantID:      tenantID,
 			DisplayName:   slug,
-			Claims:        map[string]string{"spiffe_path": "/tenant/orbit-tenant-" + tenantID + "/agent/" + slug},
+			Claims:        map[string]string{"spiffe_path": "/tenant/kora-tenant-" + tenantID + "/agent/" + slug},
 		},
 	})
 }

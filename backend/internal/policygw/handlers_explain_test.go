@@ -152,7 +152,7 @@ func TestScopesExplain_OtherPrincipalRequiresGrantsRead(t *testing.T) {
 // so a per-tenant bundle lookup would deny it whatever it holds.
 func TestScopesExplain_SystemPrincipalPasses(t *testing.T) {
 	claims := &token.PlatformClaims{}
-	claims.Subject = "orbit-agents"
+	claims.Subject = "kora-agents"
 	claims.Kora.PrincipalType = token.PrincipalTypeSystem
 
 	c := testController()

@@ -3,7 +3,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: orbit-frontend-theme
+  name: kora-frontend-theme
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.frontend.labels" . | nindent 4 }}

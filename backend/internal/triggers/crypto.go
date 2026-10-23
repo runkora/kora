@@ -80,7 +80,7 @@ func (c *secretCipher) decrypt(encoded string) (string, error) {
 // repository and stayed up to keep doing it. A missing key is now a refusal to
 // start, so the failure is at boot and unmissable rather than silent and
 // permanent. Environments supply the key themselves: `make setup` generates one
-// into .env for local, and create-secrets.sh puts it in orbit-secrets.
+// into .env for local, and create-secrets.sh puts it in kora-secrets.
 func LoadCipherKey() ([]byte, error) {
 	raw := os.Getenv("KORA_TRIGGERS_ENCRYPTION_KEY")
 	if raw == "" {

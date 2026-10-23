@@ -125,7 +125,7 @@ Each sandbox is a dedicated Kubernetes pod:
 - **Separate pod** from the agent container (cannot add containers to a running pod; allows different node scheduling and resource limits)
 - **gRPC exec server** as the primary process — use `tini` or `dumb-init` as PID 1 to handle signal forwarding and zombie reaping correctly; the gRPC server is the child process
 - **Shared PVC** mounted in both agent and sandbox pods at the workspace path (defined in [agent-workspace-model](2026-05-11-agent-workspace-model.md)), so files written by Claude (Edit, Write tools) are immediately visible in the sandbox without copying. Both containers must run as the same UID to avoid permission errors on the shared volume.
-- **Session-scoped lifetime**: the pod is terminated when the session closes. The PVC follows the workspace lifecycle defined in [agent-workspace-model](2026-05-11-agent-workspace-model.md) (not deleted on session close; owned by orbit-agents for post-run inspection and cleanup).
+- **Session-scoped lifetime**: the pod is terminated when the session closes. The PVC follows the workspace lifecycle defined in [agent-workspace-model](2026-05-11-agent-workspace-model.md) (not deleted on session close; owned by kora-agents for post-run inspection and cleanup).
 
 ### Pre-warm pool
 

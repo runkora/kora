@@ -4,16 +4,16 @@
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: orbit-triggers-client-policy
+  name: kora-triggers-client-policy
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.triggers.labels" . | nindent 4 }}
 spec:
-  host: orbit-triggers.{{ include "kora.systemNamespace" . }}.svc.cluster.local
+  host: kora-triggers.{{ include "kora.systemNamespace" . }}.svc.cluster.local
   exportTo: ["*"]
   trafficPolicy:
     tls:
       mode: ISTIO_MUTUAL
       subjectAltNames:
-        - "spiffe://{{ include "kora.trustDomain" . }}/system/orbit-triggers"
+        - "spiffe://{{ include "kora.trustDomain" . }}/system/kora-triggers"
 {{- end }}

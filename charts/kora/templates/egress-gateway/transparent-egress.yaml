@@ -32,7 +32,7 @@
 # HCM is what re-runs those existing filters on it. The identity-proxy and OPA
 # binaries take no part in it; this is Envoy config alone, scoped to sandbox pods.
 #
-# Scope: mesh services (orbit-system, kube-dns, istiod, …) have their own
+# Scope: mesh services (kora-system, kube-dns, istiod, …) have their own
 # dedicated outbound listeners that match the original destination first, so
 # platform-internal mTLS traffic is untouched. Only external egress is rewritten.
 #
@@ -57,7 +57,7 @@ metadata:
   labels:
     {{- include "kora.egressGateway.labels" . | nindent 4 }}
 spec:
-  # Sandbox pods are labelled runkora.io/role=sandbox by the orbit-agents
+  # Sandbox pods are labelled runkora.io/role=sandbox by the kora-agents
   # provisioner. Selector lives in istio-system so it applies across every
   # tenant namespace's sandbox pods (same pattern as egress-gateway-connect-*).
   workloadSelector:
@@ -91,7 +91,7 @@ spec:
                             - match:
                                 connect_matcher: {}
                               route:
-                                cluster: "outbound|{{ .Values.egressGateway.connectPort }}||orbit-egress-gateway.{{ include "kora.systemNamespace" . }}.svc.cluster.local"
+                                cluster: "outbound|{{ .Values.egressGateway.connectPort }}||kora-egress-gateway.{{ include "kora.systemNamespace" . }}.svc.cluster.local"
                                 # PROXY mode (no connect_config): forward the
                                 # CONNECT with the ext_proc-injected Bearer to
                                 # the gateway rather than terminating locally.

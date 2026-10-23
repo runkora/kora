@@ -44,8 +44,8 @@ spec:
             KoraTenant declares a tenant in the kora platform.
             The CR name (metadata.name) is the tenant ID; no separate tenantId
             field is needed. The operator creates the tenant namespace
-            (auto-derived as "orbit-tenant-{name}" when spec.namespace is omitted)
-            and registers the tenant in the orbit-tenants ConfigMap consumed by
+            (auto-derived as "kora-tenant-{name}" when spec.namespace is omitted)
+            and registers the tenant in the kora-tenants ConfigMap consumed by
             the identity service. All tenant configuration lives in this single CR.
           type: object
           required:
@@ -70,7 +70,7 @@ spec:
                 namespace:
                   description: >
                     Kubernetes namespace for tenant workloads. When omitted the
-                    operator auto-derives the namespace as "orbit-tenant-{name}".
+                    operator auto-derives the namespace as "kora-tenant-{name}".
                     The operator creates this namespace with the required Istio
                     and SPIRE labels.
                   type: string
@@ -136,7 +136,7 @@ spec:
                 namespace:
                   description: >
                     The resolved namespace in use for this tenant (either
-                    spec.namespace or the auto-derived "orbit-tenant-{name}").
+                    spec.namespace or the auto-derived "kora-tenant-{name}").
                   type: string
                 conditions:
                   type: array

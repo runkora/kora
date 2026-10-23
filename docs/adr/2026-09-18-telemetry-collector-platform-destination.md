@@ -18,7 +18,7 @@ Agent pods cannot export telemetry. Every outbound request from a tenant pod pas
 
 An OTLP export matches neither and is denied with `PermissionDenied`. Observed on a local cluster: the session-manager's own trace export and Claude Code's export were both denied, and the OPA decision log showed the agent's platform token on the export request.
 
-The platform services in `orbit-system` are unaffected. They carry no identity-proxy or tenant OPA sidecar, and `global.observability.collectorNamespace` already opens their egress.
+The platform services in `kora-system` are unaffected. They carry no identity-proxy or tenant OPA sidecar, and `global.observability.collectorNamespace` already opens their egress.
 
 This touches *What can it access?*, because agent pods gain one destination outside their grants, and *How does it connect?*, because no credential is sent to it.
 
@@ -56,7 +56,7 @@ The collector routes map to a scope that every agent is granted. Telemetry expor
 
 **Chosen Option:** Option 1, the collector as a declared platform destination.
 
-1. **One declared value.** `global.observability.otlpEndpoint` names the collector. Its `host:port` is the collector's authority, derived the same way the platform exporters already parse the endpoint. The chart passes it to orbit-agents and the policy service as `ORBIT_TENANT_OTLP_ENDPOINT`, and the operator already uses the global value, so the session-manager's export, the identity-proxy and the bundle rule always name the same collector. A per-service `otlpEndpoint` override changes only that service's own export.
+1. **One declared value.** `global.observability.otlpEndpoint` names the collector. Its `host:port` is the collector's authority, derived the same way the platform exporters already parse the endpoint. The chart passes it to kora-agents and the policy service as `ORBIT_TENANT_OTLP_ENDPOINT`, and the operator already uses the global value, so the session-manager's export, the identity-proxy and the bundle rule always name the same collector. A per-service `otlpEndpoint` override changes only that service's own export.
 2. **Policy bundle.** The policy service adds the collector's authority to the tenant bundle's `data.config` as `telemetry_collector`, next to `jwks_url`. It is absent when no endpoint is configured.
 3. **Allow rule.** `authz.rego` allows, without a JWT, a request whose `:authority` equals `data.config.telemetry_collector` and whose `:path` starts with `/opentelemetry.proto.collector.`. No other path to the collector and no other authority is allowed by this rule.
 4. **No credentials.** The identity-proxy, which already receives the endpoint from the operator, recognises the same authority. For those requests it removes the `Authorization` and delegation headers and adds neither token.
@@ -88,7 +88,7 @@ The collector routes map to a scope that every agent is granted. Telemetry expor
 - `policyservice/bundle/compiler.go`: `configDocument` gains `telemetry_collector`, set from the policy service's own observability config.
 - `policyservice/bundle/authz.rego`: a rule next to `_is_platform_internal_path`, with rego tests for the allowed call, another path to the collector, and an OTLP path to another authority.
 - `identityproxy/server.go`: `handleRequestHeaders` skips injection when `:authority` matches the collector, with unit tests.
-- `observability.TenantOTLPEndpoint()` reads `ORBIT_TENANT_OTLP_ENDPOINT`, falling back to the service's own endpoint; orbit-agents, the operator and `CollectorAuthority()` use it.
+- `observability.TenantOTLPEndpoint()` reads `ORBIT_TENANT_OTLP_ENDPOINT`, falling back to the service's own endpoint; kora-agents, the operator and `CollectorAuthority()` use it.
 - `docs/guides/deployment.md`: the ServiceEntry requirement for an external collector.
 
 ---

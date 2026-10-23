@@ -136,11 +136,11 @@ type ToolResultPayload struct {
 | `tool_use` | Tool call | 0–N |
 | `tool_result` | Tool call | 0–N |
 
-`run_state` events (`{state: "running"|"completed"|"failed"}`) are written by orbit-agents only ([agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md)), never by the session-manager.
+`run_state` events (`{state: "running"|"completed"|"failed"}`) are written by kora-agents only ([agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md)), never by the session-manager.
 
 ### Streaming Events (Reserved — Not Yet Emitted)
 
-These types are defined but not currently emitted. When orbit-agents implements a direct SSE subscription to the session-manager (bypassing the DB for live streaming), the transform layer will emit these on a separate channel:
+These types are defined but not currently emitted. When kora-agents implements a direct SSE subscription to the session-manager (bypassing the DB for live streaming), the transform layer will emit these on a separate channel:
 
 | Event type | Description |
 |---|---|
@@ -163,7 +163,7 @@ CREATE TABLE run_events (
 CREATE INDEX ON run_events (run_id, sequence_no);
 ```
 
-`sequence_no` is a global counter across all runs. orbit-agents resumes SSE relay by querying `WHERE run_id = $1 AND sequence_no > $2`. The Postgres `NOTIFY` payload is the `sequence_no` as a string.
+`sequence_no` is a global counter across all runs. kora-agents resumes SSE relay by querying `WHERE run_id = $1 AND sequence_no > $2`. The Postgres `NOTIFY` payload is the `sequence_no` as a string.
 
 ---
 
@@ -220,7 +220,7 @@ This prevents stale entries from blocking future runs with the same `run_id`.
 
 ### Workspace Directories
 
-Each session gets an isolated workspace at `{basePath}/{run_id}/` (e.g., `/workspaces/{run_id}`). The directory is created at session start with `0700` permissions. It is **not** deleted on session close — the workspace persists for post-run inspection and potential resume. Workspace cleanup is an orbit-agents concern ([agent-workspace-model](2026-05-11-agent-workspace-model.md)).
+Each session gets an isolated workspace at `{basePath}/{run_id}/` (e.g., `/workspaces/{run_id}`). The directory is created at session start with `0700` permissions. It is **not** deleted on session close — the workspace persists for post-run inspection and potential resume. Workspace cleanup is a kora-agents concern ([agent-workspace-model](2026-05-11-agent-workspace-model.md)).
 
 ---
 
@@ -247,7 +247,7 @@ Additional apk packages required at runtime:
 | `ANTHROPIC_API_KEY` | Kubernetes Secret / Envoy injection | API key for Claude Code's `--bare` auth mode |
 | `ANTHROPIC_BASE_URL` | Pod env | Routes Claude Code's API calls through the kora inference gateway |
 | `NODE_EXTRA_CA_CERTS` | Pod env | Trusts the cluster's mkcert CA for local TLS; set to the CA PEM path |
-| `KORA_AGENTS_URL` | Pod env | Where events are pushed; orbit-agents records them, so the pod reaches no database |
+| `KORA_AGENTS_URL` | Pod env | Where events are pushed; kora-agents records them, so the pod reaches no database |
 
 ### Non-Root User
 
@@ -315,7 +315,7 @@ Returns `202 Accepted` immediately. The actual response arrives as events in `ru
 ### Neutral
 
 - Codex and OpenCode are deferred to a future iteration; v1 uses Claude Code only
-- Workspace directories are not cleaned up by the session-manager — lifecycle is owned by orbit-agents
+- Workspace directories are not cleaned up by the session-manager — lifecycle is owned by kora-agents
 
 ---
 

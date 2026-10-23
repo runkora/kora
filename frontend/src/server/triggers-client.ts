@@ -25,7 +25,7 @@ import type {
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
 /**
- * The Triggers feature is served by orbit-triggers, the platform's front door for
+ * The Triggers feature is served by kora-triggers, the platform's front door for
  * starting work. It is separate from identity so that unauthenticated,
  * internet-reachable webhook ingestion does not share a process with the token
  * authority; identity still mints each trigger's SERVICE token over the mesh.

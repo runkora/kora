@@ -5,7 +5,7 @@ import { ApiError } from '@runkora/server/client';
 import { listConnections } from '@runkora/server/connections-client';
 
 // GET /api/agents/connectors — the catalog of the tenant's registered
-// connections (name + grantable actions), read from orbit-agents (the service
+// connections (name + grantable actions), read from kora-agents (the service
 // that serves the connection catalog over the mesh), session forwarded by withAuth.
 export const GET = withAuth(async (_req, session) => {
   try {

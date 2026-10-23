@@ -10,7 +10,7 @@ type Params = { slug: string };
  * GET /api/agents/types/overview/{slug}?period=24h|7d|30d|90d
  *
  * The agent Overview's usage, spend, budget and run stats for one window. The
- * gateway and orbit-agents are read under the caller's token; a part either
+ * gateway and kora-agents are read under the caller's token; a part either
  * refuses is left out of the response.
  */
 export const GET = withAuth(

@@ -662,12 +662,12 @@ The overview page is built first — it is the redirect target for `/policy` and
 
 **Status:** Accepted
 
-Touches *What can it access?* and *Who is this agent?* Grants for a HUMAN principal are still written by tenant admins. Grants for any other principal type (AGENT, SERVICE, PAT) can now be written only by a SYSTEM caller: the platform services (orbit-agents, orbit-triggers, identity) that own those identities. What a grant allows is unchanged. Tracked in [#443](https://github.com/runkora/kora/issues/443).
+Touches *What can it access?* and *Who is this agent?* Grants for a HUMAN principal are still written by tenant admins. Grants for any other principal type (AGENT, SERVICE, PAT) can now be written only by a SYSTEM caller: the platform services (kora-agents, kora-triggers, identity) that own those identities. What a grant allows is unchanged. Tracked in [#443](https://github.com/runkora/kora/issues/443).
 
 **Context.** The grants page offers a principal type selector and a free-text principal ID (Phase 2, "Grant create modal"). For three of the four types that produces a grant that is wrong or short-lived:
 
 - **AGENT.** The form asks for an agent UUID. OPA matches agent grants on `spiffe://<td>/tenant/<ns>/agent/<slug>`, so a grant created here never matches a request. With a correct ID, `ensureAgentGrant` (`backend/internal/agents/k8s.go`) deletes the extra grant on the next agent save.
-- **SERVICE.** A SERVICE grant is a trigger identity. orbit-triggers creates it with fixed scopes (`backend/internal/triggers/`) and deletes only the grant IDs it recorded. A manual one extends a trigger beyond its one agent and outlives the trigger.
+- **SERVICE.** A SERVICE grant is a trigger identity. kora-triggers creates it with fixed scopes (`backend/internal/triggers/`) and deletes only the grant IDs it recorded. A manual one extends a trigger beyond its one agent and outlives the trigger.
 - **PAT.** The identity PAT service creates and replaces a PAT's grant when its scopes change (`backend/internal/identity/pat_service.go`). A manual write bypasses the token flow.
 
 **Decision.**
@@ -681,8 +681,8 @@ Touches *What can it access?* and *Who is this agent?* Grants for a HUMAN princi
 *Policy-service rule*
 
 - Only a SYSTEM caller may create a grant whose `principal_type` is not `HUMAN`. Delete and set-budget look up the grant and apply the same check to its stored `principal_type`. Reads are unchanged. A write by any other caller returns 403, tenant admins included.
-- SYSTEM is the only principal type that may write them. Any SYSTEM caller qualifies; there is no per-component allowlist. A SERVICE principal is refused: it is a tenant-scoped identity (`/tenant/<id>/service/<name>`, or a trigger source's token), the kind of identity these grants protect, not a platform component. Platform components such as orbit-agents and tool-gateway present SYSTEM (`/system/<component>`), not SERVICE.
-- This is the same SYSTEM-versus-the-rest split `enforceScopeCeiling` and `resolveTenantID` already use. The three platform writers each present SYSTEM: identity mints it with `SystemToken`, and orbit-triggers and orbit-agents exchange their SVID through `SelfTokenSource` for a token whose principal comes from `/system/<component>`.
+- SYSTEM is the only principal type that may write them. Any SYSTEM caller qualifies; there is no per-component allowlist. A SERVICE principal is refused: it is a tenant-scoped identity (`/tenant/<id>/service/<name>`, or a trigger source's token), the kind of identity these grants protect, not a platform component. Platform components such as kora-agents and tool-gateway present SYSTEM (`/system/<component>`), not SERVICE.
+- This is the same SYSTEM-versus-the-rest split `enforceScopeCeiling` and `resolveTenantID` already use. The three platform writers each present SYSTEM: identity mints it with `SystemToken`, and kora-triggers and kora-agents exchange their SVID through `SelfTokenSource` for a token whose principal comes from `/system/<component>`.
 - The dashboard BFF and the orbit MCP tools (`policy.grants.create`, `policy.grants.delete`, `policy.grants.set_budget`) call the same endpoints as a person, so the rule covers them with no change to either. The `policy.grants.create` tool's `principal_type` enum narrows to `HUMAN` so it no longer advertises types the API refuses.
 - PAT grants are unaffected where they are written properly: the model-gateway keys screen and `pats.update_scopes` go to the identity service (`/identity/tokens`), which writes the grant as SYSTEM. Only a direct write to the policy-service grants API is refused.
 
@@ -698,7 +698,7 @@ Touches *What can it access?* and *Who is this agent?* Grants for a HUMAN princi
 - [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) — Browser auth flow and BFF session architecture
 - [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) — Hades frontend design system
 - [agent-identity-and-policy-provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — The provisioner writes agent grants
-- [agent-triggers-and-webhook-ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — orbit-triggers writes trigger SERVICE grants
+- [agent-triggers-and-webhook-ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — kora-triggers writes trigger SERVICE grants
 - [pat-scope-assignment-via-explicit-grants](2026-04-19-pat-scope-assignment-via-explicit-grants.md) — The identity PAT service writes PAT grants
 
 ---

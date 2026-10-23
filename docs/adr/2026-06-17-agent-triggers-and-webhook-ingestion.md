@@ -11,7 +11,7 @@
 
 ## Context
 
-Every agent run today is created by an interactive principal through `POST /api/v1/runs` on `orbit-agents`. `RunService.StartRun` derives `tenant_id` and `created_by` from the verified platform token in the request context (`backend/internal/agents/run_service.go`); there is no path for a non-interactive caller to start a run. The Run & Session Lifecycle ADR ([2026-05-11](2026-05-11-run-and-session-lifecycle.md)) explicitly lists *"Scheduled or trigger-based run initiation (deferred)"* as a non-goal. This ADR closes that gap.
+Every agent run today is created by an interactive principal through `POST /api/v1/runs` on `kora-agents`. `RunService.StartRun` derives `tenant_id` and `created_by` from the verified platform token in the request context (`backend/internal/agents/run_service.go`); there is no path for a non-interactive caller to start a run. The Run & Session Lifecycle ADR ([2026-05-11](2026-05-11-run-and-session-lifecycle.md)) explicitly lists *"Scheduled or trigger-based run initiation (deferred)"* as a non-goal. This ADR closes that gap.
 
 The motivating use case is the team's own development flow: when a pull request is opened, an agent should run automatically (review, triage, CI follow-up). More generally, kora needs a way to start runs from external events.
 
@@ -51,7 +51,7 @@ How should kora receive external events, govern which ones may start runs, give 
 * **Separation of planes** — inbound governance must stay independent of the egress credential broker.
 * **Identity integrity** — a triggered run must trace to a real principal and be bounded by that principal's grants; no anonymous run creation.
 * **Public-edge minimalism** — the inbound endpoint is externally reachable and authenticated only by HMAC; it must not widen the control plane's external surface beyond what already exists.
-* **Convention fit** — feature packages can't import each other; the main external API is `identity`; runs are owned by `orbit-agents`; secrets never live in YAML or DB plaintext.
+* **Convention fit** — feature packages can't import each other; the main external API is `identity`; runs are owned by `kora-agents`; secrets never live in YAML or DB plaintext.
 * **Token authority locality** — minting a per-source identity is naturally a job for the service that already signs platform tokens.
 * **Genericity** — the model must extend to other sources and (later) trigger kinds without rework.
 
@@ -63,27 +63,27 @@ The pivotal architectural question is *where the feature lives and how a non-int
 
 ### Option 1: `internal/triggers/` hosted in the `identity` binary, JIT-minting a per-source identity, dispatching to `orbit-agents` via a typed client
 
-**Description:** A new feature package `internal/triggers/` is booted by the `identity` binary. It exposes a public, unauthenticated, HMAC-verified ingestion endpoint plus a platform-admin-gated management API. Each registered webhook source is mapped to a stable `SERVICE` principal. On a matched delivery, the triggers service JIT-mints a short-lived `SERVICE` JWT for that principal (identity is the token signer) and calls `orbit-agents POST /api/v1/runs` through a new typed `clients/agents` client. The run executes under the source's identity.
+**Description:** A new feature package `internal/triggers/` is booted by the `identity` binary. It exposes a public, unauthenticated, HMAC-verified ingestion endpoint plus a platform-admin-gated management API. Each registered webhook source is mapped to a stable `SERVICE` principal. On a matched delivery, the triggers service JIT-mints a short-lived `SERVICE` JWT for that principal (identity is the token signer) and calls `kora-agents POST /api/v1/runs` through a new typed `clients/agents` client. The run executes under the source's identity.
 
 **Pros:**
 - `identity` is already the only externally-reachable binary and already hosts unauthenticated endpoints (`/device`, `/exchange`, `/.well-known/jwks.json`) — no new public surface or ingress shape.
 - `identity` is the token authority, so per-source identity minting happens in-process via the existing `signToken`/`SystemToken` path — no extra hop.
-- The triggers package stays distinct from `internal/agents` (honors "features don't import each other") and reuses the established typed-client + `httpclient.Base` pattern to reach `orbit-agents`.
+- The triggers package stays distinct from `internal/agents` (honors "features don't import each other") and reuses the established typed-client + `httpclient.Base` pattern to reach `kora-agents`.
 - Per-source identity gives clean attribution (`created_by` = source principal) and a natural scope boundary (the source's grants).
 
 **Cons:**
 - Grows the `identity` binary's responsibility surface (registry, matching, delivery log, dispatch).
-- Cross-service reads: validating a trigger's target agent type requires `identity → orbit-agents` calls.
+- Cross-service reads: validating a trigger's target agent type requires `identity → kora-agents` calls.
 
 ### Option 2: Fold triggers into `orbit-agents`
 
-**Description:** Add webhook ingestion and the trigger registry inside `orbit-agents`, calling `RunService` directly.
+**Description:** Add webhook ingestion and the trigger registry inside `kora-agents`, calling `RunService` directly.
 
 **Pros:**
 - Co-located with run creation and agent types; no cross-service reads for agent validation.
 
 **Cons:**
-- `orbit-agents` is **not** host-facing today; exposing it publicly for an unauthenticated endpoint widens the control plane's attack surface.
+- `kora-agents` is **not** host-facing today; exposing it publicly for an unauthenticated endpoint widens the control plane's attack surface.
 - Even in-process, a separate `triggers` package may not import `internal/agents` (convention), so it would still call over HTTP — no real coupling benefit.
 - The user explicitly directed "not folded into agents."
 
@@ -102,18 +102,18 @@ The pivotal architectural question is *where the feature lives and how a non-int
 
 ## Decision
 
-**Chosen Option:** **Option 1** — a new `internal/triggers/` feature package hosted in the `identity` binary, with per-source mapped identities and dispatch to `orbit-agents` via a new typed client.
+**Chosen Option:** **Option 1** — a new `internal/triggers/` feature package hosted in the `identity` binary, with per-source mapped identities and dispatch to `kora-agents` via a new typed client.
 
 ### Rationale
 
-Option 1 is the only one that satisfies every driver at once: it puts the public endpoint where a public endpoint already lives, mints the per-source identity where tokens are already signed, keeps the triggers package independent of `internal/agents`, and reuses the typed-client idiom for the one cross-service call that matters (starting a run). Option 2 either widens the external surface or doesn't actually reduce coupling; Option 3 is the right *eventual* shape but unjustified infrastructure today. The hosting binary is recorded as revisitable — if the triggers surface grows, the package graduates to `orbit-triggers` with no change to its internal boundaries (see the planned extraction in Notes).
+Option 1 is the only one that satisfies every driver at once: it puts the public endpoint where a public endpoint already lives, mints the per-source identity where tokens are already signed, keeps the triggers package independent of `internal/agents`, and reuses the typed-client idiom for the one cross-service call that matters (starting a run). Option 2 either widens the external surface or doesn't actually reduce coupling; Option 3 is the right *eventual* shape but unjustified infrastructure today. The hosting binary is recorded as revisitable — if the triggers surface grows, the package graduates to `kora-triggers` with no change to its internal boundaries (see the planned extraction in Notes).
 
 ### Sub-decisions
 
 **1. Identity: per-source mapped `SERVICE` principal, JIT-minted at dispatch.**
 - Creating a webhook source provisions a stable `SERVICE` principal id (e.g. `service://trigger-source/{tenant}/{sourceID}`) and a policy grant via the policy client (`CreateGrant`, the same call PATs use).
-- Binding a trigger to agent `A` ensures the source principal is granted `agents:runs:{A.slug}:write` (and `:read`) — this *is* the mechanism behind "a triggered run gets read/write to the agent if its identity has access." `A.slug` is **resolved server-side** at `CreateTrigger`: the triggers service calls `orbit-agents GET /api/v1/agent-types/{id}` with the caller's own bearer and uses the returned canonical slug for the grant. The client-supplied `agent_slug` is never trusted — `orbit-agents` keys its run check on the resolved slug, so trusting the request body would let a `triggers:write` caller shape an arbitrary grant scope and would silently 403 every dispatch on any slug/id mismatch. The same read must report `can_run` before the grant is created. `can_run` is computed by the run-start check: the agent's creator, `agents:runs:{A.slug}:write`, or a covering scope. The read itself needs agent-type read access, which the creator also holds. The trigger confers that agent's run scopes, so binding takes the same authority as starting a run. The same check applies to an edit of the prompt, manual inputs, schedule, event filters, sender restriction or enablement, and to replaying a delivery. Rotating a source's secret and enabling or disabling a source need it for every agent bound by a trigger on that source.
-- **No long-lived token is stored.** At dispatch, the triggers service mints a short-lived `SERVICE` JWT for the source principal (following the `SystemToken` pattern) and passes it as the `Authorization: Bearer` on the `orbit-agents` call. `orbit-agents` verifies the JWT and enforces the scope exactly as for any principal; `created_by` resolves to the source principal, so every run traces to its source.
+- Binding a trigger to agent `A` ensures the source principal is granted `agents:runs:{A.slug}:write` (and `:read`) — this *is* the mechanism behind "a triggered run gets read/write to the agent if its identity has access." `A.slug` is **resolved server-side** at `CreateTrigger`: the triggers service calls `kora-agents GET /api/v1/agent-types/{id}` with the caller's own bearer and uses the returned canonical slug for the grant. The client-supplied `agent_slug` is never trusted — `kora-agents` keys its run check on the resolved slug, so trusting the request body would let a `triggers:write` caller shape an arbitrary grant scope and would silently 403 every dispatch on any slug/id mismatch. The same read must report `can_run` before the grant is created. `can_run` is computed by the run-start check: the agent's creator, `agents:runs:{A.slug}:write`, or a covering scope. The read itself needs agent-type read access, which the creator also holds. The trigger confers that agent's run scopes, so binding takes the same authority as starting a run. The same check applies to an edit of the prompt, manual inputs, schedule, event filters, sender restriction or enablement, and to replaying a delivery. Rotating a source's secret and enabling or disabling a source need it for every agent bound by a trigger on that source.
+- **No long-lived token is stored.** At dispatch, the triggers service mints a short-lived `SERVICE` JWT for the source principal (following the `SystemToken` pattern) and passes it as the `Authorization: Bearer` on the `kora-agents` call. `kora-agents` verifies the JWT and enforces the scope exactly as for any principal; `created_by` resolves to the source principal, so every run traces to its source.
 - Rejected: delegation from the configuring admin (offboarding/coupling problems) and a single shared service principal (no per-source attribution or scoping).
 
 **2. Generic pipeline with per-source adapters.** A `SourceAdapter` interface provides: `Verify(secret, headers, body) error`, `EventType(headers, body) string`, `DeliveryID(headers) string`, and `Fields(body) map[string]any` (the allow-listed field map for templating). The pipeline (verify → match → template → dispatch → log) is adapter-agnostic. The **GitHub adapter** ships: HMAC-SHA256 over the raw body compared in constant time against `X-Hub-Signature-256`, event type from `X-GitHub-Event`, delivery id from `X-GitHub-Delivery`, supporting `pull_request` and `push`.
@@ -130,7 +130,7 @@ Option 1 is the only one that satisfies every driver at once: it puts the public
 **6. Routes & scopes.**
 - **Public ingestion (unauthenticated, HMAC):** `POST /webhooks/{sourceID}` registered with `mux.Handle` (bypasses `ScopeEnforcementMiddleware`, exactly like `/device` and `/exchange`). Provider is resolved from the stored source. The source id in the URL is not a secret; the HMAC signature is the authenticator.
 - **Management API (platform-admin):** `/api/v1/trigger-sources`, `/api/v1/triggers` (filterable by `agent_type_id` for the per-agent tab), `/api/v1/trigger-deliveries`. New scopes `triggers:read` / `triggers:write` registered through `routescopes` like every other feature; mutations require `triggers:write`.
-- **Internal dispatch:** `orbit-agents POST /api/v1/runs` is unchanged; it simply now also accepts a `SERVICE`-principal caller holding `agents:runs:{slug}:write`.
+- **Internal dispatch:** `kora-agents POST /api/v1/runs` is unchanged; it simply now also accepts a `SERVICE`-principal caller holding `agents:runs:{slug}:write`.
 
 **7. Dispatch semantics (per PRD assumptions).** The ingestion handler verifies, persists the delivery (`received` → `verified`), returns a fast `2xx`, then matches and dispatches asynchronously (`matched` → `dispatched`, or `skipped`/`failed`). Redeliveries dedup on `provider_delivery_id`. One run per matched trigger per delivery; concurrent runs allowed. Loop-prevention is best-effort in v1 (e.g. ignore deliveries attributable to kora's own bot identity).
 
@@ -156,9 +156,9 @@ Option 1 is the only one that satisfies every driver at once: it puts the public
 
 ### Negative
 
-- Adds registry/matching/dispatch/delivery-log responsibility to the `identity` binary — a direction we have committed to unwinding (see the planned `orbit-triggers` extraction in Notes); this v1 hosting must not become the place additional trigger surfaces accrete.
-- A new typed `clients/agents` and a `SERVICE`-principal run-creation path widen `orbit-agents`'s accepted callers (mitigated: same JWT verification + scope enforcement as any principal).
-- Cross-service reads (`identity → orbit-agents`) to validate target agent types.
+- Adds registry/matching/dispatch/delivery-log responsibility to the `identity` binary — a direction we have committed to unwinding (see the planned `kora-triggers` extraction in Notes); this v1 hosting must not become the place additional trigger surfaces accrete.
+- A new typed `clients/agents` and a `SERVICE`-principal run-creation path widen `kora-agents`'s accepted callers (mitigated: same JWT verification + scope enforcement as any principal).
+- Cross-service reads (`identity → kora-agents`) to validate target agent types.
 
 ### Neutral
 
@@ -206,7 +206,7 @@ Phase 1 (framework + GitHub PR end-to-end in k3d), then Phase 2 (UI + hardening:
 - [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — identity/scope model the source principal reuses.
 - [Service-Layer Authorization for orbit-agents](2026-06-04-orbit-agents-authorization-model.md) — the `agents:runs:{slug}:write` enforcement the source principal must satisfy.
 - [Personal Access Tokens for Inference](2026-04-02-personal-access-tokens.md) / [PAT Scope Assignment via Explicit Grants](2026-04-19-pat-scope-assignment-via-explicit-grants.md) — the issuance + grant pattern source-identity minting follows.
-- [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) / [orbit-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — route/scope registration pattern.
+- [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) / [kora-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — route/scope registration pattern.
 - [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) — how the public endpoint opts out of scope enforcement.
 - [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — the egress plane this feature composes with but does not modify.
 - [Frontend Cluster Deployment and Ingress Routing](2026-04-06-frontend-cluster-deployment-and-ingress-routing.md) — ingress for the public `/webhooks/` path.
@@ -233,11 +233,11 @@ trigger kinds are coming. Two of the drivers that justify identity-hosting today
 all, so adding those surfaces inside `identity` would grow it in a direction we have
 already decided to unwind, and risks `identity` becoming a catch-all.
 
-**Decision trigger:** extract to a dedicated `orbit-triggers` binary **when the second
+**Decision trigger:** extract to a dedicated `kora-triggers` binary **when the second
 trigger surface lands** (e.g. cron/scheduled), rather than adding a second surface to
 `identity`. The package was built to make this cheap — it imports neither
 `internal/identity` nor `internal/agents`, reaching both the policy service and
-`orbit-agents` over typed HTTP clients. The extraction work is bounded:
+`kora-agents` over typed HTTP clients. The extraction work is bounded:
 
 - New `cmd/kora-triggers/` binary wiring the existing `internal/triggers/` package unchanged.
 - Replace the in-process `TokenMinter` with an HTTP client to a (new) internal mint endpoint on `identity` — this is the **only** in-process coupling today.

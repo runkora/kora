@@ -18,7 +18,7 @@ import (
 // a CONNECT/egress broker carrying special istio config the frontend cannot
 // reach over plain HTTP through the mesh. kora-agents is a normal HTTP service
 // the frontend already reaches (it serves agent-types), so the read-only catalog
-// lives here. The egress-gateway reads the same orbit-tenant-connections
+// lives here. The egress-gateway reads the same kora-tenant-connections
 // ConfigMap for brokering; this controller reads it only to render the picker.
 //
 // The route requires platform:connections:read, the scope the egress-gateway's

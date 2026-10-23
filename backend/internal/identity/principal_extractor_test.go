@@ -117,8 +117,8 @@ func TestPrincipalFromSpiffeID_NoPathComponent(t *testing.T) {
 // run_id into Claims for attribution.
 
 func TestPrincipalFromSpiffeID_SandboxNormalizesToAgent(t *testing.T) {
-	const sandboxURI = "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder/sandbox/run-9"
-	const agentURI = "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder"
+	const sandboxURI = "spiffe://orbit.test/tenant/kora-tenant-acme/agent/coder/sandbox/run-9"
+	const agentURI = "spiffe://orbit.test/tenant/kora-tenant-acme/agent/coder"
 
 	p, err := principalFromSpiffeID(sandboxURI)
 	if err != nil {
@@ -135,7 +135,7 @@ func TestPrincipalFromSpiffeID_SandboxNormalizesToAgent(t *testing.T) {
 		t.Errorf("Type = %q, want %q", p.Type, PrincipalTypeAgent)
 	}
 	if p.TenantID != "acme" {
-		t.Errorf("TenantID = %q, want %q (orbit-tenant- prefix should be stripped)", p.TenantID, "acme")
+		t.Errorf("TenantID = %q, want %q (kora-tenant- prefix should be stripped)", p.TenantID, "acme")
 	}
 	if p.DisplayName != "coder" {
 		t.Errorf("DisplayName = %q, want %q", p.DisplayName, "coder")
@@ -149,7 +149,7 @@ func TestPrincipalFromSpiffeID_SandboxNormalizesToAgent(t *testing.T) {
 	if got := p.Claims["spiffe_id"]; got != sandboxURI {
 		t.Errorf("Claims[spiffe_id] = %q, want %q", got, sandboxURI)
 	}
-	if got := p.Claims["spiffe_path"]; got != "/tenant/orbit-tenant-acme/agent/coder/sandbox/run-9" {
+	if got := p.Claims["spiffe_path"]; got != "/tenant/kora-tenant-acme/agent/coder/sandbox/run-9" {
 		t.Errorf("Claims[spiffe_path] = %q", got)
 	}
 }

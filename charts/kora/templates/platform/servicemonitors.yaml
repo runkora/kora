@@ -20,7 +20,7 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: orbit-{{ $svc }}
+  name: kora-{{ $svc }}
   namespace: {{ include "kora.systemNamespace" $ }}
   labels:
     {{- include "kora.labels" $ | nindent 4 }}
@@ -30,7 +30,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: orbit-{{ $svc }}
+      app.kubernetes.io/name: kora-{{ $svc }}
   namespaceSelector:
     matchNames:
       - {{ include "kora.systemNamespace" $ }}

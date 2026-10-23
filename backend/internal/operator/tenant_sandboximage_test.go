@@ -18,7 +18,7 @@ import (
 	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
-const bundledTestNS = "orbit-tenant-example"
+const bundledTestNS = "kora-tenant-example"
 
 func bundledTenant() *KoraTenant {
 	return &KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
@@ -106,7 +106,7 @@ func TestEnsureBundledSandboxImages_LeavesTenantImageAlone(t *testing.T) {
 				Name:      name,
 				Namespace: bundledTestNS,
 				// managed-by alone does not mark a bundled image.
-				Labels: map[string]string{"app.kubernetes.io/managed-by": "orbit-operator"},
+				Labels: map[string]string{"app.kubernetes.io/managed-by": "kora-operator"},
 			},
 			Spec: si.Spec{Image: "registry.example.com/team/" + name + ":1"},
 		}

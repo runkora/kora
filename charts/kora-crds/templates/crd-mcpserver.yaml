@@ -38,10 +38,10 @@ spec:
         openAPIV3Schema:
           description: >
             MCPServer declares one MCP server kora governs (GitOps; there is no
-            create API). Apply it in orbit-system for a platform-global server
+            create API). Apply it in kora-system for a platform-global server
             (e.g. the kora MCP) or in a tenant namespace for a tenant's own
             server. The operator aggregates every MCPServer into the
-            orbit-mcp-servers ConfigMap the tool-gateway mounts; the gateway
+            kora-mcp-servers ConfigMap the tool-gateway mounts; the gateway
             introspects each server's tools and registers them as
             mcp:<server>:<tool>:use scopes. The CR name (metadata.name) is the
             stable server slug used in the scope path.
@@ -69,7 +69,7 @@ spec:
                 endpoint:
                   description: >
                     URL of the MCP server (Streamable HTTP), e.g.
-                    http://github-mcp.orbit-tenant-acme.svc:8080/mcp or
+                    http://github-mcp.kora-tenant-acme.svc:8080/mcp or
                     https://mcp.exa.ai/mcp. Userinfo and a query string are rejected.
                   type: string
                   minLength: 1

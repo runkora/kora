@@ -119,7 +119,7 @@ identity:
         refreshTokenTtlDays: 1
 ```
 
-Read a workload's effective config from its ConfigMap, e.g. `kubectl -n orbit-system get configmap orbit-identity-config -o yaml`.
+Read a workload's effective config from its ConfigMap, e.g. `kubectl -n kora-system get configmap kora-identity-config -o yaml`.
 
 The session-manager and the identity-proxy sidecar have no rendered file. kora-agents and the operator set their env vars in Go.
 

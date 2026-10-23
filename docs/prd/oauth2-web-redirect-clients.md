@@ -29,7 +29,7 @@ We need hosted apps to log their users in through kora, without opening a self-s
 
 ## Solution
 
-A first-class **`OAuthClient` CRD** (`runkora.io/v1alpha1`, namespaced, shortName `oauthc`), reconciled by `orbit-operator` into the `orbit-tenant-oauth-clients` ConfigMap that the identity service mounts and hot-reloads. This mirrors the `Connection`/`MCPServer` registration pattern exactly. The authorize endpoint gates every client on exact-match redirect validation; DCR keeps its loopback restriction so only admin-declared CRs may use hosted HTTPS redirects. See the ADR for the full design.
+A first-class **`OAuthClient` CRD** (`runkora.io/v1alpha1`, namespaced, shortName `oauthc`), reconciled by `kora-operator` into the `kora-tenant-oauth-clients` ConfigMap that the identity service mounts and hot-reloads. This mirrors the `Connection`/`MCPServer` registration pattern exactly. The authorize endpoint gates every client on exact-match redirect validation; DCR keeps its loopback restriction so only admin-declared CRs may use hosted HTTPS redirects. See the ADR for the full design.
 
 ### User flow (operator)
 
@@ -38,7 +38,7 @@ apiVersion: runkora.io/v1alpha1
 kind: OAuthClient
 metadata:
   name: example-app
-  namespace: orbit-tenant-acme
+  namespace: kora-tenant-acme
 spec:
   clientId: example-app
   clientName: Example App
@@ -53,7 +53,7 @@ Commit to the GitOps repo → the operator aggregates it → identity serves the
 | # | Requirement |
 |---|-------------|
 | 1 | `OAuthClient` CRD with `clientId` (required, unique), `clientName` (optional), `redirectUris` (≥1). |
-| 2 | Operator aggregates active tenants' `OAuthClient` CRs into `orbit-tenant-oauth-clients` (`oauth-clients.json`); re-runs on CR change, tenant suspend/reactivate, and delete. |
+| 2 | Operator aggregates active tenants' `OAuthClient` CRs into `kora-tenant-oauth-clients` (`oauth-clients.json`); re-runs on CR change, tenant suspend/reactivate, and delete. |
 | 3 | Identity mounts and hot-reloads the file; static clients resolve ahead of DCR clients; DCR writes never touch static clients. |
 | 4 | `CreateAuthCode` gates on exact-match `AllowsRedirect` + mandatory PKCE; the loopback check is removed from the authorize path. |
 | 5 | DCR (`RegisterClient`) still rejects non-loopback redirect URIs. |

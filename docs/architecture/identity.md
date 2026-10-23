@@ -20,7 +20,7 @@ sequenceDiagram
     IP->>SVC: outbound request + Authorization: Bearer <JWT>
 ```
 
-Platform services in `orbit-system` make the same exchange in-process through the identity client and carry no identity-proxy. They attach the token only to the platform calls that need it.
+Platform services in `kora-system` make the same exchange in-process through the identity client and carry no identity-proxy. They attach the token only to the platform calls that need it.
 
 People and agents share one principal model. A person can [delegate](../concepts/platform-tokens.md#delegation) to an agent, and a delegated request is allowed only when both the agent's grants and the person's live access cover it.
 

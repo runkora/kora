@@ -27,13 +27,13 @@ type Config struct {
 
 	Policy struct {
 		// BundleEndpoint is the base URL for the policy-service bundle polling endpoint.
-		// e.g. http://policy-service.orbit-system.svc/api/v1/policy/bundles
+		// e.g. http://policy-service.kora-system.svc/api/v1/policy/bundles
 		BundleEndpoint string `yaml:"bundleEndpoint"`
 		// BundlePollIntervalSecs is how often enforcement points poll for new bundles.
 		BundlePollIntervalSecs int `yaml:"bundlePollIntervalSecs"`
 		// PolicyServiceInternalURL is the base URL for the policy-service internal port.
 		// Used for route registration at startup.
-		// e.g. http://orbit-policy-service.orbit-system.svc:9091
+		// e.g. http://kora-policy-service.kora-system.svc:9091
 		PolicyServiceInternalURL string `yaml:"policyServiceInternalURL"`
 	} `yaml:"policy"`
 

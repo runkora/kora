@@ -1,7 +1,7 @@
 /**
  * Integration tests for POST /api/triggers.
  *
- * The route copies an explicit list of fields to orbit-triggers. Each field the
+ * The route copies an explicit list of fields to kora-triggers. Each field the
  * backend accepts needs a test that the route forwards it.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -48,7 +48,7 @@ describe('POST /api/triggers', () => {
     vi.mocked(getSession).mockResolvedValue(makeSession() as never);
   });
 
-  it('forwards sender_restriction to orbit-triggers', async () => {
+  it('forwards sender_restriction to kora-triggers', async () => {
     let received: Record<string, unknown> | undefined;
     server.use(
       http.post(TRIGGERS_URL, async ({ request }) => {
@@ -77,7 +77,7 @@ describe('POST /api/triggers', () => {
     });
   });
 
-  it('forwards coalesce to orbit-triggers unchanged', async () => {
+  it('forwards coalesce to kora-triggers unchanged', async () => {
     let received: Record<string, unknown> | undefined;
     server.use(
       http.post(TRIGGERS_URL, async ({ request }) => {
@@ -103,7 +103,7 @@ describe('POST /api/triggers', () => {
     expect(received?.coalesce).toEqual({ key: '{{ pull_request.number }}', window_seconds: 30 });
   });
 
-  it('forwards match_contains to orbit-triggers', async () => {
+  it('forwards match_contains to kora-triggers', async () => {
     let received: Record<string, unknown> | undefined;
     server.use(
       http.post(TRIGGERS_URL, async ({ request }) => {

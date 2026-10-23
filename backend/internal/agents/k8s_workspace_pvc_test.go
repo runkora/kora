@@ -26,7 +26,7 @@ func TestBuildSessionManagerStatefulSet_WorkspaceClaimIsDeletedWithTheSet(t *tes
 	p := &K8sProvisioner{}
 	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "acme"}
 
-	ss := p.buildSessionManagerStatefulSet(at, "orbit-tenant-acme", agentTypeLabels(at))
+	ss := p.buildSessionManagerStatefulSet(at, "kora-tenant-acme", agentTypeLabels(at))
 
 	policy := ss.Spec.PersistentVolumeClaimRetentionPolicy
 	if policy == nil {
@@ -49,7 +49,7 @@ func TestBuildSessionManagerStatefulSet_WorkspaceClaimIsDeletedWithTheSet(t *tes
 // sweeps every ordinal's claim by label, and leaves other agent types' claims
 // alone.
 func TestDeprovisionAgentType_DeletesWorkspacePVCs(t *testing.T) {
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "acme"}
 
 	matching := agentTypeLabels(at)
@@ -98,7 +98,7 @@ func TestDeprovisionAgentType_DeletesWorkspacePVCs(t *testing.T) {
 // TestDeprovisionAgentType_NoPVCsIsNotAnError asserts deprovisioning an agent
 // type with no workspace claims is not an error.
 func TestDeprovisionAgentType_NoPVCsIsNotAnError(t *testing.T) {
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "acme"}
 
 	typed := fake.NewSimpleClientset()
@@ -122,7 +122,7 @@ func TestDeprovisionAgentType_NoPVCsIsNotAnError(t *testing.T) {
 // TestDeleteWorkspacePVCs_ContinuesPastAFailedDelete asserts a failed delete
 // doesn't stop the rest from being attempted.
 func TestDeleteWorkspacePVCs_ContinuesPastAFailedDelete(t *testing.T) {
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "acme"}
 
 	matching := agentTypeLabels(at)

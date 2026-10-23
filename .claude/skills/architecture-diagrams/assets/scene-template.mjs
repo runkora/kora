@@ -15,7 +15,7 @@ const base = (o) => ({ angle: 0, fillStyle: "solid", strokeWidth: 1.5, strokeSty
 const els = [];
 
 // --- palette (match existing diagrams) ---
-const BLUE = "#3b5bdb", DKBLUE = "#1c3aa9", MEM = "#eef2fb";      // control plane / orbit-system
+const BLUE = "#3b5bdb", DKBLUE = "#1c3aa9", MEM = "#eef2fb";      // control plane / kora-system
 const GREEN = "#2f9e44", DKGREEN = "#1b7a34", LGREEN = "#e6f4ea"; // data plane / agent
 const GREY = "#868e96", INK = "#343a40", EDGE = "#5c6470";        // external / substrate / flow arrows
 const CARD = "#ffffff";
@@ -36,7 +36,7 @@ const zone = (x, y, w, h, stroke, bg, label, color) => { rect(x, y, w, h, stroke
 
 // ===== EXAMPLE (delete and draw your diagram) =====
 ltext(48, 36, "Diagram Title", 22, "#212529");
-zone(48, 72, 300, 160, BLUE, "#f5f8ff", "CONTROL PLANE (orbit-system)", DKBLUE);
+zone(48, 72, 300, 160, BLUE, "#f5f8ff", "CONTROL PLANE (kora-system)", DKBLUE);
 chip(70, 110, 256, 46, "some-service", "what it does");
 zone(420, 72, 260, 160, GREEN, "#f0faf3", "DATA PLANE (tenant)", DKGREEN);
 box(442, 470, 236, 42, "External thing"); // (place under a real layout)

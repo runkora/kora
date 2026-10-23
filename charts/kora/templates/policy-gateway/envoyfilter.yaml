@@ -19,7 +19,7 @@ metadata:
   name: opa-policy-ext-authz
   namespace: {{ .Values.istio.namespace }}
   labels:
-    app.kubernetes.io/part-of: orbit
+    app.kubernetes.io/part-of: kora
     app.kubernetes.io/managed-by: Helm
 spec:
   workloadSelector:

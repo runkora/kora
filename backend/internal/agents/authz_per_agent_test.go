@@ -310,7 +310,7 @@ func TestCreateAgentType_RepublishesScopesBeforeProvisioning(t *testing.T) {
 	k8s := blockingK8s{mockK8s: &mockK8s{}, release: make(chan struct{})}
 	t.Cleanup(func() { close(k8s.release) })
 	svc := NewAgentTypeService(repo, repo, k8s, NewAuthz(&scopedEvaluator{granted: []string{"agents:types:delegated:write"}}),
-		AgentTypeServiceConfig{MaxConcurrentRunsPerPod: 5, TenantNamespaceFn: func(id string) string { return "orbit-tenant-" + id }},
+		AgentTypeServiceConfig{MaxConcurrentRunsPerPod: 5, TenantNamespaceFn: func(id string) string { return "kora-tenant-" + id }},
 		logging.NewLoggerWithOutput(io.Discard))
 	var calls atomic.Int32
 	svc.SetAgentTypeHook(func() { calls.Add(1) })

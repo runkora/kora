@@ -75,7 +75,7 @@ type ControllerConfig struct {
 // this is a constant rather than configuration: there is no deployment in which
 // a different component should be able to start, message or kill a run, and a
 // config key for it would only be a way to widen that by accident.
-const expectedCaller = "orbit-agents"
+const expectedCaller = "kora-agents"
 
 type Controller struct {
 	logger logging.Logger

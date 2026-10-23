@@ -131,13 +131,13 @@ func TestAdapter_Resolve_MintsAndCaches(t *testing.T) {
 
 	conn := credentials.Connection{
 		ID: "conn-1", TenantID: "acme", Name: "github", Adapter: credentials.AdapterGitHubApp,
-		BaseHost: "github.com", SecretRef: "k8s:orbit-conn-acme-github",
+		BaseHost: "github.com", SecretRef: "k8s:kora-conn-acme-github",
 		Config: mustConfig(t, config{
 			AppID: "12345", InstallationID: 42,
 			Permissions: map[string]string{"contents": "write"},
 		}),
 	}
-	id := credentials.CallerIdentity{TenantID: "acme", PrincipalID: "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", RunID: "run-9", Action: "repo:write", Qualifier: "orbit"}
+	id := credentials.CallerIdentity{TenantID: "acme", PrincipalID: "spiffe://orbit.test/tenant/kora-tenant-acme/agent/coder", RunID: "run-9", Action: "repo:write", Qualifier: "orbit"}
 
 	cred, err := open(t, adapter, conn).Mint(context.Background(), id)
 	if err != nil {

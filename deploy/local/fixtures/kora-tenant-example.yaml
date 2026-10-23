@@ -5,7 +5,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: example-config
-  namespace: orbit-tenant-example
+  namespace: kora-tenant-example
 data:
   # Mounted as the storage config file the loader merges last.
   storage.yaml: |
@@ -18,29 +18,29 @@ data:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: orbit-example
-  namespace: orbit-tenant-example
+  name: kora-example
+  namespace: kora-tenant-example
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-example
-  namespace: orbit-tenant-example
+  name: kora-example
+  namespace: kora-tenant-example
   labels:
-    app: orbit-example
+    app: kora-example
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: orbit-example
+      app: kora-example
   template:
     metadata:
       labels:
-        app: orbit-example
-        # Selects the orbit-tenant-agent ClusterSPIFFEID: .../agent/example.
+        app: kora-example
+        # Selects the kora-tenant-agent ClusterSPIFFEID: .../agent/example.
         spiffe.io/agent: example
     spec:
-      serviceAccountName: orbit-example
+      serviceAccountName: kora-example
       # Tenant namespaces enforce restricted Pod Security.
       securityContext:
         runAsNonRoot: true
@@ -48,7 +48,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: orbit-example
+        - name: kora-example
           image: orbit-registry:5001/kora-example:latest
           imagePullPolicy: Always
           securityContext:
@@ -64,7 +64,7 @@ spec:
               protocol: TCP
           envFrom:
             - secretRef:
-                name: orbit-secrets
+                name: kora-secrets
           volumeMounts:
             - name: config-files
               mountPath: /etc/kora/config
@@ -103,11 +103,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: orbit-example
-  namespace: orbit-tenant-example
+  name: kora-example
+  namespace: kora-tenant-example
 spec:
   selector:
-    app: orbit-example
+    app: kora-example
   ports:
     - name: http
       port: 80

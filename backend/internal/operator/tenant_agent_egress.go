@@ -34,11 +34,11 @@ type agentPlatformService struct {
 }
 
 var agentPlatformServices = []agentPlatformService{
-	{app: "orbit-identity", port: 8080},          // identity-proxy token exchange, OPA JWKS
-	{app: "orbit-agents", port: 8080},            // run events, state, summaries, sandbox provisioning
-	{app: "orbit-inference-gateway", port: 8081}, // model calls
-	{app: "orbit-tool-gateway", port: 8096},      // governed MCP servers
-	{app: "orbit-policy-service", port: 8083},    // OPA bundles
+	{app: "kora-identity", port: 8080},          // identity-proxy token exchange, OPA JWKS
+	{app: "kora-agents", port: 8080},            // run events, state, summaries, sandbox provisioning
+	{app: "kora-inference-gateway", port: 8081}, // model calls
+	{app: "kora-tool-gateway", port: 8096},      // governed MCP servers
+	{app: "kora-policy-service", port: 8083},    // OPA bundles
 }
 
 // AgentCollector is the OTLP collector agent pods export to: in the cluster
@@ -118,7 +118,7 @@ func (r *TenantReconciler) ensureAgentEgressSidecar(ctx context.Context, tenant 
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	if err := r.Patch(ctx, desired, client.Merge, client.FieldOwner("orbit-operator")); err != nil {
+	if err := r.Patch(ctx, desired, client.Merge, client.FieldOwner("kora-operator")); err != nil {
 		return fmt.Errorf("patch Sidecar %q in %q: %w", desired.GetName(), desired.GetNamespace(), err)
 	}
 	return nil
@@ -149,7 +149,7 @@ func agentEgressSidecar(ns, tenantName string, collector AgentCollector) *unstru
 }
 
 func tenantPolicyLabels(tenantName string) map[string]string {
-	return map[string]string{"app.kubernetes.io/managed-by": "orbit-operator", "runkora.io/tenant": tenantName}
+	return map[string]string{"app.kubernetes.io/managed-by": "kora-operator", "runkora.io/tenant": tenantName}
 }
 
 func namespacePeer(namespace string, pods map[string]string) []networkingv1.NetworkPolicyPeer {

@@ -37,7 +37,7 @@ func TestHandleCreateDelegation_SubjectTokenBrokeredMint(t *testing.T) {
 
 	// Transport principal is the SYSTEM service token the identity-proxy
 	// stamps on kora-agents egress.
-	w := postJSONWithClaims(t, c.handleCreateDelegation, systemClaims("orbit-agents"), CreateDelegationRequest{
+	w := postJSONWithClaims(t, c.handleCreateDelegation, systemClaims("kora-agents"), CreateDelegationRequest{
 		AgentPrincipalID: testAgentSpiffeID,
 		RunID:            "run-subject-1",
 		SubjectToken:     subject,
@@ -93,7 +93,7 @@ func TestHandleCreateDelegation_SubjectTokenRefusals(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			w := postJSONWithClaims(t, c.handleCreateDelegation, systemClaims("orbit-agents"), CreateDelegationRequest{
+			w := postJSONWithClaims(t, c.handleCreateDelegation, systemClaims("kora-agents"), CreateDelegationRequest{
 				AgentPrincipalID: testAgentSpiffeID,
 				RunID:            "run-" + strings.ReplaceAll(tc.name, " ", "-"),
 				SubjectToken:     tc.subjectToken,
@@ -124,7 +124,7 @@ func TestHandleCreateDelegation_SubjectTokenFailsOpenOnBlocklistError(t *testing
 	}, "subject-jti-blockerr")
 	blocklist.isBlockedErr = errors.New("redis unavailable")
 
-	w := postJSONWithClaims(t, c.handleCreateDelegation, systemClaims("orbit-agents"), CreateDelegationRequest{
+	w := postJSONWithClaims(t, c.handleCreateDelegation, systemClaims("kora-agents"), CreateDelegationRequest{
 		AgentPrincipalID: testAgentSpiffeID,
 		RunID:            "run-blockerr",
 		SubjectToken:     subject,

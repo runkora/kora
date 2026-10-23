@@ -27,17 +27,17 @@ Until now the frontend has had no Tier 2 representation. An engineer running the
 ### What Already Exists
 
 The operator ([orbit-kubernetes-operator](2026-03-31-orbit-kubernetes-operator.md)) installs the `orbit` Helm chart, which currently deploys:
-- `orbit-identity` — the Go identity service in `orbit-system`
+- `kora-identity` — the Go identity service in `kora-system`
 - `identity-proxy` — an Envoy EnvoyFilter for outbound token injection ([envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md))
 
 The `orbit-platform` chart (also operator-managed) owns cluster-scoped infrastructure:
-- Namespaces (`orbit-system`, `spire-system`, `istio-system`, tenant namespaces)
+- Namespaces (`kora-system`, `spire-system`, `istio-system`, tenant namespaces)
 - ClusterSPIFFEIDs ([dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md))
 - NetworkPolicies
 
 The Istio gateway Helm release (installed by the operator in order) creates an Envoy-based ingress gateway in `istio-system` and exposes it via the k3d loadbalancer on ports 8880 (HTTP) and 8443 (HTTPS). No application traffic currently routes through it — the identity service is a ClusterIP reached only from within the mesh.
 
-The inference gateway ([inference-gateway-architecture](2026-04-01-inference-gateway-architecture.md)) is also a platform service in `orbit-system`. Developers running agent CLIs against a local cluster currently have no stable external address for it.
+The inference gateway ([inference-gateway-architecture](2026-04-01-inference-gateway-architecture.md)) is also a platform service in `kora-system`. Developers running agent CLIs against a local cluster currently have no stable external address for it.
 
 ### Problem Statement
 
@@ -53,7 +53,7 @@ Both gaps require the same foundational piece: an Istio `Gateway` resource that 
 - `make cluster-operator` produces a fully working cluster: browser can reach the frontend at a stable local hostname, agent CLIs can reach the inference gateway at a stable local hostname
 - Both hostnames resolve inside and outside k3d via the existing `*.orbit.local.clearroute.io` DNS infrastructure
 - The frontend pod is a first-class mesh citizen: SPIFFE identity, Istio sidecar, mTLS to the identity service
-- The `orbit-frontend-secrets` Secret (BFF session key) follows the same pre-creation pattern as `orbit-secrets` — created by `create-secrets.sh`, referenced by the chart
+- The `kora-frontend-secrets` Secret (BFF session key) follows the same pre-creation pattern as `kora-secrets` — created by `create-secrets.sh`, referenced by the chart
 - No changes to the operator's reconciliation logic — all new resources are in the existing charts
 
 ### Non-Goals
@@ -107,8 +107,8 @@ One VirtualService per service, all binding to host `*` on the same Gateway.
 
 Each service gets a distinct hostname. Each VirtualService binds exclusively to that hostname — no shared host, no merge.
 
-- `orbit.local.clearroute.io` → frontend VirtualService → `orbit-frontend` ClusterIP service
-- `api.orbit.local.clearroute.io` → inference gateway VirtualService → `orbit-inference-gateway` ClusterIP service
+- `orbit.local.clearroute.io` → frontend VirtualService → `kora-frontend` ClusterIP service
+- `api.orbit.local.clearroute.io` → inference gateway VirtualService → `kora-inference-gateway` ClusterIP service
 
 **Pros:**
 - No Istio merge ambiguity — VirtualServices on different hosts are completely independent
@@ -146,7 +146,7 @@ A single `Gateway` resource in `charts/orbit-platform/templates/gateway.yaml`:
 apiVersion: networking.istio.io/v1beta1
 kind: Gateway
 metadata:
-  name: orbit-gateway
+  name: kora-gateway
   namespace: {{ .Values.platform.namespaces.system }}
 spec:
   selector:
@@ -161,28 +161,28 @@ spec:
         - "api.orbit.local.clearroute.io"
 ```
 
-Referenced by VirtualServices as `orbit-system/orbit-gateway`.
+Referenced by VirtualServices as `kora-system/kora-gateway`.
 
 ### Frontend Service
 
-The frontend is deployed in `orbit-system` as a platform service via the `kora` chart, following the identity service pattern exactly:
+The frontend is deployed in `kora-system` as a platform service via the `kora` chart, following the identity service pattern exactly:
 
 | Attribute | Value |
 |-----------|-------|
-| Namespace | `orbit-system` |
-| Service account | `orbit-frontend` |
+| Namespace | `kora-system` |
+| Service account | `kora-frontend` |
 | Container port | 3000 |
 | Service port | 80 → 3000 |
 | SPIFFE SVID | `spiffe://<trust-domain>/system/frontend` |
 | Istio templates | `sidecar,spire` |
-| ConfigMap | `orbit-frontend-config` (KORA_API_URL, NEXT_PUBLIC_APP_URL) |
-| Secret | `orbit-frontend-secrets` (BFF_SESSION_SECRET) |
+| ConfigMap | `kora-frontend-config` (KORA_API_URL, NEXT_PUBLIC_APP_URL) |
+| Secret | `kora-frontend-secrets` (BFF_SESSION_SECRET) |
 
-The frontend pod gets the `spiffe.io/component: frontend` label, which causes the existing `orbit-system-component` ClusterSPIFFEID to issue it a SVID at path `/system/frontend`. No new ClusterSPIFFEID is required.
+The frontend pod gets the `spiffe.io/component: frontend` label, which causes the existing `kora-system-component` ClusterSPIFFEID to issue it a SVID at path `/system/frontend`. No new ClusterSPIFFEID is required.
 
-`KORA_API_URL` points at the identity service via in-cluster DNS: `http://orbit-identity.orbit-system/api/v1`. The frontend's Envoy sidecar transparently upgrades this to mTLS using the SPIFFE SVIDs of both pods.
+`KORA_API_URL` points at the identity service via in-cluster DNS: `http://kora-identity.kora-system/api/v1`. The frontend's Envoy sidecar transparently upgrades this to mTLS using the SPIFFE SVIDs of both pods.
 
-`NEXT_PUBLIC_APP_URL` is both injected at runtime via the `orbit-frontend-config` ConfigMap (for server-side code) and baked into the Docker image at build time via `--build-arg NEXT_PUBLIC_APP_URL=...` (for Next.js client bundles, which inline `NEXT_PUBLIC_*` values during `next build`).
+`NEXT_PUBLIC_APP_URL` is both injected at runtime via the `kora-frontend-config` ConfigMap (for server-side code) and baked into the Docker image at build time via `--build-arg NEXT_PUBLIC_APP_URL=...` (for Next.js client bundles, which inline `NEXT_PUBLIC_*` values during `next build`).
 
 ### Container Image
 
@@ -192,11 +192,11 @@ The container runs as uid/gid 65532 (`orbit`/`orbit`), consistent with all other
 
 ### BFF Session Secret
 
-`orbit-frontend-secrets` is created by `scripts/cluster/create-secrets.sh` alongside the existing `orbit-secrets`, following the same idempotent `--dry-run=client | kubectl apply` pattern. It contains a single key: `BFF_SESSION_SECRET`, sourced from the `.env` file (which already documents this variable under the `# Frontend` section). The `gen-session-secret` Makefile target (`openssl rand -hex 32`) generates a suitable value.
+`kora-frontend-secrets` is created by `scripts/cluster/create-secrets.sh` alongside the existing `kora-secrets`, following the same idempotent `--dry-run=client | kubectl apply` pattern. It contains a single key: `BFF_SESSION_SECRET`, sourced from the `.env` file (which already documents this variable under the `# Frontend` section). The `gen-session-secret` Makefile target (`openssl rand -hex 32`) generates a suitable value.
 
 ### NetworkPolicy
 
-The existing `default-deny-all` policy in `orbit-system` blocks ingress from `istio-system`. A new `allow-gateway-ingress` NetworkPolicy allows the Istio gateway pods to reach orbit-system pods on Envoy's inbound ports (15006 and 15008), enabling gateway-routed traffic to reach the frontend pod's sidecar.
+The existing `default-deny-all` policy in `kora-system` blocks ingress from `istio-system`. A new `allow-gateway-ingress` NetworkPolicy allows the Istio gateway pods to reach kora-system pods on Envoy's inbound ports (15006 and 15008), enabling gateway-routed traffic to reach the frontend pod's sidecar.
 
 ### DNS
 
@@ -230,7 +230,7 @@ The existing `default-deny-all` policy in `orbit-system` blocks ingress from `is
 
 - `curl -sk https://orbit.local.clearroute.io:8443 | grep -q "<!DOCTYPE html>"` returns 0 after `make cluster-operator`
 - `curl -sk https://api.orbit.local.clearroute.io:8443/health` returns a 200 from the inference gateway
-- `kubectl get pods -n orbit-system` shows `orbit-frontend-*` with 2/2 containers ready (app + Istio sidecar)
+- `kubectl get pods -n kora-system` shows `kora-frontend-*` with 2/2 containers ready (app + Istio sidecar)
 - Browser login at `https://orbit.local.clearroute.io:8443` completes the full OIDC flow and reaches the dashboard
 
 ---

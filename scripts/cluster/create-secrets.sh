@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-# create-secrets.sh — Create per-namespace orbit-secrets in the local cluster
+# create-secrets.sh — Create per-namespace kora-secrets in the local cluster
 #
 # Usage:
 #   bash create-secrets.sh                    # all namespaces
-#   bash create-secrets.sh orbit-system       # platform secrets only
-#   bash create-secrets.sh orbit-tenant-example  # tenant secrets only
+#   bash create-secrets.sh kora-system       # platform secrets only
+#   bash create-secrets.sh kora-tenant-example  # tenant secrets only
 #
 # Each namespace block declares exactly the secrets it needs — no more.
 # To add a new tenant namespace: add a create_secret block in the tenant
@@ -16,13 +16,13 @@
 #
 # Required environment variables (loaded from .env by the Makefile):
 #   DB_PASSWORD              Postgres password
-#   REDIS_PASSWORD           Redis password           (orbit-system only)
-#   BFF_SESSION_SECRET       Frontend session secret  (orbit-system only, min 32 chars)
+#   REDIS_PASSWORD           Redis password           (kora-system only)
+#   BFF_SESSION_SECRET       Frontend session secret  (kora-system only, min 32 chars)
 #   KORA_TRIGGERS_ENCRYPTION_KEY  At-rest key for webhook signing secrets (base64, 32 bytes)
 #   KORA_OIDC_CLIENT_SECRET Dex client secret        (optional — public client)
 #
 # Required files:
-#   secrets/signing.key      RSA private key for JWT signing (orbit-system only)
+#   secrets/signing.key      RSA private key for JWT signing (kora-system only)
 # =============================================================================
 set -euo pipefail
 
@@ -53,19 +53,19 @@ should_run() {
 # =============================================================================
 # create_secret <namespace> [kubectl secret flags...]
 #
-# Wraps kubectl create secret generic orbit-secrets with --dry-run=client so
+# Wraps kubectl create secret generic kora-secrets with --dry-run=client so
 # the apply is fully idempotent — creates on first run, patches on subsequent.
 # =============================================================================
 create_secret() {
   local namespace="$1"
   shift  # remaining args are --from-literal / --from-file flags
 
-  kubectl create secret generic orbit-secrets \
+  kubectl create secret generic kora-secrets \
     --namespace "${namespace}" \
     "$@" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  ok "orbit-secrets in ${namespace}"
+  ok "kora-secrets in ${namespace}"
 }
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
@@ -73,11 +73,11 @@ step "Checking prerequisites"
 
 [[ -n "${DB_PASSWORD:-}" ]] || fail "DB_PASSWORD is not set"
 
-if should_run "orbit-system"; then
+if should_run "kora-system"; then
   [[ -f "${SECRETS_DIR}/signing.key" ]] \
     || fail "secrets/signing.key not found — run 'make gen-signing-key' first"
   [[ -n "${REDIS_PASSWORD:-}" ]] \
-    || fail "REDIS_PASSWORD is not set (required for orbit-system)"
+    || fail "REDIS_PASSWORD is not set (required for kora-system)"
   [[ -n "${BFF_SESSION_SECRET:-}" ]] \
     || fail "BFF_SESSION_SECRET is not set. 'make setup' generates it into .env"
   [[ ${#BFF_SESSION_SECRET} -ge 32 ]] \
@@ -111,12 +111,12 @@ fi
 
 ok "Prerequisites satisfied"
 
-# ── orbit-system (identity service) ──────────────────────────────────────────
+# ── kora-system (identity service) ──────────────────────────────────────────
 # Needs: Postgres, Redis, RSA signing key.
 # KORA_OIDC_CLIENT_SECRET is optional — Dex is configured as a public client
 # for Device Grant so no secret is required. Include it only when set.
-if should_run "orbit-system"; then
-  step "Creating secrets for orbit-system"
+if should_run "kora-system"; then
+  step "Creating secrets for kora-system"
 
   IDENTITY_SECRET_ARGS=(
     --from-literal=DB_PASSWORD="${DB_PASSWORD}"
@@ -131,23 +131,23 @@ if should_run "orbit-system"; then
     warn "KORA_OIDC_CLIENT_SECRET is empty — skipping (public client mode)"
   fi
 
-  create_secret "orbit-system" "${IDENTITY_SECRET_ARGS[@]}"
+  create_secret "kora-system" "${IDENTITY_SECRET_ARGS[@]}"
 
-  # orbit-frontend-secrets — BFF iron-session cookie signing key.
+  # kora-frontend-secrets — BFF iron-session cookie signing key.
   # The dashboard loads this Secret whole, named by the chart's frontend.existingSecret.
-  kubectl create secret generic orbit-frontend-secrets \
-    --namespace orbit-system \
+  kubectl create secret generic kora-frontend-secrets \
+    --namespace kora-system \
     --from-literal=BFF_SESSION_SECRET="${BFF_SESSION_SECRET}" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  ok "orbit-frontend-secrets in orbit-system"
+  ok "kora-frontend-secrets in kora-system"
 fi
 
-# ── orbit-tenant-example (example agent) ─────────────────────────────────────
+# ── kora-tenant-example (example agent) ─────────────────────────────────────
 # Needs: Postgres only — no Redis, no OIDC client, no signing key.
-if should_run "orbit-tenant-example"; then
-  step "Creating secrets for orbit-tenant-example"
-  create_secret "orbit-tenant-example" \
+if should_run "kora-tenant-example"; then
+  step "Creating secrets for kora-tenant-example"
+  create_secret "kora-tenant-example" \
     --from-literal=DB_PASSWORD="${DB_PASSWORD}"
 fi
 
@@ -158,8 +158,8 @@ if [[ -z "${TARGET_NAMESPACE}" ]]; then
   echo -e "${GREEN}  Secrets applied to all namespaces               ${RESET}"
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
   echo ""
-  echo "  orbit-system         → orbit-secrets (DB + Redis + signing key) + orbit-frontend-secrets (BFF session)"
-  echo "  orbit-tenant-example → DB only"
+  echo "  kora-system         → kora-secrets (DB + Redis + signing key) + kora-frontend-secrets (BFF session)"
+  echo "  kora-tenant-example → DB only"
 else
   echo -e "${GREEN}  Secrets applied to ${TARGET_NAMESPACE}${RESET}"
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"

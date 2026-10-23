@@ -120,7 +120,7 @@ An entry under `tokens` or `slots` whose key the running manifest does not know 
 - **Assets.** The document's `slots` hold `https://` URLs for the logo, the favicon and the fonts. The author hosts the files, and the PRD's constraint that assets are never forced into git is honoured because the repository holds only their addresses.
 - **The mount.** The chart renders the document into the frontend's ConfigMap, mounted as `/etc/kora/theme/theme.yaml`. Both the init container of Decision 3 and the frontend read that file.
 - **No node prerequisite.** The chart floor stays 1.34 with or without a theme, and nothing renders that needs more.
-- **Rollout.** The product name extracted from the document into the backend config modules of Decision 5, and the document in the ConfigMap, carry checksum annotations that roll every pod that reads either. A theme change is therefore a values change and a rolling update, and a rollback is a values revert. The runtime-created pods receive their values from orbit-agents.
+- **Rollout.** The product name extracted from the document into the backend config modules of Decision 5, and the document in the ConfigMap, carry checksum annotations that roll every pod that reads either. A theme change is therefore a values change and a rolling update, and a rollback is a values revert. The runtime-created pods receive their values from kora-agents.
 - **What the deployment repository shows.** The uncompressed document, reviewable line by line, with every asset address in it.
 - **Accepted trade-offs.** An air-gapped install cannot use custom assets unless it hosts them internally. Asset content is not checked at deploy. Platform teams operate these charts and trust their theme authors, so both are accepted.
 
@@ -192,7 +192,7 @@ An entry under `tokens` or `slots` whose key the running manifest does not know 
 
 **Chosen: chart extraction, everything a client's people or agents read, a lint rule on each side.**
 
-- The shared module is `internal/platform/brand` with one field, `productName`, defaulting to `kora`. Each speaking service includes it in its rendered config, and the checksum annotation rolls the service on change. orbit-agents passes the value to the session pods it creates through the typed env producer it already uses.
+- The shared module is `internal/platform/brand` with one field, `productName`, defaulting to `kora`. Each speaking service includes it in its rendered config, and the checksum annotation rolls the service on change. kora-agents passes the value to the session pods it creates through the typed env producer it already uses.
 - The frontend exposes the name through a server-side accessor on the loaded theme for metadata and server components, and a provider from the root layout for client components. There is no build-time environment variable, because the value is runtime.
 - The backend strings that change are enumerated above, which answers the PRD's first open question.
 - Nothing orders the backend pods after the frontend's init container, which is why the chart checks `productName` itself: a value outside the manifest's bounds, including one with control characters or markup that would reach the agent's system prompt and MCP descriptions, fails `helm template` and `helm upgrade` before any pod changes, so the PRD's guarantee that an invalid theme never reaches a running instance holds for backend text as well. The chart applies the rule from the manifest, so Go never carries one, and the chart's copy is regenerated whenever the manifest changes.
@@ -268,7 +268,7 @@ The theme is install configuration, so it travels as values, and a theme written
 ### Backend
 
 - `internal/platform/brand` config module and the `noProductNameLiteral` ruleguard rule.
-- The strings enumerated in Decision 5 read the configured name. orbit-agents passes it to session pods.
+- The strings enumerated in Decision 5 read the configured name. kora-agents passes it to session pods.
 
 ### Chart
 

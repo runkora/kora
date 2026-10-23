@@ -13,7 +13,7 @@ Common labels applied to every resource.
 {{- define "kora.labels" -}}
 helm.sh/chart: {{ include "kora.chart" . }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/part-of: orbit
+app.kubernetes.io/part-of: kora
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 
@@ -179,7 +179,7 @@ Takes (dict "root" $).
 
 These pods exist to hold and warm the nodes sandboxes run on, so they follow
 agents.workloads.sandbox and warm capacity is never configured twice. The
-agents block places the orbit-agents Deployment, which is not where sandboxes
+agents block places the kora-agents Deployment, which is not where sandboxes
 run. priorityClassName is left to the caller, because the placeholder
 Deployment sets its own.
 
@@ -433,7 +433,7 @@ internal/platform/storage:
 
 {{- define "kora.tokenConfigModule" -}}
 internal/platform/token:
-  jwksURL: {{ printf "%s/api/v1/identity/.well-known/jwks.json" (include "kora.serviceURL" (dict "root" . "name" "orbit-identity")) | toJson }}
+  jwksURL: {{ printf "%s/api/v1/identity/.well-known/jwks.json" (include "kora.serviceURL" (dict "root" . "name" "kora-identity")) | toJson }}
 {{- end }}
 
 {{/*
@@ -498,7 +498,7 @@ Mounts the theme ConfigMap at /etc/kora/theme. Take the root context.
 The policy-service bundle endpoint the in-process evaluators poll.
 */}}
 {{- define "kora.bundleEndpoint" -}}
-{{ include "kora.serviceURL" (dict "root" . "name" "orbit-policy-service") }}/api/v1/policy/bundles
+{{ include "kora.serviceURL" (dict "root" . "name" "kora-policy-service") }}/api/v1/policy/bundles
 {{- end }}
 
 {{/*
@@ -563,125 +563,125 @@ keep them stable.
 */}}
 {{- define "kora.operator.labels" -}}
 {{ include "kora.labels" . }}
-app.kubernetes.io/name: orbit-operator
+app.kubernetes.io/name: kora-operator
 app.kubernetes.io/component: operator
 {{- end }}
 {{- define "kora.operator.selectorLabels" -}}
-app: orbit-operator
+app: kora-operator
 {{- end }}
 
 {{- define "kora.migrate.labels" -}}
 {{ include "kora.labels" . }}
-app.kubernetes.io/name: orbit-migrate
+app.kubernetes.io/name: kora-migrate
 app.kubernetes.io/component: migrate
 {{- end }}
 
 {{- define "kora.identity.labels" -}}
 {{ include "kora.labels" . }}
-app.kubernetes.io/name: orbit-identity
+app.kubernetes.io/name: kora-identity
 app.kubernetes.io/component: identity
 {{- end }}
 {{- define "kora.identity.selectorLabels" -}}
-app: orbit-identity
+app: kora-identity
 {{- end }}
 
 {{- define "kora.inferenceGateway.labels" -}}
 {{ include "kora.labels" . }}
-app.kubernetes.io/name: orbit-inference-gateway
+app.kubernetes.io/name: kora-inference-gateway
 app.kubernetes.io/component: inference-gateway
 {{- end }}
 {{- define "kora.inferenceGateway.selectorLabels" -}}
-app: orbit-inference-gateway
+app: kora-inference-gateway
 {{- end }}
 
 {{- define "kora.koraMcp.labels" -}}
 {{ include "kora.labels" . }}
-app.kubernetes.io/name: orbit-mcp
-app.kubernetes.io/component: orbit-mcp
+app.kubernetes.io/name: kora-mcp
+app.kubernetes.io/component: kora-mcp
 {{- end }}
 {{- define "kora.koraMcp.selectorLabels" -}}
-app: orbit-mcp
+app: kora-mcp
 {{- end }}
 
 {{- define "kora.toolGateway.labels" -}}
 {{ include "kora.labels" . }}
-app.kubernetes.io/name: orbit-tool-gateway
+app.kubernetes.io/name: kora-tool-gateway
 app.kubernetes.io/component: tool-gateway
 {{- end }}
 {{- define "kora.toolGateway.selectorLabels" -}}
-app: orbit-tool-gateway
+app: kora-tool-gateway
 {{- end }}
 
 {{- define "kora.frontend.labels" -}}
 {{ include "kora.labels" . }}
-app.kubernetes.io/name: orbit-frontend
+app.kubernetes.io/name: kora-frontend
 app.kubernetes.io/component: frontend
 {{- end }}
 {{- define "kora.frontend.selectorLabels" -}}
-app: orbit-frontend
+app: kora-frontend
 {{- end }}
 
 {{- define "kora.policyService.labels" -}}
 {{ include "kora.labels" . }}
-app.kubernetes.io/name: orbit-policy-service
+app.kubernetes.io/name: kora-policy-service
 app.kubernetes.io/component: policy-service
 {{- end }}
 {{- define "kora.policyService.selectorLabels" -}}
-app: orbit-policy-service
+app: kora-policy-service
 {{- end }}
 
 {{- define "kora.policyGateway.labels" -}}
 {{ include "kora.labels" . }}
-app.kubernetes.io/name: orbit-policy-gateway
+app.kubernetes.io/name: kora-policy-gateway
 app.kubernetes.io/component: policy-gateway
 {{- end }}
 {{- define "kora.policyGateway.selectorLabels" -}}
-app: orbit-policy-gateway
+app: kora-policy-gateway
 {{- end }}
 
 {{- define "kora.egressGateway.labels" -}}
 {{ include "kora.labels" . }}
-app.kubernetes.io/name: orbit-egress-gateway
+app.kubernetes.io/name: kora-egress-gateway
 app.kubernetes.io/component: egress-gateway
 {{- end }}
 {{- define "kora.egressGateway.selectorLabels" -}}
-app: orbit-egress-gateway
+app: kora-egress-gateway
 {{- end }}
 
 {{- define "kora.opaGateway.labels" -}}
 {{ include "kora.labels" . }}
-app.kubernetes.io/name: orbit-opa-gateway
+app.kubernetes.io/name: kora-opa-gateway
 app.kubernetes.io/component: opa-gateway
 {{- end }}
 {{- define "kora.opaGateway.selectorLabels" -}}
-app: orbit-opa-gateway
+app: kora-opa-gateway
 {{- end }}
 
 {{- define "kora.agents.labels" -}}
 {{ include "kora.labels" . }}
-app.kubernetes.io/name: orbit-agents
+app.kubernetes.io/name: kora-agents
 app.kubernetes.io/component: agents
 {{- end }}
 {{- define "kora.agents.selectorLabels" -}}
-app: orbit-agents
+app: kora-agents
 {{- end }}
 
 {{- define "kora.triggers.labels" -}}
 {{ include "kora.labels" . }}
-app.kubernetes.io/name: orbit-triggers
+app.kubernetes.io/name: kora-triggers
 app.kubernetes.io/component: triggers
 {{- end }}
 {{- define "kora.triggers.selectorLabels" -}}
-app: orbit-triggers
+app: kora-triggers
 {{- end }}
 
 {{- define "kora.sandboxMount.labels" -}}
 {{ include "kora.labels" . }}
-app.kubernetes.io/name: orbit-sandbox-mount
+app.kubernetes.io/name: kora-sandbox-mount
 app.kubernetes.io/component: sandbox-mount
 {{- end }}
 {{- define "kora.sandboxMount.selectorLabels" -}}
-app: orbit-sandbox-mount
+app: kora-sandbox-mount
 {{- end }}
 
 {{/*
@@ -741,7 +741,7 @@ endpoint is set. The port parse matches the collector rule in netpols.yaml.
 {{- end -}}
 
 {{/*
-Startup probe budget in seconds for the sandbox containers, shared by orbit-agents
+Startup probe budget in seconds for the sandbox containers, shared by kora-agents
 (sandbox-exec) and the operator webhook (identity-proxy, opa).
 */}}
 {{- define "kora.sandboxStartupSeconds" -}}

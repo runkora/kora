@@ -74,7 +74,7 @@ type Config struct {
 		ConnectionSecretRoot string `yaml:"connectionSecretRoot"`
 
 		// ConnectionRegistryPath is the mounted connections.json file rendered
-		// by the operator's ConnectionAggregator into the orbit-tenant-connections
+		// by the operator's ConnectionAggregator into the kora-tenant-connections
 		// ConfigMap (Amendment 3). The gateway parses it into the connection
 		// registry and hot-reloads on change. Absent/empty means no connections
 		// are brokered until the operator renders the ConfigMap.

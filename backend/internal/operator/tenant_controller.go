@@ -168,7 +168,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 	_ = r.setTenantCondition(ctx, tenant, ConditionRegistryUpdated, metav1.ConditionTrue,
-		"Synced", "orbit-tenants ConfigMap updated")
+		"Synced", "kora-tenants ConfigMap updated")
 
 	// Steps 3-7: per-tenant resource ensure-steps. Each follows the same
 	// failure shape: log, degrade, requeue. They're collapsed into a
@@ -235,8 +235,8 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		},
 		{
 			// Aggregated tenant CAs: pods can only mount Secrets from
-			// their own namespace, so the per-tenant orbit-tenant-ca
-			// Secrets are aggregated into one orbit-system Secret the
+			// their own namespace, so the per-tenant kora-tenant-ca
+			// Secrets are aggregated into one kora-system Secret the
 			// egress gateway projects.
 			name: "aggregated tenant CAs",
 			run:  func(ctx context.Context) error { return r.CAAggregator.Sync(ctx) },
@@ -244,14 +244,14 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		{
 			// Aggregated connections: each tenant's Connection CRs (and
 			// their referenced Secrets) are aggregated into the
-			// orbit-tenant-connections ConfigMap + orbit-tenant-connection-secrets
-			// Secret in orbit-system the egress gateway mounts (Amendment 3).
+			// kora-tenant-connections ConfigMap + kora-tenant-connection-secrets
+			// Secret in kora-system the egress gateway mounts (Amendment 3).
 			name: "aggregated connections",
 			run:  func(ctx context.Context) error { return r.ConnAggregator.Sync(ctx) },
 		},
 		{
 			// Aggregated MCP servers: every MCPServer CR across all namespaces
-			// is rendered into the orbit-mcp-servers ConfigMap in orbit-system
+			// is rendered into the kora-mcp-servers ConfigMap in kora-system
 			// the tool-gateway mounts. Re-aggregated here so a tenant suspend /
 			// reactivate includes/excludes that tenant's servers.
 			name: "aggregated MCP servers",
@@ -259,8 +259,8 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		},
 		{
 			// Aggregated OAuth clients: each tenant's OAuthClient CRs are
-			// rendered into the orbit-tenant-oauth-clients ConfigMap in
-			// orbit-system the identity service mounts, so a pre-registered
+			// rendered into the kora-tenant-oauth-clients ConfigMap in
+			// kora-system the identity service mounts, so a pre-registered
 			// hosted-app client appears without a pod restart. Re-aggregated
 			// here so a tenant suspend / reactivate includes/excludes its clients.
 			name: "aggregated OAuth clients",
@@ -323,7 +323,7 @@ func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// markReady patches status on every pass; without this predicate that
 		// patch re-enqueues the tenant and the reconciler spins.
 		For(&KoraTenant{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		// A Connection CR change must re-aggregate the orbit-system connection
+		// A Connection CR change must re-aggregate the kora-system connection
 		// registry/secrets the egress gateway mounts (Amendment 3). The
 		// Connection lives in a tenant namespace, so map it to the owning
 		// KoraTenant's reconcile, which runs ConnAggregator.Sync.
@@ -331,7 +331,7 @@ func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&Connection{},
 			handler.EnqueueRequestsFromMapFunc(r.connectionToTenants),
 		).
-		// An OAuthClient CR change must re-aggregate the orbit-system
+		// An OAuthClient CR change must re-aggregate the kora-system
 		// oauth-clients ConfigMap the identity service mounts. The OAuthClient
 		// lives in a tenant namespace, so map it to the owning KoraTenant's
 		// reconcile, which runs OAuthAggregator.Sync.
@@ -421,7 +421,7 @@ func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *KoraTena
 				Name:   ns,
 				Labels: r.tenantNamespaceLabels(tenant),
 				Annotations: map[string]string{
-					"runkora.io/managed-by": "orbit-operator",
+					"runkora.io/managed-by": "kora-operator",
 					"runkora.io/tenant":     tenant.Name,
 				},
 			},
@@ -531,7 +531,7 @@ func (r *TenantReconciler) setTenantCondition(
 	return nil
 }
 
-// ensureOPAConfig creates or updates the orbit-opa-config ConfigMap in the
+// ensureOPAConfig creates or updates the kora-opa-config ConfigMap in the
 // tenant namespace. The webhook mounts it into the OPA sidecar it injects: the
 // policy-service bundle endpoint and the tenant bundle path, resolved at runtime
 // from the pod's runkora.io/tenant-id annotation.
@@ -552,7 +552,7 @@ func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *KoraTena
 	}
 	opaConfigYAML := fmt.Sprintf(`services:
   policy-service:
-    url: http://orbit-policy-service.%s.svc/api/v1/policy
+    url: http://kora-policy-service.%s.svc/api/v1/policy
 
 bundles:
   authz:
@@ -584,10 +584,10 @@ allow if input.path == ["health"]
 
 	desired := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "orbit-opa-config",
+			Name:      "kora-opa-config",
 			Namespace: ns,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "orbit-operator",
+				"app.kubernetes.io/managed-by": "kora-operator",
 				"runkora.io/tenant":            tenant.Name,
 			},
 		},
@@ -598,19 +598,19 @@ allow if input.path == ["health"]
 	}
 
 	existing := &corev1.ConfigMap{}
-	err := r.Get(ctx, client.ObjectKey{Name: "orbit-opa-config", Namespace: ns}, existing)
+	err := r.Get(ctx, client.ObjectKey{Name: "kora-opa-config", Namespace: ns}, existing)
 	if apierrors.IsNotFound(err) {
 		if createErr := r.Create(ctx, desired); createErr != nil {
-			return fmt.Errorf("create orbit-opa-config in %q: %w", ns, createErr)
+			return fmt.Errorf("create kora-opa-config in %q: %w", ns, createErr)
 		}
-		r.Logger.Info(ctx, "created orbit-opa-config",
+		r.Logger.Info(ctx, "created kora-opa-config",
 			logging.Field{Key: "namespace", Value: ns},
 			logging.Field{Key: "tenant", Value: tenant.Name},
 		)
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("get orbit-opa-config in %q: %w", ns, err)
+		return fmt.Errorf("get kora-opa-config in %q: %w", ns, err)
 	}
 
 	// Update if data has drifted. Compares the whole map, not one key: an
@@ -621,9 +621,9 @@ allow if input.path == ["health"]
 		patch := client.MergeFrom(existing.DeepCopy())
 		existing.Data = desired.Data
 		if err := r.Patch(ctx, existing, patch); err != nil {
-			return fmt.Errorf("patch orbit-opa-config in %q: %w", ns, err)
+			return fmt.Errorf("patch kora-opa-config in %q: %w", ns, err)
 		}
-		r.Logger.Info(ctx, "patched orbit-opa-config",
+		r.Logger.Info(ctx, "patched kora-opa-config",
 			logging.Field{Key: "namespace", Value: ns},
 		)
 	}
@@ -670,7 +670,7 @@ func (r *TenantReconciler) tenantNamespaceLabels(tenant *KoraTenant) map[string]
 		"spiffe.io/spire-managed":      "true",
 		"runkora.io/role":              "tenant",
 		"runkora.io/tenant":            tenant.Name,
-		"app.kubernetes.io/managed-by": "orbit-operator",
+		"app.kubernetes.io/managed-by": "kora-operator",
 	}
 	if r.IstioRevision != "" {
 		labels["istio.io/rev"] = r.IstioRevision

@@ -4,7 +4,7 @@ import { listRuns } from '@runkora/server/agents-client';
 import { resolveUserDisplayNames } from '@runkora/server/services/identity-server';
 import type { RunsPageResponse } from '@runkora/shared/api';
 
-/** The run list params a BFF route passes through to orbit-agents, which validates them. */
+/** The run list params a BFF route passes through to kora-agents, which validates them. */
 const PAGE_PARAMS = ['agent_type_id', 'state', 'limit', 'cursor'] as const;
 
 /** Copies the page params from a BFF request; `agentTypeId` replaces any agent_type_id given. */
@@ -14,7 +14,7 @@ export function pickRunsPageParams(
 ): URLSearchParams {
   const params = new URLSearchParams();
   for (const key of PAGE_PARAMS) {
-    // Repeated keys join into one comma-separated value, the form orbit-agents reads.
+    // Repeated keys join into one comma-separated value, the form kora-agents reads.
     const value = incoming.getAll(key).filter(Boolean).join(',');
     if (value) params.set(key, value);
   }

@@ -12,10 +12,10 @@
 # poll their own bundle at startup.
 #
 # We match on source.principals (SPIFFE ID) rather than source.notNamespaces
-# because orbit-system components use a custom SPIFFE path format
+# because kora-system components use a custom SPIFFE path format
 # (spiffe://<trustDomain>/system/<component>) that does not encode the namespace.
 # Istio cannot extract a namespace from these paths, so notNamespaces always
-# evaluates to "not orbit-system" and would incorrectly DENY the opa-gateway.
+# evaluates to "not kora-system" and would incorrectly DENY the opa-gateway.
 # Matching the principal directly is also strictly more correct: only the
 # opa-gateway should ever fetch the gateway bundle.
 #
@@ -26,14 +26,14 @@
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: orbit-policy-service-gateway-bundle
+  name: kora-policy-service-gateway-bundle
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.labels" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
-      app: orbit-policy-service
+      app: kora-policy-service
   action: DENY
   rules:
     - to:

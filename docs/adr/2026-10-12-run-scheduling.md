@@ -15,12 +15,12 @@ This order causes four failures:
 
 *   Callers time out while the request waits for a pod. #495 reported run start failing from the dashboard and MCP while an agent's pods rolled, and #499 raised the BFF and MCP timeouts to 4 minutes. #496 reported a trigger dispatch lost when the select-pod wait was canceled.
 *   A failure before `CreateRun` leaves no record. An update conflict on the PodDisruptionBudget during `ProvisionAgentType` returns a 500 and leaves no run for the caller to see.
-*   `ProvisionAgentType` replaces the StatefulSet pod template on every run start and keeps only a redeploy-pinned image (`ensureStatefulSet` in `backend/internal/agents/k8s.go`). After an orbit-agents upgrade changes the rendered template, the next run start rolls the agent's pods and kills the runs on them.
+*   `ProvisionAgentType` replaces the StatefulSet pod template on every run start and keeps only a redeploy-pinned image (`ensureStatefulSet` in `backend/internal/agents/k8s.go`). After a kora-agents upgrade changes the rendered template, the next run start rolls the agent's pods and kills the runs on them.
 *   During a roll, `ReadyOrdinals` returns only pods on the new revision, and none until the controller observes the change. A run start during a roll waits for the new pod.
 
-Each agent type runs one session-manager StatefulSet with a HorizontalPodAutoscaler of minimum 1 and a PodDisruptionBudget of `minAvailable: 1`. The production cluster has no metrics API, and the HPA has never scaled. [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) protects pods with active runs through an `runkora.io/active-runs` pod label and an `runkora.io/do-not-evict` taint. Neither was built. On SIGTERM the session-manager stops its HTTP server with `ShutdownTimeout` and exits (`backend/cmd/session-manager/main.go`). The headless Service publishes Ready endpoints only. A pod that fails readiness drops out of DNS, and orbit-agents can no longer reach its runs by `<slug>-<n>.<slug>.<namespace>`.
+Each agent type runs one session-manager StatefulSet with a HorizontalPodAutoscaler of minimum 1 and a PodDisruptionBudget of `minAvailable: 1`. The production cluster has no metrics API, and the HPA has never scaled. [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) protects pods with active runs through an `runkora.io/active-runs` pod label and an `runkora.io/do-not-evict` taint. Neither was built. On SIGTERM the session-manager stops its HTTP server with `ShutdownTimeout` and exits (`backend/cmd/session-manager/main.go`). The headless Service publishes Ready endpoints only. A pod that fails readiness drops out of DNS, and kora-agents can no longer reach its runs by `<slug>-<n>.<slug>.<namespace>`.
 
-orbit-triggers already runs a durable queue in Postgres. Workers claim rows with `FOR UPDATE SKIP LOCKED` and reclaim stale claims (`backend/internal/triggers/worker.go`, `ClaimPending` and `ReclaimStalePending` in `backend/internal/triggers/postgres.go`).
+kora-triggers already runs a durable queue in Postgres. Workers claim rows with `FOR UPDATE SKIP LOCKED` and reclaim stale claims (`backend/internal/triggers/worker.go`, `ClaimPending` and `ReclaimStalePending` in `backend/internal/triggers/postgres.go`).
 
 The change does not touch who an agent is, what it can access, or how it connects. Run authorization and the delegation mint stay on the caller's request.
 
@@ -28,7 +28,7 @@ The change does not touch who an agent is, what it can access, or how it connect
 
 *   Run start should return as soon as the run row is written.
 *   Every accepted run start should leave a run that ends `active` or `failed` with a reason.
-*   A pending run should survive an orbit-agents restart and start on any replica.
+*   A pending run should survive a kora-agents restart and start on any replica.
 *   Run start should not change an agent's pod template.
 *   A pod roll should not kill runs that finish within the drain grace period.
 
@@ -51,20 +51,20 @@ The change does not touch who an agent is, what it can access, or how it connect
 
 ### Who Starts a Pending Run
 
-*   **A worker in orbit-agents over the runs table (chosen):** `POST /api/v1/runs` writes the run as `pending` and returns it. A worker on every orbit-agents replica claims pending runs with `FOR UPDATE SKIP LOCKED` and reclaims stale claims.
-*   **A goroutine started by the request (rejected):** A pending run would not survive an orbit-agents restart, and only the replica that took the request could start it.
+*   **A worker in kora-agents over the runs table (chosen):** `POST /api/v1/runs` writes the run as `pending` and returns it. A worker on every kora-agents replica claims pending runs with `FOR UPDATE SKIP LOCKED` and reclaims stale claims.
+*   **A goroutine started by the request (rejected):** A pending run would not survive a kora-agents restart, and only the replica that took the request could start it.
 
 ### Session-Manager Workload
 
 *   **Keep the StatefulSet with a drain (chosen):** Each agent will keep its StatefulSet with 2 pods, and a draining pod will stay reachable while the other takes new runs.
 *   **A Deployment (rejected):** A survey of the code found 38 places that depend on the StatefulSet. The sandbox-mount trust check `owns()` (`backend/internal/agents/sandbox/mount/plan.go`) is keyed on the per-pod workspace claim. The repository has no pattern for moving a live agent from one workload kind to another.
-*   **`OnDelete` updates with a drain on each of two pods (rejected):** orbit-agents would have to order the deletions itself, and the design is more complex than RollingUpdate with a drain.
+*   **`OnDelete` updates with a drain on each of two pods (rejected):** kora-agents would have to order the deletions itself, and the design is more complex than RollingUpdate with a drain.
 
 ---
 
 ## Decision
 
-orbit-agents will schedule runs through a durable queue on the `runs` table, and run start will no longer reconcile agent infrastructure or wait for a pod.
+kora-agents will schedule runs through a durable queue on the `runs` table, and run start will no longer reconcile agent infrastructure or wait for a pod.
 
 ### Run Start
 
@@ -86,7 +86,7 @@ orbit-agents will schedule runs through a durable queue on the `runs` table, and
 
 ### Agent Resources
 
-*   orbit-agents will apply every agent type's resources at startup. This includes the pod template and the session-manager image.
+*   kora-agents will apply every agent type's resources at startup. This includes the pod template and the session-manager image.
 *   The headless Service will set `publishNotReadyAddresses: true`.
 *   The HPA minimum and the StatefulSet replicas will be 2.
 *   On SIGTERM the session-manager will fail readiness, accept no new sessions, and exit when its runs end or the grace period ends. The StatefulSet's `terminationGracePeriodSeconds` will come from the chart.
@@ -105,7 +105,7 @@ The chart will expose these values with these defaults:
 ### Rationale
 
 *   The runs table is already the record a caller follows. It is the queue, and no outbox or second table is needed.
-*   `FOR UPDATE SKIP LOCKED` is the idiom orbit-triggers already runs.
+*   `FOR UPDATE SKIP LOCKED` is the idiom kora-triggers already runs.
 *   A StatefulSet with a drain is the least change that gives a roll without a capacity gap. The Deployment question moves to the autoscaling follow-up.
 
 ---
@@ -116,7 +116,7 @@ The chart will expose these values with these defaults:
 
 *   The #499 timeout increases in the BFF and MCP clients can return to the default.
 *   A trigger fire will receive a run ID at once.
-*   An orbit-agents upgrade will roll each agent once at orbit-agents startup.
+*   A kora-agents upgrade will roll each agent once at kora-agents startup.
 
 ### Negative
 
@@ -142,7 +142,7 @@ The chart will expose these values with these defaults:
 These behaviors were checked on the local k3d cluster with Kubernetes 1.36 and Istio 1.31.1:
 
 *   A terminating StatefulSet pod stayed in DNS while the headless Service set `publishNotReadyAddresses: true`. Without it, the pod's name returned NXDOMAIN.
-*   orbit-agents reached the terminating pod over mTLS on the `http` port through Istio.
+*   kora-agents reached the terminating pod over mTLS on the `http` port through Istio.
 *   A run on a draining pod answered a message with a model call, and new runs went to the other pod.
 *   With the metrics API unavailable, the HPA raised a StatefulSet from 1 to its minimum of 2 replicas.
 

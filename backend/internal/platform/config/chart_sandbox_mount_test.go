@@ -37,7 +37,7 @@ func loadRendered[T any](t *testing.T, rendered, module string) *T {
 }
 
 // Enabled, the chart runs the node agent privileged in the host network in a privileged
-// namespace, carries the sandbox and session-manager tolerations, and turns the feature on in orbit-agents.
+// namespace, carries the sandbox and session-manager tolerations, and turns the feature on in kora-agents.
 func TestChartSandboxMountEnabled(t *testing.T) {
 	out := renderChart(t, `sandboxMount:
   enabled: true
@@ -49,7 +49,7 @@ agents:
       tolerations: [{key: agents, operator: Exists}]
 `)
 	if !loadRendered[agentsConfig.Config](t, out, "cmd/kora-agents").Agents.SandboxMount {
-		t.Error("orbit-agents sandboxMount = false, want true")
+		t.Error("kora-agents sandboxMount = false, want true")
 	}
 	var ds appsv1.DaemonSet
 	var ns corev1.Namespace
@@ -60,15 +60,15 @@ agents:
 			t.Fatal(err)
 		}
 		switch {
-		case meta.Kind == "DaemonSet" && strings.Contains(doc, "name: orbit-sandbox-mount"):
+		case meta.Kind == "DaemonSet" && strings.Contains(doc, "name: kora-sandbox-mount"):
 			if err := yaml.Unmarshal([]byte(doc), &ds); err != nil {
 				t.Fatal(err)
 			}
-		case meta.Kind == "ClusterRole" && strings.Contains(doc, "name: orbit-sandbox-mount"):
+		case meta.Kind == "ClusterRole" && strings.Contains(doc, "name: kora-sandbox-mount"):
 			if err := yaml.Unmarshal([]byte(doc), &role); err != nil {
 				t.Fatal(err)
 			}
-		case meta.Kind == "Namespace" && strings.Contains(doc, "name: orbit-sandbox-mount"):
+		case meta.Kind == "Namespace" && strings.Contains(doc, "name: kora-sandbox-mount"):
 			if err := yaml.Unmarshal([]byte(doc), &ns); err != nil {
 				t.Fatal(err)
 			}
@@ -82,7 +82,7 @@ agents:
 		t.Errorf("namespace labels = %v, want enforce=privileged", ns.Labels)
 	}
 	spec := ds.Spec.Template.Spec
-	if ds.Namespace != "orbit-sandbox-mount" || !spec.HostNetwork || !spec.HostPID || len(spec.Containers) != 1 {
+	if ds.Namespace != "kora-sandbox-mount" || !spec.HostNetwork || !spec.HostPID || len(spec.Containers) != 1 {
 		t.Fatalf("DaemonSet = %+v", ds.ObjectMeta)
 	}
 	c := spec.Containers[0]
@@ -101,14 +101,14 @@ agents:
 	}
 }
 
-// Disabled by default: no node agent, and orbit-agents leaves sandboxes as they were.
+// Disabled by default: no node agent, and kora-agents leaves sandboxes as they were.
 func TestChartSandboxMountDisabledByDefault(t *testing.T) {
 	out := renderChart(t, "{}\n")
-	if strings.Contains(out, "orbit-sandbox-mount") {
+	if strings.Contains(out, "kora-sandbox-mount") {
 		t.Error("default chart renders the node agent")
 	}
 	if loadRendered[agentsConfig.Config](t, out, "cmd/kora-agents").Agents.SandboxMount {
-		t.Error("orbit-agents sandboxMount = true by default")
+		t.Error("kora-agents sandboxMount = true by default")
 	}
 }
 
@@ -130,7 +130,7 @@ func TestChartSandboxMountConfig(t *testing.T) {
 	}
 	// renderChart above skipped the test if helm or the chart dependencies are missing.
 	chart := filepath.Join("..", "..", "..", "..", "charts", "kora")
-	out, err := exec.Command("helm", "template", "orbit", chart, "-n", "orbit-system", "-f", filepath.Join(chart, "ci", "default-values.yaml"), "--set", "sandboxMount.enabled=true", "--set", "sandboxMount.port=70000").CombinedOutput()
+	out, err := exec.Command("helm", "template", "kora", chart, "-n", "kora-system", "-f", filepath.Join(chart, "ci", "default-values.yaml"), "--set", "sandboxMount.enabled=true", "--set", "sandboxMount.port=70000").CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "sandboxMount.port must be a TCP port") {
 		t.Errorf("port 70000 rendered: %v\n%s", err, out)
 	}

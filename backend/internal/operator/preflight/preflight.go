@@ -300,7 +300,7 @@ func (r *Runner) clusterSPIFFEIDs(ctx context.Context) Check {
 	for _, item := range list.Items {
 		spec, _ := item.Object["spec"].(map[string]any)
 		className, _ := spec["className"].(string)
-		if item.GetLabels()["app.kubernetes.io/part-of"] == "orbit" {
+		if item.GetLabels()["app.kubernetes.io/part-of"] == "kora" {
 			if className != r.Config.SPIREClassName {
 				return Check{Name: name, OK: false, Message: fmt.Sprintf("kora registration %s uses className %q but spire.className is %q", item.GetName(), className, r.Config.SPIREClassName)}
 			}
@@ -375,7 +375,7 @@ func claimsAllManagedPods(spec map[string]any) bool {
 }
 
 func (r *Runner) webhooks(ctx context.Context) Check {
-	const name = "orbit-webhooks"
+	const name = "kora-webhooks"
 	for _, hook := range r.Config.WebhookNames {
 		var bundle []byte
 		var policy *admissionv1.FailurePolicyType

@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-kora's backend services have OTel tracing everywhere, but metrics are push-only to an OTLP collector, and only one service (`orbit-triggers`) actually emits any. There is no pull-based `/metrics` endpoint anywhere in the platform. This PRD adds a shared Go package and per-service wiring so every backend service can expose a configurable, Prometheus-scrapable `/metrics` endpoint on its own dedicated port, fed by the same OTel instruments already used for OTLP, so instrumenting a counter or histogram once gets both export paths for free.
+kora's backend services have OTel tracing everywhere, but metrics are push-only to an OTLP collector, and only one service (`kora-triggers`) actually emits any. There is no pull-based `/metrics` endpoint anywhere in the platform. This PRD adds a shared Go package and per-service wiring so every backend service can expose a configurable, Prometheus-scrapable `/metrics` endpoint on its own dedicated port, fed by the same OTel instruments already used for OTLP, so instrumenting a counter or histogram once gets both export paths for free.
 
 ---
 
@@ -18,13 +18,13 @@ kora's backend services have OTel tracing everywhere, but metrics are push-only 
 
 ### Current State
 
-`backend/internal/platform/observability/metrics.go` builds an OTel `MeterProvider` that only ever has a reader when `KORA_OTLP_ENDPOINT` is configured; otherwise it records nothing. Only `orbit-triggers` calls it today. There is no Prometheus exporter dependency wired for application use (`github.com/prometheus/client_golang` is present only as an indirect transitive dependency), no ServiceMonitor/PodMonitor CRDs, and no Prometheus server anywhere in this repo's local dev stack (`docker-compose.yml`, `make up`).
+`backend/internal/platform/observability/metrics.go` builds an OTel `MeterProvider` that only ever has a reader when `KORA_OTLP_ENDPOINT` is configured; otherwise it records nothing. Only `kora-triggers` calls it today. There is no Prometheus exporter dependency wired for application use (`github.com/prometheus/client_golang` is present only as an indirect transitive dependency), no ServiceMonitor/PodMonitor CRDs, and no Prometheus server anywhere in this repo's local dev stack (`docker-compose.yml`, `make up`).
 
 ### User Pain Points
 
 - A platform operator running kora without a standing OTel collector gets **zero** metrics from any service — no active-run counts, no request rates, no error rates — even though two existing PRDs already promise them.
 - `docs/prd/inference-gateway.md` (US-013) already specifies "Prometheus metrics endpoint exposes request rate, error rate, latency percentiles..." — unmet.
-- `docs/prd/agent-control-plane.md`'s Observability NFR already specifies "`orbit-agents` exposes Prometheus metrics: active runs, active sessions, events/sec, session routing latency" — unmet.
+- `docs/prd/agent-control-plane.md`'s Observability NFR already specifies "`kora-agents` exposes Prometheus metrics: active runs, active sessions, events/sec, session routing latency" — unmet.
 - `docs/adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md` separately flags the identity-proxy sidecar's missing `/metrics` as a known, deferred gap.
 
 ### Business Impact
@@ -54,7 +54,7 @@ kora's backend services have OTel tracing everywhere, but metrics are push-only 
 
 - Deploying an actual Prometheus / Grafana / Prometheus-Operator server in this repo. None exists today in `make up` or `docker-compose.yml`, and none is added by this work.
 - Guaranteeing an out-of-mesh scraper can reach the endpoint. This PRD ships the NetworkPolicy rule and the opt-in `ServiceMonitor`, but the mesh runs full Istio mTLS east-west; a scraper must either run inside the mesh (recommended) or a per-port `PeerAuthentication` exception must be added separately — see the companion ADR's Consequences.
-- A `/metrics` endpoint for `identity-proxy` (webhook-injected sidecar, no chart Deployment — already a known, separately-flagged gap) or for the `session-manager` Helm chart (it has no Deployment/Service template; it's dynamically provisioned per-session by `orbit-agents`, so its metrics port must be threaded through that provisioning code, not YAML, as a follow-up).
+- A `/metrics` endpoint for `identity-proxy` (webhook-injected sidecar, no chart Deployment — already a known, separately-flagged gap) or for the `session-manager` Helm chart (it has no Deployment/Service template; it's dynamically provisioned per-session by `kora-agents`, so its metrics port must be threaded through that provisioning code, not YAML, as a follow-up).
 - A precise "active users" metric. No `last_seen`/`last_activity` column exists on `identity.UserProfile` or `Session` today; a trustworthy version needs a small follow-up migration, not a metric fabricated from `UpdatedAt`.
 - The per-service domain metrics catalogued in the companion ADR (run/session states, policy decisions, inference usage, delivery outcomes, credential minting). Each requires instrumenting business logic in its own feature package, not the platform plumbing this PRD scopes — tracked as follow-up PRs, one or a few services at a time, so each lands with its own review rather than one PR touching every feature package at once.
 - Fixing the `docs/prd/inference-gateway.md` US-013 mismatch where it says `GET /healthz` but the actual repo convention is `GET /health` — noted here, not fixed as part of this work.
@@ -109,10 +109,10 @@ Extend the existing OTel metrics pipeline (`observability.SetupMetrics`) to opti
 ### In Scope
 
 - `internal/platform/metrics` package; `observability.SetupMetrics` signature change.
-- Wiring into: identity, orbit-agents, inference-gateway, policy-gateway, policy-service, orbit-triggers, egress-gateway, tool-gateway, orbit-mcp, session-manager (Go side only for the last one).
+- Wiring into: identity, kora-agents, inference-gateway, policy-gateway, policy-service, kora-triggers, egress-gateway, tool-gateway, kora-mcp, session-manager (Go side only for the last one).
 - Helm chart wiring for every one of the above except session-manager (no chart Deployment), plus chart-only wiring (Service port + annotations) for `operator` (already has its own controller-runtime metrics).
 - Opt-in `ServiceMonitor` template and a NetworkPolicy scrape-ingress rule.
-- A uniform HTTP request counter/histogram on every rolled-out service (`orbit_<service>_http_requests_total`/`_http_request_duration_seconds`), and bringing `orbit-triggers`' pre-existing instruments onto the same Prometheus reader.
+- A uniform HTTP request counter/histogram on every rolled-out service (`orbit_<service>_http_requests_total`/`_http_request_duration_seconds`), and bringing `kora-triggers`' pre-existing instruments onto the same Prometheus reader.
 
 ### Out of Scope
 
@@ -124,7 +124,7 @@ Extend the existing OTel metrics pipeline (`observability.SetupMetrics`) to opti
 ### Future Considerations
 
 - `identity-proxy` `/metrics` (needs Go changes in `pod_webhook.go`'s sidecar injection, separate from this chart-driven rollout).
-- `session-manager` chart-equivalent wiring threaded through `orbit-agents`' dynamic pod-spec construction.
+- `session-manager` chart-equivalent wiring threaded through `kora-agents`' dynamic pod-spec construction.
 - A precise "active users" metric backed by a dedicated `last_activity_at` column.
 - Per-service domain metrics (see Out of Scope) — one or a few services at a time, as their own reviewable PRs, following the inventory in the companion ADR.
 
@@ -136,7 +136,7 @@ Extend the existing OTel metrics pipeline (`observability.SetupMetrics`) to opti
 
 **Must Have (P0):**
 - [ ] `internal/platform/metrics.New(cfg)` returns a nil-safe `*Exporter` that is `nil` when `cfg.Enabled == false`.
-- [ ] `observability.SetupMetrics` accepts additional readers without breaking the existing `orbit-triggers` caller.
+- [ ] `observability.SetupMetrics` accepts additional readers without breaking the existing `kora-triggers` caller.
 - [ ] Each rolled-out service's metrics server bypasses the app's tracing/logging middleware, matching the `/health` precedent.
 - [ ] Metrics survive graceful shutdown: the metrics `*http.Server` shuts down alongside the app server using the same shutdown timeout.
 

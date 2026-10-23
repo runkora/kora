@@ -104,7 +104,7 @@ We need to define:
 
 ### Option 3: Transparent HTTP CONNECT Proxy
 
-**Description:** The agent pod is configured with `HTTP_PROXY=https://orbit-gateway`. All outbound HTTP calls transparently route through the credential gateway via the standard HTTP CONNECT tunnelling protocol. The agent calls `https://graph.microsoft.com` directly; the proxy intercepts and injects credentials.
+**Description:** The agent pod is configured with `HTTP_PROXY=https://kora-gateway`. All outbound HTTP calls transparently route through the credential gateway via the standard HTTP CONNECT tunnelling protocol. The agent calls `https://graph.microsoft.com` directly; the proxy intercepts and injects credentials.
 
 **Pros:**
 - Completely transparent to the agent — no kora-specific URLs required

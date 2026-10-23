@@ -63,7 +63,7 @@ func TestAgentEgressPolicy(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := agentEgressPolicy("orbit-tenant-acme", "acme", tc.collector)
+			p := agentEgressPolicy("kora-tenant-acme", "acme", tc.collector)
 
 			if p.Spec.PodSelector.MatchLabels["runkora.io/managed-agent"] != "true" {
 				t.Errorf("pod selector = %v, want agent pods", p.Spec.PodSelector.MatchLabels)
@@ -75,11 +75,11 @@ func TestAgentEgressPolicy(t *testing.T) {
 				"kube-system/k8s-app=kube-dns:53/UDP",
 				"kube-system/k8s-app=kube-dns:53/TCP",
 				istioNamespace + "/:15012/TCP",
-				systemNamespace + "/app=orbit-identity:8080/TCP",
-				systemNamespace + "/app=orbit-agents:8080/TCP",
-				systemNamespace + "/app=orbit-inference-gateway:8081/TCP",
-				systemNamespace + "/app=orbit-tool-gateway:8096/TCP",
-				systemNamespace + "/app=orbit-policy-service:8083/TCP",
+				systemNamespace + "/app=kora-identity:8080/TCP",
+				systemNamespace + "/app=kora-agents:8080/TCP",
+				systemNamespace + "/app=kora-inference-gateway:8081/TCP",
+				systemNamespace + "/app=kora-tool-gateway:8096/TCP",
+				systemNamespace + "/app=kora-policy-service:8083/TCP",
 				"/runkora.io/role=sandbox:" + strconv.Itoa(ports.SandboxExecGRPC) + "/TCP",
 			}, tc.extra...)
 			slices.Sort(want)
@@ -91,9 +91,9 @@ func TestAgentEgressPolicy(t *testing.T) {
 }
 
 func TestAgentEgressSidecar(t *testing.T) {
-	s := agentEgressSidecar("orbit-tenant-acme", "acme", AgentCollector{Namespace: "observability", Port: 4317})
+	s := agentEgressSidecar("kora-tenant-acme", "acme", AgentCollector{Namespace: "observability", Port: 4317})
 
-	if s.GetKind() != "Sidecar" || s.GetNamespace() != "orbit-tenant-acme" || s.GetName() != agentEgressName {
+	if s.GetKind() != "Sidecar" || s.GetNamespace() != "kora-tenant-acme" || s.GetName() != agentEgressName {
 		t.Fatalf("object = %s %s/%s", s.GetKind(), s.GetNamespace(), s.GetName())
 	}
 	spec := s.Object["spec"].(map[string]any)
@@ -105,24 +105,24 @@ func TestAgentEgressSidecar(t *testing.T) {
 	}
 	hosts := spec["egress"].([]any)[0].(map[string]any)["hosts"].([]any)
 	want := []any{
-		systemNamespace + "/orbit-identity." + systemNamespace + ".svc.cluster.local",
-		systemNamespace + "/orbit-agents." + systemNamespace + ".svc.cluster.local",
-		systemNamespace + "/orbit-inference-gateway." + systemNamespace + ".svc.cluster.local",
-		systemNamespace + "/orbit-tool-gateway." + systemNamespace + ".svc.cluster.local",
-		systemNamespace + "/orbit-policy-service." + systemNamespace + ".svc.cluster.local",
+		systemNamespace + "/kora-identity." + systemNamespace + ".svc.cluster.local",
+		systemNamespace + "/kora-agents." + systemNamespace + ".svc.cluster.local",
+		systemNamespace + "/kora-inference-gateway." + systemNamespace + ".svc.cluster.local",
+		systemNamespace + "/kora-tool-gateway." + systemNamespace + ".svc.cluster.local",
+		systemNamespace + "/kora-policy-service." + systemNamespace + ".svc.cluster.local",
 		"observability/*",
 	}
 	if !slices.Equal(hosts, want) {
 		t.Errorf("hosts = %v, want %v", hosts, want)
 	}
 
-	external := agentEgressSidecar("orbit-tenant-acme", "acme", AgentCollector{Host: "otel.example.com", Port: 4317, CIDRs: []string{"203.0.113.0/24"}})
+	external := agentEgressSidecar("kora-tenant-acme", "acme", AgentCollector{Host: "otel.example.com", Port: 4317, CIDRs: []string{"203.0.113.0/24"}})
 	extHosts := external.Object["spec"].(map[string]any)["egress"].([]any)[0].(map[string]any)["hosts"].([]any)
 	if last := extHosts[len(extHosts)-1]; last != "*/otel.example.com" {
 		t.Errorf("external collector host = %v, want */otel.example.com", last)
 	}
 
-	noCollector := agentEgressSidecar("orbit-tenant-acme", "acme", AgentCollector{})
+	noCollector := agentEgressSidecar("kora-tenant-acme", "acme", AgentCollector{})
 	if n := len(noCollector.Object["spec"].(map[string]any)["egress"].([]any)[0].(map[string]any)["hosts"].([]any)); n != len(agentPlatformServices) {
 		t.Errorf("hosts without a collector = %d, want %d", n, len(agentPlatformServices))
 	}

@@ -20,11 +20,11 @@ type Config struct {
 // RegistryConfig locates the operator-rendered files identity reads and
 // watches. An empty path means no such file.
 type RegistryConfig struct {
-	// TenantsPath is the tenant registry (orbit-tenants ConfigMap).
+	// TenantsPath is the tenant registry (kora-tenants ConfigMap).
 	TenantsPath string `yaml:"tenantsPath"`
-	// ClientSecretsPath is the aggregated OIDC client secrets (orbit-tenant-oidc-secrets).
+	// ClientSecretsPath is the aggregated OIDC client secrets (kora-tenant-oidc-secrets).
 	ClientSecretsPath string `yaml:"clientSecretsPath"`
-	// OAuthClientsPath is the pre-registered OAuth clients (orbit-tenant-oauth-clients).
+	// OAuthClientsPath is the pre-registered OAuth clients (kora-tenant-oauth-clients).
 	OAuthClientsPath string `yaml:"oauthClientsPath"`
 }
 

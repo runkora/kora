@@ -11,7 +11,7 @@
 #
 # What it does:
 #   1. Logs in to AWS SSO if the session has expired.
-#   2. Writes the session into Secret orbit-bedrock-credentials.
+#   2. Writes the session into Secret kora-bedrock-credentials.
 #   3. Applies one InferenceProvider per alias, named after it.
 # The inference gateway watches both and reloads without a restart. Re-run it
 # whenever Bedrock returns auth errors.
@@ -27,8 +27,8 @@ step() { echo -e "\n${YELLOW}▶ $*${RESET}"; }
 ok()   { echo -e "${GREEN}✓ $*${RESET}"; }
 fail() { echo -e "${RED}✗ $*${RESET}"; exit 1; }
 
-NAMESPACE="${KORA_SYSTEM_NAMESPACE:-orbit-system}"
-SECRET=orbit-bedrock-credentials
+NAMESPACE="${KORA_SYSTEM_NAMESPACE:-kora-system}"
+SECRET=kora-bedrock-credentials
 
 [[ -n "${AWS_PROFILE:-}" ]] || fail "AWS_PROFILE is not set; add AWS_PROFILE=<your-profile> to .env"
 [[ -n "${BEDROCK_ACCOUNTS:-}" ]] || fail "BEDROCK_ACCOUNTS is not set; add BEDROCK_ACCOUNTS=<alias,...> to .env"

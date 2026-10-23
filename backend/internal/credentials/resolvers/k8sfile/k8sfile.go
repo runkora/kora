@@ -7,7 +7,7 @@
 // Reference shapes accepted by Resolve:
 //
 //	"acme/github/app.pem"               → {root}/acme/github/app.pem
-//	"connections/orbit-prod-github.pem" → {root}/connections/orbit-prod-github.pem
+//	"connections/kora-prod-github.pem" → {root}/connections/kora-prod-github.pem
 //
 // Path traversal is rejected: a SecretRef containing ".." or starting with "/"
 // returns an error without touching the filesystem.

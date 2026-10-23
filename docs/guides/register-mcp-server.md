@@ -2,7 +2,7 @@
 
 An MCP server exposes tools an agent can call. Registering it as an `MCPServer` places it behind the tool-gateway, the single entry point kora governs for MCP calls. The gateway introspects the server's tools into policy scopes that agents can be granted. The tool-gateway then checks every call against policy before it reaches the server.
 
-An `MCPServer` in `orbit-system` is registered as platform-global, its tools become available to every tenant, like the kora MCP. When registered in a tenant namespace, it belongs to that tenant alone.
+An `MCPServer` in `kora-system` is registered as platform-global, its tools become available to every tenant, like the kora MCP. When registered in a tenant namespace, it belongs to that tenant alone.
 
 The following guide assumes kora is already installed. See [Deploying kora](deployment.md) for the install.
 
@@ -15,11 +15,11 @@ apiVersion: runkora.io/v1alpha1
 kind: MCPServer
 metadata:
   name: github
-  namespace: orbit-tenant-example
+  namespace: kora-tenant-example
 spec:
   displayName: GitHub
   description: GitHub issues, pull requests, and repositories.
-  endpoint: http://github-mcp.orbit-tenant-example.svc:8000/mcp
+  endpoint: http://github-mcp.kora-tenant-example.svc:8000/mcp
   transport: streamable-http
   reintrospectIntervalSeconds: 900
   callerIdentity: none
@@ -29,7 +29,7 @@ spec:
 - `displayName` and `description`: shown in the tool catalog.
 - `transport`: `streamable-http`, the default and only supported transport.
 - `reintrospectIntervalSeconds`: how often the tool-gateway re-introspects the tool surface. `0` re-introspects on registry reload only.
-- `callerIdentity`: `none` (the default) has the server act as itself with its own credential. `forward` passes the caller's bearer token, letting the server act as the caller against first-party kora APIs. For a delegated run it also passes the run's delegation token. `forward` is allowed only on a global (`orbit-system`) server. A tenant-namespaced CR that sets it is rejected with status `Invalid`.
+- `callerIdentity`: `none` (the default) has the server act as itself with its own credential. `forward` passes the caller's bearer token, letting the server act as the caller against first-party kora APIs. For a delegated run it also passes the run's delegation token. `forward` is allowed only on a global (`kora-system`) server. A tenant-namespaced CR that sets it is rejected with status `Invalid`.
 - `workload.selector`: the labels of the pods serving `endpoint`, in this CR's namespace. Naming them lets kora skip the injection those pods must not carry and generate the policies that let the tool-gateway reach them. Omit it for a global server, or one reached at an external URL.
 - `auth.headers`: the credential headers the tool-gateway sends to the server. See [Servers that need a credential](#servers-that-need-a-credential).
 
@@ -50,7 +50,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: github-mcp
-  namespace: orbit-tenant-example
+  namespace: kora-tenant-example
 spec:
   template:
     metadata:
@@ -73,7 +73,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: github-mcp
-  namespace: orbit-tenant-example
+  namespace: kora-tenant-example
 spec:
   selector:
     app: github-mcp
@@ -101,7 +101,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: exa-credentials
-  namespace: orbit-tenant-example
+  namespace: kora-tenant-example
 stringData:
   api-key: <your Exa API key>
 ---
@@ -109,7 +109,7 @@ apiVersion: runkora.io/v1alpha1
 kind: MCPServer
 metadata:
   name: exa
-  namespace: orbit-tenant-example
+  namespace: kora-tenant-example
 spec:
   displayName: Exa
   endpoint: https://mcp.exa.ai/mcp
@@ -138,14 +138,14 @@ Update the value in the Secret. The tool-gateway uses the new value within about
 - **Rejected credential:** When the server returns 401 or 403, the tool-gateway logs `reason: auth_failed` and keeps the tools from the last successful introspection.
 
 ```bash
-kubectl describe mcpserver exa -n orbit-tenant-example
+kubectl describe mcpserver exa -n kora-tenant-example
 ```
 
 The tool-gateway does not log the response body of a server it sends a credential to.
 
 ### External endpoints
 
-For an endpoint outside the cluster, the operator creates a ServiceEntry named `mcp-server-<host>` in `orbit-system`. A mesh with `outboundTrafficPolicy: REGISTRY_ONLY` needs no further configuration. The platform network policy allows the tool-gateway to reach external hosts on port 443 only. Add an endpoint on any other port to `networkPolicy.externalServices`.
+For an endpoint outside the cluster, the operator creates a ServiceEntry named `mcp-server-<host>` in `kora-system`. A mesh with `outboundTrafficPolicy: REGISTRY_ONLY` needs no further configuration. The platform network policy allows the tool-gateway to reach external hosts on port 443 only. Add an endpoint on any other port to `networkPolicy.externalServices`.
 
 ## Reference
 

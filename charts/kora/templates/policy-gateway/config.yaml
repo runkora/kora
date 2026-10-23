@@ -9,9 +9,9 @@ cmd/policy-gateway:
   policy:
     bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}
     {{- /* The policy service's gRPC route-registration port. */}}
-    policyServiceInternalURL: {{ printf "%s:9091" (include "kora.serviceURL" (dict "root" . "name" "orbit-policy-service")) | toJson }}
+    policyServiceInternalURL: {{ printf "%s:9091" (include "kora.serviceURL" (dict "root" . "name" "kora-policy-service")) | toJson }}
 {{ include "kora.observabilityConfigModule" . }}
 {{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "kora.tokenConfigModule" . }}
 {{- end }}
-{{- include "kora.configMap" (dict "root" $ "name" "policyGateway" "configMap" "orbit-policy-gateway-config" "modules" (include "kora.policyGateway.configModules" . | fromYaml)) }}
+{{- include "kora.configMap" (dict "root" $ "name" "policyGateway" "configMap" "kora-policy-gateway-config" "modules" (include "kora.policyGateway.configModules" . | fromYaml)) }}

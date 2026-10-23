@@ -1103,7 +1103,7 @@ export function prettyJson(text: string): string | null {
 /**
  * Unwraps an SSE event: `{"at": <RFC 3339>, "payload": <event>}`. `at` is the
  * server's time for the event; `time` is it as local HH:MM:SS. A bare payload
- * (an orbit-agents that predates the envelope) parses with no time.
+ * (a kora-agents that predates the envelope) parses with no time.
  */
 export function parseEnvelope<T>(
   data: string,

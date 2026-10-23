@@ -2,7 +2,7 @@
 #
 # Architecture:
 #
-#   sandbox tool (curl/git/SDK with HTTPS_PROXY=http://orbit-egress-gateway:8085)
+#   sandbox tool (curl/git/SDK with HTTPS_PROXY=http://kora-egress-gateway:8085)
 #     │
 #     │  CONNECT example.com:443 HTTP/1.1
 #     │  Host: example.com:443
@@ -22,7 +22,7 @@
 #     │  PROXY mode forwarding the CONNECT to the local app cluster
 #     │  (inbound|8085||).
 #     ▼
-#   orbit-egress-gateway application :8085  ← terminates the CONNECT
+#   kora-egress-gateway application :8085  ← terminates the CONNECT
 #     │  net/http server. r.Method == "CONNECT" → ConnectHandler hijacks,
 #     │  writes 200 Connection Established, runs TLS termination using the
 #     │  per-tenant CA, dispatches the inner request to ProxyHandler.
@@ -68,7 +68,7 @@ metadata:
   labels:
     {{- include "kora.egressGateway.labels" . | nindent 4 }}
 spec:
-  # Sandbox pods are labelled runkora.io/role=sandbox by the orbit-agents
+  # Sandbox pods are labelled runkora.io/role=sandbox by the kora-agents
   # provisioner. Selector lives in istio-system so it applies across every
   # tenant namespace's sandbox pods.
   workloadSelector:
@@ -129,7 +129,7 @@ spec:
           match:
             connect_matcher: {}
           route:
-            cluster: "outbound|{{ .Values.egressGateway.connectPort }}||orbit-egress-gateway.{{ include "kora.systemNamespace" . }}.svc.cluster.local"
+            cluster: "outbound|{{ .Values.egressGateway.connectPort }}||kora-egress-gateway.{{ include "kora.systemNamespace" . }}.svc.cluster.local"
             # PROXY mode: NO connect_config. Forward the CONNECT (with the
             # ext_proc-injected Bearer) to the gateway as an HTTP request.
             upgrade_configs:

@@ -5,7 +5,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: orbit-inference-gateway
+  name: kora-inference-gateway
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.inferenceGateway.labels" . | nindent 4 }}
@@ -23,15 +23,15 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: orbit-inference-gateway
+  name: kora-inference-gateway
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.inferenceGateway.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: orbit-inference-gateway
+  name: kora-inference-gateway
 subjects:
   - kind: ServiceAccount
-    name: orbit-inference-gateway
+    name: kora-inference-gateway
     namespace: {{ include "kora.systemNamespace" . }}

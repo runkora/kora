@@ -81,7 +81,7 @@ type Client struct {
 }
 
 // NewClient creates a Client targeting the given policy service base URL,
-// e.g. "http://orbit-policy-service.orbit-system.svc".
+// e.g. "http://kora-policy-service.kora-system.svc".
 // tokenFunc is called on every outbound request to obtain a Bearer token.
 func NewClient(serviceURL string, tokenFunc TokenFunc, logger logging.Logger) *Client {
 	return &Client{

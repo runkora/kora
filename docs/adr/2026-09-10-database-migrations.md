@@ -17,7 +17,7 @@ The only runner is the developer workstation. `make migrate-up` copies every ser
 
 Six files carry row changes alongside schema changes: a scope vocabulary seed that the vocabulary repository also registers at boot, a JSONB key rename, a backfill, a `Down` that rewrites `runs.state`, a `Down` that deletes lineage rows, and a data repair that joins tables owned by another service.
 
-session-manager pods run in tenant namespaces and reach no database; `run_events` rows are written by orbit-agents on the event push ([sandbox-exec-trust-boundary](2026-09-18-sandbox-exec-trust-boundary.md)).
+session-manager pods run in tenant namespaces and reach no database; `run_events` rows are written by kora-agents on the event push ([sandbox-exec-trust-boundary](2026-09-18-sandbox-exec-trust-boundary.md)).
 
 ### Problem Statement
 
@@ -101,7 +101,7 @@ A Helm or Argo CD install of the published charts does not apply the schema. The
 
 ### Decision 1: Embedding
 
-Each `backend/cmd/<service>/migrations/` directory gains an `embed.go` declaring `package migrations` with `//go:embed *.sql` and an exported `embed.FS`. `go:embed` cannot reference parent directories. `cmd/migrate` imports the six packages (`identity`, `inference-gateway`, `orbit-agents`, `orbit-triggers`, `policy-service`, `tool-gateway`) and merges them into one `fs.FS` that serves every file at its root directory. A duplicate filename or version prefix across directories fails the merge before any migration runs; goose rejects a duplicate version independently. `cmd/example` migrations are not embedded and its tables do not ship.
+Each `backend/cmd/<service>/migrations/` directory gains an `embed.go` declaring `package migrations` with `//go:embed *.sql` and an exported `embed.FS`. `go:embed` cannot reference parent directories. `cmd/migrate` imports the six packages (`identity`, `inference-gateway`, `kora-agents`, `kora-triggers`, `policy-service`, `tool-gateway`) and merges them into one `fs.FS` that serves every file at its root directory. A duplicate filename or version prefix across directories fails the merge before any migration runs; goose rejects a duplicate version independently. `cmd/example` migrations are not embedded and its tables do not ship.
 
 ### Decision 2: The migrate binary
 
@@ -127,7 +127,7 @@ One run covers every tenant.
 
 ### Decision 4: Packaging
 
-`migrate` is one more entry in the `backend-images` bake matrix, built from `backend/Dockerfile` with `SERVICE=migrate` and published as `orbit-migrate`. The Dockerfile builds `./cmd/${SERVICE}`. `migrate.image` in chart values puts it through the existing release stamping, signing and inventory scripts.
+`migrate` is one more entry in the `backend-images` bake matrix, built from `backend/Dockerfile` with `SERVICE=migrate` and published as `kora-migrate`. The Dockerfile builds `./cmd/${SERVICE}`. `migrate.image` in chart values puts it through the existing release stamping, signing and inventory scripts.
 
 Service runtime images contain their binary and YAML configuration only.
 
@@ -197,8 +197,8 @@ Values: `migrate.image`, `migrate.activeDeadlineSeconds`, `migrate.config`, and 
 ```
 release N                         consumer cluster
 ┌──────────────────────┐          ┌─────────────────────────────────────────────┐
-│ orbit-migrate image  │  helm    │ orbit-system                                │
-│  cmd/migrate         │ upgrade  │  Job orbit-migrate (pre-upgrade hook) ──────┼──▶ PostgreSQL
+│ kora-migrate image  │  helm    │ kora-system                                │
+│  cmd/migrate         │ upgrade  │  Job kora-migrate (pre-upgrade hook) ──────┼──▶ PostgreSQL
 │  embeds identity/    │ ───────▶ │      goose up over merged set               │    goose_db_version
 │  agents/ triggers/   │          │      exit 0  ──▶ Deployments roll           │
 │  inference/ policy/  │          │      exit 1  ──▶ release fails, pods unchanged
@@ -221,7 +221,7 @@ release N                         consumer cluster
 - Every contract change is a two-release change with a release-notes entry.
 - One more image to build, sign, pin and list.
 - The baseline resets every development database once.
-- The `orbit-example` tenant workload still deploys locally but its tables are not created; only its health endpoint works.
+- The `kora-example` tenant workload still deploys locally but its tables are not created; only its health endpoint works.
 - Under Argo CD a failed migration Job is deleted on the next attempt; the failure is visible only in sync history.
 - On a skipped upgrade, pods from the old release may return errors between the hook completing and the rollout finishing.
 

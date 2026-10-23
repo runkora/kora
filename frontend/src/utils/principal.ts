@@ -1,6 +1,6 @@
 /**
  * The agent name at the end of an agent's SPIFFE ID, for example
- * `spiffe://orbit.test/tenant/orbit-tenant-example/agent/ci-failure-investigator`
+ * `spiffe://orbit.test/tenant/kora-tenant-example/agent/ci-failure-investigator`
  * gives `ci-failure-investigator`. Every agent ID shares the same long prefix,
  * so the last segment is the only part that tells two agents apart. Returns
  * undefined for anything that is not a SPIFFE ID with a path.

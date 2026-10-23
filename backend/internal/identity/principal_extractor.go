@@ -138,15 +138,15 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 		// Per-run sandbox: /tenant/{id}/agent/{slug}/sandbox/{run-id}
 		// Authorize as the agent (strip sandbox suffix); attribute as the run.
 		principalType = PrincipalTypeAgent
-		tenantID = strings.TrimPrefix(segments[1], "orbit-tenant-")
+		tenantID = strings.TrimPrefix(segments[1], "kora-tenant-")
 		displayName = segments[3]
 		runID = segments[5]
 		agentURI = "spiffe://" + trustDomain + "/tenant/" + segments[1] + "/agent/" + segments[3]
 	case len(segments) >= 4 && segments[0] == "tenant":
 		// Tenant-scoped principals: /tenant/{id}/agent|service/{name}
-		// K8s namespaces are prefixed with "orbit-tenant-" (e.g. "orbit-tenant-example").
+		// K8s namespaces are prefixed with "kora-tenant-" (e.g. "kora-tenant-example").
 		// Strip the prefix so the tenantID matches the logical tenant (e.g. "example").
-		tenantID = strings.TrimPrefix(segments[1], "orbit-tenant-")
+		tenantID = strings.TrimPrefix(segments[1], "kora-tenant-")
 		displayName = segments[3]
 
 		switch segments[2] {

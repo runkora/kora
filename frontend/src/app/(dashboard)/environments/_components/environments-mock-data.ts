@@ -98,7 +98,7 @@ export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
       {
         connection: 'prod-cluster',
         actions: ['pods:read', 'logs:read'],
-        resources: ['orbit-system'],
+        resources: ['kora-system'],
       },
       { connection: 'slack-engineering', actions: ['chat:post', 'chat:read'] },
     ],

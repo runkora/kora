@@ -45,8 +45,8 @@ func TestApplyEnvOverrides_GatewayURLs(t *testing.T) {
 	cfg.InferenceGateway.URL = "http://yaml-inference"
 	cfg.ToolGateway.URL = "http://yaml-tool"
 	env := map[string]string{
-		"KORA_INFERENCE_GATEWAY_URL": "http://orbit-inference-gateway.orbit-prod.svc.cluster.local",
-		"KORA_TOOL_GATEWAY_URL":      "http://orbit-tool-gateway.orbit-prod.svc.cluster.local",
+		"KORA_INFERENCE_GATEWAY_URL": "http://kora-inference-gateway.kora-prod.svc.cluster.local",
+		"KORA_TOOL_GATEWAY_URL":      "http://kora-tool-gateway.kora-prod.svc.cluster.local",
 	}
 	if err := applyEnvOverrides(cfg, func(k string) string { return env[k] }); err != nil {
 		t.Fatalf("unexpected error: %v", err)
