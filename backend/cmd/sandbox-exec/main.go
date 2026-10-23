@@ -211,7 +211,7 @@ func commandEnv(env []string) []string {
 // filterEnv drops entries from req.Env that would let a caller hijack the
 // subprocess (e.g. LD_PRELOAD, PATH, SHELL) rather than merely configure it,
 // while still allowing arbitrary safe additions (e.g. WORKSPACE, ANTHROPIC_*).
-// See https://github.com/clear-route/orbit/issues/231.
+// See https://github.com/runkora/kora/issues/231.
 func filterEnv(env []string) []string {
 	filtered := make([]string, 0, len(env))
 	for _, e := range env {

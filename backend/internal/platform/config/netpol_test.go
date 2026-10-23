@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// TestChartMetricsNetworkPolicies_ScopesOperatorSeparately renders the orbit
+// TestChartMetricsNetworkPolicies_ScopesOperatorSeparately renders the kora
 // chart with metrics scraping enabled and asserts the two Prometheus
 // scrape-ingress NetworkPolicies carry the ports and selectors they're meant
 // to: the generic rule opens only the shared metrics port on every pod, and

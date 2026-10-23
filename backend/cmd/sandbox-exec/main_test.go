@@ -17,7 +17,7 @@ import (
 // subprocess behavior (dynamic linker, allocator, executable lookup, shell
 // swap) are stripped from a request's env before being appended to the
 // subprocess environment. Part of the fix for
-// https://github.com/clear-route/orbit/issues/231.
+// https://github.com/runkora/kora/issues/231.
 func TestFilterEnv_BlocksHijackVariables(t *testing.T) {
 	blocked := []string{
 		"LD_PRELOAD=/tmp/evil.so",

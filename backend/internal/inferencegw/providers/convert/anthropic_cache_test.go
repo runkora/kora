@@ -51,7 +51,7 @@ func breakpoints(t *testing.T, p anthropic.MessageNewParams) (system, tools, mes
 // Claude reached through the Responses or OpenAI dialects was paying full input
 // rate on every token: neither dialect can express cache_control, and neither
 // converter set one, so no prefix was ever cached.
-// See https://github.com/clear-route/orbit/pull/205.
+// See https://github.com/runkora/kora/pull/205.
 func TestResponsesParamsToAnthropicParams_CacheBreakpoints(t *testing.T) {
 	t.Parallel()
 

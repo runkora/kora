@@ -90,7 +90,7 @@ func (NoopNotifier) SetSummary(_ context.Context, _ string, _ string) error { re
 // HTTPNotifier POSTs events to kora-agents via HTTP.
 // Each call is fire-and-forget with a short timeout so a slow or absent
 // kora-agents instance does not block the session-manager drain loop.
-// ProvisionSandbox uses a long timeout: a sandbox scheduled onto a fresh orbit
+// ProvisionSandbox uses a long timeout: a sandbox scheduled onto a fresh kora
 // node pays a cold image pull (sandbox-exec is large) plus istio/sidecar
 // startup. Must exceed the kora-agents pod-ready wait (k8s.waitForPodReady).
 //

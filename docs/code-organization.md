@@ -8,7 +8,7 @@ See [multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-ba
 
 ## The big picture
 
-The backend compiles to a set of small binaries under `backend/cmd/`, all sharing one `backend/internal/platform/` layer. Each is listed in the [binary table below](#binaries-backendcmd). There is **no single "orbit" binary**: the main control-plane API is the `identity` service. Feature logic lives in `backend/internal/{feature}/` packages; cross-cutting infrastructure lives in `backend/internal/platform/`. Dependency flow is strictly one-directional: **features → platform**, and features never import each other.
+The backend compiles to a set of small binaries under `backend/cmd/`, all sharing one `backend/internal/platform/` layer. Each is listed in the [binary table below](#binaries-backendcmd). There is **no single "kora" binary**: the main control-plane API is the `identity` service. Feature logic lives in `backend/internal/{feature}/` packages; cross-cutting infrastructure lives in `backend/internal/platform/`. Dependency flow is strictly one-directional: **features → platform**, and features never import each other.
 
 ### Binaries (`backend/cmd/`)
 
@@ -301,7 +301,7 @@ Create `cmd/{name}/` with its own `main.go` and (if it needs config) a `config/b
 - **No `database/sql`**: `pgx/v5` exclusively.
 - **No third-party router**: no Gin, Chi, Echo, Gorilla; routing is `api.Mux` + the `Controller` interface.
 - **No global logger**: no `log`/`log/slog`/`fmt.Print*`; inject `*logging.Logger`.
-- **No `cmd/orbit` binary**: the main API is `cmd/identity`.
+- **No `cmd/kora` binary**: the main API is `cmd/identity`.
 - **No shared `internal/models/` package**: each feature owns its types.
 - **No central `router.go`**: features self-register via `Controller.Boot()`.
 - **No `providers/` in every feature**: external integrations live in `service.go` (the inference gateway's `providers/` subtree is the deliberate exception for multi-provider routing).

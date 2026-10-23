@@ -1,4 +1,4 @@
-/** @tier 2 — Orbit-domain-aware: explains a missing permission. Used by: agents, agent detail, environments, triggers, model gateway catalog. */
+/** @tier 2 — kora-domain-aware: explains a missing permission. Used by: agents, agent detail, environments, triggers, model gateway catalog. */
 'use client';
 
 import type { ReactNode } from 'react';

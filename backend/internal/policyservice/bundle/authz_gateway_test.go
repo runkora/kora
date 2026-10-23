@@ -91,7 +91,7 @@ func startJWKSServer(t *testing.T) *httptest.Server {
 
 // signTestJWT signs a JWT with the test RSA key for gateway evaluation tests.
 // principalType is "AGENT", "HUMAN", or "PAT". koraExtra is merged into the
-// orbit claim (e.g. {"claims": {"roles": "platform-admin"}} for HUMAN principals).
+// kora claim (e.g. {"claims": {"roles": "platform-admin"}} for HUMAN principals).
 func signTestJWT(t *testing.T, principalType, tenantID, principalID string, koraExtra map[string]any) string {
 	t.Helper()
 	koraClaims := map[string]any{

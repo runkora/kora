@@ -34,7 +34,7 @@ Local development runs in Kubernetes. There is one environment. For the full wal
 
 ```bash
 make setup   # once per machine: generate .env, install tools, git hooks, local DNS, mkcert TLS
-make up      # backing services, k3d cluster, migrations, operator (SPIRE + Istio + Orbit), tenants, workloads. Idempotent.
+make up      # backing services, k3d cluster, migrations, operator (SPIRE + Istio + kora), tenants, workloads. Idempotent.
 make auth    # Device Authorization Grant → dev@local.runkora.io / password. Token → /tmp/kora_credentials.json
 ```
 
@@ -186,7 +186,7 @@ kora follows a **feature-based architecture** with the repository pattern for da
 | `sandbox-exec`, `kora-runtime-mcp`, `kora-shell`, `kora-session-runner`, `sandbox-mount`    | `cmd/*/`                 | Agent sandbox/exec stack (gRPC exec, MCP provisioning, shell shim, isolation wrapper, node agent for sandbox working folders) |
 | `example`                                                                                   | `cmd/example/`           | Reference implementation (not production)                                                                                     |
 
-> There is **no `cmd/orbit`** binary; the main API is `cmd/identity`. See [docs/code-organization.md](docs/code-organization.md) for the complete map.
+> There is **no `cmd/kora`** binary; the main API is `cmd/identity`. See [docs/code-organization.md](docs/code-organization.md) for the complete map.
 
 **Feature Ownership**: Each feature package (`internal/identity/`, `internal/agents/`, etc.) owns its complete stack:
 

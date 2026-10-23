@@ -37,7 +37,7 @@ kora runs on Istio in sidecar mode and handles its own sidecar injection through
 
 - Sidecar injection on kora's namespaces, through `istio-injection: enabled` or an `istio.io/rev` label matching a live revision. Set the revision in the chart's `istio.revision` value when you run a revisioned control plane.
 - `meshConfig.trustDomain` equal to kora's `global.trustDomain`.
-- `pilot.cni.enabled: true` on istiod, with the Istio CNI DaemonSet running. The `restricted` profile of orbit's namespaces reject the `istio-init` container.
+- `pilot.cni.enabled: true` on istiod, with the Istio CNI DaemonSet running. The `restricted` profile of kora's namespaces reject the `istio-init` container.
 
 ### SPIRE
 

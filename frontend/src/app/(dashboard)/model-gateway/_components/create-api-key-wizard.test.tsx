@@ -15,7 +15,7 @@ const SCOPES = ['agents:read', 'agents:write'];
 const PAT = {
   id: 'pat_1',
   name: 'CI key',
-  token: 'orbit_pat_secret',
+  token: 'kora_pat_secret',
   scopes: SCOPES,
   expires_at: null,
 };
