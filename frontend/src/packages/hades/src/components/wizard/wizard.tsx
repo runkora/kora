@@ -6,6 +6,7 @@ import * as React from 'react';
 import { Alert } from '../alert/alert';
 import { Button } from '../button/button';
 import { Card, CardContent, CardHeader } from '../card/card';
+import { Collapsible, CollapsibleContent } from '../collapsible/collapsible';
 import { Eyebrow } from '../eyebrow/eyebrow';
 import { Icon } from '../icon/icon';
 import { Stack } from '../layout/stack';
@@ -104,6 +105,7 @@ export interface WizardProps {
    * Validation hint text. When set, renders a fixed banner above the step content (below the mobile
    * rail or the header on desktop). Pass `hintVariant` to control the colour: `'error'` (default,
    * red) when the step is invalid; `'warning'` (amber) when the step is valid but advisory.
+   * The banner rolls down when a hint is set and rolls up when it clears.
    */
   hint?: string;
   /** @default 'error' */
@@ -466,6 +468,43 @@ WizardFooter.displayName = 'WizardFooter';
 
 // ── Root ──────────────────────────────────────────────────────────────────────
 
+interface WizardHintProps {
+  hint: string | undefined;
+  variant: 'error' | 'warning';
+}
+
+/**
+ * Validation banner that rolls down when `hint` is set and up when it clears, using the shared
+ * Collapsible height animation. The last hint is kept while the exit runs, since `hint` is already
+ * undefined by then and the banner would otherwise roll up empty.
+ */
+function WizardHint({ hint, variant }: WizardHintProps) {
+  const [last, setLast] = React.useState<{ hint: string; variant: 'error' | 'warning' }>();
+  if (hint && (last?.hint !== hint || last.variant !== variant)) {
+    setLast({ hint, variant });
+  }
+  const shown = hint ? { hint, variant } : last;
+
+  return (
+    <Collapsible open={Boolean(hint)} data-slot="wizard-hint">
+      <CollapsibleContent aria-hidden={hint ? undefined : true}>
+        {shown && (
+          <Alert variant={shown.variant} className="rounded-none border-x-0 border-t-0">
+            <Icon
+              name={shown.variant === 'warning' ? 'triangle-alert' : 'alert-circle'}
+              size="xs"
+              label=""
+            />
+            <Text size="caption" color="muted">
+              {shown.hint}
+            </Text>
+          </Alert>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 /**
  * Full builder modal: owns the Modal shell, renders the header and progress bar,
  * and lays out the rail + scrollable content column + footer.
@@ -555,18 +594,7 @@ const WizardRoot = React.forwardRef<HTMLDivElement, WizardProps>(
                   </Stack>
                 )}
                 <Stack grow overflow="hidden" gap="none">
-                  {hint && (
-                    <Alert variant={hintVariant} className="rounded-none border-x-0 border-t-0">
-                      <Icon
-                        name={hintVariant === 'warning' ? 'triangle-alert' : 'alert-circle'}
-                        size="xs"
-                        label=""
-                      />
-                      <Text size="caption" color="muted">
-                        {hint}
-                      </Text>
-                    </Alert>
-                  )}
+                  <WizardHint hint={hint} variant={hintVariant} />
                   {children}
                   <Separator />
                   {footer}

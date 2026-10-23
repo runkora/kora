@@ -677,6 +677,8 @@ import { Modal, ModalAccessibleTitle, Wizard } from '@runkora/hades';
 
 **`Wizard.Footer`**: Props: `step`, `totalSteps`, `onBack?` (omit to hide Back), `backLabel?` (default `"Back"`), `onNext` (required), `nextDisabled?`, `onSubmit?` (swaps Continue to Submit on the final step), `submitLabel?` (default `"Create"`), `pending?` (disables both buttons), `pendingLabel?` (default `"Creating…"`), `hint?`.
 
+**`Wizard` `hint`**: The validation banner rolls down when `hint` is set and rolls up when it clears (the `Collapsible` height animation, instant under `prefers-reduced-motion`). The content below moves with it.
+
 ### Exported prop types
 
 ```ts

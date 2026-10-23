@@ -376,23 +376,27 @@ export const Overview: Story = {
   render: () => <TriggerWizardDemo />,
 };
 
-type Demo = 'error-hint' | 'warning-hint' | 'actions' | 'full-page';
+type Demo = 'error-hint' | 'warning-hint' | 'toggle-hint' | 'actions' | 'full-page';
 
 const DEMO_TITLES: Record<Demo, string> = {
   'error-hint': 'Error hint',
   'warning-hint': 'Warning hint',
+  'toggle-hint': 'Toggling hint',
   actions: 'Header actions',
   'full-page': 'Full page step',
 };
 
 function MiniWizard({ demo, onClose }: { demo: Demo; onClose: () => void }) {
   const fullPage = demo === 'full-page';
+  const [toggled, setToggled] = React.useState(false);
   const hint =
     demo === 'error-hint'
       ? 'Add a name to continue.'
       : demo === 'warning-hint'
         ? 'A busy source can start many runs at once.'
-        : undefined;
+        : demo === 'toggle-hint' && toggled
+          ? 'Add a name to continue.'
+          : undefined;
 
   return (
     <Wizard
@@ -435,6 +439,11 @@ function MiniWizard({ demo, onClose }: { demo: Demo; onClose: () => void }) {
               ? 'A full page step hides the rail and footer.'
               : 'The banner sits above the step content.'}
           </Text>
+          {demo === 'toggle-hint' && (
+            <Button variant="secondary" onClick={() => setToggled((on) => !on)}>
+              {toggled ? 'Clear the hint' : 'Show the hint'}
+            </Button>
+          )}
           {fullPage && <Button onClick={onClose}>Done</Button>}
         </Stack>
       </Wizard.Step>
@@ -607,6 +616,12 @@ function PartsDemo() {
           use="Amber banner when the step is valid but worth a second look."
         >
           {opener('warning-hint')}
+        </Option>
+        <Option
+          name="hint animation"
+          use="The banner rolls down when a hint is set and up when it clears. Toggle it to watch the content move."
+        >
+          {opener('toggle-hint')}
         </Option>
         <Option name="actions" use="Controls in the header, like a save status.">
           {opener('actions')}
