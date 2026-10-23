@@ -31,7 +31,7 @@ const (
 // registered servers' endpoints. Endpoints it cannot register are skipped.
 // Hosts in taken belong to another operator-managed ServiceEntry. A second
 // entry for the same host could declare a clashing port protocol.
-// A host with a namespace name after its first label can resolve through the
+// A host ending in a namespace name resolves to a Service or pod through the
 // cluster search domains. Registering it as external would break mesh routing.
 func mcpServiceEntries(entries []mcpServerRegistryEntry, taken, namespaces map[string]bool) ([]*unstructured.Unstructured, []mcpServerSkip) {
 	byHost := map[string][]providerEndpoint{}
@@ -47,8 +47,8 @@ func mcpServiceEntries(entries []mcpServerRegistryEntry, taken, namespaces map[s
 				skipped = append(skipped, mcpServerSkip{e.Name, e.namespace, ep.host + " is registered by another ServiceEntry"})
 				continue
 			}
-			if hasNamespaceLabel(ep.host, namespaces) {
-				skipped = append(skipped, mcpServerSkip{e.Name, e.namespace, ep.host + " names a namespace"})
+			if namespaces[ep.host[strings.LastIndexByte(ep.host, '.')+1:]] {
+				skipped = append(skipped, mcpServerSkip{e.Name, e.namespace, ep.host + " ends in a namespace name"})
 				continue
 			}
 			have := byHost[ep.host]
@@ -155,10 +155,4 @@ func (a *MCPServerAggregator) operatorServiceEntries(ctx context.Context) (map[s
 		}
 	}
 	return ours, taken, nil
-}
-
-// hasNamespaceLabel reports whether any label after the first is a namespace.
-func hasNamespaceLabel(host string, namespaces map[string]bool) bool {
-	labels := strings.Split(host, ".")
-	return slices.ContainsFunc(labels[1:], func(l string) bool { return namespaces[l] })
 }

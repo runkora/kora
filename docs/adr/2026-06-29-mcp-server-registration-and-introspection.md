@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-29-mcp-server-registration-and-introspection.md -->
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-10-22)
 **Date:** 2026-06-29
 **Deciders:** Justin Wilkin, kora Core Team
 **Technical Story:** [MCP / Tool Gateway PRD](../prd/mcp-tool-gateway.md)
@@ -34,9 +34,8 @@ We need a way to: (1) declare an MCP server as infrastructure, tenant-scoped or 
 
 - The gateway, the PEP, and the consumption paths — see the [MCP / Tool Gateway ADR](2026-06-29-mcp-tool-gateway.md).
 - Human/agent authentication — see the [MCP OAuth Authentication ADR](2026-06-29-mcp-oauth-authentication.md).
-- Remote third-party SaaS MCP servers (fast-follow); MVP registers kora-hosted servers.
-- Credential injection on the platform→server hop: a kora-hosted MCP is a managed microservice that owns its own backend credentials (it is not an agent sandbox); the platform does not force-route or inject on this hop.
-  *Amended 2026-10-22 by [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md): a server that declares `spec.auth` receives a static service credential on this hop.*
+- Remote third-party SaaS MCP servers (fast-follow); MVP registers kora-hosted servers. *Amended 2026-10-22 by [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md): a remote server registers like any other, with `spec.auth` for its credential.*
+- Credential injection on the platform→server hop: a kora-hosted MCP is a managed microservice that owns its own backend credentials (it is not an agent sandbox); the platform does not force-route or inject on this hop. *Amended 2026-10-22 by [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md): a server that declares `spec.auth` receives a static service credential on this hop.*
 - MCP `resources/*` and `prompts/*` surfaces — MVP introspects **tools** only.
 
 ---
@@ -328,7 +327,7 @@ Exit: applying an `MCPServer` CR registers its tools as scopes (operator aggrega
 
 - [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) — the PEP and consumption plane built on this registration.
 - [MCP OAuth Authentication](2026-06-29-mcp-oauth-authentication.md) — human auth for the gateway.
-- [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md) — amends the credential-injection non-goal for servers that declare `spec.auth`.
+- [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md): amends the credential-injection non-goal for servers that declare `spec.auth`.
 - [MCP Server Registration, Deployment, and Governance](2026-03-05-mcp-server-registration-deployment-and-governance.md) — the prior paper design this supersedes/implements.
 - [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — the `Connection` CRD + aggregator pattern mirrored here (Amendment 3).
 - [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) — the scope vocabulary, prefix coverage, and grant model reused.

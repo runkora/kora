@@ -114,7 +114,7 @@ func TestIntrospector_StaticCredentialLifecycle(t *testing.T) {
 	}
 	writeKey(wrongKey)
 	s := snapshot()
-	if s.State != StateDegraded || len(s.Tools) != 1 || s.LastErr != "auth_failed: HTTP 401" {
+	if s.State != StateDegraded || len(s.Tools) != 1 || s.LastErr != "connect: auth_failed: HTTP 401" {
 		t.Errorf("with a wrong key: state %s, tools %d, err %q", s.State, len(s.Tools), s.LastErr)
 	}
 
@@ -147,11 +147,12 @@ func TestToolsCall_StaticCredentialFailsClosed(t *testing.T) {
 		name         string
 		files        map[string]string
 		wantMessage  string
+		wantReason   string
 		wantUpstream bool
 	}{
-		{"right key", map[string]string{"ns.exa.authorization": goodBearer, "ns.exa.x-api-key": goodAPIKey}, "", true},
-		{"wrong key", map[string]string{"ns.exa.authorization": goodBearer, "ns.exa.x-api-key": wrongKey}, "upstream call failed", true},
-		{"missing key", map[string]string{"ns.exa.authorization": goodBearer}, "upstream credential unavailable", false},
+		{"right key", map[string]string{"ns.exa.authorization": goodBearer, "ns.exa.x-api-key": goodAPIKey}, "", "", true},
+		{"wrong key", map[string]string{"ns.exa.authorization": goodBearer, "ns.exa.x-api-key": wrongKey}, "upstream call failed", "auth_failed", true},
+		{"missing key", map[string]string{"ns.exa.authorization": goodBearer}, "upstream credential unavailable", "credential_unavailable", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -180,6 +181,9 @@ func TestToolsCall_StaticCredentialFailsClosed(t *testing.T) {
 			}
 			if gotMessage != tc.wantMessage {
 				t.Errorf("error message = %q, want %q", gotMessage, tc.wantMessage)
+			}
+			if tc.wantReason != "" && !strings.Contains(logs.String(), `"reason":"`+tc.wantReason+`"`) {
+				t.Errorf("logs miss reason %q:\n%s", tc.wantReason, logs.String())
 			}
 			if got := requests.Load() > 0; got != tc.wantUpstream {
 				t.Errorf("upstream reached = %v, want %v", got, tc.wantUpstream)
@@ -261,5 +265,64 @@ func TestUpstreamError_CarriesNoUpstreamText(t *testing.T) {
 	send(none, http.MethodPost)
 	if err := none.upstreamError(cause); err != cause {
 		t.Errorf("without credentials: err = %v, want the cause unchanged", err)
+	}
+}
+
+func TestFailureReason(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{fmt.Errorf("connect: %w", ErrUpstreamAuthFailed), "auth_failed"},
+		{fmt.Errorf("connect: %w", ErrCredentialUnavailable), "credential_unavailable"},
+		{fmt.Errorf("connect: %w", ErrUpstreamStatus), "upstream_status"},
+		{fmt.Errorf("connect: %w", ErrUpstreamFailed), "upstream_error"},
+		{errors.New("other"), "error"},
+	} {
+		if got := failureReason(tc.err); got != tc.want {
+			t.Errorf("failureReason(%v) = %q, want %q", tc.err, got, tc.want)
+		}
+	}
+}
+
+// A credentialed upstream that answers 500 or cannot be reached is reported
+// with its stage and status or transport cause.
+func TestToolsCall_CredentialedFailuresKeepStageAndCause(t *testing.T) {
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = fmt.Fprintf(w, "boom %s", r.Header.Get("X-Api-Key"))
+	}))
+	t.Cleanup(failing.Close)
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closedURL := closed.URL
+	closed.Close()
+
+	dir := secretsDir(t, map[string]string{"ns.exa.authorization": goodBearer, "ns.exa.x-api-key": goodAPIKey})
+	proxy := NewProxy(NewUpstreamCredentials(dir), "test", testLogger())
+	for _, tc := range []struct {
+		endpoint, wantPrefix, wantReason, wantText string
+	}{
+		{failing.URL + "/mcp", `connect upstream "exa": upstream_status: HTTP 500`, "upstream_status", ""},
+		{closedURL + "/mcp", `connect upstream "exa": upstream_error: dial tcp`, "upstream_error", "connection refused"},
+	} {
+		_, err := proxy.CallTool(context.Background(), Server{Name: "exa", Endpoint: tc.endpoint, AuthHeaders: authHeaders}, "search", nil, nil)
+		if err == nil || !strings.HasPrefix(err.Error(), tc.wantPrefix) || !strings.Contains(err.Error(), tc.wantText) {
+			t.Errorf("%s: err = %v, want prefix %q containing %q", tc.endpoint, err, tc.wantPrefix, tc.wantText)
+			continue
+		}
+		if got := failureReason(err); got != tc.wantReason {
+			t.Errorf("reason = %q, want %q", got, tc.wantReason)
+		}
+		if strings.Contains(err.Error(), goodAPIKey) || strings.Contains(err.Error(), "boom") {
+			t.Errorf("err carries upstream text: %v", err)
+		}
+	}
+}
+
+func TestUpstreamError_KeepsDeadlineCause(t *testing.T) {
+	tr := &headerTransport{headers: http.Header{"X-Api-Key": {goodAPIKey}}}
+	err := tr.upstreamError(fmt.Errorf("sending: %w", context.DeadlineExceeded))
+	if !errors.Is(err, ErrUpstreamFailed) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("err = %v, want upstream_error wrapping the deadline", err)
 	}
 }

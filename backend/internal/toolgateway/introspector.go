@@ -174,7 +174,7 @@ func (i *Introspector) introspectOne(ctx context.Context, srv Server) ([]Tool, e
 
 	session, err := client.Connect(cctx, transport, nil)
 	if err != nil {
-		return nil, upstream.upstreamError(fmt.Errorf("connect: %w", err))
+		return nil, fmt.Errorf("connect: %w", upstream.upstreamError(err))
 	}
 	defer func() {
 		if cerr := session.Close(); cerr != nil {
@@ -187,7 +187,7 @@ func (i *Introspector) introspectOne(ctx context.Context, srv Server) ([]Tool, e
 	var tools []Tool
 	for tool, terr := range session.Tools(cctx, nil) {
 		if terr != nil {
-			return nil, upstream.upstreamError(fmt.Errorf("list tools: %w", terr))
+			return nil, fmt.Errorf("list tools: %w", upstream.upstreamError(terr))
 		}
 		tools = append(tools, Tool{
 			Name:           tool.Name,

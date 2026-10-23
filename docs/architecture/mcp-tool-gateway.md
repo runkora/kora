@@ -1,6 +1,6 @@
 # MCP tool gateway
 
-The tool-gateway authorizes each MCP tool call against a per-tool scope, then proxies it to a platform-hosted MCP server. The agent holds no credential and can invoke only the tools it is granted.
+The tool-gateway authorizes each MCP tool call against a per-tool scope, then proxies it to the registered MCP server. The agent holds no credential and can invoke only the tools it is granted.
 
 ![MCP tool gateway](../diagrams/mcp-tool-gateway.svg)
 
@@ -19,7 +19,7 @@ The tool-gateway is one image in two modes.
 
 ## Backends
 
-Backends are MCP servers declared as `MCPServer` custom resources. The operator aggregates every `MCPServer` across namespaces into the `servers.json` registry the gateway mounts and hot-reloads. `orbit-mcp` is the platform MCP server, registered globally, providing agent access to manage and set up the orbit platform. Each tenant MCP server is declared in the tenant's namespace, and the tool-gateway governs any custom or open source MCP with the same authorisation and scope registration. The proxy reaches each backend over streamable-http on the spire-mTLS mesh. The caller identity (platform JWT of the user) is forwarded to a backend only when that server opts in for `callerIdentity: forward` and is registered globally. A forwarded token lets the backend act on behalf of the user by impersonation. For a delegated run the run's delegation token is forwarded with it. A server that declares `spec.auth` receives static credential headers instead, read from the operator-rendered `orbit-mcp-server-secrets` Secret on every introspection and tool call ([static credentials ADR](../adr/2026-10-22-mcp-server-static-credentials.md)). The gateway follows no redirects from a backend.
+Backends are MCP servers declared as `MCPServer` custom resources. The operator aggregates every `MCPServer` across namespaces into the `servers.json` registry the gateway mounts and hot-reloads. `orbit-mcp` is the platform MCP server, registered globally, providing agent access to manage and set up the orbit platform. Each tenant MCP server is declared in the tenant's namespace, and the tool-gateway governs any custom or open source MCP with the same authorisation and scope registration. The proxy reaches an in-cluster backend over streamable-http on the spire-mTLS mesh, and an external one over HTTPS through an operator-rendered ServiceEntry. The caller identity (platform JWT of the user) is forwarded to a backend only when that server opts in for `callerIdentity: forward` and is registered globally. A forwarded token lets the backend act on behalf of the user by impersonation. For a delegated run the run's delegation token is forwarded with it. A server that declares `spec.auth` receives static credential headers instead, read from the operator-rendered `orbit-mcp-server-secrets` Secret on every introspection and tool call ([static credentials ADR](../adr/2026-10-22-mcp-server-static-credentials.md)). The gateway follows no redirects from a backend.
 
 ## ADRs
 

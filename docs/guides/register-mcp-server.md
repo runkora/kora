@@ -25,13 +25,13 @@ spec:
   callerIdentity: none
 ```
 
-- `endpoint`: the in-cluster URL of your MCP server's Service. A URL with userinfo or a query string is rejected with status `Invalid`. The tool-gateway does not follow redirects from it.
+- `endpoint`: the URL of the MCP server, either its in-cluster Service or an external HTTPS URL. The operator marks a CR `Invalid` when the URL contains userinfo or a query string. The tool-gateway does not follow redirects from the endpoint.
 - `displayName` and `description`: shown in the tool catalog.
 - `transport`: `streamable-http`, the default and only supported transport.
 - `reintrospectIntervalSeconds`: how often the tool-gateway re-introspects the tool surface. `0` re-introspects on registry reload only.
 - `callerIdentity`: `none` (the default) has the server act as itself with its own credential. `forward` passes the caller's bearer token, letting the server act as the caller against first-party kora APIs. For a delegated run it also passes the run's delegation token. `forward` is allowed only on a global (`orbit-system`) server. A tenant-namespaced CR that sets it is rejected with status `Invalid`.
 - `workload.selector`: the labels of the pods serving `endpoint`, in this CR's namespace. Naming them lets kora skip the injection those pods must not carry and generate the policies that let the tool-gateway reach them. Omit it for a global server, or one reached at an external URL.
-- `auth.headers`: credentials the tool-gateway sends to the server. See [Servers that need a credential](#servers-that-need-a-credential).
+- `auth.headers`: the credential headers the tool-gateway sends to the server. See [Servers that need a credential](#servers-that-need-a-credential).
 
 An `MCPServer` is declarative, applied the way you manage the rest of your cluster. Commit it to your GitOps repository, or `kubectl apply` it for a quick start. Check its status:
 
@@ -94,7 +94,7 @@ The MCP endpoint has no authentication of its own and holds whatever upstream cr
 
 ## Servers that need a credential
 
-A hosted MCP server such as Exa's authenticates its client with an API key or a bearer token. Store the value in a Secret in the `MCPServer`'s namespace and list the headers under `spec.auth.headers`:
+Some MCP servers, such as Exa's hosted server, authenticate their client with an API key or a bearer token. The tool-gateway holds the credential and sends it on every request to the server. Agents never hold it. The value is stored in a Secret in the `MCPServer`'s namespace and referenced from `spec.auth.headers`.
 
 ```yaml
 apiVersion: v1
@@ -120,23 +120,32 @@ spec:
         secretRef: {name: exa-credentials, key: api-key}
 ```
 
-- `name`: the header. It uses only letters, digits and hyphens and appears once. List at most 8 headers. Headers that HTTP, MCP, tracing or kora set are rejected, such as `Host`, `Content-Type`, `Mcp-Session-Id`, `X-Forwarded-*` and `X-Envoy-*`.
-- `prefix`: optional text sent before the value, such as `"Bearer "`.
-- `secretRef`: the Secret and key holding the value, in the same namespace. One trailing newline is trimmed. A value over 4 KiB is not used.
+- `name`: the HTTP header that carries the credential, such as `Authorization` or `x-api-key`.
+- `prefix`: optional text placed before the Secret value, such as `"Bearer "`.
+- `secretRef`: the Secret and key that hold the value.
 
-The tool-gateway sends these headers on introspection and on every tool call, whoever the caller is. Agents never see the value. Tool scopes still decide which callers may use each tool. `spec.auth` cannot be combined with `callerIdentity: forward`.
+With this configuration the tool-gateway sends `Authorization: Bearer <key>` on introspection and on every tool call. Tool scopes still decide which agents and users can call each tool.
 
-The operator copies each value into the `orbit-mcp-server-secrets` Secret in `orbit-system`. A changed value reaches the tool-gateway within about five minutes plus the kubelet's Secret sync, with no restart.
+A server can list up to eight headers. A header name uses letters, digits and hyphens and is at most 64 characters long. The operator rejects headers that HTTP, MCP or kora already set, such as `Host`, `Content-Type`, `Mcp-Session-Id`, `X-Forwarded-*` and `X-Envoy-*`. A server with `spec.auth` cannot also set `callerIdentity: forward`.
 
-A missing Secret or key leaves the server registered. Its tool calls fail with `upstream credential unavailable`, and the `Aggregated` condition reports reason `CredentialUnavailable` with the Secret and key it could not read:
+### Rotating a credential
+
+Update the value in the Secret. The tool-gateway uses the new value within about six minutes without a restart.
+
+### Troubleshooting
+
+- **Missing Secret or key:** The server stays registered and its tool calls fail with `upstream credential unavailable`. The `Aggregated` condition reports the reason `CredentialUnavailable` with the Secret and key the operator could not read.
+- **Rejected credential:** When the server returns 401 or 403, the tool-gateway logs `reason: auth_failed` and keeps the tools from the last successful introspection.
 
 ```bash
 kubectl describe mcpserver exa -n orbit-tenant-example
 ```
 
-An upstream that rejects the credential with 401 or 403 is logged by the tool-gateway with `reason: auth_failed`. The server keeps its previously introspected tools. Errors from a server that was sent credentials are logged by status code only, without the upstream's response text.
+The tool-gateway does not log the response body of a server it sends a credential to.
 
-For an endpoint outside the cluster the operator registers its host with the mesh in a ServiceEntry named `mcp-server-<host>` in `orbit-system`. The server then works on a mesh with `outboundTrafficPolicy: REGISTRY_ONLY` without a ServiceEntry of your own. The platform network policy admits the tool-gateway to external hosts on port 443 only. An endpoint on another port needs an entry in `networkPolicy.externalServices`.
+### External endpoints
+
+For an endpoint outside the cluster, the operator creates a ServiceEntry named `mcp-server-<host>` in `orbit-system`. A mesh with `outboundTrafficPolicy: REGISTRY_ONLY` needs no further configuration. The platform network policy allows the tool-gateway to reach external hosts on port 443 only. Add an endpoint on any other port to `networkPolicy.externalServices`.
 
 ## Reference
 

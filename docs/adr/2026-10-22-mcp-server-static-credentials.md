@@ -23,7 +23,7 @@ The current code behaves as follows:
 *   `ConnectionAggregator` (`internal/operator/connection_aggregator.go`) copies the Secrets that tenant `Connection` CRs reference into the `orbit-tenant-connection-secrets` Secret in the system namespace, and the egress gateway mounts it. The operator reads Secrets uncached and holds no Secret informer (`cmd/operator/main.go`). The tenant reconciler re-runs every aggregator on a five-minute requeue.
 *   The `MCPServer` reconciler sets the CR's `Aggregated` condition on spec changes only.
 *   The proxy dials with `http.DefaultClient`, and the introspector dials with a tracing client. Both follow redirects. `validateMCPServerSpec` checks only that `spec.endpoint` is non-empty.
-*   On a non-2xx response, the MCP Go SDK (v1.7.0) places the upstream's JSON-RPC error body in the returned error. The introspector logs that error with the endpoint and keeps it in the server snapshot.
+*   On a non-2xx response, the MCP Go SDK places the upstream's JSON-RPC error body in the returned error. The introspector logs that error with the endpoint and keeps it in the server snapshot.
 *   An introspection failure marks the server `Degraded` and retains its prior tools. A server that leaves the registry leaves the publisher's keep-list, and `DeleteOrphans` then purges its tool scopes from every grant and role.
 *   The operator renders one ServiceEntry per InferenceProvider for meshes with `outboundTrafficPolicy: REGISTRY_ONLY` ([CRD inference providers, Amendment 1](2026-10-01-crd-inference-providers.md#amendment-1-2026-10-02-the-operator-registers-provider-hosts-with-the-mesh)). No ServiceEntry covers an external MCP host.
 *   Issue runkora/kora#190 reports that a tenant-controlled `spec.endpoint` is a server-side request forgery surface, and that both gateway clients follow redirects.
@@ -125,7 +125,8 @@ spec:
 The operator marks an `MCPServer` `Invalid` when any of these rules fails:
 
 *   `spec.auth.headers` lists at most 8 headers.
-*   Each header `name` uses only letters, digits and hyphens, and names are unique case-insensitively. These names are also valid in a Secret data key.
+*   Each header `name` uses only letters, digits and hyphens, is at most 64 characters, and is unique case-insensitively. These names are also valid in a Secret data key, and the longest key is 192 characters.
+*   A `prefix` is at most 256 characters.
 *   A header `name` is not reserved. The reserved names are `Host`, `Content-Length`, `Content-Type`, `Accept`, `Transfer-Encoding`, `Connection`, `Keep-Alive`, `Proxy-Connection`, `Proxy-Authenticate`, `Proxy-Authorization`, `TE`, `Trailer`, `Upgrade`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`, `traceparent`, `tracestate`, `X-Orbit-Delegation-Token` (`mw.DelegationTokenHeader`), and any name starting with `X-Forwarded-` or `X-Envoy-`.
 *   A `prefix` contains no control character other than tab.
 *   `secretRef.name` is a valid Secret name, and `secretRef.key` is a valid Secret data key.
@@ -137,9 +138,10 @@ Tenant and global `MCPServer` CRs follow the same rules and the same path.
 ### 2. Operator aggregation
 
 *   `MCPServerAggregator` reads each referenced Secret from the CR's namespace and writes the value into the `orbit-mcp-server-secrets` Secret in the system namespace. The data key is derived from the namespace, the server name and the lowercased header name. A reordered header list cannot send a value under another header. The operator creates the Secret on its first pass, empty or not.
-*   The operator trims one trailing newline from the value. An empty value, a value over 4 KiB, or one that still contains a control character other than tab, is treated as missing. A value in a Secret the operator manages, such as a copied registry pull secret, is treated as missing.
+*   The operator trims one trailing `\n`, `\r\n` or `\r` from the value. An empty value, a value over 4 KiB, or one that still contains a control character other than tab, is treated as missing. A value in a Secret the operator manages, such as a copied registry pull secret, is treated as missing.
 *   The server's `servers.json` entry lists each header's name, prefix and data key. It never holds the value.
 *   When a Secret or key is missing, the entry keeps the header and the aggregated Secret omits the key. The `Aggregated` condition stays `True` with reason `CredentialUnavailable` and a message that cites the Secret and the key.
+*   A Secret read that fails for another reason keeps the value already aggregated. The pass returns the error after writing the registry, and the reconcile retries.
 *   Rotation takes up to one operator pass plus the kubelet's Secret projection delay. No gateway pod restarts.
 
 ### 3. Gateway
@@ -161,13 +163,13 @@ Tenant and global `MCPServer` CRs follow the same rules and the same path.
 *   An introspection that ends in 401 or 403 records the reason `auth_failed` with the status code and discards the upstream's response body.
 *   An introspection with an unavailable credential records the reason `credential_unavailable`. The failure log carries the reason as a field.
 *   A `tools/call` that ends in 401 or 403 logs `auth_failed` and the status code and discards the upstream's response body.
-*   Any other error status from an upstream that was sent credentials is recorded as `upstream_status` with the status code. Any other error from such an upstream is recorded as `upstream_error`. Neither carries upstream text.
+*   Any other error status from an upstream that was sent credentials is recorded as `upstream_status` with the status code. Any other error from such an upstream is recorded as `upstream_error` with its network, DNS, TLS or deadline cause. None carries upstream response text. Each keeps the stage and server it occurred in, such as `connect upstream "exa": auth_failed: HTTP 401`.
 *   The gateway keeps the first auth failure and the first error status of each upstream session. A 405 on the MCP client's optional GET stream is not an error status.
 
 ### 4. ServiceEntries for external hosts
 
 *   The aggregator renders one ServiceEntry for each distinct host among valid `MCPServer` endpoints, named `mcp-server-<host>`, in the system namespace. Hosts are lowercased and stripped of a trailing dot first. In-cluster hosts and IP addresses are skipped by the rule the InferenceProvider ServiceEntries use. The rule covers short names, IP addresses, and names ending in `.svc`, `.pod` or `.cluster.local`.
-*   A host with a namespace name in any label after the first is skipped. It resolves to a Service or pod through the cluster search domains.
+*   A host whose last label is the name of a namespace is skipped. It resolves to a Service or pod through the cluster search domains.
 *   A host that another operator-managed ServiceEntry registers is skipped. Two entries for one host could declare clashing port protocols.
 *   Each ServiceEntry has `location: MESH_EXTERNAL`, `resolution: DNS`, `exportTo: ["."]`, the ports of every endpoint on that host, and the label `orbit.io/component: mcp-server-host`.
 *   On each pass the aggregator deletes labelled ServiceEntries whose host no valid `MCPServer` uses.

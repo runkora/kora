@@ -137,10 +137,12 @@ spec:
                           name:
                             description: The header name, e.g. Authorization or x-api-key. Letters, digits and hyphens only.
                             type: string
+                            maxLength: 64
                             pattern: '^[A-Za-z0-9-]+$'
                           prefix:
                             description: Text sent before the Secret value, e.g. "Bearer ".
                             type: string
+                            maxLength: 256
                           secretRef:
                             description: The Secret and key holding the value, in this namespace.
                             type: object
