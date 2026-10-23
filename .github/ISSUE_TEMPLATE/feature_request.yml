@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest something kora should do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Start with the problem, and add a solution if you have one in mind.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you're trying to do and what gets in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: who
+    attributes:
+      label: Who it affects
+      description: The people or teams who hit this, such as platform engineers, agent builders or security teams.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How you'd like it to work, if you have something in mind.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+      description: Anything you've tried or considered.

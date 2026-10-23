@@ -1,0 +1,32 @@
+name: Documentation
+description: A page or guide is wrong, unclear or missing something.
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for checking the docs. Reports from people following a guide on a real install are the most useful ones we get.
+  - type: input
+    id: page
+    attributes:
+      label: Page
+      description: The link on runkora.dev, or the file in `docs/`.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's wrong
+      description: The section or step, and what's wrong, unclear or missing.
+    validations:
+      required: true
+  - type: textarea
+    id: fix
+    attributes:
+      label: Suggested fix
+      description: What the page should say, if you know.
+  - type: input
+    id: version
+    attributes:
+      label: kora version
+      description: The release you were following the docs for, such as `v0.10.0`.
