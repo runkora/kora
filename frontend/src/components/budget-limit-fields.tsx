@@ -283,7 +283,7 @@ export function BudgetLimitFields({
           onToggle={(on) => onChange({ pooled: on })}
           icon="users"
           title="Shared pool"
-          desc="One pot for every member's spend, instead of a limit each"
+          desc="One pot shared between all members"
           dimWhenOff={false}
           disabled={disabled}
         />
