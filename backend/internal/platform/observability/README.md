@@ -118,7 +118,7 @@ func main() {
     logger := logging.NewLogger()
     
     // Create span
-    tracer := otel.Tracer("orbit")
+    tracer := otel.Tracer("kora")
     ctx, span := tracer.Start(ctx, "handle-request")
     defer span.End()
     

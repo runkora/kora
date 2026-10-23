@@ -10,7 +10,7 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
-const oauthCodeKeyPrefix = "orbit:oauth:code:"
+const oauthCodeKeyPrefix = "kora:oauth:code:"
 
 // ErrAuthCodeNotFound is returned when an authorization code is absent, expired,
 // or already consumed. Codes are single-use, so a second exchange returns this.
@@ -49,7 +49,7 @@ type AuthCodeRepository interface {
 }
 
 // redisAuthCodeRepository implements AuthCodeRepository using Redis, keyed under
-// orbit:oauth:code:{code}. Consume uses GETDEL so a code can never be redeemed
+// kora:oauth:code:{code}. Consume uses GETDEL so a code can never be redeemed
 // twice even under concurrent exchange attempts.
 type redisAuthCodeRepository struct {
 	client *goredis.Client

@@ -54,7 +54,7 @@ func TestNew_EnabledServesMetrics(t *testing.T) {
 	// text format — this is the actual bridge this package exists to provide.
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	meter := mp.Meter("test")
-	counter, err := meter.Int64Counter("orbit.test.widgets")
+	counter, err := meter.Int64Counter("kora.test.widgets")
 	if err != nil {
 		t.Fatalf("create counter: %v", err)
 	}
@@ -76,8 +76,8 @@ func TestNew_EnabledServesMetrics(t *testing.T) {
 		t.Fatalf("scrape status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "orbit_test_widgets_total") {
-		t.Errorf("scrape body missing orbit_test_widgets_total:\n%s", body)
+	if !strings.Contains(body, "kora_test_widgets_total") {
+		t.Errorf("scrape body missing kora_test_widgets_total:\n%s", body)
 	}
 }
 

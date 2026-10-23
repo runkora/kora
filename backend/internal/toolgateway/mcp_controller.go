@@ -63,7 +63,7 @@ func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, c
 		proxy:     proxy,
 		basePath:  basePath,
 		logger:    logger,
-		tracer:    otel.Tracer("orbit.tool-gateway"),
+		tracer:    otel.Tracer("kora.tool-gateway"),
 	}
 }
 
@@ -258,8 +258,8 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 	span.SetAttributes(
 		attribute.String("mcp.server", server),
 		attribute.String("mcp.tool", tool),
-		attribute.String("orbit.tenant_id", claims.Kora.TenantID),
-		attribute.String("orbit.principal", claims.Subject),
+		attribute.String("kora.tenant_id", claims.Kora.TenantID),
+		attribute.String("kora.principal", claims.Subject),
 	)
 
 	res, err := c.eval.Check(ctx, policy.CheckInput{

@@ -7,7 +7,7 @@ server:
   shutdownTimeoutSecs: 5
 
 observability:
-  serviceName: orbit-identity
+  serviceName: kora-identity
 
 metrics:
   enabled: true

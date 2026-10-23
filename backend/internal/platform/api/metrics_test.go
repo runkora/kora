@@ -50,9 +50,9 @@ func TestMux_MetricsMiddlewareReadsRoutePattern(t *testing.T) {
 		t.Fatalf("Collect() error = %v", err)
 	}
 
-	route := findRouteAttribute(t, rm, "orbit.testsvc.http.requests")
+	route := findRouteAttribute(t, rm, "kora.testsvc.http.requests")
 	if route == "" {
-		t.Fatal("orbit.testsvc.http.requests not recorded")
+		t.Fatal("kora.testsvc.http.requests not recorded")
 	}
 	if route == "unmatched" {
 		t.Fatal(`route recorded as "unmatched" — MetricsMiddleware ran before RoutePattern set the route on the request context`)

@@ -64,7 +64,7 @@ type LiteLLMPricingSource struct {
 func NewLiteLLMPricingSource(sourceURL string) *LiteLLMPricingSource {
 	return &LiteLLMPricingSource{
 		url:    sourceURL,
-		client: httpclient.NewHTTPClient(30*time.Second, httpclient.NewTracingTransport("orbit.litellm-pricing", nil)),
+		client: httpclient.NewHTTPClient(30*time.Second, httpclient.NewTracingTransport("kora.litellm-pricing", nil)),
 	}
 }
 

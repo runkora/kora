@@ -107,9 +107,9 @@ type HTTPNotifier struct {
 func NewHTTPNotifier(baseURL string, logger logging.Logger) *HTTPNotifier {
 	return &HTTPNotifier{
 		baseURL:         baseURL,
-		client:          httpclient.New("orbit.sessionmanager-notifier", logger, 2*time.Second),
-		lifecycleClient: httpclient.New("orbit.sessionmanager-notifier-lifecycle", logger, 15*time.Second),
-		sandboxClient:   httpclient.New("orbit.sessionmanager-notifier-sandbox", logger, 720*time.Second),
+		client:          httpclient.New("kora.sessionmanager-notifier", logger, 2*time.Second),
+		lifecycleClient: httpclient.New("kora.sessionmanager-notifier-lifecycle", logger, 15*time.Second),
+		sandboxClient:   httpclient.New("kora.sessionmanager-notifier-sandbox", logger, 720*time.Second),
 	}
 }
 

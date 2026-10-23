@@ -10,7 +10,7 @@ server:
   shutdownTimeoutSecs: 10
 
 observability:
-  serviceName: orbit-inference-gateway
+  serviceName: kora-inference-gateway
 
 metrics:
   enabled: true

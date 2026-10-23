@@ -7,13 +7,13 @@ server:
   shutdownTimeoutSecs: 30
 
 observability:
-  serviceName: orbit-session-manager
+  serviceName: kora-session-manager
 
 workspaces:
   basePath: /workspaces
 
 # kora-agents overrides this with KORA_AGENTS_URL from its system namespace.
-orbitAgents:
+koraAgents:
   url: "http://kora-agents.kora-system.svc.cluster.local"
 
 # Settings shared by every agent framework.

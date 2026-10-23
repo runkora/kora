@@ -18,7 +18,7 @@ const maxScopesPerPAT = 100
 
 // handleCreatePAT handles POST /identity/tokens.
 // Issues a new Personal Access Token for the authenticated caller.
-// The raw token (prefixed with "orb_") is returned exactly once.
+// The raw token (prefixed with "kora_") is returned exactly once.
 func (c *Controller) handleCreatePAT(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 

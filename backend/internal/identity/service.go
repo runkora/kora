@@ -169,7 +169,7 @@ func NewService(
 		policyEval:    policyEval,
 		extractor:     extractor,
 		logger:        logger,
-		tracer:        otel.Tracer("orbit.identity"),
+		tracer:        otel.Tracer("kora.identity"),
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		oidcTenants:   make(map[string]*tenantOIDCState),
 		clientSecrets: make(map[string]string),

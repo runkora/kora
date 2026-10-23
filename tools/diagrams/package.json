@@ -1,5 +1,5 @@
 {
-  "name": "orbit-diagrams",
+  "name": "kora-diagrams",
   "private": true,
   "type": "module",
   "description": "Excalidraw source -> SVG export pipeline for architecture diagrams",

@@ -33,7 +33,7 @@ func (c *PostgresConfig) BuildPoolConfig() (*pgxpool.Config, error) {
 	}
 
 	poolConfig.ConnConfig.Tracer = &otelQueryTracer{
-		tracer:           otel.Tracer("orbit.database"),
+		tracer:           otel.Tracer("kora.database"),
 		captureQueryText: c.CaptureQueryText,
 	}
 

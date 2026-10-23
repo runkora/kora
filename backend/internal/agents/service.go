@@ -10,7 +10,7 @@ import (
 )
 
 // agentsTracer is the package-level OpenTelemetry tracer used by both services.
-var agentsTracer = otel.Tracer("orbit.agents")
+var agentsTracer = otel.Tracer("kora.agents")
 
 // k8sProvisioner abstracts K8sProvisioner so it can be replaced in tests.
 type k8sProvisioner interface {

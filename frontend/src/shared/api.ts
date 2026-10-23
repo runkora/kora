@@ -5,7 +5,7 @@
 
 export interface HealthResponse {
   status: string;
-  /** Human-readable service name, e.g. "orbit-identity". */
+  /** Human-readable service name, e.g. "kora-identity". */
   service: string;
   timestamp: string;
 }
@@ -118,14 +118,14 @@ export interface CreatePATRequest {
 }
 
 /**
- * Response from POST /tokens — includes the raw `orb_<jwt>` token.
+ * Response from POST /tokens — includes the raw `kora_<jwt>` token.
  * This is the only time the token is returned; it cannot be retrieved again.
  * Mirrors Go: identity.CreatePATResponse
  */
 export interface CreatePATResponse {
   id: string;
   name: string;
-  /** Raw PAT string (`orb_<jwt>`). Store it securely — shown once only. */
+  /** Raw PAT string (`kora_<jwt>`). Store it securely — shown once only. */
   token: string;
   scopes: string[];
   expires_at: string;

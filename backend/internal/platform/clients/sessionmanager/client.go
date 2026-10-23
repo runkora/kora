@@ -33,7 +33,7 @@ import (
 const ErrCodeSandboxUnschedulable = "sandbox_unschedulable"
 
 const (
-	tracerName    = "orbit.sessionmanager-client"
+	tracerName    = "kora.sessionmanager-client"
 	clientTimeout = 30 * time.Second
 	podPort       = 8090
 )

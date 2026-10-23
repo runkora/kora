@@ -172,7 +172,7 @@ For long-running operations or complex workflows:
 
 ```go
 func ProcessAgentRequest(ctx context.Context, req *AgentRequest) error {
-    tracer := otel.Tracer("orbit")
+    tracer := otel.Tracer("kora")
     
     // Create child span
     ctx, span := tracer.Start(ctx, "process_agent_request")

@@ -274,7 +274,7 @@ func NewServer(
 		exchanger:  exchanger,
 		refresher:  refresher,
 		logger:     logger,
-		tracer:     otel.Tracer("orbit.identity-proxy"),
+		tracer:     otel.Tracer("kora.identity-proxy"),
 		cfg:        cfg,
 		envoyReady: envoyReady,
 	}

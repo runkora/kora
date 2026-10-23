@@ -66,13 +66,13 @@ func (c *Controller) GroupedBy() string { return "" }
 // Execution order:
 //
 //	xAPIKeyMiddleware                 — promotes x-api-key to Authorization: Bearer
-//	orbCredentialMiddleware           — strips orb_ prefix from bearer value
+//	koraCredentialMiddleware           — strips kora_ prefix from bearer value
 //	AuthMiddleware                    — verifies JWT, stores claims in context
 //	DelegationMiddlewareWithBlocklist — extracts X-Kora-Delegation-Token, stores in context
 func (c *Controller) Middleware() mw.MiddlewareHandler {
 	return mw.MiddlewareChain(
 		xAPIKeyMiddleware(),
-		orbCredentialMiddleware(),
+		koraCredentialMiddleware(),
 		mw.AuthMiddleware(c.verifier, c.logger),
 		mw.DelegationMiddlewareWithBlocklist(c.logger, c.verifier, c.blocklist),
 		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),

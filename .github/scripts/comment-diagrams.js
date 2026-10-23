@@ -2,7 +2,7 @@
 // linking to its rendered SVG. Called from docs-ci.yml via actions/github-script;
 // receives that action's { github, context } and reads CHANGED_DIAGRAMS from env.
 module.exports = async ({ github, context }) => {
-  const marker = '<!-- orbit-diagram-preview -->'
+  const marker = '<!-- kora-diagram-preview -->'
   const sha = context.payload.pull_request.head.sha
   const repo = `${context.repo.owner}/${context.repo.repo}`
   const sources = (process.env.CHANGED_DIAGRAMS || '')

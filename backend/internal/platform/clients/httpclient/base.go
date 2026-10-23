@@ -20,7 +20,7 @@
 //
 //	func NewClient(baseURL string, logger logging.Logger) *Client {
 //	    return &Client{
-//	        Base:    httpclient.New("orbit.my-service-client", logger, 10*time.Second),
+//	        Base:    httpclient.New("kora.my-service-client", logger, 10*time.Second),
 //	        baseURL: baseURL,
 //	    }
 //	}
@@ -50,12 +50,12 @@
 //
 //	// SDK handles auth; tracing transport wraps http.DefaultTransport:
 //	httpclient.NewHTTPClient(30*time.Second,
-//	    httpclient.NewTracingTransport("orbit.bedrock-anthropic", nil),
+//	    httpclient.NewTracingTransport("kora.bedrock-anthropic", nil),
 //	)
 //
 //	// Tracing transport wraps a custom auth transport (e.g. SigV4):
 //	httpclient.NewHTTPClient(30*time.Second,
-//	    httpclient.NewTracingTransport("orbit.bedrock-openai", sigV4Transport),
+//	    httpclient.NewTracingTransport("kora.bedrock-openai", sigV4Transport),
 //	)
 //
 // NewTracingTransport provides the same per-call OTel coverage as Base.Do:
@@ -110,7 +110,7 @@ type Base struct {
 // New constructs a Base with a configured HTTP client, tracer, and logger.
 //
 // tracerName should uniquely identify the consuming client,
-// e.g. "orbit.identity-client". It appears as the instrumentation scope name
+// e.g. "kora.identity-client". It appears as the instrumentation scope name
 // in OTel traces.
 //
 // timeout is applied to every outbound HTTP call made via Do.

@@ -67,9 +67,9 @@ func TestMetricsMiddleware_RecordsRequest(t *testing.T) {
 		t.Fatalf("Collect() error = %v", err)
 	}
 
-	count, ok := collectCounter(t, rm, "orbit.testsvc.http.requests")
+	count, ok := collectCounter(t, rm, "kora.testsvc.http.requests")
 	if !ok {
-		t.Fatal("orbit.testsvc.http.requests not recorded")
+		t.Fatal("kora.testsvc.http.requests not recorded")
 	}
 	if count != 1 {
 		t.Errorf("request count = %d, want 1", count)
@@ -78,17 +78,17 @@ func TestMetricsMiddleware_RecordsRequest(t *testing.T) {
 	var histogram *metricdata.Histogram[float64]
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
-			if m.Name == "orbit.testsvc.http.request.duration" {
+			if m.Name == "kora.testsvc.http.request.duration" {
 				h, ok := m.Data.(metricdata.Histogram[float64])
 				if !ok {
-					t.Fatalf("orbit.testsvc.http.request.duration is not a Histogram[float64]: %T", m.Data)
+					t.Fatalf("kora.testsvc.http.request.duration is not a Histogram[float64]: %T", m.Data)
 				}
 				histogram = &h
 			}
 		}
 	}
 	if histogram == nil {
-		t.Fatal("orbit.testsvc.http.request.duration not recorded")
+		t.Fatal("kora.testsvc.http.request.duration not recorded")
 	}
 	if len(histogram.DataPoints) != 1 {
 		t.Fatalf("duration data points = %d, want 1", len(histogram.DataPoints))
@@ -127,7 +127,7 @@ func TestMetricsMiddleware_DefaultsRouteWhenUnmatched(t *testing.T) {
 	if err := reader.Collect(context.Background(), &rm); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	if _, ok := collectCounter(t, rm, "orbit.testsvc.http.requests"); !ok {
-		t.Fatal("orbit.testsvc.http.requests not recorded for unmatched route")
+	if _, ok := collectCounter(t, rm, "kora.testsvc.http.requests"); !ok {
+		t.Fatal("kora.testsvc.http.requests not recorded for unmatched route")
 	}
 }

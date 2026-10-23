@@ -39,8 +39,8 @@ func TestCreatePAT_Success(t *testing.T) {
 	if resp.Name != "ci-token" {
 		t.Errorf("name: got %q, want %q", resp.Name, "ci-token")
 	}
-	if len(resp.Token) < 4 || resp.Token[:4] != "orb_" {
-		t.Errorf("token should be prefixed with orb_, got %q", resp.Token[:min(10, len(resp.Token))])
+	if len(resp.Token) < len(PatTokenPrefix) || resp.Token[:len(PatTokenPrefix)] != PatTokenPrefix {
+		t.Errorf("token should be prefixed with kora_, got %q", resp.Token[:min(10, len(resp.Token))])
 	}
 	if resp.ExpiresAt == "" {
 		t.Error("expected non-empty expires_at")

@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	tracerName    = "orbit.identity-client"
+	tracerName    = "kora.identity-client"
 	clientTimeout = 10 * time.Second
 )
 

@@ -43,10 +43,10 @@ export const Options: Story = {
     <div className="max-w-5xl">
       <OptionTable title="Options" note="Every sample is live.">
         <Option name="label" use="Names the button for screen readers. Say what is being copied.">
-          <CopyButton value="orb_example" label="Copy API key" />
+          <CopyButton value="kora_example" label="Copy API key" />
         </Option>
         <Option name="default label" use="Without a label the button is named 'Copy to clipboard'.">
-          <CopyButton value="orb_example" />
+          <CopyButton value="kora_example" />
         </Option>
       </OptionTable>
     </div>

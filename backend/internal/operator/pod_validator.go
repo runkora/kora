@@ -40,7 +40,7 @@ func (v *PodValidator) Handle(ctx context.Context, req admission.Request) admiss
 	if reason := v.rejectionReason(pod, ns); reason != "" {
 		return admission.Denied(reason)
 	}
-	return admission.Allowed("orbit enforcement attached")
+	return admission.Allowed("kora enforcement attached")
 }
 
 // rejectionReason returns why the pod must not run, or "" when it may.

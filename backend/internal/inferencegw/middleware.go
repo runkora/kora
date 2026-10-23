@@ -14,14 +14,14 @@ import (
 // x-api-key header. This middleware normalises it to the standard Authorization
 // header so AuthMiddleware can verify it without any special-casing.
 //
-// It is registered at the controller level, before orbCredentialMiddleware in
+// It is registered at the controller level, before koraCredentialMiddleware in
 // the chain, so it runs first on every request. For OpenAI-dialect callers
 // (and any request that already carries an Authorization header) it is a
 // trivial no-op.
 //
 // Execution order:
 //
-//	xAPIKeyMiddleware → orbCredentialMiddleware → AuthMiddleware → handler
+//	xAPIKeyMiddleware → koraCredentialMiddleware → AuthMiddleware → handler
 func xAPIKeyMiddleware() mw.Middleware {
 	return mw.NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -36,10 +36,10 @@ func xAPIKeyMiddleware() mw.Middleware {
 	})
 }
 
-// orbCredentialMiddleware strips the "orb_" prefix from the Authorization
+// koraCredentialMiddleware strips the "kora_" prefix from the Authorization
 // header bearer value when present.
 //
-// PATs are returned from the API as "orb_<jwt>" for visual identification and
+// PATs are returned from the API as "kora_<jwt>" for visual identification and
 // secret-scanning compatibility (docs/adr/2026-04-02-personal-access-tokens.md). This middleware removes the prefix
 // so the raw JWT reaches AuthMiddleware unchanged, regardless of whether the
 // credential arrived via x-api-key (after xAPIKeyMiddleware promotion) or
@@ -50,13 +50,13 @@ func xAPIKeyMiddleware() mw.Middleware {
 //
 // Execution order:
 //
-//	xAPIKeyMiddleware → orbCredentialMiddleware → AuthMiddleware → handler
-func orbCredentialMiddleware() mw.Middleware {
+//	xAPIKeyMiddleware → koraCredentialMiddleware → AuthMiddleware → handler
+func koraCredentialMiddleware() mw.Middleware {
 	return mw.NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer orb_") {
+			if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer kora_") {
 				r = r.Clone(r.Context())
-				r.Header.Set("Authorization", "Bearer "+strings.TrimPrefix(auth, "Bearer orb_"))
+				r.Header.Set("Authorization", "Bearer "+strings.TrimPrefix(auth, "Bearer kora_"))
 			}
 			next.ServeHTTP(w, r)
 		})

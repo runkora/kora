@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	summarizerTracerName = "orbit.run-summarizer"
+	summarizerTracerName = "kora.run-summarizer"
 	summarizerTimeout    = 15 * time.Second
 	summaryMaxTokens     = 60
 	// summaryThinkingMaxTokens is the limit when the request may let the model

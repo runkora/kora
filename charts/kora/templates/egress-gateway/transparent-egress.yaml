@@ -16,7 +16,7 @@
 #     │  tcp_proxy tunneling_config wraps the raw bytes in a GENERATED
 #     │  CONNECT example.com:443 and sends it to the internal listener.
 #     ▼
-#   internal listener orbit_egress_encap (patch 1): an HCM that runs the SAME
+#   internal listener kora_egress_encap (patch 1): an HCM that runs the SAME
 #   two filters the explicit-proxy path already used:
 #     │  ext_proc  → identity-proxy stamps Authorization: Bearer <platform JWT>
 #     │  ext_authz → OPA evaluates egress:<host>:connect posture (fail-closed)
@@ -72,18 +72,18 @@ spec:
       patch:
         operation: ADD
         value:
-          name: orbit_egress_encap
+          name: kora_egress_encap
           internal_listener: {}
           filter_chains:
             - filters:
                 - name: envoy.filters.network.http_connection_manager
                   typed_config:
                     "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-                    stat_prefix: orbit_egress_encap
+                    stat_prefix: kora_egress_encap
                     upgrade_configs:
                       - upgrade_type: CONNECT
                     route_config:
-                      name: orbit_egress_encap
+                      name: kora_egress_encap
                       virtual_hosts:
                         - name: encap
                           domains: ["*"]
@@ -132,16 +132,16 @@ spec:
       patch:
         operation: ADD
         value:
-          name: orbit_egress_encap_cluster
+          name: kora_egress_encap_cluster
           connect_timeout: 5s
           load_assignment:
-            cluster_name: orbit_egress_encap_cluster
+            cluster_name: kora_egress_encap_cluster
             endpoints:
               - lb_endpoints:
                   - endpoint:
                       address:
                         envoy_internal_address:
-                          server_listener_name: orbit_egress_encap
+                          server_listener_name: kora_egress_encap
     # 3) tls_inspector on the catch-all :443 listener → SNI (REQUESTED_SERVER_NAME)
     #    is available to use as the generated CONNECT host.
     - applyTo: LISTENER_FILTER
@@ -171,8 +171,8 @@ spec:
             - name: envoy.filters.network.tcp_proxy
               typed_config:
                 "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
-                stat_prefix: orbit_egress_tunnel
-                cluster: orbit_egress_encap_cluster
+                stat_prefix: kora_egress_tunnel
+                cluster: kora_egress_encap_cluster
                 tunneling_config:
                   hostname: "%REQUESTED_SERVER_NAME%:443"
     # 5) Catch-all for every other TCP port. Istio's virtualOutbound listener
@@ -198,8 +198,8 @@ spec:
           name: envoy.filters.network.tcp_proxy
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
-            stat_prefix: orbit_egress_catchall
-            cluster: orbit_egress_encap_cluster
+            stat_prefix: kora_egress_catchall
+            cluster: kora_egress_encap_cluster
             tunneling_config:
               hostname: "%DOWNSTREAM_LOCAL_ADDRESS%"
 {{- end }}

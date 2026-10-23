@@ -17,4 +17,4 @@ proxy:
   delegationNegativeTTLSecs: 300
 
 observability:
-  serviceName: orbit-identity-proxy
+  serviceName: kora-identity-proxy

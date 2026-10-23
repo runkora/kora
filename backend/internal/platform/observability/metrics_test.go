@@ -25,7 +25,7 @@ func TestSetupMetrics_NoReaders(t *testing.T) {
 	}
 	defer shutdown(context.Background())
 
-	if _, err := meter.Int64Counter("orbit.test.noop"); err != nil {
+	if _, err := meter.Int64Counter("kora.test.noop"); err != nil {
 		t.Errorf("building an instrument on a no-reader meter should not error: %v", err)
 	}
 }
@@ -46,7 +46,7 @@ func TestSetupMetrics_ExtraReader(t *testing.T) {
 	}
 	defer shutdown(context.Background())
 
-	counter, err := meter.Int64Counter("orbit.test.widgets")
+	counter, err := meter.Int64Counter("kora.test.widgets")
 	if err != nil {
 		t.Fatalf("create counter: %v", err)
 	}

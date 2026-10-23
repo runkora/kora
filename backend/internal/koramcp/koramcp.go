@@ -69,12 +69,12 @@ func addTool[In any](srv *sdk.Server, name, desc string, h func(context.Context,
 func addEnumTool[In any](srv *sdk.Server, name, desc string, enums map[string][]any, h func(context.Context, In) (*sdk.CallToolResult, error)) {
 	schema, err := jsonschema.For[In](nil)
 	if err != nil {
-		panic(fmt.Sprintf("orbitmcp: build schema for tool %q: %v", name, err))
+		panic(fmt.Sprintf("koramcp: build schema for tool %q: %v", name, err))
 	}
 	for field, vals := range enums {
 		p, ok := schema.Properties[field]
 		if !ok {
-			panic(fmt.Sprintf("orbitmcp: tool %q has no field %q to constrain with an enum", name, field))
+			panic(fmt.Sprintf("koramcp: tool %q has no field %q to constrain with an enum", name, field))
 		}
 		p.Enum = vals
 	}

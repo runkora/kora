@@ -43,7 +43,7 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]string{
 		"status":  "healthy",
-		"service": "orbit-example",
+		"service": "kora-example",
 	})
 }
 

@@ -789,7 +789,7 @@ func claudeTelemetryEnv(ctx context.Context, endpoint, runID, tenantID string) [
 		// ANTHROPIC_BASE_URL points at the inference gateway, and Claude Code
 		// only sends traceparent to a non-Anthropic base URL when told to.
 		"CLAUDE_CODE_PROPAGATE_TRACEPARENT=1",
-		"OTEL_RESOURCE_ATTRIBUTES=orbit.run_id=" + runID + ",orbit.tenant_id=" + tenantID,
+		"OTEL_RESOURCE_ATTRIBUTES=kora.run_id=" + runID + ",kora.tenant_id=" + tenantID,
 	}
 	carrier := propagation.MapCarrier{}
 	propagation.TraceContext{}.Inject(ctx, carrier)

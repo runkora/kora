@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	tracerName    = "orbit.github-client"
+	tracerName    = "kora.github-client"
 	clientTimeout = 10 * time.Second
 
 	// DefaultBaseURL is GitHub.com's REST API root. GitHub Enterprise Server

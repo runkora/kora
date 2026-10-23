@@ -11,7 +11,7 @@ import (
 // sole writer for platform-token revocation; delegation revocation writes the
 // delegation JTI under the same namespace), so any service holding a Redis
 // client can check revocation with a shared JTIBlocklist.
-const jtiBlocklistKeyPrefix = "orbit:jti:blocklist:"
+const jtiBlocklistKeyPrefix = "kora:jti:blocklist:"
 
 // JTIBlocklist is the Redis-backed revoked-JTI set shared across services.
 // Entries carry a TTL equal to the token's maximum remaining lifetime so the
