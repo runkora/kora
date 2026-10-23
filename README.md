@@ -3,7 +3,7 @@
   <img src=".github/assets/banner-light.svg" alt="runkora: The open source control plane for running agent factories in production." width="100%">
 </picture>
 
-[![Release](https://img.shields.io/github/v/release/runkora/kora?include_prereleases&sort=semver&label=release&labelColor=17191C&color=4D6B80)](https://github.com/runkora/kora/releases) [![CI](https://img.shields.io/github/actions/workflow/status/runkora/kora/ci.yml?branch=main&label=CI&labelColor=17191C)](https://github.com/runkora/kora/actions/workflows/ci.yml) [![CodeQL](https://img.shields.io/github/actions/workflow/status/runkora/kora/codeql.yml?branch=main&label=CodeQL&labelColor=17191C)](https://github.com/runkora/kora/actions/workflows/codeql.yml) [![License](https://img.shields.io/badge/license-Apache%202.0-4D6B80?labelColor=17191C)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/runkora/kora?include_prereleases&sort=semver&label=release&labelColor=17191C&color=4D6B80)](https://github.com/runkora/kora/releases) [![CI](https://img.shields.io/github/actions/workflow/status/runkora/kora/ci.yml?branch=main&label=CI&labelColor=17191C)](https://github.com/runkora/kora/actions/workflows/ci.yml) [![CodeQL](https://img.shields.io/github/actions/workflow/status/runkora/kora/codeql.yml?branch=main&label=CodeQL&labelColor=17191C)](https://github.com/runkora/kora/actions/workflows/codeql.yml) [![License](https://img.shields.io/badge/license-Apache%202.0-4D6B80?labelColor=17191C)](LICENSE) [![Discord](https://img.shields.io/discord/1544486672476016723?label=discord&labelColor=17191C&color=4D6B80)](https://runkora.io/discord)
 
 kora is an open source control plane for running agent factories in production. An agent on a laptop runs with its developer's credentials and leaves no audit trail of what it did. kora makes those agents safe to run at scale.
 
@@ -21,10 +21,15 @@ kora is not an agent framework, a model router, or an LLM wrapper. It runs the a
 
 ## Documentation
 
+- [Website](https://runkora.io): What kora is and who it's for.
 - [Concepts](docs/concepts/runs-and-sessions.md): Runs, sandboxes, identity and connectivity.
 - [Architecture](ARCHITECTURE.md): How kora works.
 - [Docs](https://runkora.dev): Comprehensive platform documentation.
 - [Contributing](CONTRIBUTING.md): Start here if you want to contribute.
+
+## Community
+
+Ask questions, get help and show what you've built on [Discord](https://runkora.io/discord). Report bugs and request features in [GitHub issues](https://github.com/runkora/kora/issues).
 
 ## Security
 
