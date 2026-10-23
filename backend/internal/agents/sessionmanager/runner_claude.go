@@ -22,7 +22,7 @@ type ClaudeRunnerConfig struct {
 	// BinaryPath is the path to the claude binary. Defaults to "claude".
 	BinaryPath string
 
-	// WrapperPath is the path to orbit-session-runner. When set, the subprocess
+	// WrapperPath is the path to kora-session-runner. When set, the subprocess
 	// is invoked as: WrapperPath <workDir> <BinaryPath> [args...]
 	// which applies Landlock filesystem restrictions before exec'ing claude.
 	// When empty, BinaryPath is invoked directly (no filesystem restriction).
@@ -44,7 +44,7 @@ type ClaudeRunnerConfig struct {
 	Bare bool
 
 	// SessionManagerURL is the base URL of this session-manager, passed to
-	// orbit-runtime-mcp so it can call back for provision_sandbox requests.
+	// kora-runtime-mcp so it can call back for provision_sandbox requests.
 	// Always http://localhost:{port} since they run in the same pod.
 	SessionManagerURL string
 
@@ -58,7 +58,7 @@ type ClaudeRunnerConfig struct {
 	// governed endpoint (/v1/mcp/<server>) is written per entry.
 	MCPServers []string
 
-	// RunID is the run identifier for this session, passed to orbit-runtime-mcp.
+	// RunID is the run identifier for this session, passed to kora-runtime-mcp.
 	RunID string
 
 	// ResumeSessionID, when non-empty, passes --resume <id> to Claude Code so
@@ -150,7 +150,7 @@ func (r *ClaudeRunner) buildFlags() []string {
 // buildExecCommand returns the command and arguments to use when starting the
 // subprocess. When WrapperPath is set the wrapper is invoked as:
 //
-//	orbit-session-runner <workDir> <claude> [claude-args...]
+//	kora-session-runner <workDir> <claude> [claude-args...]
 //
 // so it can apply Landlock before exec'ing claude. Without a wrapper, claude
 // is invoked directly (used in tests and local macOS dev).
@@ -291,7 +291,7 @@ func (r *ClaudeRunner) writeMCPConfig(workDir string) (string, error) {
 	mcpServers := map[string]any{
 		"runtime": map[string]any{
 			"type":    "stdio",
-			"command": "orbit-runtime-mcp",
+			"command": "kora-runtime-mcp",
 			"args":    []string{},
 			"env": map[string]string{
 				"ORBIT_SESSION_MANAGER_URL": r.cfg.SessionManagerURL,

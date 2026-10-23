@@ -12,7 +12,7 @@ import (
 )
 
 // The internal service-token endpoint exists so that a platform component which
-// starts work on behalf of a tenant principal — today only orbit-triggers — can
+// starts work on behalf of a tenant principal — today only kora-triggers — can
 // obtain that principal's short-lived token without holding any signing key.
 // identity remains the sole token authority.
 //

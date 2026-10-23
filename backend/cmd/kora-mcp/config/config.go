@@ -1,4 +1,4 @@
-// Package koraMCPConfig holds the configuration for the orbit-mcp binary.
+// Package koraMCPConfig holds the configuration for the kora-mcp binary.
 package koraMCPConfig
 
 import (
@@ -8,9 +8,9 @@ import (
 	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 )
 
-// Config holds orbit-mcp configuration. Loaded from:
-//  1. cmd/orbit-mcp/config/base.yaml      — service defaults
-//  2. cmd/orbit-mcp/config/{env}.yaml     — env overrides (optional)
+// Config holds kora-mcp configuration. Loaded from:
+//  1. cmd/kora-mcp/config/base.yaml      — service defaults
+//  2. cmd/kora-mcp/config/{env}.yaml     — env overrides (optional)
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`
@@ -43,5 +43,5 @@ func (c *Config) ShutdownTimeout() time.Duration {
 	return time.Duration(c.Server.ShutdownTimeoutSecs) * time.Second
 }
 
-// Current holds non-secret configuration for orbit-mcp.
-var Current = config.MustLoadService[Config]("cmd/orbit-mcp", config.Environment())
+// Current holds non-secret configuration for kora-mcp.
+var Current = config.MustLoadService[Config]("cmd/kora-mcp", config.Environment())

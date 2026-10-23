@@ -183,7 +183,7 @@ func TestAutoPause_SuccessResetsTheCount(t *testing.T) {
 }
 
 // A platform fault is not the trigger's fault, and none of its forms may move a
-// trigger toward auto-pause: orbit-agents erroring (5xx) or unreachable (a raw
+// trigger toward auto-pause: kora-agents erroring (5xx) or unreachable (a raw
 // transport error), a dispatch that timed out, shutdown cancelling the call, or
 // a token the identity service could not mint. Each fails every trigger in the
 // tenant at once, so counting any of them would turn a transient blip into an

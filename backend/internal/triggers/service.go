@@ -17,7 +17,7 @@ import (
 
 const (
 	// sourceTokenTTL bounds the JIT SERVICE token minted to start a run. It only
-	// needs to outlive a single StartRun call to orbit-agents.
+	// needs to outlive a single StartRun call to kora-agents.
 	sourceTokenTTL = 2 * time.Minute
 	// dispatchTimeout bounds the detached background dispatch of a delivery.
 	dispatchTimeout = 60 * time.Second
@@ -35,8 +35,8 @@ const (
 // it would have made the per-agent narrowing in triggerRunScopes decorative, and
 // a leaked source token could start any agent in the tenant. The route scope on
 // POST /api/v1/runs is authenticated-only for exactly this reason (see
-// cmd/orbit-agents/main.go agentRoutes); the authoritative check is
-// orbit-agents' own per-slug Authz.checkRun.
+// cmd/kora-agents/main.go agentRoutes); the authoritative check is
+// kora-agents' own per-slug Authz.checkRun.
 var sourceRunScopes = []string{"agents:types:read"}
 
 // triggerRunScopes are the per-agent run scopes a source/trigger principal needs

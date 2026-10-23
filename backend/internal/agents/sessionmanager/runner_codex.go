@@ -27,17 +27,17 @@ type CodexRunnerConfig struct {
 	// BinaryPath is the path to the codex binary. Defaults to "codex".
 	BinaryPath string
 
-	// WrapperPath is the path to orbit-session-runner. When set, codex is invoked
+	// WrapperPath is the path to kora-session-runner. When set, codex is invoked
 	// as: WrapperPath <workDir> <BinaryPath> [args...] so Landlock and a PID
 	// namespace are applied first. Empty invokes codex directly, with no
 	// filesystem restriction (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 	WrapperPath string
 
 	// ExtraEnv is appended to the subprocess environment (WORKSPACE and the
-	// orbit-shell callback variables).
+	// kora-shell callback variables).
 	ExtraEnv []string
 
-	// SessionManagerURL is where orbit-runtime-mcp calls back to provision a
+	// SessionManagerURL is where kora-runtime-mcp calls back to provision a
 	// sandbox. Always http://localhost:{port}, since it runs in this pod.
 	SessionManagerURL string
 
@@ -389,7 +389,7 @@ func (r *CodexRunner) mcpServersTOML() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, `
 [mcp_servers.runtime]
-command = "orbit-runtime-mcp"
+command = "kora-runtime-mcp"
 args    = []
 default_tools_approval_mode = "approve"
 # Codex starts MCP servers with a filtered env; the run token proves the run on /internal calls.
@@ -1103,9 +1103,9 @@ trust_level = "trusted"
 
 # Codex's unified exec runs a persistent shell session and sends it a startup
 # script that names its resolved shell by path, which is meaningless once
-# orbit-shell forwards the command into the sandbox container. The legacy shell
+# kora-shell forwards the command into the sandbox container. The legacy shell
 # tool sends one self-contained command per call, which is the same shape Claude
-# Code uses and the shape orbit-shell implements
+# Code uses and the shape kora-shell implements
 # (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 [features]
 shell_tool = true

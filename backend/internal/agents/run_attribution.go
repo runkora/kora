@@ -37,7 +37,7 @@ var ErrTriggerAttributionIncomplete = errors.New("trigger attribution requires a
 
 // Principal-id prefixes the triggers feature mints its SERVICE principals under
 // (internal/triggers/service.go). They are the wire contract this package checks
-// attribution against: orbit-agents never reads the triggers database, so the
+// attribution against: kora-agents never reads the triggers database, so the
 // shape of the caller's own principal id is the only evidence available here
 // without a cross-feature lookup.
 const (
@@ -92,7 +92,7 @@ func (s *RunService) authorizeAttribution(ctx context.Context, span trace.Span, 
 //
 // Residual, stated rather than hidden: a webhook source principal could name a
 // sibling trigger id in its own tenant. Closing that needs a triggers-database
-// lookup from orbit-agents, which the feature boundary deliberately forbids;
+// lookup from kora-agents, which the feature boundary deliberately forbids;
 // the alternative is a trigger id stamped into the minted token's claims, which
 // is the durable fix (see the ADR's Future Work).
 func authorizeTriggerAttribution(ctx context.Context, req StartRunRequest) (*StartedByTrigger, error) {

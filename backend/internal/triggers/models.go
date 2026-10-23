@@ -4,7 +4,7 @@
 // docs/adr/2026-06-20-extended-trigger-types.md and the original
 // docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md.
 //
-// The package is hosted by the orbit-triggers binary, deliberately separate from
+// The package is hosted by the kora-triggers binary, deliberately separate from
 // identity: webhook ingestion is the one unauthenticated, internet-reachable
 // surface in the platform, and it should not share a process with the service
 // that mints every token. It is a self-contained feature package: it never
@@ -395,7 +395,7 @@ type Trigger struct {
 	MaxQueueDepth int16  `json:"max_queue_depth"`
 
 	// ─── Delivery safety ────────────────────────────────────────────────────
-	// TimeoutSeconds bounds the start request, which returns once orbit-agents
+	// TimeoutSeconds bounds the start request, which returns once kora-agents
 	// has queued the run. A long-running agent is not a failure.
 	TimeoutSeconds   int16 `json:"timeout_seconds"`
 	DedupeEnabled    bool  `json:"dedupe_enabled"`
@@ -829,7 +829,7 @@ func (e *InputValidationError) Is(target error) bool { return target == ErrValid
 // errors.Is without reaching for the concrete type.
 var ErrValidationFailed = errors.New("input validation failed")
 
-// dispatchTimeout is how long this trigger's start request may take. orbit-agents
+// dispatchTimeout is how long this trigger's start request may take. kora-agents
 // queues the run and answers at once. Falls back to the package default for
 // triggers created before the setting existed.
 func (t Trigger) dispatchTimeout() time.Duration {

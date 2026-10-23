@@ -189,7 +189,7 @@ func TestHTTPNotifier_ProvisionSandbox_NoAheadQuery(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if sandbox.CanaryHost != "pypi.org" {
-		t.Errorf("canary host = %q, want the one orbit-agents chose", sandbox.CanaryHost)
+		t.Errorf("canary host = %q, want the one kora-agents chose", sandbox.CanaryHost)
 	}
 	if gotQuery != "" {
 		t.Errorf("query = %q, want none", gotQuery)
@@ -201,7 +201,7 @@ func TestHTTPNotifier_ProvisionSandbox_NoAheadQuery(t *testing.T) {
 
 // GetSandbox must tell "this run has no sandbox" (404) apart from a failed
 // lookup. Collapsing them sends the agent's command to a local shell whenever
-// orbit-agents is briefly unreachable.
+// kora-agents is briefly unreachable.
 func TestHTTPNotifier_GetSandbox(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -243,7 +243,7 @@ func TestHTTPNotifier_GetSandbox(t *testing.T) {
 	}
 }
 
-// Only orbit-agents' own 404 means "this run has no sandbox". A stale route
+// Only kora-agents' own 404 means "this run has no sandbox". A stale route
 // during a rolling deploy answers 404 too, and reading that as no sandbox
 // hands the agent a local shell.
 func TestHTTPNotifier_GetSandbox_UnlabelledNotFoundIsAnError(t *testing.T) {

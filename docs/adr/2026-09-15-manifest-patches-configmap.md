@@ -258,7 +258,7 @@ Fields absent from both objects are equal, so a patch may add volumes, container
 
 ### Loading at startup
 
-`backend/cmd/orbit-agents/main.go` reads patches from `ORBIT_MANIFEST_PATCH_DIR` (default `/etc/orbit/manifest-patches`), then renders every patchable resource, sandbox Pod included, for a stand-in agent type. A patch that fails to load or apply, or that changes a protected field, fails the pod at boot. A patch scoped by name or label to a real agent type is a no-op in that pass and is checked again when it applies at provision time. The provisioner config is built by one function shared by the server and the render mode, so both see the same images, pull secrets, trust domain and ports.
+`backend/cmd/kora-agents/main.go` reads patches from `ORBIT_MANIFEST_PATCH_DIR` (default `/etc/orbit/manifest-patches`), then renders every patchable resource, sandbox Pod included, for a stand-in agent type. A patch that fails to load or apply, or that changes a protected field, fails the pod at boot. A patch scoped by name or label to a real agent type is a no-op in that pass and is checked again when it applies at provision time. The provisioner config is built by one function shared by the server and the render mode, so both see the same images, pull secrets, trust domain and ports.
 
 orbit-agents logs a warning for every `ORBIT_MANIFEST__*` env var it finds, since those are ignored.
 

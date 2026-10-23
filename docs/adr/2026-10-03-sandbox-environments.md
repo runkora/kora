@@ -203,9 +203,9 @@ None at this time.
 *   `backend/Dockerfile.sandbox-exec`, `docker-bake.hcl` and `Makefile`: the `kora-sandbox-base` image.
 *   `charts/orbit-crds/templates/crd-sandboximage.yaml` and `backend/internal/platform/sandboximages/v1alpha1/`: the `SandboxImage` resource and its types.
 *   `backend/internal/operator/sandboximage_controller.go`, `sandboximage_registry.go` and `tenant_sandboximage.go`: validation, digest pinning, warmers and `kora-base`.
-*   `backend/cmd/orbit-agents/migrations/20261003023303_sandbox_environments.sql`: the expand-only migration.
+*   `backend/cmd/kora-agents/migrations/20261003023303_sandbox_environments.sql`: the expand-only migration.
 *   `backend/internal/agents/`: environments, attachments, the access union, environment selection, run events and the sandbox volume.
-*   `backend/cmd/orbit-runtime-mcp/main.go` and `backend/internal/agents/sessionmanager/`: the `list_environments`, `provision_sandbox` and `replace_environment` tools.
+*   `backend/cmd/kora-runtime-mcp/main.go` and `backend/internal/agents/sessionmanager/`: the `list_environments`, `provision_sandbox` and `replace_environment` tools.
 *   `frontend/src/app/(dashboard)/environments/` and the agent builder and configuration tab: environment images and sizes, and several environments per agent.
 *   `charts/orbit/values.yaml`: `agents.sandboxImages` and `agents.environments` with `defaultSize` and `maxSize`.
 *   `docs/guides/deployment.md`: sandbox images and environments.

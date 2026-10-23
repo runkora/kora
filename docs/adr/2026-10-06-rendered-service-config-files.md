@@ -24,18 +24,18 @@ Per-install values therefore reach services as env vars. The chart sets 104 lite
 Lists travel as comma-separated strings (`charts/orbit/templates/operator/deployment.yaml:64`, `:93`, `charts/orbit/templates/agents/deployment.yaml:105`). Resource requirements travel as JSON (`charts/orbit/templates/operator/deployment.yaml:73`, `:85`). Each service layers these values over its YAML by hand:
 
 - `backend/cmd/operator/config/config.go:120-199`: `loadInstall`, `envOr`, `intEnv`, `splitList` and `resourcesEnv`.
-- `backend/cmd/orbit-agents/config/config.go:191-237`: `applyEnvOverrides`.
+- `backend/cmd/kora-agents/config/config.go:191-237`: `applyEnvOverrides`.
 - `backend/cmd/session-manager/config/config.go:126-139`: `applyEnvOverrides`.
 - `backend/internal/identity/config.go:77-98`: token TTL overrides through `overrideInt`.
 - `backend/internal/platform/observability/config.go:103-118`: OTLP, log format and sampling rate.
 - `backend/internal/platform/storage/postgres_config.go:45-78` and `redis_config.go:36-56`: hosts, SSL mode, query capture and TLS.
 - `backend/cmd/inference-gateway/config/config.go:93` and `backend/cmd/policy-service/config/config.go:63`: single values.
 
-Several of these parsers drop a bad value without an error. `intEnv` returns the default when `strconv.Atoi` fails (`backend/cmd/operator/config/config.go:162-169`). The `orbit-agents` guardrail integers keep their YAML value on a parse failure (`backend/cmd/orbit-agents/config/config.go:224-228`). `overrideInt` ignores a non-positive or unparseable value (`backend/internal/identity/config.go:91-98`). `ORBIT_SAMPLING_RATE` is ignored when it is not a float (`backend/internal/platform/observability/config.go:113-117`).
+Several of these parsers drop a bad value without an error. `intEnv` returns the default when `strconv.Atoi` fails (`backend/cmd/operator/config/config.go:162-169`). The `orbit-agents` guardrail integers keep their YAML value on a parse failure (`backend/cmd/kora-agents/config/config.go:224-228`). `overrideInt` ignores a non-positive or unparseable value (`backend/internal/identity/config.go:91-98`). `ORBIT_SAMPLING_RATE` is ignored when it is not a float (`backend/internal/platform/observability/config.go:113-117`).
 
 The current loader cannot decode `corev1.ResourceRequirements`. Viper with `yaml` tags fails on `limits: {cpu: 500m}` with `'resources.Limits[cpu]' expected a map or struct, got "string"`.
 
-[2026-09-16](2026-09-16-first-class-workload-placement.md) rejected JSON in env vars for structured values and chose a rendered ConfigMap. [2026-09-15](2026-09-15-manifest-patches-configmap.md) moved manifest patches to a mounted ConfigMap and superseded the env-var overrides of [2026-06-12](2026-06-12-k8s-manifest-overrides-via-env-vars.md). `charts/orbit/templates/agents/workloads-configmap.yaml` is the working precedent. It renders values with `toYaml`, the `orbit-agents` Deployment mounts it and rolls on its `checksum/workloads` annotation (`charts/orbit/templates/agents/deployment.yaml:30`), and `loadWorkloads` fails startup when `Validate()` rejects the file (`backend/cmd/orbit-agents/render.go:28-47`).
+[2026-09-16](2026-09-16-first-class-workload-placement.md) rejected JSON in env vars for structured values and chose a rendered ConfigMap. [2026-09-15](2026-09-15-manifest-patches-configmap.md) moved manifest patches to a mounted ConfigMap and superseded the env-var overrides of [2026-06-12](2026-06-12-k8s-manifest-overrides-via-env-vars.md). `charts/orbit/templates/agents/workloads-configmap.yaml` is the working precedent. It renders values with `toYaml`, the `orbit-agents` Deployment mounts it and rolls on its `checksum/workloads` annotation (`charts/orbit/templates/agents/deployment.yaml:30`), and `loadWorkloads` fails startup when `Validate()` rejects the file (`backend/cmd/kora-agents/render.go:28-47`).
 
 The chart renders neither the session-manager pod nor the identity-proxy sidecar. `orbit-agents` writes the session-manager container env in Go (`backend/internal/agents/k8s.go:1549-1560`), and the operator webhook writes the sidecar env (`backend/internal/operator/pod_webhook.go:233-243`).
 

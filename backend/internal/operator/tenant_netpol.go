@@ -223,7 +223,7 @@ func (r *TenantReconciler) ensureSandboxIngressPolicy(ctx context.Context, tenan
 			},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
-				// This tenant's agent pods, on the exec port: orbit-shell and the
+				// This tenant's agent pods, on the exec port: kora-shell and the
 				// egress canary run there and are the only callers. No
 				// NamespaceSelector, which scopes the peer to this namespace.
 				{

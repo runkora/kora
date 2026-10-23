@@ -207,7 +207,7 @@ func TestStart_RunHomeDirCreated(t *testing.T) {
 }
 
 func TestStart_PerRunTmpDirCreated(t *testing.T) {
-	// The per-run tmpdir is .tmp/{runID} beside the workspace, which orbit-session-runner
+	// The per-run tmpdir is .tmp/{runID} beside the workspace, which kora-session-runner
 	// grants and the sandbox mounts at /tmp. See docs/adr/2026-06-04-per-session-home-isolation.md.
 	_, workDir := startIsolated(t, ClaudeRunnerConfig{})
 	tmpDir := runfs.TmpDir(workDir)
@@ -349,7 +349,7 @@ func TestStart_WithWrapper_CommandIsWrapper(t *testing.T) {
 
 func TestStart_WithWrapper_ArgsLayout(t *testing.T) {
 	// The wrapper must receive: <workDir> <claudeBinary> [claude-flags...]
-	// so orbit-session-runner can apply Landlock and then exec claude.
+	// so kora-session-runner can apply Landlock and then exec claude.
 	truePath := stubBinary(t)
 	r, workDir := startIsolated(t, ClaudeRunnerConfig{
 		WrapperPath: truePath,
@@ -373,7 +373,7 @@ func TestStart_WithWrapper_ArgsLayout(t *testing.T) {
 }
 
 func TestStart_WithWrapper_TmpDirMatchesRunnerGrant(t *testing.T) {
-	// orbit-session-runner grants .tmp/{base} beside the workDir it receives as
+	// kora-session-runner grants .tmp/{base} beside the workDir it receives as
 	// argv[1]; TMPDIR must be exactly that directory or Landlock denies it.
 	truePath := stubBinary(t)
 	r, workDir := startIsolated(t, ClaudeRunnerConfig{

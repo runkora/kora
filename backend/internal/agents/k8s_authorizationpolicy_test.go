@@ -76,7 +76,7 @@ func TestEnsureAuthorizationPolicy_RestrictsPortToKoraAgents(t *testing.T) {
 		t.Fatalf("rules = %v (err %v), want 2", rules, err)
 	}
 
-	// Rule 1: only orbit-agents, only the session-manager port.
+	// Rule 1: only kora-agents, only the session-manager port.
 	caller, _ := rules[0].(map[string]any)
 	principals := nestedStringsAtIndex(t, caller, "from", 0, "source", "principals")
 	if len(principals) != 1 || principals[0] != "orbit.test/system/orbit-agents" {
@@ -117,7 +117,7 @@ func TestEnsureAuthorizationPolicy_IsIdempotent(t *testing.T) {
 	if err := p.ensureAuthorizationPolicy(ctx, at, "orbit-tenant-acme", metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("first ensure: %v", err)
 	}
-	// Provisioning re-runs at every orbit-agents startup; an AlreadyExists must
+	// Provisioning re-runs at every kora-agents startup; an AlreadyExists must
 	// not fail the reconcile.
 	if err := p.ensureAuthorizationPolicy(ctx, at, "orbit-tenant-acme", metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("second ensure: %v", err)

@@ -1,4 +1,4 @@
-// Package agentsConfig holds configuration for the orbit-agents binary.
+// Package agentsConfig holds configuration for the kora-agents binary.
 package agentsConfig
 
 import (
@@ -9,13 +9,13 @@ import (
 	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 )
 
-// Config holds orbit-agents configuration values.
+// Config holds kora-agents configuration values.
 //
 // Values are loaded from:
 //
-//  1. cmd/orbit-agents/config/base.yaml  — service defaults
-//  2. cmd/orbit-agents/config/{env}.yaml — env overrides (optional)
-//  3. /etc/orbit/config/cmd/orbit-agents.yaml — rendered by the chart
+//  1. cmd/kora-agents/config/base.yaml  — service defaults
+//  2. cmd/kora-agents/config/{env}.yaml — env overrides (optional)
+//  3. /etc/orbit/config/cmd/kora-agents.yaml — rendered by the chart
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`
@@ -38,7 +38,7 @@ type Config struct {
 		InCluster bool `yaml:"inCluster"`
 		// TenantNamespacePrefix is prepended to tenant IDs to form namespace names.
 		TenantNamespacePrefix string `yaml:"tenantNamespacePrefix"`
-		// SystemNamespace is where orbit-agents itself runs.
+		// SystemNamespace is where kora-agents itself runs.
 		SystemNamespace string `yaml:"systemNamespace"`
 	} `yaml:"kubernetes"`
 
@@ -117,20 +117,20 @@ type Config struct {
 		} `yaml:"scheduling"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
 		// the operator's ConnectionAggregator into the orbit-tenant-connections
-		// ConfigMap. orbit-agents reads it to serve the read-only connection
+		// ConfigMap. kora-agents reads it to serve the read-only connection
 		// catalog (GET /api/v1/connections). Absent/empty yields an empty catalog.
 		ConnectionRegistryPath string `yaml:"connectionRegistryPath"`
 		// ManifestPatchDir is the directory of kustomize patch files applied to
-		// the resources orbit-agents provisions. The chart mounts the manifest
+		// the resources kora-agents provisions. The chart mounts the manifest
 		// patches ConfigMap here. A missing directory means no patches.
 		ManifestPatchDir string `yaml:"manifestPatchDir"`
 		// WorkloadsFile is the mounted YAML the chart renders from
 		// agents.workloads and agents.workspace: placement, pod metadata,
 		// service account annotations and workspace storage for the resources
-		// orbit-agents provisions. A missing file means no customization.
+		// kora-agents provisions. A missing file means no customization.
 		// See docs/adr/2026-09-16-first-class-workload-placement.md.
 		WorkloadsFile string `yaml:"workloadsFile"`
-		// SessionManager holds settings for the session-manager pods orbit-agents provisions.
+		// SessionManager holds settings for the session-manager pods kora-agents provisions.
 		SessionManager struct {
 			// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy
 			// beside each agent StatefulSet restricting its session-manager
@@ -210,9 +210,9 @@ func (c *Config) TenantNamespace(tenantID string) string {
 	return c.Kubernetes.TenantNamespacePrefix + tenantID
 }
 
-// Current holds all non-secret configuration for orbit-agents.
+// Current holds all non-secret configuration for kora-agents.
 // Secrets (Postgres DSN) must be supplied via environment variables.
-var Current = config.MustLoadService[Config]("cmd/orbit-agents", config.Environment())
+var Current = config.MustLoadService[Config]("cmd/kora-agents", config.Environment())
 
 // Validate rejects an in-cluster config that would mint identities in an
 // empty trust domain ("spiffe:///tenant/..."). main calls it at startup; the

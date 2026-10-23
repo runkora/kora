@@ -31,7 +31,7 @@ import (
 // a credential scanner. Same value and reasoning as the sandbox's GH_TOKEN.
 const PlaceholderToken = "placeholder-credential-injected-by-orbit-egress-gateway"
 
-// ClustersEnvVar carries the JSON-encoded []Cluster from orbit-agents into the
+// ClustersEnvVar carries the JSON-encoded []Cluster from kora-agents into the
 // sandbox, where sandbox-exec renders it to disk at startup.
 const ClustersEnvVar = "ORBIT_KUBE_CLUSTERS"
 

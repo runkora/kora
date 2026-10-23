@@ -48,7 +48,7 @@ func NewController(ctx context.Context, svc *Service, eval policy.Evaluator, rou
 	return &Controller{svc: svc, verifier: verifier, eval: eval, routes: routes, basePath: basePath, blocklist: blocklist, runs: runs, logger: logger}
 }
 
-// runReader asks orbit-agents whether the caller may read a run. Run spend is
+// runReader asks kora-agents whether the caller may read a run. Run spend is
 // as private as the run, so the run usage meter applies the same rule.
 type runReader interface {
 	CanReadRun(ctx context.Context, bearer, delegation, runID string) error

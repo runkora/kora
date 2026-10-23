@@ -100,7 +100,7 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) (held 
 		return false
 	}
 
-	// The timeout bounds the start request, which returns once orbit-agents has
+	// The timeout bounds the start request, which returns once kora-agents has
 	// queued the run. A run that later fails to start does not reach this outcome.
 	dispatchCtx, cancel := context.WithTimeout(ctx, t.dispatchTimeout())
 	defer cancel()
@@ -186,7 +186,7 @@ func (s *Service) RecordOrphanedPending(ctx context.Context, o OrphanedPending) 
 //
 // A platform fault does NOT count. Auto-pause exists to stop a trigger that is
 // itself broken, and it costs a human a manual re-enable to undo. When
-// orbit-agents is the thing failing, every trigger in the tenant is failing at
+// kora-agents is the thing failing, every trigger in the tenant is failing at
 // once through no fault of its own: counting that would pause the entire estate
 // during a capacity blip and leave someone re-enabling each one by hand.
 func (s *Service) noteFailure(ctx context.Context, t Trigger, cause error) {

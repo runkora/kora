@@ -16,7 +16,7 @@ import (
 )
 
 // loadTestPatches writes the given patch files to a temp dir and loads them
-// the way orbit-agents does at startup.
+// the way kora-agents does at startup.
 func loadTestPatches(t *testing.T, files map[string]string) []manifestpatch.Patch {
 	t.Helper()
 	dir := t.TempDir()

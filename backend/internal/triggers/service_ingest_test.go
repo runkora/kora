@@ -329,7 +329,7 @@ func TestDispatch_StartRunError_Failed(t *testing.T) {
 
 func TestDispatch_DelegatedStartRefusal_RecordsReason(t *testing.T) {
 	// Defense in depth for a trigger that predates the identity model (or a
-	// race): if orbit-agents' run-start principal gate refuses the SERVICE
+	// race): if kora-agents' run-start principal gate refuses the SERVICE
 	// start with the delegated-identity 403, the delivery must record that
 	// reason legibly — the upstream body flows into the delivery error via the
 	// agents client's error wrapping, not as an opaque 403.
@@ -680,7 +680,7 @@ func TestIngest_CountsWhatGotThroughAsWellAsWhatDidNot(t *testing.T) {
 	}
 }
 
-// A grant minted moments ago is not yet visible to orbit-agents; the fire that
+// A grant minted moments ago is not yet visible to kora-agents; the fire that
 // follows must not fail for that reason alone.
 func TestStartRun_RetriesWhileAYoungGrantPropagates(t *testing.T) {
 	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")

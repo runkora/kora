@@ -1,4 +1,4 @@
-// The orbit-triggers binary owns the platform's front door for starting work:
+// The kora-triggers binary owns the platform's front door for starting work:
 // every way something can begin in kora arrives here.
 //
 // It serves inbound webhook ingestion, the trigger management API, the manual
@@ -32,7 +32,7 @@ import (
 
 	"go.opentelemetry.io/otel/metric"
 
-	tc "github.com/runkora/kora/backend/cmd/orbit-triggers/config"
+	tc "github.com/runkora/kora/backend/cmd/kora-triggers/config"
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
@@ -192,7 +192,7 @@ func initController(
 	)
 
 	// Creating a trigger reads the agent it binds, or each candidate of a
-	// routed trigger, from orbit-agents as the caller, who must be able to run
+	// routed trigger, from kora-agents as the caller, who must be able to run
 	// it, then provisions the trigger's principal and grants. The evaluator
 	// checks that the caller holds a routed trigger's decision model scopes.
 	// Enabling or disabling one moves work already in the queue.

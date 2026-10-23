@@ -9,7 +9,7 @@ import (
 type EventType string
 
 const (
-	// Persistence events — recorded in run_events by orbit-agents.
+	// Persistence events — recorded in run_events by kora-agents.
 	EventTypeMessageComplete EventType = "message_complete"
 	EventTypeTextBlock       EventType = "text_block"
 	EventTypeToolUse         EventType = "tool_use"
@@ -23,7 +23,7 @@ const (
 	EventTypeGuardrailWarning EventType = "guardrail_warning"
 
 	// Streaming-only events — emitted via HTTPNotifier and fanned out over SSE.
-	// Not written to run_events (docs/adr/2026-05-11-agent-event-streaming-protocol.md); consumed by orbit-agents SSE subscribers.
+	// Not written to run_events (docs/adr/2026-05-11-agent-event-streaming-protocol.md); consumed by kora-agents SSE subscribers.
 	EventTypeTextDelta     EventType = "text_delta"
 	EventTypeThinkingDelta EventType = "thinking_delta"
 	EventTypeMessageStop   EventType = "message_stop"
@@ -31,7 +31,7 @@ const (
 )
 
 // Event is a kora standard event emitted by the transform layer. No sequence
-// number: orbit-agents assigns one when it records the event, and this pod
+// number: kora-agents assigns one when it records the event, and this pod
 // reaches no database.
 type Event struct {
 	Type    EventType       `json:"type"`

@@ -1,10 +1,10 @@
-// Package agents provides an HTTP client for the orbit-agents control-plane API.
+// Package agents provides an HTTP client for the kora-agents control-plane API.
 //
 // It is used by other platform services (e.g. the Triggers feature hosted in the
 // identity binary) to start agent runs non-interactively. The caller supplies a
 // platform bearer token per call — for trigger-initiated runs this is a
 // short-lived SERVICE JWT minted for the webhook source's mapped identity, so
-// orbit-agents attributes and authorizes the run exactly as it would any
+// kora-agents attributes and authorizes the run exactly as it would any
 // principal. See docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md.
 package agents
 
@@ -39,16 +39,16 @@ var (
 	ErrAgentTypeNotFound = errors.New("agent type not found")
 	// ErrRunNotFound is returned when the run does not exist in the caller's tenant.
 	ErrRunNotFound = errors.New("run not found")
-	// ErrUnexpectedStatus is returned when orbit-agents returns an unexpected status.
-	ErrUnexpectedStatus = errors.New("unexpected status from orbit-agents")
-	// ErrUpstreamUnavailable is returned when orbit-agents itself failed rather
+	// ErrUnexpectedStatus is returned when kora-agents returns an unexpected status.
+	ErrUnexpectedStatus = errors.New("unexpected status from kora-agents")
+	// ErrUpstreamUnavailable is returned when kora-agents itself failed rather
 	// than refusing the request: a 5xx, most commonly pod capacity exhaustion.
 	//
 	// Distinct from ErrUnexpectedStatus so a caller can tell "your request was
 	// wrong" from "the service is having a bad time". The two have opposite
 	// remedies, and a caller that counts failures against the requester needs to
 	// not count this one.
-	ErrUpstreamUnavailable = errors.New("orbit-agents unavailable")
+	ErrUpstreamUnavailable = errors.New("kora-agents unavailable")
 	// ErrRunNotAcceptingMessages is returned when the run has left active and
 	// idle, so it cannot take a message.
 	ErrRunNotAcceptingMessages = errors.New("run is not accepting messages")
@@ -57,13 +57,13 @@ var (
 	ErrRunStarting = errors.New("run is starting")
 )
 
-// Client calls the orbit-agents control-plane API.
+// Client calls the kora-agents control-plane API.
 type Client struct {
 	*httpclient.Base
 	baseURL string
 }
 
-// NewClient creates a Client targeting the orbit-agents base URL,
+// NewClient creates a Client targeting the kora-agents base URL,
 // e.g. "http://orbit-agents.orbit-system.svc". The returned client is safe for
 // concurrent use and should be shared across calls.
 func NewClient(baseURL string, logger logging.Logger) *Client {
@@ -73,7 +73,7 @@ func NewClient(baseURL string, logger logging.Logger) *Client {
 	}
 }
 
-// AgentType is the subset of an orbit-agents agent type that callers need to
+// AgentType is the subset of a kora-agents agent type that callers need to
 // validate a binding before granting run scopes: its canonical slug, owning
 // tenant, and identity model. Name and Description are the text trigger
 // routing asks the decision model about.
@@ -105,7 +105,7 @@ type Connector struct {
 
 // IdentityModeDelegated is the AgentType.IdentityMode value marking an agent
 // that acts on behalf of the person who runs it. Kept as a plain string so the
-// client stays decoupled from the orbit-agents feature package.
+// client stays decoupled from the kora-agents feature package.
 const IdentityModeDelegated = "delegated"
 
 // Caller is the identity a read is sent as: the caller's platform bearer and,
@@ -116,7 +116,7 @@ type Caller struct {
 }
 
 // GetAgentType resolves an agent type by id, authenticating as the caller.
-// A delegation travels with the bearer so orbit-agents evaluates the delegated run. orbit-agents scopes the read to the token's tenant, so
+// A delegation travels with the bearer so kora-agents evaluates the delegated run. kora-agents scopes the read to the token's tenant, so
 // a type owned by another tenant (or absent) returns ErrAgentTypeNotFound. The
 // Triggers feature uses this to confirm a trigger's target exists in-tenant and
 // to derive the canonical slug the run grant must be keyed on.
@@ -215,7 +215,7 @@ type StartRunRequest struct {
 	// Y" rather than showing the trigger's SERVICE principal id and nothing
 	// else. Omitted for any other caller.
 	//
-	// orbit-agents accepts them only from a SERVICE principal: a run's record of
+	// kora-agents accepts them only from a SERVICE principal: a run's record of
 	// why it exists is an audit claim, and one any caller could author about
 	// itself would be worth nothing. TriggerName is stored as given, a snapshot
 	// at start time, so a renamed or deleted trigger still reads as something a
@@ -273,10 +273,10 @@ func (c *Client) StartRun(ctx context.Context, bearer string, req StartRunReques
 }
 
 // CanReadRun reports whether the bearer may read the run, by reading it from
-// orbit-agents, which owns the run visibility rules. It returns nil when the
+// kora-agents, which owns the run visibility rules. It returns nil when the
 // read succeeds, ErrForbidden when it is refused and ErrRunNotFound when the
 // run is not in the caller's tenant. A delegated caller's delegation token is
-// forwarded so orbit-agents applies the delegated rules.
+// forwarded so kora-agents applies the delegated rules.
 func (c *Client) CanReadRun(ctx context.Context, bearer, delegation, runID string) error {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/runs/"+url.PathEscape(runID), nil)
 	if err != nil {
@@ -385,7 +385,7 @@ type ListRunsQuery struct {
 	Limit            int
 }
 
-// Run is the subset of an orbit-agents run that callers need to pick a run to message.
+// Run is the subset of a kora-agents run that callers need to pick a run to message.
 type Run struct {
 	ID          string            `json:"id"`
 	AgentTypeID string            `json:"agent_type_id"`
@@ -405,7 +405,7 @@ type StartedByTrigger struct {
 }
 
 // ListRuns returns the first page of runs the bearer may read, newest first.
-// orbit-agents scopes the list to the token's tenant and run grants.
+// kora-agents scopes the list to the token's tenant and run grants.
 func (c *Client) ListRuns(ctx context.Context, bearer string, q ListRunsQuery) ([]Run, error) {
 	params := url.Values{}
 	for _, id := range q.AgentTypeIDs {

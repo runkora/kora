@@ -17,11 +17,11 @@ import (
 )
 
 // errNotifierUnexpectedStatus is the stable sentinel recorded on the notifier
-// span when orbit-agents returns a non-2xx response. HandleErrorResponse
+// span when kora-agents returns a non-2xx response. HandleErrorResponse
 // appends the status code and response body to it.
-var errNotifierUnexpectedStatus = errors.New("orbit-agents returned unexpected status")
+var errNotifierUnexpectedStatus = errors.New("kora-agents returned unexpected status")
 
-// ErrEnvironmentRejected means orbit-agents refused the environment the agent
+// ErrEnvironmentRejected means kora-agents refused the environment the agent
 // chose. Its message tells the agent why. Retrying does not help.
 var ErrEnvironmentRejected = errors.New("environment refused")
 
@@ -35,7 +35,7 @@ func (e *unschedulableError) Error() string { return ErrSandboxUnschedulable.Err
 
 func (e *unschedulableError) Is(target error) bool { return target == ErrSandboxUnschedulable }
 
-// Notifier delivers events to orbit-agents for live SSE fan-out and run
+// Notifier delivers events to kora-agents for live SSE fan-out and run
 // lifecycle callbacks.
 // Implementations are best-effort — errors are logged but never fatal.
 type Notifier interface {
@@ -54,21 +54,21 @@ type Notifier interface {
 	// budget_exhausted state — the gateway rejected its LLM calls with
 	// BUDGET_EXCEEDED; the run did nothing wrong, its budget ended.
 	ExhaustRun(ctx context.Context, runID string, fromState string) error
-	// ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
+	// ProvisionSandbox requests kora-agents to provision a sandbox pod for the
 	// given run and returns how to reach and authenticate to it.
 	// environment names one of the agent's environments. Empty keeps the
 	// current one. replace switches a live sandbox to it.
 	ProvisionSandbox(ctx context.Context, runID string, environment string, replace bool) (Sandbox, error)
-	// ListEnvironments returns orbit-agents' list of the run's environments unchanged.
+	// ListEnvironments returns kora-agents' list of the run's environments unchanged.
 	ListEnvironments(ctx context.Context, runID string) (json.RawMessage, error)
 	GetSandbox(ctx context.Context, runID string) (Sandbox, bool, error)
-	// SetSummary reports the run's generated task summary to orbit-agents, which
+	// SetSummary reports the run's generated task summary to kora-agents, which
 	// persists it set-once. Best-effort.
 	SetSummary(ctx context.Context, runID, summary string) error
 }
 
 // NoopNotifier silently discards all events.
-// Used when ORBIT_AGENTS_URL is not configured (local dev without orbit-agents).
+// Used when ORBIT_AGENTS_URL is not configured (local dev without kora-agents).
 type NoopNotifier struct{}
 
 func (NoopNotifier) Notify(_ context.Context, _ string, _ Event) error               { return nil }
@@ -87,12 +87,12 @@ func (NoopNotifier) GetSandbox(_ context.Context, _ string) (Sandbox, bool, erro
 }
 func (NoopNotifier) SetSummary(_ context.Context, _ string, _ string) error { return nil }
 
-// HTTPNotifier POSTs events to orbit-agents via HTTP.
+// HTTPNotifier POSTs events to kora-agents via HTTP.
 // Each call is fire-and-forget with a short timeout so a slow or absent
-// orbit-agents instance does not block the session-manager drain loop.
+// kora-agents instance does not block the session-manager drain loop.
 // ProvisionSandbox uses a long timeout: a sandbox scheduled onto a fresh orbit
 // node pays a cold image pull (sandbox-exec is large) plus istio/sidecar
-// startup. Must exceed the orbit-agents pod-ready wait (k8s.waitForPodReady).
+// startup. Must exceed the kora-agents pod-ready wait (k8s.waitForPodReady).
 //
 // Each field is a distinct *httpclient.Base (rather than one shared Base) so
 // each call site keeps its own timeout and gets its own named OTel tracer scope.
@@ -103,7 +103,7 @@ type HTTPNotifier struct {
 	sandboxClient   *httpclient.Base
 }
 
-// NewHTTPNotifier creates a notifier that pushes to the given orbit-agents base URL.
+// NewHTTPNotifier creates a notifier that pushes to the given kora-agents base URL.
 func NewHTTPNotifier(baseURL string, logger logging.Logger) *HTTPNotifier {
 	return &HTTPNotifier{
 		baseURL:         baseURL,
@@ -143,8 +143,8 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 	return nil
 }
 
-// GetSandbox asks orbit-agents what sandbox the run has, without creating one.
-// ok is false when the run has none, which orbit-agents reports as 404 and this
+// GetSandbox asks kora-agents what sandbox the run has, without creating one.
+// ok is false when the run has none, which kora-agents reports as 404 and this
 // pod must not confuse with a lookup failure.
 func (n *HTTPNotifier) GetSandbox(ctx context.Context, runID string) (Sandbox, bool, error) {
 	url := fmt.Sprintf("%s/internal/runs/%s/sandbox", n.baseURL, runID)
@@ -205,7 +205,7 @@ func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, envir
 	_, span, resp, err := n.sandboxClient.Do(ctx, "sessionmanager.Notifier.ProvisionSandbox", req)
 	defer span.End()
 	if err != nil {
-		return Sandbox{}, fmt.Errorf("call orbit-agents: %w", err)
+		return Sandbox{}, fmt.Errorf("call kora-agents: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

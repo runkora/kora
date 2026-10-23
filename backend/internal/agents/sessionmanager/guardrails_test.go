@@ -278,7 +278,7 @@ func TestProvisionSandbox_LostAfterAttemptsFailsFastUntilUserReplies(t *testing.
 		t.Errorf("message must say the workspace survived: %q", n.runErrors[0].Message)
 	}
 
-	// Further requests fail without calling orbit-agents or recording again.
+	// Further requests fail without calling kora-agents or recording again.
 	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", "", false); !errors.Is(err, ErrSandboxLost) {
 		t.Fatalf("second err = %v, want ErrSandboxLost", err)
 	}
@@ -594,7 +594,7 @@ func TestRunGuardrails_Conversion(t *testing.T) {
 	}
 }
 
-// The orbit-agents client and this server keep separate request structs; the
+// The kora-agents client and this server keep separate request structs; the
 // guardrails must survive the trip between them.
 func TestRunGuardrails_WireMatchesTheClient(t *testing.T) {
 	sent := smclient.CreateSessionRequest{RunID: "r", Guardrails: smclient.RunGuardrails{

@@ -1,11 +1,11 @@
 package main
 
-// orbit-shell is the Bash proxy that routes the agent's command execution into the
+// kora-shell is the Bash proxy that routes the agent's command execution into the
 // per-run sandbox pod. It is wired in as Claude Code's shell via CLAUDE_CODE_SHELL.
 //
 // Wiring note: Claude Code IGNORES $SHELL and resolves its Bash-tool shell from
 // CLAUDE_CODE_SHELL, which it only honors when the path's basename is a known shell
-// (bash/zsh/fish) — any other basename (e.g. "orbit-shell") is silently rejected and
+// (bash/zsh/fish) — any other basename (e.g. "kora-shell") is silently rejected and
 // Claude falls back to /bin/bash. So the deploy image exposes this binary under a
 // "bash" basename symlink (/opt/orbit/shell/bash) and sets CLAUDE_CODE_SHELL to it.
 // This was validated empirically against the real claude binary.
@@ -49,7 +49,7 @@ func main() {
 		case err != nil:
 			// Fail closed. Running locally would execute the agent's command in
 			// this container.
-			log.Fatalf("orbit-shell: cannot determine this run's sandbox: %v", err)
+			log.Fatalf("kora-shell: cannot determine this run's sandbox: %v", err)
 		case !provisioned:
 			// No sandbox yet: shell snapshots and anything before the agent asks
 			// for one run here. Provisioning a pod for every run would defeat the
@@ -92,7 +92,7 @@ const runTokenHeader = "X-Orbit-Run-Token"
 
 // provisionTimeout sits above the session-manager's worst case for a provision
 // (its retry budget, at most 600s, plus the 90s egress canary), so its verdict
-// arrives. orbit-runtime-mcp uses the same bound.
+// arrives. kora-runtime-mcp uses the same bound.
 const provisionTimeout = 720 * time.Second
 
 // readTrimmed returns the file's trimmed contents, or empty if it cannot be read.
@@ -108,11 +108,11 @@ func readTrimmed(path string) string {
 func runLocal() {
 	bash, err := exec.LookPath("bash")
 	if err != nil {
-		log.Fatalf("orbit-shell: bash not found: %v", err)
+		log.Fatalf("kora-shell: bash not found: %v", err)
 	}
 	// Replace this process with bash — exit code propagates naturally.
 	if err := syscall.Exec(bash, append([]string{"bash"}, os.Args[1:]...), os.Environ()); err != nil { //nolint:gosec
-		log.Fatalf("orbit-shell: exec bash: %v", err)
+		log.Fatalf("kora-shell: exec bash: %v", err)
 	}
 }
 
@@ -143,11 +143,11 @@ func runRemote(sb sandbox) {
 	// new token, so the retry reads the freshly written pair.
 	fresh, reErr := reprovisionSandbox()
 	if reErr != nil {
-		log.Fatalf("orbit-shell: sandbox unreachable (%v) and re-provision failed: %v", err, reErr)
+		log.Fatalf("kora-shell: sandbox unreachable (%v) and re-provision failed: %v", err, reErr)
 	}
 	exitCode, err = execOne(fresh, command)
 	if err != nil {
-		log.Fatalf("orbit-shell: sandbox unreachable after re-provision: %v", err)
+		log.Fatalf("kora-shell: sandbox unreachable after re-provision: %v", err)
 	}
 	os.Exit(exitCode)
 }
@@ -340,7 +340,7 @@ func parseCommandArgs(args []string) string {
 func workingDir() string {
 	wd, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "orbit-shell: getwd: %v\n", err)
+		fmt.Fprintf(os.Stderr, "kora-shell: getwd: %v\n", err)
 	}
 	return wd
 }

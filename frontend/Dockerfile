@@ -5,7 +5,7 @@
 # Build context: frontend/  (self-contained pnpm workspace)
 #
 # Usage (from repo root):
-#   docker build -t orbit-frontend:latest \
+#   docker build -t kora-frontend:latest \
 #     --build-arg NEXT_PUBLIC_APP_URL=https://orbit.local.clearroute.io:8443 \
 #     frontend/
 #

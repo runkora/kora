@@ -19,7 +19,7 @@ import (
 const ServiceName = "egress-gateway"
 
 // readConnectionsScope is the scope guarding the read-only connections catalog
-// (GET /api/v1/connections, served by orbit-agents, which enforces it too).
+// (GET /api/v1/connections, served by kora-agents, which enforces it too).
 const readConnectionsScope = "platform:connections:read"
 
 // writeConnectionsScope is the connection-management scope. Connections are

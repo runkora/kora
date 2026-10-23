@@ -4,7 +4,7 @@
 // The caller supplies a platform bearer token per call. The gateway applies the
 // token's inference scopes, the tenant budget and the usage row, so a decision
 // call made through this client is attributed and governed like any other.
-// orbit-triggers uses it to route a delivery (docs/adr/2026-10-19-trigger-routing.md).
+// kora-triggers uses it to route a delivery (docs/adr/2026-10-19-trigger-routing.md).
 package inference
 
 import (

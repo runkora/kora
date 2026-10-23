@@ -266,7 +266,7 @@ func TestBoot_FireIsAuthorizedByTriggerScopeAlone(t *testing.T) {
 	}
 }
 
-// The run-access question goes to orbit-agents with the caller's own bearer and delegation, never the trigger principal's.
+// The run-access question goes to kora-agents with the caller's own bearer and delegation, never the trigger principal's.
 func TestBoot_CreateAsksWithCallerBearer(t *testing.T) {
 	svc, deps := newTestService(t)
 	routes := []routescopes.RouteScope{{PathPrefix: "/api/v1/triggers", Method: http.MethodPost, RequiredScope: "triggers:write"}}
@@ -290,7 +290,7 @@ func TestBoot_CreateAsksWithCallerBearer(t *testing.T) {
 	if !slices.Equal(deps.agents.callerBearers, []string{"Bearer caller-tok"}) {
 		t.Errorf("caller bearers = %v, want the caller's own", deps.agents.callerBearers)
 	}
-	// A delegated caller's delegation goes with it, so orbit-agents evaluates the delegated run.
+	// A delegated caller's delegation goes with it, so kora-agents evaluates the delegated run.
 	if !slices.Equal(deps.agents.callerDelegs, []string{"caller-delegation"}) {
 		t.Errorf("caller delegations = %v, want the caller's own", deps.agents.callerDelegs)
 	}

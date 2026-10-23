@@ -142,7 +142,7 @@ const (
 
 // Actions enumerates every action Classify can return. The shared
 // metadata table is the one source of truth for the vocabulary, and it is the
-// same table orbit-agents reads to derive auto-egress.
+// same table kora-agents reads to derive auto-egress.
 func (a *Adapter) Actions() []credentials.ActionDeclaration {
 	return credentials.DeclaredActions(platformconns.AdapterGitHubApp)
 }

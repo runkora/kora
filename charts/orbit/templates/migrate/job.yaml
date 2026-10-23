@@ -41,7 +41,7 @@ spec:
         - name: migrate
           image: {{ include "orbit.image" (dict "root" $ "name" "migrate") | quote }}
           imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "migrate") }}
-          command: ["./orbit"]
+          command: ["./kora"]
           args: ["up"]
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict) | nindent 12 }}

@@ -46,7 +46,7 @@ target "_backend-default" {
 
 target "backend-images" {
   inherits = ["_backend-default"]
-  name     = "orbit-${item.service}"
+  name     = "kora-${item.service}"
   matrix = {
     item = [
       { service = "identity" },
@@ -64,18 +64,18 @@ target "backend-images" {
     SERVICE = item.service
   }
   labels = {
-    "org.opencontainers.image.title" = "orbit-${item.service}"
+    "org.opencontainers.image.title" = "kora-${item.service}"
     "org.opencontainers.image.description" = "kora backend service image for ${item.service}"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
-  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-${item.service}:${IMAGE_TAG}"]
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-${item.service}:${IMAGE_TAG}"]
 }
 
 target "backend-tenant-images" {
   inherits = ["_backend-default"]
-  name     = "orbit-${item.service}"
+  name     = "kora-${item.service}"
   matrix = {
     item = [
       { service = "example" },
@@ -85,118 +85,118 @@ target "backend-tenant-images" {
     SERVICE = item.service
   }
   labels = {
-    "org.opencontainers.image.title" = "orbit-${item.service}"
+    "org.opencontainers.image.title" = "kora-${item.service}"
     "org.opencontainers.image.description" = "kora backend service image for ${item.service}"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
-  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-${item.service}:${IMAGE_TAG}"]
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-${item.service}:${IMAGE_TAG}"]
 }
 
-target "orbit-agents" {
+target "kora-agents" {
   inherits = ["_backend-default"]
   args = {
-    SERVICE = "orbit-agents"
+    SERVICE = "kora-agents"
   }
   labels = {
-    "org.opencontainers.image.title" = "orbit-agents"
+    "org.opencontainers.image.title" = "kora-agents"
     "org.opencontainers.image.description" = "kora agents service — agent type registry and run lifecycle management"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
-  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-agents:${IMAGE_TAG}"]
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-agents:${IMAGE_TAG}"]
 }
 
-target "orbit-triggers" {
+target "kora-triggers" {
   inherits = ["_backend-default"]
   args = {
-    SERVICE = "orbit-triggers"
+    SERVICE = "kora-triggers"
   }
   labels = {
-    "org.opencontainers.image.title" = "orbit-triggers"
+    "org.opencontainers.image.title" = "kora-triggers"
     "org.opencontainers.image.description" = "kora triggers service — webhook ingestion, trigger management API, manual fire, and the cron scheduler"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
-  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-triggers:${IMAGE_TAG}"]
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-triggers:${IMAGE_TAG}"]
 }
 
-target "orbit-shell" {
+target "kora-shell" {
   inherits = ["_backend-default"]
   args = {
-    SERVICE = "orbit-shell"
+    SERVICE = "kora-shell"
   }
   labels = {
-    "org.opencontainers.image.title" = "orbit-shell"
+    "org.opencontainers.image.title" = "kora-shell"
     "org.opencontainers.image.description" = "kora shell proxy for agent sandbox environments"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
-  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-shell:${IMAGE_TAG}"]
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-shell:${IMAGE_TAG}"]
 }
 
-// Not a matrix entry: the matrix names images "orbit-${service}", which would
-// yield "orbit-orbit-mcp" for the orbit-mcp service directory.
-target "orbit-mcp" {
+// Not a matrix entry: the matrix names images "kora-${service}", which would
+// yield "kora-kora-mcp" for the kora-mcp service directory.
+target "kora-mcp" {
   inherits = ["_backend-default"]
   args = {
-    SERVICE = "orbit-mcp"
+    SERVICE = "kora-mcp"
   }
   labels = {
-    "org.opencontainers.image.title" = "orbit-mcp"
+    "org.opencontainers.image.title" = "kora-mcp"
     "org.opencontainers.image.description" = "kora MCP server — kora's management surface as MCP tools over Streamable HTTP"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
-  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-mcp:${IMAGE_TAG}"]
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-mcp:${IMAGE_TAG}"]
 }
 
-target "orbit-runtime-mcp" {
+target "kora-runtime-mcp" {
   inherits = ["_backend-default"]
   args = {
-    SERVICE = "orbit-runtime-mcp"
+    SERVICE = "kora-runtime-mcp"
   }
   labels = {
-    "org.opencontainers.image.title" = "orbit-runtime-mcp"
+    "org.opencontainers.image.title" = "kora-runtime-mcp"
     "org.opencontainers.image.description" = "kora MCP server for agent runtime tooling"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
-  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-runtime-mcp:${IMAGE_TAG}"]
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-runtime-mcp:${IMAGE_TAG}"]
 }
 
-target "orbit-session-manager" {
+target "kora-session-manager" {
   context    = "./backend"
   dockerfile = "Dockerfile.session-manager"
   pull       = true
   labels = {
-    "org.opencontainers.image.title" = "orbit-session-manager"
+    "org.opencontainers.image.title" = "kora-session-manager"
     "org.opencontainers.image.description" = "kora session-manager — Go binary + Node.js for Claude Code integration"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
-  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-session-manager:${IMAGE_TAG}"]
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-session-manager:${IMAGE_TAG}"]
 }
 
-target "orbit-sandbox-mount" {
+target "kora-sandbox-mount" {
   context    = "./backend"
   dockerfile = "Dockerfile.sandbox-mount"
   pull       = true
   labels = {
-    "org.opencontainers.image.title" = "orbit-sandbox-mount"
+    "org.opencontainers.image.title" = "kora-sandbox-mount"
     "org.opencontainers.image.description" = "kora node agent that shares each sandbox's local folder with its session-manager pod over kernel NFS"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
-  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-sandbox-mount:${IMAGE_TAG}"]
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-sandbox-mount:${IMAGE_TAG}"]
 }
 
 target "kora-sandbox-base" {
@@ -292,7 +292,7 @@ target "kora-sandbox-dev" {
   tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-sandbox-dev:${IMAGE_TAG}"]
 }
 
-target "orbit-frontend" {
+target "kora-frontend" {
   context    = "./frontend"
   dockerfile = "Dockerfile"
   pull       = true
@@ -301,27 +301,27 @@ target "orbit-frontend" {
     ORBIT_VERSION       = IMAGE_TAG
   }
   labels = {
-    "org.opencontainers.image.title" = "orbit-frontend"
+    "org.opencontainers.image.title" = "kora-frontend"
     "org.opencontainers.image.description" = "kora frontend service image"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
-  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-frontend:${IMAGE_TAG}"]
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-frontend:${IMAGE_TAG}"]
 }
 
-target "orbit-operator" {
+target "kora-operator" {
   context    = "."
   dockerfile = "Dockerfile.operator"
   pull       = true
   labels = {
-    "org.opencontainers.image.title" = "orbit-operator"
+    "org.opencontainers.image.title" = "kora-operator"
     "org.opencontainers.image.description" = "kora operator image"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
-  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-operator:${IMAGE_TAG}"]
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-operator:${IMAGE_TAG}"]
 }
 
 // Default group — all images built by CI and `docker buildx bake`.
@@ -329,19 +329,19 @@ target "orbit-operator" {
 group "default" {
   targets = [
     "backend-images",
-    "orbit-agents",
-    "orbit-triggers",
-    "orbit-shell",
-    "orbit-mcp",
-    "orbit-runtime-mcp",
-    "orbit-session-manager",
-    "orbit-sandbox-mount",
+    "kora-agents",
+    "kora-triggers",
+    "kora-shell",
+    "kora-mcp",
+    "kora-runtime-mcp",
+    "kora-session-manager",
+    "kora-sandbox-mount",
     "kora-sandbox-base",
     "kora-sandbox-go",
     "kora-sandbox-python",
     "kora-sandbox-node",
     "kora-sandbox-dev",
-    "orbit-frontend",
-    "orbit-operator",
+    "kora-frontend",
+    "kora-operator",
   ]
 }

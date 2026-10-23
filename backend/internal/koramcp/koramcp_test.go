@@ -180,9 +180,9 @@ func TestGuardrailsForwarded(t *testing.T) {
 }
 
 // TestTriggerToolsUseTriggersBackend guards the fix for the trigger tools
-// 404ing in dev: they must call the orbit-triggers backend, not identity. The
+// 404ing in dev: they must call the kora-triggers backend, not identity. The
 // trigger-sources/triggers/deliveries endpoints moved out of the identity binary
-// into orbit-triggers; wiring them to b.Identity sent every trigger tool to a
+// into kora-triggers; wiring them to b.Identity sent every trigger tool to a
 // service that no longer serves the path (a plain 404).
 func TestTriggerToolsUseTriggersBackend(t *testing.T) {
 	var gotPath string

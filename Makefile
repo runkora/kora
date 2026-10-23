@@ -43,7 +43,7 @@ DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?ssl
 
 
 # Frontend public URL — baked into the Next.js client bundle at Docker build time.
-# Override for non-local environments (e.g. CI): NEXT_PUBLIC_APP_URL=https://my.host docker buildx bake -f docker-bake.hcl -f versions.hcl orbit-frontend
+# Override for non-local environments (e.g. CI): NEXT_PUBLIC_APP_URL=https://my.host docker buildx bake -f docker-bake.hcl -f versions.hcl kora-frontend
 NEXT_PUBLIC_APP_URL ?= https://orbit.local.clearroute.io:8443
 
 # Docker image publishing (generic backend/Dockerfile via docker buildx bake)
@@ -51,7 +51,7 @@ DOCKER_BAKE_FILE ?= docker-bake.hcl
 IMAGE_REGISTRY ?= ghcr.io
 IMAGE_NAMESPACE ?= runkora
 IMAGE_TAG ?= latest
-IMAGE_REPOSITORY_PREFIX ?= $(IMAGE_REGISTRY)/$(IMAGE_NAMESPACE)/orbit-
+IMAGE_REPOSITORY_PREFIX ?= $(IMAGE_REGISTRY)/$(IMAGE_NAMESPACE)/kora-
 BACKEND_IMAGE_GROUP ?= backend-images
 DOCKER_BUILD_PLATFORMS ?= linux/amd64
 DOCKER_PUSH_PLATFORMS ?= linux/amd64,linux/arm64
@@ -103,7 +103,7 @@ env: ## Generate .env with machine-local secrets (existing .env keeps its values
 		echo "$(COLOR_YELLOW).env already exists, leaving its values alone$(COLOR_RESET)"; \
 		if ! grep -q '^ORBIT_TRIGGERS_ENCRYPTION_KEY=' .env; then \
 			printf '\n%s\n%s\n%s\n' \
-				"# At-rest key for webhook signing secrets. orbit-triggers refuses to" \
+				"# At-rest key for webhook signing secrets. kora-triggers refuses to" \
 				"# start without it; there is no in-code fallback." \
 				"ORBIT_TRIGGERS_ENCRYPTION_KEY=$$(openssl rand -base64 32)" >> .env; \
 			echo "$(COLOR_GREEN)✓ appended a generated ORBIT_TRIGGERS_ENCRYPTION_KEY$(COLOR_RESET)"; \
@@ -123,7 +123,7 @@ env: ## Generate .env with machine-local secrets (existing .env keeps its values
 			"# Real secrets, generated per machine." \
 			"BFF_SESSION_SECRET=$$(openssl rand -base64 32)" \
 			"" \
-			"# At-rest key for webhook signing secrets. orbit-triggers refuses to" \
+			"# At-rest key for webhook signing secrets. kora-triggers refuses to" \
 			"# start without it; there is no in-code fallback." \
 			"ORBIT_TRIGGERS_ENCRYPTION_KEY=$$(openssl rand -base64 32)" \
 			> .env; \
@@ -488,7 +488,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
-	egress-gateway agents frontend orbit-mcp tool-gateway orbit-triggers migrate operator \
+	egress-gateway agents frontend kora-mcp tool-gateway kora-triggers migrate operator \
 	session-manager sandbox-mount sandbox-base
 REDEPLOY_TENANT_SERVICES := example
 
@@ -498,7 +498,7 @@ REDEPLOY_TENANT_SERVICES := example
 # operator (helm-managed — upgraded separately so chart/CRD changes land).
 REDEPLOY_ROLLOUT_SERVICES := \
 	identity inference-gateway policy-service policy-gateway egress-gateway \
-	agents frontend orbit-mcp tool-gateway orbit-triggers
+	agents frontend kora-mcp tool-gateway kora-triggers
 
 # orbit-system deployments we don't build (third-party images) but still restart
 # on cluster-update so they re-read chart-managed config on the way back up.
@@ -606,14 +606,14 @@ redeploy-warm: redeploy-platform redeploy-tenant ## Pre-build every service to w
 # (≥12 CPUs / 24 GiB); on smaller VMs the concurrent build pressure cascades
 # into mesh/Postgres failures — keep the serial default there.
 # Image names below must match the bake target names in docker-bake.local.hcl,
-# which are also the registry image names (service `orbit-mcp` → image
-# `orbit-mcp`, not `orbit-orbit-mcp` — don't derive them from
+# which are also the registry image names (service `kora-mcp` → image
+# `kora-mcp`, not `kora-kora-mcp` — don't derive them from
 # REDEPLOY_PLATFORM_SERVICES).
 BAKE_PLATFORM_IMAGES := \
-	orbit-identity orbit-identity-proxy orbit-inference-gateway \
-	orbit-policy-service orbit-policy-gateway orbit-egress-gateway \
-	orbit-agents orbit-frontend orbit-mcp orbit-tool-gateway orbit-triggers orbit-migrate \
-	orbit-operator orbit-session-manager orbit-sandbox-mount kora-sandbox-base
+	kora-identity kora-identity-proxy kora-inference-gateway \
+	kora-policy-service kora-policy-gateway kora-egress-gateway \
+	kora-agents kora-frontend kora-mcp kora-tool-gateway kora-triggers kora-migrate \
+	kora-operator kora-session-manager kora-sandbox-mount kora-sandbox-base
 
 .PHONY: redeploy-platform-bake
 redeploy-platform-bake: ## Build + push every platform service in one parallel docker buildx bake graph (the ORBIT_PARALLEL_BUILDS=1 path)
@@ -625,10 +625,10 @@ redeploy-platform-bake: ## Build + push every platform service in one parallel d
 			-f docker-bake.hcl -f docker-bake.local.hcl -f versions.hcl \
 			--load local-platform || exit $$?; \
 	if [ -f secrets/mkcert-ca.pem ]; then \
-		echo "$(COLOR_YELLOW)Layering mkcert CA into orbit-identity...$(COLOR_RESET)"; \
-		printf 'FROM localhost:5001/orbit-identity:latest\nUSER 0\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\nUSER 65532:65532\n' | \
-			docker build -q -t localhost:5001/orbit-identity:latest -f - secrets/ > /dev/null; \
-		docker tag localhost:5001/orbit-identity:latest "localhost:5001/orbit-identity:$$GIT_SHA"; \
+		echo "$(COLOR_YELLOW)Layering mkcert CA into kora-identity...$(COLOR_RESET)"; \
+		printf 'FROM localhost:5001/kora-identity:latest\nUSER 0\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\nUSER 65532:65532\n' | \
+			docker build -q -t localhost:5001/kora-identity:latest -f - secrets/ > /dev/null; \
+		docker tag localhost:5001/kora-identity:latest "localhost:5001/kora-identity:$$GIT_SHA"; \
 	fi; \
 	echo "$(COLOR_YELLOW)Pushing platform images to localhost:5001 (latest + $$GIT_SHA)...$(COLOR_RESET)"; \
 	for img in $(BAKE_PLATFORM_IMAGES); do \
@@ -663,15 +663,15 @@ redeploy-tenant-bake: ## (Experimental) Build + push every tenant service via do
 	@GIT_SHA="$$(git rev-parse --short HEAD 2>/dev/null || echo dev)"; \
 	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then GIT_SHA="$${GIT_SHA}-dirty"; fi; \
 	echo "$(COLOR_YELLOW)Baking tenant images (serial, GIT_SHA=$$GIT_SHA)...$(COLOR_RESET)"; \
-	for tgt in orbit-example; do \
+	for tgt in kora-example; do \
 		GIT_SHA="$$GIT_SHA" \
 			docker buildx bake \
 				-f docker-bake.hcl -f docker-bake.local.hcl -f versions.hcl \
 				--load $$tgt || exit $$?; \
 	done
 	@for svc in $(REDEPLOY_TENANT_SERVICES); do \
-		docker push --quiet localhost:5001/orbit-$$svc:latest > /dev/null && \
-		echo "  ✓ orbit-$$svc"; \
+		docker push --quiet localhost:5001/kora-$$svc:latest > /dev/null && \
+		echo "  ✓ kora-$$svc"; \
 	done
 	@docker image prune -f > /dev/null
 	@echo "$(COLOR_GREEN)✓ Tenant images built and pushed via bake$(COLOR_RESET)"
@@ -682,10 +682,10 @@ redeploy-tenant-bake: ## (Experimental) Build + push every tenant service via do
 cluster-restore: ## Re-push locally-built images to the registry after a Colima/k3d restart
 	@echo "$(COLOR_YELLOW)Syncing locally-built images to local registry...$(COLOR_RESET)"
 	@for svc in $(REDEPLOY_PLATFORM_SERVICES) $(REDEPLOY_TENANT_SERVICES); do \
-		if docker image inspect orbit-$$svc:latest > /dev/null 2>&1; then \
-			echo "  pushing orbit-$$svc:latest"; \
-			docker tag orbit-$$svc:latest localhost:5001/orbit-$$svc:latest; \
-			docker push localhost:5001/orbit-$$svc:latest > /dev/null; \
+		if docker image inspect kora-$$svc:latest > /dev/null 2>&1; then \
+			echo "  pushing kora-$$svc:latest"; \
+			docker tag kora-$$svc:latest localhost:5001/kora-$$svc:latest; \
+			docker push localhost:5001/kora-$$svc:latest > /dev/null; \
 		fi; \
 	done
 	@if docker image inspect $(OPA_ENVOY_IMAGE) > /dev/null 2>&1; then \
@@ -868,7 +868,7 @@ redeploy-egress-gateway: ## Redeploy the egress gateway (per-tenant credential b
 	@bash scripts/cluster/redeploy.sh egress-gateway $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-agents
-redeploy-agents: ## Redeploy orbit-agents (agent control plane)
+redeploy-agents: ## Redeploy kora-agents (agent control plane)
 	@bash scripts/cluster/redeploy.sh agents $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-frontend
@@ -880,11 +880,11 @@ redeploy-tool-gateway: ## Redeploy the tool gateway (also rolls the publisher �
 	@bash scripts/cluster/redeploy.sh tool-gateway $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-triggers
-redeploy-triggers: ## Redeploy orbit-triggers (webhook ingestion, management API, scheduler)
-	@bash scripts/cluster/redeploy.sh orbit-triggers $(REDEPLOY_FLAGS)
+redeploy-triggers: ## Redeploy kora-triggers (webhook ingestion, management API, scheduler)
+	@bash scripts/cluster/redeploy.sh kora-triggers $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-operator
-redeploy-operator: ## Redeploy the orbit-operator (tenant lifecycle, webhooks, preflight)
+redeploy-operator: ## Redeploy the kora-operator (tenant lifecycle, webhooks, preflight)
 	@bash scripts/cluster/redeploy.sh operator $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-example
@@ -922,7 +922,7 @@ build-backend: proto-gen ## Build every cmd/ binary to .bin (runs proto-gen firs
 	@for dir in $(BACKEND_DIR)/cmd/*/; do \
 		name=$$(basename "$$dir"); \
 		[ -f "$$dir/main.go" ] || continue; \
-		(cd $(BACKEND_DIR) && $(GOBUILD) -o "../$(BINARY_DIR)/orbit-$${name#orbit-}" "./cmd/$$name") || exit 1; \
+		(cd $(BACKEND_DIR) && $(GOBUILD) -o "../$(BINARY_DIR)/kora-$${name#kora-}" "./cmd/$$name") || exit 1; \
 	done
 
 # ===========================================

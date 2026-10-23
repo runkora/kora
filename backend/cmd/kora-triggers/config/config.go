@@ -1,4 +1,4 @@
-// Package triggersConfig holds the configuration for the orbit-triggers binary.
+// Package triggersConfig holds the configuration for the kora-triggers binary.
 package triggersConfig
 
 import (
@@ -8,14 +8,14 @@ import (
 	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 )
 
-// Config holds orbit-triggers configuration values.
+// Config holds kora-triggers configuration values.
 //
 // Values are loaded from:
 //
-//  1. cmd/orbit-triggers/config/base.yaml      — service defaults
-//  2. cmd/orbit-triggers/config/{env}.yaml     — env overrides (optional)
+//  1. cmd/kora-triggers/config/base.yaml      — service defaults
+//  2. cmd/kora-triggers/config/{env}.yaml     — env overrides (optional)
 //
-// orbit-triggers owns the platform's inbound surfaces for starting work: the
+// kora-triggers owns the platform's inbound surfaces for starting work: the
 // webhook ingestion endpoint, the trigger management API, the cron scheduler,
 // and the manual fire endpoint. It is deliberately separate from identity so
 // that unauthenticated, internet-reachable ingestion does not share a process
@@ -45,7 +45,7 @@ type Config struct {
 	} `yaml:"identity"`
 
 	Agents struct {
-		// InternalURL is the in-cluster base URL for orbit-agents, the
+		// InternalURL is the in-cluster base URL for kora-agents, the
 		// dispatch target for every trigger kind.
 		InternalURL string `yaml:"internalURL"`
 	} `yaml:"agents"`
@@ -88,5 +88,5 @@ func (c *Config) BundlePollInterval() time.Duration {
 	return time.Duration(c.Policy.BundlePollIntervalSecs) * time.Second
 }
 
-// Current holds non-secret configuration for orbit-triggers.
-var Current = config.MustLoadService[Config]("cmd/orbit-triggers", config.Environment())
+// Current holds non-secret configuration for kora-triggers.
+var Current = config.MustLoadService[Config]("cmd/kora-triggers", config.Environment())

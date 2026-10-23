@@ -16,8 +16,8 @@ import (
 	"github.com/pressly/goose/v3"
 	identityMigrations "github.com/runkora/kora/backend/cmd/identity/migrations"
 	inferenceMigrations "github.com/runkora/kora/backend/cmd/inference-gateway/migrations"
-	agentsMigrations "github.com/runkora/kora/backend/cmd/orbit-agents/migrations"
-	triggersMigrations "github.com/runkora/kora/backend/cmd/orbit-triggers/migrations"
+	agentsMigrations "github.com/runkora/kora/backend/cmd/kora-agents/migrations"
+	triggersMigrations "github.com/runkora/kora/backend/cmd/kora-triggers/migrations"
 	policyMigrations "github.com/runkora/kora/backend/cmd/policy-service/migrations"
 	toolGatewayMigrations "github.com/runkora/kora/backend/cmd/tool-gateway/migrations"
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -33,8 +33,8 @@ const allowDownEnv = "ORBIT_MIGRATE_ALLOW_DOWN"
 var sources = map[string]fs.FS{
 	"identity":          identityMigrations.FS,
 	"inference-gateway": inferenceMigrations.FS,
-	"orbit-agents":      agentsMigrations.FS,
-	"orbit-triggers":    triggersMigrations.FS,
+	"kora-agents":       agentsMigrations.FS,
+	"kora-triggers":     triggersMigrations.FS,
 	"policy-service":    policyMigrations.FS,
 	"tool-gateway":      toolGatewayMigrations.FS,
 }

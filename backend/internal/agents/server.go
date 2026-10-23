@@ -23,7 +23,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
-// Controller implements the orbit-agents HTTP API.
+// Controller implements the kora-agents HTTP API.
 type Controller struct {
 	agentTypes   *AgentTypeService
 	runs         *RunService
@@ -37,10 +37,10 @@ type Controller struct {
 	logger       logging.Logger
 }
 
-// NewController creates an orbit-agents HTTP controller.
+// NewController creates a kora-agents HTTP controller.
 //
 // routes is the same RouteScope slice that is registered with policy-service
-// at startup (see cmd/orbit-agents/main.go agentRoutes). It is also used at
+// at startup (see cmd/kora-agents/main.go agentRoutes). It is also used at
 // request time by ScopeEnforcementMiddleware to enforce route → required-scope
 // bindings in-process. basePath must match the server's BasePath so the
 // middleware can reconstruct full paths after http.StripPrefix. See docs/adr/2026-06-04-platform-scope-enforcement-middleware.md.
@@ -80,7 +80,7 @@ func (c *Controller) GroupedBy() string { return "" }
 //     and route→scope enforcement.
 //   - Internal callback routes get JWT auth ONLY. The agent's platform token is
 //     injected on every outbound request by the identity-proxy ext_proc sidecar
-//     on the agent pod (see cmd/orbit-agents k8s.go: "actual auth is the
+//     on the agent pod (see cmd/kora-agents k8s.go: "actual auth is the
 //     identity-proxy-issued JWT"). ScopeEnforcementMiddleware is intentionally
 //     omitted: the route→scope table (agentRoutes) only covers the public
 //     surface, and agent principals hold no route scopes — running it would
@@ -433,7 +433,7 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, ErrForbidden):
 			// A refused start is the caller's answer, not a server fault. It
 			// also has to arrive as 403 for the caller to tell it apart from a
-			// broken service: orbit-triggers retries a refusal while a young
+			// broken service: kora-triggers retries a refusal while a young
 			// grant propagates, and cannot do so if the refusal reads as 500.
 			apiErr := api.ForbiddenError(api.ErrCodeForbidden,
 				"not permitted to start runs for this agent", nil)
@@ -938,7 +938,7 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// writeSSE writes one event. data is an envelope: "at" is when orbit-agents
+// writeSSE writes one event. data is an envelope: "at" is when kora-agents
 // recorded the event (or received it, for streaming-only types) and "payload"
 // is the event as stored, so clients never stamp events with their own clock.
 func writeSSE(w io.Writer, seqNo int64, eventType string, at time.Time, payload json.RawMessage) {

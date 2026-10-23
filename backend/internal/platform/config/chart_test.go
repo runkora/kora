@@ -13,10 +13,10 @@ import (
 	egressConfig "github.com/runkora/kora/backend/cmd/egress-gateway/config"
 	identityConfig "github.com/runkora/kora/backend/cmd/identity/config"
 	inferenceConfig "github.com/runkora/kora/backend/cmd/inference-gateway/config"
+	agentsConfig "github.com/runkora/kora/backend/cmd/kora-agents/config"
+	mcpConfig "github.com/runkora/kora/backend/cmd/kora-mcp/config"
+	triggersConfig "github.com/runkora/kora/backend/cmd/kora-triggers/config"
 	operatorConfig "github.com/runkora/kora/backend/cmd/operator/config"
-	agentsConfig "github.com/runkora/kora/backend/cmd/orbit-agents/config"
-	mcpConfig "github.com/runkora/kora/backend/cmd/orbit-mcp/config"
-	triggersConfig "github.com/runkora/kora/backend/cmd/orbit-triggers/config"
 	policyGatewayConfig "github.com/runkora/kora/backend/cmd/policy-gateway/config"
 	policyServiceConfig "github.com/runkora/kora/backend/cmd/policy-service/config"
 	sandboxMountConfig "github.com/runkora/kora/backend/cmd/sandbox-mount/config"
@@ -35,9 +35,9 @@ var moduleLoaders = map[string]func() error{
 	"cmd/identity":          loadService[identityConfig.Config]("cmd/identity"),
 	"cmd/inference-gateway": loadService[inferenceConfig.Config]("cmd/inference-gateway"),
 	"cmd/operator":          loadService[operatorConfig.Config]("cmd/operator"),
-	"cmd/orbit-agents":      loadService[agentsConfig.Config]("cmd/orbit-agents"),
-	"cmd/orbit-mcp":         loadService[mcpConfig.Config]("cmd/orbit-mcp"),
-	"cmd/orbit-triggers":    loadService[triggersConfig.Config]("cmd/orbit-triggers"),
+	"cmd/kora-agents":       loadService[agentsConfig.Config]("cmd/kora-agents"),
+	"cmd/kora-mcp":          loadService[mcpConfig.Config]("cmd/kora-mcp"),
+	"cmd/kora-triggers":     loadService[triggersConfig.Config]("cmd/kora-triggers"),
 	"cmd/policy-gateway":    loadService[policyGatewayConfig.Config]("cmd/policy-gateway"),
 	"cmd/policy-service":    loadService[policyServiceConfig.Config]("cmd/policy-service"),
 	"cmd/sandbox-mount":     loadService[sandboxMountConfig.Config]("cmd/sandbox-mount"),

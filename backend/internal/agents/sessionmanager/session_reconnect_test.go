@@ -132,7 +132,7 @@ func TestProvisionSandbox_DeadCacheReprovisions(t *testing.T) {
 	if n.calls != 1 {
 		t.Fatalf("expected exactly one re-provision, got %d", n.calls)
 	}
-	// The endpoint file must be rewritten with the fresh address so orbit-shell
+	// The endpoint file must be rewritten with the fresh address so kora-shell
 	// picks it up on retry.
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -197,7 +197,7 @@ func TestSandbox_UnknownRun(t *testing.T) {
 	}
 }
 
-// A run ID that is not a single path segment fails before orbit-agents is asked for a sandbox.
+// A run ID that is not a single path segment fails before kora-agents is asked for a sandbox.
 func TestProvisionSandbox_BadRunIDNeverProvisions(t *testing.T) {
 	n := &reprovisionNotifier{endpoint: "10.0.0.1:50051"}
 	reg, _ := newTestRegistry(t, n)
@@ -207,6 +207,6 @@ func TestProvisionSandbox_BadRunIDNeverProvisions(t *testing.T) {
 		t.Fatal("expected an error for a run ID with a path separator")
 	}
 	if n.calls != 0 {
-		t.Errorf("orbit-agents was called %d times, want none", n.calls)
+		t.Errorf("kora-agents was called %d times, want none", n.calls)
 	}
 }

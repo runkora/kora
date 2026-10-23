@@ -121,7 +121,7 @@ identity:
 
 Read a workload's effective config from its ConfigMap, e.g. `kubectl -n orbit-system get configmap orbit-identity-config -o yaml`.
 
-The session-manager and the identity-proxy sidecar have no rendered file. orbit-agents and the operator set their env vars in Go.
+The session-manager and the identity-proxy sidecar have no rendered file. kora-agents and the operator set their env vars in Go.
 
 *Reference: See [rendered-service-config-files](../adr/2026-10-06-rendered-service-config-files.md).*
 

@@ -19,21 +19,21 @@ C_DIM=$'\033[2m'
 
 # (display name, image, namespace, workload, on-demand?)
 SERVICES=(
-  "identity            orbit-identity            orbit-system            deployment/orbit-identity"
-  "inference-gateway   orbit-inference-gateway   orbit-system            deployment/orbit-inference-gateway"
-  "policy-service      orbit-policy-service      orbit-system            deployment/orbit-policy-service"
-  "policy-gateway      orbit-policy-gateway      orbit-system            deployment/orbit-policy-gateway"
-  "egress-gateway      orbit-egress-gateway      orbit-system            deployment/orbit-egress-gateway"
-  "agents              orbit-agents              orbit-system            deployment/orbit-agents"
-  "frontend            orbit-frontend            orbit-system            deployment/orbit-frontend"
-  "orbit-mcp           orbit-mcp                 orbit-system            deployment/orbit-mcp"
-  "tool-gateway        orbit-tool-gateway        orbit-system            deployment/orbit-tool-gateway"
-  "tool-gw-publisher   orbit-tool-gateway        orbit-system            deployment/orbit-tool-gateway-publisher"
-  "operator            orbit-operator            orbit-operator          deployment/orbit-operator"
-  "example             orbit-example             orbit-tenant-example    deployment/orbit-example"
-  "session-manager     orbit-session-manager     orbit-tenant-example    statefulset/example"
-  "identity-proxy      orbit-identity-proxy      orbit-system            sidecar"
-  "migrate             orbit-migrate             orbit-system            release"
+  "identity            kora-identity             orbit-system            deployment/orbit-identity"
+  "inference-gateway   kora-inference-gateway    orbit-system            deployment/orbit-inference-gateway"
+  "policy-service      kora-policy-service       orbit-system            deployment/orbit-policy-service"
+  "policy-gateway      kora-policy-gateway       orbit-system            deployment/orbit-policy-gateway"
+  "egress-gateway      kora-egress-gateway       orbit-system            deployment/orbit-egress-gateway"
+  "agents              kora-agents               orbit-system            deployment/orbit-agents"
+  "frontend            kora-frontend             orbit-system            deployment/orbit-frontend"
+  "kora-mcp            kora-mcp                  orbit-system            deployment/orbit-mcp"
+  "tool-gateway        kora-tool-gateway         orbit-system            deployment/orbit-tool-gateway"
+  "tool-gw-publisher   kora-tool-gateway         orbit-system            deployment/orbit-tool-gateway-publisher"
+  "operator            kora-operator             orbit-operator          deployment/orbit-operator"
+  "example             kora-example              orbit-tenant-example    deployment/orbit-example"
+  "session-manager     kora-session-manager      orbit-tenant-example    statefulset/example"
+  "identity-proxy      kora-identity-proxy       orbit-system            sidecar"
+  "migrate             kora-migrate              orbit-system            release"
   "sandbox-base        kora-sandbox-base         -                       on-demand"
 )
 
@@ -53,8 +53,8 @@ registry_digest() {
 # so a freshly-rolled pod looks stale even though it is running the new image.
 # The spec image is what redeploy.sh pinned, which is the question being asked.
 #
-# Containers are matched by image name (orbit-foo), not workload name: the
-# tool-gateway publisher runs the orbit-tool-gateway image, and every meshed pod
+# Containers are matched by image name (kora-foo), not workload name: the
+# tool-gateway publisher runs the kora-tool-gateway image, and every meshed pod
 # carries istio-proxy/identity-proxy sidecars we must not read the digest from.
 cluster_digest() {
   local namespace="$1" workload="$2" image="$3"

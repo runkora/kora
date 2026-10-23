@@ -13,7 +13,7 @@ import (
 )
 
 // Postgres integration tests for the draft repository. They run only when
-// ORBIT_TEST_DB_URL points at a database with the orbit-agents migrations
+// ORBIT_TEST_DB_URL points at a database with the kora-agents migrations
 // applied (e.g. the local docker-compose Postgres after `make migrate-up`);
 // otherwise they skip. Each test isolates itself under a random tenant id and
 // cleans up. Mirrors internal/triggers/postgres_test.go.

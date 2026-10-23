@@ -1,5 +1,5 @@
 // Package v1alpha1 holds the SandboxImage API types. The operator validates
-// and warms each image. orbit-agents reads its status when it starts a sandbox.
+// and warms each image. kora-agents reads its status when it starts a sandbox.
 //
 // See docs/adr/2026-10-03-sandbox-environments.md.
 package v1alpha1

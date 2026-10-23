@@ -7,7 +7,7 @@ app:
 mode: "publisher"
 
 server:
-  # Health (and, in Phase 4, the MCP request path). orbit-mcp serves on 8095;
+  # Health (and, in Phase 4, the MCP request path). kora-mcp serves on 8095;
   # the tool-gateway takes 8096.
   httpPort: 8096
   basePath: "/v1"

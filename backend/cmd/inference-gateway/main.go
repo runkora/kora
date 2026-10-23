@@ -272,7 +272,7 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// their own budget. Listed before /v1/usage so the more-specific path wins.
 		{PathPrefix: "/v1/usage/budget", Method: "GET", RequiredScope: ""},
 		// GET /v1/usage/run/{id} is the run chat usage meter. The handler serves
-		// it only when orbit-agents would let the caller read the run.
+		// it only when kora-agents would let the caller read the run.
 		{PathPrefix: "/v1/usage/run", Method: "GET", RequiredScope: ""},
 		// GET /v1/usage/stats is personal — per-PAT aggregates for the calling
 		// principal only.

@@ -210,7 +210,7 @@ func modelUseScope(model string) (string, error) {
 // routedGrantScopes are the scopes a routed trigger's principal holds: run
 // scopes and the agent type read scope for every candidate, inference:invoke,
 // and the model's use scope (ADR Decision 16). The read scope lets decide list
-// the candidates, because orbit-agents filters agent type reads per agent.
+// the candidates, because kora-agents filters agent type reads per agent.
 func routedGrantScopes(r *RoutingConfig) ([]string, error) {
 	modelScope, err := modelUseScope(r.Model)
 	if err != nil {

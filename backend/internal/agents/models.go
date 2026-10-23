@@ -173,7 +173,7 @@ type Connector struct {
 }
 
 // AgentBudget is the spending configuration applied to the agent's policy
-// grant. Not persisted by orbit-agents — the grant is the source of truth
+// grant. Not persisted by kora-agents — the grant is the source of truth
 // (budgets live in policy, one place); this struct carries the desired value
 // through create/update and the current value on reads. Both limits zero =
 // remove the budget.
@@ -287,7 +287,7 @@ func (at AgentType) ConnectorScopes() []string {
 // deriveInferenceScopes returns the inference grant scopes for a model id:
 // inference:invoke, plus the fine-grained inference:{family}:{name}:use when the id
 // is a two-segment family/name (e.g. anthropic/claude-sonnet-4-6). This is the
-// single source of truth for inference grant derivation — clients (orbit-mcp, the
+// single source of truth for inference grant derivation — clients (kora-mcp, the
 // frontend BFF) declare model_id and do NOT derive. See the 2026-06-30 amendment to
 // docs/adr/2026-05-11-agent-identity-and-policy-provisioning.md.
 func deriveInferenceScopes(modelID string) []string {
@@ -547,7 +547,7 @@ type Run struct {
 	Summary *string `json:"summary"`
 	// DelegationJTI identifies the delegation issuance minted for this run at
 	// start when the agent type is delegated (docs/adr/2026-07-23-delegated-agent-identity.md,
-	// Decision 3). Nil for autonomous runs. orbit-agents revokes the issuance
+	// Decision 3). Nil for autonomous runs. kora-agents revokes the issuance
 	// by this JTI when the run reaches a terminal state.
 	DelegationJTI *string `json:"delegation_jti,omitempty"`
 	// IdentityMode is the agent type's identity model, denormalized onto run
@@ -620,7 +620,7 @@ type Session struct {
 // ── Events ────────────────────────────────────────────────────────────────────
 
 // RunEvent is one entry in the event log for a run.
-// Written by orbit-agents when state changes, or by draining session-manager events.
+// Written by kora-agents when state changes, or by draining session-manager events.
 type RunEvent struct {
 	SequenceNo int64
 	RunID      string

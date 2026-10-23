@@ -239,7 +239,7 @@ trigger surface lands** (e.g. cron/scheduled), rather than adding a second surfa
 `internal/identity` nor `internal/agents`, reaching both the policy service and
 `orbit-agents` over typed HTTP clients. The extraction work is bounded:
 
-- New `cmd/orbit-triggers/` binary wiring the existing `internal/triggers/` package unchanged.
+- New `cmd/kora-triggers/` binary wiring the existing `internal/triggers/` package unchanged.
 - Replace the in-process `TokenMinter` with an HTTP client to a (new) internal mint endpoint on `identity` — this is the **only** in-process coupling today.
 - Move the trigger migrations to the new binary (the tables FK only among themselves — no cross-schema FK into identity/principals — so they relocate cleanly; decide shared-DB vs own-DB at that point).
 - Move the gateway JWT-bypass rule for `/api/v1/webhooks/` and the VirtualService route to the new host.

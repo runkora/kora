@@ -31,7 +31,7 @@ func staticToken(tok string) TokenFunc {
 
 // Every session-control call must carry the caller's platform token: the
 // session-manager now authenticates them and checks the principal is
-// orbit-agents.
+// kora-agents.
 func TestClient_SendsBearerOnEverySessionCall(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 

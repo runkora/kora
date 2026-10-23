@@ -20,7 +20,7 @@ orbit-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md)
 {{- if or (lt (int $idle.manualSecs) 1) (lt (int $idle.triggerSecs) 1) }}
   {{- fail "agents.idleTimeout: manualSecs and triggerSecs must be at least 1" }}
 {{- end }}
-cmd/orbit-agents:
+cmd/kora-agents:
   metrics:
     enabled: {{ .Values.global.metrics.enabled }}
     port: {{ .Values.global.metrics.port | default 9464 }}
@@ -33,7 +33,7 @@ cmd/orbit-agents:
   policy:
     bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}
   agents:
-    {{- $sessionManager := include "orbit.imageRef" (dict "root" $ "image" (dict "repository" "orbit-session-manager" "digest" .Values.agents.config.sessionManagerDigest)) }}
+    {{- $sessionManager := include "orbit.imageRef" (dict "root" $ "image" (dict "repository" "kora-session-manager" "digest" .Values.agents.config.sessionManagerDigest)) }}
     sessionManagerImage: {{ .Values.agents.config.sessionManagerImage | default $sessionManager | toJson }}
     sandboxImage: {{ include "orbit.sandboxBaseImage" . | toJson }}
     {{- /* Quantities render as strings. An unquoted cpu: 8 in values would otherwise fail the strict decode. */}}

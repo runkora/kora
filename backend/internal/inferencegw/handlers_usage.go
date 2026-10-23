@@ -240,7 +240,7 @@ func (c *Controller) handleGetPersonalBudget(w http.ResponseWriter, r *http.Requ
 // handleGetRunUsage handles GET /v1/usage/run/{runID}.
 // Returns the spend and token total recorded against a single run, scoped to
 // the caller's verified tenant — powers the run chat usage meter. The caller
-// must be able to read the run itself; orbit-agents decides that.
+// must be able to read the run itself; kora-agents decides that.
 func (c *Controller) handleGetRunUsage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -251,7 +251,7 @@ func (c *Controller) handleGetRunUsage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Run ids are canonical UUIDs. Anything else could name a different
-	// orbit-agents route (/runs/stats) and pass the run access check.
+	// kora-agents route (/runs/stats) and pass the run access check.
 	runID := r.PathValue("runID")
 	if parsed, err := uuid.Parse(runID); err != nil || parsed.String() != runID {
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "run id must be a UUID", nil), nil)
@@ -332,7 +332,7 @@ func (c *Controller) handleListUsage(w http.ResponseWriter, r *http.Request) {
 // never served without a run access check.
 var ErrRunReaderMissing = errors.New("run usage has no run access check configured")
 
-// authorizeRunRead lets the request through only when orbit-agents would let
+// authorizeRunRead lets the request through only when kora-agents would let
 // the caller read the run. It writes the error response otherwise.
 func (c *Controller) authorizeRunRead(w http.ResponseWriter, r *http.Request, runID string) bool {
 	ctx := r.Context()

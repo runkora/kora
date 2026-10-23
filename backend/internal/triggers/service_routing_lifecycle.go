@@ -48,7 +48,7 @@ const delegatedCandidateReason = "delegated agents act for the person who runs t
 const cannotRunCandidateReason = "you cannot run this agent"
 
 // RoutingCandidates lists the tenant's agent types the caller may read, each
-// marked runnable when orbit-agents reports can_run for the caller and it is
+// marked runnable when kora-agents reports can_run for the caller and it is
 // not delegated. The caller's own token reads them.
 func (s *TriggerService) RoutingCandidates(ctx context.Context) ([]RoutingCandidate, error) {
 	types, err := s.agents.ListAgentTypes(ctx, callerOf(ctx))

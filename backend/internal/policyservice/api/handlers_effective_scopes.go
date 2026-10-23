@@ -10,7 +10,7 @@ import (
 // handleEffectiveScopes handles GET /policy/effective-scopes.
 // Returns the full set of scopes the authenticated principal currently holds,
 // derived from its OIDC roles (HUMAN only) and explicit grants. The PAT UI
-// reads it to populate the scope selector, and orbit-agents reads it with the
+// reads it to populate the scope selector, and kora-agents reads it with the
 // caller's bearer to keep an agent's grant within its creator's scopes.
 func (c *Controller) handleEffectiveScopes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

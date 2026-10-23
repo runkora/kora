@@ -1,7 +1,7 @@
-// orbit-session-runner applies Landlock to itself, then execs the agent binary,
+// kora-session-runner applies Landlock to itself, then execs the agent binary,
 // which inherits the restriction.
 //
-// Usage: orbit-session-runner <workDir> <binary> [args...]
+// Usage: kora-session-runner <workDir> <binary> [args...]
 //
 // The agent can write only its workspace, its TMPDIR and /dev, and read system
 // paths, its config dir and a fixed set of system-wide /proc files. No per-process
@@ -38,7 +38,7 @@ var procFiles = []string{
 
 func main() {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: orbit-session-runner <workDir> <binary> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: kora-session-runner <workDir> <binary> [args...]")
 		os.Exit(1)
 	}
 
@@ -50,13 +50,13 @@ func main() {
 	// the agent cannot read.
 	resolved, err := exec.LookPath(binary)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "orbit-session-runner: resolve %q: %v\n", binary, err)
+		fmt.Fprintf(os.Stderr, "kora-session-runner: resolve %q: %v\n", binary, err)
 		os.Exit(1)
 	}
 
 	applyLandlock(workDir)
 	if err = syscall.Exec(resolved, argv, os.Environ()); err != nil {
-		fmt.Fprintf(os.Stderr, "orbit-session-runner: exec %q: %v\n", resolved, err)
+		fmt.Fprintf(os.Stderr, "kora-session-runner: exec %q: %v\n", resolved, err)
 		os.Exit(1)
 	}
 }
@@ -80,11 +80,11 @@ func applyLandlock(workDir string) {
 		rules = append(rules, landlock.ROFiles(ro...))
 	}
 	if err := landlock.V3.BestEffort().RestrictPaths(rules...); err != nil {
-		fmt.Fprintf(os.Stderr, "orbit-session-runner: landlock restriction failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "kora-session-runner: landlock restriction failed: %v\n", err)
 		os.Exit(1)
 	}
 	if err := landlock.V6.BestEffort().RestrictScoped(); err != nil {
-		fmt.Fprintf(os.Stderr, "orbit-session-runner: landlock scope restriction failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "kora-session-runner: landlock scope restriction failed: %v\n", err)
 		os.Exit(1)
 	}
 }

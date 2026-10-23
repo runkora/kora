@@ -26,15 +26,15 @@ import (
 type ControllerConfig struct {
 	// ClaudeBinaryPath overrides the claude binary location.
 	ClaudeBinaryPath string
-	// WrapperPath is the path to orbit-session-runner. When set, every agent
+	// WrapperPath is the path to kora-session-runner. When set, every agent
 	// subprocess runs through it, applying Landlock (docs/adr/2026-06-04-per-session-home-isolation.md).
 	WrapperPath string
-	// ShellPath is the orbit-shell proxy OpenCode is pointed at. Claude Code and
+	// ShellPath is the kora-shell proxy OpenCode is pointed at. Claude Code and
 	// Codex resolve it from the image.
 	ShellPath string
 	// ClaudeBare enables --bare mode (required in containers).
 	ClaudeBare bool
-	// SelfPort is the port this session-manager listens on. orbit-runtime-mcp
+	// SelfPort is the port this session-manager listens on. kora-runtime-mcp
 	// uses it to call back for provision_sandbox requests.
 	SelfPort int
 	// WorkspacesBasePath is the base directory for run workspaces (e.g. /workspaces).
@@ -68,10 +68,10 @@ type ControllerConfig struct {
 }
 
 // Controller implements the session-manager's internal HTTP API.
-// orbit-agents calls this API to create sessions, send messages, and
+// kora-agents calls this API to create sessions, send messages, and
 // terminate runs. It is NOT exposed to external traffic.
 // expectedCaller is the SYSTEM principal permitted to drive sessions. Only
-// orbit-agents calls this API (internal/platform/clients/sessionmanager), so
+// kora-agents calls this API (internal/platform/clients/sessionmanager), so
 // this is a constant rather than configuration: there is no deployment in which
 // a different component should be able to start, message or kill a run, and a
 // config key for it would only be a way to widen that by accident.
@@ -112,8 +112,8 @@ func (c *Controller) GroupedBy() string { return "" }
 //     platform token to present. It exposes liveness and a session count only.
 //
 //   - /internal/* is open at the application layer but restricted to the pod's
-//     own loopback interface. Its only callers are orbit-runtime-mcp and
-//     orbit-shell, which are child processes of the Claude subprocess inside
+//     own loopback interface. Its only callers are kora-runtime-mcp and
+//     kora-shell, which are child processes of the Claude subprocess inside
 //     THIS container calling http://localhost:8090. They hold no platform
 //     token and cannot obtain one: the call never leaves the pod, so the
 //     identity-proxy ext_proc sidecar never sees it, and there is no inbound
@@ -125,7 +125,7 @@ func (c *Controller) GroupedBy() string { return "" }
 //
 //   - Everything else — the session-control surface that can start, message,
 //     interrupt, and kill any run — requires a valid platform token AND that
-//     the token belongs to orbit-agents, the sole intended caller.
+//     the token belongs to kora-agents, the sole intended caller.
 //
 // There is no unauthenticated mode. The token check and the caller check are
 // one decision, not two switches: requireExpectedCaller reads the identity the
@@ -160,14 +160,14 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 }
 
 // requireExpectedCaller rejects any authenticated principal that is not the
-// orbit-agents control plane.
+// kora-agents control plane.
 //
 // AuthMiddleware alone is not enough. Every in-mesh component can obtain a
 // platform token, and the platform-wide convention is that a SYSTEM principal
 // is unrestricted by scope enforcement
 // (internal/platform/middleware/scope_enforce.go). Without a caller check, any
 // component's token would unlock every session route on every agent pod in
-// every tenant. The same reasoning drives the orbit-triggers
+// every tenant. The same reasoning drives the kora-triggers
 // AuthorizationPolicy (charts/orbit/templates/triggers/authorizationpolicy.yaml).
 func (c *Controller) requireExpectedCaller(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -183,7 +183,7 @@ func (c *Controller) requireExpectedCaller(next http.Handler) http.Handler {
 				logging.Field{Key: "principal_type", Value: principalType},
 				logging.Field{Key: "display_name", Value: displayName},
 			)
-			apiErr := api.ForbiddenError(api.ErrCodeForbidden, "session-manager accepts requests only from the orbit-agents control plane", nil)
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden, "session-manager accepts requests only from the kora-agents control plane", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
@@ -257,11 +257,11 @@ type CreateSessionRequest struct {
 	// MCPServers are the distinct MCP servers the agent has tool grants on; one
 	// governed endpoint (/v1/mcp/<server>) is provisioned per entry.
 	MCPServers []string `json:"mcp_servers"`
-	// Guardrails are the run's thresholds from orbit-agents; zero fields take
+	// Guardrails are the run's thresholds from kora-agents; zero fields take
 	// this pod's defaults (docs/adr/2026-09-29-agent-run-guardrails.md).
 	Guardrails RunGuardrails `json:"guardrails"`
 	// IdleTimeoutSecs is how long the run may stay idle before its session
-	// closes, chosen by orbit-agents from how the run started. Zero takes this
+	// closes, chosen by kora-agents from how the run started. Zero takes this
 	// pod's session.idleTimeoutSecs.
 	IdleTimeoutSecs int `json:"idle_timeout_secs"`
 	// Triggered marks a run a trigger started. A turn that errors with no
@@ -304,7 +304,7 @@ func idleTimeoutFromSecs(secs int) time.Duration {
 
 // handleCreateSession starts an agent subprocess for the given run.
 // The runner type is selected based on the Framework field.
-// validRunID admits the UUIDs orbit-agents mints and nothing that could leave
+// validRunID admits the UUIDs kora-agents mints and nothing that could leave
 // the workspaces directory: the run ID becomes a path segment under
 // WorkspacesBasePath, so a separator or a dot-only segment would let a caller
 // place a run's files, and its Landlock scope, outside its own workspace.
@@ -463,11 +463,11 @@ func (c *Controller) prepareRun(w http.ResponseWriter, r *http.Request, req Crea
 
 // runEnv is the per-run environment every agent subprocess needs.
 //
-// WORKSPACE is where orbit-shell reads the sandbox descriptor. The URL and run
+// WORKSPACE is where kora-shell reads the sandbox descriptor. The URL and run
 // ID let it call back here, which it needs to replace a sandbox whose pod has
 // gone. ORBIT_RUN_TOKEN is how that call proves which run it is: loopback only
 // proves the caller is in this pod, which every run here satisfies.
-// orbit-shell is a child of the agent and inherits this environment.
+// kora-shell is a child of the agent and inherits this environment.
 //
 // The install environment uses the sandbox's paths under the run's local dir.
 // Claude Code and Codex replay the agent's environment in sandbox commands.
@@ -517,7 +517,7 @@ func (c *Controller) requireRunToken(w http.ResponseWriter, r *http.Request, run
 type SendMessageRequest struct {
 	Content string `json:"content"`
 	// IdleTimeoutSecs, when above zero, replaces the session's idle timeout from
-	// this message on: orbit-agents sets it when a person messages a trigger run.
+	// this message on: kora-agents sets it when a person messages a trigger run.
 	IdleTimeoutSecs int `json:"idle_timeout_secs"`
 	// FromPerson marks a message a person sent, which moves a trigger run to a person's.
 	FromPerson bool `json:"from_person"`
@@ -574,7 +574,7 @@ type SendToolResultRequest struct {
 }
 
 // handleSendToolResult injects a tool result for a pending AskFollowupQuestion.
-// orbit-agents calls this when the user has answered a question Claude asked.
+// kora-agents calls this when the user has answered a question Claude asked.
 func (c *Controller) handleSendToolResult(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	runID := r.PathValue("runID")
@@ -642,21 +642,21 @@ func (c *Controller) handleCloseSession(w http.ResponseWriter, r *http.Request) 
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
-// sandboxRequest is what orbit-runtime-mcp and orbit-shell send to provision
+// sandboxRequest is what kora-runtime-mcp and kora-shell send to provision
 // or replace a sandbox. Environment is empty for the current or default one.
 type sandboxRequest struct {
 	Environment string `json:"environment"`
 }
 
-// handleProvisionSandbox is called by orbit-runtime-mcp (running inside Claude)
-// to provision a sandbox pod. It delegates to orbit-agents then writes the
-// gRPC endpoint to disk so orbit-shell can route Bash commands to the sandbox.
+// handleProvisionSandbox is called by kora-runtime-mcp (running inside Claude)
+// to provision a sandbox pod. It delegates to kora-agents then writes the
+// gRPC endpoint to disk so kora-shell can route Bash commands to the sandbox.
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {
 	c.serveSandbox(w, r, false)
 }
 
 // handleReplaceEnvironment replaces the run's sandbox with one in another environment.
-// orbit-agents checks the name and refuses a replacement without one.
+// kora-agents checks the name and refuses a replacement without one.
 func (c *Controller) handleReplaceEnvironment(w http.ResponseWriter, r *http.Request) {
 	c.serveSandbox(w, r, true)
 }
@@ -696,7 +696,7 @@ func (c *Controller) handleListEnvironments(w http.ResponseWriter, r *http.Reque
 }
 
 // writeSandboxError maps a sandbox failure to a response. failed is the message of an unexpected failure.
-// orbit-runtime-mcp and orbit-shell relay messages for the model as the tool error.
+// kora-runtime-mcp and kora-shell relay messages for the model as the tool error.
 func (c *Controller) writeSandboxError(ctx context.Context, w http.ResponseWriter, runID string, err error, failed string) {
 	switch {
 	case errors.Is(err, ErrSessionNotFound):
@@ -722,7 +722,7 @@ func (c *Controller) writeSandboxError(ctx context.Context, w http.ResponseWrite
 
 // handleGetSandbox reports this run's sandbox, or 404 if it has none.
 //
-// orbit-shell asks when the workspace descriptor is missing, which the agent can
+// kora-shell asks when the workspace descriptor is missing, which the agent can
 // arrange by deleting it. 404 is the only answer that sends it to a local shell.
 func (c *Controller) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -733,7 +733,7 @@ func (c *Controller) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
 
 	sandbox, ok, err := c.registry.Sandbox(ctx, runID)
 	if err != nil {
-		// Not 404: orbit-shell reads that as permission to run the command
+		// Not 404: kora-shell reads that as permission to run the command
 		// locally. A lookup we could not complete must stop the command, not
 		// relax where it runs.
 		apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "could not determine this run's sandbox", map[string]any{"run_id": runID})

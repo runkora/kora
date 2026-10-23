@@ -73,7 +73,7 @@ var (
 	ErrSessionExists   = errors.New("session already exists")
 	// ErrDraining refuses a new session on a pod that is shutting down.
 	ErrDraining = errors.New("session-manager is draining")
-	// ErrSandboxIncomplete means orbit-agents answered without both halves of the
+	// ErrSandboxIncomplete means kora-agents answered without both halves of the
 	// descriptor. An endpoint with no token cannot be used, so it is not cached.
 	ErrSandboxIncomplete = errors.New("sandbox response missing endpoint or exec token")
 )
@@ -297,7 +297,7 @@ func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 	if !ok {
 		return ErrSessionNotFound
 	}
-	// Text the agent wrote before this message is recorded before it: orbit-agents
+	// Text the agent wrote before this message is recorded before it: kora-agents
 	// records the message once this call returns, so replay keeps the live order.
 	if partial := s.runner.TakeText(); partial != "" {
 		if ev, err := newEvent(EventTypeTextBlock, TextBlockPayload{Content: partial}); err == nil {
@@ -331,7 +331,7 @@ func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 	return nil
 }
 
-// summarizeRun generates the run's task summary and reports it to orbit-agents.
+// summarizeRun generates the run's task summary and reports it to kora-agents.
 // Detached and best-effort: failures are logged at WARN and never affect the run.
 func (reg *Registry) summarizeRun(runID, inferenceURL, model, initialMessage string) {
 	ctx, cancel := context.WithTimeout(context.Background(), summarizerTimeout)
@@ -458,7 +458,7 @@ func (reg *Registry) ActiveCount() int {
 	return len(reg.sessions)
 }
 
-// Sandbox is what orbit-agents returns for a provisioned pod: where its exec
+// Sandbox is what kora-agents returns for a provisioned pod: where its exec
 // server listens, and the token that server requires.
 type Sandbox struct {
 	Endpoint  string `json:"endpoint"`
@@ -471,19 +471,19 @@ type Sandbox struct {
 	Folder string `json:"folder,omitempty"`
 }
 
-// ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
+// ProvisionSandbox requests kora-agents to provision a sandbox pod for the
 // given run, then writes the returned gRPC endpoint and exec token under
-// $workspaces/{runID}/.sandbox-exec/ so orbit-shell can discover both.
+// $workspaces/{runID}/.sandbox-exec/ so kora-shell can discover both.
 //
 // The token goes in the run's workspace because Landlock already confines each
 // agent to its own directory, putting a sibling run's token out of reach.
 //
 // Idempotent toward liveness: if the endpoint file already exists AND the
 // sandbox at that address is still reachable, the cached value is returned
-// without contacting orbit-agents. If the cached endpoint is dead (the pod was
+// without contacting kora-agents. If the cached endpoint is dead (the pod was
 // evicted/killed, leaving a stale pointer), it is treated as a miss and a fresh
-// sandbox is provisioned — otherwise callers (orbit-shell) would keep dialing a
-// corpse. orbit-agents replaces the dead pod and returns the new endpoint.
+// sandbox is provisioned — otherwise callers (kora-shell) would keep dialing a
+// corpse. kora-agents replaces the dead pod and returns the new endpoint.
 //
 // After a fresh provision, ProvisionSandbox gates on egress readiness: it probes
 // outbound connectivity from inside the sandbox (via its gRPC exec server) and
@@ -505,7 +505,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, environ
 	s.provisionMu.Lock()
 	defer s.provisionMu.Unlock()
 
-	// A named environment or a replacement always asks orbit-agents.
+	// A named environment or a replacement always asks kora-agents.
 	if environment == "" && !replace {
 		if endpoint, ok, err := reg.cachedSandbox(ctx, runID); err != nil || ok {
 			return endpoint, err
@@ -602,7 +602,7 @@ func (reg *Registry) cachedSandbox(ctx context.Context, runID string) (string, b
 	return disk.Endpoint, true, nil
 }
 
-// ListEnvironments returns orbit-agents' list of the environments the run's agent may use.
+// ListEnvironments returns kora-agents' list of the environments the run's agent may use.
 func (reg *Registry) ListEnvironments(ctx context.Context, runID string) (json.RawMessage, error) {
 	reg.mu.RLock()
 	_, ok := reg.sessions[runID]
@@ -613,7 +613,7 @@ func (reg *Registry) ListEnvironments(ctx context.Context, runID string) (json.R
 	return reg.notifier.ListEnvironments(ctx, runID)
 }
 
-// writeSandboxDescriptor writes the exec token, then the endpoint: orbit-shell
+// writeSandboxDescriptor writes the exec token, then the endpoint: kora-shell
 // keys off the endpoint, so it never sees one whose token is still missing.
 //
 // The files are written through an os.Root on the run's workspace. The run can
@@ -651,7 +651,7 @@ func writeSandboxDescriptor(runDir string, sandbox Sandbox) error {
 	return nil
 }
 
-// sandboxStatus reports a provisioning phase to orbit-agents. Best-effort, and
+// sandboxStatus reports a provisioning phase to kora-agents. Best-effort, and
 // detached from ctx so a caller that gave up still leaves the phase recorded.
 func (reg *Registry) sandboxStatus(ctx context.Context, runID, phase string, started time.Time, message string) {
 	ev, err := newEvent(EventTypeSandboxStatus, SandboxStatusPayload{
@@ -665,7 +665,7 @@ func (reg *Registry) sandboxStatus(ctx context.Context, runID, phase string, sta
 	reg.pushEvent(context.WithoutCancel(ctx), runID, ev)
 }
 
-// provision gets a sandbox from orbit-agents. The request retries within the
+// provision gets a sandbox from kora-agents. The request retries within the
 // guardrail, and a final failure marks the sandbox lost.
 //
 // The retries outlive the caller: Claude Code kills a Bash call after its own
@@ -708,10 +708,10 @@ func (reg *Registry) rememberSandbox(runID string, sandbox Sandbox) {
 // session answers first, so an agent deleting its workspace copy cannot make
 // its run look like it never had one.
 //
-// orbit-agents answers when this pod's memory does not, which is the case after
+// kora-agents answers when this pod's memory does not, which is the case after
 // a restart. Reading the run's workspace instead would answer nothing: that is
-// the same file orbit-shell has already failed to find, since it only asks when
-// its own copy is missing. orbit-agents holds the sandbox pod, which outlives
+// the same file kora-shell has already failed to find, since it only asks when
+// its own copy is missing. kora-agents holds the sandbox pod, which outlives
 // both this pod's memory and anything the agent can delete.
 //
 // A miss in both places reports no sandbox, the answer for a run that never
@@ -726,9 +726,9 @@ func (reg *Registry) Sandbox(ctx context.Context, runID string) (Sandbox, bool, 
 		}
 	}
 
-	// The error is returned rather than folded into found=false. orbit-shell
+	// The error is returned rather than folded into found=false. kora-shell
 	// reads "no sandbox" as permission to run the command locally, so an
-	// unreachable orbit-agents would put the agent outside the sandbox, which
+	// unreachable kora-agents would put the agent outside the sandbox, which
 	// is the failure this whole path exists to prevent.
 	sandbox, found, err := reg.notifier.GetSandbox(ctx, runID)
 	if err != nil {
@@ -888,7 +888,7 @@ func endpointAlive(endpoint string) bool {
 }
 
 // drain reads events from a session's runner, persists durable events to the DB,
-// pushes all events to orbit-agents for live SSE fan-out, and manages the idle
+// pushes all events to kora-agents for live SSE fan-out, and manages the idle
 // timeout that closes the session after inactivity.
 //
 // Durable events (message_complete, tool_use, tool_result) → DB + push.
@@ -1019,7 +1019,7 @@ func (s *session) endedFailed() bool {
 	return !s.intentionalClose.Load() || s.cutByShutdown.Load()
 }
 
-// completeDrain removes the session from the registry, notifies orbit-agents of
+// completeDrain removes the session from the registry, notifies kora-agents of
 // the final run state, and closes the done channel. Called from the drain defer.
 func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	bgCtx := context.Background()
@@ -1141,12 +1141,12 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	close(s.done)
 }
 
-// pushEvent hands one event to orbit-agents. Everything is pushed, including
-// events no subscriber sees: orbit-agents decides what to record and what to
+// pushEvent hands one event to kora-agents. Everything is pushed, including
+// events no subscriber sees: kora-agents decides what to record and what to
 // fan out.
 func (reg *Registry) pushEvent(ctx context.Context, runID string, ev Event) {
 	if err := reg.notifier.Notify(ctx, runID, ev); err != nil {
-		reg.logger.Warn(ctx, "Failed to push event to orbit-agents",
+		reg.logger.Warn(ctx, "Failed to push event to kora-agents",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "event_type", Value: string(ev.Type)},
 			logging.Field{Key: "error", Value: err.Error()},
@@ -1154,7 +1154,7 @@ func (reg *Registry) pushEvent(ctx context.Context, runID string, ev Event) {
 	}
 }
 
-// emitRunError reports a run_error event to orbit-agents, which persists it.
+// emitRunError reports a run_error event to kora-agents, which persists it.
 func (reg *Registry) emitRunError(ctx context.Context, runID, code, message string) {
 	ev, err := newEvent(EventTypeRunError, RunErrorPayload{Code: code, Message: message})
 	if err != nil {
@@ -1163,7 +1163,7 @@ func (reg *Registry) emitRunError(ctx context.Context, runID, code, message stri
 	reg.pushEvent(ctx, runID, ev)
 }
 
-// isDurableEvent returns true for events orbit-agents records in run_events.
+// isDurableEvent returns true for events kora-agents records in run_events.
 // Used here to pick a delivery timeout, and by the OpenCode runner to filter a
 // replayed transcript. internal/agents/pubsub.go holds the authoritative copy.
 func isDurableEvent(t EventType) bool {

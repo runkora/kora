@@ -11,7 +11,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
-// The RFC 8693 subject_token path: a platform service (orbit-agents) brokers
+// The RFC 8693 subject_token path: a platform service (kora-agents) brokers
 // the mint because its identity-proxy overwrites the Authorization header on
 // egress — the runner's own platform token travels in the body and the
 // delegator is derived from IT after full verification (ADR Decision 3).
@@ -36,7 +36,7 @@ func TestHandleCreateDelegation_SubjectTokenBrokeredMint(t *testing.T) {
 	}, "subject-jti-1")
 
 	// Transport principal is the SYSTEM service token the identity-proxy
-	// stamps on orbit-agents egress.
+	// stamps on kora-agents egress.
 	w := postJSONWithClaims(t, c.handleCreateDelegation, systemClaims("orbit-agents"), CreateDelegationRequest{
 		AgentPrincipalID: testAgentSpiffeID,
 		RunID:            "run-subject-1",

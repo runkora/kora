@@ -48,7 +48,7 @@ func (c *Controller) resolveTenantID(w http.ResponseWriter, r *http.Request, cla
 // enforceScopeCeiling implements the grant-administration anti-escalation invariant
 // (2026-06-30 amendment to the authorisation model): a non-SYSTEM caller may assign,
 // in a grant or role, only scopes that are covered by its own effective scopes.
-// SYSTEM principals (e.g. orbit-agents provisioning agent grants) are exempt.
+// SYSTEM principals (e.g. kora-agents provisioning agent grants) are exempt.
 // Returns true if the request may proceed; otherwise it has written the error
 // response (403 naming the rejected scopes, or 500 if the caller's scopes can't be
 // resolved) and the caller must return.
@@ -131,7 +131,7 @@ func (c *Controller) refuseDelegated(ctx context.Context, w http.ResponseWriter)
 // refuseNonHumanGrantWrite writes 403 when a caller that is not SYSTEM writes
 // (creates, deletes or sets the budget of) a grant whose principal type is not
 // HUMAN. AGENT, SERVICE and PAT grants belong to the platform components that
-// own those identities (orbit-agents, orbit-triggers, identity), which present
+// own those identities (kora-agents, kora-triggers, identity), which present
 // SYSTEM; a tenant admin or a SERVICE principal is refused. Returns true when
 // it refused and has written the response.
 //

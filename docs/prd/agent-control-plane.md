@@ -304,7 +304,7 @@ inference-gateway → LLM provider
 
 ### orbit-agents Service
 
-New backend service (`backend/cmd/orbit-agents`) following all existing platform conventions.
+New backend service (`backend/cmd/kora-agents`) following all existing platform conventions.
 
 Responsibilities:
 - Agent type CRUD (database-backed registry)

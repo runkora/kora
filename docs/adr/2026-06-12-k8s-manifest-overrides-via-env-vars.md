@@ -115,7 +115,7 @@ ORBIT_MANIFEST__<Kind>__<name>__<path>=<value>
 | `backend/internal/agents/k8s_overrides.go` | `ParseManifestOverrides`, `overridesForSlug`, `applyOverrides[T]` |
 | `backend/internal/agents/k8s_overrides_test.go` | Unit tests |
 | `backend/internal/agents/k8s.go` | `K8sProvisionerConfig.ManifestOverrides`; override application in each `ensure*` function |
-| `backend/cmd/orbit-agents/main.go` | Parses overrides from `os.Environ()`, logs malformed keys |
+| `backend/cmd/kora-agents/main.go` | Parses overrides from `os.Environ()`, logs malformed keys |
 
 ### Error behaviour
 

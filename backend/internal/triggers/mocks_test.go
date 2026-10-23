@@ -699,7 +699,7 @@ type startCall struct {
 	agentTypeID    string
 	initialMessage string
 	// The trigger→run backlink as it went over the wire, so tests assert what
-	// orbit-agents actually receives rather than what the caller intended.
+	// kora-agents actually receives rather than what the caller intended.
 	triggerID   string
 	triggerName string
 	deliveryID  string
@@ -741,7 +741,7 @@ type agentsStub struct {
 	typeQueries []string
 	batchStatus int
 	// filterByScopes lists only the agent types whose agents:types:<slug>:read
-	// scope is in readScopes, as orbit-agents does for a caller without
+	// scope is in readScopes, as kora-agents does for a caller without
 	// agents:types:read.
 	filterByScopes bool
 	readScopes     []string
@@ -835,7 +835,7 @@ func newAgentsStub() *agentsStub {
 			listed = readable
 		}
 		if r.URL.Query().Get("include") != "effective_access" {
-			// Effective connectors come only with the include, as from orbit-agents.
+			// Effective connectors come only with the include, as from kora-agents.
 			plain := slices.Clone(listed)
 			for i := range plain {
 				plain[i].EffectiveConnectors = nil

@@ -14,7 +14,7 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
 )
 
-// RenderResources builds the patchable resources orbit-agents provisions for
+// RenderResources builds the patchable resources kora-agents provisions for
 // an agent type (ServiceAccount, StatefulSet with its PVC template, Service,
 // HPA, PDB, and optionally a sample sandbox Pod), applies the manifest
 // patches, and returns them in creation order. The Istio DestinationRule and

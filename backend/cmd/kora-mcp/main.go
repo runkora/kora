@@ -1,4 +1,4 @@
-// orbit-mcp is the kora platform MCP server: the first platform-global MCP
+// kora-mcp is the kora platform MCP server: the first platform-global MCP
 // server. It exposes kora's own management surface (agents, policy, models, …)
 // as MCP tools over Streamable HTTP, forwarding the caller's token to each kora
 // API (passthrough — the downstream service enforces the real scope; this server
@@ -15,7 +15,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	omc "github.com/runkora/kora/backend/cmd/orbit-mcp/config"
+	omc "github.com/runkora/kora/backend/cmd/kora-mcp/config"
 	"github.com/runkora/kora/backend/internal/koramcp"
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/brand"
@@ -105,7 +105,7 @@ func realMain() error {
 	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
-	logger.Info(ctx, "Shutting down orbit-mcp...")
+	logger.Info(ctx, "Shutting down kora-mcp...")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), omc.Current.ShutdownTimeout())
 	defer cancel()

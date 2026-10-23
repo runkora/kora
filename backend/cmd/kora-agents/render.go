@@ -7,7 +7,7 @@ import (
 
 	"sigs.k8s.io/yaml"
 
-	agentsConfig "github.com/runkora/kora/backend/cmd/orbit-agents/config"
+	agentsConfig "github.com/runkora/kora/backend/cmd/kora-agents/config"
 	"github.com/runkora/kora/backend/internal/agents"
 	"github.com/runkora/kora/backend/internal/agents/manifestpatch"
 	"github.com/runkora/kora/backend/internal/platform/brand"
@@ -99,7 +99,7 @@ func loadProvisioning(cfg *agentsConfig.Config, dir string, b brand.Brand) ([]ma
 	return patches, workloads, nil
 }
 
-// renderManifests prints the YAML orbit-agents would provision for one agent
+// renderManifests prints the YAML kora-agents would provision for one agent
 // type with every manifest patch applied. It backs the -render CLI mode.
 func renderManifests(patchDir string, at agents.AgentType, namespace string, includeSandbox bool) error {
 	if at.Slug == "" {

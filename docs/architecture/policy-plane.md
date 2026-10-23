@@ -8,7 +8,7 @@ kora authorizes every action against policy before it runs. policy-service compi
 
 policy-service owns policy authoring and compilation. It stores grants, roles, and scope vocabulary in Postgres, and holds the route-to-scope table in memory, which services register at startup. It compiles these into per-tenant OPA bundles and one gateway bundle.
 
-A grant attaches scopes to a principal, a role maps an OIDC role to scopes, and a route declares the scope it requires. Scopes take the form `resource:path:action`. orbit-agents provisions an agent's grants when its agent type is created.
+A grant attaches scopes to a principal, a role maps an OIDC role to scopes, and a route declares the scope it requires. Scopes take the form `resource:path:action`. kora-agents provisions an agent's grants when its agent type is created.
 
 ## Distribution
 

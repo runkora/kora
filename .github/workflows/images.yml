@@ -91,9 +91,9 @@ jobs:
           load: ${{ !inputs.push }}
           set: |
             *.platform=${{ inputs.platforms }}
-            *.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:${{ matrix.target }}${{ env.CACHE_SUFFIX }}
-            *.cache-to=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:${{ matrix.target }}${{ env.CACHE_SUFFIX }},mode=max,ignore-error=true
-            kora-sandbox-base.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:kora-sandbox-base${{ env.CACHE_SUFFIX }}
+            *.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/kora-buildcache:${{ matrix.target }}${{ env.CACHE_SUFFIX }}
+            *.cache-to=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/kora-buildcache:${{ matrix.target }}${{ env.CACHE_SUFFIX }},mode=max,ignore-error=true
+            kora-sandbox-base.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/kora-buildcache:kora-sandbox-base${{ env.CACHE_SUFFIX }}
             *.labels.org.opencontainers.image.source=https://github.com/${{ github.repository }}
             *.labels.org.opencontainers.image.url=https://github.com/${{ github.repository }}
             *.labels.org.opencontainers.image.revision=${{ github.sha }}

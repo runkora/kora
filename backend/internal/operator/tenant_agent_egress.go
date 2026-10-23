@@ -20,7 +20,7 @@ import (
 // agentEgressName names both the NetworkPolicy and the Istio Sidecar.
 const agentEgressName = "agent-egress"
 
-// agentPodLabels select agent pods; orbit-agents sets them on every one.
+// agentPodLabels select agent pods; kora-agents sets them on every one.
 var agentPodLabels = map[string]string{"orbit.io/managed-agent": "true"}
 
 // sidecarGVK is Istio's, which is not in the operator's scheme.

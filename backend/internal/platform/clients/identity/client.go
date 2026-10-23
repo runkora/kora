@@ -293,7 +293,7 @@ func (c *Client) CreateDelegation(ctx context.Context, bearer string, req Create
 }
 
 // RevokeDelegation calls DELETE {baseURL}/api/v1/identity/delegation/{jti}
-// with the given bearer token. orbit-agents calls this with its own exchanged
+// with the given bearer token. kora-agents calls this with its own exchanged
 // SERVICE platform token on terminal run state — the endpoint permits the
 // delegator or SERVICE/SYSTEM principals. Revoking an already-revoked or
 // missing issuance is treated as success (the tombstone is the desired end
@@ -409,7 +409,7 @@ type mintServiceTokenResponse struct {
 // here can be leaked or replayed.
 //
 // This satisfies the triggers package's TokenMinter interface, which
-// orbit-triggers uses in place of the in-process identity service.
+// kora-triggers uses in place of the in-process identity service.
 func (c *Client) MintServiceToken(ctx context.Context, tenantID, principalID, displayName string, ttl time.Duration) (string, error) {
 	endpoint := c.baseURL + "/api/v1/identity/internal/service-token"
 

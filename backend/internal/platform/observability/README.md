@@ -46,7 +46,7 @@ The package loads the `internal/platform/observability` config module: `config/b
 *   **`samplingRate`:** The fraction of root spans sampled (0.0 to 1.0).
 *   **`logFormat`:** `console` or `json`.
 
-`ORBIT_OTLP_ENDPOINT` and `ORBIT_SAMPLING_RATE` override the first two for the session-manager and identity-proxy containers that orbit-agents and the operator build.
+`ORBIT_OTLP_ENDPOINT` and `ORBIT_SAMPLING_RATE` override the first two for the session-manager and identity-proxy containers that kora-agents and the operator build.
 
 Service name and version are not environment variables: each binary passes them in its `Config`.
 

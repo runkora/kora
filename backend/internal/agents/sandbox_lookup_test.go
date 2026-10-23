@@ -29,7 +29,7 @@ func TestGetSandbox_ReturnsTheLiveSandbox(t *testing.T) {
 	}
 }
 
-// A run that never asked for a sandbox is not an error. orbit-shell routes
+// A run that never asked for a sandbox is not an error. kora-shell routes
 // pre-sandbox work locally on this answer.
 func TestGetSandbox_NoSandboxIsItsOwnError(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)

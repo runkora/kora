@@ -24,10 +24,10 @@ COPY . .
 ARG TARGETOS TARGETARCH
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit ./cmd/session-manager/main.go && \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit-shell ./cmd/orbit-shell/main.go && \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit-runtime-mcp ./cmd/orbit-runtime-mcp/main.go && \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit-session-runner ./cmd/orbit-session-runner/
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /kora ./cmd/session-manager/main.go && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /kora-shell ./cmd/kora-shell/main.go && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /kora-runtime-mcp ./cmd/kora-runtime-mcp/main.go && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /kora-session-runner ./cmd/kora-session-runner/
 
 # Stage only the YAML config files the session-manager binary loads at
 # runtime, keeping Go source (config.go) out of the runtime image.
@@ -49,7 +49,7 @@ FROM node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed
 
 WORKDIR /app
 
-# bash: the REAL /bin/bash — used for shell-snapshot generation and as orbit-shell's
+# bash: the REAL /bin/bash — used for shell-snapshot generation and as kora-shell's
 #       local fallback. It is deliberately left untouched (never replaced by the proxy).
 # git:  required by Claude Code for git operations inside workspaces.
 # curl: used to download the Codex musl binary below.
@@ -59,11 +59,11 @@ RUN apk add --no-cache ca-certificates bash git curl
 # How Claude Code's Bash tool is routed into the sandbox:
 #   - Claude Code IGNORES $SHELL; it resolves its shell from CLAUDE_CODE_SHELL.
 #   - It only honors a CLAUDE_CODE_SHELL whose basename is a known shell
-#     (bash/zsh/fish); anything else (e.g. "orbit-shell") silently falls back to
-#     /bin/bash. Verified empirically — see orbit-shell's package doc.
-#   - So orbit-shell (the sandbox-routing Bash proxy) is exposed under a "bash"
+#     (bash/zsh/fish); anything else (e.g. "kora-shell") silently falls back to
+#     /bin/bash. Verified empirically — see kora-shell's package doc.
+#   - So kora-shell (the sandbox-routing Bash proxy) is exposed under a "bash"
 #     basename via the symlink created below, and CLAUDE_CODE_SHELL points at it.
-# orbit-shell routes `-c` commands to the sandbox pod's gRPC exec server when
+# kora-shell routes `-c` commands to the sandbox pod's gRPC exec server when
 # $WORKSPACE/.sandbox-exec/endpoint exists, and otherwise execs the real /bin/bash
 # (snapshot generation and any pre-provision commands run locally).
 ENV SHELL=/opt/orbit/shell/bash
@@ -71,7 +71,7 @@ ENV CLAUDE_CODE_SHELL=/opt/orbit/shell/bash
 
 # Install the claude and opencode CLIs from the lockfile in cmd/session-manager/agent-clis,
 # so every build gets the same versions. Validate the opencode ACP protocol on upgrade.
-# They live under /usr because orbit-session-runner's Landlock rules only allow exec from
+# They live under /usr because kora-session-runner's Landlock rules only allow exec from
 # /usr, /bin, /sbin and /lib.
 COPY cmd/session-manager/agent-clis/package.json cmd/session-manager/agent-clis/package-lock.json /usr/local/lib/agent-clis/
 RUN cd /usr/local/lib/agent-clis && \
@@ -100,12 +100,12 @@ RUN ARCH=$(uname -m) && \
 RUN addgroup -S orbit && adduser -S orbit -G orbit
 
 COPY --from=builder /configs/ ./
-COPY --from=builder /orbit ./orbit
-COPY --from=builder /orbit-shell /usr/local/bin/orbit-shell
-# Expose orbit-shell under a "bash" basename so Claude Code's CLAUDE_CODE_SHELL accepts it
+COPY --from=builder /kora ./kora
+COPY --from=builder /kora-shell /usr/local/bin/kora-shell
+# Expose kora-shell under a "bash" basename so Claude Code's CLAUDE_CODE_SHELL accepts it
 # (it rejects non-shell basenames and falls back to /bin/bash). Dedicated dir, NOT on PATH,
 # so the real /bin/bash is unaffected for every other consumer in the image.
-RUN mkdir -p /opt/orbit/shell && ln -sf /usr/local/bin/orbit-shell /opt/orbit/shell/bash
+RUN mkdir -p /opt/orbit/shell && ln -sf /usr/local/bin/kora-shell /opt/orbit/shell/bash
 # Codex resolves its shell from the running user's passwd entry, not $SHELL, and
 # classifies it by basename. Pointing orbit's login shell at the proxy is what
 # routes its tool commands into the sandbox. Codex reads passwd before PATH, so
@@ -113,8 +113,8 @@ RUN mkdir -p /opt/orbit/shell && ln -sf /usr/local/bin/orbit-shell /opt/orbit/sh
 # re-resolved back through here. The grep fails the build if the sed missed.
 RUN sed -i 's#^orbit:\(.*\):/sbin/nologin$#orbit:\1:/opt/orbit/shell/bash#' /etc/passwd && \
     getent passwd orbit | grep -q ':/opt/orbit/shell/bash$'
-COPY --from=builder /orbit-runtime-mcp /usr/local/bin/orbit-runtime-mcp
-COPY --from=builder /orbit-session-runner /usr/local/bin/orbit-session-runner
+COPY --from=builder /kora-runtime-mcp /usr/local/bin/kora-runtime-mcp
+COPY --from=builder /kora-session-runner /usr/local/bin/kora-session-runner
 
 # Workspaces directory (matches config/base.yaml workspaces.basePath)
 RUN mkdir -p /workspaces && chown orbit:orbit /workspaces /app
@@ -123,4 +123,4 @@ USER orbit
 
 EXPOSE 8090
 
-CMD ["./orbit"]
+CMD ["./kora"]

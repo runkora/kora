@@ -1,6 +1,6 @@
 package main
 
-// orbit-runtime-mcp is the MCP server for session-runtime tools.
+// kora-runtime-mcp is the MCP server for session-runtime tools.
 // Claude Code spawns this binary (via --mcp-config) and communicates over
 // stdio using JSON-RPC 2.0. It exposes tools that let Claude interact with
 // the session-manager to manage its own execution environment.
@@ -33,14 +33,14 @@ func main() {
 		httpClient:        &http.Client{Timeout: provisionTimeout},
 	}
 	if err := srv.serve(os.Stdin, os.Stdout); err != nil && !errors.Is(err, io.EOF) {
-		log.Fatalf("orbit-runtime-mcp: %v", err)
+		log.Fatalf("kora-runtime-mcp: %v", err)
 	}
 }
 
 func requireEnv(key string) string {
 	v := os.Getenv(key)
 	if v == "" {
-		log.Fatalf("orbit-runtime-mcp: %s is required", key)
+		log.Fatalf("kora-runtime-mcp: %s is required", key)
 	}
 	return v
 }
@@ -272,7 +272,7 @@ func (s *mcpServer) listEnvironments() (string, error) {
 		if e.Current {
 			marks = append(marks, "current sandbox")
 		}
-		// The previous release's orbit-agents sends only name, which is then the slug.
+		// The previous release's kora-agents sends only name, which is then the slug.
 		slug := e.Slug
 		if slug == "" {
 			slug = e.Name

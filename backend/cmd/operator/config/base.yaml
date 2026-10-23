@@ -16,7 +16,7 @@ install:
   istioNamespace: istio-system
   spireClassName: spire-system-spire
   injection:
-    identityProxyImage: ghcr.io/runkora/orbit-identity-proxy:latest
+    identityProxyImage: ghcr.io/runkora/kora-identity-proxy:latest
     identityProxyPullPolicy: IfNotPresent
     opaImage: docker.io/openpolicyagent/opa:1.21.0-envoy-static
     opaPullPolicy: IfNotPresent

@@ -273,7 +273,7 @@ The bypass for `/internal/*` and `/health` stays in the controller (those paths 
 
 Phased per service. Each phase adds the middleware and verifies every public route end-to-end with a token that holds the expected scope.
 
-1. **orbit-agents** (this PR / immediate). The route table (`cmd/orbit-agents/main.go:agentRoutes`) needs a PATCH entry for `/api/v1/agent-types/{id}` which is currently missing — adding it is part of this PR.
+1. **orbit-agents** (this PR / immediate). The route table (`cmd/kora-agents/main.go:agentRoutes`) needs a PATCH entry for `/api/v1/agent-types/{id}` which is currently missing — adding it is part of this PR.
 2. **policy-service** — closes the same gap on `POST /grants`, `PUT /roles`, etc. Route table needs construction.
 3. **identity** — closes the same gap on PAT and session admin paths.
 4. **inference-gateway** — already does in-process per-resource checks; adding the middleware is defense-in-depth and removes the per-handler boilerplate.

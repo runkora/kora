@@ -12,12 +12,12 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-// Every framework goes through orbit-session-runner, so Codex and OpenCode runs
+// Every framework goes through kora-session-runner, so Codex and OpenCode runs
 // are confined the same way a Claude run is.
 // See https://github.com/clear-route/orbit/issues/217.
 func TestWrapExec(t *testing.T) {
 	const (
-		wrapper = "/usr/local/bin/orbit-session-runner"
+		wrapper = "/usr/local/bin/kora-session-runner"
 		workDir = "/workspaces/run-1"
 		binary  = "codex"
 	)
@@ -81,7 +81,7 @@ func TestOpenCodeConfig_ShellPath(t *testing.T) {
 	})
 }
 
-// orbit-shell reads all four from its environment: WORKSPACE to find the
+// kora-shell reads all four from its environment: WORKSPACE to find the
 // sandbox descriptor, the others to ask this pod for a replacement and to prove
 // which run is asking.
 func TestRunEnv(t *testing.T) {
@@ -201,12 +201,12 @@ func TestCodexConfig_MCPServers(t *testing.T) {
 		`sandbox_mode = "danger-full-access"`,
 		// Headless: an approval request would wait forever for a human.
 		`approval_policy = "never"`,
-		// The one-shot shell tool, which is the shape orbit-shell implements.
+		// The one-shot shell tool, which is the shape kora-shell implements.
 		"unified_exec = false",
 		// A login-shell snapshot from this pod would replace the sandbox's PATH.
 		"shell_snapshot = false",
 		"[mcp_servers.runtime]",
-		`command = "orbit-runtime-mcp"`,
+		`command = "kora-runtime-mcp"`,
 		`ORBIT_SESSION_MANAGER_URL = "http://localhost:8090"`,
 		`ORBIT_RUN_ID              = "run-1"`,
 		"[mcp_servers.github]",
@@ -249,7 +249,7 @@ func TestOpenCodeConfig_MCPServers(t *testing.T) {
 	if !ok {
 		t.Fatalf("no runtime MCP server in %v", cfg.MCP)
 	}
-	if rt.Type != "local" || len(rt.Command) != 1 || rt.Command[0] != "orbit-runtime-mcp" || !rt.Enabled {
+	if rt.Type != "local" || len(rt.Command) != 1 || rt.Command[0] != "kora-runtime-mcp" || !rt.Enabled {
 		t.Errorf("runtime entry = %+v", rt)
 	}
 	if rt.Environment["ORBIT_RUN_ID"] != "run-1" || rt.Environment["ORBIT_SESSION_MANAGER_URL"] != "http://localhost:8090" {

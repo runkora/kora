@@ -15,7 +15,7 @@ import (
 // caller's tenant.
 //
 // GET /connections is the gateway's only HTTP route. The frontend picker reads
-// its catalog from orbit-agents rather than from here.
+// its catalog from kora-agents rather than from here.
 //
 // The response carries only a connection's name, adapter type, and grantable
 // actions, so the route is auth-only with no scope enforcement. The list is

@@ -12,7 +12,7 @@ type PushedEvent struct {
 	Type       string          `json:"type"`
 	Payload    json.RawMessage `json:"payload,omitempty"`
 	SequenceNo int64           `json:"sequence_no,omitempty"` // non-zero for durable events; assigned by PublishEvent on the run_events write
-	At         time.Time       `json:"-"`                     // when orbit-agents recorded or received it; the SSE envelope's "at"
+	At         time.Time       `json:"-"`                     // when kora-agents recorded or received it; the SSE envelope's "at"
 }
 
 // durableEventTypes are written to run_events so a reconnecting client can
@@ -100,7 +100,7 @@ func (ps *PubSub) Publish(runID string, ev PushedEvent) {
 	}
 }
 
-// eventTime is the time orbit-agents gives an event. Postgres stores
+// eventTime is the time kora-agents gives an event. Postgres stores
 // microseconds, so minting at that precision keeps a live event's time equal to
 // the same event's time on replay.
 func eventTime() time.Time { return time.Now().UTC().Truncate(time.Microsecond) }

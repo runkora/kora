@@ -82,7 +82,7 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 	}
 
 	// Resolve the DELEGATOR. Directly authenticated HUMAN/PAT callers delegate
-	// as themselves. A platform service brokering a run start (orbit-agents)
+	// as themselves. A platform service brokering a run start (kora-agents)
 	// authenticates with its own token and carries the runner's token as the
 	// RFC 8693 subject_token in the body; the delegator is derived from that
 	// token after full verification (signature, expiry, JTI blocklist).
@@ -168,7 +168,7 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 // already-released tokens are rejected at enforcement before they expire.
 //
 // Allowed callers: the delegator themselves (sub match within the same tenant)
-// or a SERVICE / SYSTEM principal — orbit-agents revokes on terminal run state
+// or a SERVICE / SYSTEM principal — kora-agents revokes on terminal run state
 // (transport phase). Everyone else gets ErrDelegationRevokeForbidden.
 // Revocation is idempotent: revoking an already-tombstoned issuance re-asserts
 // the JTI blocklist entry and succeeds.
@@ -195,7 +195,7 @@ func (s *Service) RevokeDelegation(ctx context.Context, claims *PlatformClaims, 
 
 	switch claims.Kora.PrincipalType {
 	case token.PrincipalTypeService, token.PrincipalTypeSystem:
-		// Platform components (orbit-agents on terminal run state).
+		// Platform components (kora-agents on terminal run state).
 	case token.PrincipalTypeHuman, token.PrincipalTypePAT:
 		if claims.Subject != issuance.DelegatorPrincipalID || claims.Kora.TenantID != issuance.TenantID {
 			span.RecordError(ErrDelegationRevokeForbidden)

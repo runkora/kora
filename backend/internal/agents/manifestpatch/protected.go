@@ -8,7 +8,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// protectedPaths are fields a patch must leave exactly as orbit-agents built
+// protectedPaths are fields a patch must leave exactly as kora-agents built
 // them: resource identity and wiring, pod and container security context,
 // what the pod exposes to an agent, and the sandbox's per-run workspace mount. "*" matches every list element.
 var protectedPaths = [][]string{

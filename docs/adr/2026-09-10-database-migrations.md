@@ -171,7 +171,7 @@ Development history is discarded. Each table-owning service's directory is rewri
 
 - `helm.sh/hook: pre-install,pre-upgrade`, `helm.sh/hook-weight: "-10"`, `helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded`.
 - `sidecar.istio.io/inject: "false"`. The Job needs no SVID and no Envoy for a Postgres connection.
-- `command: ["./orbit"]`, `args: ["up"]`, `backoffLimit: 0`, `activeDeadlineSeconds` from `migrate.activeDeadlineSeconds`, default 240, below Helm's default timeout of 300 and the 600 the reference Helmfile sets.
+- `command: ["./kora"]`, `args: ["up"]`, `backoffLimit: 0`, `activeDeadlineSeconds` from `migrate.activeDeadlineSeconds`, default 240, below Helm's default timeout of 300 and the 600 the reference Helmfile sets.
 - The restricted security context the services use.
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` rendered inline from `.Values.config.db`, `DB_PASSWORD` from the pre-existing platform Secret, and `ORBIT_POSTGRES_SSL_MODE` and `ORBIT_LOG_FORMAT` through `orbit.serviceConfig`, with the `global` values as defaults and `migrate.config` as the override. A pre-install hook runs before the release's ConfigMaps exist; the Job cannot mount `orbit-config`.
 - The namespace default ServiceAccount with no token mounted. The Job needs no API access.

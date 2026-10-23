@@ -405,11 +405,11 @@ linters:
           - gocritic
         text: "instead of constructing a raw \\*http\\.Client"
 
-      # orbit-runtime-mcp is a stdio JSON-RPC subprocess that Claude Code spawns via --mcp-config.
+      # kora-runtime-mcp is a stdio JSON-RPC subprocess that Claude Code spawns via --mcp-config.
       # It has no HTTP server, request context or injected logger. Stdout carries the JSON-RPC protocol.
       # Its tools list_environments, provision_sandbox and replace_environment call the session-manager.
       # httpclient.Base's OTel and logging setup is not warranted in a short-lived subprocess.
-      - path: "cmd/orbit-runtime-mcp/main.go"
+      - path: "cmd/kora-runtime-mcp/main.go"
         linters:
           - gocritic
         text: "instead of constructing a raw \\*http\\.Client"
@@ -479,11 +479,11 @@ linters:
         text: "product name must come from internal/platform/brand"
         source: 'const openCodeProvider = "orbit"'
 
-      # orbit-session-runner is a thin exec() wrapper: its entire purpose is to
+      # kora-session-runner is a thin exec() wrapper: its entire purpose is to
       # exec the binary supplied as argv[3] after applying Landlock restrictions.
       # The binary path comes from operator configuration (ClaudeRunnerConfig),
       # not from user input — G702 (command injection via taint) is a false positive.
-      - path: "cmd/orbit-session-runner/"
+      - path: "cmd/kora-session-runner/"
         linters:
           - gosec
         text: "G702"

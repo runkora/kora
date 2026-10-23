@@ -104,9 +104,9 @@ type K8sProvisionerConfig struct {
 	// TrustDomain is the SPIFFE trust domain (e.g. "orbit.test").
 	// Used to build the agent's SPIFFE principal ID for grant creation.
 	TrustDomain string
-	// SystemNamespace is the namespace where orbit-agents runs.
+	// SystemNamespace is the namespace where kora-agents runs.
 	// DestinationRules are created here so Istio applies them to outbound
-	// traffic from orbit-agents pods targeting agent session-managers.
+	// traffic from kora-agents pods targeting agent session-managers.
 	// Also used to derive the egress-gateway service URL for sandbox
 	// HTTPS_PROXY (the gateway always lives in this namespace).
 	SystemNamespace string
@@ -141,7 +141,7 @@ type K8sProvisionerConfig struct {
 	SandboxMount bool
 }
 
-// K8sProvisioner manages Kubernetes resources on behalf of orbit-agents.
+// K8sProvisioner manages Kubernetes resources on behalf of kora-agents.
 // It is the only component with RBAC to create/delete StatefulSets, Services,
 // HPAs, PDBs, sandbox Pods, and Istio DestinationRules in tenant namespaces.
 type K8sProvisioner struct {
@@ -636,7 +636,7 @@ func (p *K8sProvisioner) LookupSandbox(ctx context.Context, runID, namespace str
 		return Sandbox{}, false, nil
 	}
 	// A pod that exists but cannot be used is not the same answer as no pod.
-	// found=false reaches orbit-shell as "this run never had a sandbox", which
+	// found=false reaches kora-shell as "this run never had a sandbox", which
 	// sends the command to a local shell, so only a genuinely absent pod earns
 	// it. Everything else is an error, and the caller stops.
 	switch {
@@ -718,12 +718,12 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 	}
 
 	// Sandbox-exec is a gRPC server on port 50051 with no other inbound or
-	// outbound traffic on its own (orbit-shell connects directly via plain
+	// outbound traffic on its own (kora-shell connects directly via plain
 	// TCP); however the sandbox pod ALSO hosts the agent's tooling
 	// (git/curl/SDKs) which need outbound HTTPS through the broker. Istio
 	// injection is therefore required; see comment on the labels block.
 	annotations := map[string]string{
-		// Exclude the gRPC port from the inbound mesh so orbit-shell still
+		// Exclude the gRPC port from the inbound mesh so kora-shell still
 		// connects over plain TCP, matching the existing pre-injection
 		// behavior. Outbound to the egress-gateway intentionally STAYS in
 		// the mesh; the sandbox's identity-proxy ext_proc filter must see
@@ -1875,7 +1875,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								{Name: "http", ContainerPort: sessionManagerPort, Protocol: corev1.ProtocolTCP},
 							},
 							// No envFrom: the session-manager reads no Secret and no
-							// ConfigMap. It reaches Postgres through orbit-agents, so the
+							// ConfigMap. It reaches Postgres through kora-agents, so the
 							// tenant pod holds no database credential for an agent to read
 							// out of its own environment.
 							Env: []corev1.EnvVar{
@@ -1883,7 +1883,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								{Name: "ORBIT_OTLP_ENDPOINT", Value: p.cfg.OTLPEndpoint},
 								{Name: "ORBIT_SAMPLING_RATE", Value: p.cfg.SamplingRate},
 								{Name: brand.EnvProductName, Value: p.cfg.ProductName},
-								// orbit-agents URL for live event push (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
+								// kora-agents URL for live event push (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
 								{Name: "ORBIT_AGENTS_URL", Value: fmt.Sprintf("http://orbit-agents.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								// Codex, OpenCode and MCP URLs follow the install's system namespace.
 								{Name: "ORBIT_INFERENCE_GATEWAY_URL", Value: inferenceURL},
@@ -2214,7 +2214,7 @@ func agentAuthorizationPolicyName(slug string) string { return "agent-" + slug +
 // session-manager through the mesh.
 //
 // The session-manager API can start, message, interrupt, and kill any run on
-// the pod, and its only legitimate caller is orbit-agents
+// the pod, and its only legitimate caller is kora-agents
 // (internal/platform/clients/sessionmanager). The application now authenticates
 // that caller, but the mesh is the cheaper place to say it: the check runs in
 // the sidecar, before the request is ever seen by the application, and it holds
@@ -2223,7 +2223,7 @@ func agentAuthorizationPolicyName(slug string) string { return "agent-" + slug +
 // It lives in the TENANT namespace, not orbit-system, because that is where the
 // agent pods run and an AuthorizationPolicy selects workloads in its own
 // namespace. The DestinationRule above is the mirror image; it configures the
-// CLIENT side (orbit-agents' outbound mTLS expectations) so it belongs in
+// CLIENT side (kora-agents' outbound mTLS expectations) so it belongs in
 // orbit-system. Neither can be templated in a chart: the StatefulSet these
 // govern is created imperatively, per agent type, at provision time, so its
 // policy is created the same way and torn down with it.

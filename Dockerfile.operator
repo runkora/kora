@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Build the orbit-operator binary.
+# Build the kora-operator binary.
 
 # ── Build stage ───────────────────────────────────────────────────────────────
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS builder
@@ -22,7 +22,7 @@ COPY backend/ .
 ARG TARGETOS TARGETARCH
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit-operator ./cmd/operator/main.go
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /kora-operator ./cmd/operator/main.go
 
 # Stage only the YAML config files the operator binary loads at runtime,
 # keeping Go source (config.go) out of the runtime image. Operator does not
@@ -50,9 +50,9 @@ RUN apk add --no-cache ca-certificates
 # Process-default config files, same relative layout as local development.
 COPY --from=builder --chown=65532:65532 /configs/ ./
 
-COPY --from=builder --chown=65532:65532 /orbit-operator ./orbit
+COPY --from=builder --chown=65532:65532 /kora-operator ./kora
 
 USER 65532
 
 EXPOSE 8081 9443
-CMD ["./orbit"]
+CMD ["./kora"]

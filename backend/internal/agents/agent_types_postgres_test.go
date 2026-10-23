@@ -20,7 +20,7 @@ func TestPostgres_AgentTypeRoundTrip(t *testing.T) {
 		t.Fatalf("inspect schema: %v", err)
 	}
 	if exists {
-		t.Fatal("agent_types.tool_scopes still exists; apply the orbit-agents migrations")
+		t.Fatal("agent_types.tool_scopes still exists; apply the kora-agents migrations")
 	}
 
 	at := AgentType{

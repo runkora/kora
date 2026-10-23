@@ -29,7 +29,7 @@ func TestAssertMintCallerPermitted(t *testing.T) {
 		},
 		{
 			name: "agent impersonating the allowlisted name",
-			// An agent named orbit-triggers must not pass: the type check is
+			// An agent named kora-triggers must not pass: the type check is
 			// what stops a tenant workload from naming its way onto the list.
 			caller:    &Principal{Type: token.PrincipalTypeAgent, DisplayName: "orbit-triggers", TenantID: "acme"},
 			permitted: false,

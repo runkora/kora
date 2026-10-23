@@ -229,7 +229,7 @@ Neither check proves co-location. Matching placement is not enough, because a po
 ## Implementation
 
 1. Chart values, the rendered ConfigMap, the mount and the `checksum/` annotation, following `agents/patches-configmap.yaml`.
-2. `K8sProvisionerConfig` gains the workload and workspace fields; `cmd/orbit-agents` loads the mounted file as it already does for patches, and fails startup on an identity-label or mesh-annotation collision.
+2. `K8sProvisionerConfig` gains the workload and workspace fields; `cmd/kora-agents` loads the mounted file as it already does for patches, and fails startup on an identity-label or mesh-annotation collision.
 3. `buildSessionManagerStatefulSet`, `buildSandboxPod`, `buildServiceAccount` and the `volumeClaimTemplate` apply them before `manifestpatch.Apply`. The StatefulSet pod template carries a digest of the ServiceAccount annotations so a change rolls the pods, and a sandbox on a `ReadWriteOnce` workspace gets required pod affinity on its session-manager replica.
 4. Warmers default from `agents.workloads.sandbox`.
 5. Chart-side `fail` for the incompatible combination; keep the Go check from #311.

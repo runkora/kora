@@ -40,9 +40,9 @@ for key in ${components}; do
   echo "${reg}/${repo}@${digest}" >> images.txt
 done
 
-# orbit-agents runs the session-manager image in tenant namespaces, so the chart
+# kora-agents runs the session-manager image in tenant namespaces, so the chart
 # references it through agents.config rather than a component image block.
-digest=$(digest_of "${REGISTRY}/${IMAGE_NAMESPACE}/orbit-session-manager:${TAG}")
+digest=$(digest_of "${REGISTRY}/${IMAGE_NAMESPACE}/kora-session-manager:${TAG}")
 yq -i ".agents.config.sessionManagerDigest = \"${digest}\"" "${work}"
 
 published=$(IMAGE_TAG="${TAG}" docker buildx bake --print -f docker-bake.hcl \

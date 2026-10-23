@@ -17,7 +17,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-// A 409 from orbit-agents is a refused environment choice that carries its message.
+// A 409 from kora-agents is a refused environment choice that carries its message.
 func TestHTTPNotifier_EnvironmentRejected(t *testing.T) {
 	var gotQuery, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +115,7 @@ func TestProvisionSandbox_RefusedEnvironmentIsNotALoss(t *testing.T) {
 	}
 }
 
-// A replacement writes the new sandbox's descriptor for orbit-shell.
+// A replacement writes the new sandbox's descriptor for kora-shell.
 func TestReplaceEnvironment_WritesDescriptor(t *testing.T) {
 	n := &envNotifier{}
 	reg, ws := newTestRegistry(t, n)
@@ -162,7 +162,7 @@ func TestHandleProvisionSandbox_PassesEnvironment(t *testing.T) {
 		var apiErr struct{ Message string }
 		_ = json.Unmarshal(w.Body.Bytes(), &apiErr)
 		if apiErr.Message != "not attached" {
-			t.Errorf("message = %q, want orbit-agents' message alone", apiErr.Message)
+			t.Errorf("message = %q, want kora-agents' message alone", apiErr.Message)
 		}
 	}
 }

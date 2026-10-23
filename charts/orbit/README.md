@@ -32,7 +32,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.config.sandboxImage | string | `""` |  |
 | agents.config.sessionManagerDigest | string | `""` |  |
 | agents.config.sessionManagerImage | string | `""` |  |
-| agents.configOverrides | object | `{}` | Raw config merged last over orbit-agents' rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. e.g. {cmd/orbit-agents: {drafts: {retentionDays: 7}}} |
+| agents.configOverrides | object | `{}` | Raw config merged last over orbit-agents' rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. e.g. {cmd/kora-agents: {drafts: {retentionDays: 7}}} |
 | agents.environments.defaultSize | object | `{"cpu":"2","disk":"10Gi","memory":"4Gi"}` | Size for an environment that sets none, and for the built-in default. |
 | agents.environments.maxSize | object | `{}` | Largest size an environment may request. An unset field takes the value of `defaultSize`. Raise it to what a sandbox node holds: see the deployment guide. |
 | agents.extraEnv | list | `[]` |  |
@@ -46,7 +46,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.image.digest | string | `""` |  |
 | agents.image.pullPolicy | string | `""` |  |
 | agents.image.registry | string | `""` |  |
-| agents.image.repository | string | `"orbit-agents"` |  |
+| agents.image.repository | string | `"kora-agents"` |  |
 | agents.image.tag | string | `""` |  |
 | agents.manifestPatches | object | `{}` |  |
 | agents.nodeSelector | object | `{}` |  |
@@ -132,7 +132,7 @@ Kubernetes: `>=1.34.0-0`
 | egressGateway.image.digest | string | `""` |  |
 | egressGateway.image.pullPolicy | string | `""` |  |
 | egressGateway.image.registry | string | `""` |  |
-| egressGateway.image.repository | string | `"orbit-egress-gateway"` |  |
+| egressGateway.image.repository | string | `"kora-egress-gateway"` |  |
 | egressGateway.image.tag | string | `""` |  |
 | egressGateway.nodeSelector | object | `{}` |  |
 | egressGateway.podAnnotations | object | `{}` |  |
@@ -166,7 +166,7 @@ Kubernetes: `>=1.34.0-0`
 | frontend.image.digest | string | `""` |  |
 | frontend.image.pullPolicy | string | `""` |  |
 | frontend.image.registry | string | `""` |  |
-| frontend.image.repository | string | `"orbit-frontend"` |  |
+| frontend.image.repository | string | `"kora-frontend"` |  |
 | frontend.image.tag | string | `""` |  |
 | frontend.ingress.annotations | object | `{}` |  |
 | frontend.ingress.className | string | `""` |  |
@@ -233,7 +233,7 @@ Kubernetes: `>=1.34.0-0`
 | identity.image.digest | string | `""` |  |
 | identity.image.pullPolicy | string | `""` |  |
 | identity.image.registry | string | `""` |  |
-| identity.image.repository | string | `"orbit-identity"` |  |
+| identity.image.repository | string | `"kora-identity"` |  |
 | identity.image.tag | string | `""` |  |
 | identity.nodeSelector | object | `{}` |  |
 | identity.oauthClientsConfigMap | string | `"orbit-tenant-oauth-clients"` |  |
@@ -252,7 +252,7 @@ Kubernetes: `>=1.34.0-0`
 | identityProxy.image.digest | string | `""` |  |
 | identityProxy.image.pullPolicy | string | `""` |  |
 | identityProxy.image.registry | string | `""` |  |
-| identityProxy.image.repository | string | `"orbit-identity-proxy"` |  |
+| identityProxy.image.repository | string | `"kora-identity-proxy"` |  |
 | identityProxy.image.tag | string | `""` |  |
 | identityProxy.resources.limits.cpu | string | `"200m"` |  |
 | identityProxy.resources.limits.memory | string | `"64Mi"` |  |
@@ -266,7 +266,7 @@ Kubernetes: `>=1.34.0-0`
 | inferenceGateway.image.digest | string | `""` |  |
 | inferenceGateway.image.pullPolicy | string | `""` |  |
 | inferenceGateway.image.registry | string | `""` |  |
-| inferenceGateway.image.repository | string | `"orbit-inference-gateway"` |  |
+| inferenceGateway.image.repository | string | `"kora-inference-gateway"` |  |
 | inferenceGateway.image.tag | string | `""` |  |
 | inferenceGateway.nodeSelector | object | `{}` |  |
 | inferenceGateway.podAnnotations | object | `{}` |  |
@@ -314,7 +314,7 @@ Kubernetes: `>=1.34.0-0`
 | migrate.image.digest | string | `""` |  |
 | migrate.image.pullPolicy | string | `""` |  |
 | migrate.image.registry | string | `""` |  |
-| migrate.image.repository | string | `"orbit-migrate"` |  |
+| migrate.image.repository | string | `"kora-migrate"` |  |
 | migrate.image.tag | string | `""` |  |
 | migrate.nodeSelector | object | `{}` |  |
 | migrate.podAnnotations | object | `{}` |  |
@@ -352,7 +352,7 @@ Kubernetes: `>=1.34.0-0`
 | operator.image.digest | string | `""` |  |
 | operator.image.pullPolicy | string | `""` |  |
 | operator.image.registry | string | `""` |  |
-| operator.image.repository | string | `"orbit-operator"` |  |
+| operator.image.repository | string | `"kora-operator"` |  |
 | operator.image.tag | string | `""` |  |
 | operator.injection.opa.bundlePolling.maxDelaySeconds | int | `60` |  |
 | operator.injection.opa.bundlePolling.minDelaySeconds | int | `30` |  |
@@ -390,7 +390,7 @@ Kubernetes: `>=1.34.0-0`
 | orbitMcp.image.digest | string | `""` |  |
 | orbitMcp.image.pullPolicy | string | `""` |  |
 | orbitMcp.image.registry | string | `""` |  |
-| orbitMcp.image.repository | string | `"orbit-mcp"` |  |
+| orbitMcp.image.repository | string | `"kora-mcp"` |  |
 | orbitMcp.image.tag | string | `""` |  |
 | orbitMcp.nodeSelector | object | `{}` |  |
 | orbitMcp.podAnnotations | object | `{}` |  |
@@ -414,7 +414,7 @@ Kubernetes: `>=1.34.0-0`
 | policyGateway.image.digest | string | `""` |  |
 | policyGateway.image.pullPolicy | string | `""` |  |
 | policyGateway.image.registry | string | `""` |  |
-| policyGateway.image.repository | string | `"orbit-policy-gateway"` |  |
+| policyGateway.image.repository | string | `"kora-policy-gateway"` |  |
 | policyGateway.image.tag | string | `""` |  |
 | policyGateway.nodeSelector | object | `{}` |  |
 | policyGateway.podAnnotations | object | `{}` |  |
@@ -436,7 +436,7 @@ Kubernetes: `>=1.34.0-0`
 | policyService.image.digest | string | `""` |  |
 | policyService.image.pullPolicy | string | `""` |  |
 | policyService.image.registry | string | `""` |  |
-| policyService.image.repository | string | `"orbit-policy-service"` |  |
+| policyService.image.repository | string | `"kora-policy-service"` |  |
 | policyService.image.tag | string | `""` |  |
 | policyService.nodeSelector | object | `{}` |  |
 | policyService.podAnnotations | object | `{}` |  |
@@ -459,7 +459,7 @@ Kubernetes: `>=1.34.0-0`
 | sandboxMount.image.digest | string | `""` |  |
 | sandboxMount.image.pullPolicy | string | `""` |  |
 | sandboxMount.image.registry | string | `""` |  |
-| sandboxMount.image.repository | string | `"orbit-sandbox-mount"` |  |
+| sandboxMount.image.repository | string | `"kora-sandbox-mount"` |  |
 | sandboxMount.image.tag | string | `""` |  |
 | sandboxMount.kubeletDir | string | `"/var/lib/kubelet"` | The kubelet's root directory on the nodes. |
 | sandboxMount.namespace | string | `"orbit-sandbox-mount"` | Namespace of the node agent. The system namespace's Pod Security level rejects privileged pods. |
@@ -481,7 +481,7 @@ Kubernetes: `>=1.34.0-0`
 | toolGateway.image.digest | string | `""` |  |
 | toolGateway.image.pullPolicy | string | `""` |  |
 | toolGateway.image.registry | string | `""` |  |
-| toolGateway.image.repository | string | `"orbit-tool-gateway"` |  |
+| toolGateway.image.repository | string | `"kora-tool-gateway"` |  |
 | toolGateway.image.tag | string | `""` |  |
 | toolGateway.mcpServerSecretsName | string | `"orbit-mcp-server-secrets"` |  |
 | toolGateway.mcpServersConfigMapName | string | `"orbit-mcp-servers"` |  |
@@ -512,7 +512,7 @@ Kubernetes: `>=1.34.0-0`
 | triggers.image.digest | string | `""` |  |
 | triggers.image.pullPolicy | string | `""` |  |
 | triggers.image.registry | string | `""` |  |
-| triggers.image.repository | string | `"orbit-triggers"` |  |
+| triggers.image.repository | string | `"kora-triggers"` |  |
 | triggers.image.tag | string | `""` |  |
 | triggers.nodeSelector | object | `{}` |  |
 | triggers.podAnnotations | object | `{}` |  |
