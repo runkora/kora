@@ -4,6 +4,7 @@ export type {
   WizardRailProps,
   WizardRailStep,
   WizardStepProps,
+  WizardSuccessProps,
   WizardFooterProps,
   WizardReviewCardProps,
 } from './wizard';

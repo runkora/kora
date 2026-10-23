@@ -16,7 +16,7 @@ import { Separator } from '../separator/separator';
 import { StepConnector } from '../step-dot/step-connector';
 import { Show } from '../show/show';
 import { StepDot } from '../step-dot/step-dot';
-import { Text } from '../typography/typography';
+import { Heading, Text } from '../typography/typography';
 import type { IconName } from '../icon/icon';
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
@@ -82,10 +82,23 @@ export interface WizardStepProps {
   children: React.ReactNode;
   /**
    * When true, the step fills the full modal body with no rail or footer.
-   * Use for pre-flow (kind picker) and post-flow (success) phases.
+   * Use for a pre-flow phase such as a kind picker; use `Wizard.Success` for the post-flow screen.
    * Progress bar displays a frozen value while any fullPage step is active.
+   * Like `Wizard.Success`, it is only recognised as a direct child of `<Wizard>`: wrapping it in a
+   * fragment or a helper component leaves the rail and footer on screen.
    */
   fullPage?: boolean;
+}
+
+export interface WizardSuccessProps {
+  title: string;
+  description?: React.ReactNode;
+  /** @default 'check-circle' */
+  icon?: IconName;
+  /** Extra body between the description and the actions (e.g. a one-time secret). */
+  children?: React.ReactNode;
+  /** Order and emphasis are the caller's. */
+  actions: React.ReactNode;
 }
 
 export interface WizardProps {
@@ -281,7 +294,7 @@ const WizardMobileRail = ({ steps, current, maxVisited, onGoTo }: WizardRailProp
  * Render one per active step based on caller step state.
  *
  * Pass `fullPage` to fill the entire modal body with no rail or footer —
- * use for pre-flow (kind picker) and post-flow (success) phases.
+ * use for a pre-flow phase such as a kind picker. For the post-flow screen use `Wizard.Success`.
  */
 const WizardStep = React.forwardRef<HTMLDivElement, WizardStepProps>(
   ({ children, fullPage }, ref) => {
@@ -308,6 +321,50 @@ const WizardStep = React.forwardRef<HTMLDivElement, WizardStepProps>(
   },
 );
 WizardStep.displayName = 'WizardStep';
+
+/**
+ * Post-flow screen: a centred icon, title, description, optional body and actions. It fills the
+ * modal body like `Wizard.Step fullPage`, so the rail and footer are hidden while it is a direct
+ * child of `<Wizard>` (wrapping it in a fragment or helper component stops it being recognised).
+ */
+const WizardSuccess = React.forwardRef<HTMLDivElement, WizardSuccessProps>(
+  ({ title, description, icon = 'check-circle', children, actions }, ref) => (
+    <Stack ref={ref} data-slot="wizard-step-full" grow overflow="hidden">
+      <Stack
+        data-slot="wizard-success"
+        grow
+        align="center"
+        justify="center"
+        gap="comfortable"
+        padding="loose"
+        overflowY="auto"
+      >
+        <Stack align="center" gap="snug">
+          <Icon
+            name={icon}
+            size="xl"
+            color="accent"
+            container
+            containerVariant="accent"
+            circle
+            label=""
+          />
+          <Heading variant="subsection">{title}</Heading>
+          {description && (
+            <Text size="supporting" color="muted" align="center">
+              {description}
+            </Text>
+          )}
+        </Stack>
+        {children}
+        <Stack direction="horizontal" gap="cozy" wrap justify="center">
+          {actions}
+        </Stack>
+      </Stack>
+    </Stack>
+  ),
+);
+WizardSuccess.displayName = 'WizardSuccess';
 
 /** Gap container for a stack of Wizard.ReviewCard children. Used inside Wizard.Step on review screens. */
 const WizardReviewStep = React.forwardRef<HTMLDivElement, { children: React.ReactNode }>(
@@ -510,9 +567,9 @@ function WizardHint({ hint, variant }: WizardHintProps) {
  * and lays out the rail + scrollable content column + footer.
  *
  * Pass `open`, `onClose`, `icon`, and `title` as props. Children should be
- * one or more Wizard.Step (or Wizard.ReviewStep) elements. When a Wizard.Step
- * with `fullPage` is active, the rail and footer are hidden and the progress
- * bar freezes at its last non-fullPage value.
+ * one or more Wizard.Step (or Wizard.ReviewStep) elements, or a Wizard.Success. When a
+ * Wizard.Step with `fullPage` or a Wizard.Success is a direct child, the rail and footer
+ * are hidden and the progress bar freezes at its last non-fullPage value.
  */
 const WizardRoot = React.forwardRef<HTMLDivElement, WizardProps>(
   (
@@ -537,8 +594,9 @@ const WizardRoot = React.forwardRef<HTMLDivElement, WizardProps>(
     const activeIsFullPage = childArray.some(
       (child) =>
         React.isValidElement(child) &&
-        child.type === WizardStep &&
-        (child as React.ReactElement<WizardStepProps>).props.fullPage === true,
+        (child.type === WizardSuccess ||
+          (child.type === WizardStep &&
+            (child as React.ReactElement<WizardStepProps>).props.fullPage === true)),
     );
 
     const footerEl = footer ? (footer as React.ReactElement<WizardFooterProps>) : null;
@@ -614,6 +672,7 @@ WizardRoot.displayName = 'Wizard';
 export const Wizard = Object.assign(WizardRoot, {
   Rail: WizardRail,
   Step: WizardStep,
+  Success: WizardSuccess,
   ReviewStep: WizardReviewStep,
   ReviewCard: WizardReviewCard,
   Footer: WizardFooter,

@@ -35,6 +35,7 @@ import type {
 import { ConnectionCards, EffectiveAccessPanel } from '@runkora/components';
 import { BASE_IMAGE_NAME, imageProblem, slugProblem } from '@runkora/lib/environments';
 import { deriveSlug, slugInput } from '@runkora/lib/slug';
+import { plural } from '@runkora/utils';
 import {
   createEnvironment,
   previewEnvironmentAccess,
@@ -99,8 +100,6 @@ export function stepForError(message: string): number {
   if (/name|slug/.test(message)) return START;
   return REVIEW;
 }
-
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 export function EnvironmentWizard({
   environment,
