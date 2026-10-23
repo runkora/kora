@@ -17,7 +17,7 @@ kubectl get pods -n orbit-tenant-example          # example tenant workloads
 The operator's preflight reports whether SPIRE and Istio meet kora's prerequisites. If a tenant is not `Ready`, check its `PrerequisitesSatisfied` condition and the operator log before chasing an application pod:
 
 ```bash
-kubectl describe orbittenant <name>
+kubectl describe koratenant <name>
 kubectl logs deployment/orbit-operator -n orbit-system
 ```
 
@@ -51,7 +51,7 @@ make redeploy SERVICE=<service>
 
 ## `make auth` fails with `oidc_not_configured`
 
-The identity service builds its OIDC provider registry from the `OrbitTenant` resources reconciled by the operator. On a cold cluster it may start before the example tenant exists.
+The identity service builds its OIDC provider registry from the `KoraTenant` resources reconciled by the operator. On a cold cluster it may start before the example tenant exists.
 
 First, re-run the idempotent setup and check the identity logs:
 

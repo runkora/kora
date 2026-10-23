@@ -24,7 +24,7 @@ import (
 const (
 	// mcpServerHostComponent labels the ServiceEntries this file owns.
 	mcpServerHostComponent = "mcp-server-host"
-	componentLabel         = "orbit.io/component"
+	componentLabel         = "runkora.io/component"
 )
 
 // mcpServiceEntries builds one ServiceEntry per external host among the

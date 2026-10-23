@@ -177,7 +177,7 @@ NFS does not authenticate callers. Each folder is exported only to its session-m
 A sandbox runs the image of its environment. kora publishes the base image `kora-sandbox-base` with the general command-line tools, Go and Python. Platform teams build their own images `FROM` it and register each one as a `SandboxImage` in the tenant namespace:
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: SandboxImage
 metadata:
   name: custom-team-go
@@ -195,7 +195,7 @@ spec:
 *   **`warm`:** Keeps the image pulled on every node that runs sandboxes. The operator runs one DaemonSet per warm image in the tenant namespace, placed like the sandboxes.
 *   **`pullSecretRef`:** A `kubernetes.io/dockerconfigjson` Secret in the same namespace. The operator reads the registry with it and sandboxes pull with it. The Secrets in `global.imagePullSecrets` also apply.
 
-The operator reads the image config from the registry. It accepts an image that runs as uid 100 and carries the `io.orbit.sandbox.base` label. The base image sets both. The operator writes the resolved digest to `status.digest`, and sandboxes pull the image by that digest. Inspect an image with:
+The operator reads the image config from the registry. It accepts an image that runs as uid 100 and carries the `io.runkora.sandbox.base` label. The base image sets both. The operator writes the resolved digest to `status.digest`, and sandboxes pull the image by that digest. Inspect an image with:
 
 ```bash
 kubectl -n orbit-tenant-kora get sandboximages
@@ -530,7 +530,7 @@ The `orbit` Application includes the settings that stop ArgoCD and the operator 
 | `ignoreDifferences` | Fields the operator writes on objects Argo CD does not own: the webhook `caBundle` and `failurePolicy`. |
 | `prune: false` on `orbit-crds` | Stops ArgoCD from pruning the kora CRDs. Removing one cascade-deletes every tenant, connection, etc. of that kind across the cluster.  |
 
-The app-of-apps installs SPIRE, Istio, and the kora charts. Add your `OrbitTenant`, `Connection`, `OAuthClient`, and `MCPServer` CRs as a separate `Application` with a sync wave after `orbit-crds`. This ensures their `prune: true` is independent of the `orbit-crds` `prune: false`. 
+The app-of-apps installs SPIRE, Istio, and the kora charts. Add your `KoraTenant`, `Connection`, `OAuthClient`, and `MCPServer` CRs as a separate `Application` with a sync wave after `orbit-crds`. This ensures their `prune: true` is independent of the `orbit-crds` `prune: false`. 
 
 ## Verify the installation
 

@@ -13,7 +13,7 @@ The change touches _How does it connect?_ by adding images that sandboxes run in
 
 kora ships one sandbox image, `kora-sandbox-base`, built from `backend/Dockerfile.sandbox-exec`. It carries general command-line tools, Go and Python, and has no Node. The operator registers it in every tenant as the `SandboxImage` `kora-base` (`backend/internal/operator/tenant_sandboximage.go`). A platform team that needs another toolchain builds an image on the base in its own pipeline and registers it per tenant.
 
-The operator accepts a `SandboxImage` only when the image runs as uid 100 and carries the `io.orbit.sandbox.base` label (`backend/internal/operator/sandboximage_registry.go`). `docker-bake.hcl` defines every published image, and the release signs every image it lists (`.github/scripts/stamp-release-charts.sh`).
+The operator accepts a `SandboxImage` only when the image runs as uid 100 and carries the `io.runkora.sandbox.base` label (`backend/internal/operator/sandboximage_registry.go`). `docker-bake.hcl` defines every published image, and the release signs every image it lists (`.github/scripts/stamp-release-charts.sh`).
 
 A run keeps its build caches on its own volume. `runfs.InstallEnv` points `GOMODCACHE`, `GOCACHE` and the npm paths at the run-local volume, sandbox-exec moves `HOME` into the run's workspace, and the sandbox root filesystem is read-only. pnpm also writes to its store on every install. A dependency cache baked into an image at its default path is therefore never used. Measured with empty caches on 2026-10-07:
 
@@ -119,7 +119,7 @@ A non-empty `image` replaces the reference, the same as `agents.config.sandboxIm
 
 ### 5. Operator
 
-On every tenant reconcile, the operator creates or patches each enabled bundled `SandboxImage` and deletes each disabled one. It labels them `app.kubernetes.io/managed-by: orbit-operator` and `orbit.io/component: bundled-sandbox-image`, and it changes only a `SandboxImage` that carries both labels. If a tenant registered its own `SandboxImage` under a bundled name, the operator leaves it in place, does not register the bundled image in that tenant, and logs the conflict at debug level. A failure on one image does not stop the others.
+On every tenant reconcile, the operator creates or patches each enabled bundled `SandboxImage` and deletes each disabled one. It labels them `app.kubernetes.io/managed-by: orbit-operator` and `runkora.io/component: bundled-sandbox-image`, and it changes only a `SandboxImage` that carries both labels. If a tenant registered its own `SandboxImage` under a bundled name, the operator leaves it in place, does not register the bundled image in that tenant, and logs the conflict at debug level. A failure on one image does not stop the others.
 
 ### 6. Disabled Images
 

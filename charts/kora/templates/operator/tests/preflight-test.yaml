@@ -8,7 +8,7 @@ metadata:
   labels:
     {{- include "kora.operator.labels" . | nindent 4 }}
     spiffe.io/component: operator
-    orbit.io/kube-api-client: "true"
+    runkora.io/kube-api-client: "true"
   annotations:
     helm.sh/hook: test
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded

@@ -33,7 +33,7 @@ import (
 // expects when the Secret is projected as a volume.
 const aggregatedTenantCASecretName = "orbit-tenant-cas"
 
-// TenantCAAggregator reads each active OrbitTenant's orbit-tenant-ca
+// TenantCAAggregator reads each active KoraTenant's orbit-tenant-ca
 // Secret from its tenant namespace and writes a single aggregated Secret
 // in orbit-system. Re-run on every reconcile so a newly-provisioned
 // tenant's CA appears in the gateway's mount within a kubelet
@@ -68,7 +68,7 @@ func (a *TenantCAAggregator) Sync(ctx context.Context) error {
 	return a.upsert(ctx, data)
 }
 
-// listActiveTenants returns all OrbitTenant resources whose Spec.Active is
+// listActiveTenants returns all KoraTenant resources whose Spec.Active is
 // true. Suspended/inactive tenants are excluded from the aggregated Secret
 // so the gateway will refuse CONNECTs from their sandboxes — there are
 // none currently running, but this future-proofs the aggregator against
@@ -76,7 +76,7 @@ func (a *TenantCAAggregator) Sync(ctx context.Context) error {
 func (a *TenantCAAggregator) listActiveTenants(ctx context.Context) ([]KoraTenant, error) {
 	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("list OrbitTenants: %w", err)
+		return nil, fmt.Errorf("list KoraTenants: %w", err)
 	}
 	out := make([]KoraTenant, 0, len(list.Items))
 	for _, t := range list.Items {
@@ -155,7 +155,7 @@ func (a *TenantCAAggregator) create(ctx context.Context, data map[string][]byte)
 			Namespace: systemNamespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "orbit-operator",
-				"orbit.io/component":           "tenant-cas",
+				"runkora.io/component":         "tenant-cas",
 			},
 		},
 		Type: corev1.SecretTypeOpaque,

@@ -122,7 +122,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              orbit.io/role: tenant
+              runkora.io/role: tenant
       ports:
         - port: {{ $rule.port }}
           protocol: TCP
@@ -150,7 +150,7 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              orbit.io/role: tenant
+              runkora.io/role: tenant
 ---
 {{- /*
 Ports for the collector egress rule below, taken from every endpoint a pod in
@@ -283,7 +283,7 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              orbit.io/role: tenant
+              runkora.io/role: tenant
       ports:
         - port: 8090
           protocol: TCP
@@ -322,7 +322,7 @@ spec:
   # the webhook Service selects on app, which is why the label is separate.
   podSelector:
     matchLabels:
-      orbit.io/kube-api-client: "true"
+      runkora.io/kube-api-client: "true"
   policyTypes:
     - Egress
   egress:

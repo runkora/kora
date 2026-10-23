@@ -76,7 +76,7 @@ func (r *TenantReconciler) ensureTenantCA(ctx context.Context, tenant *KoraTenan
 			Namespace: ns,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "orbit-operator",
-				"orbit.io/tenant":              tenant.Name,
+				"runkora.io/tenant":            tenant.Name,
 			},
 		},
 		Type: corev1.SecretTypeOpaque,

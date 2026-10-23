@@ -4,7 +4,7 @@
 # and the tool-gateway introspects its tools into mcp:orbit:<tool>:use scopes.
 # callerIdentity: forward — the kora MCP acts AS the caller against first-party
 # kora APIs (valid only for orbit-system/global servers).
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: MCPServer
 metadata:
   name: orbit

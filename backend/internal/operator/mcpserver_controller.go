@@ -2,7 +2,7 @@
 //
 // Unlike Connection (which has no status and is aggregated off the tenant
 // reconcile), an MCPServer carries its own Status and can live in orbit-system
-// (global) where there is no owning OrbitTenant. It gets its own
+// (global) where there is no owning KoraTenant. It gets its own
 // reconciler. On each MCPServer change this validates the spec, sets the CR's
 // reconciliation Status (Pending|Aggregated|Invalid), and re-renders the
 // orbit-mcp-servers registry ConfigMap via the shared MCPServerAggregator.

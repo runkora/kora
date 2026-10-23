@@ -33,7 +33,7 @@ func main() {
 		renderMode      = flag.Bool("render", false, "render final manifests to stdout and exit")
 		renderPatchDir  = flag.String("patch-dir", agentsConfig.Current.Agents.ManifestPatchDir, "manifest patches directory")
 		renderAgentSlug = flag.String("agent-slug", "", "agent type slug to render (required with -render)")
-		renderAgentID   = flag.String("agent-type-id", "", "agent type ID for the orbit.io/agent-type label (defaults to render-<slug>)")
+		renderAgentID   = flag.String("agent-type-id", "", "agent type ID for the runkora.io/agent-type label (defaults to render-<slug>)")
 		renderTenantID  = flag.String("tenant-id", "example", "tenant ID for the rendered manifests")
 		renderNamespace = flag.String("namespace", "tenant-example", "tenant namespace for the rendered manifests")
 		renderSandbox   = flag.Bool("sandbox", false, "also render a sample sandbox pod")

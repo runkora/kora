@@ -8,16 +8,16 @@ Local-only tenant resources applied after the platform installation. Platform se
 deploy/local/
 ├── connections/   # Connection resources for the example tenant (Kubernetes, GitHub)
 ├── fixtures/      # Example tenant workload
-└── tenants/       # OrbitTenant resources
+└── tenants/       # KoraTenant resources
 ```
 
 ## Tenant Registry
 
-The operator derives `orbit-tenants` in `orbit-system` from `OrbitTenant` resources.
+The operator derives `orbit-tenants` in `orbit-system` from `KoraTenant` resources.
 
 ## Adding or Updating a Tenant
 
-Add or edit an `OrbitTenant` resource in `tenants/`, then apply it:
+Add or edit an `KoraTenant` resource in `tenants/`, then apply it:
 
 ```bash
 kubectl apply -f deploy/local/tenants/example.yaml

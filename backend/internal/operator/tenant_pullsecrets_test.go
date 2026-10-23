@@ -30,8 +30,8 @@ func replicatedPullSecret(name, ns, tenant string) *corev1.Secret {
 			Namespace: ns,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "orbit-operator",
-				"orbit.io/component":           pullSecretComponent,
-				"orbit.io/tenant":              tenant,
+				"runkora.io/component":         pullSecretComponent,
+				"runkora.io/tenant":            tenant,
 			},
 		},
 		Type: corev1.SecretTypeDockerConfigJson,
@@ -83,7 +83,7 @@ func TestEnsureImagePullSecrets_LabelsExistingReplica(t *testing.T) {
 	tenant := &KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
 
 	unlabelled := replicatedPullSecret("keep-registry", ns, "example")
-	delete(unlabelled.Labels, "orbit.io/component")
+	delete(unlabelled.Labels, "runkora.io/component")
 
 	c := fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(
 		systemPullSecret("keep-registry"),
@@ -104,8 +104,8 @@ func TestEnsureImagePullSecrets_LabelsExistingReplica(t *testing.T) {
 	if err := c.Get(context.Background(), client.ObjectKey{Name: "keep-registry", Namespace: ns}, got); err != nil {
 		t.Fatalf("get replica: %v", err)
 	}
-	if got.Labels["orbit.io/component"] != pullSecretComponent {
-		t.Errorf("component label = %q, want %q", got.Labels["orbit.io/component"], pullSecretComponent)
+	if got.Labels["runkora.io/component"] != pullSecretComponent {
+		t.Errorf("component label = %q, want %q", got.Labels["runkora.io/component"], pullSecretComponent)
 	}
 }
 

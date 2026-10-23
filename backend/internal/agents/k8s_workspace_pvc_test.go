@@ -40,8 +40,8 @@ func TestBuildSessionManagerStatefulSet_WorkspaceClaimIsDeletedWithTheSet(t *tes
 	}
 
 	claimLabels := ss.Spec.VolumeClaimTemplates[0].Labels
-	if claimLabels["orbit.io/agent-type"] != "agent-1" {
-		t.Errorf("claim labels = %v, want orbit.io/agent-type=agent-1 so DeprovisionAgentType can select it", claimLabels)
+	if claimLabels["runkora.io/agent-type"] != "agent-1" {
+		t.Errorf("claim labels = %v, want runkora.io/agent-type=agent-1 so DeprovisionAgentType can select it", claimLabels)
 	}
 }
 

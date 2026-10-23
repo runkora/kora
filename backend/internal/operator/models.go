@@ -8,7 +8,7 @@ import (
 )
 
 // GroupVersion is the API group and version for kora CRDs.
-var GroupVersion = schema.GroupVersion{Group: "orbit.io", Version: "v1alpha1"}
+var GroupVersion = schema.GroupVersion{Group: "runkora.io", Version: "v1alpha1"}
 
 // -----------------------------------------------------------------------------
 // KoraTenant: cluster-scoped, one per tenant

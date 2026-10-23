@@ -230,7 +230,7 @@ func (p *K8sProvisioner) provision(ctx context.Context, at AgentType, namespace 
 	labels := agentTypeLabels(at)
 	// Owner reference for GitOps observability + k8s-native cascade delete
 	// (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
-	// Zero value when the OrbitTenant CR is unreachable; ensureX no-ops the
+	// Zero value when the KoraTenant CR is unreachable; ensureX no-ops the
 	// merge and provisioning proceeds unowned so local-dev without the
 	// operator still works.
 	tenantRef := p.tenantOwnerRef(ctx, at.TenantID)
@@ -485,8 +485,8 @@ type SandboxSpec struct {
 
 // Sandbox pod annotations naming its environment.
 const (
-	annotationEnvironment   = "orbit.io/environment"
-	annotationEnvironmentID = "orbit.io/environment-id"
+	annotationEnvironment   = "runkora.io/environment"
+	annotationEnvironmentID = "runkora.io/environment-id"
 )
 
 // ProvisionSandbox creates a sandbox pod for the given run and waits for it to
@@ -695,9 +695,9 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 	workspacesPVC := sandboxfolder.WorkspaceClaim(sessionManagerPod)
 
 	// Labels carry the pod's identity for the operator pod webhook and SPIRE.
-	//   - orbit.io/role=sandbox: namespace-policy targeting and the future
+	//   - runkora.io/role=sandbox: namespace-policy targeting and the future
 	//     tenant NetworkPolicy locking egress to the gateway.
-	//   - orbit.io/run-id, orbit.io/agent-slug: matched by the
+	//   - runkora.io/run-id, runkora.io/agent-slug: matched by the
 	//     orbit-tenant-sandbox ClusterSPIFFEID template (Phase 4b) so the
 	//     pod is attested as
 	//     spiffe://<td>/tenant/<ns>/agent/<slug>/sandbox/<run-id>.
@@ -705,7 +705,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 	//     normalizes this back to the agent principal for authorization
 	//     while lifting run_id into claims for attribution.
 	//
-	// We deliberately NO LONGER set orbit.io/skip-injection: per
+	// We deliberately NO LONGER set runkora.io/skip-injection: per
 	// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md the
 	// sandbox rejoins the mesh; the operator pod webhook adds the
 	// identity-proxy + opa-policy + spire injection templates, giving the
@@ -714,7 +714,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 	labels := map[string]string{
 		sandboxfolder.RoleLabel:  sandboxfolder.RoleSandbox,
 		sandboxfolder.RunIDLabel: run.ID,
-		"orbit.io/agent-slug":    agentTypeSlug,
+		"runkora.io/agent-slug":  agentTypeSlug,
 	}
 
 	// Sandbox-exec is a gRPC server on port 50051 with no other inbound or
@@ -1732,7 +1732,7 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 			existing.Spec.Template.Spec.Containers[i].Image = liveImage
 		}
 	}
-	// Backfill the OrbitTenant owner reference on the existing StatefulSet.
+	// Backfill the KoraTenant owner reference on the existing StatefulSet.
 	// See docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md.
 	applyOwnerRef(&existing.ObjectMeta, owner)
 	_, err = p.client.AppsV1().StatefulSets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
@@ -1767,7 +1767,7 @@ func drainGracePeriod(secs int64) *int64 {
 
 // annotationImagePinned marks a StatefulSet whose session-manager image a local
 // redeploy pinned on purpose; ensureStatefulSet keeps the live image then.
-const annotationImagePinned = "orbit.io/session-manager-image-pinned"
+const annotationImagePinned = "runkora.io/session-manager-image-pinned"
 
 // sessionManagerContainerName is the session-manager container in every agent StatefulSet pod.
 const sessionManagerContainerName = "session-manager"
@@ -2336,23 +2336,23 @@ func (p *K8sProvisioner) deleteDestinationRule(ctx context.Context, slug string)
 
 func agentTypeLabels(at AgentType) map[string]string {
 	return map[string]string{
-		"app":                 at.Slug,
-		"orbit.io/agent-type": at.ID,
-		"orbit.io/tenant":     at.TenantID,
+		"app":                   at.Slug,
+		"runkora.io/agent-type": at.ID,
+		"runkora.io/tenant":     at.TenantID,
 	}
 }
 
 func podLabels(at AgentType) map[string]string {
 	return map[string]string{
 		"app":                           at.Slug,
-		"orbit.io/agent-type":           at.ID,
-		"orbit.io/tenant":               at.TenantID,
+		"runkora.io/agent-type":         at.ID,
+		"runkora.io/tenant":             at.TenantID,
 		sandboxfolder.ManagedAgentLabel: "true",
 		// slug used so the SPIFFE ID is human-readable:
 		// spiffe://<trust-domain>/tenant/<namespace>/agent/<slug>
 		"spiffe.io/agent":                  at.Slug,
 		"spiffe.io/spire-managed-identity": "true",
-		"orbit.io/identity-proxy":          "enabled",
+		"runkora.io/identity-proxy":        "enabled",
 	}
 }
 

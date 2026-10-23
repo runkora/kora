@@ -338,7 +338,7 @@ db-reset: ## DESTRUCTIVE: destroy the Postgres volume and recreate it. Every loc
 .PHONY: schema-reset-marker
 schema-reset-marker:
 	@[ -f deploy/reference/environments/local.generated.yaml ] || echo "{}" > deploy/reference/environments/local.generated.yaml
-	@yq -i '.migrate.podAnnotations."orbit.io/schema-reset" = "'"$$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' deploy/reference/environments/local.generated.yaml
+	@yq -i '.migrate.podAnnotations."runkora.io/schema-reset" = "'"$$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' deploy/reference/environments/local.generated.yaml
 
 .PHONY: db-logs
 db-logs: ## Show database logs
@@ -725,7 +725,7 @@ cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install S
 .PHONY: cluster-deploy
 cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads (builds tenant images only if absent)
 	@echo "$(COLOR_YELLOW)Deploying tenant workloads...$(COLOR_RESET)"
-	@echo "$(COLOR_YELLOW)Registering tenants (applying OrbitTenant CRs)...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Registering tenants (applying KoraTenant CRs)...$(COLOR_RESET)"
 	@kubectl apply -f deploy/local/tenants/
 	@echo "  Waiting for tenant namespaces (operator provisioning)..."
 	@until kubectl get namespace orbit-tenant-example &>/dev/null; do sleep 3; done

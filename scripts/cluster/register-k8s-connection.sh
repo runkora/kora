@@ -91,7 +91,7 @@ fi
 echo "Applying the Connection resource"
 {
   cat <<EOF
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: Connection
 metadata:
   name: orbit-local

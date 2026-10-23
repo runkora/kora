@@ -34,7 +34,7 @@ tester.run('no-product-name-literal', rule, {
     { code: "const a = '@runkora/hades';" },
     { code: "const a = 'orbit/authz/allow';" },
     { code: "const a = 'github.com/runkora/kora/docs';" },
-    { code: "const a = 'orbit.io/inference-provider=true';" },
+    { code: "const a = 'runkora.io/inference-provider=true';" },
     { code: 'const a = `${x}/v1/mcp/orbit`;' },
     // Whole words only.
     { code: "const a = 'korat';" },

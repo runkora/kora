@@ -301,7 +301,7 @@ rp := &httputil.ReverseProxy{Transport: transport, ...}
 Mirrors `deploy/local/connections/github.yaml`'s shape and comment style:
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: Connection
 metadata:
   name: orbit-local   # the cluster it points at, not a generic "kubernetes" —

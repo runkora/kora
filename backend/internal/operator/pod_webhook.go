@@ -19,16 +19,16 @@ import (
 
 const (
 	// Namespace labels set by TenantReconciler.ensureNamespace.
-	nsLabelRole = "orbit.io/role"
+	nsLabelRole = "runkora.io/role"
 	// podLabelRole carries the same key on a pod. kora-agents sets it to
 	// "sandbox" on the pods it provisions per run.
-	podLabelRole   = "orbit.io/role"
+	podLabelRole   = "runkora.io/role"
 	podRoleSandbox = "sandbox"
-	nsLabelTenant  = "orbit.io/tenant"
+	nsLabelTenant  = "runkora.io/tenant"
 
 	// Pod labels that activate the identity-proxy and OPA EnvoyFilters.
-	podLabelOPAPolicy     = "orbit.io/opa-policy"
-	podLabelIdentityProxy = "orbit.io/identity-proxy"
+	podLabelOPAPolicy     = "runkora.io/opa-policy"
+	podLabelIdentityProxy = "runkora.io/identity-proxy"
 
 	// podLabelSpiffeService is matched by the orbit-tenant-service
 	// ClusterSPIFFEID, which issues spiffe://<td>/tenant/<ns>/service/<value>.
@@ -39,7 +39,7 @@ const (
 	// Pod annotations: the tenant id the OPA sidecar reads through the downward
 	// API, and the two Istio annotations that make the sidecar use SPIRE and
 	// mount the shared sockets.
-	podAnnotationTenantID        = "orbit.io/tenant-id"
+	podAnnotationTenantID        = "runkora.io/tenant-id"
 	podAnnotationProxyConfig     = "proxy.istio.io/config"
 	podAnnotationUserVolumeMount = "sidecar.istio.io/userVolumeMount"
 
@@ -124,7 +124,7 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 	}
 	tenantName := ns.Labels[nsLabelTenant]
 	if tenantName == "" {
-		return admission.Denied("tenant namespace is missing the orbit.io/tenant label")
+		return admission.Denied("tenant namespace is missing the runkora.io/tenant label")
 	}
 
 	server, err := m.mcpServerFor(ctx, pod, req.Namespace)

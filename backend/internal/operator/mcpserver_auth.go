@@ -206,7 +206,7 @@ func (a *MCPServerAggregator) upsertMCPServerSecret(ctx context.Context, data ma
 				Namespace: systemNamespace,
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "orbit-operator",
-					"orbit.io/component":           "mcp-server-secrets",
+					"runkora.io/component":         "mcp-server-secrets",
 				},
 			},
 			Type: corev1.SecretTypeOpaque,

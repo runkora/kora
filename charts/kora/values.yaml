@@ -666,8 +666,8 @@ agents:
   # namespaces. Applied before manifestPatches, so a patch still wins on a
   # field both set. See docs/adr/2026-09-16-first-class-workload-placement.md.
   #
-  # Identity labels (spiffe.io/agent, orbit.io/tenant, orbit.io/agent-type,
-  # orbit.io/role and the rest), the mesh annotations, security context and
+  # Identity labels (spiffe.io/agent, runkora.io/tenant, runkora.io/agent-type,
+  # runkora.io/role and the rest), the mesh annotations, security context and
   # service account name stay platform-owned: podLabels or podAnnotations that
   # collide with them fail orbit-agents at startup.
   workloads:

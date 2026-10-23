@@ -70,7 +70,7 @@ BYOC agents are invisible to the platform control plane beyond their usage recor
 
 ### Option C: Opt-in label convention
 
-**Description:** BYOC agents add a label `orbit.io/byoc-agent: "true"` to their pod spec. `orbit-agents` watches for this label.
+**Description:** BYOC agents add a label `runkora.io/byoc-agent: "true"` to their pod spec. `orbit-agents` watches for this label.
 
 **Pros:**
 - Explicit opt-in — only pods that declare themselves agents are surfaced
@@ -90,8 +90,8 @@ A pod in a tenant namespace is treated as a BYOC agent if it carries the `spiffe
 To reduce noise, a label convention is used for display metadata but is not required for discovery:
 
 ```
-orbit.io/agent-name: "My Coding Agent"       # optional — display name in portal
-orbit.io/agent-description: "..."            # optional — description
+runkora.io/agent-name: "My Coding Agent"       # optional — display name in portal
+runkora.io/agent-description: "..."            # optional — description
 ```
 
 Without these labels, the portal shows the pod name and namespace as the agent name. The BYOC agent's SPIFFE ID is derived from the ClusterSPIFFEID template:
@@ -107,7 +107,7 @@ spiffe://{trust-domain}/tenant/{namespace}/agent/{spiffe.io/agent label value}
 - **Pod reaches Running + has `spiffe.io/agent` label**: upsert BYOC agent record in `byoc_agents` table
 - **Pod deleted or terminal**: mark BYOC agent record as offline
 
-Managed agent pods also carry `spiffe.io/agent` — they are excluded from `byoc_agents` by the label `orbit.io/managed-agent: "true"` set on their pod template by orbit-agents at StatefulSet creation time. The BYOC discovery loop skips any pod carrying this label.
+Managed agent pods also carry `spiffe.io/agent` — they are excluded from `byoc_agents` by the label `runkora.io/managed-agent: "true"` set on their pod template by orbit-agents at StatefulSet creation time. The BYOC discovery loop skips any pod carrying this label.
 
 ### BYOC Agent Data Model
 
@@ -118,8 +118,8 @@ byoc_agents
 ├── pod_name            text
 ├── namespace           text
 ├── spiffe_id           text — from SPIFFE annotation
-├── display_name        text — from orbit.io/agent-name label or pod name
-├── description         text — from orbit.io/agent-description label
+├── display_name        text — from runkora.io/agent-name label or pod name
+├── description         text — from runkora.io/agent-description label
 ├── status              text — enum: online | offline
 ├── last_seen_at        timestamptz
 ├── created_at          timestamptz

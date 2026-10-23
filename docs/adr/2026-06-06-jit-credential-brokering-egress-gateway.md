@@ -34,7 +34,7 @@ ext_authz → OPA sidecar      localhost:9191, path orbit/authz/allow, fail-clos
 router    → out
 ```
 
-`identity-proxy` runs first and stamps the platform token; OPA runs second and authorizes using that token against the per-tenant bundle (`route_scopes` keyed on path+method, grants keyed on `principal_id`, `scope_covers` hierarchy). **The sandbox pod is the exception:** it is provisioned with `orbit.io/skip-injection: "true"` and `sidecar.istio.io/inject: "false"` (`internal/agents/k8s.go`), so it has *no* Envoy, *no* identity, *no* policy, and no egress NetworkPolicy. It was built that way on the assumption it makes "no outbound calls" — the assumption this feature invalidates.
+`identity-proxy` runs first and stamps the platform token; OPA runs second and authorizes using that token against the per-tenant bundle (`route_scopes` keyed on path+method, grants keyed on `principal_id`, `scope_covers` hierarchy). **The sandbox pod is the exception:** it is provisioned with `runkora.io/skip-injection: "true"` and `sidecar.istio.io/inject: "false"` (`internal/agents/k8s.go`), so it has *no* Envoy, *no* identity, *no* policy, and no egress NetworkPolicy. It was built that way on the assumption it makes "no outbound calls" — the assumption this feature invalidates.
 
 ### Problem Statement
 
@@ -248,7 +248,7 @@ A new resource type `connection` enters the scope vocabulary: `connection:<name>
 
 ### Identity & attestation
 
-- New `orbit-tenant-sandbox` ClusterSPIFFEID templating `spiffe://<td>/tenant/{ns}/agent/{label:orbit.io/agent-slug}/sandbox/{label:orbit.io/run-id}`, selecting `orbit.io/role: sandbox`. The sandbox is labelled `orbit.io/agent-slug` (not `spiffe.io/agent`, to avoid double-matching the existing `orbit-tenant-agent` ID) and already carries `orbit.io/run-id`. Add the SPIRE `csi.spiffe.io` workload-socket volume to the sandbox pod.
+- New `orbit-tenant-sandbox` ClusterSPIFFEID templating `spiffe://<td>/tenant/{ns}/agent/{label:runkora.io/agent-slug}/sandbox/{label:runkora.io/run-id}`, selecting `runkora.io/role: sandbox`. The sandbox is labelled `runkora.io/agent-slug` (not `spiffe.io/agent`, to avoid double-matching the existing `orbit-tenant-agent` ID) and already carries `runkora.io/run-id`. Add the SPIRE `csi.spiffe.io` workload-socket volume to the sandbox pod.
 - `internal/identity/principal_extractor.go`: recognize the `…/agent/<slug>/sandbox/<run-id>` form → `Type=AGENT`, **normalize `ID` to `…/agent/<slug>`** for authorization, add `run_id` (and the full SVID) to `Claims`.
 
 ### TLS interception & per-tenant CA
@@ -259,7 +259,7 @@ A new resource type `connection` enters the scope vocabulary: `connection:<name>
 
 ### Egress lockdown
 
-- New tenant-namespace NetworkPolicy: default-deny egress for `orbit.io/role: sandbox` except to the per-tenant gateway (and DNS). None exists today; this is the chokepoint that makes interception unavoidable.
+- New tenant-namespace NetworkPolicy: default-deny egress for `runkora.io/role: sandbox` except to the per-tenant gateway (and DNS). None exists today; this is the chokepoint that makes interception unavoidable.
 - The `:50051` exec channel now sits behind Envoy: lock it to the owning agent pod (mTLS or an Istio exclusion as session-manager already uses), closing the current plain-TCP exec gap.
 
 ### Workstreams & sequencing
@@ -454,14 +454,14 @@ The original design registered a connection by **admin CRUD against a per-gatewa
 
 Three things, taken together, make the CRUD registry the wrong shape:
 
-1. **Every other per-tenant concern in kora is already a reconciled CR** (`OrbitPlatform`, `OrbitTenant`, ClusterSPIFFEIDs, the per-tenant CA, NetworkPolicies). A connection is the same shape of object — tenant config that produces cluster resources — and should be declared the same way.
+1. **Every other per-tenant concern in kora is already a reconciled CR** (`OrbitPlatform`, `KoraTenant`, ClusterSPIFFEIDs, the per-tenant CA, NetworkPolicies). A connection is the same shape of object — tenant config that produces cluster resources — and should be declared the same way.
 2. **The deployment model is enterprise, self-hosted, bring-your-own-credentials.** There is no kora-operated app or central credential store; each deployer brings their own GitHub App (already installed) and their own secrets. There is therefore no interactive credential-acquisition flow to host — nothing to make imperative — so connections are pure declarative config.
 3. **GitOps dissolves the secret problem.** Secrets do not belong in Git or in the application layer. A CR that carries only a `secretRef` lets the deployer's existing secret pipeline (External Secrets Operator / sealed-secrets / SOPS) materialise the Secret; kora's control plane never receives the raw value. This also satisfies Decision 4's own constraint that the control plane "never handles a live credential" — now structurally, not by convention.
 
 ### Decision: a `Connection` is a tenant-namespaced CRD; the secret is referenced, never handled
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: Connection
 metadata:
   name: github

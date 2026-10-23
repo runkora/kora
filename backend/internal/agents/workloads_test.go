@@ -83,7 +83,7 @@ func TestBuildStatefulSet_KeepsIdentityLabelsAndMeshAnnotations(t *testing.T) {
 	cfg := splitPoolConfig()
 	// Validation rejects these at startup; this proves the builder does not
 	// depend on that to keep the platform's own keys.
-	cfg.Workloads.SessionManager.PodLabels = map[string]string{"orbit.io/tenant": "someone-else", "app": "hijacked"}
+	cfg.Workloads.SessionManager.PodLabels = map[string]string{"runkora.io/tenant": "someone-else", "app": "hijacked"}
 	cfg.Workloads.SessionManager.PodAnnotations = map[string]string{"proxy.istio.io/config": "{}"}
 	p := &K8sProvisioner{cfg: cfg}
 	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "example"}
@@ -91,8 +91,8 @@ func TestBuildStatefulSet_KeepsIdentityLabelsAndMeshAnnotations(t *testing.T) {
 	ss := p.buildSessionManagerStatefulSet(at, "tenant-example", agentTypeLabels(at))
 
 	meta := ss.Spec.Template.ObjectMeta
-	if meta.Labels["orbit.io/tenant"] != "example" {
-		t.Errorf("orbit.io/tenant: got %q, want the tenant the platform set", meta.Labels["orbit.io/tenant"])
+	if meta.Labels["runkora.io/tenant"] != "example" {
+		t.Errorf("runkora.io/tenant: got %q, want the tenant the platform set", meta.Labels["runkora.io/tenant"])
 	}
 	if meta.Labels["app"] != "coder" {
 		t.Errorf("app: got %q, want the agent slug", meta.Labels["app"])
@@ -113,7 +113,7 @@ func TestBuildSandboxPod_AppliesSandboxCustomization(t *testing.T) {
 	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0].Value != "orbit-sandbox" {
 		t.Errorf("tolerations: got %v", pod.Spec.Tolerations)
 	}
-	if pod.Labels["orbit.io/role"] != "sandbox" {
+	if pod.Labels["runkora.io/role"] != "sandbox" {
 		t.Errorf("sandbox identity label lost: got %v", pod.Labels)
 	}
 	// The sandbox's own podLabels win over the common value.
@@ -317,7 +317,7 @@ func TestSplitAcrossNodes_MixedForms(t *testing.T) {
 func TestWorkloadsConfig_ValidateRejectsPlatformKeys(t *testing.T) {
 	cases := map[string]WorkloadsConfig{
 		"identity label on the sandbox": {
-			Sandbox: WorkloadCustomization{PodLabels: map[string]string{"orbit.io/role": "not-a-sandbox"}},
+			Sandbox: WorkloadCustomization{PodLabels: map[string]string{"runkora.io/role": "not-a-sandbox"}},
 		},
 		"selector label on the session-manager": {
 			SessionManager: WorkloadCustomization{PodLabels: map[string]string{"app": "hijacked"}},

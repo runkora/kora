@@ -317,7 +317,7 @@ containers:
 
 Envoy is configured (via Istio `EnvoyFilter` CRD) with an `ext_proc` filter on its outbound HTTP listener pointing at `/run/kora/identity-proxy.sock`. The filter is applied to all outbound requests from the pod.
 
-Future: sidecar injection can be automated via a Kubernetes `MutatingAdmissionWebhook` that injects the identity-proxy container and the Envoy filter config into pods carrying a well-known label (e.g. `orbit.io/identity-proxy: enabled`).
+Future: sidecar injection can be automated via a Kubernetes `MutatingAdmissionWebhook` that injects the identity-proxy container and the Envoy filter config into pods carrying a well-known label (e.g. `runkora.io/identity-proxy: enabled`).
 
 ---
 
@@ -392,7 +392,7 @@ metadata:
 spec:
   workloadSelector:
     labels:
-      orbit.io/identity-proxy: enabled
+      runkora.io/identity-proxy: enabled
   configPatches:
     - applyTo: HTTP_FILTER
       match:

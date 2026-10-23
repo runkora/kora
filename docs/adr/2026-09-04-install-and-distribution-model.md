@@ -111,7 +111,7 @@ The decision decomposes into the sub-decisions below.
 
 ### Decision 1: Distribution model and operator scope
 
-The published Helm charts are the product. The operator is part of the `kora` chart, not the install entry point. It reconciles `OrbitTenant` and `MCPServer`, watches `Connection` and `OAuthClient` to trigger the owning tenant's reconcile, runs the aggregators, serves the admission webhooks, and runs the preflight. It does not watch Secrets; a rotated Connection or OIDC client Secret is picked up on the periodic reconcile instead. `PlatformReconciler`, `helm.go`, `istio_templates.go`, `loadValuesFile`, `orbitImageRef`, `chartVersions` and the `OrbitPlatform` type are deleted, and the Helm SDK leaves `backend/go.mod`.
+The published Helm charts are the product. The operator is part of the `kora` chart, not the install entry point. It reconciles `KoraTenant` and `MCPServer`, watches `Connection` and `OAuthClient` to trigger the owning tenant's reconcile, runs the aggregators, serves the admission webhooks, and runs the preflight. It does not watch Secrets; a rotated Connection or OIDC client Secret is picked up on the periodic reconcile instead. `PlatformReconciler`, `helm.go`, `istio_templates.go`, `loadValuesFile`, `orbitImageRef`, `chartVersions` and the `OrbitPlatform` type are deleted, and the Helm SDK leaves `backend/go.mod`.
 
 The operator's ClusterRole, complete, including the rows the companion ADR's webhook and preflight need:
 
@@ -120,8 +120,8 @@ The operator's ClusterRole, complete, including the rows the companion ADR's web
 | core | namespaces | get, list, watch, create, patch | tenant namespaces, label repair, PSA labels |
 | core | configmaps, secrets | get, list, watch, create, patch | aggregated registries, tenant CA, OPA config, pull-secret replication, webhook TLS |
 | networking.k8s.io | networkpolicies | get, list, watch, create, patch | sandbox egress policy |
-| orbit.io | orbittenants, connections, oauthclients, mcpservers | get, list, watch | reconciliation inputs; the operator never writes CR bodies |
-| orbit.io | orbittenants/status, mcpservers/status | get, patch | conditions (the other two CRDs have no status subresource) |
+| runkora.io | koratenants, connections, oauthclients, mcpservers | get, list, watch | reconciliation inputs; the operator never writes CR bodies |
+| runkora.io | koratenants/status, mcpservers/status | get, patch | conditions (the other two CRDs have no status subresource) |
 | admissionregistration.k8s.io | mutatingwebhookconfigurations, validatingwebhookconfigurations | get, patch (scoped to the two named webhooks); list, watch (unscoped) | `caBundle` injection and failure-policy switch |
 | apps | daemonsets | get | preflight: CNI presence (istiod itself is read from the injector ConfigMap) |
 | spire.spiffe.io | clusterspiffeids | list | preflight: CSI driver and CRD presence proven indirectly (SVID fetch, List error), default ClusterSPIFFEID absent, kora registrations accepted |
@@ -134,7 +134,7 @@ Secrets and ConfigMaps are excluded from the informer cache entirely (`client.Ca
 
 Two charts.
 
-**`kora-crds`** carries the `orbit.io` CRDs (`OrbitTenant`, `Connection`, `OAuthClient`, `MCPServer`) as templates, not a `crds/` directory, each annotated `helm.sh/resource-policy: keep`. Templated CRDs are ordinary resources to Helm and Argo CD and upgrade with the release; a `crds/` directory never upgrades and forces a manual apply step on every user. Installing first keeps the in-chart `MCPServer` CR in `orbit` valid on a fresh cluster. Uninstalling `orbit` leaves tenant definitions in place. `deleteNamespaceOnRemoval` is removed from the `OrbitTenant` schema; it was never implemented and tenant namespaces are always retained.
+**`kora-crds`** carries the `runkora.io` CRDs (`KoraTenant`, `Connection`, `OAuthClient`, `MCPServer`) as templates, not a `crds/` directory, each annotated `helm.sh/resource-policy: keep`. Templated CRDs are ordinary resources to Helm and Argo CD and upgrade with the release; a `crds/` directory never upgrades and forces a manual apply step on every user. Installing first keeps the in-chart `MCPServer` CR in `orbit` valid on a fresh cluster. Uninstalling `orbit` leaves tenant definitions in place. `deleteNamespaceOnRemoval` is removed from the `KoraTenant` schema; it was never implemented and tenant namespaces are always retained.
 
 **`kora`** carries the operator, cluster-scoped identity and gateway resources, and every service. Chart version and application version are one number for one product. A chart-only fix therefore requires a full release; that cost is accepted for one version to reason about.
 
@@ -165,7 +165,7 @@ Istio and SPIRE are prerequisites. Per release kora publishes:
 | PostgreSQL, Redis | reachable from the system namespace; credentials in the platform Secret |
 | OIDC provider, model provider | as today; the reference install ships Dex for evaluation |
 
-kora's ClusterSPIFFEIDs are scoped to what kora owns: the system namespace (which now contains kora's gateway pods) and namespaces labelled `orbit.io/role: tenant`. The `istio-sidecar` registration that today matches every non-Orbit namespace carrying `spiffe.io/spire-managed-identity` and the `istio-gateway` registration matching every `app: gateway` pod in `istio-system` are removed; a customer-owned gateway (`gateway.create: false`) is registered by its owner, and a customer's own default registration remains theirs.
+kora's ClusterSPIFFEIDs are scoped to what kora owns: the system namespace (which now contains kora's gateway pods) and namespaces labelled `runkora.io/role: tenant`. The `istio-sidecar` registration that today matches every non-Orbit namespace carrying `spiffe.io/spire-managed-identity` and the `istio-gateway` registration matching every `app: gateway` pod in `istio-system` are removed; a customer-owned gateway (`gateway.create: false`) is registered by its owner, and a customer's own default registration remains theirs.
 
 No kora-specific Istio control-plane configuration is required. The injection templates the operator rendered into istiod are replaced by kora's own webhook and by chart-rendered pod specs (companion ADR). Istio CNI is required because the restricted pod security profile rejects the `istio-init` container's `NET_ADMIN`/`NET_RAW`; with `pilot.cni.enabled` istiod renders the unprivileged `istio-validation` container instead.
 
@@ -204,11 +204,11 @@ Settings shared by every service live on `global`: log format, the Postgres SSL 
 
 The system namespace is variable. The chart renders every namespaced object into `.Release.Namespace` and the operator and orbit-agents receive `KORA_SYSTEM_NAMESPACE`; the literals in `registry.go`, `tenant_netpol.go`, `tenant_controller.go`, `agents/k8s.go` and `cmd/kora-agents/config/base.yaml` are removed. `orbit-system` remains the default.
 
-The chart renders the `orbit-config` ConfigMap from `config.*`. `config.platformSecretName` is the single Secret reference; the per-component `existingSecret` values collapse into it, with `frontend.existingSecret` kept because the BFF session secret is a different Secret. `platform.namespaces.tenants` is removed: tenant namespaces are created only by the operator from `OrbitTenant`, or adopted when `spec.namespace` names an existing one, which removes the coupling that made the platform release depend on tenant CR state.
+The chart renders the `orbit-config` ConfigMap from `config.*`. `config.platformSecretName` is the single Secret reference; the per-component `existingSecret` values collapse into it, with `frontend.existingSecret` kept because the BFF session secret is a different Secret. `platform.namespaces.tenants` is removed: tenant namespaces are created only by the operator from `KoraTenant`, or adopted when `spec.namespace` names an existing one, which removes the coupling that made the platform release depend on tenant CR state.
 
 The `orbit-tenants` ConfigMap stays operator-owned and is never rendered by the chart; a chart-owned object the operator patches is a perpetual GitOps diff that self-heal reverts. The identity Deployment's `tenants-config` volume becomes `optional: true` so identity starts before any tenant exists.
 
-Status that lived on `OrbitPlatform` moves to operator metrics, events and `OrbitTenant` conditions. There is no platform status CRD.
+Status that lived on `OrbitPlatform` moves to operator metrics, events and `KoraTenant` conditions. There is no platform status CRD.
 
 ### Decision 5: GitOps cleanliness and ownership
 
@@ -316,7 +316,7 @@ Rollback is `helm rollback orbit` (or the GitOps equivalent). CRDs are never rol
                     └──────────────────────────────────────────────────────────┘
                                              │  contract verified by preflight
                     ┌──────────────────────────────────────────────────────────┐
-  kora-crds         │  OrbitTenant, Connection, OAuthClient, MCPServer CRDs      │
+  kora-crds         │  KoraTenant, Connection, OAuthClient, MCPServer CRDs      │
                     └──────────────────────────────────────────────────────────┘
                                              │
                     ┌──────────────────────────────────────────────────────────┐
@@ -329,7 +329,7 @@ Rollback is `helm rollback orbit` (or the GitOps equivalent). CRDs are never rol
                     │            tool-gateway, orbit-mcp, triggers, frontend,    │
                     │            opa-gateway                                     │
                     └──────────────────────────────────────────────────────────┘
-                                             │  OrbitTenant CRs (GitOps)
+                                             │  KoraTenant CRs (GitOps)
                     ┌──────────────────────────────────────────────────────────┐
   per tenant        │  namespace (PSA restricted), tenant CA, OPA config,       │
   (operator-owned)  │  sandbox netpol, replicated pull secrets,                  │
@@ -407,7 +407,7 @@ Takes `(dict "root" $ "name" "<values key>")`, the values key being the componen
 
 ### Phase 1: Chart reshaping
 
-1. Create `charts/kora-crds` from the CRD templates in `charts/orbit-operator/templates/crd-*.yaml` minus `crd-orbitplatform.yaml`; remove `deleteNamespaceOnRemoval` from the `OrbitTenant` schema; annotate `keep`; add `Chart.yaml`, `values.schema.json`, `NOTES.txt` stating the install order.
+1. Create `charts/kora-crds` from the CRD templates in `charts/orbit-operator/templates/crd-*.yaml` minus `crd-orbitplatform.yaml`; remove `deleteNamespaceOnRemoval` from the `KoraTenant` schema; annotate `keep`; add `Chart.yaml`, `values.schema.json`, `NOTES.txt` stating the install order.
 2. Rewrite the operator and platform templates into `charts/orbit/templates/operator/` and `templates/platform/` with `kora.*` helpers and `.Release.Namespace`; delete `namespaces.yaml`; scope the ClusterSPIFFEIDs to kora's namespaces; add `allow-apiserver-webhook`; add the `istio/gateway` subchart dependency under `gateway.create` with kora's SPIRE proxy wiring, service type and scheduling passed through values. Delete `charts/orbit-operator` and `charts/orbit-platform`.
 3. Introduce `kora.image`, `kora.scheduling` and `kora.imagePullSecrets` helpers; apply to every Deployment, DaemonSet, StatefulSet template and to the operator. Add the cross-cutting `global` settings (`logFormat`, `postgres.sslMode`, `postgres.captureQueryText`, `observability.otlpInsecure`, `imageTag`) and default every component's service-config and image to them, removing the per-component repetition of these fields from `values.yaml`.
 4. Close the configuration gaps: `agents.config.*` rendered as env overrides for session-manager image, sandbox image, git author and trust domain; `agents.extraEnv`; `agents.runtimePods.*`; `inferenceGateway.bedrock.accounts[]`; `inferenceGateway.serviceAccount.annotations`; identity mounts `orbit-tenant-oauth-clients`; identity's tenants mount `optional: true`; ext_proc `message_timeout: 1s`; policy-service bundle AuthorizationPolicy `ports`; `gateway.create`/`gateway.name`; `gateway.ingress` and `frontend.ingress`, which when enabled also set `x-forwarded-proto: https` on API routes because the fronting Ingress terminates TLS; warmer and headroom templates.
@@ -491,7 +491,7 @@ Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouche
 - `make up` on a fresh k3d cluster produces a completed agent run in under thirty minutes wall clock, including image pulls.
 - `helm template` of both charts succeeds with no cluster access; `kubeconform` and `istioctl analyze` pass for every supported Kubernetes minor.
 - The k3d matrix installs the reference Helmfile on Istio N and N-1 with CNI and SPIRE, the preflight reports the contract satisfied, and kora's gateway pods hold an SVID in kora's trust domain.
-- The matrix uninstalls `orbit`, confirms `OrbitTenant` objects, tenant namespaces and the CRDs remain, and reinstalls without manual steps.
+- The matrix uninstalls `orbit`, confirms `KoraTenant` objects, tenant namespaces and the CRDs remain, and reinstalls without manual steps.
 - The matrix runs on k3d with its NetworkPolicy controller enabled and asserts that a sandbox cannot reach the internet except through the egress gateway (`scripts/cluster/test-egress-lockdown.sh`) and that a documented flow succeeds.
 - `cosign verify` succeeds for both charts and every kora image in `images.txt`, including against a mirrored copy.
 - Operator ClusterRole contains no wildcard verbs, and the operator's informers list Secrets only in kora's namespaces.

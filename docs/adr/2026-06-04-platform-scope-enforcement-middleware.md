@@ -28,7 +28,7 @@ The platform's enforcement model is split between two layers:
 | **Layer 1 — Envoy ext_authz → OPA sidecar** | Route-scope check before traffic reaches the application | Sidecar in pod, bypasses application code |
 | **Layer 2 — `policy.Evaluator` in service code** | Same Rego, but invoked in-process by the application | Application code |
 
-Layer 1 is correct for **tenant agent pods** (the LLM agent workloads) because we cannot trust an untrusted workload to enforce its own scopes — the sidecar terminates Envoy's ext_authz protocol and denies before the agent ever runs. [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) enforces this via the `orbit.io/opa-policy: "enabled"` pod label.
+Layer 1 is correct for **tenant agent pods** (the LLM agent workloads) because we cannot trust an untrusted workload to enforce its own scopes — the sidecar terminates Envoy's ext_authz protocol and denies before the agent ever runs. [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) enforces this via the `runkora.io/opa-policy: "enabled"` pod label.
 
 Layer 2 is correct for **platform services** because we control their code and adding a sidecar to every service adds memory/CPU per pod for a check we already have an in-process evaluator for.
 

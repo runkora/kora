@@ -65,7 +65,7 @@ func TestAgentEgressPolicy(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := agentEgressPolicy("orbit-tenant-acme", "acme", tc.collector)
 
-			if p.Spec.PodSelector.MatchLabels["orbit.io/managed-agent"] != "true" {
+			if p.Spec.PodSelector.MatchLabels["runkora.io/managed-agent"] != "true" {
 				t.Errorf("pod selector = %v, want agent pods", p.Spec.PodSelector.MatchLabels)
 			}
 			if len(p.Spec.PolicyTypes) != 1 || p.Spec.PolicyTypes[0] != networkingv1.PolicyTypeEgress {
@@ -80,7 +80,7 @@ func TestAgentEgressPolicy(t *testing.T) {
 				systemNamespace + "/app=orbit-inference-gateway:8081/TCP",
 				systemNamespace + "/app=orbit-tool-gateway:8096/TCP",
 				systemNamespace + "/app=orbit-policy-service:8083/TCP",
-				"/orbit.io/role=sandbox:" + strconv.Itoa(ports.SandboxExecGRPC) + "/TCP",
+				"/runkora.io/role=sandbox:" + strconv.Itoa(ports.SandboxExecGRPC) + "/TCP",
 			}, tc.extra...)
 			slices.Sort(want)
 			if got := allowedPorts(p); !slices.Equal(got, want) {
@@ -100,7 +100,7 @@ func TestAgentEgressSidecar(t *testing.T) {
 	if mode := spec["outboundTrafficPolicy"].(map[string]any)["mode"]; mode != "REGISTRY_ONLY" {
 		t.Errorf("mode = %v, want REGISTRY_ONLY", mode)
 	}
-	if sel := spec["workloadSelector"].(map[string]any)["labels"].(map[string]any); sel["orbit.io/managed-agent"] != "true" {
+	if sel := spec["workloadSelector"].(map[string]any)["labels"].(map[string]any); sel["runkora.io/managed-agent"] != "true" {
 		t.Errorf("workload selector = %v, want agent pods", sel)
 	}
 	hosts := spec["egress"].([]any)[0].(map[string]any)["hosts"].([]any)

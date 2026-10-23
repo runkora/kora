@@ -311,7 +311,7 @@ An EnvoyFilter in `istio-system` wires the outbound ext_authz filter on agent po
 ```yaml
 workloadSelector:
   labels:
-    orbit.io/identity-proxy: "enabled"
+    runkora.io/identity-proxy: "enabled"
 configPatches:
   - applyTo: HTTP_FILTER
     match:
@@ -339,18 +339,18 @@ The identity-proxy and OPA sidecars are a **coupled pair** for Layer 1 enforceme
 
 Without identity-proxy, the `Authorization` header is absent and OPA denies all requests with `deny:invalid_token`. Without OPA, the ext_authz filter has no handler and requests are blocked (fail-closed). They must always be present together.
 
-The operator registers a `MutatingWebhookConfiguration` that automatically injects the required labels and annotations onto every pod created in a tenant namespace (any namespace labelled `orbit.io/role: "tenant"`). This ensures Layer 1 enforcement is universal — no per-pod opt-in, no accidental gaps.
+The operator registers a `MutatingWebhookConfiguration` that automatically injects the required labels and annotations onto every pod created in a tenant namespace (any namespace labelled `runkora.io/role: "tenant"`). This ensures Layer 1 enforcement is universal — no per-pod opt-in, no accidental gaps.
 
 **Injected by the webhook on every tenant pod:**
 
 | Field | Value | Purpose |
 |---|---|---|
-| label `orbit.io/identity-proxy` | `"enabled"` | Activates the identity-proxy EnvoyFilter (ext_proc) |
-| label `orbit.io/opa-policy` | `"enabled"` | Activates the OPA ext_authz EnvoyFilter |
-| annotation `orbit.io/tenant-id` | `<tenant-name>` | Tells the OPA sidecar which bundle to fetch from the policy service |
+| label `runkora.io/identity-proxy` | `"enabled"` | Activates the identity-proxy EnvoyFilter (ext_proc) |
+| label `runkora.io/opa-policy` | `"enabled"` | Activates the OPA ext_authz EnvoyFilter |
+| annotation `runkora.io/tenant-id` | `<tenant-name>` | Tells the OPA sidecar which bundle to fetch from the policy service |
 | annotation `inject.istio.io/templates` | `"sidecar,spire,identity-proxy,opa-policy"` | Injects all four Istio sidecars; merged with any templates already set |
 
-The tenant name is read from the namespace label `orbit.io/tenant`, which is set by the operator's `TenantReconciler` at namespace provisioning time.
+The tenant name is read from the namespace label `runkora.io/tenant`, which is set by the operator's `TenantReconciler` at namespace provisioning time.
 
 **Failure policy: `Ignore`**
 

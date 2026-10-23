@@ -40,7 +40,7 @@ make up
 - `dev-up`: Starts Postgres, Redis, glauth, and Dex in Docker Compose. Generates `secrets/signing.key` on first run.
 - `dev-cluster`: Creates the k3d cluster `orbit-local` with a registry at `orbit-registry:5001`, and patches CoreDNS so pods resolve `dex.orbit.local.clearroute.io`.
 - `cluster-platform`: Builds any missing service images, creates the `orbit-system` namespace, secrets and TLS, writes the Docker network values to `deploy/reference/environments/local.generated.yaml`, then runs `helmfile -e local apply` from `deploy/reference/`. That installs SPIRE, Istio and the two kora charts in dependency order, the same sequence on any cluster. The `kora` chart's pre-install hook applies the database schema before any service starts. Helmfile diffs before applying, so an unchanged environment is a no-op.
-- `cluster-deploy`: Runs `create-secrets.sh`, applies the `OrbitTenant` resources, and deploys the workload fixtures.
+- `cluster-deploy`: Runs `create-secrets.sh`, applies the `KoraTenant` resources, and deploys the workload fixtures.
 
 Endpoints once it finishes:
 
@@ -218,7 +218,7 @@ make test-postgres
 
 OIDC configuration is per-tenant, defined in the tenant registry.
 
-Local tenants are `OrbitTenant` resources under `deploy/local/tenants/`, reconciled into the `orbit-tenants` ConfigMap by the operator. To bind a tenant to Microsoft Entra or any OIDC-compliant provider, edit the tenant's `oidc` block and re-apply:
+Local tenants are `KoraTenant` resources under `deploy/local/tenants/`, reconciled into the `orbit-tenants` ConfigMap by the operator. To bind a tenant to Microsoft Entra or any OIDC-compliant provider, edit the tenant's `oidc` block and re-apply:
 
 ```yaml
 spec:

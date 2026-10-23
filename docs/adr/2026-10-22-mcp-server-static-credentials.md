@@ -108,7 +108,7 @@ The current code behaves as follows:
 ### 1. The `spec.auth` field
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: MCPServer
 metadata:
   name: exa
@@ -171,7 +171,7 @@ Tenant and global `MCPServer` CRs follow the same rules and the same path.
 *   The aggregator renders one ServiceEntry for each distinct host among valid `MCPServer` endpoints, named `mcp-server-<host>`, in the system namespace. Hosts are lowercased and stripped of a trailing dot first. In-cluster hosts and IP addresses are skipped by the rule the InferenceProvider ServiceEntries use. The rule covers short names, IP addresses, and names ending in `.svc`, `.pod` or `.cluster.local`.
 *   A host whose last label is the name of a namespace is skipped. It resolves to a Service or pod through the cluster search domains.
 *   A host that another operator-managed ServiceEntry registers is skipped. Two entries for one host could declare clashing port protocols.
-*   Each ServiceEntry has `location: MESH_EXTERNAL`, `resolution: DNS`, `exportTo: ["."]`, the ports of every endpoint on that host, and the label `orbit.io/component: mcp-server-host`.
+*   Each ServiceEntry has `location: MESH_EXTERNAL`, `resolution: DNS`, `exportTo: ["."]`, the ports of every endpoint on that host, and the label `runkora.io/component: mcp-server-host`.
 *   On each pass the aggregator deletes labelled ServiceEntries whose host no valid `MCPServer` uses.
 
 ### Rationale

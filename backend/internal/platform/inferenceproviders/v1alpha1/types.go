@@ -12,11 +12,11 @@ import (
 )
 
 // GroupVersion is the API group and version of InferenceProvider.
-var GroupVersion = schema.GroupVersion{Group: "orbit.io", Version: "v1alpha1"}
+var GroupVersion = schema.GroupVersion{Group: "runkora.io", Version: "v1alpha1"}
 
 // SecretLabel marks the Secrets a provider may reference. The gateway only
 // caches Secrets carrying it.
-const SecretLabel = "orbit.io/inference-provider"
+const SecretLabel = "runkora.io/inference-provider"
 
 // Type is a provider type. It is the prefix of every provider name.
 type Type string

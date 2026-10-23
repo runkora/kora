@@ -33,7 +33,7 @@ Install SPIRE, Istio and kora from the reference Helmfile:
 make cluster-platform   # build + push missing images; secrets and TLS;
                         # helmfile -e local apply from deploy/reference/
 
-make cluster-deploy     # build + push tenant images; apply OrbitTenant
+make cluster-deploy     # build + push tenant images; apply KoraTenant
                         # resources and workload fixtures in deploy/local/
 ```
 

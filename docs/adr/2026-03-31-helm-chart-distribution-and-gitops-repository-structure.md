@@ -372,7 +372,7 @@ identity:
 
 platform:
   namespaces:
-    # Tenant namespaces — populated automatically by the orbit-operator from active OrbitTenant CRs.
+    # Tenant namespaces — populated automatically by the orbit-operator from active KoraTenant CRs.
     # Do not set this when using the operator; set it only for standalone Helm installs.
     tenants: []
 
@@ -406,7 +406,7 @@ identity:
   appEnv: local
   # NOTE: existingSecret, existingConfigMap, existingTenantsConfigMap,
   # existingClientSecretsSecret, and platform.namespaces.tenants are all
-  # injected by the orbit-operator from the OrbitPlatform CR and OrbitTenant CRs.
+  # injected by the orbit-operator from the OrbitPlatform CR and KoraTenant CRs.
   # They are not needed in this file.
 ```
 

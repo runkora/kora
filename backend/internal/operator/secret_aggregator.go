@@ -47,7 +47,7 @@ func NewClientSecretAggregator(c client.Client, logger logging.Logger) *ClientSe
 	return &ClientSecretAggregator{client: c, logger: logger}
 }
 
-// Sync reads the OIDC client secret for each active OrbitTenant that
+// Sync reads the OIDC client secret for each active KoraTenant that
 // specifies a clientSecretRef, then writes (or updates) the aggregated
 // Secret in orbit-system. Tenants without a clientSecretRef (public OIDC
 // clients) are omitted — the identity service treats a missing entry as an
@@ -79,7 +79,7 @@ func (a *ClientSecretAggregator) Sync(ctx context.Context) error {
 func (a *ClientSecretAggregator) listConfidentialTenants(ctx context.Context) ([]KoraTenant, error) {
 	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("list OrbitTenants: %w", err)
+		return nil, fmt.Errorf("list KoraTenants: %w", err)
 	}
 	out := make([]KoraTenant, 0, len(list.Items))
 	for _, t := range list.Items {
@@ -167,7 +167,7 @@ func (a *ClientSecretAggregator) createAggregatedSecret(ctx context.Context, pay
 			Namespace: systemNamespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "orbit-operator",
-				"orbit.io/component":           "tenant-client-secrets",
+				"runkora.io/component":         "tenant-client-secrets",
 			},
 		},
 		Data: map[string][]byte{

@@ -29,7 +29,7 @@ func sandboxLikePod() *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "sandbox-1", Namespace: "orbit-tenant-example",
-			Labels: map[string]string{"orbit.io/role": "sandbox"},
+			Labels: map[string]string{"runkora.io/role": "sandbox"},
 			Annotations: map[string]string{
 				"proxy.istio.io/config":                        `{"holdApplicationUntilProxyStarts": true}`,
 				"traffic.sidecar.istio.io/excludeInboundPorts": "50051",

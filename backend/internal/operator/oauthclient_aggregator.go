@@ -96,12 +96,12 @@ func (a *OAuthClientAggregator) Sync(ctx context.Context) error {
 	return a.upsertConfigMap(ctx, string(registryJSON), len(entries))
 }
 
-// listActiveTenants returns all OrbitTenant resources whose Spec.Active is true,
+// listActiveTenants returns all KoraTenant resources whose Spec.Active is true,
 // mirroring the connection aggregator: suspended tenants' clients are not served.
 func (a *OAuthClientAggregator) listActiveTenants(ctx context.Context) ([]KoraTenant, error) {
 	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("list OrbitTenants: %w", err)
+		return nil, fmt.Errorf("list KoraTenants: %w", err)
 	}
 	out := make([]KoraTenant, 0, len(list.Items))
 	for _, t := range list.Items {
@@ -241,7 +241,7 @@ func (a *OAuthClientAggregator) upsertConfigMap(ctx context.Context, registryJSO
 				Namespace: systemNamespace,
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "orbit-operator",
-					"orbit.io/component":           "tenant-oauth-clients",
+					"runkora.io/component":         "tenant-oauth-clients",
 				},
 			},
 			Data: map[string]string{aggregatedOAuthClientsConfigMapKey: registryJSON},

@@ -79,7 +79,7 @@ const maxLabelValueLength = 63
 
 // mcpServerRegistryEntry is one element of servers.json — the runtime contract
 // the tool-gateway's introspection worker agrees on. tenant_id is "" for global
-// (orbit-system) servers and the owning OrbitTenant name for tenant servers.
+// (orbit-system) servers and the owning KoraTenant name for tenant servers.
 type mcpServerRegistryEntry struct {
 	TenantID                    string `json:"tenant_id"`
 	Name                        string `json:"name"`
@@ -199,7 +199,7 @@ func (a *MCPServerAggregator) aggregatedCredentials(ctx context.Context) map[str
 func (a *MCPServerAggregator) activeTenantNamespaces(ctx context.Context) (map[string]string, error) {
 	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("list OrbitTenants: %w", err)
+		return nil, fmt.Errorf("list KoraTenants: %w", err)
 	}
 	out := make(map[string]string, len(list.Items))
 	for i := range list.Items {
@@ -384,7 +384,7 @@ func (a *MCPServerAggregator) upsertConfigMap(ctx context.Context, entries []mcp
 				Namespace: systemNamespace,
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "orbit-operator",
-					"orbit.io/component":           "mcp-servers",
+					"runkora.io/component":         "mcp-servers",
 				},
 			},
 			Data: map[string]string{aggregatedMCPServersConfigMapKey: registryJSON},

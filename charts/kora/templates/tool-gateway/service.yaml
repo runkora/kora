@@ -9,7 +9,7 @@ spec:
   # Route request traffic to the PROXY pods only (the publisher serves none).
   selector:
     {{- include "kora.toolGateway.selectorLabels" . | nindent 4 }}
-    orbit.io/mode: proxy
+    runkora.io/mode: proxy
   ports:
     # Plain HTTP — health + GET /v1/catalog (the BFF reads the catalog here),
     # and the Phase-4 MCP request path. Must match

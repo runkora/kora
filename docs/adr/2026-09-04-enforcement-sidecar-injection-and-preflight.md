@@ -13,7 +13,7 @@
 
 Every tenant pod (agent StatefulSet, sandbox) carries two kora containers beside the Istio sidecar: the identity-proxy, which exchanges the pod's SVID for a platform token and stamps it on outbound calls through an ext_proc filter over a shared Unix socket; and an OPA sidecar, which enforces the tenant's policy bundle on inbound calls through ext_authz. Every kora pod, system and tenant, needs the Istio sidecar to obtain its certificate from SPIRE rather than istiod: `PILOT_CERT_PROVIDER=spire`, `SPIFFE_ENDPOINT_SOCKET`, and the SPIFFE CSI volume mounted into `istio-proxy`.
 
-Today this is delivered by three istiod injection templates (`spire`, `identity-proxy`, `opa-policy`) that the operator renders into the istiod Helm values. Pods select them through the `inject.istio.io/templates` annotation. System pods set that annotation in the chart. Tenant pods get it from the operator's mutating webhook (`pod_webhook.go`), which matches pod creation in namespaces labelled `orbit.io/role: tenant`, adds the labels `orbit.io/identity-proxy=enabled` and `orbit.io/opa-policy=enabled` (which activate the two `EnvoyFilter`s), sets `orbit.io/tenant-id` from the namespace label (read by the OPA container through the downward API), and merges the template list into the annotation. The webhook is named `aaa-orbit-agent-pod-mutator` so it sorts before `istio-sidecar-injector`, and runs with `failurePolicy: Ignore` on the reasoning that in-process OPA in the owned services is the authoritative boundary.
+Today this is delivered by three istiod injection templates (`spire`, `identity-proxy`, `opa-policy`) that the operator renders into the istiod Helm values. Pods select them through the `inject.istio.io/templates` annotation. System pods set that annotation in the chart. Tenant pods get it from the operator's mutating webhook (`pod_webhook.go`), which matches pod creation in namespaces labelled `runkora.io/role: tenant`, adds the labels `runkora.io/identity-proxy=enabled` and `runkora.io/opa-policy=enabled` (which activate the two `EnvoyFilter`s), sets `runkora.io/tenant-id` from the namespace label (read by the OPA container through the downward API), and merges the template list into the annotation. The webhook is named `aaa-orbit-agent-pod-mutator` so it sorts before `istio-sidecar-injector`, and runs with `failurePolicy: Ignore` on the reasoning that in-process OPA in the owned services is the authoritative boundary.
 
 Istio's injection template (release-1.29 `injection-template.yaml`) settles what the three templates can be replaced with. Since Istio 1.27 on Kubernetes 1.29 and later, `istio-proxy` is rendered as a native sidecar init container (lines 184-193). The `sidecar.istio.io/userVolumeMount` pod annotation renders mounts inside that same container block (line 461), so a pod-level annotation reaches the native sidecar; a template's `containers[name=istio-proxy].volumeMounts` patch does not merge into an `initContainers` entry, which is why the operator's template mounts stop working under native sidecars. `proxy.istio.io/config` `proxyMetadata` renders as environment variables on `istio-proxy` (lines 147-149). `holdApplicationUntilProxyStarts` is a no-op under native sidecars (lines 71-73); ordering comes from init-container sequencing. The identity-proxy has been run as an explicit container in a Deployment with no template involved. The release-1.31 template renders the same mechanisms, with `userVolumeMount` at line 470. kora's current pin is Istio 1.31.1.
 
@@ -107,14 +107,14 @@ This decision moves where the identity-proxy and OPA sidecar are attached, not w
 
 ### Decision 1: What the mutating webhook injects
 
-For a pod created in a namespace labelled `orbit.io/role: tenant`, the webhook returns a JSON patch that adds:
+For a pod created in a namespace labelled `runkora.io/role: tenant`, the webhook returns a JSON patch that adds:
 
-**Labels:** `orbit.io/identity-proxy: enabled`, `orbit.io/opa-policy: enabled`. kora's ClusterSPIFFEIDs for tenant workloads select `spiffe.io/service`, `spiffe.io/agent` and `orbit.io/role=sandbox`, which the creating component already sets; `spiffe.io/spire-managed-identity` is not injected, because nothing kora-owned selects it in tenant namespaces and the SPIRE chart's default registration does.
+**Labels:** `runkora.io/identity-proxy: enabled`, `runkora.io/opa-policy: enabled`. kora's ClusterSPIFFEIDs for tenant workloads select `spiffe.io/service`, `spiffe.io/agent` and `runkora.io/role=sandbox`, which the creating component already sets; `spiffe.io/spire-managed-identity` is not injected, because nothing kora-owned selects it in tenant namespaces and the SPIRE chart's default registration does.
 
 **Annotations:**
 
 ```yaml
-orbit.io/tenant-id: <namespace label orbit.io/tenant>
+runkora.io/tenant-id: <namespace label runkora.io/tenant>
 proxy.istio.io/config: |
   holdApplicationUntilProxyStarts: true
   proxyMetadata:
@@ -131,13 +131,13 @@ sidecar.istio.io/userVolumeMount: '{"workload-socket":{"mountPath":"/run/secrets
 
 **Containers:** `identity-proxy` and `opa`, built from typed structs in the operator, parameterised from `operator.injection.*` (image registry, repository, tag or digest, pull policy, resources, log level). Both carry the restricted security context of Decision 6. The identity service URL and the OPA policy-service URL are rendered from `KORA_SYSTEM_NAMESPACE`, replacing the hardcoded `orbit-system` literals the pre-refactor templates and `tenant_controller.go` used. OPA listens on `127.0.0.1:8181` with diagnostics on `0.0.0.0:8282` for probes only; the pre-refactor `--addr=0.0.0.0:8181` let the untrusted agent read the tenant's whole grant bundle from `localhost:8181/v1/data`.
 
-The `inject.istio.io/templates` annotation is no longer set. `mergeIstioTemplates` is deleted. The `orbit.io/skip-injection` opt-out label is removed with its `objectSelector`: it is a pod label, so anyone who can create a tenant pod could remove enforcement, and nothing in the repository sets it.
+The `inject.istio.io/templates` annotation is no longer set. `mergeIstioTemplates` is deleted. The `runkora.io/skip-injection` opt-out label is removed with its `objectSelector`: it is a pod label, so anyone who can create a tenant pod could remove enforcement, and nothing in the repository sets it.
 
 Ordering: the API server invokes mutating webhooks in configuration-name order. The configuration keeps the `aaa-` prefix and runs before `istio-sidecar-injector`, which reads `proxy.istio.io/config` and `userVolumeMount` from the pod at admission. `reinvocationPolicy` is `Never`; `IfNeeded` on kora's webhook would not make Istio's injector re-run and permits the API server to reorder. The guarantee that survives any reordering is Decision 2's validating webhook, and the k3d matrix asserts the final pod shape on every supported Istio minor.
 
 ### Decision 2: Fail closed, including when Istio does not inject
 
-Two webhooks, both `failurePolicy: Fail`, `timeoutSeconds: 10`, `namespaceSelector: orbit.io/role=tenant`, no object selector:
+Two webhooks, both `failurePolicy: Fail`, `timeoutSeconds: 10`, `namespaceSelector: runkora.io/role=tenant`, no object selector:
 
 - The mutating webhook of Decision 1.
 - A validating webhook, invoked after all mutation, that rejects a tenant pod when: `sidecar.istio.io/inject` is `"false"`; `sidecar.istio.io/interceptionMode` is `NONE`; the pod has no `istio-proxy` container or init container; the identity-proxy or OPA container is missing; or the pod's namespace carries no injection label matching the configured Istio revision.
@@ -168,7 +168,7 @@ Components with the identity-proxy today (inference gateway, agents, egress gate
 
 ### Decision 5: Preflight
 
-A `preflight` subcommand on the operator binary, run in three places: at operator startup and every `operator.preflight.intervalSeconds` thereafter, publishing a `PrerequisitesSatisfied` condition on every `OrbitTenant`, an event on failure, and metrics; as a `helm test` Job for on-demand checks; and as the gate that keeps every `OrbitTenant` out of `Ready` while it fails, so no tenant workload is admitted on an unverified cluster. Preflight does not gate the operator's readiness probe: the probe depends only on the process being alive, so a transient failure during an Istio or CNI rollout cannot empty the webhook endpoints and, with `Fail`, block every tenant pod including restarts of already-running agents.
+A `preflight` subcommand on the operator binary, run in three places: at operator startup and every `operator.preflight.intervalSeconds` thereafter, publishing a `PrerequisitesSatisfied` condition on every `KoraTenant`, an event on failure, and metrics; as a `helm test` Job for on-demand checks; and as the gate that keeps every `KoraTenant` out of `Ready` while it fails, so no tenant workload is admitted on an unverified cluster. Preflight does not gate the operator's readiness probe: the probe depends only on the process being alive, so a transient failure during an Istio or CNI rollout cannot empty the webhook endpoints and, with `Fail`, block every tenant pod including restarts of already-running agents.
 
 Checks, each with an actionable message:
 
@@ -259,7 +259,7 @@ kind: MutatingWebhookConfiguration
 metadata:
   name: aaa-orbit-agent-pod-mutator
 webhooks:
-  - name: pod.orbit.io
+  - name: pod.runkora.io
     admissionReviewVersions: ["v1"]
     clientConfig:
       service: { name: orbit-operator-webhook, namespace: {{ .Release.Namespace }}, path: /mutate-pod }
@@ -270,7 +270,7 @@ webhooks:
         apiVersions: ["v1"]
         resources: ["pods"]
     namespaceSelector:
-      matchLabels: { orbit.io/role: tenant }
+      matchLabels: { runkora.io/role: tenant }
     # failurePolicy and caBundle are owned by the operator; the API default Fail applies
     reinvocationPolicy: Never
     sideEffects: None
@@ -281,7 +281,7 @@ kind: ValidatingWebhookConfiguration
 metadata:
   name: orbit-agent-pod-validator
 webhooks:
-  - name: pod.orbit.io
+  - name: pod.runkora.io
     admissionReviewVersions: ["v1"]
     clientConfig:
       service: { name: orbit-operator-webhook, namespace: {{ .Release.Namespace }}, path: /validate-pod }
@@ -291,7 +291,7 @@ webhooks:
         apiVersions: ["v1"]
         resources: ["pods"]
     namespaceSelector:
-      matchLabels: { orbit.io/role: tenant }
+      matchLabels: { runkora.io/role: tenant }
     # failurePolicy and caBundle are owned by the operator; the API default Fail applies
     sideEffects: None
     timeoutSeconds: 10
@@ -346,7 +346,7 @@ operator:
 3. **Webhook configurations and TLS**: chart renders both configurations without `caBundle` or `failurePolicy`; operator gains a `webhookcert` package (leader creates or adopts the Secret, followers watch, `GetCertificate` serving, rotation with dual CA, watch and re-patch of `caBundle` and `failurePolicy`); cert-manager path behind the value; remove `genCA`/`lookup` from the chart.
 4. **Tenant namespace labels**: injection label from `istio.revision`, PSA labels from `operator.tenantPodSecurity`, pull-secret replication, in `tenant_controller.go`.
 5. **System pod helpers**: `_helpers.tpl` gains `kora.spireProxyAnnotations`, `kora.spireVolumes`, `orbit.identityProxyContainer`; every service template uses them; `inject.istio.io/templates` removed everywhere.
-6. **Preflight**: `backend/cmd/operator` gains a `preflight` subcommand backed by `backend/internal/operator/preflight` (injector ConfigMap reads by label, Workload API SVID fetch, ClusterSPIFFEID status, webhook state); periodic run, `OrbitTenant` condition gate, events, metrics; `templates/operator/tests/preflight-test.yaml` as a `helm test` Job.
+6. **Preflight**: `backend/cmd/operator` gains a `preflight` subcommand backed by `backend/internal/operator/preflight` (injector ConfigMap reads by label, Workload API SVID fetch, ClusterSPIFFEID status, webhook state); periodic run, `KoraTenant` condition gate, events, metrics; `templates/operator/tests/preflight-test.yaml` as a `helm test` Job.
 7. **Restricted profile**: security context changes in `agents/k8s.go` (sandbox, session-manager), in the injected containers, and in every chart Deployment; a Go test that renders the runtime pods to YAML for CI; `charts-ci.yml` step running `kyverno apply` with the restricted policy set per Kubernetes minor; the k3d matrix with restricted-labelled namespaces.
 8. **Reference Helmfile**: `pilot.cni.enabled: true` in the istiod values, the `istio/cni` release with k3s paths in the local environment; the gateway wiring lives in the `kora` chart's subchart values.
 9. **Docs**: deployment guide prerequisites and constraints sections; a "what the webhooks inject and reject" page for enterprise review; the ownership table rows for `caBundle`, `failurePolicy`, namespace labels.
@@ -379,8 +379,8 @@ Existing tenant pods keep running; injection and validation apply on the next po
 ### Neutral
 
 - The OPA image and the identity-proxy image become ordinary chart values instead of operator env and injection template literals.
-- `orbit.io/tenant-id` and the two activation labels are unchanged, so the `EnvoyFilter`s are untouched.
-- kora's control-plane services report ready independently of the preflight; the failure surface for an unverified cluster is tenant admission and the `OrbitTenant` condition.
+- `runkora.io/tenant-id` and the two activation labels are unchanged, so the `EnvoyFilter`s are untouched.
+- kora's control-plane services report ready independently of the preflight; the failure surface for an unverified cluster is tenant admission and the `KoraTenant` condition.
 
 ---
 
@@ -394,7 +394,7 @@ Existing tenant pods keep running; injection and validation apply on the next po
 - An Argo CD sync that reapplies the webhook configurations: `caBundle` and `failurePolicy` are restored within the watch latency and no admission is lost.
 - `helm template` of the `kora` chart contains no `lookup`, `genCA`, `caBundle`, or any of kora's former injection template names (`spire`, `identity-proxy`, `opa-policy`); the `istio/gateway` subchart's own `gateway` template annotation remains.
 - `kyverno apply` restricted policies pass on every rendered and runtime pod.
-- Preflight on a cluster whose istiod lacks `pilot.cni.enabled` reports it by name; `OrbitTenant` objects stay out of `Ready`; the operator stays ready.
+- Preflight on a cluster whose istiod lacks `pilot.cni.enabled` reports it by name; `KoraTenant` objects stay out of `Ready`; the operator stays ready.
 
 ### Monitoring
 
@@ -411,7 +411,7 @@ Amends Decision 4. Touches *How does it connect?* Platform services stop receivi
 
 **Decision.**
 
-- No system pod carries the identity-proxy. The inference gateway, orbit-agents, the egress gateway and the tool-gateway publisher drop the container, the `orbit.io/identity-proxy` label, the `id-proxy-sock` volume and its `userVolumeMount` annotation. They keep the SPIRE annotations and the `workload-socket` volume for mesh mTLS.
+- No system pod carries the identity-proxy. The inference gateway, orbit-agents, the egress gateway and the tool-gateway publisher drop the container, the `runkora.io/identity-proxy` label, the `id-proxy-sock` volume and its `userVolumeMount` annotation. They keep the SPIRE annotations and the `workload-socket` volume for mesh mTLS.
 - Platform services fetch their own platform token in-process with the identity client's `SelfTokenSource()` and attach it only to the platform calls that need it ([dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md), Amendment 1).
 - `kora.spireProxyAnnotations` and `kora.spireVolumes` lose their `identityProxy` parameter, and the `orbit.identityProxyContainer` helper is removed.
 - Only tenant agent runtime pods and sandbox pods carry the identity-proxy, injected by the operator's webhook. `identityProxy.*` values configure that injection.

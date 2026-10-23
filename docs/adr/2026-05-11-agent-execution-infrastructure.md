@@ -113,13 +113,13 @@ Pod DNS pattern: `{agent-type-id}-{n}.{agent-type-id}.orbit-tenant-{tenant-id}.s
 
 HPA targets CPU utilisation at 70% and memory utilisation at 80%. When all pods are fully loaded with concurrent sessions, resource pressure triggers scale-up. Scale-down is ordered (StatefulSet terminates highest ordinals first) and protected by a PodDisruptionBudget.
 
-The PDB uses `minAvailable: 1` as a floor, but the primary protection against evicting pods with active runs is a different mechanism: the session-manager patches the pod with a label `orbit.io/active-runs={count}` whenever the count changes. The StatefulSet's scale-down controller will skip a pod if its own pod disruption policy permits — but Kubernetes PDB does not directly inspect custom labels. Instead, `orbit-agents`' drift detection loop monitors for `Eviction` events on pods with active runs and preemptively cordons those pods (adds a taint `orbit.io/do-not-evict=true:NoSchedule`) until all runs on that pod reach `completed` or `failed`. This is the enforcement mechanism — the PDB provides a coarse backstop only.
+The PDB uses `minAvailable: 1` as a floor, but the primary protection against evicting pods with active runs is a different mechanism: the session-manager patches the pod with a label `runkora.io/active-runs={count}` whenever the count changes. The StatefulSet's scale-down controller will skip a pod if its own pod disruption policy permits — but Kubernetes PDB does not directly inspect custom labels. Instead, `orbit-agents`' drift detection loop monitors for `Eviction` events on pods with active runs and preemptively cordons those pods (adds a taint `runkora.io/do-not-evict=true:NoSchedule`) until all runs on that pod reach `completed` or `failed`. This is the enforcement mechanism — the PDB provides a coarse backstop only.
 
 ### SPIRE Identity
 
 All pods in the StatefulSet carry the following labels on the pod template:
 - `spiffe.io/agent={agent-type-id}` — triggers the `orbit-tenant-agent` ClusterSPIFFEID to issue the SVID
-- `orbit.io/managed-agent: "true"` — distinguishes managed agent pods from BYOC pods in the discovery loop ([byoc-agent-discovery-and-observability](2026-05-11-byoc-agent-discovery-and-observability.md)) The existing `orbit-tenant-agent` ClusterSPIFFEID ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md)) automatically issues SVIDs to matching pods:
+- `runkora.io/managed-agent: "true"` — distinguishes managed agent pods from BYOC pods in the discovery loop ([byoc-agent-discovery-and-observability](2026-05-11-byoc-agent-discovery-and-observability.md)) The existing `orbit-tenant-agent` ClusterSPIFFEID ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md)) automatically issues SVIDs to matching pods:
 
 ```
 spiffe://{trust-domain}/tenant/orbit-tenant-{tenant-id}/agent/{agent-type-id}
@@ -127,7 +127,7 @@ spiffe://{trust-domain}/tenant/orbit-tenant-{tenant-id}/agent/{agent-type-id}
 
 No SPIRE entries are registered programmatically — identity is entirely label-driven. All pods in the StatefulSet share the same SPIFFE URI. The identity-proxy sidecar handles SVID acquisition and platform JWT exchange — no per-pod configuration required.
 
-The namespace must carry `orbit.io/role: tenant` (already true for all tenant namespaces) for the ClusterSPIFFEID namespace selector to match.
+The namespace must carry `runkora.io/role: tenant` (already true for all tenant namespaces) for the ClusterSPIFFEID namespace selector to match.
 
 ### Cross-Namespace Routing
 
@@ -193,7 +193,7 @@ On agent type deletion, all resources are removed after active runs drain.
 
 [Run Scheduling](2026-10-12-run-scheduling.md) changes how agent pods are scaled, rolled and drained.
 
-*   The `orbit.io/active-runs` pod label and the `orbit.io/do-not-evict` taint in Scaling were never built. A drain on SIGTERM will protect active runs.
+*   The `runkora.io/active-runs` pod label and the `runkora.io/do-not-evict` taint in Scaling were never built. A drain on SIGTERM will protect active runs.
 *   Each agent's StatefulSet and HPA will have a minimum of 2 replicas.
 *   The headless Service will set `publishNotReadyAddresses: true` to keep a draining pod reachable by its DNS name.
 *   On SIGTERM the session-manager will fail readiness, accept no new sessions, and exit when its runs end or the grace period from the chart ends.

@@ -2,7 +2,7 @@
 #
 # The identity-proxy is the MANDATORY trust enforcement point for all kora
 # platform agent workloads. It is not optional. Every agent pod on the platform
-# must carry the label `orbit.io/identity-proxy: "enabled"` and an identity-proxy
+# must carry the label `runkora.io/identity-proxy: "enabled"` and an identity-proxy
 # container sharing the /run/kora socket with istio-proxy, both added by the
 # operator webhook. kora's own services carry neither; they fetch their own
 # platform token in-process.
@@ -32,13 +32,13 @@ metadata:
     {{- include "kora.labels" . | nindent 4 }}
 spec:
   # Targets all platform agent pods across all namespaces that carry the
-  # orbit.io/identity-proxy=enabled label. Because this EnvoyFilter lives in
+  # runkora.io/identity-proxy=enabled label. Because this EnvoyFilter lives in
   # istio-system (the Istio root namespace), workloadSelector matches globally.
   # Using workloadSelector here is correct; proxy.metadata.LABELS in a
   # configPatch match expects a flat string value, not a nested label map.
   workloadSelector:
     labels:
-      orbit.io/identity-proxy: "enabled"
+      runkora.io/identity-proxy: "enabled"
   configPatches:
     - applyTo: HTTP_FILTER
       match:

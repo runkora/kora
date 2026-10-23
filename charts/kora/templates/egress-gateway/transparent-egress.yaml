@@ -57,12 +57,12 @@ metadata:
   labels:
     {{- include "kora.egressGateway.labels" . | nindent 4 }}
 spec:
-  # Sandbox pods are labelled orbit.io/role=sandbox by the orbit-agents
+  # Sandbox pods are labelled runkora.io/role=sandbox by the orbit-agents
   # provisioner. Selector lives in istio-system so it applies across every
   # tenant namespace's sandbox pods (same pattern as egress-gateway-connect-*).
   workloadSelector:
     labels:
-      orbit.io/role: sandbox
+      runkora.io/role: sandbox
   configPatches:
     # 1) Internal listener: HCM that re-runs ext_proc + ext_authz on the
     #    Envoy-generated CONNECT, then forwards it (proxy mode) to the gateway.

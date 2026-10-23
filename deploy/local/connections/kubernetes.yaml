@@ -15,7 +15,7 @@
 # The API server listens on 6443, and the gateway may only dial 443 by default.
 # egressGateway.upstreamPorts in deploy/reference/values/kora.local.yaml opens
 # it.
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: Connection
 metadata:
   name: orbit-local

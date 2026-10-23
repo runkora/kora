@@ -343,7 +343,7 @@ RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} +
 # argument is part of the cache key of every later RUN step, and the version
 # changes on every commit.
 ARG SANDBOX_BASE_VERSION=dev
-LABEL io.orbit.sandbox.base=$SANDBOX_BASE_VERSION
+LABEL io.runkora.sandbox.base=$SANDBOX_BASE_VERSION
 
 USER 100:100
 

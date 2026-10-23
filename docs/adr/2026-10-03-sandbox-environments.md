@@ -128,11 +128,11 @@ Each tenant will register sandbox images as `SandboxImage` resources built on `k
 
 ### 1. The Base Image
 
-`backend/Dockerfile.sandbox-exec` will build the base image, published as `kora-sandbox-base:<version>`. It will keep the general command-line tools, Go and Python, drop Node, run as uid 100 and set the label `io.orbit.sandbox.base=<version>`. The sandbox container will run `/usr/local/bin/sandbox-exec` as its command.
+`backend/Dockerfile.sandbox-exec` will build the base image, published as `kora-sandbox-base:<version>`. It will keep the general command-line tools, Go and Python, drop Node, run as uid 100 and set the label `io.runkora.sandbox.base=<version>`. The sandbox container will run `/usr/local/bin/sandbox-exec` as its command.
 
 ### 2. The `SandboxImage` Resource
 
-`SandboxImage` will be a namespaced `orbit.io/v1alpha1` resource (`charts/kora-crds/templates/crd-sandboximage.yaml`) with these fields:
+`SandboxImage` will be a namespaced `runkora.io/v1alpha1` resource (`charts/kora-crds/templates/crd-sandboximage.yaml`) with these fields:
 
 *   `spec.image`, `spec.description`, `spec.pullSecretRef.name` and `spec.warm`.
 *   `status.image`, `status.digest` and the `Valid` and `Warm` conditions.
@@ -141,7 +141,7 @@ On every tenant reconcile, the operator will create and patch a `SandboxImage` n
 
 ### 3. Validation
 
-The operator will read the image config from the registry. An image will be valid when it runs as uid 100 and carries the `io.orbit.sandbox.base` label. An invalid image cannot be selected, and its `Valid` condition will state the reason. The operator will read the registry on every reconcile and pin the resolved digest. An image will stay valid while `status.image` matches `spec.image`, and a registry failure will keep its accepted digest. Provisioning against an image the operator has not yet read will return a retryable error.
+The operator will read the image config from the registry. An image will be valid when it runs as uid 100 and carries the `io.runkora.sandbox.base` label. An invalid image cannot be selected, and its `Valid` condition will state the reason. The operator will read the registry on every reconcile and pin the resolved digest. An image will stay valid while `status.image` matches `spec.image`, and a registry failure will keep its accepted digest. Provisioning against an image the operator has not yet read will return a retryable error.
 
 ### 4. Warming
 

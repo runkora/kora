@@ -1,4 +1,4 @@
-# OrbitTenant CR for the local k3d development tenant.
+# KoraTenant CR for the local k3d development tenant.
 #
 # The operator will:
 #   1. Auto-derive the namespace as "orbit-tenant-example" (spec.namespace omitted)
@@ -8,8 +8,8 @@
 #
 # The OIDC client is public (no client secret); Dex is configured with
 # orbit-local as a public client for Device Authorization Grant.
-apiVersion: orbit.io/v1alpha1
-kind: OrbitTenant
+apiVersion: runkora.io/v1alpha1
+kind: KoraTenant
 metadata:
   name: example
 spec:

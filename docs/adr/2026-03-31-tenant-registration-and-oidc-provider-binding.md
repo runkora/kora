@@ -153,7 +153,7 @@ This is exactly the pattern used by Dex (`dex serve /etc/dex/config.yaml`), Prom
 
 ### Option 4: Kubernetes CRD with an operator controller
 
-**Description:** Define a `Tenant` CRD (`orbit.io/v1alpha1`). A kora controller reconciles CRDs into in-memory state consumed by the identity service.
+**Description:** Define a `Tenant` CRD (`runkora.io/v1alpha1`). A kora controller reconciles CRDs into in-memory state consumed by the identity service.
 
 **Pros:**
 - Fully declarative and Kubernetes-native

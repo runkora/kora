@@ -14,7 +14,7 @@ spec:
     metadata:
       labels:
         {{- include "kora.agents.selectorLabels" . | nindent 8 }}
-        orbit.io/kube-api-client: "true"
+        runkora.io/kube-api-client: "true"
         {{- include "kora.agents.labels" . | nindent 8 }}
         spiffe.io/component: orbit-agents
         {{- include "kora.podLabels" (dict "root" $ "name" "agents") | nindent 8 }}

@@ -48,7 +48,7 @@ step "Writing Secret ${SECRET} in ${NAMESPACE}"
 SECRET_ARGS=(--from-literal=accessKeyID="${ACCESS_KEY}" --from-literal=secretAccessKey="${SECRET_KEY}")
 [[ -n "${SESSION_TOKEN}" ]] && SECRET_ARGS+=(--from-literal=sessionToken="${SESSION_TOKEN}")
 kubectl create secret generic "${SECRET}" -n "${NAMESPACE}" "${SECRET_ARGS[@]}" --dry-run=client -o yaml \
-  | kubectl label --local -f - orbit.io/inference-provider=true -o yaml \
+  | kubectl label --local -f - runkora.io/inference-provider=true -o yaml \
   | kubectl apply -f -
 
 step "Applying Bedrock InferenceProviders"
@@ -60,7 +60,7 @@ for RAW in "${ALIASES[@]}"; do
   REGION="${!REGION_VAR:-}"
   [[ -n "${REGION}" ]] || fail "${REGION_VAR} is not set in .env"
   kubectl apply -f - <<YAML
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: ${ALIAS}

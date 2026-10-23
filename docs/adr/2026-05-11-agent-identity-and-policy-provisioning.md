@@ -111,7 +111,7 @@ spiffe://{trust-domain}/tenant/orbit-tenant-{tenant_id}/agent/{slug}
 
 This is issued automatically by the `orbit-tenant-agent` ClusterSPIFFEID when the pod carries:
 - Label: `spiffe.io/agent={slug}`
-- Namespace label: `orbit.io/role: tenant` (already set on all tenant namespaces)
+- Namespace label: `runkora.io/role: tenant` (already set on all tenant namespaces)
 
 `orbit-agents` sets this label in the StatefulSet pod template spec at agent type creation time. No SPIRE registration code is required.
 
