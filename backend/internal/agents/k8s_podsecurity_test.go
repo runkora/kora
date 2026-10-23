@@ -30,7 +30,7 @@ func podSecurityProvisioner() *K8sProvisioner {
 			SandboxImage:        "ghcr.io/runkora/kora-sandbox-base:1.0.0",
 			SandboxGRPCPort:     50051,
 			ImagePullSecrets:    []string{"ghcr-pull", "mirror-pull"},
-			TrustDomain:         "orbit.example.com",
+			TrustDomain:         "example.com",
 			SystemNamespace:     "kora-prod",
 			OTLPEndpoint:        "http://otel-collector.observability.svc:4317",
 			SamplingRate:        "1.0",

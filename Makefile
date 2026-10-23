@@ -31,12 +31,12 @@ $(foreach v,$(shell sed -n 's/^\([A-Z_]*\) *=.*/\1/p' versions.hcl),$(eval $(v) 
 # mirror the defaults in docker-compose.yml and are overridable from .env.
 DB_HOST ?= localhost
 DB_PORT ?= 5432
-DB_USER ?= orbit
-DB_NAME ?= orbit
-DB_PASSWORD ?= orbit
+DB_USER ?= kora
+DB_NAME ?= kora
+DB_PASSWORD ?= kora
 REDIS_HOST ?= localhost
 REDIS_PORT ?= 6379
-REDIS_PASSWORD ?= orbit
+REDIS_PASSWORD ?= kora
 
 # Database connection string
 DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
@@ -44,7 +44,7 @@ DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?ssl
 
 # Frontend public URL — baked into the Next.js client bundle at Docker build time.
 # Override for non-local environments (e.g. CI): NEXT_PUBLIC_APP_URL=https://my.host docker buildx bake -f docker-bake.hcl -f versions.hcl kora-frontend
-NEXT_PUBLIC_APP_URL ?= https://orbit.local.clearroute.io:8443
+NEXT_PUBLIC_APP_URL ?= https://local.runkora.io:8443
 
 # Docker image publishing (generic backend/Dockerfile via docker buildx bake)
 DOCKER_BAKE_FILE ?= docker-bake.hcl
@@ -117,8 +117,8 @@ env: ## Generate .env with machine-local secrets (existing .env keeps its values
 			"" \
 			"# Local Postgres and Redis. Fixed, not secret: they listen on loopback," \
 			"# and the Postgres volume bakes this password at first initialisation." \
-			"DB_PASSWORD=orbit" \
-			"REDIS_PASSWORD=orbit" \
+			"DB_PASSWORD=kora" \
+			"REDIS_PASSWORD=kora" \
 			"" \
 			"# Real secrets, generated per machine." \
 			"BFF_SESSION_SECRET=$$(openssl rand -base64 32)" \
@@ -140,7 +140,7 @@ setup: env install-tools install-tools-cluster tidy frontend-install hooks setup
 	fi
 
 .PHONY: setup-dns
-setup-dns: ## Verify *.orbit.local.clearroute.io resolves (public wildcard record; no local DNS config needed)
+setup-dns: ## Verify *.local.runkora.io resolves (public wildcard record; no local DNS config needed)
 	@chmod +x scripts/setup-dns.sh
 	@bash scripts/setup-dns.sh
 
@@ -165,7 +165,7 @@ hooks: ## Configure git to use the project's tracked hooks from .githooks/, sign
 worktree-new: ## Create a sibling worktree for a branch (usage: make worktree-new BRANCH=feature/my-feature)
 	$(if $(BRANCH),,$(error BRANCH is required — usage: make worktree-new BRANCH=feature/my-feature))
 	@SLUG=$$(echo "$(BRANCH)" | tr '/' '-'); \
-	WORKTREE_DIR="../orbit-$$SLUG"; \
+	WORKTREE_DIR="../kora-$$SLUG"; \
 	if [ -d "$$WORKTREE_DIR" ]; then \
 		echo "$(COLOR_YELLOW)⚠ Worktree already exists at $$WORKTREE_DIR$(COLOR_RESET)"; \
 		exit 1; \
@@ -200,7 +200,7 @@ worktree-new: ## Create a sibling worktree for a branch (usage: make worktree-ne
 worktree-remove: ## Remove a sibling worktree (usage: make worktree-remove BRANCH=feature/my-feature [FORCE=1])
 	$(if $(BRANCH),,$(error BRANCH is required — usage: make worktree-remove BRANCH=feature/my-feature))
 	@SLUG=$$(echo "$(BRANCH)" | tr '/' '-'); \
-	WORKTREE_DIR="../orbit-$$SLUG"; \
+	WORKTREE_DIR="../kora-$$SLUG"; \
 	if [ ! -d "$$WORKTREE_DIR" ]; then \
 		echo "$(COLOR_YELLOW)⚠ No worktree found at $$WORKTREE_DIR$(COLOR_RESET)"; \
 		exit 1; \
@@ -346,7 +346,7 @@ db-logs: ## Show database logs
 
 .PHONY: db-shell
 db-shell: ## Open a psql shell to the database
-	@docker compose exec postgres psql -U $${DB_USER:-orbit} -d $${DB_NAME:-orbit}
+	@docker compose exec postgres psql -U $${DB_USER:-kora} -d $${DB_NAME:-kora}
 
 # cmd/migrate embeds every service's migrations and is what the chart runs as a
 # pre-upgrade hook (docs/adr/2026-09-10-database-migrations.md). Locally it
@@ -406,16 +406,13 @@ dev-up: ## Start Postgres + Redis + glauth + Dex (local OIDC provider) for daily
 		echo "$(COLOR_YELLOW)→ secrets/signing.key not found — generating RSA signing key...$(COLOR_RESET)"; \
 		$(MAKE) --no-print-directory gen-signing-key; \
 	fi
-	@if [ ! -f secrets/tls.crt ] || [ ! -f secrets/tls.key ]; then \
-		echo "$(COLOR_YELLOW)→ TLS certificates not found — generating for Dex HTTPS...$(COLOR_RESET)"; \
-		$(MAKE) --no-print-directory setup-tls; \
-	fi
+	@$(MAKE) --no-print-directory setup-tls
 	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + glauth + Dex + port proxy)...$(COLOR_RESET)"
 	@docker compose up -d --wait postgres redis glauth dex port-proxy
 	@echo "$(COLOR_GREEN)✓ Postgres + Redis + glauth + Dex + port proxy ready$(COLOR_RESET)"
-	@echo "  Dex OIDC issuer:  https://dex.orbit.local.clearroute.io:5556/dex"
-	@echo "  Test user:        dev@orbit.local.clearroute.io / password"
-	@echo "  Client ID:        orbit-local  (no secret — public client)"
+	@echo "  Dex OIDC issuer:  https://dex.local.runkora.io:5556/dex"
+	@echo "  Test user:        dev@local.runkora.io / password"
+	@echo "  Client ID:        kora-local  (no secret — public client)"
 	@echo ""
 	@echo "  Authenticate:     make auth"
 
@@ -453,8 +450,8 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm, helmfile,
 up: dev-cluster cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, SPIRE + Istio + kora (schema applied by the chart's migrate hook), tenants. Idempotent.
 	@echo ""
 	@echo "$(COLOR_GREEN)✓ kora is up$(COLOR_RESET)"
-	@echo "  Dashboard:   https://orbit.local.clearroute.io"
-	@echo "  Backend API: https://api.orbit.local.clearroute.io"
+	@echo "  Dashboard:   https://local.runkora.io"
+	@echo "  Backend API: https://api.local.runkora.io"
 	@echo ""
 	@echo "$(COLOR_BLUE)Next: 'make auth' for a token, 'make redeploy SERVICE=<name>' to iterate$(COLOR_RESET)"
 
@@ -698,7 +695,7 @@ cluster-restore: ## Re-push locally-built images to the registry after a Colima/
 
 .PHONY: cluster-platform
 cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install SPIRE, Istio and kora from deploy/reference/helmfile.yaml.gotmpl
-	@EXPECTED="$${KORA_KUBE_CONTEXT:-k3d-orbit-local}"; \
+	@EXPECTED="$${KORA_KUBE_CONTEXT:-k3d-kora-local}"; \
 	 CURRENT="$$(kubectl config current-context 2>/dev/null || echo '<none>')"; \
 	 if [ "$$CURRENT" != "$$EXPECTED" ]; then \
 	   echo "$(COLOR_RED)✗ kube context is '$$CURRENT', expected '$$EXPECTED'. Switch context or set KORA_KUBE_CONTEXT.$(COLOR_RESET)"; exit 1; \
@@ -717,8 +714,8 @@ cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install S
 	@cd deploy/reference && helmfile -e local apply
 	@if [ -n "$$BEDROCK_ACCOUNTS" ]; then bash scripts/cluster/refresh-bedrock-creds.sh; fi
 	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and kora services are running$(COLOR_RESET)"
-	@echo "  Dashboard:   https://orbit.local.clearroute.io"
-	@echo "  Backend API: https://api.orbit.local.clearroute.io"
+	@echo "  Dashboard:   https://local.runkora.io"
+	@echo "  Backend API: https://api.local.runkora.io"
 	@echo "  (HTTP on :8880 redirects to HTTPS)"
 	@echo "$(COLOR_YELLOW)Next: 'make cluster-deploy' to register tenants and deploy workloads$(COLOR_RESET)"
 
@@ -752,12 +749,12 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 	@bash scripts/cluster/create-secrets.sh kora-tenant-example
 	@echo "$(COLOR_YELLOW)Registering tenant connections...$(COLOR_RESET)"
 	@kubectl get secret kora-local-token -n kora-tenant-example &>/dev/null && kubectl apply -f deploy/local/connections/kubernetes.yaml || echo "  (no kora-local-token; run 'make cluster-k8s-connection' to register the local cluster as a connection)"
-	@if [ -f secrets/orbit-github-app.pem ]; then \
-		kubectl create secret generic github-app-key -n kora-tenant-example --from-file=key.pem=secrets/orbit-github-app.pem --dry-run=client -o yaml | kubectl apply -f - ; \
+	@if [ -f secrets/kora-github-app.pem ]; then \
+		kubectl create secret generic github-app-key -n kora-tenant-example --from-file=key.pem=secrets/kora-github-app.pem --dry-run=client -o yaml | kubectl apply -f - ; \
 		kubectl apply -f deploy/local/connections/github.yaml ; \
-		echo "  ✓ GitHub connection registered from secrets/orbit-github-app.pem"; \
+		echo "  ✓ GitHub connection registered from secrets/kora-github-app.pem"; \
 	else \
-		echo "  (no secrets/orbit-github-app.pem — skipping GitHub connection; it is optional)"; \
+		echo "  (no secrets/kora-github-app.pem — skipping GitHub connection; it is optional)"; \
 	fi
 	@echo "$(COLOR_YELLOW)Applying tenant workload fixtures...$(COLOR_RESET)"
 	@kubectl apply -f deploy/local/fixtures/
@@ -1249,7 +1246,7 @@ auth-refresh-k3d: ## Refresh the access token in /tmp/kora_credentials.json (k3d
 		exit $$STATUS
 
 .PHONY: setup-tls
-setup-tls: ## Generate a locally-trusted TLS cert for *.orbit.local.clearroute.io (installs mkcert + CA if needed)
+setup-tls: ## Generate a locally-trusted TLS cert for *.local.runkora.io (installs mkcert + CA if needed)
 	@chmod +x scripts/setup-tls.sh
 	@bash scripts/setup-tls.sh
 

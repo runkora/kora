@@ -69,7 +69,7 @@ func reactOnPR(t *testing.T, eval grantEvaluator) (Decision, map[string]string, 
 	u, _ := url.Parse("https://api.github.com/repos/clear-route/constellation-iac/issues/1054/reactions")
 	httpReq, _ := http.NewRequest(http.MethodPost, u.String(), nil)
 	dec, err := broker.Authorize(context.Background(),
-		claimsFor("acme", "spiffe://orbit.test/tenant/kora-tenant-acme/agent/code-reviewer", "run-1"),
+		claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/code-reviewer", "run-1"),
 		EgressRequest{Host: "api.github.com", Method: http.MethodPost, URL: u, HTTPRequest: httpReq})
 	return dec, minted.Permissions, mints, err
 }

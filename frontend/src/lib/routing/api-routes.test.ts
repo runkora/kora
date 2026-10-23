@@ -27,8 +27,8 @@ describe('ApiRoute', () => {
     it('GET returns the fully encoded discover URL', () => {
       // toBe rather than toContain — verifies the full output, not just
       // partial presence. toContain would pass even if encoding were wrong.
-      expect(ApiRoute.discover.GET('dev@orbit.local')).toBe(
-        '/api/auth/discover?email=dev%40orbit.local',
+      expect(ApiRoute.discover.GET('dev@runkora.test')).toBe(
+        '/api/auth/discover?email=dev%40runkora.test',
       );
     });
 

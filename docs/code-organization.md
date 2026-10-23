@@ -59,7 +59,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 ## Directory structure
 
 ```
-orbit/
+kora/
 ├── backend/
 │   ├── cmd/                          # One subdirectory per deployable binary
 │   │   ├── identity/                 # Main control-plane API (port 8080)

@@ -18,17 +18,17 @@ ok()    { echo -e "${GREEN}✓ $*${RESET}"; }
 warn()  { echo -e "${YELLOW}⚠ $*${RESET}"; }
 die()   { echo -e "${RED}✗ $*${RESET}" >&2; exit 1; }
 
-# Helper: resolve a container's IP on orbit-network.
-# Docker Compose v2 may name the network key "orbit-network" or "orbit_orbit-network"
+# Helper: resolve a container's IP on kora-network.
+# Docker Compose v2 may name the network key "kora-network" or "kora_kora-network"
 # depending on project naming. Try the explicit name first, then fall back to
 # iterating all networks.
 container_ip() {
   local name="$1"
   local ip
 
-  # Try explicit network name (set via `name: orbit-network` in docker-compose.yml)
+  # Try explicit network name (set via `name: kora-network` in docker-compose.yml)
   ip="$(docker inspect "${name}" \
-    --format '{{with index .NetworkSettings.Networks "orbit-network"}}{{.IPAddress}}{{end}}' 2>/dev/null || true)"
+    --format '{{with index .NetworkSettings.Networks "kora-network"}}{{.IPAddress}}{{end}}' 2>/dev/null || true)"
 
   # Fall back to first network IP (works regardless of key naming).
   # The space after IPAddress prevents concatenation when a container is on
@@ -46,42 +46,42 @@ container_ip() {
 }
 
 # ── Resolve IPs ──────────────────────────────────────────────────────────────
-step "Resolving Docker container IPs on orbit-network"
+step "Resolving Docker container IPs on kora-network"
 
-DEX_IP="$(container_ip orbit-dex)"
-ok "orbit-dex:      ${DEX_IP}"
+DEX_IP="$(container_ip kora-dex)"
+ok "kora-dex:      ${DEX_IP}"
 
-POSTGRES_IP="$(container_ip orbit-postgres)"
-ok "orbit-postgres: ${POSTGRES_IP}"
+POSTGRES_IP="$(container_ip kora-postgres)"
+ok "kora-postgres: ${POSTGRES_IP}"
 
-REDIS_IP="$(container_ip orbit-redis)"
-ok "orbit-redis:    ${REDIS_IP}"
+REDIS_IP="$(container_ip kora-redis)"
+ok "kora-redis:    ${REDIS_IP}"
 
-REGISTRY_IP="$(container_ip orbit-registry)"
-ok "orbit-registry: ${REGISTRY_IP}"
+REGISTRY_IP="$(container_ip kora-registry)"
+ok "kora-registry: ${REGISTRY_IP}"
 
 # ── Resolve subnet CIDR ─────────────────────────────────────────────────────
-SUBNET="$(docker network inspect orbit-network \
+SUBNET="$(docker network inspect kora-network \
   --format '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null || true)"
 
 if [[ -z "${SUBNET}" ]]; then
-  die "Could not detect orbit-network subnet: is the network created? (make dev-up)"
+  die "Could not detect kora-network subnet: is the network created? (make dev-up)"
 fi
-ok "orbit-network:  ${SUBNET}"
+ok "kora-network:  ${SUBNET}"
 
 # ── Patch CoreDNS NodeHosts ─────────────────────────────────────────────────
-# CoreDNS cannot reach Docker's embedded DNS, so the orbit-network containers go into NodeHosts.
-# k3s drops k3d's orbit-registry entry on restart, and the operator reads sandbox images from it.
+# CoreDNS cannot reach Docker's embedded DNS, so the kora-network containers go into NodeHosts.
+# k3s drops k3d's kora-registry entry on restart, and the operator reads sandbox images from it.
 step "Patching CoreDNS NodeHosts with Docker container IPs"
 
 kubectl get configmap coredns -n kube-system -o json \
-  | jq --arg pg "${POSTGRES_IP} orbit-postgres" \
-       --arg rd "${REDIS_IP} orbit-redis" \
-       --arg rg "${REGISTRY_IP} orbit-registry" \
+  | jq --arg pg "${POSTGRES_IP} kora-postgres" \
+       --arg rd "${REDIS_IP} kora-redis" \
+       --arg rg "${REGISTRY_IP} kora-registry" \
        '.data.NodeHosts = (
          (.data.NodeHosts // "") |
          split("\n") |
-         map(select(length > 0 and (split(" ")[1] | . != "orbit-postgres" and . != "orbit-redis" and . != "orbit-registry"))) |
+         map(select(length > 0 and (split(" ")[1] | . != "kora-postgres" and . != "kora-redis" and . != "kora-registry"))) |
          . + [$pg, $rd, $rg] |
          join("\n") + "\n"
        )' \
@@ -89,7 +89,7 @@ kubectl get configmap coredns -n kube-system -o json \
 
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
-ok "CoreDNS NodeHosts patched: orbit-postgres → ${POSTGRES_IP}, orbit-redis → ${REDIS_IP}, orbit-registry → ${REGISTRY_IP}"
+ok "CoreDNS NodeHosts patched: kora-postgres → ${POSTGRES_IP}, kora-redis → ${REDIS_IP}, kora-registry → ${REGISTRY_IP}"
 
 # ── Write the generated environment file ────────────────────────────────────
 # Preserves the image digest pins redeploy.sh writes.
@@ -98,7 +98,7 @@ step "Writing deploy/reference/environments/local.generated.yaml"
 GENERATED="${REPO_ROOT}/deploy/reference/environments/local.generated.yaml"
 [[ -f "${GENERATED}" ]] || echo "{}" > "${GENERATED}"
 yq -i "
-  .identity.hostAliases = [{\"ip\": \"${DEX_IP}\", \"hostnames\": [\"dex.orbit.local.clearroute.io\"]}] |
+  .identity.hostAliases = [{\"ip\": \"${DEX_IP}\", \"hostnames\": [\"dex.local.runkora.io\"]}] |
   .networkPolicy.externalServices = [{\"cidr\": \"${SUBNET}\", \"ports\": [5432, 6379, 5556]}]
 " "${GENERATED}"
 

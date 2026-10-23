@@ -86,7 +86,7 @@ func assertTenantOwnerRef(t *testing.T, refs []metav1.OwnerReference, tenantName
 func TestProvisionAgentType_SetsTenantOwnerReferenceOnEveryObject(t *testing.T) {
 	cfg := K8sProvisionerConfig{
 		SystemNamespace:            "kora-system",
-		TrustDomain:                "orbit.test",
+		TrustDomain:                "runkora.test",
 		AuthorizationPolicyEnabled: true,
 	}
 	const tenantID = "acme"
@@ -146,7 +146,7 @@ func TestProvisionAgentType_SetsTenantOwnerReferenceOnEveryObject(t *testing.T) 
 func TestProvisionAgentType_MissingTenantCRDegradesGracefully(t *testing.T) {
 	cfg := K8sProvisionerConfig{
 		SystemNamespace: "kora-system",
-		TrustDomain:     "orbit.test",
+		TrustDomain:     "runkora.test",
 	}
 	// Fixture seeded with a DIFFERENT tenant name — Get(tenantID) returns NotFound.
 	p, typed, _ := ownerRefFixture(t, cfg, "someone-else")
@@ -293,7 +293,7 @@ func TestApplyOwnerRef_ReplacesExistingEntry(t *testing.T) {
 func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 	cfg := K8sProvisionerConfig{
 		SystemNamespace:            "kora-system",
-		TrustDomain:                "orbit.test",
+		TrustDomain:                "runkora.test",
 		AuthorizationPolicyEnabled: true,
 	}
 	const tenantID = "acme"

@@ -31,7 +31,7 @@ function buildFakeJwt(payload: Record<string, unknown>): string {
 export function createSessionUser(overrides: Partial<SessionUser> = {}): SessionUser {
   return {
     sub: 'user-test-123',
-    email: 'dev@orbit.local',
+    email: 'dev@runkora.test',
     name: 'Dev User',
     ...overrides,
   };

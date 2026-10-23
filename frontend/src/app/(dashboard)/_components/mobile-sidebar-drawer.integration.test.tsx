@@ -25,7 +25,7 @@ vi.mock('./permissions-provider', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./permissions-provider')>()),
   useSession: vi.fn().mockReturnValue({
     scopes: [],
-    user: { sub: 'user-test-123', email: 'dev@orbit.local', name: 'Dev User' },
+    user: { sub: 'user-test-123', email: 'dev@runkora.test', name: 'Dev User' },
     loaded: true,
   }),
 }));
@@ -70,7 +70,7 @@ describe('MobileSidebarDrawer', () => {
     expect(screen.getByRole('img', { name: 'kora' })).toBeInTheDocument();
     // Reused SidebarUserFooter
     expect(screen.getByText('Dev User')).toBeInTheDocument();
-    expect(screen.getByText('dev@orbit.local')).toBeInTheDocument();
+    expect(screen.getByText('dev@runkora.test')).toBeInTheDocument();
     // Accessible dialog title
     expect(screen.getByText('Navigation')).toBeInTheDocument();
   });

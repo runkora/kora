@@ -184,7 +184,7 @@ func newFixture(t *testing.T) *fixture {
 		InstallationID int64             `json:"installation_id"`
 		Repositories   []string          `json:"repositories"`
 		Permissions    map[string]string `json:"permissions"`
-	}{AppID: "12345", InstallationID: 42, Repositories: []string{"orbit"}, Permissions: map[string]string{"contents": "write"}})
+	}{AppID: "12345", InstallationID: 42, Repositories: []string{"kora"}, Permissions: map[string]string{"contents": "write"}})
 
 	repo := &memConnRepo{items: map[string]*credentials.Connection{}}
 	_ = repo.Create(context.Background(), &credentials.Connection{
@@ -212,7 +212,7 @@ func newFixture(t *testing.T) *fixture {
 
 	// The gateway runs as plain HTTP here; the CONNECT handler's TLS
 	// termination has its own tests. authInjector stands in for AuthMiddleware.
-	f.gateway = httptest.NewServer(authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/kora-tenant-acme/agent/coder", "run-9"), handler))
+	f.gateway = httptest.NewServer(authInjector(claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", "run-9"), handler))
 
 	t.Cleanup(func() {
 		f.gateway.Close()
@@ -255,7 +255,7 @@ func TestProxy_HappyPath_GitPush_MintsAndForwards(t *testing.T) {
 	f := newFixture(t)
 
 	// git push discovery: the path the adapter classifies as repo:write.
-	resp, err := f.callGateway(http.MethodGet, "/orbit/orbit.git/info/refs?service=git-receive-pack", f.connectionHost)
+	resp, err := f.callGateway(http.MethodGet, "/kora/kora.git/info/refs?service=git-receive-pack", f.connectionHost)
 	if err != nil {
 		t.Fatalf("call: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestProxy_HappyPath_GitPush_MintsAndForwards(t *testing.T) {
 func TestProxy_HappyPath_RestRead_ClassifiesAsRepoRead(t *testing.T) {
 	f := newFixture(t)
 
-	resp, err := f.callGateway(http.MethodGet, "/orgs/orbit/repos", f.connectionHost)
+	resp, err := f.callGateway(http.MethodGet, "/orgs/kora/repos", f.connectionHost)
 	if err != nil {
 		t.Fatalf("call: %v", err)
 	}

@@ -18,7 +18,7 @@ import (
 // otherwise they skip. Each test isolates itself under a random tenant id and
 // cleans up. Mirrors internal/triggers/postgres_test.go.
 //
-//	KORA_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora?sslmode=disable' \
 //	  go test ./internal/agents/ -run Postgres_Draft
 func testDraftRepo(t *testing.T) (*PostgresRepository, string) {
 	t.Helper()

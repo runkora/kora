@@ -172,7 +172,7 @@ export interface TriggerWizardProps {
   /** Why the agents could not be read; the target step says so instead of offering none. */
   agentsError?: string | null;
   sources: TriggerWizardSource[];
-  /** Public base for webhook endpoints, e.g. "api.orbit.local.clearroute.io:8443". */
+  /** Public base for webhook endpoints, e.g. "api.local.runkora.io:8443". */
   ingestHost: string;
   /**
    * Offers "Let kora choose" on a webhook trigger's Target step. Off on a

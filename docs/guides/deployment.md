@@ -76,9 +76,9 @@ Place each workload with `agents.workloads.sessionManager` and `agents.workloads
 agents:
   workloads:
     sessionManager:
-      nodeSelector: { workload-tier: orbit }
+      nodeSelector: { workload-tier: kora }
       tolerations:
-        - { key: workload-tier, operator: Equal, value: orbit, effect: NoSchedule }
+        - { key: workload-tier, operator: Equal, value: kora, effect: NoSchedule }
     sandbox:
       nodeSelector: { workload-tier: kora-sandbox }
       tolerations:
@@ -273,16 +273,16 @@ Everything in `agents.workloads` and `agents.workspace` applies before manifest 
 
 ### DNS and TLS
 
-Choose a hostname for your dashboard, for example `orbit.example.com`. kora derives the API hostname by adding the `api.` prefix:
+Choose a hostname for your dashboard, for example `example.com`. kora derives the API hostname by adding the `api.` prefix:
 
-- `orbit.example.com` serves the dashboard and BFF (`frontendHost`).
-- `api.orbit.example.com` serves the platform APIs, inference API, MCP endpoints, and OAuth discovery documents.
+- `example.com` serves the dashboard and BFF (`frontendHost`).
+- `api.example.com` serves the platform APIs, inference API, MCP endpoints, and OAuth discovery documents.
 
 Create DNS records for both names resolving to the same Istio gateway, fronted by a cloud `LoadBalancer`.
 
 The gateway certificate must be valid for both names. Provision a `kubernetes.io/tls` Secret in the gateway's namespace, directly or through cert-manager, and set `gateway.tls.credentialName` to it. kora terminates public TLS at the Istio gateway. Inside the mesh, service-to-service mTLS uses SPIRE identities.
 
-Register `https://orbit.example.com/auth/callback` as an allowed redirect URI for the OIDC client. kora's services must be able to reach the issuer and its discovery endpoints from the system namespace.
+Register `https://example.com/auth/callback` as an allowed redirect URI for the OIDC client. kora's services must be able to reach the issuer and its discovery endpoints from the system namespace.
 
 ### Artifact access
 
@@ -319,18 +319,18 @@ The example at `deploy/reference/values/kora.yaml` can be copied directly into y
 
 ```yaml
 global:
-  trustDomain: orbit.example.com      # required; equal to Istio and SPIRE
+  trustDomain: example.com      # required; equal to Istio and SPIRE
   # systemNamespace defaults to the install namespace
   imageRegistry: ghcr.io/runkora
 
-frontendHost: orbit.example.com       # required; api.<frontendHost> is the API host
+frontendHost: example.com       # required; api.<frontendHost> is the API host
 
 config:
   db:
     host: postgres.example.internal
     port: 5432
-    name: orbit
-    user: orbit
+    name: kora
+    user: kora
   redis:
     host: redis.example.internal
     port: 6379
@@ -519,10 +519,10 @@ Your `kora.yaml` must also set `global.trustDomain`, which the Helmfile injected
 
 `deploy/reference/argocd/app-of-apps.yaml` is an app-of-apps example: one `Application` per release which is ordered by `argocd.argoproj.io/sync-wave`. Copy it into your own GitOps repository and edit the values:
 
-- Point the `orbit` Application's second source at your own values repository.
+- Point the `kora` Application's second source at your own values repository.
 - Configure OCI registry credentials (`argocd repo add`) if required.
 
-The `orbit` Application includes the settings that stop ArgoCD and the operator fighting over the same resources:
+The `kora` Application includes the settings that stop ArgoCD and the operator fighting over the same resources:
 
 | Setting | Purpose |
 |---|---|
@@ -538,8 +538,8 @@ Check the platform workloads and the public endpoints:
 
 ```bash
 kubectl get pods -n kora-system
-curl -I https://orbit.example.com
-curl -I https://api.orbit.example.com/health
+curl -I https://example.com
+curl -I https://api.example.com/health
 ```
 
 Every pod should be running and both endpoints should respond. At this stage, you should have a working install with no tenants registered yet. 
@@ -571,7 +571,7 @@ helm upgrade kora oci://ghcr.io/runkora/charts/kora \
 - Review the release notes for trust-domain, CRD, database migration, and identity-provider changes before upgrading.
 - Do not change `trustDomain` as part of a routine upgrade.
 
-Rollback the `orbit` release with `helm rollback orbit <previous revision>`, or revert the release revision under GitOps. This reverts the workloads only, not the database or the CRDs. Migrations are expand-contract: the schema at release N works with the binaries of release N-1, and the rolled-back release never runs a `Down` migration.
+Rollback the `kora` release with `helm rollback kora <previous revision>`, or revert the release revision under GitOps. This reverts the workloads only, not the database or the CRDs. Migrations are expand-contract: the schema at release N works with the binaries of release N-1, and the rolled-back release never runs a `Down` migration.
 
 A failed migration fails the upgrade before any workload changes. Under Helm the failed Job is kept for inspection; under Argo CD the next retry replaces it and the failure is visible in the sync history.
 

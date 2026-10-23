@@ -21,7 +21,7 @@ import { toCoalesceRequest, toRoutingRequest, toScheduleConfigRequest } from '..
 import type { TriggerCreateResult, TriggerDraft } from '../_components/trigger-wizard';
 
 export interface CreateFromWizardOptions {
-  /** Public base for webhook endpoints, e.g. "api.orbit.example.com". */
+  /** Public base for webhook endpoints, e.g. "api.example.com". */
   ingestHost: string;
 }
 

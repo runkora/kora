@@ -5,7 +5,7 @@
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │  IMPORTANT: This script only tears down the k3d cluster.               │
 # │                                                                         │
-# │  The backing services (postgres, redis, orbit-network) managed by      │
+# │  The backing services (postgres, redis, kora-network) managed by        │
 # │  Docker Compose are intentionally left running. This lets you           │
 # │  recreate the cluster without losing your database state.               │
 # │                                                                         │
@@ -46,6 +46,6 @@ else
 fi
 
 echo ""
-echo -e "${YELLOW}Note: postgres, redis and orbit-network are still running. Data is untouched.${RESET}"
+echo -e "${YELLOW}Note: postgres, redis and kora-network are still running. Data is untouched.${RESET}"
 echo "  Run 'make dev-down' to stop Docker Compose services."
 echo ""

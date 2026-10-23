@@ -17,7 +17,7 @@ import (
 
 func runCtxAgentClaims(tenantID string) *token.PlatformClaims {
 	return &token.PlatformClaims{
-		RegisteredClaims: jwt.RegisteredClaims{Subject: "spiffe://orbit.test/tenant/t1/agent/coder"},
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "spiffe://runkora.test/tenant/t1/agent/coder"},
 		Kora: token.KoraClaims{
 			TenantID:      tenantID,
 			PrincipalType: token.PrincipalTypeAgent,

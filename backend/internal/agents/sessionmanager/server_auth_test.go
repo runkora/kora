@@ -167,7 +167,7 @@ func TestRequireExpectedCaller(t *testing.T) {
 			name: "a human token is rejected",
 			claims: &token.PlatformClaims{Kora: token.KoraClaims{
 				PrincipalType: token.PrincipalTypeHuman,
-				DisplayName:   "dev@orbit.local",
+				DisplayName:   "dev@runkora.test",
 			}},
 			wantStatus: http.StatusForbidden,
 		},

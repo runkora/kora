@@ -44,9 +44,9 @@ func TestAuthorize_UnreadableConnectionDenies(t *testing.T) {
 	registry.Register(badConfigAdapter{})
 	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger)
 
-	req, _ := http.NewRequest(http.MethodGet, "https://github.com/orbital/orbit", nil)
+	req, _ := http.NewRequest(http.MethodGet, "https://github.com/orbital/kora", nil)
 	_, err := broker.Authorize(context.Background(),
-		claimsFor("acme", "spiffe://orbit.test/tenant/kora-tenant-acme/agent/coder", "run-1"),
+		claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", "run-1"),
 		FromHTTP(req))
 
 	if !errors.Is(err, credentials.ErrInvalidConfig) {

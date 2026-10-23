@@ -13,7 +13,7 @@ vi.mock('./triggers-api', async (original) => ({
 const mockCreateSource = vi.mocked(createSource);
 const mockCreateTrigger = vi.mocked(createTrigger);
 
-const OPTIONS = { ingestHost: 'api.orbit.example.com' };
+const OPTIONS = { ingestHost: 'api.example.com' };
 
 function draft(overrides: Partial<TriggerDraft> = {}): TriggerDraft {
   return {
@@ -54,7 +54,7 @@ describe('webhook drafts', () => {
     expect(result).toEqual({
       ok: true,
       triggerId: 't1',
-      endpoint: 'https://api.orbit.example.com/api/v1/webhooks/src-1',
+      endpoint: 'https://api.example.com/api/v1/webhooks/src-1',
     });
   });
 
@@ -124,7 +124,7 @@ describe('webhook drafts', () => {
     expect(result).toEqual({
       ok: true,
       triggerId: 't1',
-      endpoint: 'https://api.orbit.example.com/api/v1/webhooks/src-new',
+      endpoint: 'https://api.example.com/api/v1/webhooks/src-new',
       secret: 'whsec_abc',
     });
   });
@@ -139,7 +139,7 @@ describe('webhook drafts', () => {
     expect(result).toEqual({
       ok: true,
       triggerId: 't1',
-      endpoint: 'https://api.orbit.example.com/api/v1/webhooks/src-slack',
+      endpoint: 'https://api.example.com/api/v1/webhooks/src-slack',
     });
   });
 

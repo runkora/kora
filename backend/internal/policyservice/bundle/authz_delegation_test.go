@@ -132,7 +132,7 @@ func TestAuthz_DelegationRequired_UnscopedDelegation_AgentGrantStillRequired(t *
 // (c) An unmarked agent is byte-for-byte unaffected: its autonomous path still
 // allows, including when a marked agent's grant coexists in the same bundle.
 func TestAuthz_DelegationRequired_UnmarkedAgentUnaffected(t *testing.T) {
-	otherAgentID := "spiffe://orbit.test/tenant/test-tenant/agent/other-agent"
+	otherAgentID := "spiffe://runkora.test/tenant/test-tenant/agent/other-agent"
 	pq := compileAndPrepare(t, bundleOpts{
 		grants: []*grants.Grant{
 			agentGrant(testAgentID, "inference:invoke"),
@@ -241,7 +241,7 @@ func TestAuthz_Egress_UnmarkedAgent_StillAllowed(t *testing.T) {
 
 func TestGateway_DelegationRequired_NoDelegation_Denied(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/marked-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/marked-agent"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		jwksURL:   jwksSrv.URL + "/jwks",
@@ -270,7 +270,7 @@ func TestGateway_DelegationRequired_NoDelegation_Denied(t *testing.T) {
 
 func TestGateway_DelegationRequired_UnscopedDelegation_FullChain_Allowed(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/marked-agent-2"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/marked-agent-2"
 	delegatorID := "user-delegator-unscoped"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
@@ -306,7 +306,7 @@ func TestGateway_DelegationRequired_UnscopedDelegation_FullChain_Allowed(t *test
 
 func TestGateway_DelegationRequired_UnmarkedAgentUnaffected(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/plain-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/plain-agent"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		jwksURL:   jwksSrv.URL + "/jwks",
@@ -511,7 +511,7 @@ func TestAuthz_Layer1_DelegationRunBinding_UnboundTokenDeniedOnEgress(t *testing
 
 func TestGateway_DelegationRunBinding_UnboundTokenDenied(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/unbound-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/unbound-agent"
 	delegatorID := "user-delegator-unbound"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
@@ -598,7 +598,7 @@ func TestAuthz_Layer1_DelegationTokenVerification(t *testing.T) {
 		},
 		{
 			name:       "wrong issuer",
-			token:      signDelegationClaims(t, clone(jwt.MapClaims{"iss": "not-orbit"})),
+			token:      signDelegationClaims(t, clone(jwt.MapClaims{"iss": "not-kora"})),
 			wantReason: "deny:invalid_delegation_token",
 		},
 		{
@@ -656,7 +656,7 @@ func TestAuthz_Layer1_ForgedDelegation_NoAutonomousFallback(t *testing.T) {
 
 func TestGateway_DelegationTokenVerification_ForgedDenied(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/forged-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/forged-agent"
 	delegatorID := "user-delegator-forged"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
@@ -708,7 +708,7 @@ func TestGateway_DelegationTokenVerification_ForgedDenied(t *testing.T) {
 
 func TestGateway_DelegationRunBinding_PathMismatchDenied(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/bound-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/bound-agent"
 	delegatorID := "user-delegator-bound"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{

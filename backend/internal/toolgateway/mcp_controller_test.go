@@ -102,10 +102,10 @@ func TestToolsList_FiltersToGranted(t *testing.T) {
 	cat := &memCatalog{tools: []CatalogTool{
 		{ServerSlug: "kora", ToolName: "agents.list", Scope: "mcp:kora:agents:list:use"},
 		{ServerSlug: "kora", ToolName: "agents.create", Scope: "mcp:kora:agents:create:use"},
-		// A tool on a different server must NOT appear on the orbit endpoint.
+		// A tool on a different server must NOT appear on the kora endpoint.
 		{ServerSlug: "github", ToolName: "issues.create", Scope: "mcp:github:issues:create:use"},
 	}}
-	// Only agents.list granted (plain name — the connection is scoped to orbit).
+	// Only agents.list granted (plain name — the connection is scoped to kora).
 	eval := &fakeEval{allow: map[string]bool{"agents.list": true}}
 	c := testController(eval, cat)
 

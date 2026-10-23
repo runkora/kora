@@ -46,7 +46,7 @@ import type { ConsoleKind, TriggerWizardSource, WizardContext } from './types';
 const CONTEXT: WizardContext = {
   agents: [{ id: 'at-1', slug: 'coder', name: 'Coder' }],
   sources: [{ id: 'src-1', name: 'acme/widgets', provider: 'github', category: 'webhook' }],
-  ingestHost: 'orbit.local.clearroute.io:8443',
+  ingestHost: 'local.runkora.io:8443',
 };
 
 const ALERTS: TriggerWizardSource = {

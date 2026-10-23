@@ -28,7 +28,7 @@ func delegatedAgentCtx(delegatorID string) context.Context {
 			PrincipalType: token.PrincipalTypeAgent,
 		},
 	}
-	claims.Subject = "spiffe://orbit.test/tenant/tenant-1/agent/reviewer"
+	claims.Subject = "spiffe://runkora.test/tenant/tenant-1/agent/reviewer"
 	ctx := token.WithClaims(context.Background(), claims)
 	return policy.WithDelegation(ctx, &policy.DelegationClaims{
 		Sub:                    delegatorID,
@@ -95,7 +95,7 @@ func TestCheckBudget_DelegationThreadedIntoBudgetInput(t *testing.T) {
 
 	if _, err := svc.checkBudget(delegatedAgentCtx("user-1"), principal{
 		TenantID:      "tenant-1",
-		PrincipalID:   "spiffe://orbit.test/tenant/tenant-1/agent/reviewer",
+		PrincipalID:   "spiffe://runkora.test/tenant/tenant-1/agent/reviewer",
 		PrincipalType: "AGENT",
 	}); err != nil {
 		t.Fatalf("checkBudget: %v", err)
@@ -146,7 +146,7 @@ func TestIncrementSpend_DelegatorCountersThreaded(t *testing.T) {
 	counter := &mockSpendCounter{}
 	svc := newBudgetService(eval, counter)
 
-	svc.incrementSpend(delegatedAgentCtx("user-1"), "tenant-1", "spiffe://orbit.test/tenant/tenant-1/agent/reviewer", 1.25)
+	svc.incrementSpend(delegatedAgentCtx("user-1"), "tenant-1", "spiffe://runkora.test/tenant/tenant-1/agent/reviewer", 1.25)
 
 	if counter.lastIncrScopes.DelegatorID != "user-1" {
 		t.Errorf("IncrementSpends DelegatorID = %q, want user-1", counter.lastIncrScopes.DelegatorID)

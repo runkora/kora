@@ -137,7 +137,7 @@ func TestAdapter_Resolve_MintsAndCaches(t *testing.T) {
 			Permissions: map[string]string{"contents": "write"},
 		}),
 	}
-	id := credentials.CallerIdentity{TenantID: "acme", PrincipalID: "spiffe://orbit.test/tenant/kora-tenant-acme/agent/coder", RunID: "run-9", Action: "repo:write", Qualifier: "orbit"}
+	id := credentials.CallerIdentity{TenantID: "acme", PrincipalID: "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", RunID: "run-9", Action: "repo:write", Qualifier: "kora"}
 
 	cred, err := open(t, adapter, conn).Mint(context.Background(), id)
 	if err != nil {
@@ -157,8 +157,8 @@ func TestAdapter_Resolve_MintsAndCaches(t *testing.T) {
 	if !strings.HasPrefix(gotAuth, "Bearer ") {
 		t.Errorf("GitHub call Authorization = %q, want Bearer <app-jwt>", gotAuth)
 	}
-	if len(gotBody.Repositories) != 1 || gotBody.Repositories[0] != "orbit" {
-		t.Errorf("request repositories = %v, want [orbit]", gotBody.Repositories)
+	if len(gotBody.Repositories) != 1 || gotBody.Repositories[0] != "kora" {
+		t.Errorf("request repositories = %v, want [kora]", gotBody.Repositories)
 	}
 
 	// A second Resolve within validity must be served from cache (no new call).
@@ -209,7 +209,7 @@ func TestAdapter_Resolve_InstallationPermissionCeiling(t *testing.T) {
 	}
 
 	_, err := open(t, adapter, conn).Mint(context.Background(),
-		credentials.CallerIdentity{Action: "issues:write", Qualifier: "orbit"})
+		credentials.CallerIdentity{Action: "issues:write", Qualifier: "kora"})
 	if !errors.Is(err, credentials.ErrCredentialScopeRejected) {
 		t.Fatalf("err = %v, want wrapped ErrCredentialScopeRejected", err)
 	}
@@ -265,53 +265,53 @@ func TestConnector_Classify(t *testing.T) {
 		err       bool
 	}{
 		// git smart-HTTP: discovery and pack transfer, with and without .git
-		{"git_clone_discovery", http.MethodGet, "https://github.com/orbital/orbit.git/info/refs?service=git-upload-pack", "contents:read", "orbit", false},
-		{"git_clone_no_dotgit", http.MethodGet, "https://github.com/orbital/orbit/info/refs?service=git-upload-pack", "contents:read", "orbit", false},
-		{"git_push_discovery", http.MethodGet, "https://github.com/orbital/orbit.git/info/refs?service=git-receive-pack", "contents:write", "orbit", false},
-		{"git_upload_pack", http.MethodPost, "https://github.com/orbital/orbit.git/git-upload-pack", "contents:read", "orbit", false},
-		{"git_receive_pack", http.MethodPost, "https://github.com/orbital/orbit.git/git-receive-pack", "contents:write", "orbit", false},
-		{"git_foreign_owner", http.MethodPost, "https://github.com/evil/orbit.git/git-upload-pack", "", "", true},
+		{"git_clone_discovery", http.MethodGet, "https://github.com/orbital/kora.git/info/refs?service=git-upload-pack", "contents:read", "kora", false},
+		{"git_clone_no_dotgit", http.MethodGet, "https://github.com/orbital/kora/info/refs?service=git-upload-pack", "contents:read", "kora", false},
+		{"git_push_discovery", http.MethodGet, "https://github.com/orbital/kora.git/info/refs?service=git-receive-pack", "contents:write", "kora", false},
+		{"git_upload_pack", http.MethodPost, "https://github.com/orbital/kora.git/git-upload-pack", "contents:read", "kora", false},
+		{"git_receive_pack", http.MethodPost, "https://github.com/orbital/kora.git/git-receive-pack", "contents:write", "kora", false},
+		{"git_foreign_owner", http.MethodPost, "https://github.com/evil/kora.git/git-upload-pack", "", "", true},
 
 		// REST: bare repository object
-		{"repo_get", http.MethodGet, "https://api.github.com/repos/orbital/orbit", "metadata:read", "orbit", false},
-		{"repo_patch", http.MethodPatch, "https://api.github.com/repos/orbital/orbit", "admin:write", "orbit", false},
-		{"repo_delete", http.MethodDelete, "https://api.github.com/repos/orbital/orbit", "admin:write", "orbit", false},
+		{"repo_get", http.MethodGet, "https://api.github.com/repos/orbital/kora", "metadata:read", "kora", false},
+		{"repo_patch", http.MethodPatch, "https://api.github.com/repos/orbital/kora", "admin:write", "kora", false},
+		{"repo_delete", http.MethodDelete, "https://api.github.com/repos/orbital/kora", "admin:write", "kora", false},
 
 		// REST: category route families
-		{"contents_get", http.MethodGet, "https://api.github.com/repos/orbital/orbit/contents/README.md", "contents:read", "orbit", false},
-		{"commits_get", http.MethodGet, "https://api.github.com/repos/orbital/orbit/commits/abc", "contents:read", "orbit", false},
-		{"commit_status", http.MethodGet, "https://api.github.com/repos/orbital/orbit/commits/abc/status", "checks:read", "orbit", false},
-		{"branches_get", http.MethodGet, "https://api.github.com/repos/orbital/orbit/branches/main", "contents:read", "orbit", false},
-		{"branch_protection", http.MethodPut, "https://api.github.com/repos/orbital/orbit/branches/main/protection", "admin:write", "orbit", false},
-		{"issues_post", http.MethodPost, "https://api.github.com/repos/orbital/orbit/issues", "issues:write", "orbit", false},
-		{"labels_get", http.MethodGet, "https://api.github.com/repos/orbital/orbit/labels", "issues:read", "orbit", false},
-		{"pulls_get", http.MethodGet, "https://api.github.com/repos/orbital/orbit/pulls/1", "pulls:read", "orbit", false},
-		{"pull_merge", http.MethodPut, "https://api.github.com/repos/orbital/orbit/pulls/1/merge", "contents:write", "orbit", false},
-		{"actions_dispatch", http.MethodPost, "https://api.github.com/repos/orbital/orbit/actions/workflows/ci.yml/dispatches", "actions:write", "orbit", false},
-		{"actions_secrets", http.MethodGet, "https://api.github.com/repos/orbital/orbit/actions/secrets", "admin:read", "orbit", false},
-		{"actions_variables_put", http.MethodPut, "https://api.github.com/repos/orbital/orbit/actions/variables/FOO", "admin:write", "orbit", false},
-		{"check_runs", http.MethodGet, "https://api.github.com/repos/orbital/orbit/check-runs/1", "checks:read", "orbit", false},
-		{"statuses_post", http.MethodPost, "https://api.github.com/repos/orbital/orbit/statuses/abc", "checks:write", "orbit", false},
-		{"hooks_post", http.MethodPost, "https://api.github.com/repos/orbital/orbit/hooks", "admin:write", "orbit", false},
-		{"collaborators", http.MethodPut, "https://api.github.com/repos/orbital/orbit/collaborators/x", "admin:write", "orbit", false},
-		{"dependabot_secrets", http.MethodGet, "https://api.github.com/repos/orbital/orbit/dependabot/secrets", "admin:read", "orbit", false},
-		{"releases_post", http.MethodPost, "https://api.github.com/repos/orbital/orbit/releases", "contents:write", "orbit", false},
+		{"contents_get", http.MethodGet, "https://api.github.com/repos/orbital/kora/contents/README.md", "contents:read", "kora", false},
+		{"commits_get", http.MethodGet, "https://api.github.com/repos/orbital/kora/commits/abc", "contents:read", "kora", false},
+		{"commit_status", http.MethodGet, "https://api.github.com/repos/orbital/kora/commits/abc/status", "checks:read", "kora", false},
+		{"branches_get", http.MethodGet, "https://api.github.com/repos/orbital/kora/branches/main", "contents:read", "kora", false},
+		{"branch_protection", http.MethodPut, "https://api.github.com/repos/orbital/kora/branches/main/protection", "admin:write", "kora", false},
+		{"issues_post", http.MethodPost, "https://api.github.com/repos/orbital/kora/issues", "issues:write", "kora", false},
+		{"labels_get", http.MethodGet, "https://api.github.com/repos/orbital/kora/labels", "issues:read", "kora", false},
+		{"pulls_get", http.MethodGet, "https://api.github.com/repos/orbital/kora/pulls/1", "pulls:read", "kora", false},
+		{"pull_merge", http.MethodPut, "https://api.github.com/repos/orbital/kora/pulls/1/merge", "contents:write", "kora", false},
+		{"actions_dispatch", http.MethodPost, "https://api.github.com/repos/orbital/kora/actions/workflows/ci.yml/dispatches", "actions:write", "kora", false},
+		{"actions_secrets", http.MethodGet, "https://api.github.com/repos/orbital/kora/actions/secrets", "admin:read", "kora", false},
+		{"actions_variables_put", http.MethodPut, "https://api.github.com/repos/orbital/kora/actions/variables/FOO", "admin:write", "kora", false},
+		{"check_runs", http.MethodGet, "https://api.github.com/repos/orbital/kora/check-runs/1", "checks:read", "kora", false},
+		{"statuses_post", http.MethodPost, "https://api.github.com/repos/orbital/kora/statuses/abc", "checks:write", "kora", false},
+		{"hooks_post", http.MethodPost, "https://api.github.com/repos/orbital/kora/hooks", "admin:write", "kora", false},
+		{"collaborators", http.MethodPut, "https://api.github.com/repos/orbital/kora/collaborators/x", "admin:write", "kora", false},
+		{"dependabot_secrets", http.MethodGet, "https://api.github.com/repos/orbital/kora/dependabot/secrets", "admin:read", "kora", false},
+		{"releases_post", http.MethodPost, "https://api.github.com/repos/orbital/kora/releases", "contents:write", "kora", false},
 
 		// REST: uncategorized repo routes fall to the qualified catch-all
-		{"deployments_catchall", http.MethodGet, "https://api.github.com/repos/orbital/orbit/deployments", "repo:read", "orbit", false},
+		{"deployments_catchall", http.MethodGet, "https://api.github.com/repos/orbital/kora/deployments", "repo:read", "kora", false},
 
 		// REST: owner mismatch on the API surface is denied outright
-		{"foreign_owner_api", http.MethodGet, "https://api.github.com/repos/evil/orbit", "", "", true},
+		{"foreign_owner_api", http.MethodGet, "https://api.github.com/repos/evil/kora", "", "", true},
 
 		// Repo-less endpoints: unqualified
 		{"graphql_no_body", http.MethodPost, "https://api.github.com/graphql", "repo:write", "", false},
 		{"search_code", http.MethodGet, "https://api.github.com/search/code?q=x", "contents:read", "", false},
-		{"search_issues_repo", http.MethodGet, "https://api.github.com/search/issues?q=is:open+repo:orbital/orbit", "issues:read", "orbit", false},
-		{"search_issues_two_repos", http.MethodGet, "https://api.github.com/search/issues?q=repo:orbital/orbit+repo:orbital/other", "issues:read", "", false},
-		{"search_issues_negated_repo", http.MethodGet, "https://api.github.com/search/issues?q=-repo:orbital/orbit+foo", "issues:read", "", false},
-		{"search_issues_negated_repo_with_scope", http.MethodGet, "https://api.github.com/search/issues?q=repo:orbital/orbit+-repo:orbital/other", "issues:read", "", false},
-		{"search_issues_foreign_repo", http.MethodGet, "https://api.github.com/search/issues?q=repo:evil/orbit", "issues:read", "", false},
-		{"search_commits_repo", http.MethodGet, "https://api.github.com/search/commits?q=fix+repo:Orbital/Orbit", "contents:read", "orbit", false},
+		{"search_issues_repo", http.MethodGet, "https://api.github.com/search/issues?q=is:open+repo:orbital/kora", "issues:read", "kora", false},
+		{"search_issues_two_repos", http.MethodGet, "https://api.github.com/search/issues?q=repo:orbital/kora+repo:orbital/other", "issues:read", "", false},
+		{"search_issues_negated_repo", http.MethodGet, "https://api.github.com/search/issues?q=-repo:orbital/kora+foo", "issues:read", "", false},
+		{"search_issues_negated_repo_with_scope", http.MethodGet, "https://api.github.com/search/issues?q=repo:orbital/kora+-repo:orbital/other", "issues:read", "", false},
+		{"search_issues_foreign_repo", http.MethodGet, "https://api.github.com/search/issues?q=repo:evil/kora", "issues:read", "", false},
+		{"search_commits_repo", http.MethodGet, "https://api.github.com/search/commits?q=fix+repo:Orbital/Kora", "contents:read", "kora", false},
 		{"search_repositories", http.MethodGet, "https://api.github.com/search/repositories?q=x", "metadata:read", "", false},
 		{"search_unknown", http.MethodGet, "https://api.github.com/search/other?q=x", "repo:read", "", false},
 		{"rate_limit", http.MethodGet, "https://api.github.com/rate_limit", "metadata:read", "", false},
@@ -319,14 +319,14 @@ func TestConnector_Classify(t *testing.T) {
 		{"installation_repos", http.MethodGet, "https://api.github.com/installation/repositories", "metadata:read", "", false},
 
 		// GitHub Enterprise path prefixes on the appliance host
-		{"ghe_issues", http.MethodGet, "https://ghe.example.com/api/v3/repos/orbital/orbit/issues", "issues:read", "orbit", false},
+		{"ghe_issues", http.MethodGet, "https://ghe.example.com/api/v3/repos/orbital/kora/issues", "issues:read", "kora", false},
 		{"ghe_graphql_no_body", http.MethodPost, "https://ghe.example.com/api/graphql", "repo:write", "", false},
 
 		// Content-host family: reads only, qualified when owner-addressed
-		{"codeload", http.MethodGet, "https://codeload.github.com/orbital/orbit/tar.gz/main", "contents:read", "orbit", false},
-		{"raw", http.MethodGet, "https://raw.githubusercontent.com/orbital/orbit/main/README.md", "contents:read", "orbit", false},
+		{"codeload", http.MethodGet, "https://codeload.github.com/orbital/kora/tar.gz/main", "contents:read", "kora", false},
+		{"raw", http.MethodGet, "https://raw.githubusercontent.com/orbital/kora/main/README.md", "contents:read", "kora", false},
 		{"objects_opaque", http.MethodGet, "https://objects.githubusercontent.com/blobs/deadbeef", "contents:read", "", false},
-		{"content_host_write", http.MethodPost, "https://codeload.github.com/orbital/orbit/tar.gz/main", "", "", true},
+		{"content_host_write", http.MethodPost, "https://codeload.github.com/orbital/kora/tar.gz/main", "", "", true},
 
 		// Actions results receiver: log reads map to actions:read
 		{"results_receiver_get", http.MethodGet, "https://results-receiver.actions.githubusercontent.com/logs/1", "actions:read", "", false},
@@ -376,7 +376,7 @@ func TestAdapter_Classify_NoDeclaredOwner(t *testing.T) {
 
 	// Without a declared owner no qualifier is ever extracted. Legacy
 	// connections keep pre-qualifier semantics (unqualified scopes only).
-	req, _ := http.NewRequest(http.MethodGet, "https://api.github.com/repos/orbital/orbit/issues", nil)
+	req, _ := http.NewRequest(http.MethodGet, "https://api.github.com/repos/orbital/kora/issues", nil)
 	got, err := open(t, a, conn).Classify(req)
 	if err != nil {
 		t.Fatalf("Classify: %v", err)
@@ -545,7 +545,7 @@ func TestAdapter_Resolve_UmbrellaOmitsMissingPermission(t *testing.T) {
 	}
 
 	_, err := open(t, adapter, conn).Mint(context.Background(),
-		credentials.CallerIdentity{TenantID: "acme", Action: "repo:write", Qualifier: "orbit"})
+		credentials.CallerIdentity{TenantID: "acme", Action: "repo:write", Qualifier: "kora"})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -725,13 +725,13 @@ func TestAdapter_Resolve_QualifierNarrowsMint(t *testing.T) {
 		SecretRef: "ref",
 		Config:    mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"}),
 	}
-	id := credentials.CallerIdentity{TenantID: "acme", Action: "issues:write", Qualifier: "orbit"}
+	id := credentials.CallerIdentity{TenantID: "acme", Action: "issues:write", Qualifier: "kora"}
 
 	if _, err := open(t, adapter, conn).Mint(context.Background(), id); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if len(gotBody.Repositories) != 1 || gotBody.Repositories[0] != "orbit" {
-		t.Errorf("minted repositories = %v, want [orbit]", gotBody.Repositories)
+	if len(gotBody.Repositories) != 1 || gotBody.Repositories[0] != "kora" {
+		t.Errorf("minted repositories = %v, want [kora]", gotBody.Repositories)
 	}
 	if gotBody.Permissions["issues"] != "write" || gotBody.Permissions["metadata"] != "read" {
 		t.Errorf("minted permissions = %v, want issues:write + metadata:read", gotBody.Permissions)

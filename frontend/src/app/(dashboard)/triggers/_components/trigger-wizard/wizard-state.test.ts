@@ -35,7 +35,7 @@ const AGENTS = [{ id: 'at-1', slug: 'coder', name: 'Coder' }];
 const CONTEXT: WizardContext = {
   agents: AGENTS,
   sources: SOURCES,
-  ingestHost: 'orbit.local.clearroute.io:8443',
+  ingestHost: 'local.runkora.io:8443',
 };
 
 function field(overrides: Partial<WizardField> = {}): WizardField {

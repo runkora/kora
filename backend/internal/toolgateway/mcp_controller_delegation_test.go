@@ -67,7 +67,7 @@ func (s *testSigner) sign(t *testing.T, claims jwt.MapClaims) string {
 // The MCP route verifies the delegation token and refuses a revoked one before
 // any tool decision runs.
 func TestMCPMiddleware_DelegationBlocklist(t *testing.T) {
-	const agent = "spiffe://orbit.test/tenant/acme/agent/coder"
+	const agent = "spiffe://runkora.test/tenant/acme/agent/coder"
 	signer := newTestSigner(t)
 	verifier := platformtoken.NewVerifier(context.Background(), signer.url, platformtoken.DefaultIssuer, platformtoken.DefaultAudience)
 	platform := signer.sign(t, jwt.MapClaims{"sub": agent, "kora": map[string]any{"tenant_id": "acme", "principal_type": "AGENT"}})

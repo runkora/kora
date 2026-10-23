@@ -77,7 +77,7 @@ func TestGateway_RouteMatching(t *testing.T) {
 
 	for _, tc := range routeMatchCases(t) {
 		t.Run(tc.name, func(t *testing.T) {
-			headers := map[string]string{":authority": "api.orbit.example.com", "authorization": bearer}
+			headers := map[string]string{":authority": "api.example.com", "authorization": bearer}
 			if tc.delegation != "" {
 				headers["x-kora-delegation-token"] = tc.delegation
 			}
@@ -134,7 +134,7 @@ func TestAuthenticatedRoute_DelegationRequired(t *testing.T) {
 
 	for name, eval := range map[string]func() (bool, string){
 		"gateway": func() (bool, string) {
-			return evalGateway(t, gw, "POST", "/api/v1/runs", map[string]string{":authority": "api.orbit.example.com", "authorization": bearer})
+			return evalGateway(t, gw, "POST", "/api/v1/runs", map[string]string{":authority": "api.example.com", "authorization": bearer})
 		},
 		"sidecar": func() (bool, string) {
 			return evalLayer1(t, sidecar, "POST", "/api/v1/runs", map[string]string{"authorization": bearer})

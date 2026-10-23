@@ -34,7 +34,7 @@ type PrincipalExtractor interface {
 //
 // Example header written by Envoy for a kora agent workload (docs/adr/2026-03-05-spiffe-spire-workload-attestation.md):
 //
-//	x-forwarded-client-cert: By=spiffe://orbit.test/system/envoy-proxy;Hash=…;URI=spiffe://orbit.test/tenant/platform-team/agent/ci-deploy-bot;DNS=ci-deploy-bot
+//	x-forwarded-client-cert: By=spiffe://runkora.test/system/envoy-proxy;Hash=…;URI=spiffe://runkora.test/tenant/platform-team/agent/ci-deploy-bot;DNS=ci-deploy-bot
 //
 // Only the URI field is consumed here; all other fields are ignored.
 type XFCCPrincipalExtractor struct{}
@@ -85,11 +85,11 @@ func parseXFCCSpiffeURI(xfcc string) (string, error) {
 // Supported SPIFFE ID formats per docs/adr/2026-03-05-spiffe-spire-workload-attestation.md
 // and docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md:
 //
-//	Agent:        spiffe://orbit.{instance-id}/tenant/{tenant-id}/agent/{agent-slug}
+//	Agent:        spiffe://{trust-domain}/tenant/{tenant-id}/agent/{agent-slug}
 //	Per-run sandbox:
-//	              spiffe://orbit.{instance-id}/tenant/{tenant-id}/agent/{agent-slug}/sandbox/{run-id}
-//	Service:      spiffe://orbit.{instance-id}/tenant/{tenant-id}/service/{service-id}
-//	System:       spiffe://orbit.{instance-id}/system/{component-name}
+//	              spiffe://{trust-domain}/tenant/{tenant-id}/agent/{agent-slug}/sandbox/{run-id}
+//	Service:      spiffe://{trust-domain}/tenant/{tenant-id}/service/{service-id}
+//	System:       spiffe://{trust-domain}/system/{component-name}
 //
 // Per-run sandbox SVIDs are normalized to the agent principal for
 // authorization (so an agent's existing grants apply to all of its runs)

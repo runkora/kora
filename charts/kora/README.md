@@ -112,9 +112,9 @@ Kubernetes: `>=1.34.0-0`
 | agents.workspace.size | string | `"10Gi"` |  |
 | agents.workspace.storageClassName | string | `""` |  |
 | config.db.host | string | `""` |  |
-| config.db.name | string | `"orbit"` |  |
+| config.db.name | string | `"kora"` |  |
 | config.db.port | int | `5432` |  |
-| config.db.user | string | `"orbit"` |  |
+| config.db.user | string | `"kora"` |  |
 | config.platformSecretName | string | `"kora-secrets"` |  |
 | config.redis.host | string | `""` |  |
 | config.redis.port | int | `6379` |  |

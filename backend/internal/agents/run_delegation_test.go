@@ -78,7 +78,7 @@ func withPrincipalCtx(ctx context.Context, tenantID string, pt token.PrincipalTy
 func newDelegationTestBroker(issuer *fakeDelegationIssuer) *DelegationBroker {
 	return NewDelegationBroker(issuer, func(context.Context) (string, error) {
 		return "svc-token", nil
-	}, "orbit.test", logging.NewLoggerWithOutput(io.Discard))
+	}, "runkora.test", logging.NewLoggerWithOutput(io.Discard))
 }
 
 func seedDelegatedAgentType(t *testing.T, repo *mockRepository, id, tenantID, slug string) AgentType {
@@ -151,7 +151,7 @@ func TestStartRun_Delegated_PrincipalGating(t *testing.T) {
 			if got, want := issuer.minted[0].SubjectToken, tc.bearer; got != want {
 				t.Errorf("mint subject_token = %q, want the caller's bearer %q", got, want)
 			}
-			wantPrincipal := "spiffe://orbit.test/tenant/kora-tenant-t1/agent/reviewer"
+			wantPrincipal := "spiffe://runkora.test/tenant/kora-tenant-t1/agent/reviewer"
 			if got := issuer.minted[0].AgentPrincipalID; got != wantPrincipal {
 				t.Errorf("mint agent principal = %q, want %q", got, wantPrincipal)
 			}

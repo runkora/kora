@@ -27,7 +27,7 @@ const grant = (
 
 const GRANTS: Grant[] = [
   grant('g1', 'HUMAN', 'usr_1'),
-  grant('g2', 'AGENT', 'spiffe://orbit.test/tenant/acme/agent/ci-bot'),
+  grant('g2', 'AGENT', 'spiffe://runkora.test/tenant/acme/agent/ci-bot'),
   grant('g3', 'SERVICE', 'trigger:abc'),
   grant('g6', 'SERVICE', 'svc-1'),
   grant('g4', 'PAT', 'pat_1'),

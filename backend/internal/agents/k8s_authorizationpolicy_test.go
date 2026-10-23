@@ -29,7 +29,7 @@ func authPolicyProvisioner(t *testing.T, cfg K8sProvisionerConfig) (*K8sProvisio
 
 func TestEnsureAuthorizationPolicy_DisabledCreatesNothing(t *testing.T) {
 	p, dc := authPolicyProvisioner(t, K8sProvisionerConfig{
-		TrustDomain:                "orbit.test",
+		TrustDomain:                "runkora.test",
 		AuthorizationPolicyEnabled: false,
 	})
 
@@ -48,7 +48,7 @@ func TestEnsureAuthorizationPolicy_DisabledCreatesNothing(t *testing.T) {
 
 func TestEnsureAuthorizationPolicy_RestrictsPortToKoraAgents(t *testing.T) {
 	p, dc := authPolicyProvisioner(t, K8sProvisionerConfig{
-		TrustDomain:                "orbit.test",
+		TrustDomain:                "runkora.test",
 		AuthorizationPolicyEnabled: true,
 	})
 
@@ -79,8 +79,8 @@ func TestEnsureAuthorizationPolicy_RestrictsPortToKoraAgents(t *testing.T) {
 	// Rule 1: only kora-agents, only the session-manager port.
 	caller, _ := rules[0].(map[string]any)
 	principals := nestedStringsAtIndex(t, caller, "from", 0, "source", "principals")
-	if len(principals) != 1 || principals[0] != "orbit.test/system/kora-agents" {
-		t.Errorf("principals = %v, want [orbit.test/system/kora-agents]", principals)
+	if len(principals) != 1 || principals[0] != "runkora.test/system/kora-agents" {
+		t.Errorf("principals = %v, want [runkora.test/system/kora-agents]", principals)
 	}
 	// Istio prepends spiffe:// itself; writing it produces spiffe://spiffe://
 	// and never matches.
@@ -108,7 +108,7 @@ func TestEnsureAuthorizationPolicy_RestrictsPortToKoraAgents(t *testing.T) {
 
 func TestEnsureAuthorizationPolicy_IsIdempotent(t *testing.T) {
 	p, _ := authPolicyProvisioner(t, K8sProvisionerConfig{
-		TrustDomain:                "orbit.test",
+		TrustDomain:                "runkora.test",
 		AuthorizationPolicyEnabled: true,
 	})
 
@@ -126,7 +126,7 @@ func TestEnsureAuthorizationPolicy_IsIdempotent(t *testing.T) {
 
 func TestDeleteAuthorizationPolicy_MissingIsNotAnError(t *testing.T) {
 	p, _ := authPolicyProvisioner(t, K8sProvisionerConfig{
-		TrustDomain:                "orbit.test",
+		TrustDomain:                "runkora.test",
 		AuthorizationPolicyEnabled: true,
 	})
 

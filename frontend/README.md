@@ -23,7 +23,7 @@ make up
 make redeploy SERVICE=frontend
 ```
 
-The dashboard is served at `https://orbit.local.clearroute.io`. There is no hot module reload in the cluster workflow. Each product change requires a new image and rollout.
+The dashboard is served at `https://local.runkora.io`. There is no hot module reload in the cluster workflow. Each product change requires a new image and rollout.
 
 Linting, type checking, unit tests, integration tests, and Storybook run on the host:
 

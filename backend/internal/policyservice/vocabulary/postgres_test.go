@@ -15,7 +15,7 @@ import (
 // KORA_TEST_DB_URL points at a database with policy_scope_vocabulary
 // migrated; otherwise they skip.
 //
-//	KORA_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora?sslmode=disable' \
 //	  go test ./internal/policyservice/vocabulary/ -run Postgres
 func testVocabRepo(t *testing.T) (Repository, string) {
 	t.Helper()

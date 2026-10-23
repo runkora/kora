@@ -35,7 +35,7 @@ Local development runs in Kubernetes. There is one environment. For the full wal
 ```bash
 make setup   # once per machine: generate .env, install tools, git hooks, local DNS, mkcert TLS
 make up      # backing services, k3d cluster, migrations, operator (SPIRE + Istio + Orbit), tenants, workloads. Idempotent.
-make auth    # Device Authorization Grant → dev@orbit.local.clearroute.io / password. Token → /tmp/kora_credentials.json
+make auth    # Device Authorization Grant → dev@local.runkora.io / password. Token → /tmp/kora_credentials.json
 ```
 
 `make up` is idempotent: re-run it whenever the cluster drifts. `make down` tears it down. The inner loop is `make redeploy` (`SERVICE=<name>` narrows it to one service).
@@ -48,17 +48,17 @@ Read the token inline from `/tmp/kora_credentials.json`; `$KORA_TOKEN` is not av
 # Standard pattern for any authenticated API call
 TOKEN=$(jq -r '.access_token' /tmp/kora_credentials.json) && curl -sk \
   -H "Authorization: Bearer $TOKEN" \
-  https://api.orbit.local.clearroute.io/v1/models
+  https://api.local.runkora.io/v1/models
 
 # POST example (inference gateway)
 TOKEN=$(jq -r '.access_token' /tmp/kora_credentials.json) && curl -sk -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"model":"bedrock/claude-sonnet-4-5-20250929-v1","max_tokens":50,"messages":[{"role":"user","content":"Hello"}]}' \
-  https://api.orbit.local.clearroute.io/v1/chat/completions | jq .
+  https://api.local.runkora.io/v1/chat/completions | jq .
 ```
 
-**Endpoints:** dashboard `https://orbit.local.clearroute.io`, backend API `https://api.orbit.local.clearroute.io`.
+**Endpoints:** dashboard `https://local.runkora.io`, backend API `https://api.local.runkora.io`.
 
 **In-cluster ports** (each service binds these inside the mesh):
 

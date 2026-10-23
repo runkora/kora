@@ -19,7 +19,7 @@ const SESSION_COOKIE_NAME = 'kora_session';
 const TTL_S = 30 * 24 * 60 * 60;
 
 const TEST_SESSION_PAYLOAD = {
-  user: { sub: 'user-e2e', email: 'e2e@orbit.local', name: 'E2E User' },
+  user: { sub: 'user-e2e', email: 'e2e@runkora.test', name: 'E2E User' },
   accessToken: 'e2e-test-access-token',
   refreshToken: 'e2e-test-refresh-token',
   expiresAt: Math.floor(Date.now() / 1000) + 3600,

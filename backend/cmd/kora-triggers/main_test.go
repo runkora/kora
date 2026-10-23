@@ -36,7 +36,7 @@ func TestRouteScopes_Fire(t *testing.T) {
 // The triggers auth chain puts a verified delegation into context and refuses a
 // revoked or forged one.
 func TestAuthMiddleware_Delegation(t *testing.T) {
-	const agent = "spiffe://orbit.test/tenant/acme/agent/coder"
+	const agent = "spiffe://runkora.test/tenant/acme/agent/coder"
 	s := tokentest.NewSigner(t)
 	bearer := s.Agent(t, agent, "acme")
 	cases := []struct {

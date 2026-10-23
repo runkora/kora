@@ -60,7 +60,7 @@ export interface AnchorProps
  *
  * Inside body copy (external):
  * ```tsx
- * <ExternalLink url="https://docs.orbit.dev">Read the docs</ExternalLink>
+ * <ExternalLink url="https://docs.runkora.io">Read the docs</ExternalLink>
  * ```
  *
  * Internal navigation:

@@ -6,10 +6,10 @@ versions:
   istio: "1.31.1"
 
 systemNamespace: kora-system
-trustDomain: orbit.test
-clusterName: orbit-local
+trustDomain: runkora.test
+clusterName: kora-local
 # Pins every helm and kubectl call in this Helmfile to the k3d cluster.
-kubeContext: k3d-orbit-local
+kubeContext: k3d-kora-local
 
 kora:
   chart: ../../charts/kora

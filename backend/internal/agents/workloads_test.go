@@ -20,7 +20,7 @@ func splitPoolConfig() K8sProvisionerConfig {
 				PodAnnotations: map[string]string{"backup.example.com/exclude": "true"},
 			},
 			SessionManager: WorkloadCustomization{
-				NodeSelector:      map[string]string{"workload-tier": "orbit"},
+				NodeSelector:      map[string]string{"workload-tier": "kora"},
 				PriorityClassName: "kora-agents",
 				ServiceAccount: ServiceAccountCustomization{
 					Annotations: map[string]string{"eks.amazonaws.com/role-arn": "arn:aws:iam::1:role/agent"},
@@ -51,7 +51,7 @@ func TestBuildStatefulSet_AppliesWorkloadCustomization(t *testing.T) {
 	ss := p.buildSessionManagerStatefulSet(at, "tenant-example", agentTypeLabels(at))
 
 	spec := ss.Spec.Template.Spec
-	if spec.NodeSelector["workload-tier"] != "orbit" {
+	if spec.NodeSelector["workload-tier"] != "kora" {
 		t.Errorf("nodeSelector: got %v", spec.NodeSelector)
 	}
 	if spec.PriorityClassName != "kora-agents" {
@@ -223,7 +223,7 @@ func TestBuildSandboxPod_CoLocationKeepsConfiguredAffinity(t *testing.T) {
 			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
 				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
 					MatchExpressions: []corev1.NodeSelectorRequirement{{
-						Key: "workload-tier", Operator: corev1.NodeSelectorOpIn, Values: []string{"orbit"},
+						Key: "workload-tier", Operator: corev1.NodeSelectorOpIn, Values: []string{"kora"},
 					}},
 				}},
 			},
@@ -284,22 +284,22 @@ func TestSplitAcrossNodes_MixedForms(t *testing.T) {
 		want           bool
 	}{
 		"selector against affinity": {
-			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit"}},
+			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "kora"}},
 			sandbox: corev1.PodSpec{Affinity: affinity("kora-sandbox")},
 			want:    true,
 		},
 		"affinity against selector": {
-			agent:   corev1.PodSpec{Affinity: affinity("orbit")},
+			agent:   corev1.PodSpec{Affinity: affinity("kora")},
 			sandbox: corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "kora-sandbox"}},
 			want:    true,
 		},
 		"identical pinning is one pool": {
-			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit"}},
-			sandbox: corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit"}},
+			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "kora"}},
+			sandbox: corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "kora"}},
 			want:    false,
 		},
 		"one side unconstrained is inconclusive": {
-			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit"}},
+			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "kora"}},
 			sandbox: corev1.PodSpec{},
 			want:    false,
 		},

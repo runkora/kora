@@ -75,7 +75,7 @@ export const AVAILABLE_SCOPES: string[] = VOCABULARY.map((s) => s.scope);
 // ── Grants ───────────────────────────────────────────────────────────────────
 
 /** An agent grant's principal ID, the SPIFFE ID the owner link reads the agent slug from. */
-const agentPrincipal = (slug: string) => `spiffe://orbit.local/tenant/${TENANT_ID}/agent/${slug}`;
+const agentPrincipal = (slug: string) => `spiffe://runkora.test/tenant/${TENANT_ID}/agent/${slug}`;
 
 // The last agent grant is keyed by a UUID, as a hand-made one is: read-only, with no owner link.
 export const GRANTS: Grant[] = [

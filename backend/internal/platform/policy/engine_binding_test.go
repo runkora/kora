@@ -32,7 +32,7 @@ func bindingAgentClaims(sub, tokenRunID string) *token.PlatformClaims {
 }
 
 func TestCheckDelegationBinding(t *testing.T) {
-	const agent = "spiffe://orbit.test/tenant/t1/agent/coder"
+	const agent = "spiffe://runkora.test/tenant/t1/agent/coder"
 	tests := []struct {
 		name       string
 		claims     *token.PlatformClaims
@@ -50,7 +50,7 @@ func TestCheckDelegationBinding(t *testing.T) {
 		{
 			name:       "act.sub mismatch",
 			claims:     bindingAgentClaims(agent, ""),
-			delegation: &DelegationClaims{Sub: "user-1", ActSub: "spiffe://orbit.test/tenant/t1/agent/other", RunID: "run-a"},
+			delegation: &DelegationClaims{Sub: "user-1", ActSub: "spiffe://runkora.test/tenant/t1/agent/other", RunID: "run-a"},
 			wantReason: ReasonDelegationActSubMismatch,
 		},
 		{
@@ -134,7 +134,7 @@ func TestCheckDelegationBinding(t *testing.T) {
 // never depend on policy data being loaded.
 func TestEngineCheck_DelegationRunMismatch_DeniesBeforeBundle(t *testing.T) {
 	e := newEngine("http://127.0.0.1:1/bundles", time.Hour, logging.NewLoggerWithOutput(io.Discard))
-	const agent = "spiffe://orbit.test/tenant/t1/agent/coder"
+	const agent = "spiffe://runkora.test/tenant/t1/agent/coder"
 
 	tests := []struct {
 		name       string
@@ -172,7 +172,7 @@ func TestEngineCheck_DelegationRunMismatch_DeniesBeforeBundle(t *testing.T) {
 // leg matches grants on both, so omitting the type fails the leg closed
 // (delegated-agent-identity ADR, Decision 5).
 func TestBuildOPAInput_DelegatorFields(t *testing.T) {
-	claims := bindingAgentClaims("spiffe://orbit.test/tenant/t1/agent/coder", "")
+	claims := bindingAgentClaims("spiffe://runkora.test/tenant/t1/agent/coder", "")
 
 	in := buildOPAInput(claims, &DelegationClaims{
 		Sub:                    "user-1",
@@ -201,8 +201,8 @@ func TestBuildOPAInput_DelegatorFields(t *testing.T) {
 func TestEngineCheck_ActSubMismatch_DeniesBeforeBundle(t *testing.T) {
 	e := newEngine("http://127.0.0.1:1/bundles", time.Hour, logging.NewLoggerWithOutput(io.Discard))
 	res, err := e.Check(context.Background(), CheckInput{
-		Claims:       bindingAgentClaims("spiffe://orbit.test/tenant/t1/agent/coder", ""),
-		Delegation:   &DelegationClaims{Sub: "user-1", ActSub: "spiffe://orbit.test/tenant/t1/agent/other"},
+		Claims:       bindingAgentClaims("spiffe://runkora.test/tenant/t1/agent/coder", ""),
+		Delegation:   &DelegationClaims{Sub: "user-1", ActSub: "spiffe://runkora.test/tenant/t1/agent/other"},
 		ResourceType: "inference",
 		Action:       "invoke",
 	})

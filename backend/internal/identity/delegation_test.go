@@ -23,8 +23,8 @@ import (
 // ── test fixtures ─────────────────────────────────────────────────────────────
 
 const (
-	testAgentSpiffeID   = "spiffe://orbit.test/tenant/t1/agent/reviewer"
-	testOtherAgentID    = "spiffe://orbit.test/tenant/t1/agent/deployer"
+	testAgentSpiffeID   = "spiffe://runkora.test/tenant/t1/agent/reviewer"
+	testOtherAgentID    = "spiffe://runkora.test/tenant/t1/agent/deployer"
 	testSandboxSpiffeID = testAgentSpiffeID + "/sandbox/run-1"
 )
 

@@ -12,7 +12,7 @@ Local development runs kora in a k3d cluster on your machine ([kubernetes-only-l
 
 `make setup` installs Node (`>=24 <25`) and pnpm (`>=10 <11`) through nvm and Corepack, plus `golangci-lint`, `gitleaks`, `buf`, `mkcert`, `k3d`, `kubectl`, and `helm`.
 
-It also runs `mkcert -install`, which adds a local CA to your system trust store and prompts for your password once. The CA makes `https://orbit.local.clearroute.io` trusted in your browser. On Linux without `mkcert`, certificates are skipped and `make up` generates a self-signed fallback.
+It also runs `mkcert -install`, which adds a local CA to your system trust store and prompts for your password once. The CA makes `https://local.runkora.io` trusted in your browser. On Linux without `mkcert`, certificates are skipped and `make up` generates a self-signed fallback.
 
 ## Set up
 
@@ -26,7 +26,7 @@ make setup
 - `tidy`: `go mod tidy`.
 - `frontend-install`: Enforces Node 24 and pnpm 10, runs `pnpm install`.
 - `hooks`: Installs the git pre-commit hooks and configures commit signing with your SSH key.
-- `setup-dns`: Verifies `*.orbit.local.clearroute.io` resolves. It is a public wildcard record. Nothing to configure.
+- `setup-dns`: Verifies `*.local.runkora.io` resolves. It is a public wildcard record. Nothing to configure.
 - `setup-tls`: Generates mkcert TLS certificates for the local domain.
 
 ## Start kora
@@ -38,14 +38,14 @@ make up
 `make up` is idempotent. Run it again whenever the cluster drifts. It runs the following steps:
 
 - `dev-up`: Starts Postgres, Redis, glauth, and Dex in Docker Compose. Generates `secrets/signing.key` on first run.
-- `dev-cluster`: Creates the k3d cluster `orbit-local` with a registry at `orbit-registry:5001`, and patches CoreDNS so pods resolve `dex.orbit.local.clearroute.io`.
+- `dev-cluster`: Creates the k3d cluster `kora-local` with a registry at `kora-registry:5001`, and patches CoreDNS so pods resolve `dex.local.runkora.io`.
 - `cluster-platform`: Builds any missing service images, creates the `kora-system` namespace, secrets and TLS, writes the Docker network values to `deploy/reference/environments/local.generated.yaml`, then runs `helmfile -e local apply` from `deploy/reference/`. That installs SPIRE, Istio and the two kora charts in dependency order, the same sequence on any cluster. The `kora` chart's pre-install hook applies the database schema before any service starts. Helmfile diffs before applying, so an unchanged environment is a no-op.
 - `cluster-deploy`: Runs `create-secrets.sh`, applies the `KoraTenant` resources, and deploys the workload fixtures.
 
 Endpoints once it finishes:
 
-- Dashboard: `https://orbit.local.clearroute.io`
-- Backend API: `https://api.orbit.local.clearroute.io`
+- Dashboard: `https://local.runkora.io`
+- Backend API: `https://api.local.runkora.io`
 
 An HAProxy container maps host 443 and 80 to the k3d load balancer. If something else on your machine holds port 443 it will not start. The cluster is then reachable on `:8443` directly.
 
@@ -69,8 +69,8 @@ Local accounts are backed by `glauth` and surfaced to Dex over LDAP. Their defau
 
 | Account | Roles | Use it for |
 |---|---|---|
-| `dev@orbit.local.clearroute.io` | `platform-admin`, `engineer` | The admin. Policy administration and everything else. |
-| `engineer@orbit.local.clearroute.io` | `engineer` | Checking what a regular engineer can and cannot do. |
+| `dev@local.runkora.io` | `platform-admin`, `engineer` | The admin. Policy administration and everything else. |
+| `engineer@local.runkora.io` | `engineer` | Checking what a regular engineer can and cannot do. |
 
 Access tokens last four hours locally, set by `identity.config.accessTokenTtlMinutes` in `deploy/reference/values/kora.local.yaml`. `make auth-refresh` rotates the pair when one expires. If the refresh token has expired too, run `make auth` again.
 
@@ -99,7 +99,7 @@ make check                       # run the full verify gate
 
 | Command | Does |
 |---|---|
-| `make redeploy SERVICE=<name>` | Build image, push to `orbit-registry:5001`, roll the workload. |
+| `make redeploy SERVICE=<name>` | Build image, push to `kora-registry:5001`, roll the workload. |
 | `make redeploy` | The same, for every service. |
 | `make redeploy SERVICE=<name> NO_BUILD=1` | Roll the current image only, skip the build. |
 | `make redeploy SERVICE=session-manager TENANT=example` | Roll a tenant-scoped workload. |
@@ -158,7 +158,7 @@ Both `service=` and `name=` are required. It writes a timestamped file with the 
 | `make migrate-create service=X name=Y` | Generate a new migration file for a service. |
 | `make migrate-lint` | Check every migration against the content rule. Part of `make check`. |
 | `make migrate-status` | Show applied and pending migrations against the compose Postgres. |
-| `make redeploy SERVICE=migrate` | Rebuild the migrate image and re-apply the `orbit` release so the hook runs. |
+| `make redeploy SERVICE=migrate` | Rebuild the migrate image and re-apply the `kora` release so the hook runs. |
 
 `make up` applies the schema through the hook, including after `make db-reset`: the reset stamps a marker annotation on the Job so the next `make up` re-runs it against the empty database. `make redeploy` of any service first checks whether the migration files changed since the migrate image was last pushed (a content hash recorded in `local.generated.yaml`) and re-runs the hook when they did. A branch that adds a migration never boots a service against a stale schema. `make redeploy-migrate` forces the hook.
 
@@ -167,7 +167,7 @@ Migrations are DDL only: no `INSERT` or `DELETE`, an `UPDATE` only alongside an 
 `Down` sections exist for local development only. To roll back one migration against the compose Postgres:
 
 ```bash
-cd backend && KORA_MIGRATE_ALLOW_DOWN=1 APP_ENV=local DB_PASSWORD=orbit go run ./cmd/migrate down
+cd backend && KORA_MIGRATE_ALLOW_DOWN=1 APP_ENV=local DB_PASSWORD=kora go run ./cmd/migrate down
 ```
 
 `APP_ENV=local` reads the compose Postgres address from `backend/internal/platform/storage/config/local.yaml`.
@@ -180,8 +180,8 @@ There are no migration `Down` triggers in kora, a rollback via `helm rollback` w
 
 | Variable | Source | Purpose |
 |---|---|---|
-| `DB_PASSWORD` | Fixed default `orbit` | Postgres password. Baked into the volume at first initialisation. Changing it requires `make dev-down-clean` first. |
-| `REDIS_PASSWORD` | Fixed default `orbit` | Redis password. |
+| `DB_PASSWORD` | Fixed default `kora` | Postgres password. Baked into the volume at first initialisation. Changing it requires `make dev-down-clean` first. |
+| `REDIS_PASSWORD` | Fixed default `kora` | Redis password. |
 | `BFF_SESSION_SECRET` | Generated with `openssl rand -base64 32` | Signs the frontend iron-session cookie. Written into `kora-frontend-secrets`. |
 | `KORA_TRIGGERS_ENCRYPTION_KEY` | Generated with `openssl rand -base64 32` | Encrypts stored trigger credentials. `kora-triggers` fails to start without it. |
 
@@ -245,7 +245,7 @@ The cluster runs `kora-mcp` behind the tool gateway. With kora running, point an
 {
   "mcpServers": {
     "kora": {
-      "url": "https://api.orbit.local.clearroute.io/v1/mcp/kora",
+      "url": "https://api.local.runkora.io/v1/mcp/kora",
       "type": "streamable-http"
     }
   }
@@ -278,7 +278,7 @@ The client runs the MCP OAuth flow and opens the consent screen in your browser.
      -o jsonpath='{.clusters[?(@.name=="<target-cluster-context>")].cluster.certificate-authority-data}' \
      | base64 -d
    ```
-   Testing against the local k3d cluster itself instead of a real target: `docker exec k3d-orbit-local-server-0 cat /var/lib/rancher/k3s/server/tls/server-ca.crt`, and `baseHost: k3d-orbit-local-server-0:6443` (resolvable inside the cluster once `make cluster-platform` has patched CoreDNS).
+   Testing against the local k3d cluster itself instead of a real target: `docker exec k3d-kora-local-server-0 cat /var/lib/rancher/k3s/server/tls/server-ca.crt`, and `baseHost: k3d-kora-local-server-0:6443` (resolvable inside the cluster once `make cluster-platform` has patched CoreDNS).
 
 ## Troubleshooting
 

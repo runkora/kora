@@ -28,7 +28,7 @@ export const Overview: Story = {
           <Stack gap="tight">
             <SectionLabel>Endpoint</SectionLabel>
             <Text size="caption" mono>
-              https://api.orbit.example/v1/ingest/gh-main
+              https://api.example.com/v1/ingest/gh-main
             </Text>
           </Stack>
           <Stack gap="tight">

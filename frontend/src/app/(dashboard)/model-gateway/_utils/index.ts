@@ -37,7 +37,7 @@ export function fmtInferenceStatus(status: InferenceUsageStatus): string {
 export const GATEWAY_BASE_URL_FALLBACK = 'https://api.<your-kora-host>';
 
 /**
- * Where agents send inference traffic, e.g. `https://api.orbit.dev.clearroute.io`.
+ * Where agents send inference traffic, e.g. `https://api.example.com`.
  *
  * The Setup tab prints this into half a dozen config snippets (shell profile,
  * Codex TOML, OpenCode JSONC, VS Code settings, Continue). Deriving it from the

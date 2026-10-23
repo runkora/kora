@@ -18,7 +18,7 @@ func (failingBlocklist) IsBlocked(context.Context, string) (bool, error) {
 }
 
 func TestVerifyDelegation(t *testing.T) {
-	const agent = "spiffe://orbit.test/tenant/acme/agent/coder"
+	const agent = "spiffe://runkora.test/tenant/acme/agent/coder"
 	s := tokentest.NewSigner(t)
 	valid := s.Delegation(t, "jti-1", "person-1", agent, "run-1")
 	revoked := s.Delegation(t, "jti-revoked", "person-1", agent, "run-1")

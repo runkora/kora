@@ -51,10 +51,10 @@ func TestSandboxImages_DecodeFromYAML(t *testing.T) {
 	write("cmd/operator/config/base.yaml", `
 install:
   sandboxImages:
-    baseImage: orbit-registry:5001/kora-sandbox-base:latest
+    baseImage: kora-registry:5001/kora-sandbox-base:latest
     warmBase: true
     registryMirrors:
-      orbit-registry:5001: http://orbit-registry:5000
+      kora-registry:5001: http://kora-registry:5000
     warmerPlacement:
       nodeSelector:
         pool: sandbox
@@ -75,11 +75,11 @@ install:
       go:
         enabled: true
         warm: true
-        image: orbit-registry:5001/kora-sandbox-go:latest
+        image: kora-registry:5001/kora-sandbox-go:latest
       node:
         enabled: false
         warm: false
-        image: orbit-registry:5001/kora-sandbox-node:latest
+        image: kora-registry:5001/kora-sandbox-node:latest
 `)
 	t.Chdir(dir)
 
@@ -88,7 +88,7 @@ install:
 		t.Fatalf("load: %v", err)
 	}
 	si := cfg.Install.SandboxImages
-	if !si.WarmBase || si.RegistryMirrors["orbit-registry:5001"] != "http://orbit-registry:5000" {
+	if !si.WarmBase || si.RegistryMirrors["kora-registry:5001"] != "http://kora-registry:5000" {
 		t.Errorf("sandboxImages = %+v", si)
 	}
 	p := si.WarmerPlacement
@@ -98,10 +98,10 @@ install:
 	if p.Affinity == nil || p.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions[0].Values[0] != "sandbox" {
 		t.Errorf("affinity = %+v", p.Affinity)
 	}
-	if g := si.Bundled["go"]; !g.Enabled || !g.Warm || g.Image != "orbit-registry:5001/kora-sandbox-go:latest" {
+	if g := si.Bundled["go"]; !g.Enabled || !g.Warm || g.Image != "kora-registry:5001/kora-sandbox-go:latest" {
 		t.Errorf("bundled go = %+v", g)
 	}
-	if n := si.Bundled["node"]; n.Enabled || n.Image != "orbit-registry:5001/kora-sandbox-node:latest" {
+	if n := si.Bundled["node"]; n.Enabled || n.Image != "kora-registry:5001/kora-sandbox-node:latest" {
 		t.Errorf("bundled node = %+v", n)
 	}
 }

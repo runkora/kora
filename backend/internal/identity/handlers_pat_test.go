@@ -441,7 +441,7 @@ func (e *allowRecorder) Check(_ context.Context, in policy.CheckInput) (policy.R
 // scope check.
 func TestAuthChain_Delegation(t *testing.T) {
 	_, svc, _, _, blocklist, _ := newTestController(t)
-	const agent = "spiffe://orbit.test/tenant/t1/agent/coder"
+	const agent = "spiffe://runkora.test/tenant/t1/agent/coder"
 	now := time.Now()
 	issuance := func(jti string) *DelegationIssuance {
 		return &DelegationIssuance{JTI: jti, RunID: "run-1", TenantID: "t1", DelegatorPrincipalID: "user-1", DelegatorPrincipalType: PrincipalTypeHuman, AgentPrincipalID: agent}
@@ -517,7 +517,7 @@ func TestAuthChain_Delegation(t *testing.T) {
 func TestPATHandlers_RefuseDelegated(t *testing.T) {
 	c, _, _, _, _, _ := newTestController(t)
 	agentClaims := &token.PlatformClaims{}
-	agentClaims.Subject = "spiffe://orbit.test/tenant/t1/agent/coder"
+	agentClaims.Subject = "spiffe://runkora.test/tenant/t1/agent/coder"
 	agentClaims.Kora.TenantID = "t1"
 	agentClaims.Kora.PrincipalType = token.PrincipalTypeAgent
 	d := &policy.DelegationClaims{Sub: "user-1", ActSub: agentClaims.Subject, RunID: "run-1"}

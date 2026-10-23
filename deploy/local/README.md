@@ -29,7 +29,7 @@ kubectl apply -f deploy/local/tenants/example.yaml
 
 | Connection | Credential |
 |---|---|
-| `github.yaml` | GitHub App private key at `secrets/orbit-github-app.pem` |
+| `github.yaml` | GitHub App private key at `secrets/kora-github-app.pem` |
 | `kubernetes.yaml` | A `Secret` named `kora-local-token` in `kora-tenant-example`, holding a bearer token for the target cluster. `scripts/cluster/register-k8s-connection.sh` creates it, along with the ServiceAccount and the connection itself. |
 
 A connection without its credential is skipped, not failed.

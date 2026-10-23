@@ -110,14 +110,14 @@ import { NextRequest } from 'next/server';
 import { server } from '@runkora/test-utils';
 
 vi.mock('@runkora/server/config', () => ({
-  config: { koraApiUrl: 'http://test-orbit-api' },
+  config: { koraApiUrl: 'http://test-kora-api' },
 }));
 
 import { GET } from './route';
 
 it('returns 200 on success', async () => {
   server.use(
-    http.get('http://test-orbit-api/my/endpoint', () =>
+    http.get('http://test-kora-api/my/endpoint', () =>
       HttpResponse.json({ ok: true }),
     ),
   );

@@ -102,7 +102,7 @@ export const Options: Story = {
             </CollapsibleTrigger>
             <CollapsibleContent>
               <Text size="supporting" color="muted">
-                Created by dev@orbit.local
+                Created by dev@runkora.test
               </Text>
             </CollapsibleContent>
           </Collapsible>

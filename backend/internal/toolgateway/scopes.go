@@ -2,7 +2,7 @@
 //
 // A tool name maps to a scope path with the reserved "." delimiter: the name is
 // split on ".", each segment normalised to [a-z0-9_-], and the server slug
-// prepended — so orbit's `agents.create` becomes the scope
+// prepended — so kora's `agents.create` becomes the scope
 // mcp:kora:agents:create:use with rollups mcp:kora:agents:use and
 // mcp:kora:use (the prefix-coverage tree the policy hierarchy already
 // understands). Every prefix is published as a grantable scope.

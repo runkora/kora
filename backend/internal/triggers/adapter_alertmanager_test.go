@@ -13,7 +13,7 @@ const firingAlertmanagerBody = `{
 	"version":"4",
 	"groupKey":"{}:{alertname=\"HighCPU\"}",
 	"status":"firing",
-	"receiver":"orbit",
+	"receiver":"kora",
 	"externalURL":"https://alertmanager.example.com",
 	"groupLabels":{"alertname":"HighCPU"},
 	"commonLabels":{"alertname":"HighCPU","severity":"critical","service":"api"},
@@ -113,7 +113,7 @@ func TestAlertmanagerAdapter_DeliveryID(t *testing.T) {
 		t.Error("expected identical bodies to hash identically")
 	}
 	// A resolved payload with the same groupKey must produce a different id.
-	resolved := []byte(`{"version":"4","groupKey":"{}:{alertname=\"HighCPU\"}","status":"resolved","receiver":"orbit","alerts":[]}`)
+	resolved := []byte(`{"version":"4","groupKey":"{}:{alertname=\"HighCPU\"}","status":"resolved","receiver":"kora","alerts":[]}`)
 	if a.DeliveryID(nil, body1) == a.DeliveryID(nil, resolved) {
 		t.Error("firing and resolved for the same groupKey must hash differently")
 	}
@@ -147,7 +147,7 @@ func TestAlertmanagerAdapter_SchemaPathsResolve(t *testing.T) {
 	doc := decodeBody([]byte(firingAlertmanagerBody))
 	want := map[string]string{
 		"status":                    "firing",
-		"receiver":                  "orbit",
+		"receiver":                  "kora",
 		"commonLabels.severity":     "critical",
 		"commonAnnotations.summary": "CPU above 90%",
 		"alerts.0.status":           "firing",

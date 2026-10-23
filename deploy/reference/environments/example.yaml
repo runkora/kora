@@ -7,7 +7,7 @@ versions:
   istio: "1.31.1"
 
 systemNamespace: kora-system
-trustDomain: orbit.example.com
+trustDomain: example.com
 clusterName: kora
 
 kora:

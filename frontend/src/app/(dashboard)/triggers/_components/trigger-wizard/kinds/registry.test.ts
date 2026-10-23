@@ -12,7 +12,7 @@ const CONTEXT: WizardContext = {
     { id: 'src-1', name: 'acme/widgets', provider: 'github', category: 'webhook' },
     { id: 'src-2', name: 'acme-slack', provider: 'slack', category: 'chat' },
   ],
-  ingestHost: 'orbit.local.clearroute.io:8443',
+  ingestHost: 'local.runkora.io:8443',
 };
 
 const KINDS = Object.values(TRIGGER_KINDS);

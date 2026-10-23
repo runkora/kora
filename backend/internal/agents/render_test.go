@@ -130,7 +130,7 @@ patch: |
   spec:
     template:
       spec:
-        nodeSelector: {workload-tier: orbit}
+        nodeSelector: {workload-tier: kora}
 `,
 		"11-sandbox-placement.yaml": `target: {kind: Pod, labelSelector: runkora.io/role=sandbox}
 patch: |
@@ -202,8 +202,8 @@ patch: |
 	if !ok {
 		t.Fatalf("objs[1] not *appsv1.StatefulSet: %T", objs[1])
 	}
-	if got := ss.Spec.Template.Spec.NodeSelector["workload-tier"]; got != "orbit" {
-		t.Errorf("StatefulSet workload-tier: got %q, want orbit", got)
+	if got := ss.Spec.Template.Spec.NodeSelector["workload-tier"]; got != "kora" {
+		t.Errorf("StatefulSet workload-tier: got %q, want kora", got)
 	}
 	claim := ss.Spec.VolumeClaimTemplates[0]
 	if !slices.Contains(claim.Spec.AccessModes, corev1.ReadWriteMany) {
@@ -245,7 +245,7 @@ patch: |
   kind: StatefulSet
   metadata: {name: any}
   spec:
-    template:` + strings.ReplaceAll(nodeAffinity("orbit"), "\n  ", "\n      ") + `
+    template:` + strings.ReplaceAll(nodeAffinity("kora"), "\n  ", "\n      ") + `
 `,
 			"11-sandbox.yaml": `target: {kind: Pod, labelSelector: runkora.io/role=sandbox}
 patch: |
@@ -284,7 +284,7 @@ patch: |
   spec:
     template:
       spec:
-        nodeSelector: {workload-tier: orbit}
+        nodeSelector: {workload-tier: kora}
 `,
 			"11-sandbox.yaml": `target: {kind: Pod, labelSelector: "runkora.io/agent-slug=coder"}
 patch: |
@@ -332,7 +332,7 @@ patch: |
   spec:
     template:
       spec:
-        nodeSelector: {workload-tier: orbit}
+        nodeSelector: {workload-tier: kora}
 `,
 		}),
 	}

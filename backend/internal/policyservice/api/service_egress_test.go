@@ -55,7 +55,7 @@ func TestQualifiedConnectionScopeBase(t *testing.T) {
 		wantBase string
 		wantOK   bool
 	}{
-		{"connection:github:issues:orbit:write", "connection:github:issues:write", true},
+		{"connection:github:issues:kora:write", "connection:github:issues:write", true},
 		{"connection:github:repo:my-repo.js:read", "connection:github:repo:read", true},
 
 		// too shallow — unqualified shapes validate against the vocabulary directly
@@ -65,7 +65,7 @@ func TestQualifiedConnectionScopeBase(t *testing.T) {
 
 		// malformed qualifiers
 		{"connection:github:issues::write", "", false},      // empty
-		{"connection:github:issues:Orbit:write", "", false}, // not lowercase
+		{"connection:github:issues:Kora:write", "", false},  // not lowercase
 		{"connection:github:issues:a b:write", "", false},   // whitespace
 		{"connection:github:issues:*:write", "", false},     // wildcard — never valid
 		{"connection:github:issues:a/b:write", "", false},   // path separator
@@ -125,9 +125,9 @@ func TestValidateScopes(t *testing.T) {
 		wantErr bool
 	}{
 		{"registered scope", "inference:invoke", false, false},
-		{"qualified connection scope in a role", "connection:github:issues:orbit:write", false, false},
-		{"qualified connection scope in a grant", "connection:github:issues:orbit:write", true, false},
-		{"qualified scope over an unknown base", "connection:github:pulls:orbit:write", false, true},
+		{"qualified connection scope in a role", "connection:github:issues:kora:write", false, false},
+		{"qualified connection scope in a grant", "connection:github:issues:kora:write", true, false},
+		{"qualified scope over an unknown base", "connection:github:pulls:kora:write", false, true},
 		{"egress in a grant", "egress:api.github.com:connect", true, false},
 		{"per-host egress in a role", "egress:api.github.com:connect", false, true},
 		{"registered egress in a role", "egress:connect", false, false},

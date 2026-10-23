@@ -43,7 +43,7 @@ type Config struct {
 	} `yaml:"kubernetes"`
 
 	Platform struct {
-		// TrustDomain is the SPIFFE trust domain (e.g. "orbit.test").
+		// TrustDomain is the SPIFFE trust domain (e.g. "runkora.test").
 		// Used to build agent SPIFFE IDs for policy grant creation.
 		TrustDomain string `yaml:"trustDomain"`
 		// IdentityServiceURL is the base URL of the kora-identity service.
