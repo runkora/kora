@@ -188,6 +188,14 @@ func (m *mockRepository) ListSources(_ context.Context, tenantID string) ([]Webh
 	return out, nil
 }
 
+func (m *mockRepository) ListGatewaySources(context.Context, string) ([]WebhookSource, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) SetGatewayStatus(context.Context, string, *time.Time, string, string) error {
+	return nil
+}
+
 func (m *mockRepository) UpdateSource(_ context.Context, s *WebhookSource) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

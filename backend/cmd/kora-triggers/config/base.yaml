@@ -16,6 +16,9 @@ policy:
   # so a long poll interval shows up as a spurious first-fire denial.
   bundlePollIntervalSecs: 3
 
+discord:
+  gatewayURL: wss://gateway.discord.gg
+
 observability:
   serviceName: kora-triggers
 
