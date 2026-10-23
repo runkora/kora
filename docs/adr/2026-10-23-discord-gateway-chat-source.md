@@ -97,23 +97,53 @@ How should kora hear Discord mentions and direct messages and feed them into the
 
 ### Gateway Library
 
-**Option 4a (recommended):** A hand-written client on `github.com/coder/websocket`. The module is in `backend/go.mod` as an indirect dependency at v1.8.15. The client implements Hello, heartbeat, Identify, Resume, Reconnect, Invalid Session and the dispatch of `READY`, `MESSAGE_CREATE`, `GUILD_CREATE` and `THREAD_*`. A fake Gateway in tests speaks the same protocol.
+**Option 4b (chosen):** `github.com/disgoorg/disgo` v0.19.6. Its `gateway` package owns heartbeat, zombie detection, resume and reconnect for one session. Its `bot` package keeps the channel and thread cache.
 
-- **Cost:** kora owns the protocol. A change to the Gateway version, a new close code or a new opcode needs a code change. The client needs its own tests for the zombie connection and resume paths. `coder/websocket` becomes a direct dependency.
+Maintenance, read from the repository on 2026-10-23:
 
-**Option 4b:** A maintained Go Discord library such as `github.com/disgoorg/disgo`, `github.com/diamondburned/arikawa/v3` or `github.com/bwmarrin/discordgo`. The library owns heartbeat, resume and reconnect.
+- The last release is v0.19.6 (2026-06-07). The last push is 2026-10-20. The repository is not archived and has 15 open issues.
+- No open issue reports a failed reconnect. The issue "Not reconnecting to gateway" (#309) is closed.
+- Open issue #494 reports a data race between `Close` and the heartbeat goroutine. Open pull request #559 guards the gateway and voice state against data races.
+- Open pull request #538 removes the `AutoReconnect` option.
 
-- **Cost:** Such a library typically ships a REST client, entity caches and its own types. kora uses a small part of that surface. The library's reconnect policy and logging must be fitted to the session manager's rules in Decision 3. A fake Gateway needs a URL override that the library must expose. The library's release cadence becomes a dependency.
+Fit to the session manager's rules (Decision 3):
+
+- `gateway.WithIntents` sets the intents. `WithEnableRawEvents` delivers each dispatch payload as received.
+- `gateway.WithIdentifyRateLimiter` takes an interface with `Wait`, `Unlock` and `Close`. The manager supplies one that spaces Identify calls.
+- `gateway.WithCloseHandler` is called when the library stops a session. It receives the error and whether the close code permits reconnect. Close codes 4004 and 4010 to 4014 are marked as not reconnectable.
+
+Fit to a fake Gateway in tests:
+
+- `gateway.WithURL` sets the Gateway URL. `WithEnableResumeURL(false)` keeps a resumed session on that URL. `WithCompression(gateway.CompressionNone)` turns off the default zstd stream.
+
+Thread data:
+
+- The `bot` package handlers store the threads from `GUILD_CREATE` and `THREAD_LIST_SYNC` and apply `THREAD_CREATE`, `THREAD_UPDATE` and `THREAD_DELETE` to the same cache.
+- `discord.GuildThread` carries `OwnerID` and `ParentID`. `ParentID` is never nil for a thread.
+
+- **Cost:** The library ships a REST client, voice support, entity caches and its own types. kora uses the gateway and the thread cache. The cache fills through `bot.Client`. The session builds a `bot.Client` and not a bare `gateway.Gateway`. The library's reconnect backoff inside a session is fixed. It starts at 1 second, doubles and caps at 60 seconds, with no jitter. A release that removes `AutoReconnect` (pull request #538) changes the option kora sets. The module adds `gorilla/websocket` and the `disgoorg` modules to `backend/go.mod`. The library's release cadence becomes a dependency.
+
+**Option 4a (rejected):** A hand-written client on `github.com/coder/websocket`. The module is in `backend/go.mod` as an indirect dependency at v1.8.15.
+
+- **Cost:** kora owns the protocol: Hello, heartbeat, zombie detection, Identify, Resume, Reconnect, Invalid Session, identify pacing and close-code handling. A change to the Gateway version, a new close code or a new opcode needs a code change. The client needs its own tests for the zombie connection and resume paths. `coder/websocket` becomes a direct dependency.
+
+**Option 4c (rejected):** `github.com/diamondburned/arikawa/v3` or `github.com/bwmarrin/discordgo`. Read from the repositories on 2026-10-23:
+
+- arikawa: last release v3.6.0 (2025-09-04), last push 2026-05-18, 35 open issues.
+- discordgo: last release v0.29.0 (2025-05-24), last push 2026-02-14, 233 open issues.
+- disgo has the most recent release and push of the three.
+
+- **Cost:** Not chosen. Neither library was fitted to the session manager's rules or to a fake Gateway URL.
 
 ### Thread Detection
 
 A `MESSAGE_CREATE` event carries `channel_id` and an optional `channel_type`. For a message in a thread, `channel_id` is the thread's id. The event carries neither the thread's parent channel nor the thread's owner. The chat document needs both (`conversation.id` and `thread.started_by.id`).
 
-**Option 5a (recommended):** A channel and thread cache in the session, fed by the `GUILDS` intent. `GUILD_CREATE` lists the active threads of the guild. `THREAD_CREATE`, `THREAD_UPDATE`, `THREAD_DELETE` and `THREAD_LIST_SYNC` keep the cache current. On a miss for a thread-typed message the session makes one REST lookup (`GET /channels/{id}`) and stores the result.
+**Option 5a (chosen):** Read the library's channel and thread cache, fed by the `GUILDS` intent. The cache holds `ParentID` and `OwnerID` for each thread (option 4b). A message whose `channel_id` is not in the cache as a thread is treated as a message outside a thread. There is no REST fallback.
 
-- **Cost:** The session holds state for every active thread in the bot's guilds. A message in an archived thread can arrive before `THREAD_UPDATE`. The REST lookup covers that case. The session has two code paths and needs the bot token on `discord.com`.
+- **Cost:** The session holds state for every active thread in the bot's guilds. A message in an archived thread can arrive before `THREAD_UPDATE`. That message maps as a message outside a thread.
 
-**Option 5b:** A REST lookup of `GET /channels/{id}` for every guild message, with no cache. The session cannot rely on the optional `channel_type` to skip channels.
+**Option 5b (rejected):** A REST lookup of `GET /channels/{id}` for every guild message, with no cache. The session cannot rely on the optional `channel_type` to skip channels.
 
 - **Cost:** Each thread message adds one request to the Discord API and its latency. The requests share the bot's API rate limit. A burst of thread messages can be rate limited, and the message waits or fails.
 
@@ -127,7 +157,7 @@ A `MESSAGE_CREATE` event carries `channel_id` and an optional `channel_type`. Fo
 
 ## Decision
 
-**Chosen Options:** 1a, 2a, 3a and 6a. The library (4a or 4b) and thread detection (5a or 5b) stay open. The sub-decisions below apply to either choice of library and either choice of thread detection.
+**Chosen Options:** 1a, 2a, 3a, 4b, 5a and 6a.
 
 ### 1. Discord Adapter
 
@@ -162,27 +192,34 @@ The Discord MCP server keeps its own copy of the token. A rotation changes both.
 
 A change made through the API on one replica reaches every other replica at its next reconcile. The replica that served the change also reconciles at once. Sessions need no coordination between replicas.
 
-**Session loop.** A session follows the Gateway protocol:
+**Library.** Each session is one `bot.Client` from disgo (option 4b). The library owns the Gateway protocol: Hello, heartbeat, zombie detection, Identify, Resume, reconnect within a session and the thread cache. kora's code sets the library up and decides when a session starts and stops.
 
-1. Open `wss://gateway.discord.gg/?v=10&encoding=json`.
-2. Read Hello. Wait `heartbeat_interval` times a random value in [0, 1) and send the first heartbeat. Then send one each interval.
-3. Send Identify with the token and the intents in Decision 4. Omit `shard`.
-4. Read Ready. Keep `session_id`, `resume_gateway_url` and the bot's user id.
-5. Track the sequence number `s` of each dispatch.
-6. Answer opcode 1 (heartbeat request) with a heartbeat at once.
+**Session setup.** The manager builds each `bot.Client` with:
 
-**Heartbeat.** A session that sends a heartbeat and has not received an ACK before the next one closes the connection with a code other than 1000 or 1001 and resumes.
+- The bot token from the source's secret.
+- The intents in Decision 4.
+- Raw events on. The session reads the `MESSAGE_CREATE` payload as received.
+- The cache flag for channels. The channel cache holds the threads (Decision 7).
+- A close handler that reports to the manager.
+- An identify rate limiter owned by the manager.
+- The Gateway URL from configuration. It defaults to `wss://gateway.discord.gg`. Tests point it at the fake Gateway.
 
-**Resume.** On a dropped connection, opcode 7 (reconnect), or a close code that permits reconnect, the session opens `resume_gateway_url` and sends Resume with `session_id` and the last sequence number. Discord replays the missed events. On opcode 9 (invalid session) with `d` true the session resumes. With `d` false the session waits a random 1 to 5 seconds and identifies.
+**Identify pacing.** Discord allows one Identify per 5 seconds for each `max_concurrency` slot. The manager's identify rate limiter admits one Identify at a time and spaces them by 5 seconds. The manager starts its sessions through that limiter.
 
-**Reconnect.** When a resume is not possible the session identifies again. Close codes 4007 (invalid sequence) and 4009 (session timed out) always lead to a new session. Discord allows one Identify per 5 seconds for each `max_concurrency` slot. A session that receives opcode 9 right after Identify waits and retries. A manager starts its sessions one at a time with that spacing. Each failed attempt waits an exponential backoff with jitter. The backoff starts at 1 second and caps at 5 minutes. A session that reaches Ready resets the backoff.
+**Start.** The manager opens the session. If the open fails with a reconnectable error, the manager starts a new session after a backoff.
 
-**Rejection.** Close codes 4004 and 4014 end the session and record a rejection reason on the source:
+**Stop.** The manager closes the `bot.Client` when the source is deleted, disabled or loses its secret, and on shutdown.
+
+**Backoff between sessions.** The manager waits before it starts a new session after a failed open or after the library stops a session with a reconnectable error. The wait is exponential with jitter. It starts at 1 second and caps at 5 minutes. A session that reaches Ready resets the backoff. The library's own reconnect inside a session is not tuned.
+
+**Ready.** A session that receives Ready records the bot's user id for the wrapper (Decision 6) and sets the connection state (below).
+
+**Rejection.** The library's close handler reports the close code. Close codes 4004 and 4014 end the session and record a rejection reason on the source:
 
 - 4004: `discord rejected the bot token`.
 - 4014: `discord rejected the requested intents`.
 
-Close codes 4010, 4011, 4012 and 4013 are also marked not reconnectable by Discord. They end the session and record the Discord code name as the reason. The session stays stopped until the secret changes. The manager does not start a session for a source whose recorded rejection is newer than `secret_rotated_at`. A rotation restarts the session.
+Close codes 4010, 4011, 4012 and 4013 are also marked not reconnectable by Discord. They end the session and record the library's description of the code as the reason. The session stays stopped until the secret changes. The manager does not start a session for a source whose recorded rejection is newer than `secret_rotated_at`. A rotation restarts the session.
 
 **Connection state.** A migration under `backend/cmd/kora-triggers/migrations/` adds three columns to `webhook_sources`: `gateway_status`, `gateway_reason` and `gateway_status_at`. `gateway_status` is `connected` or `rejected`, and null before a first connection. A session sets `connected` on Ready and `rejected` with the reason on a rejection close code. The existing `last_rejection_reason` is not used. Requests to a Discord source's webhook URL write it ("invalid signature"), and it would then show a healthy source as rejected. The source response carries a read-only `connection` object with `state` and `reason`. `state` is `waiting` when the source has no secret, otherwise `connected` or `rejected` from the columns. A disabled source reports no `connection`.
 
@@ -190,7 +227,7 @@ Close codes 4010, 4011, 4012 and 4013 are also marked not reconnectable by Disco
 
 The Identify payload sets `intents` to `GUILDS` (`1 << 0`), `GUILD_MESSAGES` (`1 << 9`) and `DIRECT_MESSAGES` (`1 << 12`). The sum is 4609. No other intent is sent.
 
-- `GUILDS` delivers `GUILD_CREATE`, `THREAD_*` and channel events. Thread detection reads them (Decision 7).
+- `GUILDS` delivers `GUILD_CREATE`, `THREAD_*` and channel events. The library's cache stores them. Thread detection reads the cache (Decision 7).
 - `GUILD_MESSAGES` delivers `MESSAGE_CREATE` for guild channels.
 - `DIRECT_MESSAGES` delivers `MESSAGE_CREATE` for direct messages.
 
@@ -210,7 +247,7 @@ It keeps these steps:
 
 - **Source checks:** The source must exist, be enabled and have a registered adapter.
 - **Delivery id:** `adapter.DeliveryID` returns the message id. An empty id is rejected with `ErrMissingDeliveryID`.
-- **Delivery row:** `InsertDelivery` writes the row. The partial unique index on `(source_id, provider_delivery_id)` (`postgres.go`) records a second insert as a duplicate through `recordDuplicate`.
+- **Delivery row:** `InsertDelivery` writes the row. The partial unique index on `(source_id, provider_delivery_id)` (`postgres.go`) rejects a second insert. `IngestGateway` does not call `recordDuplicate` for it.
 - **Counters:** `recordAccepted` counts the accepted message.
 - **Sender and fan-out:** `dispatch` runs `identifySender` and `fanOut`. Sender restrictions, trigger filters, coalescing and routing apply unchanged.
 
@@ -218,7 +255,9 @@ The session calls `IngestGateway` only when `EventType` returns a non-empty valu
 
 `IngestGateway` returns an `IngestResult`. The session logs an error and ignores the outcome.
 
-Every replica holds a session for the source and receives the same message. Each calls `IngestGateway`. One insert wins and runs the triggers. The others record a duplicate delivery row. `dispatchDuplicate` runs only the triggers with deduplication off.
+Every replica holds a session for the source and receives the same message. Each calls `IngestGateway`. One insert wins and runs the triggers.
+
+On a unique conflict `IngestGateway` returns without writing a delivery row. It does not call `dispatchDuplicate`. A second session's copy of a message is not a provider retry. A trigger with deduplication off runs once for the message.
 
 ### 6. Event Types
 
@@ -234,7 +273,7 @@ The session wraps each dispatch before it calls `IngestGateway`. The stored body
 }
 ```
 
-`kora.thread` is present only when the cache or the REST lookup shows that `d.channel_id` is a thread (channel type 10, 11 or 12). It holds the thread's id, its parent channel id, the parent's channel type and the thread's owner id. The wrapper keeps `EventType` and `ChatEvent` pure functions of the body. `Redeliver` maps the stored body again and gets the same result.
+`kora.thread` is present only when the library's cache holds `d.channel_id` as a thread (channel type 10, 11 or 12). It holds the thread's id, its parent channel id, the parent's channel type and the thread's owner id. The wrapper keeps `EventType` and `ChatEvent` pure functions of the body. `Redeliver` maps the stored body again and gets the same result.
 
 `DeliveryID` returns `d.id`, the message id.
 
@@ -265,16 +304,16 @@ The session wraps each dispatch before it calls `IngestGateway`. The stored body
 | `workspace.id` | `d.guild_id`. It is empty in a direct message. |
 | `platform` | `discord`. |
 
-`ok` is true only when `user.id`, `conversation.id` and `thread.id` are non-empty. A thread message whose `kora.thread` lookup failed returns ok false. The delivery records as matching no trigger.
+`ok` is true only when `user.id`, `conversation.id` and `thread.id` are non-empty.
 
 Discord has no private-channel type. A guild channel with restricted permissions maps to `channel`. `private` is never produced.
+
+Thread detection (option 5a): the session looks up `d.channel_id` in the library's channel cache before it wraps the message. A `discord.GuildThread` entry fills `kora.thread` from its `ID`, `ParentID`, the parent's channel type and `OwnerID`. Any other result leaves `kora.thread` out. The session makes no REST request.
 
 Routing `join_key`:
 
 - `mention` triggers use `{{ conversation.id }}:{{ thread.id }}`. A reply in a thread joins the run that the thread's first mention started.
 - `direct_message` triggers use `{{ conversation.id }}`. A direct message conversation has one `channel_id`.
-
-Thread lookup (the open choice 5a or 5b) fills `kora.thread`. It is the only difference between the two options.
 
 ### 8. Sender Identification
 
@@ -305,13 +344,13 @@ Thread lookup (the open choice 5a or 5b) fills `kora.thread`. It is the only dif
 - A message sent while every replica is down is lost. The Gateway replays missed events only into a session that resumes. A session that cannot resume identifies anew and receives no replay.
 - The bot token lives in two places, the chat source and the Discord MCP server. A rotation changes both.
 - A follow-up in a channel reaches kora only when it mentions the bot, the same as Slack.
-- Each replica records a duplicate delivery row for each message. A source with N replicas writes N-1 duplicate rows per message. The delivery history shows them.
-- A trigger with deduplication off runs once for each replica's copy (`dispatchDuplicate`).
 - Two Discord sources with the same bot token open two sessions. Each source deduplicates on its own, and a message starts a run on each source's triggers.
 - The reconcile interval delays a change. A new source, a rotation or a disable reaches the other replicas within 30 seconds.
-- The session holds a cache of the bot's active threads (option 5a).
+- The session holds a cache of the bot's active threads (option 5a). A message in a thread that is not in the cache maps as a message in a channel, with the thread's id as `conversation.id`.
 - A role mention of the bot does not start a run. `d.mentions` lists users only.
-- The Gateway version is pinned to 10 in the client. A new version needs a code change.
+- The Gateway version is set by the library. A new Gateway version needs a library upgrade.
+- The library is a dependency with open pull request #538 that removes the `AutoReconnect` option. The version in `backend/go.mod` is pinned.
+- `kora-triggers` can reach any host on port 443 and holds every tenant's source secrets. A compromised pod can send them to any host. The `ServiceEntry` hosts apply only under `REGISTRY_ONLY`.
 - A Discord source records no delivery for ignored messages. The delivery history cannot show that a bot message or an unmentioned channel message was seen. This differs from Slack.
 
 ### Neutral
@@ -327,7 +366,7 @@ Thread lookup (the open choice 5a or 5b) fills `kora.thread`. It is the only dif
 Four pull requests, each based on the one before it:
 
 1. **`docs:` (this ADR):** the PRD amendment and this ADR, against `main`.
-2. **`feat(triggers):` the Gateway runtime:** `GatewayManager`, its reconcile against the sources table, the session loop with heartbeat, resume, reconnect and backoff, the rejection reasons, the connection state columns and `Service.IngestGateway`. Tests run against a fake Gateway. Based on the docs branch.
+2. **`feat(triggers):` the Gateway runtime:** `GatewayManager`, its reconcile against the sources table, the disgo `bot.Client` setup, the identify rate limiter, start and stop, backoff between sessions, the rejection reasons, the connection state columns, the thread lookup in the library's cache and `Service.IngestGateway`. The pull request adds disgo to `backend/go.mod`. Tests run against a fake Gateway that disgo reaches through `gateway.WithURL`. Based on the docs branch.
 3. **`feat(triggers):` the Discord adapter:** `adapter_discord.go`, the event type rules, the `ChatEvent` mapping, the sender identification and the chart egress. Based on the runtime branch.
 4. **`feat(frontend):` the console:** Discord in the chat command kind, the source step with the token field and the invite link, and the connection state on the triggers page and in the trigger drawer. Based on the adapter branch.
 
@@ -339,10 +378,13 @@ Unit tests run against a fake Gateway. They cover:
 
 - Event types for a mention, a direct message, a bot author, a webhook message and a message that mentions another user.
 - The chat document for a channel message and a thread message.
-- `IngestGateway` deduplication of one message seen by two sessions.
+- `IngestGateway` with one message seen by two sessions: one delivery row and one run for a trigger with deduplication off.
 - Session start and stop on create, enable, disable, delete and rotation.
 - The rejection reasons for a bad token (4004) and for disallowed intents (4014).
-- Heartbeat, a missed ACK, resume with the last sequence number, invalid session with `d` true and false, and backoff.
+- The close codes 4010 to 4013 record the library's description as the reason.
+- Backoff between sessions after a failed open and its reset on Ready.
+- Identify calls spaced by the identify rate limiter.
+- A thread message and a message in a channel read from the library's cache.
 - A request to a Discord source's webhook URL answered with the 404 of a bad signature.
 
 Console tests cover the Discord source step and its connection states.
