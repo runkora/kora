@@ -43,7 +43,7 @@ spec:
             which are restricted to loopback redirect URIs per RFC 8252), an
             OAuthClient is admin-reviewed and may declare non-loopback HTTPS
             redirect URIs. All clients are public (PKCE only; no secret). The
-            operator aggregates these CRs into the orbit-system ConfigMap the
+            operator aggregates these CRs into the kora-system ConfigMap the
             identity service mounts.
           type: object
           required:

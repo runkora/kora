@@ -45,7 +45,7 @@ BYOC agents are invisible to the platform control plane beyond their usage recor
 
 ### Option A: Manual BYOC registration via API
 
-**Description:** Tenants register their BYOC agents by calling an `orbit-agents` API endpoint with metadata (name, description, namespace, pod selector).
+**Description:** Tenants register their BYOC agents by calling an `kora-agents` API endpoint with metadata (name, description, namespace, pod selector).
 
 **Pros:**
 - Explicit — platform knows exactly what is registered
@@ -56,7 +56,7 @@ BYOC agents are invisible to the platform control plane beyond their usage recor
 
 ### Option B: k8s pod watch + SPIFFE identity as the discovery signal
 
-**Description:** `orbit-agents` watches pod events across all `orbit-tenant-*` namespaces. Any pod that carries the SPIFFE workload annotation (set by the SPIRE CSI driver on attestation) is treated as a BYOC agent and surfaced in the portal. No registration required.
+**Description:** `kora-agents` watches pod events across all `kora-tenant-*` namespaces. Any pod that carries the SPIFFE workload annotation (set by the SPIRE CSI driver on attestation) is treated as a BYOC agent and surfaced in the portal. No registration required.
 
 **Pros:**
 - Zero changes to BYOC deployments — automatic
@@ -66,11 +66,11 @@ BYOC agents are invisible to the platform control plane beyond their usage recor
 
 **Cons:**
 - May surface pods that are not "agents" in the user's mental model (e.g. internal service pods in tenant namespaces)
-- Requires `orbit-agents` to hold k8s watch permissions across all tenant namespaces
+- Requires `kora-agents` to hold k8s watch permissions across all tenant namespaces
 
 ### Option C: Opt-in label convention
 
-**Description:** BYOC agents add a label `runkora.io/byoc-agent: "true"` to their pod spec. `orbit-agents` watches for this label.
+**Description:** BYOC agents add a label `runkora.io/byoc-agent: "true"` to their pod spec. `kora-agents` watches for this label.
 
 **Pros:**
 - Explicit opt-in — only pods that declare themselves agents are surfaced
@@ -85,7 +85,7 @@ BYOC agents are invisible to the platform control plane beyond their usage recor
 
 **Chosen Option: B — k8s pod watch + SPIFFE identity label as discovery signal, with opt-in label for display name**
 
-A pod in a tenant namespace is treated as a BYOC agent if it carries the `spiffe.io/agent` label — the same label that causes the `orbit-tenant-agent` ClusterSPIFFEID to issue a SPIFFE identity ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md)). This is the correct signal: any pod that has opted into platform identity is surfaced in the portal. Pods with `spiffe.io/service` labels are tenant services, not agents, and are excluded.
+A pod in a tenant namespace is treated as a BYOC agent if it carries the `spiffe.io/agent` label — the same label that causes the `kora-tenant-agent` ClusterSPIFFEID to issue a SPIFFE identity ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md)). This is the correct signal: any pod that has opted into platform identity is surfaced in the portal. Pods with `spiffe.io/service` labels are tenant services, not agents, and are excluded.
 
 To reduce noise, a label convention is used for display metadata but is not required for discovery:
 
@@ -102,12 +102,12 @@ spiffe://{trust-domain}/tenant/{namespace}/agent/{spiffe.io/agent label value}
 
 ### Discovery Mechanism
 
-`orbit-agents` maintains a pod informer (k8s SharedInformer) on all `orbit-tenant-*` namespaces filtered to pods with `spiffe.io/agent` label present. On pod add/update/delete events:
+`kora-agents` maintains a pod informer (k8s SharedInformer) on all `kora-tenant-*` namespaces filtered to pods with `spiffe.io/agent` label present. On pod add/update/delete events:
 
 - **Pod reaches Running + has `spiffe.io/agent` label**: upsert BYOC agent record in `byoc_agents` table
 - **Pod deleted or terminal**: mark BYOC agent record as offline
 
-Managed agent pods also carry `spiffe.io/agent` — they are excluded from `byoc_agents` by the label `runkora.io/managed-agent: "true"` set on their pod template by orbit-agents at StatefulSet creation time. The BYOC discovery loop skips any pod carrying this label.
+Managed agent pods also carry `spiffe.io/agent` — they are excluded from `byoc_agents` by the label `runkora.io/managed-agent: "true"` set on their pod template by kora-agents at StatefulSet creation time. The BYOC discovery loop skips any pod carrying this label.
 
 ### BYOC Agent Data Model
 
@@ -128,7 +128,7 @@ byoc_agents
 
 ### Usage Data
 
-BYOC agent usage is derived from existing inference-gateway `inference_usage` records. The `principal_id` in usage records matches the SPIFFE URI of the pod (extracted from the platform JWT). `orbit-agents` joins `byoc_agents.spiffe_id` with `inference_usage.principal_id` to surface usage stats in the portal.
+BYOC agent usage is derived from existing inference-gateway `inference_usage` records. The `principal_id` in usage records matches the SPIFFE URI of the pod (extracted from the platform JWT). `kora-agents` joins `byoc_agents.spiffe_id` with `inference_usage.principal_id` to surface usage stats in the portal.
 
 No additional instrumentation is required in the BYOC agent or inference-gateway.
 

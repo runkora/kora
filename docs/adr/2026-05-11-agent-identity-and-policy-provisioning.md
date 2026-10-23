@@ -11,7 +11,7 @@
 
 ### Background
 
-The kora identity and policy model ([unified-identity-model](2026-03-05-unified-identity-model.md), [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md), [policy-gateway-and-authorisation-model](2026-04-14-policy-gateway-and-authorisation-model.md)) supports agents as first-class principals. SPIFFE attestation is handled cluster-wide by the SPIRE controller manager via `ClusterSPIFFEID` resources ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md)). The `orbit-tenant-agent` ClusterSPIFFEID already exists and automatically issues SVIDs to any pod in a tenant namespace carrying the label `spiffe.io/agent={value}`. The identity-service's `XFCCPrincipalExtractor` already derives the full principal (type, tenant, identity) directly from the SPIFFE path — no runtime mapping table is required.
+The kora identity and policy model ([unified-identity-model](2026-03-05-unified-identity-model.md), [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md), [policy-gateway-and-authorisation-model](2026-04-14-policy-gateway-and-authorisation-model.md)) supports agents as first-class principals. SPIFFE attestation is handled cluster-wide by the SPIRE controller manager via `ClusterSPIFFEID` resources ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md)). The `kora-tenant-agent` ClusterSPIFFEID already exists and automatically issues SVIDs to any pod in a tenant namespace carrying the label `spiffe.io/agent={value}`. The identity-service's `XFCCPrincipalExtractor` already derives the full principal (type, tenant, identity) directly from the SPIFFE path — no runtime mapping table is required.
 
 What is missing is the provisioning lifecycle for managed agents: ensuring the StatefulSet pod template carries the correct label (so the ClusterSPIFFEID issues the right SVID), and that grants are created in the policy-service at agent type creation time.
 
@@ -41,10 +41,10 @@ Both must be provisioned automatically and cleaned up on deletion. Neither requi
 
 ## Decision Drivers
 
-* The `orbit-tenant-agent` ClusterSPIFFEID already handles SVID issuance for any pod in a tenant namespace with `spiffe.io/agent={value}` — there is nothing to provision at the SPIRE layer
+* The `kora-tenant-agent` ClusterSPIFFEID already handles SVID issuance for any pod in a tenant namespace with `spiffe.io/agent={value}` — there is nothing to provision at the SPIRE layer
 * `principal_extractor.go` derives `principal_type`, `tenant_id`, and `principal_id` entirely from the SPIFFE URI path — no external mapping table is needed
 * Grants must still be explicitly provisioned; the policy-service does not auto-derive grants from SPIFFE identity
-* `orbit-agents`' own SPIFFE identity is `spiffe://{trust-domain}/system/orbit-agents` (via the `orbit-system-component` ClusterSPIFFEID and pod label `spiffe.io/component=orbit-agents`)
+* `kora-agents`' own SPIFFE identity is `spiffe://{trust-domain}/system/kora-agents` (via the `kora-system-component` ClusterSPIFFEID and pod label `spiffe.io/component=kora-agents`)
 
 ---
 
@@ -58,34 +58,34 @@ Both must be provisioned automatically and cleaned up on deletion. Neither requi
 - SPIRE management stays in the operator
 
 **Cons:**
-- Dynamic ClusterSPIFFEID creation per agent type is unnecessary — the existing `orbit-tenant-agent` ClusterSPIFFEID already covers any pod with `spiffe.io/agent={value}` in a tenant namespace
+- Dynamic ClusterSPIFFEID creation per agent type is unnecessary — the existing `kora-tenant-agent` ClusterSPIFFEID already covers any pod with `spiffe.io/agent={value}` in a tenant namespace
 - Requires operator involvement for what is a data-plane label, not an infrastructure change
-- Splits agent lifecycle management between operator and orbit-agents
+- Splits agent lifecycle management between operator and kora-agents
 
 ### Option B: orbit-agents calls SPIRE registration gRPC API directly
 
-**Description:** `orbit-agents` registers SPIRE workload entries programmatically via the SPIRE Server gRPC API.
+**Description:** `kora-agents` registers SPIRE workload entries programmatically via the SPIRE Server gRPC API.
 
 **Pros:**
-- orbit-agents owns the full provisioning lifecycle
+- kora-agents owns the full provisioning lifecycle
 
 **Cons:**
 - Not how the kora platform works: the platform uses ClusterSPIFFEID resources managed by the SPIRE controller manager, not direct SPIRE registration API calls
-- Requires orbit-agents to hold SPIRE admin registration rights and manage per-node parentID entries — significant complexity
+- Requires kora-agents to hold SPIRE admin registration rights and manage per-node parentID entries — significant complexity
 - The existing ClusterSPIFFEID mechanism already handles this correctly with zero additional infrastructure
 
 ### Option C: Label-driven identity via existing ClusterSPIFFEID (chosen)
 
-**Description:** `orbit-agents` ensures each agent StatefulSet pod template includes the label `spiffe.io/agent={agent_type_id}`. The existing `orbit-tenant-agent` ClusterSPIFFEID automatically issues SVIDs to matching pods. No SPIRE management code is needed in `orbit-agents`.
+**Description:** `kora-agents` ensures each agent StatefulSet pod template includes the label `spiffe.io/agent={agent_type_id}`. The existing `kora-tenant-agent` ClusterSPIFFEID automatically issues SVIDs to matching pods. No SPIRE management code is needed in `kora-agents`.
 
 **Pros:**
 - Zero additional SPIRE infrastructure — reuses existing ClusterSPIFFEID
 - Consistent with how all other tenant workloads receive identity on the platform
-- No SPIRE admin rights required for orbit-agents
+- No SPIRE admin rights required for kora-agents
 - Node scheduling, pod restarts, and scale events are all handled transparently
 
 **Cons:**
-- orbit-agents must ensure the label is set correctly on the StatefulSet pod template — if the label is wrong, the pod receives no SVID (caught by SVID presence health check on pod startup)
+- kora-agents must ensure the label is set correctly on the StatefulSet pod template — if the label is wrong, the pod receives no SVID (caught by SVID presence health check on pod startup)
 
 ---
 
@@ -95,7 +95,7 @@ Both must be provisioned automatically and cleaned up on deletion. Neither requi
 
 ### SPIFFE Identity for Managed Agents
 
-*(Amended 2026-09-29: the agent path segment is the agent type slug, not its ID, and the extracted tenant ID drops the `orbit-tenant-` prefix. See [agent token breakdown, Amendment 1](2026-06-23-agent-token-breakdown-and-spend-card.md).)*
+*(Amended 2026-09-29: the agent path segment is the agent type slug, not its ID, and the extracted tenant ID drops the `kora-tenant-` prefix. See [agent token breakdown, Amendment 1](2026-06-23-agent-token-breakdown-and-spend-card.md).)*
 
 The SPIFFE ID assigned to managed agent pods follows the platform's tenant agent path ([dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md)):
 
@@ -103,17 +103,17 @@ The SPIFFE ID assigned to managed agent pods follows the platform's tenant agent
 spiffe://{trust-domain}/tenant/{namespace}/agent/{slug}
 ```
 
-For a managed agent type with slug `{slug}` in tenant namespace `orbit-tenant-{tenant_id}`:
+For a managed agent type with slug `{slug}` in tenant namespace `kora-tenant-{tenant_id}`:
 
 ```
-spiffe://{trust-domain}/tenant/orbit-tenant-{tenant_id}/agent/{slug}
+spiffe://{trust-domain}/tenant/kora-tenant-{tenant_id}/agent/{slug}
 ```
 
-This is issued automatically by the `orbit-tenant-agent` ClusterSPIFFEID when the pod carries:
+This is issued automatically by the `kora-tenant-agent` ClusterSPIFFEID when the pod carries:
 - Label: `spiffe.io/agent={slug}`
 - Namespace label: `runkora.io/role: tenant` (already set on all tenant namespaces)
 
-`orbit-agents` sets this label in the StatefulSet pod template spec at agent type creation time. No SPIRE registration code is required.
+`kora-agents` sets this label in the StatefulSet pod template spec at agent type creation time. No SPIRE registration code is required.
 
 ### Principal Resolution
 
@@ -121,30 +121,30 @@ The `XFCCPrincipalExtractor` (identity-service) parses the SPIFFE URI at JWT exc
 
 | Path segment | Value |
 |---|---|
-| `/tenant/{namespace}` → `TenantID` | `{tenant_id}` (the `orbit-tenant-` prefix is stripped) |
+| `/tenant/{namespace}` → `TenantID` | `{tenant_id}` (the `kora-tenant-` prefix is stripped) |
 | `/agent/{slug}` → `ID` | full SPIFFE URI |
 | `principal_type` | `AGENT` |
 
-The `principal_id` used throughout the platform (grants, audit logs, usage attribution) is the **full SPIFFE URI**: `spiffe://{trust-domain}/tenant/orbit-tenant-{tenant_id}/agent/{slug}`. This is deterministic from the agent type slug and tenant ID.
+The `principal_id` used throughout the platform (grants, audit logs, usage attribution) is the **full SPIFFE URI**: `spiffe://{trust-domain}/tenant/kora-tenant-{tenant_id}/agent/{slug}`. This is deterministic from the agent type slug and tenant ID.
 
 No identity-service mapping registration is needed — the SPIFFE path encodes all required information.
 
 ### Grant Provisioning
 
-When an agent type is created, `orbit-agents` calls the policy-service to create a grant:
+When an agent type is created, `kora-agents` calls the policy-service to create a grant:
 
 ```json
 {
   "tenant_id":      "{tenant_id}",
   "principal_type": "AGENT",
-  "principal_id":   "spiffe://{trust-domain}/tenant/orbit-tenant-{tenant_id}/agent/{slug}",
+  "principal_id":   "spiffe://{trust-domain}/tenant/kora-tenant-{tenant_id}/agent/{slug}",
   "scopes":         ["{scope1}", "{scope2}", ...]
 }
 ```
 
 The agent type's grant scopes (`grant_scopes`, plus the scopes compiled from its connectivity, connectors and MCP tools) map directly to grant scopes; `tool_scopes` never fed the grant and is removed ([agent-registry-and-definition-model](2026-05-11-agent-registry-and-definition-model.md), Amendment 1). The policy-service validates each scope against the scope vocabulary ([dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md)).
 
-`orbit-agents` is a SYSTEM principal — `resolveTenantID` in the policy-service passes the supplied `tenant_id` through directly for SYSTEM callers rather than deriving it from the JWT. orbit-agents must therefore explicitly supply the agent type's tenant identifier.
+`kora-agents` is a SYSTEM principal — `resolveTenantID` in the policy-service passes the supplied `tenant_id` through directly for SYSTEM callers rather than deriving it from the JWT. kora-agents must therefore explicitly supply the agent type's tenant identifier.
 
 On agent type deletion, the grant is deleted from the policy-service by `principal_id`.
 
@@ -170,7 +170,7 @@ The grant is deleted last — ensuring the agent cannot initiate new LLM calls v
 ### Positive
 
 - Zero additional SPIRE infrastructure — fully reuses the existing ClusterSPIFFEID mechanism
-- orbit-agents requires no SPIRE admin rights
+- kora-agents requires no SPIRE admin rights
 - Identity is consistent with all other platform tenant workloads — same attestation path, same JWT structure
 - Pod restarts, node changes, and StatefulSet scaling all handled transparently
 - Simpler provisioning: grant creation is the only external call on agent type create
@@ -181,7 +181,7 @@ The grant is deleted last — ensuring the agent cannot initiate new LLM calls v
 
 ### Neutral
 
-- SVID TTL and rotation are managed by the SPIRE controller manager — no configuration needed in orbit-agents
+- SVID TTL and rotation are managed by the SPIRE controller manager — no configuration needed in kora-agents
 
 ---
 
@@ -200,7 +200,7 @@ The grant is deleted last — ensuring the agent cannot initiate new LLM calls v
 
 - [unified-identity-model](2026-03-05-unified-identity-model.md) — AGENT principal type and JWT structure
 - [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) — SPIFFE/SPIRE infrastructure and ClusterSPIFFEID
-- [dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md) — SPIFFE path scheme; `orbit-tenant-agent` ClusterSPIFFEID definition
+- [dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md) — SPIFFE path scheme; `kora-tenant-agent` ClusterSPIFFEID definition
 - [policy-gateway-and-authorisation-model](2026-04-14-policy-gateway-and-authorisation-model.md) — Grant model
 - [dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md) — Scope vocabulary
 - [agent-registry-and-definition-model](2026-05-11-agent-registry-and-definition-model.md) — Agent type definition that drives provisioning
@@ -217,7 +217,7 @@ The grant is deleted last — ensuring the agent cannot initiate new LLM calls v
 
 The agent's effective grant is already composed **server-side** from its declared intent: connectors compile to `connection:<name>:<action>` (`AgentType.ConnectorScopes()`), connectivity to `egress:<host>:connect` (`Connectivity.EgressScopes()`), and `EffectiveGrantScopes()` unions those — plus connector auto-egress — with `grant_scopes` before `ensureAgentGrant` reconciles the result to the policy-service ([agent-sandbox-toolchain-and-connectivity-environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md)).
 
-The **inference** portion of that grant is the lone exception. `inference:invoke` plus the fine-grained `inference:{family}:{name}:use` for the agent's model are derived **client-side** and passed in `grant_scopes`; `orbit-agents` stores `grant_scopes` as an opaque passthrough (`CreateAgentType` defaults a missing slice to empty — "the agent has no policy grants"). The same rule is therefore duplicated in every client — the frontend BFF (`create-agent-form.tsx` `deriveGrantScopes`) and orbit-mcp. Two consequences:
+The **inference** portion of that grant is the lone exception. `inference:invoke` plus the fine-grained `inference:{family}:{name}:use` for the agent's model are derived **client-side** and passed in `grant_scopes`; `kora-agents` stores `grant_scopes` as an opaque passthrough (`CreateAgentType` defaults a missing slice to empty — "the agent has no policy grants"). The same rule is therefore duplicated in every client — the frontend BFF (`create-agent-form.tsx` `deriveGrantScopes`) and kora-mcp. Two consequences:
 
 - **Drift.** The rule (`inference:invoke` + `inference:{family}:{name}:use` from a `family/name` model id) lives in both TypeScript and Go and must be hand-synced.
 - **A footgun.** A client that sends `model_id` but omits the derived scopes creates an agent whose async provisioning fails — it has no inference grant, so it cannot call the gateway it was created to use.
@@ -226,7 +226,7 @@ Connectors and egress are server-derived from intent; inference should be too.
 
 ### Decision
 
-`orbit-agents` derives the inference grant scopes from `model_id` in `CreateAgentType`/`UpdateAgentType` — the single source of truth, exactly as it already does for connectors and connectivity. Clients declare intent (`model_id`) and stop deriving.
+`kora-agents` derives the inference grant scopes from `model_id` in `CreateAgentType`/`UpdateAgentType` — the single source of truth, exactly as it already does for connectors and connectivity. Clients declare intent (`model_id`) and stop deriving.
 
 - **Derivation.** When the request carries no explicit `inference:*` scope, the service adds `inference:invoke`, plus `inference:{family}:{name}:use` when `model_id` is a two-segment `family/name`. These flow into the existing `EffectiveGrantScopes()` union — grant reconciliation is unchanged.
 - **Override preserved.** If the caller supplies any `inference:*` scope explicitly, it is taken as-is and nothing is auto-added — non-default grants are unaffected.
@@ -236,13 +236,13 @@ Connectors and egress are server-derived from intent; inference should be too.
 
 ### Consequences
 
-- **Single source of truth.** The derivation lives once, in the service that owns the grant. The frontend BFF and orbit-mcp delete their derivation and send only `model_id`; create-with-just-`model_id` provisions correctly. No cross-language drift.
-- **Coupling.** `orbit-agents` now encodes the `inference:{family}:{name}:use` scope-string format (the inference scope vocabulary). It is already referenced across the platform; documenting it here is acceptable.
+- **Single source of truth.** The derivation lives once, in the service that owns the grant. The frontend BFF and kora-mcp delete their derivation and send only `model_id`; create-with-just-`model_id` provisions correctly. No cross-language drift.
+- **Coupling.** `kora-agents` now encodes the `inference:{family}:{name}:use` scope-string format (the inference scope vocabulary). It is already referenced across the platform; documenting it here is acceptable.
 - **Back-compatible.** Clients that still send the derived scopes are unaffected — derivation is idempotent and explicit inference scopes suppress it — so the server change and the client cleanup need not be a flag day.
 
 ### Implementation pointer
 
-A `deriveInferenceScopes(modelID string) []string` in `internal/agents`, applied in `CreateAgentType`/`UpdateAgentType` before the `EffectiveGrantScopes()` composition; then remove the duplicated derivation from orbit-mcp (`internal/koramcp/tools_agents.go` `deriveGrantScopes`) and the frontend BFF (`create-agent-form.tsx`, `use-agent-settings.ts`).
+A `deriveInferenceScopes(modelID string) []string` in `internal/agents`, applied in `CreateAgentType`/`UpdateAgentType` before the `EffectiveGrantScopes()` composition; then remove the duplicated derivation from kora-mcp (`internal/koramcp/tools_agents.go` `deriveGrantScopes`) and the frontend BFF (`create-agent-form.tsx`, `use-agent-settings.ts`).
 
 ---
 

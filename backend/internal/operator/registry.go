@@ -14,7 +14,7 @@ import (
 )
 
 // registryFile is the in-memory representation of the docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md tenant registry
-// YAML written to the orbit-tenants ConfigMap. Marshaled via sigs.k8s.io/yaml
+// YAML written to the kora-tenants ConfigMap. Marshaled via sigs.k8s.io/yaml
 // so the output is consistent with how the identity service parses it.
 type registryFile struct {
 	Version string          `json:"version"`
@@ -38,13 +38,13 @@ type registryOIDC struct {
 const (
 	// tenantsConfigMapName is the ConfigMap read by the identity service to
 	// discover tenant OIDC providers. See docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md.
-	tenantsConfigMapName = "orbit-tenants"
+	tenantsConfigMapName = "kora-tenants"
 
 	// tenantsConfigMapKey is the key within the ConfigMap that holds the YAML.
 	tenantsConfigMapKey = "tenants.yaml"
 )
 
-// TenantRegistry manages the orbit-tenants ConfigMap. It translates the set of
+// TenantRegistry manages the kora-tenants ConfigMap. It translates the set of
 // active KoraTenant CRs into the docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md tenant registry YAML format that
 // the identity service reads at startup and watches for changes via a file watcher.
 //
@@ -60,7 +60,7 @@ func NewTenantRegistry(c client.Client, logger logging.Logger) *TenantRegistry {
 	return &TenantRegistry{client: c, logger: logger}
 }
 
-// Sync rebuilds the orbit-tenants ConfigMap from the current list of
+// Sync rebuilds the kora-tenants ConfigMap from the current list of
 // KoraTenant CRs. It creates the ConfigMap if absent and patches it if
 // the content has changed.
 func (r *TenantRegistry) Sync(ctx context.Context) error {
@@ -152,7 +152,7 @@ func (r *TenantRegistry) createConfigMap(ctx context.Context, yaml string) error
 			Name:      tenantsConfigMapName,
 			Namespace: systemNamespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "orbit-operator",
+				"app.kubernetes.io/managed-by": "kora-operator",
 				"runkora.io/component":         "tenant-registry",
 			},
 		},

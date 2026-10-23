@@ -33,11 +33,11 @@ func TestEnsureAuthorizationPolicy_DisabledCreatesNothing(t *testing.T) {
 		AuthorizationPolicyEnabled: false,
 	})
 
-	if err := p.ensureAuthorizationPolicy(context.Background(), AgentType{Slug: "coder"}, "orbit-tenant-acme", metav1.OwnerReference{}, true); err != nil {
+	if err := p.ensureAuthorizationPolicy(context.Background(), AgentType{Slug: "coder"}, "kora-tenant-acme", metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("ensureAuthorizationPolicy: %v", err)
 	}
 
-	list, err := dc.Resource(authorizationPolicyGVR).Namespace("orbit-tenant-acme").List(context.Background(), metav1.ListOptions{})
+	list, err := dc.Resource(authorizationPolicyGVR).Namespace("kora-tenant-acme").List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestEnsureAuthorizationPolicy_RestrictsPortToKoraAgents(t *testing.T) {
 		AuthorizationPolicyEnabled: true,
 	})
 
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	if err := p.ensureAuthorizationPolicy(context.Background(), AgentType{Slug: "coder"}, ns, metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("ensureAuthorizationPolicy: %v", err)
 	}
@@ -79,8 +79,8 @@ func TestEnsureAuthorizationPolicy_RestrictsPortToKoraAgents(t *testing.T) {
 	// Rule 1: only kora-agents, only the session-manager port.
 	caller, _ := rules[0].(map[string]any)
 	principals := nestedStringsAtIndex(t, caller, "from", 0, "source", "principals")
-	if len(principals) != 1 || principals[0] != "orbit.test/system/orbit-agents" {
-		t.Errorf("principals = %v, want [orbit.test/system/orbit-agents]", principals)
+	if len(principals) != 1 || principals[0] != "orbit.test/system/kora-agents" {
+		t.Errorf("principals = %v, want [orbit.test/system/kora-agents]", principals)
 	}
 	// Istio prepends spiffe:// itself; writing it produces spiffe://spiffe://
 	// and never matches.
@@ -114,12 +114,12 @@ func TestEnsureAuthorizationPolicy_IsIdempotent(t *testing.T) {
 
 	ctx := context.Background()
 	at := AgentType{Slug: "coder"}
-	if err := p.ensureAuthorizationPolicy(ctx, at, "orbit-tenant-acme", metav1.OwnerReference{}, true); err != nil {
+	if err := p.ensureAuthorizationPolicy(ctx, at, "kora-tenant-acme", metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("first ensure: %v", err)
 	}
 	// Provisioning re-runs at every kora-agents startup; an AlreadyExists must
 	// not fail the reconcile.
-	if err := p.ensureAuthorizationPolicy(ctx, at, "orbit-tenant-acme", metav1.OwnerReference{}, true); err != nil {
+	if err := p.ensureAuthorizationPolicy(ctx, at, "kora-tenant-acme", metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("second ensure: %v", err)
 	}
 }
@@ -132,7 +132,7 @@ func TestDeleteAuthorizationPolicy_MissingIsNotAnError(t *testing.T) {
 
 	// Deprovision runs against agent types provisioned before this policy
 	// existed, and against a disabled gate.
-	if err := p.deleteAuthorizationPolicy(context.Background(), "coder", "orbit-tenant-acme"); err != nil {
+	if err := p.deleteAuthorizationPolicy(context.Background(), "coder", "kora-tenant-acme"); err != nil {
 		t.Fatalf("delete missing policy: %v", err)
 	}
 }

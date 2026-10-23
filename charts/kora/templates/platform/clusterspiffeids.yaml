@@ -13,7 +13,7 @@
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
-  name: orbit-system-component
+  name: kora-system-component
   labels:
     {{- include "kora.labels" . | nindent 4 }}
 spec:
@@ -30,7 +30,7 @@ spec:
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
-  name: orbit-tenant-service
+  name: kora-tenant-service
   labels:
     {{- include "kora.labels" . | nindent 4 }}
 spec:
@@ -47,7 +47,7 @@ spec:
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
-  name: orbit-tenant-agent
+  name: kora-tenant-agent
   labels:
     {{- include "kora.labels" . | nindent 4 }}
 spec:
@@ -67,7 +67,7 @@ spec:
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
-  name: orbit-tenant-sandbox
+  name: kora-tenant-sandbox
   labels:
     {{- include "kora.labels" . | nindent 4 }}
 spec:

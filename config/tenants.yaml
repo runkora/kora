@@ -9,13 +9,13 @@
 # registry.tenantsPath in backend/internal/identity/config/base.yaml at this file.
 #
 # For cluster dev (make cluster-platform + make cluster-deploy):
-#   The orbit-operator builds the orbit-tenants ConfigMap from KoraTenant CRs
+#   The kora-operator builds the kora-tenants ConfigMap from KoraTenant CRs
 #   defined in deploy/local/tenants/. This file is not read or mounted.
 #   Edit deploy/local/tenants/example.yaml to change cluster tenant config.
 #
 # DO NOT put secrets in this file. Client secrets for confidential OIDC clients
-# are managed by the orbit-operator (ADR-0029): the operator aggregates them
-# into the Secret orbit-tenant-oidc-secrets in orbit-system; the identity
+# are managed by the kora-operator (ADR-0029): the operator aggregates them
+# into the Secret kora-tenant-oidc-secrets in kora-system; the identity
 # service picks them up via a file watcher. The local Dex client is a public
 # client — no secret is needed here.
 #

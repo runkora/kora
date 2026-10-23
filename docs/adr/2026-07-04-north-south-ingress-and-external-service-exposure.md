@@ -13,12 +13,12 @@
 
 ### Background
 
-North-south (external → cluster) ingress terminates at the Istio IngressGateway. One `Gateway` resource (`orbit-gateway`, orbit-system) fronts it, and individual services declare `VirtualService`s that bind it. [gateway-level-opa-enforcement-for-external-traffic](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md) placed an OPA `ext_authz` at the IngressGateway so every north-south request passes a policy enforcement point, reusing the platform OPA bundle and route→scope table.
+North-south (external → cluster) ingress terminates at the Istio IngressGateway. One `Gateway` resource (`kora-gateway`, kora-system) fronts it, and individual services declare `VirtualService`s that bind it. [gateway-level-opa-enforcement-for-external-traffic](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md) placed an OPA `ext_authz` at the IngressGateway so every north-south request passes a policy enforcement point, reusing the platform OPA bundle and route→scope table.
 
 The routing layer, however, grew ad-hoc around the first external service (the inference gateway):
 
 ```
-orbit-gateway (hosts: orbit.<domain>, api.<domain>)
+kora-gateway (hosts: orbit.<domain>, api.<domain>)
   ├── orbit.<domain>  → frontend VS  (catch-all)   ── EXCEPT /api/v1/webhooks/ → identity (path carve-out)
   └── api.<domain>    → inference VS (catch-all — the whole subdomain IS inference)
 ```
@@ -107,18 +107,18 @@ No other subdomains. A new backend service is exposed by adding a path route on 
 
 ### 2. Routing: one platform-owned API VirtualService
 
-`api.<domain>` is served by a single, platform-owned `orbit-api` VirtualService with ordered path-prefix routes (most-specific first). Services **declare their prefix**; the platform **owns the Gateway and the API VS**. Initial map:
+`api.<domain>` is served by a single, platform-owned `kora-api` VirtualService with ordered path-prefix routes (most-specific first). Services **declare their prefix**; the platform **owns the Gateway and the API VS**. Initial map:
 
 ```
 api.<domain>
-  /.well-known/oauth-protected-resource                → orbit-tool-gateway   (see §6)
-  /.well-known/oauth-authorization-server              → orbit-identity       (see §6)
-  /v1/mcp                                               → orbit-tool-gateway
+  /.well-known/oauth-protected-resource                → kora-tool-gateway   (see §6)
+  /.well-known/oauth-authorization-server              → kora-identity       (see §6)
+  /v1/mcp                                               → kora-tool-gateway
   /api/v1/identity/oauth/,
     /api/v1/identity/device, /api/v1/identity/session,
     /api/v1/identity/exchange, /api/v1/identity/.well-known/jwks.json,
-    /api/v1/webhooks/                                   → orbit-identity
-  /v1/ (chat, models, completions, …)                  → orbit-inference-gateway
+    /api/v1/webhooks/                                   → kora-identity
+  /v1/ (chat, models, completions, …)                  → kora-inference-gateway
 ```
 
 The `/api/v1/webhooks/` route moves here from the frontend VS; the frontend VS returns to a pure catch-all. Routes that are BFF-mediated (PAT management, user lookup, the session endpoints the BFF calls east-west) are **not** exposed on `api.` — only genuinely external callers' routes are. The root `/.well-known/*` discovery namespace is owned by the edge VS and routed by suffix (§6).
@@ -144,7 +144,7 @@ The deferred **trusted-host allowlist** lands here: `RequestBaseURL` validates t
 
 To expose a new backend service externally:
 
-1. **Route** — add an ordered path-prefix route to the `orbit-api` VirtualService → the service's ClusterIP.
+1. **Route** — add an ordered path-prefix route to the `kora-api` VirtualService → the service's ClusterIP.
 2. **Enforcement** — choose edge-enforced (register route→scope in the bundle) or self-enforced (declare the paths in the edge bypass; the service owns its PEP).
 3. **Public paths** — add any unauthenticated paths (health, discovery, challenge) to the edge bypass.
 4. **Netpol** — add the service's app port to `allow-gateway-ingress`.
@@ -185,9 +185,9 @@ Consequences of root discovery:
 
 ### Implementation checklist
 
-- [ ] Replace the inference catch-all VS with a platform-owned `orbit-api` path-routed VirtualService (inference + tool-gateway + identity).
-- [ ] Move `/api/v1/webhooks/` from the frontend VS to `orbit-api`; frontend VS back to pure catch-all.
-- [ ] Serve PRM + AS metadata at the root `/.well-known/*` (§6): move generation to root form, set the AS issuer to the API-host root with absolute endpoint URLs, and route/rewrite root `/.well-known/*` by suffix in the `orbit-api` VS.
+- [ ] Replace the inference catch-all VS with a platform-owned `kora-api` path-routed VirtualService (inference + tool-gateway + identity).
+- [ ] Move `/api/v1/webhooks/` from the frontend VS to `kora-api`; frontend VS back to pure catch-all.
+- [ ] Serve PRM + AS metadata at the root `/.well-known/*` (§6): move generation to root form, set the AS issuer to the API-host root with absolute endpoint URLs, and route/rewrite root `/.well-known/*` by suffix in the `kora-api` VS.
 - [ ] `authz_gateway.rego`: add `/v1/mcp`, `/.well-known/`, `/api/v1/identity/oauth/token`, `/api/v1/identity/oauth/register` to the bypass (tool-gateway self-enforced).
 - [ ] `allow-gateway-ingress` netpol: add the tool-gateway app port (8096).
 - [ ] Identity AS metadata: derive `authorization_endpoint` host by stripping the `api.` label; add the trusted-host allowlist to `RequestBaseURL` with configured public hosts.

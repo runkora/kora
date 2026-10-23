@@ -54,7 +54,7 @@ fi
 # Every meshed pod, the kubelet, and each kora service that hot-reloads a
 # ConfigMap opens inotify instances. Docker's Linux VM ships with
 # fs.inotify.max_user_instances=128, which a full kora cluster exhausts.
-# orbit-identity then cannot watch the tenant registry ("too many open files"),
+# kora-identity then cannot watch the tenant registry ("too many open files"),
 # never picks up the tenant, and `make auth` fails with oidc_not_configured.
 #
 # The k3d nodes are containers sharing the VM's kernel, so raising it once from a

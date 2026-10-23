@@ -22,7 +22,7 @@
 //	                              filter chains), unlike the CONNECT port.
 //
 // Connections are GitOps CRs (Amendment 3): the operator aggregates each
-// tenant's Connection CRs into the orbit-tenant-connections ConfigMap, which
+// tenant's Connection CRs into the kora-tenant-connections ConfigMap, which
 // the gateway mounts and parses into its in-memory registry (hot-reloaded on
 // change). There is no Postgres dependency and no admin connections API.
 package main
@@ -100,7 +100,7 @@ func realMain() error {
 	eval.Start(ctx)
 
 	// ── Connection registry ──────────────────────────────────────────────────
-	// Sourced from the operator-aggregated orbit-tenant-connections ConfigMap
+	// Sourced from the operator-aggregated kora-tenant-connections ConfigMap
 	// the gateway mounts (Amendment 3), parsed + hot-reloaded from disk. No
 	// Postgres dependency.
 	connRegistry, err := credentials.LoadConfigMapRegistry(ctx, egc.Current.Secrets.ConnectionRegistryPath, logger)

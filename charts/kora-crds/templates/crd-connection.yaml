@@ -41,7 +41,7 @@ spec:
             adapter, the upstream base host, a reference to a Kubernetes Secret
             (a name, never a value), and adapter-specific config. The operator
             aggregates these CRs (and their referenced Secrets) into the
-            orbit-system config the egress gateway mounts. The CR name
+            kora-system config the egress gateway mounts. The CR name
             (metadata.name) is the agent-facing connection name.
           type: object
           required:

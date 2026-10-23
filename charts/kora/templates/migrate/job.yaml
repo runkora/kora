@@ -5,7 +5,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: orbit-migrate
+  name: kora-migrate
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.migrate.labels" . | nindent 4 }}
@@ -36,7 +36,7 @@ spec:
       securityContext:
         {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        {{- include "kora.configVolume" (dict "root" $ "name" "migrate" "configMap" "orbit-migrate-config" "modules" (include "kora.migrate.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "migrate" "configMap" "kora-migrate-config" "modules" (include "kora.migrate.configModules" . | fromYaml)) | nindent 8 }}
       containers:
         - name: migrate
           image: {{ include "kora.image" (dict "root" $ "name" "migrate") | quote }}

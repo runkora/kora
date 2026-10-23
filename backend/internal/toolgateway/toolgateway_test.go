@@ -43,7 +43,7 @@ func TestLoadServers(t *testing.T) {
 
 	t.Run("parses entries", func(t *testing.T) {
 		p := filepath.Join(t.TempDir(), "servers.json")
-		body := `[{"tenant_id":"","name":"orbit","endpoint":"http://orbit-mcp.svc/mcp","transport":"streamable-http","reintrospect_interval_seconds":900,"caller_identity":"forward"}]`
+		body := `[{"tenant_id":"","name":"orbit","endpoint":"http://kora-mcp.svc/mcp","transport":"streamable-http","reintrospect_interval_seconds":900,"caller_identity":"forward"}]`
 		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -52,7 +52,7 @@ func TestLoadServers(t *testing.T) {
 			t.Fatalf("parse → (%v,%v,%v)", servers, mounted, err)
 		}
 		s := servers[0]
-		if s.Name != "orbit" || s.Endpoint != "http://orbit-mcp.svc/mcp" || s.CallerIdentity != "forward" || s.ReintrospectIntervalSeconds != 900 {
+		if s.Name != "orbit" || s.Endpoint != "http://kora-mcp.svc/mcp" || s.CallerIdentity != "forward" || s.ReintrospectIntervalSeconds != 900 {
 			t.Errorf("parsed entry wrong: %+v", s)
 		}
 	})

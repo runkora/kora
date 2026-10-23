@@ -1,6 +1,6 @@
 # Register an inference provider
 
-Register each model provider with an `InferenceProvider` resource in the kora system namespace (`orbit-system` by default). The provider's name is `<type>:<metadata.name>`, for example `compatible:openrouter`. Changes to the resource or its Secret apply without a restart.
+Register each model provider with an `InferenceProvider` resource in the kora system namespace (`kora-system` by default). The provider's name is `<type>:<metadata.name>`, for example `compatible:openrouter`. Changes to the resource or its Secret apply without a restart.
 
 Store credentials in a Secret in the same namespace. Label it `runkora.io/inference-provider=true` and reference it from the resource.
 
@@ -13,7 +13,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: openrouter
-  namespace: orbit-system
+  namespace: kora-system
   labels:
     runkora.io/inference-provider: "true"
 stringData:
@@ -23,7 +23,7 @@ apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: openrouter
-  namespace: orbit-system
+  namespace: kora-system
 spec:
   type: compatible
   displayName: OpenRouter
@@ -72,7 +72,7 @@ apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: ollama
-  namespace: orbit-system
+  namespace: kora-system
 spec:
   type: compatible
   models:
@@ -94,7 +94,7 @@ apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: aus
-  namespace: orbit-system
+  namespace: kora-system
 spec:
   type: bedrock
   bedrock:
@@ -106,12 +106,12 @@ spec:
 **Fields**
 
 - `region`: the AWS region.
-- `credentials.secretRef`: a labelled Secret with `accessKeyID`, `secretAccessKey` and optional `sessionToken`. Omit it to use the gateway's workload identity, which is IRSA or EKS Pod Identity on the `orbit-inference-gateway` ServiceAccount.
+- `credentials.secretRef`: a labelled Secret with `accessKeyID`, `secretAccessKey` and optional `sessionToken`. Omit it to use the gateway's workload identity, which is IRSA or EKS Pod Identity on the `kora-inference-gateway` ServiceAccount.
 - `assumeRoleARN`: a role to assume, for example in another account. Optional.
 - `externalID`: the external ID the role requires. Optional.
-- `roleSessionName`: the session name. Optional. The default is `orbit-inference-gateway`.
+- `roleSessionName`: the session name. Optional. The default is `kora-inference-gateway`.
 
-For local development, `make cluster-bedrock-creds` creates one Bedrock provider per alias in `BEDROCK_ACCOUNTS` in `.env`. It stores your AWS SSO session in the Secret `orbit-bedrock-credentials`. `make up` runs it.
+For local development, `make cluster-bedrock-creds` creates one Bedrock provider per alias in `BEDROCK_ACCOUNTS` in `.env`. It stores your AWS SSO session in the Secret `kora-bedrock-credentials`. `make up` runs it.
 
 ## Register Google Vertex AI
 
@@ -120,7 +120,7 @@ apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: gcp
-  namespace: orbit-system
+  namespace: kora-system
 spec:
   type: vertexai
   vertexai:
@@ -146,7 +146,7 @@ apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: eastus
-  namespace: orbit-system
+  namespace: kora-system
 spec:
   type: azure
   azure:
@@ -178,7 +178,7 @@ apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: typesafe
-  namespace: orbit-system
+  namespace: kora-system
 spec:
   type: compatible
   displayName: TypeSafe
@@ -253,13 +253,13 @@ For local development, `make up` adds Ollama on the host. Use `baseURL: http://h
 ## Check a provider
 
 ```bash
-kubectl get inferenceproviders -n orbit-system
+kubectl get inferenceproviders -n kora-system
 ```
 
 - `Ready`: the gateway loaded the provider.
 - `Invalid`: the `Loaded` condition gives the reason. For example a missing Secret, a missing key or an unlabelled Secret.
 
-The cluster rejects a resource outside `orbit-system` or without the block for its `type`.
+The cluster rejects a resource outside `kora-system` or without the block for its `type`.
 
 Provider health shows the model count, the last discovery and any upstream error. It appears in:
 

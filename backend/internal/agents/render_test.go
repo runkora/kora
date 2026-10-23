@@ -20,7 +20,7 @@ func TestRenderResources_ParityWithBuilders(t *testing.T) {
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
-		SystemNamespace:        "orbit-system",
+		SystemNamespace:        "kora-system",
 	}
 	at := AgentType{ID: "render-coder", Slug: "coder", TenantID: "example"}
 	objs, err := RenderResources(cfg, at, "tenant-example", true)
@@ -71,7 +71,7 @@ func TestRenderResources_AppliesPatches(t *testing.T) {
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
-		SystemNamespace:        "orbit-system",
+		SystemNamespace:        "kora-system",
 		Patches: loadTestPatches(t, map[string]string{
 			"10-sts.yaml": `target: {kind: StatefulSet}
 patch: |
@@ -138,7 +138,7 @@ patch: |
   kind: Pod
   metadata: {name: any}
   spec:
-    nodeSelector: {workload-tier: orbit-sandbox}
+    nodeSelector: {workload-tier: kora-sandbox}
 `,
 		"20-workspace.yaml": workspace,
 	}
@@ -153,7 +153,7 @@ func TestRenderResources_SplitPoolRejectsReadWriteOnceWorkspace(t *testing.T) {
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
-		SystemNamespace:        "orbit-system",
+		SystemNamespace:        "kora-system",
 		Patches: loadTestPatches(t, splitPoolPatches(`target: {kind: PersistentVolumeClaim}
 patch: |
   apiVersion: v1
@@ -180,7 +180,7 @@ func TestRenderResources_SplitPoolAcceptsReadWriteManyWorkspace(t *testing.T) {
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
-		SystemNamespace:        "orbit-system",
+		SystemNamespace:        "kora-system",
 		Patches: loadTestPatches(t, splitPoolPatches(`target: {kind: PersistentVolumeClaim}
 patch: |
   apiVersion: v1
@@ -214,8 +214,8 @@ patch: |
 	if !ok {
 		t.Fatalf("objs[5] not *corev1.Pod: %T", objs[5])
 	}
-	if got := pod.Spec.NodeSelector["workload-tier"]; got != "orbit-sandbox" {
-		t.Errorf("sandbox Pod workload-tier: got %q, want orbit-sandbox", got)
+	if got := pod.Spec.NodeSelector["workload-tier"]; got != "kora-sandbox" {
+		t.Errorf("sandbox Pod workload-tier: got %q, want kora-sandbox", got)
 	}
 }
 
@@ -237,7 +237,7 @@ func TestRenderResources_SplitByNodeAffinityRejectsReadWriteOnceWorkspace(t *tes
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
-		SystemNamespace:        "orbit-system",
+		SystemNamespace:        "kora-system",
 		Patches: loadTestPatches(t, map[string]string{
 			"10-agent.yaml": `target: {kind: StatefulSet}
 patch: |
@@ -251,7 +251,7 @@ patch: |
 patch: |
   apiVersion: v1
   kind: Pod
-  metadata: {name: any}` + nodeAffinity("orbit-sandbox"),
+  metadata: {name: any}` + nodeAffinity("kora-sandbox"),
 		}),
 	}
 	at := AgentType{ID: "render-coder", Slug: "coder", TenantID: "example"}
@@ -274,7 +274,7 @@ func TestCheckSandboxPlacement_CatchesPatchesScopedToOneAgentType(t *testing.T) 
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
-		SystemNamespace:        "orbit-system",
+		SystemNamespace:        "kora-system",
 		Patches: loadTestPatches(t, map[string]string{
 			"10-agent.yaml": `target: {kind: StatefulSet, labelSelector: "runkora.io/agent-type=render-coder"}
 patch: |
@@ -292,7 +292,7 @@ patch: |
   kind: Pod
   metadata: {name: any}
   spec:
-    nodeSelector: {workload-tier: orbit-sandbox}
+    nodeSelector: {workload-tier: kora-sandbox}
 `,
 		}),
 	}
@@ -322,7 +322,7 @@ func TestRenderResources_OneSidedPlacementKeepsReadWriteOnce(t *testing.T) {
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
-		SystemNamespace:        "orbit-system",
+		SystemNamespace:        "kora-system",
 		Patches: loadTestPatches(t, map[string]string{
 			"10-sts.yaml": `target: {kind: StatefulSet}
 patch: |

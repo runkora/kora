@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-operator
+  name: kora-operator
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.operator.labels" . | nindent 4 }}
@@ -33,7 +33,7 @@ spec:
         prometheus.io/path: "/metrics"
         {{- include "kora.podAnnotations" (dict "root" $ "name" "operator") | nindent 8 }}
     spec:
-      serviceAccountName: orbit-operator
+      serviceAccountName: kora-operator
       {{- include "kora.imagePullSecrets" . | nindent 6 }}
       {{- include "kora.scheduling" (dict "root" $ "name" "operator") | nindent 6 }}
       securityContext:
@@ -83,6 +83,6 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
-        {{- include "kora.configVolume" (dict "root" $ "name" "operator" "configMap" "orbit-operator-config" "modules" (include "kora.operator.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "operator" "configMap" "kora-operator-config" "modules" (include "kora.operator.configModules" . | fromYaml)) | nindent 8 }}
         {{- include "kora.spireVolumes" . | nindent 8 }}
       terminationGracePeriodSeconds: 60

@@ -9,7 +9,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: orbit-opa-gateway-config
+  name: kora-opa-gateway-config
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.opaGateway.labels" . | nindent 4 }}
@@ -17,7 +17,7 @@ data:
   config.yaml: |
     services:
       policy-service:
-        url: "http://orbit-policy-service.{{ include "kora.systemNamespace" . }}/api/v1"
+        url: "http://kora-policy-service.{{ include "kora.systemNamespace" . }}/api/v1"
 
     bundles:
       gateway:

@@ -1,14 +1,14 @@
 {{- /*
 Manifest patches ConfigMap (docs/adr/2026-09-15-manifest-patches-configmap.md).
 
-Mounted at /etc/kora/manifest-patches inside the orbit-agents pod. Each
+Mounted at /etc/kora/manifest-patches inside the kora-agents pod. Each
 .Values.agents.manifestPatches entry is one kustomize `patches:` entry,
 written as "<key>.yaml". Keys sort into apply order.
 */}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: orbit-agents-manifest-patches
+  name: kora-agents-manifest-patches
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.agents.labels" . | nindent 4 }}

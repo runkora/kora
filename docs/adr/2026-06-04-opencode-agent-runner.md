@@ -200,10 +200,10 @@ OpenCode does not honour `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` env vars. Bas
 {
   "provider": {
     "anthropic": {
-      "options": { "baseURL": "http://inference-gateway.orbit-system.svc.cluster.local" }
+      "options": { "baseURL": "http://inference-gateway.kora-system.svc.cluster.local" }
     },
     "openai": {
-      "options": { "baseURL": "http://inference-gateway.orbit-system.svc.cluster.local" }
+      "options": { "baseURL": "http://inference-gateway.kora-system.svc.cluster.local" }
     }
   }
 }

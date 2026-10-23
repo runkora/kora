@@ -11,7 +11,7 @@
 
 ## Context  
 
-`orbit-agents` builds the resources it provisions in tenant namespaces as typed Go structs in `backend/internal/agents/k8s.go`: a `StatefulSet` per agent type with the workspace `volumeClaimTemplate`, a headless `Service`, `ServiceAccount`, `HorizontalPodAutoscaler`, `PodDisruptionBudget`, and a `Pod` per run for the sandbox.
+`kora-agents` builds the resources it provisions in tenant namespaces as typed Go structs in `backend/internal/agents/k8s.go`: a `StatefulSet` per agent type with the workspace `volumeClaimTemplate`, a headless `Service`, `ServiceAccount`, `HorizontalPodAutoscaler`, `PodDisruptionBudget`, and a `Pod` per run for the sandbox.
 
 [2026-09-15](2026-09-15-manifest-patches-configmap.md) made kustomize `patches:` entries the mechanism for customising any field of those resources, replacing per-field env vars. That decision holds for the long tail. What it did not settle is which fields are common enough that requiring a patch is the wrong default.
 
@@ -21,7 +21,7 @@ Installing 0.1.0-rc.4 into a production cluster exercised the mechanism properly
 
 Patches handled it. Three problems sat around them:
 
-1. **The chart's own warm-start workloads could not follow the sandboxes.** They are Helm-owned workloads in the system namespace, not resources `orbit-agents` provisions, so no patch can reach them. They took their scheduling from the `agents` block, which places the `orbit-agents` Deployment, so they warmed nodes no sandbox runs on. #311 moves them onto the sandbox placement.
+1. **The chart's own warm-start workloads could not follow the sandboxes.** They are Helm-owned workloads in the system namespace, not resources `kora-agents` provisions, so no patch can reach them. They took their scheduling from the `agents` block, which places the `kora-agents` Deployment, so they warmed nodes no sandbox runs on. #311 moves them onto the sandbox placement.
 
 2. **Placement ends up expressed twice**, once in the sandbox patch and once in the warmer values, with nothing checking the two agree. When they drift the platform holds a warm node in a pool no sandbox schedules onto: the deployment pays for the node and still cold-starts, with no error anywhere.
 
@@ -32,12 +32,12 @@ Patches handled it. Three problems sat around them:
 Not everything needs adding, and the ADR should not pretend otherwise:
 
 - **Image registry and tags.** `global.imageRegistry` and `global.imageTag` default the provisioned images, and `agents.config.sessionManagerImage` and `agents.config.sandboxImage` override them outright. An air-gapped registry is already a values change.
-- **Image pull secrets.** `global.imagePullSecrets` drives three paths that have to agree: `orbit-agents` sets them on provisioned pods, the operator replicates the Secrets into every tenant namespace, and the pod webhook appends them to tenant pods. This stays a single global list precisely because a per-workload override would fragment the replication that makes it work.
+- **Image pull secrets.** `global.imagePullSecrets` drives three paths that have to agree: `kora-agents` sets them on provisioned pods, the operator replicates the Secrets into every tenant namespace, and the pod webhook appends them to tenant pods. This stays a single global list precisely because a per-workload override would fragment the replication that makes it work.
 
 ### What is not
 
 - **Placement.** Node selectors, tolerations, affinity, topology spread and priority class for the session-manager `StatefulSet` and the sandbox `Pod`. Patches only.
-- **Pod labels and annotations on provisioned pods.** The chart's `agents.podLabels` and `agents.podAnnotations` apply to the `orbit-agents` Deployment, not to anything in a tenant namespace. Enterprises need these for cost allocation, network policy selection, backup exclusion and their own admission controllers.
+- **Pod labels and annotations on provisioned pods.** The chart's `agents.podLabels` and `agents.podAnnotations` apply to the `kora-agents` Deployment, not to anything in a tenant namespace. Enterprises need these for cost allocation, network policy selection, backup exclusion and their own admission controllers.
 - **Workspace storage.** Storage class, access modes and size. The deployment guide lists the storage class as a cluster prerequisite, then asks for a kustomize patch to set it.
 - **Service account annotations on the agent's ServiceAccount.** The cloud identity path (IRSA, Workload Identity) is an annotation on a `ServiceAccount`, and `buildServiceAccount` has no annotations at all. Note this applies to the session-manager only: sandbox Pods set no `ServiceAccountName` and run under the tenant's `default` account.
 
@@ -69,7 +69,7 @@ The customisations most deployments need are expressible only as opaque patch do
 * **Single source of truth.** Placement stated twice will drift, and the drift is silent and billable.
 * **Fail at configuration time.** The failure mode being replaced is a Multi-Attach error during someone's first run.
 * **A bounded surface.** Only fields that are both commonly needed and safe for the platform to reason about earn a key.
-* **Structured values cannot ride environment variables.** `orbit-agents` config is `base.yaml` plus string env overrides. Selectors, tolerations, affinity and label maps are maps and lists, which is what [2026-06-12](2026-06-12-k8s-manifest-overrides-via-env-vars.md) failed to express and [2026-09-15](2026-09-15-manifest-patches-configmap.md) replaced.
+* **Structured values cannot ride environment variables.** `kora-agents` config is `base.yaml` plus string env overrides. Selectors, tolerations, affinity and label maps are maps and lists, which is what [2026-06-12](2026-06-12-k8s-manifest-overrides-via-env-vars.md) failed to express and [2026-09-15](2026-09-15-manifest-patches-configmap.md) replaced.
 * **Invariants hold regardless of mechanism.** Values must not become a way around the protections patches respect.
 
 ---
@@ -92,7 +92,7 @@ The customisations most deployments need are expressible only as opaque patch do
 
 ### Option 2: First-class values for the common customisations, delivered by a rendered ConfigMap, patches applied last (chosen)
 
-**Description:** Add `agents.workloads.*` (placement, pod labels and annotations, service account annotations) and `agents.workspace.*` to the chart. Render them into a ConfigMap mounted into the `orbit-agents` pod, load them into `K8sProvisionerConfig`, and apply them in the builders before patches. The warmers default their scheduling from `agents.workloads.sandbox`.
+**Description:** Add `agents.workloads.*` (placement, pod labels and annotations, service account annotations) and `agents.workspace.*` to the chart. Render them into a ConfigMap mounted into the `kora-agents` pod, load them into `K8sProvisionerConfig`, and apply them in the builders before patches. The warmers default their scheduling from `agents.workloads.sandbox`.
 
 **Pros:**
 - The customisations most deployments need are ordinary Helm values.
@@ -142,7 +142,7 @@ That model is what makes the rest possible. Once placement is a value, the chart
 
 ```yaml
 agents:
-  # Applied to the workloads orbit-agents provisions in tenant namespaces.
+  # Applied to the workloads kora-agents provisions in tenant namespaces.
   # Manifest patches still apply after these.
   workloads:
     # Applied to both the session-manager StatefulSet and sandbox Pods.
@@ -184,7 +184,7 @@ Sandbox warming is one block, `agents.sandboxWarming`, with `mode: none | image 
 
 ### Invariants
 
-Values are not a way around the protections patches respect. `orbit-agents` rejects at startup, naming the offending key:
+Values are not a way around the protections patches respect. `kora-agents` rejects at startup, naming the offending key:
 
 - `podLabels` that collide with an identity label (`spiffe.io/agent`, `spiffe.io/spire-managed-identity`, `runkora.io/identity-proxy`, `runkora.io/tenant`, `runkora.io/agent-type`, `runkora.io/role`, `runkora.io/run-id`, `runkora.io/agent-slug`, `runkora.io/managed-agent`) or with the `app` selector label. These select pods for SPIRE attestation and sidecar injection; a silent overwrite breaks identity.
 - `podAnnotations` that collide with the mesh annotations the builders set, and the Istio opt-outs (`sidecar.istio.io/inject`, `sidecar.istio.io/interceptionMode`) that the operator's pod validator denies. `sidecar.istio.io/inject` is reserved as a label too, since Istio honours both.
@@ -194,7 +194,7 @@ Security context, service account name, volume mounts and the sandbox workspace 
 ### Validation
 
 - **Chart.** `fail` when `agents.workloads.sandbox` and `agents.workloads.sessionManager` select different nodes and `agents.workspace.accessModes` does not include `ReadWriteMany`.
-- **`orbit-agents`.** Keep the post-patch check from #311, which stays the backstop for splits expressed as patches and now also covers splits expressed as values.
+- **`kora-agents`.** Keep the post-patch check from #311, which stays the backstop for splits expressed as patches and now also covers splits expressed as values.
 
 Neither check proves co-location. Matching placement is not enough, because a pool has many nodes and nothing stops a sandbox landing on a different one from its session-manager. A `ReadWriteOnce` workspace therefore gets required pod affinity binding the sandbox to the StatefulSet replica whose workspace it mounts, appended after configured placement so it cannot be dropped. `ReadWriteMany` skips it, because crossing nodes is the point of a separate sandbox pool.
 
@@ -214,8 +214,8 @@ Neither check proves co-location. Matching placement is not enough, because a po
 ### Negative
 
 - Two mechanisms can set the same field. The guide has to be explicit that values are the supported path and patches the escape hatch.
-- A second ConfigMap, volume and checksum annotation on the `orbit-agents` pod.
-- Changing these values rolls `orbit-agents`, and agent StatefulSets pick the change up on their next reconcile rather than instantly. Changing the ServiceAccount annotations also rolls the agent's own pods, because cloud identity attaches at pod creation.
+- A second ConfigMap, volume and checksum annotation on the `kora-agents` pod.
+- Changing these values rolls `kora-agents`, and agent StatefulSets pick the change up on their next reconcile rather than instantly. Changing the ServiceAccount annotations also rolls the agent's own pods, because cloud identity attaches at pod creation.
 - On a `ReadWriteOnce` workspace a sandbox now waits for room on its session-manager's node instead of scheduling elsewhere. The failure it replaces is a Multi-Attach error mid-run, but a busy node delays a start that used to proceed and then break.
 - More values to keep documented and tested, including a collision check that did not exist before.
 

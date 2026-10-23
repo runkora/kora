@@ -30,7 +30,7 @@ import (
 // in any tenant, bounded only by that principal's grants. Adding an entry is a
 // security decision, not a wiring detail.
 var mintServiceTokenCallers = map[string]struct{}{
-	"orbit-triggers": {},
+	"kora-triggers": {},
 }
 
 // maxServiceTokenTTL caps the lifetime a caller may request. Trigger tokens are

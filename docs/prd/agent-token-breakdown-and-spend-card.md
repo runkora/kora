@@ -113,7 +113,7 @@ The Tokens card expands to show sub-rows:
 ### Key Components
 
 - **Backend**: New `GetAgentTypeUsage` repository method + service method + handler on inference-gateway
-- **BFF route**: `GET /api/agents/types/overview/[slug]` composed from the inference gateway and orbit-agents
+- **BFF route**: `GET /api/agents/types/overview/[slug]` composed from the inference gateway and kora-agents
 - **Frontend hook**: Fetch on mount in the agent detail context or the overview tab itself
 - **Frontend component**: Updated stat cards in `agent-overview-tab.tsx`
 

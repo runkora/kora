@@ -77,7 +77,7 @@ spec:
                   - endpoint:
                       address:
                         socket_address:
-                          address: orbit-opa-gateway.{{ include "kora.systemNamespace" . }}.svc.cluster.local
+                          address: kora-opa-gateway.{{ include "kora.systemNamespace" . }}.svc.cluster.local
                           port_value: 9191
           typed_extension_protocol_options:
             envoy.extensions.upstreams.http.v3.HttpProtocolOptions:

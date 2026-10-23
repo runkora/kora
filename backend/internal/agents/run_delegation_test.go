@@ -151,7 +151,7 @@ func TestStartRun_Delegated_PrincipalGating(t *testing.T) {
 			if got, want := issuer.minted[0].SubjectToken, tc.bearer; got != want {
 				t.Errorf("mint subject_token = %q, want the caller's bearer %q", got, want)
 			}
-			wantPrincipal := "spiffe://orbit.test/tenant/orbit-tenant-t1/agent/reviewer"
+			wantPrincipal := "spiffe://orbit.test/tenant/kora-tenant-t1/agent/reviewer"
 			if got := issuer.minted[0].AgentPrincipalID; got != wantPrincipal {
 				t.Errorf("mint agent principal = %q, want %q", got, wantPrincipal)
 			}
@@ -363,7 +363,7 @@ func TestReaper_RevokesDelegationOnReapedRuns(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	runSvc, err := NewRunService(repo, repo, &mockSMClient{}, &mockK8s{}, NewPubSub(), NewAuthz(&allowAllEvaluator{}), repo, &mockK8s{}, &mockK8s{}, repo, RunServiceConfig{
 		MaxConcurrentRunsPerPod: 5,
-		TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
+		TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
 		StaleRunTimeout:         time.Millisecond,
 		ReaperInterval:          5 * time.Millisecond,
 		Brand:                   brand.MustNew("kora"),

@@ -1,5 +1,5 @@
 {{- /*
-orbit-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+kora-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md).
 */}}
 {{- define "kora.agents.configModules" -}}
 {{- $guardrails := .Values.agents.guardrails }}
@@ -28,8 +28,8 @@ cmd/kora-agents:
     systemNamespace: {{ include "kora.systemNamespace" . | toJson }}
   platform:
     trustDomain: {{ include "kora.trustDomain" . | toJson }}
-    identityServiceURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
-    policyServiceURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
+    identityServiceURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-identity") | toJson }}
+    policyServiceURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-policy-service") | toJson }}
   policy:
     bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}
   agents:
@@ -74,4 +74,4 @@ cmd/kora-agents:
 {{ include "kora.tokenConfigModule" . }}
 {{ include "kora.brandConfigModule" . }}
 {{- end }}
-{{- include "kora.configMap" (dict "root" $ "name" "agents" "configMap" "orbit-agents-config" "modules" (include "kora.agents.configModules" . | fromYaml)) }}
+{{- include "kora.configMap" (dict "root" $ "name" "agents" "configMap" "kora-agents-config" "modules" (include "kora.agents.configModules" . | fromYaml)) }}

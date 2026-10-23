@@ -1,8 +1,8 @@
 // Static (pre-registered) OAuth client source for the authorization server.
 //
 // Hosted web applications are pre-registered as OAuthClient CRs in their tenant
-// namespace. The orbit-operator's OAuthClientAggregator renders every tenant's
-// OAuthClient CRs into the orbit-system ConfigMap orbit-tenant-oauth-clients
+// namespace. The kora-operator's OAuthClientAggregator renders every tenant's
+// OAuthClient CRs into the kora-system ConfigMap kora-tenant-oauth-clients
 // (one key, oauth-clients.json); the identity service mounts it as a file and
 // reads it here. This mirrors the egress gateway's ConfigMap-backed connection
 // registry (internal/credentials/configmap.go) and the client-secrets watcher:

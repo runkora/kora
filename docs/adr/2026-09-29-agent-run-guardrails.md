@@ -17,7 +17,7 @@ A run is an agent runtime subprocess (Claude Code, Codex or OpenCode) hosted by 
 
 Nothing stops a run that has stopped making progress.
 
-- **Sandbox loss.** When the sandbox dies and re-provisioning fails, each `provision_sandbox` call fails independently, the run records no event, and the agent is never told the loss is permanent or what survived. One production run made 42 provision calls, each timing out at the tool's 120s client timeout while `session-manager` was still waiting on orbit-agents.
+- **Sandbox loss.** When the sandbox dies and re-provisioning fails, each `provision_sandbox` call fails independently, the run records no event, and the agent is never told the loss is permanent or what survived. One production run made 42 provision calls, each timing out at the tool's 120s client timeout while `session-manager` was still waiting on kora-agents.
 - **Loops.** Runs repeat the same failing call 2 to 4 times as a matter of course, and build waits out of Monitor, Cron and `sleep` re-arms. One production run re-armed a Monitor 36 times over about 78 minutes against a dead sandbox, posting filler messages and telling the user no action was needed. Another made 31 Monitor calls, 16 of them `sleep 1; echo waiting_placeholderN`.
 
 ### Goals
@@ -66,7 +66,7 @@ Nothing stops a run that has stopped making progress.
 
 ### G1 sandbox loss
 
-- An agent's provision request tries up to `sandboxProvisionAttempts` times (default 3), backing off from `sandboxProvisionBackoffSecs` (default 5) and doubling, within `sandboxProvisionBudgetSecs` (default 600). Each attempt gets an equal share of the budget, so one hung call to orbit-agents cannot use every retry. Pre-provisioning at run start keeps its single attempt.
+- An agent's provision request tries up to `sandboxProvisionAttempts` times (default 3), backing off from `sandboxProvisionBackoffSecs` (default 5) and doubling, within `sandboxProvisionBudgetSecs` (default 600). Each attempt gets an equal share of the budget, so one hung call to kora-agents cannot use every retry. Pre-provisioning at run start keeps its single attempt.
 - Provisioning is serialised per run, so parallel shell calls that all find the sandbox dead share one replacement.
 - The retries are bound to the session, not the caller: a runtime kills a shell call at its own timeout and the outcome must still be recorded, and ending the session stops them so no sandbox is created for a finished run. A resumed session keeps the run's sandbox descriptor and its lost state.
 - On final failure the run records one `run_error` with code `sandbox_lost`, and every later provision request fails at once with HTTP 503 `sandbox_lost` and the same message. The message names the run workspace by its concrete path (`/workspaces/<run-id>`), says whether files under it are intact, says that files outside it are lost, and says that shell commands and `provision_sandbox` will fail until the user replies. The next user message or answer to a question clears the state, and a retry that fails after the user replied does not re-block them.
@@ -144,7 +144,7 @@ The sandbox settings bound how the platform treats its own infrastructure, so an
 - Each threshold is a free integer, not a choice from presets. The dashboard shows the thresholds as two limit rows, repeated calls and wait loops, each with a warn and a pause input and a one-line description of what it counts. Each row has a switch like the other limits: off sends no override, so the agent type takes the platform defaults, which the disabled inputs show; on sends the row's two values. The switch chooses between defaults and custom values; the guard itself always runs.
 - Validation, on the value each field resolves to after defaults: every warn is at least 1, and every pause is greater than its warn. A request that breaks either is rejected with a validation error. The dashboard applies the same rules inline before saving.
 - There is no off switch: a pause of 0, or an unset pause below its warn, is invalid. A loop that never pauses is the failure this ADR exists to prevent, and a high pause threshold covers an agent that legitimately waits for long.
-- The chart's `agents.guardrails` values reach orbit-agents as configuration. orbit-agents sends the install's sandbox settings and the agent type's resolved loop thresholds with every session it creates, the same path the rest of the run's configuration takes. `session-manager` applies them to that run and falls back to its built-in defaults for any it does not receive. Changing a threshold therefore applies to the next run without restarting agent pods.
+- The chart's `agents.guardrails` values reach kora-agents as configuration. kora-agents sends the install's sandbox settings and the agent type's resolved loop thresholds with every session it creates, the same path the rest of the run's configuration takes. `session-manager` applies them to that run and falls back to its built-in defaults for any it does not receive. Changing a threshold therefore applies to the next run without restarting agent pods.
 - The `guardrails` block leaves the session-manager's own configuration file.
 
 ### Three questions

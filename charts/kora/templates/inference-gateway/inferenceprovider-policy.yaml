@@ -3,7 +3,7 @@
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-  name: orbit-inferenceprovider-namespace
+  name: kora-inferenceprovider-namespace
   labels:
     {{- include "kora.labels" . | nindent 4 }}
 spec:
@@ -21,9 +21,9 @@ spec:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-  name: orbit-inferenceprovider-namespace
+  name: kora-inferenceprovider-namespace
   labels:
     {{- include "kora.labels" . | nindent 4 }}
 spec:
-  policyName: orbit-inferenceprovider-namespace
+  policyName: kora-inferenceprovider-namespace
   validationActions: ["Deny"]

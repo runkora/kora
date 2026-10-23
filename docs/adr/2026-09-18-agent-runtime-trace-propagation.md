@@ -5,13 +5,13 @@
 **Status:** Accepted
 **Date:** 2026-09-18
 **Deciders:** Justin Wilkin
-**Technical Story:** Show a run as one trace, from the run start in `orbit-agents` through the Claude Code subprocess to the inference and tool gateway calls it makes. Builds on [2026-03-21: OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md).
+**Technical Story:** Show a run as one trace, from the run start in `kora-agents` through the Claude Code subprocess to the inference and tool gateway calls it makes. Builds on [2026-03-21: OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md).
 
 ---
 
 ## Context
 
-A run's trace stops at the session-manager. `orbit-agents` starts a run by calling the session-manager's create-session and send-message endpoints on the same context, and both carry W3C `traceparent`. The session-manager then spawns Claude Code as a long-lived subprocess (`claude --print --input-format stream-json`) and nothing crosses that process boundary. The inference gateway and tool gateway extract `traceparent` on every request, but Claude Code sends none, so each model call and governed MCP call starts a new root trace with no link to the run.
+A run's trace stops at the session-manager. `kora-agents` starts a run by calling the session-manager's create-session and send-message endpoints on the same context, and both carry W3C `traceparent`. The session-manager then spawns Claude Code as a long-lived subprocess (`claude --print --input-format stream-json`) and nothing crosses that process boundary. The inference gateway and tool gateway extract `traceparent` on every request, but Claude Code sends none, so each model call and governed MCP call starts a new root trace with no link to the run.
 
 This touches *How does it connect?*: it changes what the agent runtime sends on its outbound calls and where its telemetry goes. Identity and policy enforcement are unchanged.
 

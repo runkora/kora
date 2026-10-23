@@ -1,28 +1,28 @@
 {{- if .Values.platform.spiffe.enabled }}
-# DestinationRule for orbit-agents mTLS peer authentication.
+# DestinationRule for kora-agents mTLS peer authentication.
 #
 # Required so that any Envoy proxy (including sidecars in tenant namespaces)
-# that dials orbit-agents uses ISTIO_MUTUAL with the correct SPIFFE SAN.
+# that dials kora-agents uses ISTIO_MUTUAL with the correct SPIFFE SAN.
 # Without this rule, cross-namespace callers (e.g. session-manager pods pushing
 # events) fall back to plain-text and the TLS handshake fails.
 #
-# The SPIFFE ID matches the orbit-system-component ClusterSPIFFEID template
-# (spiffe.io/component=orbit-agents label on the orbit-agents pod).
+# The SPIFFE ID matches the kora-system-component ClusterSPIFFEID template
+# (spiffe.io/component=kora-agents label on the kora-agents pod).
 #
 # Ref: ADR-0054 (agent event streaming — HTTP push path)
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: orbit-agents-client-policy
+  name: kora-agents-client-policy
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.agents.labels" . | nindent 4 }}
 spec:
-  host: orbit-agents.{{ include "kora.systemNamespace" . }}.svc.cluster.local
+  host: kora-agents.{{ include "kora.systemNamespace" . }}.svc.cluster.local
   exportTo: ["*"]
   trafficPolicy:
     tls:
       mode: ISTIO_MUTUAL
       subjectAltNames:
-        - "spiffe://{{ include "kora.trustDomain" . }}/system/orbit-agents"
+        - "spiffe://{{ include "kora.trustDomain" . }}/system/kora-agents"
 {{- end }}

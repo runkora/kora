@@ -1,7 +1,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: orbit-agents
+  name: kora-agents
   labels:
     {{- include "kora.agents.labels" . | nindent 4 }}
 # Verbs match the calls in internal/agents/k8s.go. There are no informers and
@@ -34,12 +34,12 @@ rules:
     resources: ["destinationrules"]
     verbs: ["get", "create", "update", "delete"]
   # AuthorizationPolicies restricting each agent pod's session-manager port to
-  # the orbit-agents principal, created in the tenant namespace alongside the
+  # the kora-agents principal, created in the tenant namespace alongside the
   # StatefulSet (internal/agents/k8s.go ensureAuthorizationPolicy).
   - apiGroups: ["security.istio.io"]
     resources: ["authorizationpolicies"]
     verbs: ["get", "create", "update", "delete"]
-  # Read-only access to the cluster-scoped KoraTenant CR so orbit-agents can
+  # Read-only access to the cluster-scoped KoraTenant CR so kora-agents can
   # set it as ownerReferences on the resources it provisions. Enables the
   # ArgoCD resource-tree view and native k8s cascade delete
   # (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).

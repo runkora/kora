@@ -59,11 +59,11 @@ type Config struct {
 
 	Registry struct {
 		// ServersPath is the mounted servers.json file rendered by the
-		// operator's MCPServerAggregator into the orbit-mcp-servers ConfigMap.
+		// operator's MCPServerAggregator into the kora-mcp-servers ConfigMap.
 		// The gateway parses it into the server registry and hot-reloads on
 		// change. Absent/empty means no servers until the operator renders it.
 		ServersPath string `yaml:"serversPath"`
-		// SecretsDir is the mounted orbit-mcp-server-secrets Secret holding
+		// SecretsDir is the mounted kora-mcp-server-secrets Secret holding
 		// the values of servers' auth headers, one file per key.
 		SecretsDir string `yaml:"secretsDir"`
 	} `yaml:"registry"`

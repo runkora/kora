@@ -74,7 +74,7 @@ func (f *fakeMounter) Release(uids []string, sources map[string]bool) error {
 // newTestAgent builds an agent whose ledger already records the given mounts.
 func newTestAgent(t *testing.T, node string, m *fakeMounter, recorded map[string]string) (*Agent, *fakeExporter) {
 	t.Helper()
-	l, err := loadLedger(filepath.Join(t.TempDir(), "plugins", "orbit-sandbox-mount", "mounts.json"))
+	l, err := loadLedger(filepath.Join(t.TempDir(), "plugins", "kora-sandbox-mount", "mounts.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

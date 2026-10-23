@@ -124,7 +124,7 @@ func (r *TenantReconciler) ensureBundledSandboxImages(ctx context.Context, tenan
 
 // ownsBundledSandboxImage reports whether the operator created img as a bundled image.
 func ownsBundledSandboxImage(img *si.SandboxImage) bool {
-	return img.Labels["app.kubernetes.io/managed-by"] == "orbit-operator" &&
+	return img.Labels["app.kubernetes.io/managed-by"] == "kora-operator" &&
 		img.Labels["runkora.io/component"] == si.BundledComponent
 }
 

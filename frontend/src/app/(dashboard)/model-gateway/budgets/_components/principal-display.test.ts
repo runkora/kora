@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { principalDisplay } from './principal-display';
 
-const agentId = 'spiffe://orbit.test/tenant/orbit-tenant-example/agent/ci-failure-investigator';
+const agentId = 'spiffe://orbit.test/tenant/kora-tenant-example/agent/ci-failure-investigator';
 
 describe('principalDisplay', () => {
   it('shows an agent by the name at the end of its SPIFFE ID and keeps the full ID', () => {

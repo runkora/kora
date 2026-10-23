@@ -6,7 +6,7 @@
 // constrains their egress to:
 //
 //   - DNS (port 53): service discovery, including resolving the gateway
-//   - The egress-gateway in orbit-system on its CONNECT port: the only
+//   - The egress-gateway in kora-system on its CONNECT port: the only
 //     governed egress path
 //
 // All other egress is denied. The default-deny posture is implicit: a
@@ -42,7 +42,7 @@ const sandboxIngressPolicyName = "sandbox-ingress-from-agents"
 // allowed to reach. The chart in charts/kora/templates/egress-gateway/
 // renders this name; mismatch here would silently break egress for all
 // tenants.
-const egressGatewayServiceName = "orbit-egress-gateway"
+const egressGatewayServiceName = "kora-egress-gateway"
 
 // ensureSandboxEgressPolicy reconciles the NetworkPolicy that locks sandbox
 // egress to the per-tenant gateway. Re-applied on every reconcile so a
@@ -58,7 +58,7 @@ func sandboxEgressPolicy(ns, tenantName string) *networkingv1.NetworkPolicy {
 			Name:      sandboxEgressPolicyName,
 			Namespace: ns,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "orbit-operator",
+				"app.kubernetes.io/managed-by": "kora-operator",
 				"runkora.io/tenant":            tenantName,
 			},
 		},
@@ -109,7 +109,7 @@ func sandboxEgressPolicy(ns, tenantName string) *networkingv1.NetworkPolicy {
 						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(15012)},
 					},
 				},
-				// orbit-identity and orbit-policy-service, on their own ports
+				// kora-identity and kora-policy-service, on their own ports
 				// only: the mesh sidecars (identity-proxy for SVID→token
 				// exchange and JWKS, opa for bundle polling and route
 				// registration) call these platform-internal endpoints
@@ -117,11 +117,11 @@ func sandboxEgressPolicy(ns, tenantName string) *networkingv1.NetworkPolicy {
 				// agent traffic.
 				//
 				// Critically, the sandbox-exec container's user code does
-				// NOT reach orbit-system this way: the sandbox Envoy
+				// NOT reach kora-system this way: the sandbox Envoy
 				// transparently rewrites the agent's external egress into a
-				// CONNECT to orbit-egress-gateway:8085 (see
+				// CONNECT to kora-egress-gateway:8085 (see
 				// charts/kora/templates/egress-gateway/transparent-egress.yaml),
-				// while the sidecars dial orbit-system services on cluster-DNS.
+				// while the sidecars dial kora-system services on cluster-DNS.
 				{
 					To: []networkingv1.NetworkPolicyPeer{
 						{
@@ -131,7 +131,7 @@ func sandboxEgressPolicy(ns, tenantName string) *networkingv1.NetworkPolicy {
 								},
 							},
 							PodSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{"app": "orbit-identity"},
+								MatchLabels: map[string]string{"app": "kora-identity"},
 							},
 						},
 					},
@@ -148,7 +148,7 @@ func sandboxEgressPolicy(ns, tenantName string) *networkingv1.NetworkPolicy {
 								},
 							},
 							PodSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{"app": "orbit-policy-service"},
+								MatchLabels: map[string]string{"app": "kora-policy-service"},
 							},
 						},
 					},
@@ -168,10 +168,10 @@ func sandboxEgressPolicy(ns, tenantName string) *networkingv1.NetworkPolicy {
 				// the resolved `kubernetes` Service ClusterIP (/32 on 443) and
 				// Endpoints (/32 on 6443), never 0.0.0.0/0.
 				//
-				// The egress gateway in orbit-system. We match by namespace
+				// The egress gateway in kora-system. We match by namespace
 				// label + service name (via pod label): Kubernetes
 				// NetworkPolicy does not have a native "Service" matcher,
-				// but the gateway's pods carry an app=orbit-egress-gateway
+				// but the gateway's pods carry an app=kora-egress-gateway
 				// label set by its chart so this selects them.
 				{
 					To: []networkingv1.NetworkPolicyPeer{
@@ -211,7 +211,7 @@ func (r *TenantReconciler) ensureSandboxIngressPolicy(ctx context.Context, tenan
 			Name:      sandboxIngressPolicyName,
 			Namespace: ns,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "orbit-operator",
+				"app.kubernetes.io/managed-by": "kora-operator",
 				"runkora.io/tenant":            tenant.Name,
 			},
 		},

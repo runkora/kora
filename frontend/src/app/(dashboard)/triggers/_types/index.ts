@@ -730,7 +730,7 @@ export type DeliveryDetail =
  * The human end of a failure chain.
  *
  * Backend errors arrive as a wrapped chain, often ending in a JSON error body:
- * "start run: unexpected status from orbit-agents: status 500: {\"code\":...,
+ * "start run: unexpected status from kora-agents: status 500: {\"code\":...,
  * \"message\":\"failed to start run\"}". The message inside that body is what a
  * person acts on; the full chain stays available as detail.
  */

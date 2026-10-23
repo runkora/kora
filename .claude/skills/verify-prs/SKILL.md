@@ -104,8 +104,8 @@ make auth-refresh-k3d    # tokens expire (~15 min); refresh, don't re-auth, whil
 ```
 Call APIs by reading the token inline (it is NOT in the env), through a port-forward:
 ```bash
-kubectl port-forward svc/orbit-identity -n orbit-system 6069:80 &
-kubectl port-forward svc/orbit-inference-gateway -n orbit-system 8081:80 &
+kubectl port-forward svc/kora-identity -n kora-system 6069:80 &
+kubectl port-forward svc/kora-inference-gateway -n kora-system 8081:80 &
 TOKEN=$(jq -r '.access_token' /tmp/kora_credentials.json) && curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8081/v1/models
 ```
 Re-establish port-forwards after every pod restart (a dropped forward shows as `HTTP 000`).
@@ -120,7 +120,7 @@ make redeploy SERVICE=identity                       # background it + poll the 
 Then **prove behaviour**, not just that it built:
 - **Backend** — capture a *baseline on main first* where it helps (an endpoint that should
   now behave differently), then deploy the branch and hit the real endpoint with curl; read
-  pod logs (`kubectl -n orbit-system logs <pod> -c orbit-<svc>`) to confirm the code path,
+  pod logs (`kubectl -n kora-system logs <pod> -c orbit-<svc>`) to confirm the code path,
   region/endpoint, error codes.
 - **Frontend** — served at `https://orbit.local.clearroute.io` (an HAProxy container maps host 443 to the k3d load balancer;
   mkcert cert trusted). Drive Safari + screenshot (a locked Private window blocks scripting;
@@ -133,7 +133,7 @@ Then **prove behaviour**, not just that it built:
 - **Need data?** Seed it directly in Postgres
   (`docker exec orbit-postgres psql -U orbit -d orbit -c "…"`). Read the query/handler first
   so rows match how it's read (e.g. usage keyed by the agent SPIFFE principal
-  `spiffe://{trust-domain}/tenant/orbit-tenant-{tenant}/agent/{slug}`; deliveries that satisfy the `WHERE`/`JOIN`). Note
+  `spiffe://{trust-domain}/tenant/kora-tenant-{tenant}/agent/{slug}`; deliveries that satisfy the `WHERE`/`JOIN`). Note
   what you seeded — harmless in dev.
 
 **Restore the cluster** when done: redeploy the affected services from an **up-to-date local

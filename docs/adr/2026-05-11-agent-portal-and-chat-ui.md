@@ -46,7 +46,7 @@ Without a frontend, the agent control plane is only accessible via API. The targ
 
 ### Option A: WebSocket for chat
 
-**Description:** Browser opens a WebSocket to `orbit-agents`. Messages and events flow bidirectionally over a single persistent connection.
+**Description:** Browser opens a WebSocket to `kora-agents`. Messages and events flow bidirectionally over a single persistent connection.
 
 **Pros:**
 - Bidirectional — user messages and agent output on one connection
@@ -130,12 +130,12 @@ Component mounts
 
 Browser tab closed / component unmounts
   → EventSource.close()
-  → orbit-agents releases Postgres LISTEN connection
+  → kora-agents releases Postgres LISTEN connection
 
 Network disconnect
   → EventSource automatically reconnects (browser-native)
   → sends Last-Event-ID header with last received sequence_no
-  → orbit-agents resumes from that sequence_no
+  → kora-agents resumes from that sequence_no
 ```
 
 ### Event Rendering
@@ -151,19 +151,19 @@ Network disconnect
 
 ### BFF Route for SSE
 
-The Next.js BFF proxies the SSE stream from `orbit-agents`:
+The Next.js BFF proxies the SSE stream from `kora-agents`:
 
 ```
 GET /api/v1/runs/{run_id}/events (Next.js route handler)
   → validates session cookie, extracts user's platform JWT
-  → opens SSE connection to orbit-agents: GET /api/v1/runs/{run_id}/events
+  → opens SSE connection to kora-agents: GET /api/v1/runs/{run_id}/events
       Authorization: Bearer {user-platform-jwt}
   → pipes stream to browser response
 ```
 
-The BFF forwards the user's platform JWT (obtained from the session cookie at login and stored server-side) as a `Bearer` token to `orbit-agents`. `orbit-agents` validates this JWT against the identity-service — the same mechanism used by all other platform services. The browser never holds the platform JWT directly and never calls `orbit-agents` directly.
+The BFF forwards the user's platform JWT (obtained from the session cookie at login and stored server-side) as a `Bearer` token to `kora-agents`. `kora-agents` validates this JWT against the identity-service — the same mechanism used by all other platform services. The browser never holds the platform JWT directly and never calls `kora-agents` directly.
 
-All non-streaming BFF-to-orbit-agents calls (POST to start a run, GET to list agent types, etc.) follow the same pattern: the BFF extracts the user's platform JWT from the session and forwards it as `Authorization: Bearer`.
+All non-streaming BFF-to-kora-agents calls (POST to start a run, GET to list agent types, etc.) follow the same pattern: the BFF extracts the user's platform JWT from the session and forwards it as `Authorization: Bearer`.
 
 ### Agent Type Creation Flow
 

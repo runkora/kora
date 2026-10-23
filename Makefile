@@ -96,7 +96,7 @@ help: ## Display this help screen
 # Generates .env rather than copying a template. Everything with a safe default
 # lives in docker-compose.yml, so the file holds only machine-local secrets.
 # Never overwrites: the Postgres volume bakes DB_PASSWORD at first init, and the
-# cluster's orbit-secrets is built from these values.
+# cluster's kora-secrets is built from these values.
 .PHONY: env
 env: ## Generate .env with machine-local secrets (existing .env keeps its values; missing keys are appended)
 	@if [ -f .env ]; then \
@@ -375,13 +375,13 @@ migrate-create: ## Create a new migration (usage: make migrate-create service=id
 	@cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/migrate create --service $(service) $(name)
 	@echo "$(COLOR_GREEN)✓ Migration created in backend/cmd/$(service)/migrations/$(COLOR_RESET)"
 
-# The migrate image is rebuilt and the orbit release re-applied only when the
+# The migrate image is rebuilt and the kora release re-applied only when the
 # migration files changed since the last push. redeploy.sh records the content
 # hash beside the digest in local.generated.yaml. A redeploy of any service on
 # a branch that added a migration fires the hook before the service boots
 # against the stale schema.
 .PHONY: redeploy-migrate-if-changed
-redeploy-migrate-if-changed: ## Rebuild the migrate image and re-apply the orbit release when the migration files changed
+redeploy-migrate-if-changed: ## Rebuild the migrate image and re-apply the kora release when the migration files changed
 	@HASH=$$(bash scripts/cluster/migrations-hash.sh); \
 	RECORDED=$$(yq -r '.migrate.sourceHash // ""' deploy/reference/environments/local.generated.yaml 2>/dev/null); \
 	if [ "$$HASH" = "$$RECORDED" ]; then \
@@ -393,7 +393,7 @@ redeploy-migrate-if-changed: ## Rebuild the migrate image and re-apply the orbit
 	fi
 
 .PHONY: redeploy-migrate
-redeploy-migrate: ## Rebuild the migrate image and re-apply the orbit release so the schema hook runs
+redeploy-migrate: ## Rebuild the migrate image and re-apply the kora release so the schema hook runs
 	@bash scripts/cluster/redeploy.sh migrate $(REDEPLOY_FLAGS)
 
 # ===========================================
@@ -492,7 +492,7 @@ REDEPLOY_PLATFORM_SERVICES := \
 	session-manager sandbox-mount sandbox-base
 REDEPLOY_TENANT_SERVICES := example
 
-# Services with a long-lived orbit-system workload that `cluster-update` rolls
+# Services with a long-lived kora-system workload that `cluster-update` rolls
 # after the build pass. Excludes identity-proxy (sidecar), sandbox-base
 # (on-demand), session-manager (tenant StatefulSet, may not exist yet) and
 # operator (helm-managed — upgraded separately so chart/CRD changes land).
@@ -500,9 +500,9 @@ REDEPLOY_ROLLOUT_SERVICES := \
 	identity inference-gateway policy-service policy-gateway egress-gateway \
 	agents frontend kora-mcp tool-gateway kora-triggers
 
-# orbit-system deployments we don't build (third-party images) but still restart
+# kora-system deployments we don't build (third-party images) but still restart
 # on cluster-update so they re-read chart-managed config on the way back up.
-REDEPLOY_RESTART_ONLY := orbit-opa-gateway
+REDEPLOY_RESTART_ONLY := kora-opa-gateway
 
 OPA_ENVOY_IMAGE := openpolicyagent/opa:1.21.0-envoy-static
 
@@ -703,10 +703,10 @@ cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install S
 	 if [ "$$CURRENT" != "$$EXPECTED" ]; then \
 	   echo "$(COLOR_RED)✗ kube context is '$$CURRENT', expected '$$EXPECTED'. Switch context or set KORA_KUBE_CONTEXT.$(COLOR_RESET)"; exit 1; \
 	 fi
-	@echo "$(COLOR_YELLOW)Preparing the orbit-system namespace...$(COLOR_RESET)"
-	@kubectl create namespace orbit-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-	@echo "$(COLOR_YELLOW)Creating orbit-system secrets (DB + Redis + signing key)...$(COLOR_RESET)"
-	@bash scripts/cluster/create-secrets.sh orbit-system
+	@echo "$(COLOR_YELLOW)Preparing the kora-system namespace...$(COLOR_RESET)"
+	@kubectl create namespace kora-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+	@echo "$(COLOR_YELLOW)Creating kora-system secrets (DB + Redis + signing key)...$(COLOR_RESET)"
+	@bash scripts/cluster/create-secrets.sh kora-system
 	@echo "$(COLOR_YELLOW)Creating mkcert CA ConfigMap for Dex TLS verification...$(COLOR_RESET)"
 	@$(MAKE) cluster-ca-configmap
 	@echo "$(COLOR_YELLOW)Creating TLS secret for the kora ingress gateway...$(COLOR_RESET)"
@@ -728,32 +728,32 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 	@echo "$(COLOR_YELLOW)Registering tenants (applying KoraTenant CRs)...$(COLOR_RESET)"
 	@kubectl apply -f deploy/local/tenants/
 	@echo "  Waiting for tenant namespaces (operator provisioning)..."
-	@until kubectl get namespace orbit-tenant-example &>/dev/null; do sleep 3; done
+	@until kubectl get namespace kora-tenant-example &>/dev/null; do sleep 3; done
 	@echo "  Waiting for the operator to write the tenant registry ConfigMap..."
-	@until kubectl get configmap orbit-tenants -n orbit-system -o jsonpath='{.data.tenants\.yaml}' 2>/dev/null | grep -q "id: example"; do sleep 2; done
-	@# orbit-identity boots before the tenant exists (cluster-platform runs first) and
+	@until kubectl get configmap kora-tenants -n kora-system -o jsonpath='{.data.tenants\.yaml}' 2>/dev/null | grep -q "id: example"; do sleep 2; done
+	@# kora-identity boots before the tenant exists (cluster-platform runs first) and
 	@# builds its OIDC providers at startup. It watches the ConfigMap, but the fsnotify
 	@# watcher dies with "too many open files" when the host's inotify limits are low,
 	@# leaving federated auth disabled and `make auth` failing with oidc_not_configured.
 	@# Restart it unless it has already initialised a provider.
-	@if kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity 2>/dev/null | grep -q "OIDC provider initialized"; then \
-		echo "  orbit-identity has the tenant OIDC config"; \
+	@if kubectl logs deployment/kora-identity -n kora-system -c kora-identity 2>/dev/null | grep -q "OIDC provider initialized"; then \
+		echo "  kora-identity has the tenant OIDC config"; \
 	else \
-		echo "$(COLOR_YELLOW)  orbit-identity booted before the tenant existed; restarting it$(COLOR_RESET)"; \
-		kubectl rollout restart deployment/orbit-identity -n orbit-system >/dev/null; \
-		kubectl rollout status deployment/orbit-identity -n orbit-system --timeout=180s; \
-		if ! kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity 2>/dev/null | grep -q "OIDC provider initialized"; then \
-			echo "$(COLOR_RED)✗ orbit-identity still has no OIDC provider. 'make auth' will fail with oidc_not_configured.$(COLOR_RESET)"; \
-			echo "  Check: kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity | grep -i tenant"; \
+		echo "$(COLOR_YELLOW)  kora-identity booted before the tenant existed; restarting it$(COLOR_RESET)"; \
+		kubectl rollout restart deployment/kora-identity -n kora-system >/dev/null; \
+		kubectl rollout status deployment/kora-identity -n kora-system --timeout=180s; \
+		if ! kubectl logs deployment/kora-identity -n kora-system -c kora-identity 2>/dev/null | grep -q "OIDC provider initialized"; then \
+			echo "$(COLOR_RED)✗ kora-identity still has no OIDC provider. 'make auth' will fail with oidc_not_configured.$(COLOR_RESET)"; \
+			echo "  Check: kubectl logs deployment/kora-identity -n kora-system -c kora-identity | grep -i tenant"; \
 			exit 1; \
 		fi; \
 	fi
 	@echo "$(COLOR_YELLOW)Creating tenant secrets...$(COLOR_RESET)"
-	@bash scripts/cluster/create-secrets.sh orbit-tenant-example
+	@bash scripts/cluster/create-secrets.sh kora-tenant-example
 	@echo "$(COLOR_YELLOW)Registering tenant connections...$(COLOR_RESET)"
-	@kubectl get secret orbit-local-token -n orbit-tenant-example &>/dev/null && kubectl apply -f deploy/local/connections/kubernetes.yaml || echo "  (no orbit-local-token; run 'make cluster-k8s-connection' to register the local cluster as a connection)"
+	@kubectl get secret kora-local-token -n kora-tenant-example &>/dev/null && kubectl apply -f deploy/local/connections/kubernetes.yaml || echo "  (no kora-local-token; run 'make cluster-k8s-connection' to register the local cluster as a connection)"
 	@if [ -f secrets/orbit-github-app.pem ]; then \
-		kubectl create secret generic github-app-key -n orbit-tenant-example --from-file=key.pem=secrets/orbit-github-app.pem --dry-run=client -o yaml | kubectl apply -f - ; \
+		kubectl create secret generic github-app-key -n kora-tenant-example --from-file=key.pem=secrets/orbit-github-app.pem --dry-run=client -o yaml | kubectl apply -f - ; \
 		kubectl apply -f deploy/local/connections/github.yaml ; \
 		echo "  ✓ GitHub connection registered from secrets/orbit-github-app.pem"; \
 	else \
@@ -762,14 +762,14 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 	@echo "$(COLOR_YELLOW)Applying tenant workload fixtures...$(COLOR_RESET)"
 	@kubectl apply -f deploy/local/fixtures/
 	@echo "$(COLOR_YELLOW)Waiting for example workload to be ready...$(COLOR_RESET)"
-	@until kubectl get deployment orbit-example -n orbit-tenant-example &>/dev/null; do sleep 3; done
-	@kubectl rollout status deployment/orbit-example -n orbit-tenant-example --timeout=180s
+	@until kubectl get deployment kora-example -n kora-tenant-example &>/dev/null; do sleep 3; done
+	@kubectl rollout status deployment/kora-example -n kora-tenant-example --timeout=180s
 	@echo "$(COLOR_GREEN)✓ Tenant workloads deployed$(COLOR_RESET)"
 
 .PHONY: cluster-update
 cluster-update: redeploy-platform redeploy-tenant ## Rebuild every service image and restart deployments
 	@echo "$(COLOR_YELLOW)Re-applying the kora releases (picks up CRD + template changes)...$(COLOR_RESET)"
-	@cd deploy/reference && helmfile -e local apply --selector name=orbit-crds && helmfile -e local apply --selector name=orbit
+	@cd deploy/reference && helmfile -e local apply --selector name=kora-crds && helmfile -e local apply --selector name=kora
 	@yq -i ".migrate.sourceHash = \"$$(bash scripts/cluster/migrations-hash.sh)\"" deploy/reference/environments/local.generated.yaml
 	@bash scripts/cluster/redeploy.sh operator --no-build
 	@echo "$(COLOR_YELLOW)Rolling platform services onto the images just built...$(COLOR_RESET)"
@@ -781,9 +781,9 @@ cluster-update: redeploy-platform redeploy-tenant ## Rebuild every service image
 	done
 	@echo "$(COLOR_YELLOW)Restarting non-built platform deployments...$(COLOR_RESET)"
 	@for dep in $(REDEPLOY_RESTART_ONLY); do \
-		kubectl get deployment $$dep -n orbit-system >/dev/null 2>&1 || continue; \
-		kubectl rollout restart deployment/$$dep -n orbit-system; \
-		kubectl rollout status deployment/$$dep -n orbit-system --timeout=120s; \
+		kubectl get deployment $$dep -n kora-system >/dev/null 2>&1 || continue; \
+		kubectl rollout restart deployment/$$dep -n kora-system; \
+		kubectl rollout status deployment/$$dep -n kora-system --timeout=120s; \
 	done
 	@echo "$(COLOR_YELLOW)Rolling tenant workloads...$(COLOR_RESET)"
 	@for svc in $(REDEPLOY_TENANT_SERVICES); do \
@@ -896,7 +896,7 @@ redeploy-session-manager: ## Redeploy session-manager (statefulset, default tena
 	@bash scripts/cluster/redeploy.sh session-manager $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-sandbox-mount
-redeploy-sandbox-mount: ## Redeploy the sandbox-mount node agent (rolled by re-applying the orbit release)
+redeploy-sandbox-mount: ## Redeploy the sandbox-mount node agent (rolled by re-applying the kora release)
 	@bash scripts/cluster/redeploy.sh sandbox-mount $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-sandbox-base
@@ -932,7 +932,7 @@ build-backend: proto-gen ## Build every cmd/ binary to .bin (runs proto-gen firs
 .PHONY: test-integration
 test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d cluster (dev-cluster + cluster-platform + cluster-deploy + auth-device-k3d). Not run by CI or `make check`.
 	@echo "$(COLOR_YELLOW)Running integration tests...$(COLOR_RESET)"
-	@kubectl port-forward svc/orbit-policy-service -n orbit-system 8083:80 >/tmp/kora-pf-policy.log 2>&1 & \
+	@kubectl port-forward svc/kora-policy-service -n kora-system 8083:80 >/tmp/kora-pf-policy.log 2>&1 & \
 		PF_PID=$$!; \
 		sleep 2; \
 		cd $(BACKEND_DIR) && $(GOTEST) -v -race -timeout=5m -tags=integration ./...; \
@@ -1224,8 +1224,8 @@ clean-all: clean ## DESTRUCTIVE: clean build artifacts and delete the Postgres a
 .PHONY: auth-device-k3d
 auth-device-k3d: ## Authenticate via Device Authorization Grant (k3d cluster via port-forward)
 	@chmod +x scripts/auth-device.sh
-	@echo "$(COLOR_CYAN)→ Starting port-forward orbit-identity → localhost:6069$(COLOR_RESET)"
-	@kubectl port-forward svc/orbit-identity -n orbit-system 6069:80 >/tmp/kora-pf.log 2>&1 & \
+	@echo "$(COLOR_CYAN)→ Starting port-forward kora-identity → localhost:6069$(COLOR_RESET)"
+	@kubectl port-forward svc/kora-identity -n kora-system 6069:80 >/tmp/kora-pf.log 2>&1 & \
 		PF_PID=$$!; \
 		sleep 2; \
 		./scripts/auth-device.sh \
@@ -1238,8 +1238,8 @@ auth-device-k3d: ## Authenticate via Device Authorization Grant (k3d cluster via
 .PHONY: auth-refresh-k3d
 auth-refresh-k3d: ## Refresh the access token in /tmp/kora_credentials.json (k3d cluster via port-forward)
 	@chmod +x scripts/auth-refresh.sh
-	@echo "$(COLOR_CYAN)→ Starting port-forward orbit-identity → localhost:6069$(COLOR_RESET)"
-	@kubectl port-forward svc/orbit-identity -n orbit-system 6069:80 >/tmp/kora-pf.log 2>&1 & \
+	@echo "$(COLOR_CYAN)→ Starting port-forward kora-identity → localhost:6069$(COLOR_RESET)"
+	@kubectl port-forward svc/kora-identity -n kora-system 6069:80 >/tmp/kora-pf.log 2>&1 & \
 		PF_PID=$$!; \
 		./scripts/auth-refresh.sh \
 			--api-base "http://localhost:6069/api/v1" \
@@ -1254,25 +1254,25 @@ setup-tls: ## Generate a locally-trusted TLS cert for *.orbit.local.clearroute.i
 	@bash scripts/setup-tls.sh
 
 .PHONY: cluster-tls-secret
-cluster-tls-secret: ## Create the orbit-gateway-tls TLS secret in orbit-system, where the ingress gateway runs (run after setup-tls)
+cluster-tls-secret: ## Create the kora-gateway-tls TLS secret in kora-system, where the ingress gateway runs (run after setup-tls)
 	@[ -f secrets/tls.crt ] && [ -f secrets/tls.key ] || \
 		(echo "$(COLOR_RED)✗ secrets/tls.crt / secrets/tls.key not found — run 'make setup-tls' first$(COLOR_RESET)" && exit 1)
-	@kubectl create secret tls orbit-gateway-tls \
+	@kubectl create secret tls kora-gateway-tls \
 		--cert=secrets/tls.crt \
 		--key=secrets/tls.key \
-		--namespace orbit-system \
+		--namespace kora-system \
 		--dry-run=client -o yaml | kubectl apply -f -
-	@echo "$(COLOR_GREEN)✓ orbit-gateway-tls secret applied in orbit-system$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)✓ kora-gateway-tls secret applied in kora-system$(COLOR_RESET)"
 
 .PHONY: cluster-ca-configmap
-cluster-ca-configmap: ## Create a ConfigMap with the mkcert root CA in orbit-system (for Dex TLS verification)
+cluster-ca-configmap: ## Create a ConfigMap with the mkcert root CA in kora-system (for Dex TLS verification)
 	@[ -f secrets/mkcert-ca.pem ] || \
 		(echo "$(COLOR_RED)✗ secrets/mkcert-ca.pem not found — run 'make setup-tls' first$(COLOR_RESET)" && exit 1)
 	@kubectl create configmap mkcert-ca \
 		--from-file=mkcert-ca.pem=secrets/mkcert-ca.pem \
-		--namespace orbit-system \
+		--namespace kora-system \
 		--dry-run=client -o yaml | kubectl apply -f -
-	@echo "$(COLOR_GREEN)✓ mkcert-ca ConfigMap applied in orbit-system$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)✓ mkcert-ca ConfigMap applied in kora-system$(COLOR_RESET)"
 
 .PHONY: gen-session-secret
 gen-session-secret: ## Print a BFF_SESSION_SECRET for .env (32+ chars, never written to disk)

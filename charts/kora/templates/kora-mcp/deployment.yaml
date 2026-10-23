@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-mcp
+  name: kora-mcp
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.koraMcp.labels" . | nindent 4 }}
@@ -15,24 +15,24 @@ spec:
       labels:
         {{- include "kora.koraMcp.selectorLabels" . | nindent 8 }}
         {{- include "kora.koraMcp.labels" . | nindent 8 }}
-        spiffe.io/component: orbit-mcp
+        spiffe.io/component: kora-mcp
         {{- include "kora.podLabels" (dict "root" $ "name" "koraMcp") | nindent 8 }}
       annotations:
         {{- include "kora.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         checksum/config: {{ include (print $.Template.BasePath "/kora-mcp/config.yaml") . | sha256sum }}
         {{- include "kora.podAnnotations" (dict "root" $ "name" "koraMcp") | nindent 8 }}
     spec:
-      serviceAccountName: orbit-mcp
+      serviceAccountName: kora-mcp
       {{- include "kora.imagePullSecrets" . | nindent 6 }}
       {{- include "kora.scheduling" (dict "root" $ "name" "koraMcp") | nindent 6 }}
       securityContext:
         {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "kora.spireVolumes" . | nindent 8 }}
-        {{- include "kora.configVolume" (dict "root" $ "name" "koraMcp" "configMap" "orbit-mcp-config" "modules" (include "kora.koraMcp.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "koraMcp" "configMap" "kora-mcp-config" "modules" (include "kora.koraMcp.configModules" . | fromYaml)) | nindent 8 }}
         {{- include "kora.extraVolumes" (dict "root" $ "name" "koraMcp") | nindent 8 }}
       containers:
-        - name: orbit-mcp
+        - name: kora-mcp
           image: {{ include "kora.image" (dict "root" $ "name" "koraMcp") | quote }}
           imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "koraMcp") }}
           securityContext:

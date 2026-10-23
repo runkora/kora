@@ -27,7 +27,7 @@ The frontend gate had the same shape in miniature: one job ran ~45s of static ch
 
 Locally, `redeploy-platform` builds all 13 platform images serially, with a comment recording why: parallel builds overloaded the previous development machine's Colima VM and cascaded into mesh and Postgres failures. The current machine has 18 CPUs and 64 GiB RAM, with Colima allocated 8 CPUs / 16 GiB. The serial constraint is a workaround for hardware that no longer exists, but it is still the right default for lower-spec machines.
 
-A bake-based build path already exists (`docker-bake.hcl` + `docker-bake.local.hcl`, driven by `redeploy-platform-bake`) but has drifted: `docker-bake.local.hcl` is missing the `egress-gateway`, `orbit-mcp`, and `tool-gateway` targets, and the push loop derives image names as `orbit-$svc`, which produces `orbit-orbit-mcp` for the `orbit-mcp` service.
+A bake-based build path already exists (`docker-bake.hcl` + `docker-bake.local.hcl`, driven by `redeploy-platform-bake`) but has drifted: `docker-bake.local.hcl` is missing the `egress-gateway`, `kora-mcp`, and `tool-gateway` targets, and the push loop derives image names as `orbit-$svc`, which produces `orbit-orbit-mcp` for the `kora-mcp` service.
 
 ### Problem Statement
 
@@ -134,7 +134,7 @@ The measured waste is structural, not compute-bound: a false job dependency, a c
 - `.golangci.yml`: `run.timeout` raised from 5m to 15m. A fully cold lint run (no compile cache, no analysis cache) takes ~6m, and `actions/cache` does not save on job failure, so a timeout failure left every subsequent run cold and failing the same way. The ceiling breaks that loop; warm runs finish in about a minute and never approach it. The cold cost recurs only on cache eviction or a `.golangci.yml` change, since golangci keys its analysis cache on the config hash.
 - `.github/workflows/frontend-ci.yml`: static checks (lint, type check, format) split into their own `frontend-static` job so the vitest suites no longer wait on them.
 - `Makefile`: `redeploy-platform` dispatches to the bake path when `KORA_PARALLEL_BUILDS=1`; `redeploy-platform-bake` becomes a single bake invocation of the `local-platform` group with corrected image-name push loop and the mkcert CA layer preserved.
-- `docker-bake.local.hcl`: add `orbit-egress-gateway`, `orbit-mcp`, `orbit-tool-gateway`; extend the `local-platform` group.
+- `docker-bake.local.hcl`: add `kora-egress-gateway`, `kora-mcp`, `kora-tool-gateway`; extend the `local-platform` group.
 - `.env.example`: document `KORA_PARALLEL_BUILDS=1` and recommended Colima sizing for high-spec machines.
 - `docs/contributing/local-development.md`: parallel-builds section under the inner-loop guide.
 

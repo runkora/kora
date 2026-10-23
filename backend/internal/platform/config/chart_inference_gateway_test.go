@@ -31,7 +31,7 @@ func renderGatewayDrain(t *testing.T, values string) gatewayDrain {
 			t.Fatalf("parse rendered manifest: %v", err)
 		}
 		switch {
-		case obj.Kind == "ConfigMap" && obj.Metadata.Name == "orbit-inference-gateway-config":
+		case obj.Kind == "ConfigMap" && obj.Metadata.Name == "kora-inference-gateway-config":
 			for _, data := range obj.Data {
 				for line := range strings.SplitSeq(data, "\n") {
 					if strings.HasPrefix(strings.TrimSpace(line), "shutdownTimeoutSecs:") {
@@ -39,12 +39,12 @@ func renderGatewayDrain(t *testing.T, values string) gatewayDrain {
 					}
 				}
 			}
-		case obj.Kind == "Deployment" && obj.Metadata.Name == "orbit-inference-gateway":
+		case obj.Kind == "Deployment" && obj.Metadata.Name == "kora-inference-gateway":
 			if g := obj.Spec.Template.Spec.TerminationGracePeriodSeconds; g != nil {
 				got.graceSecs = *g
 			}
 			got.proxyConfig = obj.Spec.Template.Annotations["proxy.istio.io/config"]
-		case obj.Kind == "PodDisruptionBudget" && obj.Metadata.Name == "orbit-inference-gateway":
+		case obj.Kind == "PodDisruptionBudget" && obj.Metadata.Name == "kora-inference-gateway":
 			got.pdbRendered = true
 		}
 	}

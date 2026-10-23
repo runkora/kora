@@ -6,9 +6,9 @@ versions:
   spire: "0.30.2"
   istio: "1.31.1"
 
-systemNamespace: orbit-system
+systemNamespace: kora-system
 trustDomain: orbit.example.com
-clusterName: orbit
+clusterName: kora
 
 kora:
   chart: oci://ghcr.io/runkora/charts/kora

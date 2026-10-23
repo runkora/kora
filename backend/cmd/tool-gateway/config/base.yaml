@@ -17,10 +17,10 @@ policy:
   bundlePollIntervalSecs: 30
 
 registry:
-  # Rendered by the operator's MCPServerAggregator into the orbit-mcp-servers
+  # Rendered by the operator's MCPServerAggregator into the kora-mcp-servers
   # ConfigMap, mounted here and hot-reloaded on change.
   serversPath: "/var/run/kora/mcp-servers/servers.json"
-  # The orbit-mcp-server-secrets Secret, read on each upstream request.
+  # The kora-mcp-server-secrets Secret, read on each upstream request.
   secretsDir: "/var/run/kora/mcp-server-secrets"
 
 introspection:

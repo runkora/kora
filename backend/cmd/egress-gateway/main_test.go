@@ -99,7 +99,7 @@ func TestInitScopeRegistrationPublishesConnectionVocabulary(t *testing.T) {
 	defer srv.Close()
 	withPolicyServiceURL(t, srv.URL)
 
-	conns := mountedRegistry(t, `[{"tenant_id":"acme","name":"github","adapter":"github_app","base_host":"github.com","secret_ref":"k8s:orbit-conn-acme-github"}]`)
+	conns := mountedRegistry(t, `[{"tenant_id":"acme","name":"github","adapter":"github_app","base_host":"github.com","secret_ref":"k8s:kora-conn-acme-github"}]`)
 	register := initScopeRegistration(logging.NewLoggerWithOutput(io.Discard), testToken, conns, testAdapters(t))
 
 	if err := register(t.Context()); err != nil {

@@ -58,7 +58,7 @@ The platform's SPIFFE trust domain is part of every workload identity kora issue
 
 PostgreSQL and Redis must be reachable from the system namespace. kora does not provision, back up, patch, or replicate either service.
 
-The `kora` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (`orbit-migrate`) runs every pending migration before any workload rolls; Argo CD runs it as a `PreSync` hook. The Job connects with the services' credentials. That role needs `CREATE` on schema `public` and owns every table the migrations create. PostgreSQL 14 through 18 are supported. The Job runs without an Istio sidecar and needs the same network path to the database as the services.
+The `kora` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (`kora-migrate`) runs every pending migration before any workload rolls; Argo CD runs it as a `PreSync` hook. The Job connects with the services' credentials. That role needs `CREATE` on schema `public` and owns every table the migrations create. PostgreSQL 14 through 18 are supported. The Job runs without an Istio sidecar and needs the same network path to the database as the services.
 
 - Use private endpoints and TLS in production.
 - When either service sits outside the cluster network, add its CIDR and port to `networkPolicy.externalServices`. The default-deny policy otherwise blocks the connection.
@@ -80,9 +80,9 @@ agents:
       tolerations:
         - { key: workload-tier, operator: Equal, value: orbit, effect: NoSchedule }
     sandbox:
-      nodeSelector: { workload-tier: orbit-sandbox }
+      nodeSelector: { workload-tier: kora-sandbox }
       tolerations:
-        - { key: workload-tier, operator: Equal, value: orbit-sandbox, effect: NoSchedule }
+        - { key: workload-tier, operator: Equal, value: kora-sandbox, effect: NoSchedule }
   workspace:
     storageClassName: efs
     accessModes: [ReadWriteMany]
@@ -128,12 +128,12 @@ agents:
       - ReadWriteMany
   workloads:
     sandbox:
-      nodeSelector: { workload-tier: orbit-sandbox }
+      nodeSelector: { workload-tier: kora-sandbox }
 sandboxMount:
   enabled: true
 ```
 
-The chart deploys the node agent `orbit-sandbox-mount` as a privileged DaemonSet in the `orbit-sandbox-mount` namespace. The agent exports each sandbox's folder with the kernel NFS server to its session-manager's node and mounts it into the running session-manager pod.
+The chart deploys the node agent `kora-sandbox-mount` as a privileged DaemonSet in the `kora-sandbox-mount` namespace. The agent exports each sandbox's folder with the kernel NFS server to its session-manager's node and mounts it into the running session-manager pod.
 
 The cluster must provide:
 
@@ -146,9 +146,9 @@ Check each requirement before you enable the feature:
 1.  **Check Privileged Admission:** Run a server-side dry run of a privileged pod in a namespace at the privileged Pod Security level.
 
     ```bash
-    kubectl create namespace orbit-sandbox-mount
-    kubectl label namespace orbit-sandbox-mount pod-security.kubernetes.io/enforce=privileged
-    kubectl -n orbit-sandbox-mount run privileged-check --image=busybox --restart=Never --dry-run=server \
+    kubectl create namespace kora-sandbox-mount
+    kubectl label namespace kora-sandbox-mount pod-security.kubernetes.io/enforce=privileged
+    kubectl -n kora-sandbox-mount run privileged-check --image=busybox --restart=Never --dry-run=server \
       --overrides='{"spec":{"hostNetwork":true,"hostPID":true,"containers":[{"name":"privileged-check","image":"busybox","securityContext":{"privileged":true}}]}}'
     ```
 
@@ -181,7 +181,7 @@ apiVersion: runkora.io/v1alpha1
 kind: SandboxImage
 metadata:
   name: custom-team-go
-  namespace: orbit-tenant-kora
+  namespace: kora-tenant-kora
 spec:
   image: ghcr.io/kora/sandbox-go:1.4.0
   description: Go with buf and golangci-lint.
@@ -198,8 +198,8 @@ spec:
 The operator reads the image config from the registry. It accepts an image that runs as uid 100 and carries the `io.runkora.sandbox.base` label. The base image sets both. The operator writes the resolved digest to `status.digest`, and sandboxes pull the image by that digest. Inspect an image with:
 
 ```bash
-kubectl -n orbit-tenant-kora get sandboximages
-kubectl -n orbit-tenant-kora describe sandboximage custom-team-go
+kubectl -n kora-tenant-kora get sandboximages
+kubectl -n kora-tenant-kora describe sandboximage custom-team-go
 ```
 
 The `Valid` condition states why the operator rejected an image. An environment cannot select an image that is not valid. The operator re-reads each image every sync period, and new sandboxes pick up a moved tag after the next read.
@@ -264,7 +264,7 @@ agents:
     sessionManager:
       serviceAccount:
         annotations:
-          eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/orbit-agent
+          eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/kora-agent
 ```
 
 Sandbox pods run under the tenant namespace's `default` ServiceAccount and never receive a cloud identity. That is deliberate: the code in a sandbox is the agent's, and it reaches external systems through Connections and the egress gateway, which mint scoped short-lived credentials per request and attribute them to the run.
@@ -300,7 +300,7 @@ Platform credentials and signing keys come from an external secret manager. [Sec
 
 Platform credentials must be projected into Kubernetes Secrets in the system namespace before installing the `kora` chart.
 
-The platform services read these keys from `orbit-secrets`, which can be customised using `config.platformSecretName`:
+The platform services read these keys from `kora-secrets`, which can be customised using `config.platformSecretName`:
 
 | Key | Purpose |
 |---|---|
@@ -309,7 +309,7 @@ The platform services read these keys from `orbit-secrets`, which can be customi
 | `KORA_TOKEN_SIGNING_KEY` | RSA private key used to sign platform tokens. |
 | `KORA_TRIGGERS_ENCRYPTION_KEY` | Base64-encoded 32-byte key used to encrypt stored trigger credentials. |
 
-The dashboard reads `BFF_SESSION_SECRET` from a separate secret, `orbit-frontend-secrets` by default. This can be configured via `frontend.existingSecret`. You must use at least 32 random characters.
+The dashboard reads `BFF_SESSION_SECRET` from a separate secret, `kora-frontend-secrets` by default. This can be configured via `frontend.existingSecret`. You must use at least 32 random characters.
 
 Your secret manager owns rotation. The kora operator does not watch these Secrets, and only picks up a rotated Connection or OIDC client secret on its next periodic reconcile.
 
@@ -336,7 +336,7 @@ config:
     port: 6379
     tls:
       caSecret: redis-ca      # only for a private CA
-  platformSecretName: orbit-secrets
+  platformSecretName: kora-secrets
 
 networkPolicy:
   enabled: true
@@ -348,7 +348,7 @@ gateway:
   create: true
   tls:
     enabled: true
-    credentialName: orbit-gateway-tls  # kubernetes.io/tls Secret in the gateway namespace
+    credentialName: kora-gateway-tls  # kubernetes.io/tls Secret in the gateway namespace
 ingressGateway:
   service:
     type: LoadBalancer
@@ -429,8 +429,8 @@ Host them anywhere the browsers of your users can reach over HTTPS, such as an o
 The chart takes the document itself, passed as a file, so the committed `theme.yaml` is the one thing you edit:
 
 ```bash
-helm upgrade --install orbit oci://ghcr.io/runkora/charts/kora \
-  --namespace orbit-system \
+helm upgrade --install kora oci://ghcr.io/runkora/charts/kora \
+  --namespace kora-system \
   --values kora.yaml \
   --set-file theme.document=theme.yaml
 ```
@@ -455,8 +455,8 @@ A theme change is a values change: a changed document, rolled out by the standar
 When a rollout stalls, read the init container's log on the new pod:
 
 ```bash
-kubectl get pods -n orbit-system -l app=orbit-frontend
-kubectl logs -n orbit-system <pod> -c validate-theme
+kubectl get pods -n kora-system -l app=kora-frontend
+kubectl logs -n kora-system <pod> -c validate-theme
 ```
 
 It prints every fault, or, on success, every entry this version ignores and every identity value left at the kora default.
@@ -497,18 +497,18 @@ If SPIRE and Istio are already running in your cluster, you can skip the helmfil
 With SPIRE and Istio already running, you install the two kora charts directly. First label the system namespace, then install `kora-crds`, and then `kora`.
 
 ```bash
-kubectl create namespace orbit-system
-kubectl label namespace orbit-system \
+kubectl create namespace kora-system
+kubectl label namespace kora-system \
   istio-injection=enabled \
   pod-security.kubernetes.io/enforce=restricted \
   pod-security.kubernetes.io/warn=restricted \
   pod-security.kubernetes.io/audit=restricted
 
-helm upgrade --install orbit-crds oci://ghcr.io/runkora/charts/kora-crds \
-  --namespace orbit-system
+helm upgrade --install kora-crds oci://ghcr.io/runkora/charts/kora-crds \
+  --namespace kora-system
 
-helm upgrade --install orbit oci://ghcr.io/runkora/charts/kora \
-  --namespace orbit-system \
+helm upgrade --install kora oci://ghcr.io/runkora/charts/kora \
+  --namespace kora-system \
   --values kora.yaml
 ```
 
@@ -528,16 +528,16 @@ The `orbit` Application includes the settings that stop ArgoCD and the operator 
 |---|---|
 | `managedNamespaceMetadata` | Labels the system namespace (`istio-injection`, PSA `restricted`). |
 | `ignoreDifferences` | Fields the operator writes on objects Argo CD does not own: the webhook `caBundle` and `failurePolicy`. |
-| `prune: false` on `orbit-crds` | Stops ArgoCD from pruning the kora CRDs. Removing one cascade-deletes every tenant, connection, etc. of that kind across the cluster.  |
+| `prune: false` on `kora-crds` | Stops ArgoCD from pruning the kora CRDs. Removing one cascade-deletes every tenant, connection, etc. of that kind across the cluster.  |
 
-The app-of-apps installs SPIRE, Istio, and the kora charts. Add your `KoraTenant`, `Connection`, `OAuthClient`, and `MCPServer` CRs as a separate `Application` with a sync wave after `orbit-crds`. This ensures their `prune: true` is independent of the `orbit-crds` `prune: false`. 
+The app-of-apps installs SPIRE, Istio, and the kora charts. Add your `KoraTenant`, `Connection`, `OAuthClient`, and `MCPServer` CRs as a separate `Application` with a sync wave after `kora-crds`. This ensures their `prune: true` is independent of the `kora-crds` `prune: false`. 
 
 ## Verify the installation
 
 Check the platform workloads and the public endpoints:
 
 ```bash
-kubectl get pods -n orbit-system
+kubectl get pods -n kora-system
 curl -I https://orbit.example.com
 curl -I https://api.orbit.example.com/health
 ```
@@ -560,10 +560,10 @@ Now that the platform is running, you can configure it through the following gui
 Upgrade `kora-crds` before `kora`, on every upgrade.
 
 ```bash
-helm upgrade orbit-crds oci://ghcr.io/runkora/charts/kora-crds \
-  --namespace orbit-system --version <target>
-helm upgrade orbit oci://ghcr.io/runkora/charts/kora \
-  --namespace orbit-system --version <target> --values kora.yaml
+helm upgrade kora-crds oci://ghcr.io/runkora/charts/kora-crds \
+  --namespace kora-system --version <target>
+helm upgrade kora oci://ghcr.io/runkora/charts/kora \
+  --namespace kora-system --version <target> --values kora.yaml
 ```
 
 - Under GitOps, bump the chart `targetRevision` on both Applications in the same order.

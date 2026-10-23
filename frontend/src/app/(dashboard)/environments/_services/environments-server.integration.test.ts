@@ -1,6 +1,6 @@
 /**
  * Integration tests for the environments page loader. MSW stands in for
- * orbit-agents and the connections gateway.
+ * kora-agents and the connections gateway.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';

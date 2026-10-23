@@ -55,8 +55,8 @@ func readRenderedEntries(t *testing.T, a *OAuthClientAggregator) []oauthClientRe
 func TestOAuthAggregator_RendersActiveTenantClients_SortedByClientID(t *testing.T) {
 	a := newOAuthAggregatorTest(t,
 		tenant("acme", true),
-		oauthClient("orbit-tenant-acme", "cr-b", "zzz-app", "Z", "https://z/cb"),
-		oauthClient("orbit-tenant-acme", "cr-a", "aaa-app", "A", "https://a/cb", "https://a2/cb"),
+		oauthClient("kora-tenant-acme", "cr-b", "zzz-app", "Z", "https://z/cb"),
+		oauthClient("kora-tenant-acme", "cr-a", "aaa-app", "A", "https://a/cb", "https://a2/cb"),
 	)
 	entries := readRenderedEntries(t, a)
 	if len(entries) != 2 {
@@ -75,8 +75,8 @@ func TestOAuthAggregator_SkipsSuspendedTenants(t *testing.T) {
 	a := newOAuthAggregatorTest(t,
 		tenant("live", true),
 		tenant("suspended", false),
-		oauthClient("orbit-tenant-live", "cr1", "live-app", "L", "https://l/cb"),
-		oauthClient("orbit-tenant-suspended", "cr2", "suspended-app", "S", "https://s/cb"),
+		oauthClient("kora-tenant-live", "cr1", "live-app", "L", "https://l/cb"),
+		oauthClient("kora-tenant-suspended", "cr2", "suspended-app", "S", "https://s/cb"),
 	)
 	entries := readRenderedEntries(t, a)
 	if len(entries) != 1 || entries[0].ClientID != "live-app" {
@@ -87,10 +87,10 @@ func TestOAuthAggregator_SkipsSuspendedTenants(t *testing.T) {
 func TestOAuthAggregator_SkipsInvalidRedirectURI(t *testing.T) {
 	a := newOAuthAggregatorTest(t,
 		tenant("acme", true),
-		oauthClient("orbit-tenant-acme", "cr-http", "plaintext-app", "P", "http://remote.example.com/cb"), // plaintext remote -> skip
-		oauthClient("orbit-tenant-acme", "cr-bad", "malformed-app", "M", "://nope"),                       // malformed -> skip
-		oauthClient("orbit-tenant-acme", "cr-loop", "loopback-app", "L", "http://127.0.0.1:9000/cb"),      // loopback http -> ok
-		oauthClient("orbit-tenant-acme", "cr-ok", "good-app", "G", "https://ok.example.com/cb"),
+		oauthClient("kora-tenant-acme", "cr-http", "plaintext-app", "P", "http://remote.example.com/cb"), // plaintext remote -> skip
+		oauthClient("kora-tenant-acme", "cr-bad", "malformed-app", "M", "://nope"),                       // malformed -> skip
+		oauthClient("kora-tenant-acme", "cr-loop", "loopback-app", "L", "http://127.0.0.1:9000/cb"),      // loopback http -> ok
+		oauthClient("kora-tenant-acme", "cr-ok", "good-app", "G", "https://ok.example.com/cb"),
 	)
 	entries := readRenderedEntries(t, a)
 	got := map[string]bool{}
@@ -109,10 +109,10 @@ func TestOAuthAggregator_SkipsInvalidAndDedupesClientID(t *testing.T) {
 	a := newOAuthAggregatorTest(t,
 		tenant("t1", true),
 		tenant("t2", true),
-		oauthClient("orbit-tenant-t1", "cr-empty", "", "no id", "https://x/cb"), // no client_id -> skip
-		oauthClient("orbit-tenant-t1", "cr-nouris", "no-uris", "no uris"),       // no redirect uris -> skip
-		oauthClient("orbit-tenant-t1", "cr-dup", "shared", "first", "https://first/cb"),
-		oauthClient("orbit-tenant-t2", "cr-dup2", "shared", "second", "https://second/cb"), // dup client_id -> skip
+		oauthClient("kora-tenant-t1", "cr-empty", "", "no id", "https://x/cb"), // no client_id -> skip
+		oauthClient("kora-tenant-t1", "cr-nouris", "no-uris", "no uris"),       // no redirect uris -> skip
+		oauthClient("kora-tenant-t1", "cr-dup", "shared", "first", "https://first/cb"),
+		oauthClient("kora-tenant-t2", "cr-dup2", "shared", "second", "https://second/cb"), // dup client_id -> skip
 	)
 	entries := readRenderedEntries(t, a)
 	if len(entries) != 1 {

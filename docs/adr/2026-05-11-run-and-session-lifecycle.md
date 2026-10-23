@@ -75,7 +75,7 @@ active ──→ failed   (reaper: stuck mid-turn too long)
 
 | State | Meaning |
 |---|---|
-| `pending` | Run created in DB; waiting for orbit-agents to assign a pod ordinal |
+| `pending` | Run created in DB; waiting for kora-agents to assign a pod ordinal |
 | `starting` | Pod assigned; session-manager creating the subprocess |
 | `active` | Agent is actively processing — between receiving a message and emitting `message_stop` |
 | `idle` | Agent completed its turn and is waiting for the next user message; idle timer is running |
@@ -87,7 +87,7 @@ active ──→ failed   (reaper: stuck mid-turn too long)
 
 | From | To | Who | Condition |
 |---|---|---|---|
-| `pending` | `starting` | orbit-agents | Pod ordinal selected; `AssignPod` called |
+| `pending` | `starting` | kora-agents | Pod ordinal selected; `AssignPod` called |
 | `starting` | `active` | session-manager | Subprocess started; initial message delivered to Claude |
 | `active` | `idle` | session-manager | `message_stop` event received — agent turn complete, and no subagent or background task still running |
 | `idle` | `active` | session-manager | First event from Claude runner on new turn (agent responding) |
@@ -118,7 +118,7 @@ The reaper exists to clean up runs where the session-manager pod died mid-flight
 
 ## Session-Manager Signalling
 
-All run state transitions flow through `orbit-agents` via an internal HTTP callback:
+All run state transitions flow through `kora-agents` via an internal HTTP callback:
 
 ```
 POST /internal/runs/{id}/state
@@ -127,7 +127,7 @@ Body: {"from": "<current_state>", "to": "<next_state>"}
 
 This is an intra-cluster call over mTLS. No platform JWT required.
 
-On receiving a state signal, orbit-agents:
+On receiving a state signal, kora-agents:
 1. Validates and applies the transition (compare-and-swap on `runs.state` — rejects if `from` doesn't match)
 2. Broadcasts the state change to any active SSE subscribers via PubSub
 
@@ -145,7 +145,7 @@ The session-manager uses three lifecycle methods on the `Notifier` interface:
 
 ## Stale Run Reaper
 
-`Service.StartReaper` runs as a background goroutine in orbit-agents. It ticks every 5 minutes and calls `ReapStaleRuns(staleDuration)`, which issues:
+`Service.StartReaper` runs as a background goroutine in kora-agents. It ticks every 5 minutes and calls `ReapStaleRuns(staleDuration)`, which issues:
 
 ```sql
 UPDATE runs
@@ -155,7 +155,7 @@ WHERE state IN ('active', 'starting')
 RETURNING id
 ```
 
-The default `staleDuration` is 30 minutes (configurable via `ServiceConfig.StaleRunTimeout`). After reaping, orbit-agents publishes a `run_failed` PubSub event for each reaped run ID so connected SSE clients update immediately.
+The default `staleDuration` is 30 minutes (configurable via `ServiceConfig.StaleRunTimeout`). After reaping, kora-agents publishes a `run_failed` PubSub event for each reaped run ID so connected SSE clients update immediately.
 
 The reaper is the **only** backstop for runs whose session-manager pod died without calling `CompleteRun`. In normal operation all transitions are handled by the session-manager itself.
 
@@ -236,7 +236,7 @@ On future resume, both `run_events` and `run_messages` are interleaved by timest
 
 [Run Scheduling](2026-10-12-run-scheduling.md) changes how a run leaves `pending`.
 
-*   `POST /api/v1/runs` will write the run as `pending` with its initial message and return it. A worker in orbit-agents will claim the run, assign a pod and set the run `starting`, then create the session with the stored initial message and set the run `active`.
+*   `POST /api/v1/runs` will write the run as `pending` with its initial message and return it. A worker in kora-agents will claim the run, assign a pod and set the run `starting`, then create the session with the stored initial message and set the run `active`.
 *   A run can hold `pending` for up to the start budget, measured from `created_at`. When the budget runs out, the worker will move the run from `pending` to `failed` and record the reason.
 *   The stale-run reaper will also fail a run that stayed in `pending` past its window.
 *   A transient session error after the pod is assigned will return a `starting` run to `pending`. A session the pod refuses will fail the run.

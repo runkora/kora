@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import type { Grant } from '../_types';
 import { GrantDetailModal } from './grant-detail-modal';
 
-const agentId = 'spiffe://orbit.test/tenant/orbit-tenant-example/agent/ci-failure-investigator';
+const agentId = 'spiffe://orbit.test/tenant/kora-tenant-example/agent/ci-failure-investigator';
 
 const grant: Grant = {
   id: 'g1',

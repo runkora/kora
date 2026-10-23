@@ -5,7 +5,7 @@
 **Deciders:** Engineering Team
 **Technical Story:** [multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md) established that application manifests live in `k8s/` as raw Kustomize resources. As kora moves toward a model where operators deploy the platform into their own clusters via GitOps tooling (Flux, ArgoCD, Helmfile), the raw-Kustomize approach is the wrong distribution primitive. Operators need a versioned artifact with a documented values API they can override — not a copy of this repo's manifests. This ADR defines the target repository structure, two Helm charts as the distribution artifacts, and the "eat your own dog food" local deployment model.
 
-**Amended by:** [install-and-distribution-model](2026-09-04-install-and-distribution-model.md) (2026-09-04). The two-charts-plus-subcharts structure here becomes two charts with Istio and SPIRE as prerequisites rather than subcharts: `charts/orbit-platform/` folds into `charts/orbit/`, `charts/orbit-crds/` replaces the CRD templates this ADR placed in the operator chart, and publishing is no longer deferred. The three "Notes" sections on trust domain consistency and chart versioning describe the pre-amendment `deploy/local/` layout and no longer reflect the repository; see the newer ADR and `deploy/reference/` for the current model.
+**Amended by:** [install-and-distribution-model](2026-09-04-install-and-distribution-model.md) (2026-09-04). The two-charts-plus-subcharts structure here becomes two charts with Istio and SPIRE as prerequisites rather than subcharts: `charts/orbit-platform/` folds into `charts/orbit/`, `charts/kora-crds/` replaces the CRD templates this ADR placed in the operator chart, and publishing is no longer deferred. The three "Notes" sections on trust domain consistency and chart versioning describe the pre-amendment `deploy/local/` layout and no longer reflect the repository; see the newer ADR and `deploy/reference/` for the current model.
 
 ---
 
@@ -178,7 +178,7 @@ charts/
     values.yaml                       # documented operator-facing defaults
     templates/
       platform/
-        namespaces.yaml               # orbit-system + tenant namespaces with labels
+        namespaces.yaml               # kora-system + tenant namespaces with labels
         clusterSpiffeIDs.yaml         # all ClusterSPIFFEID templates (from infrastructure/base/spiffe.yaml)
         netpols.yaml                  # network policies (from infrastructure/base/net-pols.yaml)
       identity/
@@ -349,7 +349,7 @@ global:
 
 identity:
   image:
-    repository: ghcr.io/orbitlabs/orbit-identity
+    repository: ghcr.io/orbitlabs/kora-identity
     tag: latest
   replicas: 1
   resources:
@@ -361,18 +361,18 @@ identity:
       memory: 256Mi
   # Name of an existing ConfigMap containing a `tenants.yaml` key with the tenant registry.
   # Mounted at /etc/kora/tenants.yaml inside the container (ORBIT_TENANTS_CONFIG).
-  # When using the orbit-operator this is always "orbit-tenants" — injected automatically.
-  existingTenantsConfigMap: "orbit-tenants"
-  # Name of the aggregated OIDC client secrets Secret managed by the orbit-operator.
+  # When using the kora-operator this is always "kora-tenants" — injected automatically.
+  existingTenantsConfigMap: "kora-tenants"
+  # Name of the aggregated OIDC client secrets Secret managed by the kora-operator.
   # Mounted at /etc/kora/tenant-secrets/client-secrets.yaml (ORBIT_TENANT_SECRETS_CONFIG).
-  # When using the orbit-operator this is always "orbit-tenant-oidc-secrets" — injected automatically.
-  existingClientSecretsSecret: "orbit-tenant-oidc-secrets"
-  existingSecret: "orbit-secrets"  # name of an existing k8s Secret containing orbit-secrets keys
+  # When using the kora-operator this is always "kora-tenant-oidc-secrets" — injected automatically.
+  existingClientSecretsSecret: "kora-tenant-oidc-secrets"
+  existingSecret: "kora-secrets"  # name of an existing k8s Secret containing kora-secrets keys
   existingConfigMap: "orbit-config" # name of an existing ConfigMap containing non-secret config
 
 platform:
   namespaces:
-    # Tenant namespaces — populated automatically by the orbit-operator from active KoraTenant CRs.
+    # Tenant namespaces — populated automatically by the kora-operator from active KoraTenant CRs.
     # Do not set this when using the operator; set it only for standalone Helm installs.
     tenants: []
 
@@ -401,12 +401,12 @@ global:
 
 identity:
   image:
-    repository: orbit-registry:5001/orbit-identity
+    repository: orbit-registry:5001/kora-identity
     tag: latest
   appEnv: local
   # NOTE: existingSecret, existingConfigMap, existingTenantsConfigMap,
   # existingClientSecretsSecret, and platform.namespaces.tenants are all
-  # injected by the orbit-operator from the OrbitPlatform CR and KoraTenant CRs.
+  # injected by the kora-operator from the OrbitPlatform CR and KoraTenant CRs.
   # They are not needed in this file.
 ```
 
@@ -423,21 +423,21 @@ helm upgrade --install spire-crds spiffe/spire-crds \
 # Step 2: Core Infrastructure Layer
 helm upgrade --install orbit-platform ./charts/orbit-platform \
   -f deploy/local/platform-values.yaml \
-  --namespace orbit-system --create-namespace
+  --namespace kora-system --create-namespace
 
 # Step 3: Orbit services and platform configuration
 # Local convenience: create the tenants ConfigMap imperatively (idempotent via --dry-run=client).
 # Operators using GitOps tooling (Flux, ArgoCD, Helmfile) should instead commit a ConfigMap
 # resource to their deployment repository and set identity.existingTenantsConfigMap to its name.
 # See "Operator Deployment Repository Pattern" for the GitOps-compatible path.
-kubectl create configmap orbit-tenants \
+kubectl create configmap kora-tenants \
   --from-file=tenants.yaml=./config/tenants.yaml \
-  -n orbit-system --dry-run=client -o yaml | kubectl apply -f -
+  -n kora-system --dry-run=client -o yaml | kubectl apply -f -
 
-helm upgrade --install orbit ./charts/orbit \
+helm upgrade --install kora ./charts/orbit \
   -f deploy/local/orbit-values.yaml \
-  --set identity.existingTenantsConfigMap=orbit-tenants \
-  --namespace orbit-system
+  --set identity.existingTenantsConfigMap=kora-tenants \
+  --namespace kora-system
 ```
 
 This sequence is wrapped in a single `make cluster-deploy` target.
@@ -450,7 +450,7 @@ This sequence is wrapped in a single `make cluster-deploy` target.
 
 **Tier 2 — `make cluster-deploy` (local k3d cluster):**
 
-The install sequence above. The orbit-operator mounts the `orbit-tenants` ConfigMap at `/etc/kora/tenants.yaml` inside the identity pod and injects `ORBIT_TENANTS_CONFIG` accordingly. This is handled automatically — no values file configuration is required.
+The install sequence above. The kora-operator mounts the `kora-tenants` ConfigMap at `/etc/kora/tenants.yaml` inside the identity pod and injects `ORBIT_TENANTS_CONFIG` accordingly. This is handled automatically — no values file configuration is required.
 
 ### `config/tenants.yaml` — Committed Local Dev Tenant Registry
 
@@ -528,20 +528,20 @@ releases:
   - name: orbit-platform
     chart: oci://ghcr.io/orbitlabs/charts/orbit-platform
     version: "0.1.0"
-    namespace: orbit-system
+    namespace: kora-system
     values:
       - environments/prod/platform-values.yaml
     needs:
       - spire-system/spire-crds
 
-  - name: orbit
+  - name: kora
     chart: oci://ghcr.io/orbitlabs/charts/orbit
     version: "0.1.0"
-    namespace: orbit-system
+    namespace: kora-system
     values:
       - environments/prod/orbit-values.yaml
     needs:
-      - orbit-system/orbit-platform
+      - kora-system/orbit-platform
 ```
 
 The operator never touches the kora source repository. Version upgrades are a one-line bump in their deployment repository.
@@ -617,7 +617,7 @@ When a new platform service is introduced:
 ### Success Metrics
 
 - The three-step install sequence (`spire-crds` → `orbit-platform` → `orbit`) with `deploy/local/` values produces a working kora identity service in the local k3d cluster with no additional manual `kubectl apply` commands
-- `helm template orbit-platform ./charts/orbit-platform -f deploy/local/platform-values.yaml` and `helm template orbit ./charts/orbit -f deploy/local/orbit-values.yaml` both render valid YAML with no missing keys or template errors
+- `helm template orbit-platform ./charts/orbit-platform -f deploy/local/platform-values.yaml` and `helm template kora ./charts/orbit -f deploy/local/orbit-values.yaml` both render valid YAML with no missing keys or template errors
 - `k8s/` directory no longer exists in the repository
 - `infrastructure/base/` directory no longer exists in the repository
 - An operator following `deploy/local/README.md` can adopt both charts in a minimal external cluster without referencing the kora source repository
@@ -666,7 +666,7 @@ Helm does not guarantee sub-chart installation order for CRDs within a single `h
 
 **On operators with pre-existing Istio:**
 
-When `istio.enabled: false` in `platform-values.yaml`, `charts/orbit-platform/` does not install `istio-base` or `istiod`. However, `charts/orbit/templates/identity-proxy/envoyfilter.yaml` and `charts/orbit/templates/identity/destination-rule.yaml` are always rendered — they configure the sidecar that the operator's pre-existing Istio provides. The operator's Istio must have sidecar injection enabled for the `orbit-system` namespace, matching the `istio-injection: enabled` label that `charts/orbit/templates/platform/namespaces.yaml` applies.
+When `istio.enabled: false` in `platform-values.yaml`, `charts/orbit-platform/` does not install `istio-base` or `istiod`. However, `charts/orbit/templates/identity-proxy/envoyfilter.yaml` and `charts/orbit/templates/identity/destination-rule.yaml` are always rendered — they configure the sidecar that the operator's pre-existing Istio provides. The operator's Istio must have sidecar injection enabled for the `kora-system` namespace, matching the `istio-injection: enabled` label that `charts/orbit/templates/platform/namespaces.yaml` applies.
 
 **On trust domain consistency:**
 

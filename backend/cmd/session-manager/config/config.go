@@ -42,7 +42,7 @@ type Config struct {
 	} `yaml:"workspaces"`
 
 	KoraAgents struct {
-		// URL is the base URL of kora-agents (e.g. "http://orbit-agents.orbit-system.svc.cluster.local").
+		// URL is the base URL of kora-agents (e.g. "http://kora-agents.kora-system.svc.cluster.local").
 		// When empty, event push is disabled (local dev without kora-agents).
 		URL string `yaml:"url"`
 	} `yaml:"orbitAgents"`

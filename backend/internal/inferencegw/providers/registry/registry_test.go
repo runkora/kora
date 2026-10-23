@@ -29,7 +29,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-const ns = "orbit-system"
+const ns = "kora-system"
 
 var discard = logging.NewLoggerWithOutput(io.Discard)
 

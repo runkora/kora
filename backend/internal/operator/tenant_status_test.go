@@ -25,7 +25,7 @@ func TestMarkReady_PatchesNamespaceEvenWhenAlreadyReady(t *testing.T) {
 	r := &TenantReconciler{Client: c, Logger: logging.NewLoggerWithOutput(io.Discard)}
 
 	ctx := context.Background()
-	if err := r.markReady(ctx, tenant, "orbit-tenant-example"); err != nil {
+	if err := r.markReady(ctx, tenant, "kora-tenant-example"); err != nil {
 		t.Fatalf("markReady: %v", err)
 	}
 
@@ -33,8 +33,8 @@ func TestMarkReady_PatchesNamespaceEvenWhenAlreadyReady(t *testing.T) {
 	if err := c.Get(ctx, client.ObjectKey{Name: "example"}, got); err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Status.Namespace != "orbit-tenant-example" {
-		t.Errorf("Status.Namespace = %q, want %q", got.Status.Namespace, "orbit-tenant-example")
+	if got.Status.Namespace != "kora-tenant-example" {
+		t.Errorf("Status.Namespace = %q, want %q", got.Status.Namespace, "kora-tenant-example")
 	}
 	if got.Status.LastReconciledAt == nil {
 		t.Error("Status.LastReconciledAt not set")

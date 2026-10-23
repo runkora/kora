@@ -29,7 +29,7 @@ config:
   redis:
     host: redis.example.internal
     port: 6379
-  platformSecretName: orbit-secrets
+  platformSecretName: kora-secrets
 
 istio:
   namespace: istio-system
@@ -46,7 +46,7 @@ gateway:
   create: true
   tls:
     enabled: true
-    credentialName: orbit-gateway-tls
+    credentialName: kora-gateway-tls
 ingressGateway:
   service:
     type: LoadBalancer

@@ -129,7 +129,7 @@ func realMain() error {
 
 	// Register now and keep the registration alive across policy-service
 	// restarts; the shared helper owns the retry and re-registration cadence.
-	go routescopes.KeepRegistered(ctx, logger, "orbit-agents", initScopeRegistration(logger, selfToken, repo, atSvc))
+	go routescopes.KeepRegistered(ctx, logger, "kora-agents", initScopeRegistration(logger, selfToken, repo, atSvc))
 	go runSvc.StartReaper(ctx)
 	go atSvc.ApplyAll(ctx, repo)
 	runSvc.StartScheduler(ctx)
@@ -229,7 +229,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 
 	repo := agents.NewPostgresRepository(db.Pool())
 	// The session-manager on each agent pod authenticates its caller and checks
-	// the principal is orbit-agents, so the same self-token source that bears
+	// the principal is kora-agents, so the same self-token source that bears
 	// the policy client's calls bears these.
 	sm := smclient.NewClient(logger, selfToken)
 	pubsub := agents.NewPubSub()
@@ -280,7 +280,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 
 	// Read-only connection catalog (GET /api/v1/connections), tenant scoped from
 	// the verified token and gated on platform:connections:read. Reads the same
-	// orbit-tenant-connections ConfigMap the egress-gateway brokers from.
+	// kora-tenant-connections ConfigMap the egress-gateway brokers from.
 	catalog := agents.NewConnectionCatalog(cfg.Agents.ConnectionRegistryPath, logger)
 	catalogController := agents.NewConnectionCatalogController(catalog, verifier, eval, connectionCatalogRoutes(), cfg.Server.BasePath, logger)
 
@@ -359,7 +359,7 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 		if err != nil {
 			return fmt.Errorf("list agent type slugs for scope registration: %w", err)
 		}
-		if err := client.Register(registerCtx, "orbit-agents", agentRoutes(), agentScopes(slugs)); err != nil {
+		if err := client.Register(registerCtx, "kora-agents", agentRoutes(), agentScopes(slugs)); err != nil {
 			return fmt.Errorf("register routes: %w", err)
 		}
 		return nil
@@ -370,7 +370,7 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 	// tick. SetAgentTypeHook invokes it synchronously inside the write, so the
 	// callback must not block on a policy-service round trip; RepublishOnEvent
 	// guarantees that.
-	atSvc.SetAgentTypeHook(routescopes.RepublishOnEvent(logger, "orbit-agents", register))
+	atSvc.SetAgentTypeHook(routescopes.RepublishOnEvent(logger, "kora-agents", register))
 
 	return register
 }

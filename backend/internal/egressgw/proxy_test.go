@@ -190,7 +190,7 @@ func newFixture(t *testing.T) *fixture {
 	_ = repo.Create(context.Background(), &credentials.Connection{
 		ID: "conn-1", TenantID: "acme", Name: "github",
 		Adapter: credentials.AdapterGitHubApp, BaseHost: f.connectionHost,
-		SecretRef: "k8s:orbit-conn-acme-github", Config: cfg,
+		SecretRef: "k8s:kora-conn-acme-github", Config: cfg,
 	})
 	f.repo = repo
 
@@ -212,7 +212,7 @@ func newFixture(t *testing.T) *fixture {
 
 	// The gateway runs as plain HTTP here; the CONNECT handler's TLS
 	// termination has its own tests. authInjector stands in for AuthMiddleware.
-	f.gateway = httptest.NewServer(authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), handler))
+	f.gateway = httptest.NewServer(authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/kora-tenant-acme/agent/coder", "run-9"), handler))
 
 	t.Cleanup(func() {
 		f.gateway.Close()

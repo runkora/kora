@@ -64,7 +64,7 @@ type Client struct {
 }
 
 // NewClient creates a Client targeting the kora-agents base URL,
-// e.g. "http://orbit-agents.orbit-system.svc". The returned client is safe for
+// e.g. "http://kora-agents.kora-system.svc". The returned client is safe for
 // concurrent use and should be shared across calls.
 func NewClient(baseURL string, logger logging.Logger) *Client {
 	return &Client{

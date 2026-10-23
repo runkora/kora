@@ -34,7 +34,7 @@ func (r *TenantReconciler) ensureImagePullSecrets(ctx context.Context, tenant *K
 				Name:      name,
 				Namespace: ns,
 				Labels: map[string]string{
-					"app.kubernetes.io/managed-by": "orbit-operator",
+					"app.kubernetes.io/managed-by": "kora-operator",
 					"runkora.io/component":         pullSecretComponent,
 					"runkora.io/tenant":            tenant.Name,
 				},
@@ -78,7 +78,7 @@ func (r *TenantReconciler) ensureImagePullSecrets(ctx context.Context, tenant *K
 func (r *TenantReconciler) pruneImagePullSecrets(ctx context.Context, ns string) error {
 	replicas := &corev1.SecretList{}
 	if err := r.List(ctx, replicas, client.InNamespace(ns), client.MatchingLabels{
-		"app.kubernetes.io/managed-by": "orbit-operator",
+		"app.kubernetes.io/managed-by": "kora-operator",
 		"runkora.io/component":         pullSecretComponent,
 	}); err != nil {
 		return fmt.Errorf("list pull secrets in %q: %w", ns, err)

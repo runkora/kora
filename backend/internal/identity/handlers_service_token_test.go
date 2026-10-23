@@ -19,29 +19,29 @@ func TestAssertMintCallerPermitted(t *testing.T) {
 	}{
 		{
 			name:      "allowlisted system component",
-			caller:    &Principal{Type: token.PrincipalTypeSystem, DisplayName: "orbit-triggers"},
+			caller:    &Principal{Type: token.PrincipalTypeSystem, DisplayName: "kora-triggers"},
 			permitted: true,
 		},
 		{
 			name:      "system component not on the allowlist",
-			caller:    &Principal{Type: token.PrincipalTypeSystem, DisplayName: "orbit-agents"},
+			caller:    &Principal{Type: token.PrincipalTypeSystem, DisplayName: "kora-agents"},
 			permitted: false,
 		},
 		{
 			name: "agent impersonating the allowlisted name",
 			// An agent named kora-triggers must not pass: the type check is
 			// what stops a tenant workload from naming its way onto the list.
-			caller:    &Principal{Type: token.PrincipalTypeAgent, DisplayName: "orbit-triggers", TenantID: "acme"},
+			caller:    &Principal{Type: token.PrincipalTypeAgent, DisplayName: "kora-triggers", TenantID: "acme"},
 			permitted: false,
 		},
 		{
 			name:      "tenant service impersonating the allowlisted name",
-			caller:    &Principal{Type: token.PrincipalTypeService, DisplayName: "orbit-triggers", TenantID: "acme"},
+			caller:    &Principal{Type: token.PrincipalTypeService, DisplayName: "kora-triggers", TenantID: "acme"},
 			permitted: false,
 		},
 		{
 			name:      "human",
-			caller:    &Principal{Type: token.PrincipalTypeHuman, DisplayName: "orbit-triggers"},
+			caller:    &Principal{Type: token.PrincipalTypeHuman, DisplayName: "kora-triggers"},
 			permitted: false,
 		},
 		{
@@ -78,7 +78,7 @@ func TestAssertMintCallerPermitted(t *testing.T) {
 func TestMintServiceTokenCallers_AllowlistIsMinimal(t *testing.T) {
 	t.Parallel()
 
-	want := map[string]struct{}{"orbit-triggers": {}}
+	want := map[string]struct{}{"kora-triggers": {}}
 
 	if len(mintServiceTokenCallers) != len(want) {
 		t.Fatalf("mint allowlist changed: got %v, want %v — adding a caller here grants it the ability to act as any SERVICE principal in any tenant", mintServiceTokenCallers, want)

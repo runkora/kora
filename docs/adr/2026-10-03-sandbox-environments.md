@@ -72,20 +72,20 @@ Every sandbox runs the image set in `agents.config.sandboxImage` (`charts/kora/v
 
 *   **Option A (chosen):** The operator creates and owns a `SandboxImage` for the base image in every tenant namespace.
 *   **Option B (rejected):** A chart warmer and `PullAlways` handle the base image only. The base image would take a second path.
-*   **Option C (rejected):** orbit-agents resolves the base image digest itself and one system-wide warmer pulls it. orbit-agents would need a second registry client.
+*   **Option C (rejected):** kora-agents resolves the base image digest itself and one system-wide warmer pulls it. kora-agents would need a second registry client.
 
 ### D6. The Default Environment
 
 *   **Option A (chosen):** The default environment sets only the default sandbox image, and nothing is stored for it.
-*   **Option B (rejected):** orbit-agents reads the `orbit-tenants` ConfigMap and creates a stored default environment for each tenant on a timer. It needs a ConfigMap mount and a sync loop.
-*   **Option C (rejected):** orbit-agents creates the stored default environment on first use. The default would not exist until first use.
-*   **Option D (rejected):** The operator calls a new orbit-agents endpoint when it reconciles a tenant. It needs a new service client and a new mesh rule.
+*   **Option B (rejected):** kora-agents reads the `kora-tenants` ConfigMap and creates a stored default environment for each tenant on a timer. It needs a ConfigMap mount and a sync loop.
+*   **Option C (rejected):** kora-agents creates the stored default environment on first use. The default would not exist until first use.
+*   **Option D (rejected):** The operator calls a new kora-agents endpoint when it reconciles a tenant. It needs a new service client and a new mesh rule.
 
 ### D7. Where Warmers Run
 
 *   **Option A (chosen):** Warmers run in the tenant namespace with the full sidecar injection.
 *   **Option B (rejected):** Warmers run in the system namespace. Tenant pull secrets would be copied into the system namespace, and cleanup would need a finalizer.
-*   **Option C (rejected):** The admission webhook exempts operator warmer pods. orbit-agents can set any label in a tenant namespace, and the exemption would weaken an enforcement point.
+*   **Option C (rejected):** The admission webhook exempts operator warmer pods. kora-agents can set any label in a tenant namespace, and the exemption would weaken an enforcement point.
 
 ### D8. Warming Control
 
@@ -237,7 +237,7 @@ Touches none of the three questions. Agents still select an environment by the s
 **Options.**
 
 *   **Separate display name (chosen):** A new `display_name` column holds the name for people, and the existing `name` column holds the slug that agents select by.
-*   **Rename the column (rejected):** Rename `name` to `slug` and add a new `name` column. The previous release's orbit-agents reads and writes `name` during an upgrade and would fail against the renamed column.
+*   **Rename the column (rejected):** Rename `name` to `slug` and add a new `name` column. The previous release's kora-agents reads and writes `name` during an upgrade and would fail against the renamed column.
 *   **Single name (rejected):** Keep a single name. A readable label with spaces and capitals cannot also serve as a stable selector, and every relabel would change what agents select.
 
 For the API shape:
@@ -247,7 +247,7 @@ For the API shape:
 
 **Decision.**
 
-*   A new migration will add `display_name TEXT NOT NULL DEFAULT ''` to `environments` and set it to `name` on every existing row. An empty `display_name` reads as the slug. The previous release's orbit-agents writes rows without `display_name` and keeps working.
+*   A new migration will add `display_name TEXT NOT NULL DEFAULT ''` to `environments` and set it to `name` on every existing row. An empty `display_name` reads as the slug. The previous release's kora-agents writes rows without `display_name` and keeps working.
 *   The `name` column will hold the slug. Its column name and its unique constraint stay unchanged.
 *   The environments API will return `slug` from the `name` column and `name` from `display_name`. Create and update requests will take `slug` and `name`, and `name` is required.
 *   A create request will validate the slug as a DNS-1123 label. A create request without `slug` will derive it from `name` with the dashboard's rule: lower case, each run of other characters replaced by a hyphen, and leading and trailing hyphens removed. A derived slug that is empty or not a valid DNS-1123 label (e.g., a name made only of symbols, or longer than 63 characters after derivation) returns 400, and the request must supply `slug`.
@@ -264,7 +264,7 @@ For the API shape:
 *   Until an agent pod rolls to the new session-manager image, its `list_environments` shows the name in the place of the slug, and a selection by a name that differs from the slug fails with the list of slugs.
 *   The `name` field changes from the identifier to the display name.
 *   A previous-release client that reads `name` as the identifier receives the display name. The two values match for every environment that existed before the upgrade.
-*   While the previous release's orbit-agents still serves requests during an upgrade, an update it handles writes the requested name into the slug column. The new release rejects slug changes once it serves every request.
+*   While the previous release's kora-agents still serves requests during an upgrade, an update it handles writes the requested name into the slug column. The new release rejects slug changes once it serves every request.
 
 ## Amendment 2 (2026-10-08): Sandbox resource requests
 
@@ -294,7 +294,7 @@ The default `maxSize` of 8 CPU and 16Gi exceeds what a 4 vCPU, 16GiB node can ho
 For what the size covers:
 
 *   **The agent's container (chosen):** `sandbox-exec` gets the full size, and the sidecars and the scratch volumes sit on top.
-*   **The whole pod (rejected):** The size would include the sidecars. orbit-agents would have to subtract sidecar resources that the operator webhook sets, and a small size would lose a large share to the sidecars.
+*   **The whole pod (rejected):** The size would include the sidecars. kora-agents would have to subtract sidecar resources that the operator webhook sets, and a small size would lose a large share to the sidecars.
 
 For the sidecars on sandbox pods:
 
@@ -305,7 +305,7 @@ For the sidecars on sandbox pods:
 For an environment larger than any node:
 
 *   **Operator-set maximum (chosen):** `maxSize` stays the save-time check, and the timeout error carries the scheduler's reason.
-*   **Read nodes or the autoscaler (rejected):** orbit-agents would need cluster-wide read access to nodes or to autoscaler resources. A pool scaled to zero has no nodes to read, and an autoscaler can launch nodes larger than any that exist.
+*   **Read nodes or the autoscaler (rejected):** kora-agents would need cluster-wide read access to nodes or to autoscaler resources. A pool scaled to zero has no nodes to read, and an autoscaler can launch nodes larger than any that exist.
 *   **Detect unschedulable pods at run time (rejected):** An autoscaler leaves every new pod unschedulable until a node joins. Telling a pod that never fits from a pod that waits for a node needs autoscaler-specific signals.
 
 For the default maximum:
@@ -320,7 +320,7 @@ For the default maximum:
 *   The default `maxSize` will equal `defaultSize`: 2 CPU, 4Gi memory and 10Gi disk.
 *   The deployment guide will state the sizing rule for `maxSize`: the size plus the sandbox sidecars and 1Gi of disk must fit a sandbox node's allocatable capacity after its DaemonSet requests.
 *   The headroom placeholder will request and limit `defaultSize` plus the sandbox sidecars, with ephemeral storage of `defaultSize.disk` plus 1Gi. A value in `agents.sandboxWarming.resources` will replace the derived value.
-*   orbit-agents will end each wait for a sandbox pod 5s before one attempt's share of the provision budget left after the backoffs between attempts. A wait that ends before the pod is ready will return 503 with the message of the pod's `PodScheduled` condition. The session-manager will carry that message into the run's failure event and into the message the agent reads when the sandbox is lost.
+*   kora-agents will end each wait for a sandbox pod 5s before one attempt's share of the provision budget left after the backoffs between attempts. A wait that ends before the pod is ready will return 503 with the message of the pod's `PodScheduled` condition. The session-manager will carry that message into the run's failure event and into the message the agent reads when the sandbox is lost.
 *   The provision budget and its default is raised to 600s so a cold node scale-up fits.
 *   Existing environments keep their stored sizes.
 

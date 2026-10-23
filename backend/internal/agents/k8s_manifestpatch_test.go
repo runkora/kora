@@ -37,7 +37,7 @@ func loadTestPatches(t *testing.T, files map[string]string) []manifestpatch.Patc
 // StatefulSet, HPA and Service.
 func TestEnsure_ExistingResourcesPickUpPatches(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	existingSS := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns, Annotations: map[string]string{annotationImagePinned: "true"}},
 		Spec: appsv1.StatefulSetSpec{

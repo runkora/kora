@@ -59,7 +59,7 @@ func (e *StatusError) Unwrap() error { return e.Err }
 
 // TokenFunc returns the caller's own platform token. kora-agents supplies
 // identity.Client.SelfTokenSource(), which exchanges the pod's SPIRE SVID for a
-// SYSTEM token named "orbit-agents" and caches it until expiry — the same
+// SYSTEM token named "kora-agents" and caches it until expiry — the same
 // mechanism the policy client uses (internal/platform/clients/policy).
 type TokenFunc func(ctx context.Context) (string, error)
 

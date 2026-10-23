@@ -4,7 +4,7 @@
 # connection for the example tenant.
 #
 # Usage:
-#   bash register-k8s-connection.sh [namespace]   # default: orbit-tenant-example
+#   bash register-k8s-connection.sh [namespace]   # default: kora-tenant-example
 #
 # Creates a ServiceAccount whose RBAC is deliberately narrow, mints a bound
 # token for it, and applies a Connection CR pointing at the in-cluster API
@@ -22,13 +22,13 @@
 # =============================================================================
 set -euo pipefail
 
-NAMESPACE="${1:-orbit-tenant-example}"
-SA_NAME="orbit-egress-local"
-SECRET_NAME="orbit-local-token"
+NAMESPACE="${1:-kora-tenant-example}"
+SA_NAME="kora-egress-local"
+SECRET_NAME="kora-local-token"
 # The role and binding are cluster-scoped, so their names carry the namespace.
 # Without it, registering a second tenant would rebind the role to that tenant's
 # ServiceAccount and silently revoke the first.
-ROLE_NAME="orbit-egress-local-reader-${NAMESPACE}"
+ROLE_NAME="kora-egress-local-reader-${NAMESPACE}"
 TOKEN_TTL="24h"
 API_HOST="k3d-orbit-local-server-0:6443"
 

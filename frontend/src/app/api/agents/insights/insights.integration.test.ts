@@ -33,7 +33,7 @@ describe('GET /api/agents/insights', () => {
     expect((await GET(request('?period=constructor'))).status).toBe(400);
   });
 
-  it('asks the gateway and orbit-agents for the same period with the session token', async () => {
+  it('asks the gateway and kora-agents for the same period with the session token', async () => {
     const seen: Record<string, string | null> = {};
     server.use(
       http.get('http://test-gw/usage/agent-insights', ({ request: r }) => {

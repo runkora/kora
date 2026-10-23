@@ -15,16 +15,16 @@ import (
 func TestChartPlatformSecretKeysPerService(t *testing.T) {
 	rendered := workloadContainers(renderChart(t, ""))
 	want := map[string][]string{
-		"orbit-identity":               {"DB_PASSWORD", "KORA_TOKEN_SIGNING_KEY", "REDIS_PASSWORD"},
-		"orbit-triggers":               {"DB_PASSWORD", "KORA_TRIGGERS_ENCRYPTION_KEY", "REDIS_PASSWORD"},
-		"orbit-agents":                 {"DB_PASSWORD", "REDIS_PASSWORD"},
-		"orbit-inference-gateway":      {"DB_PASSWORD", "REDIS_PASSWORD"},
-		"orbit-policy-service":         {"DB_PASSWORD", "REDIS_PASSWORD"},
-		"orbit-tool-gateway":           {"DB_PASSWORD", "REDIS_PASSWORD"},
-		"orbit-tool-gateway-publisher": {"DB_PASSWORD"},
-		"orbit-egress-gateway":         {"REDIS_PASSWORD"},
-		"orbit-policy-gateway":         {"REDIS_PASSWORD"},
-		"orbit-migrate":                {"DB_PASSWORD"},
+		"kora-identity":               {"DB_PASSWORD", "KORA_TOKEN_SIGNING_KEY", "REDIS_PASSWORD"},
+		"kora-triggers":               {"DB_PASSWORD", "KORA_TRIGGERS_ENCRYPTION_KEY", "REDIS_PASSWORD"},
+		"kora-agents":                 {"DB_PASSWORD", "REDIS_PASSWORD"},
+		"kora-inference-gateway":      {"DB_PASSWORD", "REDIS_PASSWORD"},
+		"kora-policy-service":         {"DB_PASSWORD", "REDIS_PASSWORD"},
+		"kora-tool-gateway":           {"DB_PASSWORD", "REDIS_PASSWORD"},
+		"kora-tool-gateway-publisher": {"DB_PASSWORD"},
+		"kora-egress-gateway":         {"REDIS_PASSWORD"},
+		"kora-policy-gateway":         {"REDIS_PASSWORD"},
+		"kora-migrate":                {"DB_PASSWORD"},
 	}
 	for name, keys := range want {
 		c, ok := rendered[name]
@@ -33,19 +33,19 @@ func TestChartPlatformSecretKeysPerService(t *testing.T) {
 			continue
 		}
 		for _, ef := range c.EnvFrom {
-			if ef.SecretRef != nil && ef.SecretRef.Name == "orbit-secrets" {
-				t.Errorf("%s loads orbit-secrets through envFrom", name)
+			if ef.SecretRef != nil && ef.SecretRef.Name == "kora-secrets" {
+				t.Errorf("%s loads kora-secrets through envFrom", name)
 			}
 		}
 		var got []string
 		for _, e := range c.Env {
-			if ref := secretRef(e); ref != nil && ref.Name == "orbit-secrets" {
+			if ref := secretRef(e); ref != nil && ref.Name == "kora-secrets" {
 				got = append(got, ref.Key)
 			}
 		}
 		slices.Sort(got)
 		if !slices.Equal(got, keys) {
-			t.Errorf("%s orbit-secrets keys = %v, want %v", name, got, keys)
+			t.Errorf("%s kora-secrets keys = %v, want %v", name, got, keys)
 		}
 	}
 }
@@ -54,7 +54,7 @@ func TestChartPlatformSecretKeysPerService(t *testing.T) {
 func TestChartExtraEnvOverridesPlatformSecretKey(t *testing.T) {
 	override := "  extraEnv:\n    - name: DB_PASSWORD\n      valueFrom:\n        secretKeyRef: {name: external-db, key: password}\n"
 	rendered := workloadContainers(renderChart(t, "identity:\n"+override+"migrate:\n"+override))
-	for _, name := range []string{"orbit-identity", "orbit-migrate"} {
+	for _, name := range []string{"kora-identity", "kora-migrate"} {
 		var sources []string
 		for _, e := range rendered[name].Env {
 			if ref := secretRef(e); e.Name == "DB_PASSWORD" && ref != nil {

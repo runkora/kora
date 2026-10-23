@@ -3,13 +3,13 @@
 **Status:** Superseded by [manifest-patches-configmap](2026-09-15-manifest-patches-configmap.md)
 **Date:** 2026-06-12
 **Deciders:** Tom Morelly
-**Technical Story:** Operators need a way to customise provisioned Kubernetes resource attributes (e.g. PVC storage class, StatefulSet replica count) without rebuilding the `orbit-agents` image or modifying Go source.
+**Technical Story:** Operators need a way to customise provisioned Kubernetes resource attributes (e.g. PVC storage class, StatefulSet replica count) without rebuilding the `kora-agents` image or modifying Go source.
 
 ---
 
 ## Context
 
-`orbit-agents` provisions a fixed set of Kubernetes resources for each agent type at deploy time: a `StatefulSet`, headless `Service`, `ServiceAccount`, `HorizontalPodAutoscaler`, `PodDisruptionBudget`, and a `PersistentVolumeClaim` embedded as a `StatefulSet` volume claim template. All manifests are built as typed Go structs in `backend/internal/agents/k8s.go`.
+`kora-agents` provisions a fixed set of Kubernetes resources for each agent type at deploy time: a `StatefulSet`, headless `Service`, `ServiceAccount`, `HorizontalPodAutoscaler`, `PodDisruptionBudget`, and a `PersistentVolumeClaim` embedded as a `StatefulSet` volume claim template. All manifests are built as typed Go structs in `backend/internal/agents/k8s.go`.
 
 ### Problem Statement
 
@@ -25,7 +25,7 @@ Certain Kubernetes attributes — storage class names, resource limits, replica 
 ### Non-Goals
 
 - Overriding resources not created by `K8sProvisioner` (e.g. `DestinationRule` — unstructured, added later if needed).
-- Per-tenant overrides (all tenants on an `orbit-agents` pod share the same overrides).
+- Per-tenant overrides (all tenants on an `kora-agents` pod share the same overrides).
 - Providing a UI or API surface for overrides — this is an operator/infrastructure concern.
 
 ---
@@ -163,7 +163,7 @@ ORBIT_MANIFEST__<Kind>__<name>__<path>=<value>
 ## Related Decisions
 
 - [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — describes the K8s resources being provisioned
-- [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — overall orbit-agents architecture
+- [kora-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — overall kora-agents architecture
 
 ---
 

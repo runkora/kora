@@ -219,7 +219,7 @@ export const ROUTE_REGISTRATIONS: RouteRegistration[] = [
     ],
   },
   {
-    service: 'orbit-agents',
+    service: 'kora-agents',
     tenant_id: '',
     registered_at: minutesAgo(600),
     routes: [
@@ -262,7 +262,7 @@ export const ROUTE_REGISTRATIONS: RouteRegistration[] = [
     ],
   },
   {
-    service: 'orbit-triggers',
+    service: 'kora-triggers',
     tenant_id: '',
     registered_at: minutesAgo(600),
     routes: [

@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-06-04
 **Deciders:** Platform Engineering
-**Technical Story:** A merge-readiness audit of `feat/agents-frontend` (see `agents-merge-audit.md`) found that the orbit-agents controller registers no middleware and trusts `tenant_id` from request body and query string. There is no authentication or authorization in the Go layer. This ADR defines how orbit-agents enforces authorization in-process, reusing the existing `platform/policy.Evaluator` pattern adopted by the inference gateway.
+**Technical Story:** A merge-readiness audit of `feat/agents-frontend` (see `agents-merge-audit.md`) found that the kora-agents controller registers no middleware and trusts `tenant_id` from request body and query string. There is no authentication or authorization in the Go layer. This ADR defines how kora-agents enforces authorization in-process, reusing the existing `platform/policy.Evaluator` pattern adopted by the inference gateway.
 
 ---
 
@@ -20,11 +20,11 @@
 
 1. **No mesh control existed.** `Controller.Middleware` skipped the entire auth
    chain for any `/internal/` path. No Istio `AuthorizationPolicy` and no
-   `PeerAuthentication` selected orbit-agents (only a policy-service
-   AuthorizationPolicy and an orbit-agents client-side `DestinationRule` ship).
+   `PeerAuthentication` selected kora-agents (only a policy-service
+   AuthorizationPolicy and a kora-agents client-side `DestinationRule` ship).
    With no ALLOW policy selecting the workload, Istio allows all traffic, and the
    `allow-tenant-mesh-ingress` NetworkPolicy lets any tenant-namespace pod reach
-   orbit-agents on :8080. Reproduced: an unrelated tenant pod, with no token,
+   kora-agents on :8080. Reproduced: an unrelated tenant pod, with no token,
    POSTed `/internal/runs/{id}/events` (204), `/state` (409 — CAS executed), and
    `/provision-sandbox` (404) — all unauthenticated.
 
@@ -62,7 +62,7 @@ and cross-slug denial (403) covered by unit tests in `internal/agents`.
 
 ### Background
 
-[orbit-agents-route-scope-registration](2026-05-11-orbit-agents-route-scope-registration.md) registered orbit-agents' route → scope vocabulary with the policy-service (`agents:types:read|write`, `agents:runs:read|write`, plus per-slug variants). That gave the policy-service the inputs it needs to compile bundles, but it did not wire any enforcement code inside orbit-agents itself.
+[orbit-agents-route-scope-registration](2026-05-11-orbit-agents-route-scope-registration.md) registered kora-agents' route → scope vocabulary with the policy-service (`agents:types:read|write`, `agents:runs:read|write`, plus per-slug variants). That gave the policy-service the inputs it needs to compile bundles, but it did not wire any enforcement code inside kora-agents itself.
 
 The platform already has a complete in-process authorization stack:
 
@@ -92,7 +92,7 @@ Today:
 Consequences in production:
 
 - A token holder for tenant A can read, mutate, terminate, and stream events from tenant B's runs by passing tenant B's id in the body.
-- Per-agent-type grants registered with the policy service (`agents:runs:{slug}:read`) are not consulted anywhere in orbit-agents.
+- Per-agent-type grants registered with the policy service (`agents:runs:{slug}:read`) are not consulted anywhere in kora-agents.
 - The list endpoints cannot filter by per-agent-type grants — a user authorised for `slug-foo` but not `slug-bar` would see both, because there is no Go-side filter.
 - The cross-tenant case (platform admin operating on any tenant) cannot be modelled without inventing a new mechanism.
 
@@ -110,7 +110,7 @@ Consequences in production:
 
 - Authentication itself is not redesigned — we are adopting the existing `AuthMiddleware`.
 - The route→scope vocabulary ([orbit-agents-route-scope-registration](2026-05-11-orbit-agents-route-scope-registration.md)) is not changing — it is consumed as-is.
-- The session-manager's outbound notifier (orbit-agents internal endpoints) is not changing — those are gated by Istio AuthorizationPolicy. A future ADR may move them to typed clients (see merge audit §1.4) but that is orthogonal.
+- The session-manager's outbound notifier (kora-agents internal endpoints) is not changing — those are gated by Istio AuthorizationPolicy. A future ADR may move them to typed clients (see merge audit §1.4) but that is orthogonal.
 - The BFF (`frontend/src/app/api/agents/`) does not change — it already forwards the user's bearer token; the change is purely backend.
 
 ---
@@ -195,7 +195,7 @@ Option 1 fails on fragility (forgotten checks). Option 2 fails on the platform-a
 
 ### Positive
 
-- One authorization model for orbit-agents and inference-gateway; engineers do not learn a new abstraction.
+- One authorization model for kora-agents and inference-gateway; engineers do not learn a new abstraction.
 - Per-agent-type grants registered via [orbit-agents-route-scope-registration](2026-05-11-orbit-agents-route-scope-registration.md)'s vocabulary become enforceable end-to-end.
 - List endpoints filter automatically — a user with `agents:runs:slug-foo:read` and no other grant sees only `slug-foo` runs in `GET /runs`.
 - Platform admins work without special-case Go code — they hold a coarser scope (`agents:*` or similar), which `scope_covers` propagates over all sub-resources.
@@ -444,7 +444,7 @@ Phase 1 — wire (this PR or sibling):
 - Add `authz.go`.
 - Change `Controller.Middleware()` to return the auth chain.
 - Add per-handler claim extraction; drop `tenant_id` from body/query reads.
-- Service signatures change in-place (no backwards-compat shim — orbit-agents has no external Go API consumers).
+- Service signatures change in-place (no backwards-compat shim — kora-agents has no external Go API consumers).
 
 Phase 2 — list filtering:
 - Add `Query`-backed filter calls in `ListAgentTypes`, `ListRuns`.
@@ -482,7 +482,7 @@ Phases 1 and 2 land together in the PR that addresses the merge-readiness audit 
 - [orbit-agents-route-scope-registration](2026-05-11-orbit-agents-route-scope-registration.md) — registers the scope vocabulary this ADR consumes.
 - [agent-identity-and-policy-provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — provisions per-agent-type SPIFFE identities and policy grants.
 - [dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md) — the route→scope registration pattern reused here.
-- ADR-XXXX (TBD) — wraps the session-manager → orbit-agents HTTP notifier in a typed `httpclient.Base`-backed client (audit §1.4, deferred follow-up).
+- ADR-XXXX (TBD) — wraps the session-manager → kora-agents HTTP notifier in a typed `httpclient.Base`-backed client (audit §1.4, deferred follow-up).
 
 ---
 

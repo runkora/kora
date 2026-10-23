@@ -21,7 +21,7 @@ import (
 	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
-const testNS = "orbit-tenant-acme"
+const testNS = "kora-tenant-acme"
 
 // fakeRegistry answers Read from a map and records the auth it was given.
 type fakeRegistry struct {

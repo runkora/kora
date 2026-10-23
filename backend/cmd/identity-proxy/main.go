@@ -9,7 +9,7 @@
 // Secrets and deployment-specific values are supplied via environment variables:
 //
 //	KORA_IDENTITY_SERVICE_URL  Full base URL of the identity service
-//	                            e.g. http://orbit-identity.orbit-system.svc.cluster.local
+//	                            e.g. http://kora-identity.kora-system.svc.cluster.local
 //	                            Plain HTTP — Istio handles mTLS transparently.
 //	SPIFFE_ENDPOINT_SOCKET      Path to SPIRE Agent workload API socket (optional;
 //	                            defaults to the value in config/base.yaml)

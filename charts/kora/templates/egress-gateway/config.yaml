@@ -7,13 +7,13 @@ cmd/egress-gateway:
     enabled: {{ .Values.global.metrics.enabled }}
     port: {{ .Values.global.metrics.port | default 9464 }}
   identity:
-    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
+    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-identity") | toJson }}
   policy:
     bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}
-    policyServiceInternalURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
+    policyServiceInternalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-policy-service") | toJson }}
 {{ include "kora.observabilityConfigModule" . }}
 {{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "kora.tokenConfigModule" . }}
 {{ include "kora.brandConfigModule" . }}
 {{- end }}
-{{- include "kora.configMap" (dict "root" $ "name" "egressGateway" "configMap" "orbit-egress-gateway-config" "modules" (include "kora.egressGateway.configModules" . | fromYaml)) }}
+{{- include "kora.configMap" (dict "root" $ "name" "egressGateway" "configMap" "kora-egress-gateway-config" "modules" (include "kora.egressGateway.configModules" . | fromYaml)) }}

@@ -46,7 +46,7 @@ The platform needs a streaming protocol that:
 * Token-level events (`text_delta`, `thinking_delta`) are ephemeral — only meaningful to clients watching live; persisting every delta at 100+ agents × many tokens/second creates unacceptable DB write pressure
 * Completed events (`message_complete`, `tool_use`, `tool_result`) must be persisted for history replay on reconnect
 * SSE is simpler than WebSocket and sufficient for the one-way output stream
-* A single `orbit-agents` deployment instance is the norm — full stateless horizontal scaling of the streaming path is deferred
+* A single `kora-agents` deployment instance is the norm — full stateless horizontal scaling of the streaming path is deferred
 
 ---
 
@@ -54,23 +54,23 @@ The platform needs a streaming protocol that:
 
 ### Option A: orbit-agents as stateful SSE proxy (per-connection state in memory)
 
-**Description:** Each `orbit-agents` instance maintains an in-memory SSE connection to the session-manager and proxies it to the browser. Session routing is sticky to the `orbit-agents` instance.
+**Description:** Each `kora-agents` instance maintains an in-memory SSE connection to the session-manager and proxies it to the browser. Session routing is sticky to the `kora-agents` instance.
 
 **Pros:**
 - Low latency — direct proxy, no intermediate persistence
 **Cons:**
-- `orbit-agents` instances are sticky — cannot scale horizontally without session affinity at the load balancer level
-- `orbit-agents` restart drops all active SSE connections
+- `kora-agents` instances are sticky — cannot scale horizontally without session affinity at the load balancer level
+- `kora-agents` restart drops all active SSE connections
 - History replay requires in-memory buffer — data lost if buffer is full or instance restarts
 
 ### Option B: Event log in PostgreSQL + LISTEN/NOTIFY
 
-**Description:** Session-manager writes events to `run_events` (Postgres) as they occur. `orbit-agents` uses Postgres LISTEN/NOTIFY to receive new event notifications. On connect, `orbit-agents` replays the full event log, then tails live notifications. Browser receives a single SSE stream.
+**Description:** Session-manager writes events to `run_events` (Postgres) as they occur. `kora-agents` uses Postgres LISTEN/NOTIFY to receive new event notifications. On connect, `kora-agents` replays the full event log, then tails live notifications. Browser receives a single SSE stream.
 
 **Pros:**
-- `orbit-agents` is fully stateless — any instance can serve any session
+- `kora-agents` is fully stateless — any instance can serve any session
 - Full history always available — replay from event log regardless of when user connects
-- Durable — events survive `orbit-agents` and session-manager restarts
+- Durable — events survive `kora-agents` and session-manager restarts
 - No in-memory buffers — event log is the buffer
 **Cons:**
 - Adds Postgres write on every event — must be fast enough for token-level streaming
@@ -78,7 +78,7 @@ The platform needs a streaming protocol that:
 
 ### Option C: Redis pub/sub for live streaming + Postgres for history
 
-**Description:** Session-manager publishes events to Redis pub/sub channel. `orbit-agents` subscribes for live events. Postgres stores event log for history. On connect: replay from Postgres, then subscribe to Redis.
+**Description:** Session-manager publishes events to Redis pub/sub channel. `kora-agents` subscribes for live events. Postgres stores event log for history. On connect: replay from Postgres, then subscribe to Redis.
 
 **Pros:**
 - Lower live latency than Postgres LISTEN/NOTIFY
@@ -91,16 +91,16 @@ The platform needs a streaming protocol that:
 
 ### Option D: Session-manager HTTP push + in-memory fan-out in orbit-agents
 
-**Description:** Each session-manager pod pushes events directly to `orbit-agents` via `POST /internal/runs/{id}/events`. `orbit-agents` maintains an in-memory subscriber map (`map[runID][]chan Event`). If a client has an active SSE connection for that run, the event is fanned out; otherwise it is dropped. Token-level events (`text_delta`, `thinking_delta`) are never written to Postgres. Completed events (`message_complete`, `tool_use`, `tool_result`, `run_state`) are written to Postgres by their respective owners AND pushed, so that late-joining or reconnecting clients can replay history then receive live events.
+**Description:** Each session-manager pod pushes events directly to `kora-agents` via `POST /internal/runs/{id}/events`. `kora-agents` maintains an in-memory subscriber map (`map[runID][]chan Event`). If a client has an active SSE connection for that run, the event is fanned out; otherwise it is dropped. Token-level events (`text_delta`, `thinking_delta`) are never written to Postgres. Completed events (`message_complete`, `tool_use`, `tool_result`, `run_state`) are written to Postgres by their respective owners AND pushed, so that late-joining or reconnecting clients can replay history then receive live events.
 
 **Pros:**
 - No Postgres write per token — eliminates the primary scaling concern with Options A and B at 100+ concurrent agents
-- Session-managers are already initiating HTTP calls to `orbit-agents` (state callbacks) — this is the same pattern
+- Session-managers are already initiating HTTP calls to `kora-agents` (state callbacks) — this is the same pattern
 - Simple to implement — no LISTEN/NOTIFY infrastructure, no Redis
 - Dropped events when nobody is watching costs nothing — correct behaviour by design
 
 **Cons:**
-- `orbit-agents` is stateful for active SSE connections — horizontal scaling requires sticky routing for the SSE path (standard pattern, deferred to multi-instance phase)
+- `kora-agents` is stateful for active SSE connections — horizontal scaling requires sticky routing for the SSE path (standard pattern, deferred to multi-instance phase)
 - Token deltas are not recoverable after the fact — a client that misses them during a live run will not see them on reconnect (only `message_complete` is available for completed turns)
 
 ---
@@ -109,7 +109,7 @@ The platform needs a streaming protocol that:
 
 **Chosen Option: D — Session-manager HTTP push + in-memory fan-out**
 
-At the scale the platform targets (100+ agents across 20+ agent types), writing every `text_delta` to Postgres is not viable. Token-level events are inherently ephemeral — they only have value to a browser watching live. Option D avoids that write entirely while keeping the history path intact for durable events. The push model reuses the existing session-manager → orbit-agents HTTP callback pattern and requires no new infrastructure dependencies.
+At the scale the platform targets (100+ agents across 20+ agent types), writing every `text_delta` to Postgres is not viable. Token-level events are inherently ephemeral — they only have value to a browser watching live. Option D avoids that write entirely while keeping the history path intact for durable events. The push model reuses the existing session-manager → kora-agents HTTP callback pattern and requires no new infrastructure dependencies.
 
 ### kora Standard Event Format
 
@@ -135,18 +135,18 @@ transform layer (per-framework, inside session-manager)
   ↓ (normalises to Orbit event format)
   ├─ text_delta / thinking_delta / message_stop
   │    ↓ POST /internal/runs/{id}/events  (no DB write)
-  │  orbit-agents in-memory fan-out
+  │  kora-agents in-memory fan-out
   │    ↓ if subscriber present → SSE data: {event JSON}
   │      if no subscriber      → dropped
   │
   └─ message_complete / tool_use / tool_result
        ↓ INSERT INTO run_events (Postgres)
        ↓ POST /internal/runs/{id}/events
-     orbit-agents in-memory fan-out
+     kora-agents in-memory fan-out
        ↓ SSE data: {event JSON}
        browser (EventSource)
 
-orbit-agents (on run state transition)
+kora-agents (on run state transition)
   ↓ INSERT INTO run_events (run_state event)
   ↓ POST to own /internal/runs/{id}/events  (or direct fan-out)
   browser (EventSource)
@@ -155,7 +155,7 @@ orbit-agents (on run state transition)
 ### Connect / Reconnect Flow
 
 1. Browser opens `GET /api/v1/runs/{id}/events` (SSE), optionally with `Last-Event-ID` header
-2. `orbit-agents` registers a channel in the in-memory subscriber map for this `run_id`
+2. `kora-agents` registers a channel in the in-memory subscriber map for this `run_id`
 3. Replays all existing `run_events` from Postgres in `sequence_no` order as SSE events (or from `Last-Event-ID + 1` on reconnect)
 4. Transitions to live: pushed events from session-manager are fanned out to the registered channel
 5. On browser disconnect: removes channel from subscriber map
@@ -168,7 +168,7 @@ User messages travel a separate path — they are not events in `run_events`.
 
 ```
 browser → POST /api/v1/runs/{id}/messages {content: "..."}
-  ↓ (orbit-agents looks up pod_ordinal for run_id)
+  ↓ (kora-agents looks up pod_ordinal for run_id)
   ↓ POST http://{agent}-{n}.{agent}.{namespace}.svc/session/{run_id}/messages
 session-manager
   ↓ writes to CLI subprocess stdin
@@ -179,7 +179,7 @@ User messages are stored in a separate `run_messages` table ([run-and-session-li
 
 ### Event Write and Push Ownership
 
-| Event type | Written to `run_events` | Pushed to orbit-agents |
+| Event type | Written to `run_events` | Pushed to kora-agents |
 |---|---|---|
 | `text_delta` | No | Yes (dropped if no subscriber) |
 | `thinking_delta` | No | Yes (dropped if no subscriber) |
@@ -187,9 +187,9 @@ User messages are stored in a separate `run_messages` table ([run-and-session-li
 | `message_complete` | Yes (session-manager) | Yes |
 | `tool_use` | Yes (session-manager) | Yes |
 | `tool_result` | Yes (session-manager) | Yes |
-| `run_state` | Yes (orbit-agents) | Yes (direct fan-out, no HTTP round-trip needed) |
+| `run_state` | Yes (kora-agents) | Yes (direct fan-out, no HTTP round-trip needed) |
 
-The session-manager pushes to `orbit-agents` at `http://orbit-agents.orbit-system.svc.cluster.local/internal/runs/{id}/events`. This URL is injected as `KORA_AGENTS_URL` into session-manager pods at provision time.
+The session-manager pushes to `kora-agents` at `http://kora-agents.kora-system.svc.cluster.local/internal/runs/{id}/events`. This URL is injected as `KORA_AGENTS_URL` into session-manager pods at provision time.
 
 ### Backpressure
 
@@ -202,13 +202,13 @@ The in-memory channel per subscriber has a fixed buffer. If the browser's SSE co
 ### Positive
 
 - No Postgres write per token — scales to 100+ concurrent agents without DB pressure on the hot path
-- Session-managers fire-and-forget on push — no persistent connections from orbit-agents to session-manager pods
+- Session-managers fire-and-forget on push — no persistent connections from kora-agents to session-manager pods
 - Dropped events when no subscriber is watching cost nothing
 - Full durable-event history always available for replay from Postgres
 
 ### Negative
 
-- `orbit-agents` holds in-memory SSE subscriber state — horizontal scaling of the SSE path requires sticky routing (deferred)
+- `kora-agents` holds in-memory SSE subscriber state — horizontal scaling of the SSE path requires sticky routing (deferred)
 - Token deltas (`text_delta`, `thinking_delta`) are not recoverable after the fact — clients that miss them mid-turn will not see them on reconnect
 
 ### Neutral
@@ -221,7 +221,7 @@ The in-memory channel per subscriber has a fixed buffer. If the browser's SSE co
 
 ### Replay / Live Handoff
 
-On SSE connect, `orbit-agents`:
+On SSE connect, `kora-agents`:
 1. Registers the subscriber channel in the fan-out map **before** reading from Postgres. This prevents a gap where a push arrives after Postgres replay ends but before the channel is registered.
 2. Queries `run_events WHERE run_id = $1 AND sequence_no > $2 ORDER BY sequence_no` and emits each row as an SSE event.
 3. Switches to draining the live channel. Any events that arrived during step 2 are already buffered in the channel.
@@ -235,7 +235,7 @@ data: {json payload}
 
 ```
 
-The SSE `id` field allows browsers to send `Last-Event-ID` on reconnect. `orbit-agents` honours this by replaying from `sequence_no = Last-Event-ID + 1` rather than from 0, reducing replay volume for long-running sessions.
+The SSE `id` field allows browsers to send `Last-Event-ID` on reconnect. `kora-agents` honours this by replaying from `sequence_no = Last-Event-ID + 1` rather than from 0, reducing replay volume for long-running sessions.
 
 ---
 
@@ -244,9 +244,9 @@ The SSE `id` field allows browsers to send `Last-Event-ID` on reconnect. `orbit-
 ### Success Metrics
 
 - First `text_delta` delivered to browser within 1 second of Claude Code emitting it
-- No durable events (`message_complete`, `tool_use`, `tool_result`) lost on `orbit-agents` restart
+- No durable events (`message_complete`, `tool_use`, `tool_result`) lost on `kora-agents` restart
 - Full durable event log replayed correctly on reconnect for runs up to 1 hour in duration
-- Push HTTP call from session-manager to orbit-agents ≤ 5ms p95
+- Push HTTP call from session-manager to kora-agents ≤ 5ms p95
 
 ---
 

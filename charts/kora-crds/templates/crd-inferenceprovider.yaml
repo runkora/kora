@@ -123,7 +123,7 @@ spec:
                     externalID:
                       type: string
                     roleSessionName:
-                      description: Names the assumed sessions in CloudTrail. Defaults to orbit-inference-gateway.
+                      description: Names the assumed sessions in CloudTrail. Defaults to kora-inference-gateway.
                       type: string
                       pattern: '^[\w+=,.@-]{2,64}$'
                 vertexai:

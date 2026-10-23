@@ -3,7 +3,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-tool-gateway-publisher
+  name: kora-tool-gateway-publisher
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.toolGateway.labels" . | nindent 4 }}
@@ -27,14 +27,14 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/tool-gateway/config.yaml") . | sha256sum }}
         {{- include "kora.podAnnotations" (dict "root" $ "name" "toolGateway") | nindent 8 }}
     spec:
-      serviceAccountName: orbit-tool-gateway
+      serviceAccountName: kora-tool-gateway
       {{- include "kora.imagePullSecrets" . | nindent 6 }}
       {{- include "kora.scheduling" (dict "root" $ "name" "toolGateway") | nindent 6 }}
       securityContext:
         {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "kora.spireVolumes" . | nindent 8 }}
-        {{- include "kora.configVolume" (dict "root" $ "name" "toolGateway" "configMap" "orbit-tool-gateway-publisher-config" "modules" (include "kora.toolGateway.configModules" (dict "root" $ "mode" "publisher") | fromYaml)) | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "toolGateway" "configMap" "kora-tool-gateway-publisher-config" "modules" (include "kora.toolGateway.configModules" (dict "root" $ "mode" "publisher") | fromYaml)) | nindent 8 }}
         - name: mcp-servers
           configMap:
             name: {{ .Values.toolGateway.mcpServersConfigMapName }}
@@ -45,7 +45,7 @@ spec:
             optional: true
         {{- include "kora.extraVolumes" (dict "root" $ "name" "toolGateway") | nindent 8 }}
       containers:
-        - name: orbit-tool-gateway
+        - name: kora-tool-gateway
           image: {{ include "kora.image" (dict "root" $ "name" "toolGateway") | quote }}
           imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "toolGateway") }}
           securityContext:

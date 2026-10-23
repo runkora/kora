@@ -35,7 +35,7 @@ func TestSandboxPod_FromEnvironment(t *testing.T) {
 		PullSecret:    "acme-pull",
 		Size:          EnvironmentSize{CPU: "4", Memory: "8Gi", Disk: "20Gi"},
 	}
-	pod := buildTestSandboxPod(podSecurityProvisioner(), Run{ID: "run-1"}, "coder", "orbit-tenant-acme", spec, "token")
+	pod := buildTestSandboxPod(podSecurityProvisioner(), Run{ID: "run-1"}, "coder", "kora-tenant-acme", spec, "token")
 	c := pod.Spec.Containers[0]
 
 	if c.Image != spec.Image || c.ImagePullPolicy != corev1.PullIfNotPresent {

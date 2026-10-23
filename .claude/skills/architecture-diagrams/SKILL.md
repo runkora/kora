@@ -55,7 +55,7 @@ re-exports only the SVG. Generators are for the first draft.
 - **Title and labels only.** No subtitles, taglines, value claims, or "detail in X"
   pointers. The structure speaks for itself. See memory `orbit-diagrams-no-commentary`.
 - **No middot (`·`).** Use commas or colons.
-- **Palette** (in the template): blue = control plane / orbit-system, green = data plane /
+- **Palette** (in the template): blue = control plane / kora-system, green = data plane /
   agent, grey = external / substrate, `EDGE` grey = flow arrows. `roughness: 0` and
   `fontFamily: 2` for the clean look.
 - **Prose** on the docs pages follows the voice rules: lead with the conclusion, no

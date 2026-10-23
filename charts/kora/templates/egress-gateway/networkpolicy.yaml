@@ -1,12 +1,12 @@
 {{- if .Values.networkPolicy.enabled }}
 # Allows sandbox pods in tenant namespaces to reach the egress gateway on
-# its CONNECT port. Without this, the orbit-system default-deny-all
+# its CONNECT port. Without this, the kora-system default-deny-all
 # NetworkPolicy blocks every CONNECT from the sandbox and the credential
 # broker is unreachable.
 #
 # Selector: pods labelled runkora.io/role=sandbox in any tenant namespace
 # (runkora.io/role=tenant). Mesh sidecars on those pods (identity-proxy, opa)
-# call orbit-system services directly via the broader allow-rule on the
+# call kora-system services directly via the broader allow-rule on the
 # tenant side; this rule only authorizes the sandbox-exec → egress-gateway
 # CONNECT path.
 apiVersion: networking.k8s.io/v1

@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-triggers
+  name: kora-triggers
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.triggers.labels" . | nindent 4 }}
@@ -15,7 +15,7 @@ spec:
       labels:
         {{- include "kora.triggers.selectorLabels" . | nindent 8 }}
         {{- include "kora.triggers.labels" . | nindent 8 }}
-        spiffe.io/component: orbit-triggers
+        spiffe.io/component: kora-triggers
         {{- include "kora.podLabels" (dict "root" $ "name" "triggers") | nindent 8 }}
       annotations:
         {{- include "kora.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
@@ -24,18 +24,18 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/triggers/config.yaml") . | sha256sum }}
         {{- include "kora.podAnnotations" (dict "root" $ "name" "triggers") | nindent 8 }}
     spec:
-      serviceAccountName: orbit-triggers
+      serviceAccountName: kora-triggers
       {{- include "kora.imagePullSecrets" . | nindent 6 }}
       {{- include "kora.scheduling" (dict "root" $ "name" "triggers") | nindent 6 }}
       securityContext:
         {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "kora.spireVolumes" . | nindent 8 }}
-        {{- include "kora.configVolume" (dict "root" $ "name" "triggers" "configMap" "orbit-triggers-config" "modules" (include "kora.triggers.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "triggers" "configMap" "kora-triggers-config" "modules" (include "kora.triggers.configModules" . | fromYaml)) | nindent 8 }}
         {{- include "kora.redisCAVolume" . | nindent 8 }}
         {{- include "kora.extraVolumes" (dict "root" $ "name" "triggers") | nindent 8 }}
       containers:
-        - name: orbit-triggers
+        - name: kora-triggers
           image: {{ include "kora.image" (dict "root" $ "name" "triggers") | quote }}
           imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "triggers") }}
           securityContext:

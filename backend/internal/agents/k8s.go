@@ -124,7 +124,7 @@ type K8sProvisionerConfig struct {
 	Workspace WorkspaceConfig
 	// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy beside
 	// each agent StatefulSet restricting its session-manager port to the
-	// orbit-agents principal. Requires SPIFFE/mTLS: without attested identities
+	// kora-agents principal. Requires SPIFFE/mTLS: without attested identities
 	// no source matches the rule and every call is denied, so the chart gates
 	// this on platform.spiffe.enabled (charts/kora/templates/agents/deployment.yaml).
 	AuthorizationPolicyEnabled bool
@@ -698,7 +698,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 	//   - runkora.io/role=sandbox: namespace-policy targeting and the future
 	//     tenant NetworkPolicy locking egress to the gateway.
 	//   - runkora.io/run-id, runkora.io/agent-slug: matched by the
-	//     orbit-tenant-sandbox ClusterSPIFFEID template (Phase 4b) so the
+	//     kora-tenant-sandbox ClusterSPIFFEID template (Phase 4b) so the
 	//     pod is attested as
 	//     spiffe://<td>/tenant/<ns>/agent/<slug>/sandbox/<run-id>.
 	//     The principal extractor (internal/identity/principal_extractor.go)
@@ -1127,7 +1127,7 @@ func egressGatewayURL(cfg K8sProvisionerConfig) string {
 	if cfg.SystemNamespace == "" {
 		return ""
 	}
-	return fmt.Sprintf("http://orbit-egress-gateway.%s.svc:%d", cfg.SystemNamespace, ports.EgressGatewayCONNECT)
+	return fmt.Sprintf("http://kora-egress-gateway.%s.svc:%d", cfg.SystemNamespace, ports.EgressGatewayCONNECT)
 }
 
 // sandboxTenantCAPath is where the tenant CA root is mounted inside the
@@ -1145,13 +1145,13 @@ const sandboxTenantCAPath = "/var/run/kora/tenant-ca/ca.crt"
 const osTrustBundlePath = "/etc/ssl/certs/ca-certificates.crt"
 
 // tenantCAVolumeName is the projected-volume name for the tenant CA.
-const tenantCAVolumeName = "orbit-tenant-ca"
+const tenantCAVolumeName = "kora-tenant-ca"
 
 // sandboxVolumes builds the sandbox pod's volume list. The workspaces PVC
 // always mounts; the per-tenant CA Secret is added only when an egress
 // gateway URL can be derived (otherwise there's nothing to trust).
 //
-// The CA Secret (orbit-tenant-ca) is created by the operator's
+// The CA Secret (kora-tenant-ca) is created by the operator's
 // ensureTenantCA step in the same tenant namespace as the sandbox pod, so
 // no cross-namespace projection is needed.
 func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig, size EnvironmentSize) []corev1.Volume {
@@ -1181,7 +1181,7 @@ func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig, size Environ
 		Name: tenantCAVolumeName,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
-				SecretName:  "orbit-tenant-ca",
+				SecretName:  "kora-tenant-ca",
 				DefaultMode: &mode,
 				Items: []corev1.KeyToPath{
 					// Project ca.crt only; the private key never reaches
@@ -1364,7 +1364,7 @@ var errSandboxSize = errors.New("invalid sandbox size")
 
 // agentSpiffeID returns the SPIFFE principal ID for an agent type's pods.
 // The identity proxy attests pods using their SPIFFE cert; the slug makes the
-// ID human-readable (e.g. spiffe://orbit.test/tenant/orbit-tenant-example/agent/coder).
+// ID human-readable (e.g. spiffe://orbit.test/tenant/kora-tenant-example/agent/coder).
 func (p *K8sProvisioner) agentSpiffeID(at AgentType, namespace string) string {
 	return fmt.Sprintf("spiffe://%s/tenant/%s/agent/%s", p.cfg.TrustDomain, namespace, at.Slug)
 }
@@ -1841,7 +1841,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 	if hash := serviceAccountAnnotationHash(p.cfg.Workloads.SessionManager.ServiceAccount.Annotations); hash != "" {
 		podAnnotations[serviceAccountHashAnnotation] = hash
 	}
-	inferenceURL := fmt.Sprintf("http://orbit-inference-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)
+	inferenceURL := fmt.Sprintf("http://kora-inference-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)
 	ss := appsv1.StatefulSet{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
@@ -1884,10 +1884,10 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								{Name: "KORA_SAMPLING_RATE", Value: p.cfg.SamplingRate},
 								{Name: brand.EnvProductName, Value: p.cfg.ProductName},
 								// kora-agents URL for live event push (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
-								{Name: "KORA_AGENTS_URL", Value: fmt.Sprintf("http://orbit-agents.%s.svc.cluster.local", p.cfg.SystemNamespace)},
+								{Name: "KORA_AGENTS_URL", Value: fmt.Sprintf("http://kora-agents.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								// Codex, OpenCode and MCP URLs follow the install's system namespace.
 								{Name: "KORA_INFERENCE_GATEWAY_URL", Value: inferenceURL},
-								{Name: "KORA_TOOL_GATEWAY_URL", Value: fmt.Sprintf("http://orbit-tool-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)},
+								{Name: "KORA_TOOL_GATEWAY_URL", Value: fmt.Sprintf("http://kora-tool-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								// Placeholder key; actual auth is the identity-proxy-issued JWT
 								// injected on every outbound request by the Envoy ext_proc filter.
 								// Claude Code requires a non-empty value to start in --bare mode.
@@ -2143,7 +2143,7 @@ func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, 
 }
 
 // ensureDestinationRule creates an Istio DestinationRule in the system namespace
-// that tells Istio the exact SPIFFE SAN to expect when orbit-agents connects to
+// that tells Istio the exact SPIFFE SAN to expect when kora-agents connects to
 // this agent type's headless service.
 //
 // Headless services in Istio use ORIGINAL_DST clusters, which cannot perform
@@ -2220,11 +2220,11 @@ func agentAuthorizationPolicyName(slug string) string { return "agent-" + slug +
 // the sidecar, before the request is ever seen by the application, and it holds
 // even if the application's own check regresses.
 //
-// It lives in the TENANT namespace, not orbit-system, because that is where the
+// It lives in the TENANT namespace, not kora-system, because that is where the
 // agent pods run and an AuthorizationPolicy selects workloads in its own
 // namespace. The DestinationRule above is the mirror image; it configures the
 // CLIENT side (kora-agents' outbound mTLS expectations) so it belongs in
-// orbit-system. Neither can be templated in a chart: the StatefulSet these
+// kora-system. Neither can be templated in a chart: the StatefulSet these
 // govern is created imperatively, per agent type, at provision time, so its
 // policy is created the same way and torn down with it.
 //
@@ -2266,7 +2266,7 @@ func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at Agent
 							map[string]any{
 								"source": map[string]any{
 									"principals": []any{
-										fmt.Sprintf("%s/system/orbit-agents", p.cfg.TrustDomain),
+										fmt.Sprintf("%s/system/kora-agents", p.cfg.TrustDomain),
 									},
 								},
 							},

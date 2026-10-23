@@ -4,7 +4,7 @@ apiVersion: runkora.io/v1alpha1
 kind: Connection
 metadata:
   name: github
-  namespace: orbit-tenant-example
+  namespace: kora-tenant-example
 spec:
   adapter: github_app
   baseHost: github.com

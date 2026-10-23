@@ -13,7 +13,7 @@ func splitPoolConfig() K8sProvisionerConfig {
 		SessionManagerImage: "kora-session-manager:test",
 		SandboxImage:        "kora-sandbox-base:test",
 		SandboxGRPCPort:     50051,
-		SystemNamespace:     "orbit-system",
+		SystemNamespace:     "kora-system",
 		Workloads: WorkloadsConfig{
 			Common: CommonCustomization{
 				PodLabels:      map[string]string{"cost-centre": "platform"},
@@ -21,15 +21,15 @@ func splitPoolConfig() K8sProvisionerConfig {
 			},
 			SessionManager: WorkloadCustomization{
 				NodeSelector:      map[string]string{"workload-tier": "orbit"},
-				PriorityClassName: "orbit-agents",
+				PriorityClassName: "kora-agents",
 				ServiceAccount: ServiceAccountCustomization{
 					Annotations: map[string]string{"eks.amazonaws.com/role-arn": "arn:aws:iam::1:role/agent"},
 				},
 			},
 			Sandbox: WorkloadCustomization{
-				NodeSelector: map[string]string{"workload-tier": "orbit-sandbox"},
+				NodeSelector: map[string]string{"workload-tier": "kora-sandbox"},
 				Tolerations: []corev1.Toleration{{
-					Key: "workload-tier", Operator: corev1.TolerationOpEqual, Value: "orbit-sandbox", Effect: corev1.TaintEffectNoSchedule,
+					Key: "workload-tier", Operator: corev1.TolerationOpEqual, Value: "kora-sandbox", Effect: corev1.TaintEffectNoSchedule,
 				}},
 				PodLabels: map[string]string{"cost-centre": "sandboxes"},
 			},
@@ -54,7 +54,7 @@ func TestBuildStatefulSet_AppliesWorkloadCustomization(t *testing.T) {
 	if spec.NodeSelector["workload-tier"] != "orbit" {
 		t.Errorf("nodeSelector: got %v", spec.NodeSelector)
 	}
-	if spec.PriorityClassName != "orbit-agents" {
+	if spec.PriorityClassName != "kora-agents" {
 		t.Errorf("priorityClassName: got %q", spec.PriorityClassName)
 	}
 	meta := ss.Spec.Template.ObjectMeta
@@ -107,10 +107,10 @@ func TestBuildSandboxPod_AppliesSandboxCustomization(t *testing.T) {
 
 	pod := buildTestSandboxPod(p, Run{ID: "run-1"}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
 
-	if pod.Spec.NodeSelector["workload-tier"] != "orbit-sandbox" {
+	if pod.Spec.NodeSelector["workload-tier"] != "kora-sandbox" {
 		t.Errorf("nodeSelector: got %v", pod.Spec.NodeSelector)
 	}
-	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0].Value != "orbit-sandbox" {
+	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0].Value != "kora-sandbox" {
 		t.Errorf("tolerations: got %v", pod.Spec.Tolerations)
 	}
 	if pod.Labels["runkora.io/role"] != "sandbox" {
@@ -285,12 +285,12 @@ func TestSplitAcrossNodes_MixedForms(t *testing.T) {
 	}{
 		"selector against affinity": {
 			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit"}},
-			sandbox: corev1.PodSpec{Affinity: affinity("orbit-sandbox")},
+			sandbox: corev1.PodSpec{Affinity: affinity("kora-sandbox")},
 			want:    true,
 		},
 		"affinity against selector": {
 			agent:   corev1.PodSpec{Affinity: affinity("orbit")},
-			sandbox: corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit-sandbox"}},
+			sandbox: corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "kora-sandbox"}},
 			want:    true,
 		},
 		"identical pinning is one pool": {

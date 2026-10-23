@@ -18,9 +18,9 @@ The agent control plane currently supports only Claude Code as a managed agent f
 
 ### Current State
 
-The `AgentFramework` enum in `agents/models.go` defines three values — `claude-code`, `codex`, `opencode` — but only `claude-code` has a runner implementation. When orbit-agents creates a session for an agent type configured with `framework: "codex"` or `framework: "opencode"`, the session-manager falls through to `NewClaudeRunner()` unconditionally. The framework field is stored in the database but has no effect on execution.
+The `AgentFramework` enum in `agents/models.go` defines three values — `claude-code`, `codex`, `opencode` — but only `claude-code` has a runner implementation. When kora-agents creates a session for an agent type configured with `framework: "codex"` or `framework: "opencode"`, the session-manager falls through to `NewClaudeRunner()` unconditionally. The framework field is stored in the database but has no effect on execution.
 
-Additionally, `CreateSessionRequest` does not carry the framework value at all. The session-manager has no mechanism to select a runner at session creation time; it can only read what orbit-agents chooses to tell it.
+Additionally, `CreateSessionRequest` does not carry the framework value at all. The session-manager has no mechanism to select a runner at session creation time; it can only read what kora-agents chooses to tell it.
 
 ### User Pain Points
 
@@ -140,7 +140,7 @@ This model is structurally identical to Claude Code's: one long-lived process pe
 Codex routes all outbound LLM calls through the OpenAI Responses API (`POST /v1/responses`). The kora inference gateway already supports the Responses API via `DialectResponses` (see [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md)). Routing Codex through the gateway requires a single environment variable:
 
 ```
-OPENAI_BASE_URL=http://inference-gateway.orbit-system.svc.cluster.local
+OPENAI_BASE_URL=http://inference-gateway.kora-system.svc.cluster.local
 ```
 
 With this set, Codex's `codex-api` crate directs its `POST /v1/responses` requests to the inference gateway rather than `api.openai.com`. No gateway changes are needed.
@@ -280,12 +280,12 @@ OpenCode does not honour `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` environment v
   "provider": {
     "anthropic": {
       "options": {
-        "baseURL": "http://inference-gateway.orbit-system.svc.cluster.local"
+        "baseURL": "http://inference-gateway.kora-system.svc.cluster.local"
       }
     },
     "openai": {
       "options": {
-        "baseURL": "http://inference-gateway.orbit-system.svc.cluster.local"
+        "baseURL": "http://inference-gateway.kora-system.svc.cluster.local"
       }
     }
   }
@@ -459,7 +459,7 @@ A single container image can support all three frameworks, which keeps the State
 - [ ] `POST /session` with `framework: "opencode"` creates an `OpenCodeRunner`
 - [ ] `POST /session` with `framework: "claude-code"` continues to create a `ClaudeRunner` (no regression)
 - [ ] `POST /session` with an unrecognised framework returns a 400 validation error
-- [ ] `orbit-agents` passes `at.Framework` in `CreateSessionRequest`
+- [ ] `kora-agents` passes `at.Framework` in `CreateSessionRequest`
 - [ ] Codex runner starts a persistent `codex app-server --transport stdio` process in `Start()` and stops it in `Close()`
 - [ ] Codex runner emits `text_delta` events for each `item/agentMessage/delta` notification
 - [ ] Codex runner emits `message_complete` + `message_stop` on `turn/completed`
@@ -694,7 +694,7 @@ item/fileChange/requestApproval          { ... }
 Codex uses the OpenAI Responses API (`POST /v1/responses`) for all outbound LLM calls. The kora inference gateway supports this endpoint via `DialectResponses`. Setting `OPENAI_BASE_URL` in the Codex container environment routes these calls through the gateway transparently:
 
 ```
-OPENAI_BASE_URL=http://inference-gateway.orbit-system.svc.cluster.local
+OPENAI_BASE_URL=http://inference-gateway.kora-system.svc.cluster.local
 ```
 
 No changes to the inference gateway are required. This is the same pattern as Claude Code's `ANTHROPIC_BASE_URL`.

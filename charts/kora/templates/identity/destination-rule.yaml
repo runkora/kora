@@ -1,12 +1,12 @@
 {{- if .Values.platform.spiffe.enabled }}
-# DestinationRule for orbit-identity mTLS peer authentication.
+# DestinationRule for kora-identity mTLS peer authentication.
 #
 # Configures Istio to use ISTIO_MUTUAL (SPIFFE-backed mTLS) for all traffic
-# to the orbit-identity service, and validates the server's SPIFFE SAN against
+# to the kora-identity service, and validates the server's SPIFFE SAN against
 # the expected SVID issued by SPIRE to the identity service:
 #   spiffe://<trust-domain>/system/identity
 #
-# This ensures that any caller (within the mesh) reaching orbit-identity
+# This ensures that any caller (within the mesh) reaching kora-identity
 # receives a verified identity assertion — not just an encrypted channel.
 # If the SPIRE-issued SVID does not match, the connection is rejected at the
 # Envoy layer before any application code runs.
@@ -15,14 +15,14 @@
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: orbit-identity-client-policy
+  name: kora-identity-client-policy
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.identity.labels" . | nindent 4 }}
 spec:
-  host: orbit-identity.{{ include "kora.systemNamespace" . }}.svc.cluster.local
+  host: kora-identity.{{ include "kora.systemNamespace" . }}.svc.cluster.local
   # Export to all namespaces so tenant pods can resolve this DestinationRule
-  # when calling orbit-identity cross-namespace via the mesh.
+  # when calling kora-identity cross-namespace via the mesh.
   exportTo: ["*"]
   trafficPolicy:
     tls:

@@ -23,7 +23,7 @@ The choice of Kubernetes workload type and pod composition directly determines: 
 - Pods receive a stable SPIFFE identity without per-pod SPIRE entry registration
 - Multiple concurrent sessions per pod — resource-driven scaling, not session-count driven
 - Session-level workspace isolation within each pod
-- `orbit-agents` can route to a specific pod without querying pod IPs
+- `kora-agents` can route to a specific pod without querying pod IPs
 
 ### Non-Goals
 
@@ -46,7 +46,7 @@ The choice of Kubernetes workload type and pod composition directly determines: 
 
 ### Option A: Deployment + HPA
 
-**Description:** One Deployment per agent type. Pods get random names and ephemeral IPs. HPA scales on CPU/memory. Pod IPs tracked by `orbit-agents`.
+**Description:** One Deployment per agent type. Pods get random names and ephemeral IPs. HPA scales on CPU/memory. Pod IPs tracked by `kora-agents`.
 
 **Pros:**
 - Simplest k8s primitive
@@ -59,7 +59,7 @@ The choice of Kubernetes workload type and pod composition directly determines: 
 
 ### Option B: StatefulSet + HPA
 
-**Description:** One StatefulSet per agent type. Pods get stable ordinal names and stable DNS: `{agent}-{n}.{agent}.{namespace}.svc.cluster.local`. HPA scales on CPU/memory. `orbit-agents` routes by ordinal.
+**Description:** One StatefulSet per agent type. Pods get stable ordinal names and stable DNS: `{agent}-{n}.{agent}.{namespace}.svc.cluster.local`. HPA scales on CPU/memory. `kora-agents` routes by ordinal.
 
 **Pros:**
 - Stable pod DNS names — routing by ordinal, no IP tracking
@@ -104,25 +104,25 @@ Each pod in the StatefulSet contains three containers:
 
 StatefulSet name per agent type: `{agent-type-id}` (slugified)  
 Headless Service name: `{agent-type-id}`  
-Namespace: `orbit-tenant-{tenant-id}`  
-Pod DNS pattern: `{agent-type-id}-{n}.{agent-type-id}.orbit-tenant-{tenant-id}.svc.cluster.local`
+Namespace: `kora-tenant-{tenant-id}`  
+Pod DNS pattern: `{agent-type-id}-{n}.{agent-type-id}.kora-tenant-{tenant-id}.svc.cluster.local`
 
-`orbit-agents` stores `run_id → pod_ordinal` and resolves to the stable DNS name at route time. No pod IP tracking required.
+`kora-agents` stores `run_id → pod_ordinal` and resolves to the stable DNS name at route time. No pod IP tracking required.
 
 ### Scaling
 
 HPA targets CPU utilisation at 70% and memory utilisation at 80%. When all pods are fully loaded with concurrent sessions, resource pressure triggers scale-up. Scale-down is ordered (StatefulSet terminates highest ordinals first) and protected by a PodDisruptionBudget.
 
-The PDB uses `minAvailable: 1` as a floor, but the primary protection against evicting pods with active runs is a different mechanism: the session-manager patches the pod with a label `runkora.io/active-runs={count}` whenever the count changes. The StatefulSet's scale-down controller will skip a pod if its own pod disruption policy permits — but Kubernetes PDB does not directly inspect custom labels. Instead, `orbit-agents`' drift detection loop monitors for `Eviction` events on pods with active runs and preemptively cordons those pods (adds a taint `runkora.io/do-not-evict=true:NoSchedule`) until all runs on that pod reach `completed` or `failed`. This is the enforcement mechanism — the PDB provides a coarse backstop only.
+The PDB uses `minAvailable: 1` as a floor, but the primary protection against evicting pods with active runs is a different mechanism: the session-manager patches the pod with a label `runkora.io/active-runs={count}` whenever the count changes. The StatefulSet's scale-down controller will skip a pod if its own pod disruption policy permits — but Kubernetes PDB does not directly inspect custom labels. Instead, `kora-agents`' drift detection loop monitors for `Eviction` events on pods with active runs and preemptively cordons those pods (adds a taint `runkora.io/do-not-evict=true:NoSchedule`) until all runs on that pod reach `completed` or `failed`. This is the enforcement mechanism — the PDB provides a coarse backstop only.
 
 ### SPIRE Identity
 
 All pods in the StatefulSet carry the following labels on the pod template:
-- `spiffe.io/agent={agent-type-id}` — triggers the `orbit-tenant-agent` ClusterSPIFFEID to issue the SVID
-- `runkora.io/managed-agent: "true"` — distinguishes managed agent pods from BYOC pods in the discovery loop ([byoc-agent-discovery-and-observability](2026-05-11-byoc-agent-discovery-and-observability.md)) The existing `orbit-tenant-agent` ClusterSPIFFEID ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md)) automatically issues SVIDs to matching pods:
+- `spiffe.io/agent={agent-type-id}` — triggers the `kora-tenant-agent` ClusterSPIFFEID to issue the SVID
+- `runkora.io/managed-agent: "true"` — distinguishes managed agent pods from BYOC pods in the discovery loop ([byoc-agent-discovery-and-observability](2026-05-11-byoc-agent-discovery-and-observability.md)) The existing `kora-tenant-agent` ClusterSPIFFEID ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md)) automatically issues SVIDs to matching pods:
 
 ```
-spiffe://{trust-domain}/tenant/orbit-tenant-{tenant-id}/agent/{agent-type-id}
+spiffe://{trust-domain}/tenant/kora-tenant-{tenant-id}/agent/{agent-type-id}
 ```
 
 No SPIRE entries are registered programmatically — identity is entirely label-driven. All pods in the StatefulSet share the same SPIFFE URI. The identity-proxy sidecar handles SVID acquisition and platform JWT exchange — no per-pod configuration required.
@@ -131,11 +131,11 @@ The namespace must carry `runkora.io/role: tenant` (already true for all tenant 
 
 ### Cross-Namespace Routing
 
-`orbit-agents` runs in `orbit-system`. Agent pods run in `orbit-tenant-{id}`. Istio mTLS is enforced on all cross-namespace pod-to-pod calls. An Istio `AuthorizationPolicy` in each tenant namespace explicitly permits inbound connections from `orbit-agents`' service account.
+`kora-agents` runs in `kora-system`. Agent pods run in `kora-tenant-{id}`. Istio mTLS is enforced on all cross-namespace pod-to-pod calls. An Istio `AuthorizationPolicy` in each tenant namespace explicitly permits inbound connections from `kora-agents`' service account.
 
 ### Rationale
 
-StatefulSet is the only standard k8s primitive that provides stable pod DNS without custom controllers. The stable DNS name is the key enabler for session routing — `orbit-agents` routes by ordinal without tracking pod IPs or handling rescheduling events. HPA on resource metrics is simpler than custom session-count metrics and correctly reflects actual pod load. PodDisruptionBudget prevents the scale-down race condition where an active session's pod is evicted.
+StatefulSet is the only standard k8s primitive that provides stable pod DNS without custom controllers. The stable DNS name is the key enabler for session routing — `kora-agents` routes by ordinal without tracking pod IPs or handling rescheduling events. HPA on resource metrics is simpler than custom session-count metrics and correctly reflects actual pod load. PodDisruptionBudget prevents the scale-down race condition where an active session's pod is evicted.
 
 ---
 
@@ -143,7 +143,7 @@ StatefulSet is the only standard k8s primitive that provides stable pod DNS with
 
 ### Positive
 
-- Stable routing: pod DNS names survive restarts; no IP tracking in `orbit-agents`
+- Stable routing: pod DNS names survive restarts; no IP tracking in `kora-agents`
 - SPIRE entry is one-per-agent-type: simple lifecycle, no per-pod entry management
 - HPA handles scaling transparently: no custom pool controller required
 - Sidecar cost amortised: identity-proxy and Envoy startup cost is paid once per pod, not per session
@@ -163,14 +163,14 @@ StatefulSet is the only standard k8s primitive that provides stable pod DNS with
 
 ### Resources Per Agent Type
 
-On agent type creation, `orbit-agents` provisions:
+On agent type creation, `kora-agents` provisions:
 
-1. `StatefulSet/{agent-type-id}` in `orbit-tenant-{id}` — 1 replica minimum
-2. `Service/{agent-type-id}` (headless, `clusterIP: None`) in `orbit-tenant-{id}`
+1. `StatefulSet/{agent-type-id}` in `kora-tenant-{id}` — 1 replica minimum
+2. `Service/{agent-type-id}` (headless, `clusterIP: None`) in `kora-tenant-{id}`
 3. `HorizontalPodAutoscaler/{agent-type-id}` targeting the StatefulSet
 4. `PodDisruptionBudget/{agent-type-id}` — `minAvailable: 1` (adjusted for active runs)
-5. `ServiceAccount/{agent-type-id}` in `orbit-tenant-{id}` — used for SPIRE attestation
-6. `AuthorizationPolicy` allowing inbound from `orbit-agents` service account
+5. `ServiceAccount/{agent-type-id}` in `kora-tenant-{id}` — used for SPIRE attestation
+6. `AuthorizationPolicy` allowing inbound from `kora-agents` service account
 
 On agent type deletion, all resources are removed after active runs drain.
 
@@ -181,7 +181,7 @@ On agent type deletion, all resources are removed after active runs drain.
 ### Success Metrics
 
 - StatefulSet pod reaches Running state within 60 seconds of agent type creation
-- Pod DNS name resolves correctly from `orbit-system` namespace
+- Pod DNS name resolves correctly from `kora-system` namespace
 - SVID delivered to pod within 30 seconds of Running state
 - HPA scales up within 2 minutes of sustained CPU/memory pressure
 
@@ -197,7 +197,7 @@ On agent type deletion, all resources are removed after active runs drain.
 *   Each agent's StatefulSet and HPA will have a minimum of 2 replicas.
 *   The headless Service will set `publishNotReadyAddresses: true` to keep a draining pod reachable by its DNS name.
 *   On SIGTERM the session-manager will fail readiness, accept no new sessions, and exit when its runs end or the grace period from the chart ends.
-*   Run start will create only missing resources and will not change the pod template. orbit-agents will apply template and image changes at startup, and RollingUpdate will replace one pod at a time.
+*   Run start will create only missing resources and will not change the pod template. kora-agents will apply template and image changes at startup, and RollingUpdate will replace one pod at a time.
 *   Pod selection will take any Ready pod that is not terminating and has a free slot. A pod on the old revision during a roll qualifies.
 
 ---

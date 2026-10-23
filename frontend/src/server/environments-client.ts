@@ -15,8 +15,8 @@ import type {
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
 /**
- * orbit-agents serves environments and sandbox images over the mesh. The session
- * token is forwarded and orbit-agents scopes every result to the caller's tenant.
+ * kora-agents serves environments and sandbox images over the mesh. The session
+ * token is forwarded and kora-agents scopes every result to the caller's tenant.
  */
 async function request<T>(
   path: string,
@@ -55,7 +55,7 @@ async function request<T>(
 // Public API surface
 // ---------------------------------------------------------------------------
 
-/** Lists the caller's tenant's environments from orbit-agents. */
+/** Lists the caller's tenant's environments from kora-agents. */
 export async function listEnvironments(accessToken: string): Promise<Environment[]> {
   const body = await request<{ environments?: Environment[] }>('/api/v1/environments', accessToken);
   return body?.environments ?? [];

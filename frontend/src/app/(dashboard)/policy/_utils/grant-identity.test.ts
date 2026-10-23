@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Grant } from '../_types';
 import { resolveGrantIdentity } from './grant-identity';
 
-const agentId = 'spiffe://orbit.test/tenant/orbit-tenant-example/agent/ci-failure-investigator';
+const agentId = 'spiffe://orbit.test/tenant/kora-tenant-example/agent/ci-failure-investigator';
 
 function grant(overrides: Partial<Grant>): Grant {
   return {

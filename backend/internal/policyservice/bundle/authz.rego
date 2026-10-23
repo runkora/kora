@@ -347,7 +347,7 @@ _is_platform_internal_path if {
 		"/api/v1/identity/delegation/run/",
 		"/api/v1/identity/.well-known/",
 		"/api/v1/policy/bundles/",
-		# session-manager → orbit-agents event/state/sandbox callbacks (mTLS SPIFFE authenticated)
+		# session-manager → kora-agents event/state/sandbox callbacks (mTLS SPIFFE authenticated)
 		"/internal/runs/",
 	]
 	startswith(input.attributes.request.http.path, prefix)

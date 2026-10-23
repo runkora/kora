@@ -101,7 +101,7 @@ Skip the delegation token. Enforcement points resolve the delegator from the run
 
 **Cons:**
 - The hard problem remains untouched: a request from a shared pod still needs *trustworthy run attribution*, so this option needs the same per-run channel as Option C and adds a lookup on top.
-- Requires either a per-request call from PEPs to `orbit-agents` (a new hot-path dependency, and unavailable to the edge OPA sidecar) or pushing run→delegator data into bundles (bundle churn on every run start).
+- Requires either a per-request call from PEPs to `kora-agents` (a new hot-path dependency, and unavailable to the edge OPA sidecar) or pushing run→delegator data into bundles (bundle churn on every run start).
 - Abandons the built, offline-verifiable RFC 8693 consumer stack and the ADR that chose it.
 
 ### Option C: Run-scoped delegation token, attached by the identity-proxy from the existing run path prefix (Chosen)
@@ -129,7 +129,7 @@ Mint the delegation token once at run start and persist it in the identity servi
 
 `AgentType` gains `identity_mode`, values `autonomous` (default) and `delegated`, set at creation and rejected on update. Existing rows backfill to `autonomous`; behaviour for them does not change.
 
-Migration (generated via `make migrate-create service=orbit-agents name=agent_identity_mode`):
+Migration (generated via `make migrate-create service=kora-agents name=agent_identity_mode`):
 
 ```sql
 ALTER TABLE agent_types
@@ -145,7 +145,7 @@ The field is exposed on the agent-types API and the `agents_create` / `agents_ge
 - `agents:types:autonomous:write` — create and mutate autonomous agent types (confers standing authority; higher privilege).
 - `agents:types:write` prefix-covers both, so every existing grant and the tenant-admin / platform-admin reserved roles keep their current power with no migration.
 
-The required scope derives from the requested mode on create and from the STORED mode on update and delete, since widening an autonomous agent's grants is the same act as creating it with them. Because the Layer 1 route map is static per route and cannot read the requested mode from the body, the agent-type write routes register as authenticated-only (the established pattern for locally enforced routes) and the mode-derived check is enforced authoritatively in the orbit-agents service layer.
+The required scope derives from the requested mode on create and from the STORED mode on update and delete, since widening an autonomous agent's grants is the same act as creating it with them. Because the Layer 1 route map is static per route and cannot read the requested mode from the body, the agent-type write routes register as authenticated-only (the established pattern for locally enforced routes) and the mode-derived check is enforced authoritatively in the kora-agents service layer.
 
 Run scopes are per-agent (`agents:runs:{slug}:read` and `agents:runs:{slug}:write`) with one mode-qualified addition: `agents:runs:delegated:write` starts runs of any delegated agent. Messaging and interrupting a delegated run stay with its starter. Terminating another person's delegated run also needs `agents:delegated:read`. Starting a delegated agent is non-escalating by construction: each run acts with the starter's own access. Runs of an autonomous agent stay granted per agent. The mode-qualified scope has no autonomous counterpart and is not a prefix cover of the per-agent scopes. The run check `policy.AgentRunAllowed` in `internal/platform/policy/agent_runs.go` accepts it by name when the agent's stored mode is delegated. The parent `agents:runs:write` covers it. The agent slugs `delegated` and `autonomous` are reserved. No per-agent scope can take the path of a mode-qualified scope.
 
@@ -194,11 +194,11 @@ The identity service implements the endpoint the execution-flow ADR specified:
 - `POST /identity/delegation` — mints a delegation token. The delegator must be a HUMAN or PAT principal (PATs count as the person, per the PRD), established one of two ways: a HUMAN/PAT caller delegates as themselves, or a platform SERVICE/SYSTEM transport carries the runner's platform token as the **RFC 8693 `subject_token`** in the body, which identity fully verifies (signature, expiry, JTI blocklist) and derives the delegator from. While Redis is down the blocklist lookup fails open and minting continues. The body route exists because a pod with an identity-proxy sidecar cannot forward a caller bearer — the proxy overwrites `Authorization` on all egress with the pod's own token — which is precisely the case RFC 8693 models with `subject_token`. AGENT principals are refused as either delegator or transport, which structurally blocks a delegated run from starting another delegated agent. Accepting a verified subject token delegates nothing its bearer could not already do directly, so escalation stays structurally impossible.
 - `DELETE /identity/delegation/{jti}` — revokes via the existing Redis JTI blocklist. The tool and egress gateways check each delegation's `jti` against that blocklist. Their lookups fail open while Redis is down.
 
-`RunService.StartRun` calls it when the agent type is delegated, carrying the runner's bearer as the `subject_token` — identity never mints delegated authority the runner does not hold, so escalation at issuance is structurally impossible. The response carries the issuance record, not the token: the token never transits orbit-agents further than the mint request, and its only consumers are identity-proxies retrieving it under attestation (Decision 4). The claims extend the decided RFC 8693 shape:
+`RunService.StartRun` calls it when the agent type is delegated, carrying the runner's bearer as the `subject_token` — identity never mints delegated authority the runner does not hold, so escalation at issuance is structurally impossible. The response carries the issuance record, not the token: the token never transits kora-agents further than the mint request, and its only consumers are identity-proxies retrieving it under attestation (Decision 4). The claims extend the decided RFC 8693 shape:
 
 ```json
 {
-  "iss": "orbit-identity",
+  "iss": "kora-identity",
   "sub": "{runner-principal-id}",
   "act": { "sub": "spiffe://…/tenant/acme/agent/reviewer" },
   "run_id": "{run-id}",
@@ -213,7 +213,7 @@ The identity service implements the endpoint the execution-flow ADR specified:
 - `run_id` binds the token to one run (checked in Decision 4).
 - `delegator_principal_type` closes the known gap where the delegator lookup cannot distinguish principal types that share an id string (`TODO(M2)` in `authz_gateway.rego`).
 - `exp` is short (a config default on the order of an hour) and never load-bearing for long runs: the retrieval endpoint re-signs a fresh token from the live issuance record, so the identity-proxy's cache-refresh cycle keeps a valid token for the life of the run. A revoked or tombstoned issuance yields nothing on refresh — fail closed. Live per-action evaluation of the delegator's grants and the JTI blocklist remain the real revocation mechanisms. For a PAT-initiated run, revoking the PAT tombstones the issuance (the record carries the PAT lineage).
-- **The delegation ends with the run.** When a run reaches a terminal state, orbit-agents revokes its delegation — the issuance record is tombstoned and the current `jti` blocklisted — honouring the PRD requirement that no access survives the end of the person's run. This lands with the transport phase.
+- **The delegation ends with the run.** When a run reaches a terminal state, kora-agents revokes its delegation — the issuance record is tombstoned and the current `jti` blocklisted — honouring the PRD requirement that no access survives the end of the person's run. This lands with the transport phase.
 
 The identity service **persists the minted token keyed by `run_id`** (delegation issuance table) and exposes `GET /identity/delegation/run/{run_id}` for retrieval. The endpoint releases a token only to a caller whose mesh-attested SPIFFE identity matches the token's `act.sub` agent — so only that agent's own platform workloads can ever hold it, and no runner needs to be present at retrieval time. The same table gives `GET /identity/delegation` and audit a durable record of every delegation event.
 
@@ -227,11 +227,11 @@ One attachment component, already in the data path. The CLI subprocess and every
 
 **Sandbox pod (whenever a run provisions one).** Identical component, identical endpoint; the run-id comes from the sandbox's own per-run SVID (`…/sandbox/{run-id}`) rather than the path, and the header is attached on **all** sandbox egress — tool execution, shell traffic, MCP. This path is fully attested: the workload proves cryptographically which run it is before the token is released to it.
 
-**Session-manager and CreateSession are untouched.** orbit-agents mints at run start (Decision 3) and hands the token to no one; the runner env, subprocess config, and session-manager data path do not change.
+**Session-manager and CreateSession are untouched.** kora-agents mints at run start (Decision 3) and hands the token to no one; the runner env, subprocess config, and session-manager data path do not change.
 
 **Binding checks at enforcement.** The engine already rejects `act.sub` ≠ platform-token subject. It additionally rejects, when the platform token carries a `run_id` claim (the sandbox case), a delegation token whose `run_id` differs; at the inference gateway, the delegation token's `run_id` must match the request's stripped run prefix. A token lifted from one run is therefore useless anywhere run identity is independently known.
 
-**Forward-identity MCP servers.** The tool gateway forwards the caller's bearer to a global MCP server registered with `callerIdentity: forward`, which is the kora MCP. The run's `X-Orbit-Delegation-Token` travels with it, to those servers only. External and tenant-scoped servers receive neither token. The kora MCP passes both tokens on every platform API call it makes. orbit-agents, orbit-triggers, policy-service and identity verify the delegation on their public routes, check it against the revoked-JTI blocklist, and evaluate agent grant ∩ delegator access, as for any delegated request. Their blocklist lookups fail open while Redis is down. A delegated run cannot assign scopes: policy-service refuses its grant and role writes, and identity refuses its PAT creation and scope changes. Either would otherwise be capped by the agent's grant alone and outlive the run. The tool gateway checks the delegation's `run_id` against the run prefix before it forwards. The kora MCP's platform calls carry no run prefix. In sandbox mode the forwarded platform token carries the `run_id` claim, and the engine checks it again at the platform API.
+**Forward-identity MCP servers.** The tool gateway forwards the caller's bearer to a global MCP server registered with `callerIdentity: forward`, which is the kora MCP. The run's `X-Orbit-Delegation-Token` travels with it, to those servers only. External and tenant-scoped servers receive neither token. The kora MCP passes both tokens on every platform API call it makes. kora-agents, kora-triggers, policy-service and identity verify the delegation on their public routes, check it against the revoked-JTI blocklist, and evaluate agent grant ∩ delegator access, as for any delegated request. Their blocklist lookups fail open while Redis is down. A delegated run cannot assign scopes: policy-service refuses its grant and role writes, and identity refuses its PAT creation and scope changes. Either would otherwise be capped by the agent's grant alone and outlive the run. The tool gateway checks the delegation's `run_id` against the run prefix before it forwards. The kora MCP's platform calls carry no run prefix. In sandbox mode the forwarded platform token carries the `run_id` claim, and the engine checks it again at the platform API.
 
 **Residual risk analysis — intra-pod cross-run misattribution.** Co-resident runs in a shared pod are always the *same agent type* in the same tenant. A subprocess that asserts a co-resident run's prefix (breaching the subprocess isolation boundary of [per-session-home-isolation](2026-06-04-per-session-home-isolation.md) to learn it) would act with agent-grants ∩ *that runner's* access — still strictly within the agent's own grant, i.e. never broader than what the same agent exposes **today** running autonomous, where the identical prefix-swap already misattributes budget spend. Delegation only ever narrows authority; the worst case of the residual is the status quo. Mitigations, in order of value: the Decision 2 marker (nothing to gain when no delegated run is co-resident), run-id binding wherever run identity is independently attested or asserted, and subprocess isolation. Tenants that want hard isolation for a sensitive delegated agent set `MaxConcurrentRunsPerPod: 1` on that agent type — an existing knob, not new machinery.
 
@@ -261,7 +261,7 @@ Enforced via the service-layer authorization pattern of [orbit-agents-authorizat
 ### Leg 1 — run start: mint and delivery
 
 ```
-User (human or PAT)      orbit-agents                identity service           session-manager (pod N)
+User (human or PAT)      kora-agents                identity service           session-manager (pod N)
       │                       │                            │                            │
       │ POST /runs            │                            │                            │
       │ (user platform token) │                            │                            │
@@ -275,7 +275,7 @@ User (human or PAT)      orbit-agents                identity service           
       │                       │ (body: agent, run_id,      │                            │
       │                       │  subject_token = the USER's│                            │
       │                       │  token; transport auth =   │                            │
-      │                       │  orbit-agents' own, stamped│                            │
+      │                       │  kora-agents' own, stamped│                            │
       │                       │  by its identity-proxy)    │                            │
       │                       │───────────────────────────►│                            │
       │                       │                            │ verify subject_token,      │
@@ -377,7 +377,7 @@ Phased so each stage lands safely on its own; Decision 2's marker makes ordering
 
 **Phase 4 — delegator-side evaluation.** Delegator leg extended to role-derived access and the `requires` scope projection in both rego layers; delegated egress rule; `budget.rego` delegator ceilings; usage-record `delegator_id` and spend-surface rollup.
 
-**Phase 5 — product surface.** Start/steer/visibility/trigger constraints in orbit-agents and triggers; agent-builder identity-model selector unlock; run surfaces showing attribution; refusal reasons distinguishing which leg of the intersection denied.
+**Phase 5 — product surface.** Start/steer/visibility/trigger constraints in kora-agents and triggers; agent-builder identity-model selector unlock; run surfaces showing attribution; refusal reasons distinguishing which leg of the intersection denied.
 
 Each phase must pass `make check`; Phases 1–4 carry table-driven unit tests beside the code they change, and the live-cluster authz integration suite gains delegated cases.
 

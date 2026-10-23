@@ -1,7 +1,7 @@
 /**
  * Integration tests for GET /api/agents/runs and GET /api/agents/types/{typeId}/runs.
  *
- * MSW stands in for orbit-agents and records the query each route sends upstream.
+ * MSW stands in for kora-agents and records the query each route sends upstream.
  * Name resolution is mocked; it has its own tests.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';

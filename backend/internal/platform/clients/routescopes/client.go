@@ -30,7 +30,7 @@
 //
 // Usage:
 //
-//	client := routescopes.NewClient("http://orbit-policy-service.orbit-system.svc", identityClient.SelfTokenSource(), logger)
+//	client := routescopes.NewClient("http://kora-policy-service.kora-system.svc", identityClient.SelfTokenSource(), logger)
 //	register := func(ctx context.Context) error {
 //	    return client.Register(ctx, "inference-gateway", inferenceRoutes(), inferenceScopes())
 //	}
@@ -109,7 +109,7 @@ const (
 )
 
 // NewClient creates a Client targeting the given policy service base URL,
-// e.g. "http://orbit-policy-service.orbit-system.svc". token supplies the
+// e.g. "http://kora-policy-service.kora-system.svc". token supplies the
 // caller's own platform token for each registration.
 func NewClient(serviceURL string, token TokenSource, logger logging.Logger) *Client {
 	return &Client{

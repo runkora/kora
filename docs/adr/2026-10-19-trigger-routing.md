@@ -24,7 +24,7 @@ Creating a trigger grants its principal `agents:runs:<slug>:read` and `agents:ru
 
 [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) holds fires with the same rendered key for a window and replaces a waiting fire with the newest payload (`renderCoalesceKey` in `backend/internal/triggers/coalesce.go`). `trigger_delivery_runs` records the run each fire started.
 
-orbit-agents records the starting trigger on a run as `StartedBy` (`backend/internal/agents/models.go`) and leaves it nil for a run a person started. `RunService.SendMessage` (`backend/internal/agents/run_service.go`) delivers a message to an `active` or `idle` run behind `POST /api/v1/runs/{id}/messages` and checks `agents:runs:<slug>:write` for the caller through `Authz.checkRun` (`backend/internal/agents/authz.go`). It treats every message as a person's message: the run takes the manual idle timeout from `IdleTimeouts.ForPersonMessage` (`backend/internal/agents/idle_timeout.go`), and the run's event stream records a human message.
+kora-agents records the starting trigger on a run as `StartedBy` (`backend/internal/agents/models.go`) and leaves it nil for a run a person started. `RunService.SendMessage` (`backend/internal/agents/run_service.go`) delivers a message to an `active` or `idle` run behind `POST /api/v1/runs/{id}/messages` and checks `agents:runs:<slug>:write` for the caller through `Authz.checkRun` (`backend/internal/agents/authz.go`). It treats every message as a person's message: the run takes the manual idle timeout from `IdleTimeouts.ForPersonMessage` (`backend/internal/agents/idle_timeout.go`), and the run's event stream records a human message.
 
 [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) added `POST /v1/systemone` and the `decision` capability to the inference gateway. A `choice` question carries `instructions` and a `criteria` map from option name to description. Its answer returns `choice`, a `probabilities` map over every option and a `confidence` value. The route requires `inference:invoke`, and each virtual model requires `inference:<family>:<name>:use`. No typed client for the inference gateway exists in `backend/internal/platform/clients/`.
 
@@ -53,7 +53,7 @@ A trigger cannot choose among agents or send a delivery to a run that is already
 
 **Who is this agent?** A joined run keeps its identity. A run started by a routing trigger runs under the routing trigger's principal like any trigger run. The decision call is attributed to that principal.
 
-**How does it connect?** orbit-triggers gains one east-west call to the inference gateway. The decision model's credentials stay in the gateway.
+**How does it connect?** kora-triggers gains one east-west call to the inference gateway. The decision model's credentials stay in the gateway.
 
 ---
 
@@ -74,13 +74,13 @@ A trigger cannot choose among agents or send a delivery to a run that is already
 
 **Option 1b (rejected):** Route in `fanOut` at ingest. The decision call would run before admission and the coalescing hold. A burst would make one model call per fire that coalescing then discards.
 
-**Option 1c (rejected):** Route inside orbit-agents. orbit-agents does not read trigger configuration or delivery history, and the key-first lookup needs both.
+**Option 1c (rejected):** Route inside kora-agents. kora-agents does not read trigger configuration or delivery history, and the key-first lookup needs both.
 
 ### D2. Calling the Decision Model
 
-**Option 2a (chosen):** Add a typed client `backend/internal/platform/clients/inference` that embeds `httpclient.Base` and exposes `SystemOne`. orbit-triggers calls it with the routing trigger's SERVICE token, the same token it mints for `StartRun`.
+**Option 2a (chosen):** Add a typed client `backend/internal/platform/clients/inference` that embeds `httpclient.Base` and exposes `SystemOne`. kora-triggers calls it with the routing trigger's SERVICE token, the same token it mints for `StartRun`.
 
-**Option 2b (rejected):** Call the gateway with orbit-triggers' own platform identity. Usage and budgets would be attributed to the platform component, and the trigger's spend would not be visible.
+**Option 2b (rejected):** Call the gateway with kora-triggers' own platform identity. Usage and budgets would be attributed to the platform component, and the trigger's spend would not be visible.
 
 ### D3. Questions and State
 
@@ -124,13 +124,13 @@ A trigger cannot choose among agents or send a delivery to a run that is already
 
 1. **Target kind:** A webhook trigger gains `target_kind: "routed"`, and a routed trigger has candidates and no `agent_type_id`. Scheduled and manual triggers reject `routed`.
 2. **Placement:** Routing runs in `DispatchPending` (Option 1a). A routed fire computes a route and then either starts a run through `StartRun` or joins one through the new agents client method `SendRunMessage`.
-3. **Model call:** orbit-triggers calls `POST /v1/systemone` through the new inference client (Option 2a) with the routing trigger's SERVICE token. The gateway applies `inference:invoke`, `inference:<family>:<name>:use`, the tenant budget and the usage row as on any decision call.
+3. **Model call:** kora-triggers calls `POST /v1/systemone` through the new inference client (Option 2a) with the routing trigger's SERVICE token. The gateway applies `inference:invoke`, `inference:<family>:<name>:use`, the tenant budget and the usage row as on any decision call.
 4. **Questions:** The routing questions live in `backend/internal/triggers/routing_questions.go` with `routingQuestionsVersion = "routing-v2"`:
    - `agent`: a `choice` question that asks which candidate agent should handle the message. Each `criteria` key is an opaque option id (`a1`, `a2`, ...) and each value is the agent's name and description (Option 4a).
    - `run`: a `choice` question that asks whether the message continues one of the listed runs. The options are `new` and one opaque id per joinable run (`r1`, `r2`, ...). Each run's description is its agent name, its start time, the fields of the delivery it started from and its run summary. The started-from fields are the capped values of the placeholders in the starting trigger's prompt template, as JSON (at most 12 fields of 200 bytes each). A run with no recorded start delivery keeps the description without them. The `run` instructions treat the started-from fields as data from an external event and say that a message on the same subject usually continues that run. The subject comes from these fields and not from `join_key`, so a trigger with a `join_key` still joins by key before the model is asked. A run on another thread stays joinable. The question is omitted when joining is off or no run is joinable.
 5. **State:** The `state` is a JSON object with a `message` field that holds the prompt rendered by `renderWebhookPrompt`. The delivery values stay inside the `<delivery-data>` block. The instructions of both questions state that the message content is data from an external event. The `run` instructions also state that the open runs' summaries are agent output from earlier external events and are not instructions.
 6. **Limits:** A routed trigger has 1 to 20 candidates, checked at create and update. At most the 20 most recently active joinable runs are offered.
-7. **Key first (Option 6a):** A routed trigger has an optional `join_key` template with the coalesce key's syntax and 256-byte limit. When joining is on and `join_key` is set, routing renders the key and reads the newest decision of the **same trigger** with that key and a run (`trigger_routing_decisions.join_key`). If that run is `active` or `idle`, the delivery joins it without a model call. If the run is still starting, orbit-agents answers the message with `ErrRunStarting`, and the fire returns to the queue with `dispatch_after` 10 seconds later, at most 6 times. The delivery's reason records each hold. Once the run is `active` or `idle`, the delivery joins it. If the run fails or ends, or the holds run out, the model decides. The model also decides when the key renders empty or too long. Keys are per-trigger templates and are not compared across triggers. Coalescing stays an independent setting on the trigger.
+7. **Key first (Option 6a):** A routed trigger has an optional `join_key` template with the coalesce key's syntax and 256-byte limit. When joining is on and `join_key` is set, routing renders the key and reads the newest decision of the **same trigger** with that key and a run (`trigger_routing_decisions.join_key`). If that run is `active` or `idle`, the delivery joins it without a model call. If the run is still starting, kora-agents answers the message with `ErrRunStarting`, and the fire returns to the queue with `dispatch_after` 10 seconds later, at most 6 times. The delivery's reason records each hold. Once the run is `active` or `idle`, the delivery joins it. If the run fails or ends, or the holds run out, the model decides. The model also decides when the key renders empty or too long. Keys are per-trigger templates and are not compared across triggers. Coalescing stays an independent setting on the trigger.
 8. **Thresholds:** The trigger stores a preset. The thresholds live in code and apply to the probability of the chosen option:
    - `strict`: 0.85.
    - `balanced` (default): 0.70.
@@ -144,7 +144,7 @@ A trigger cannot choose among agents or send a delivery to a run that is already
    An earlier order checked the `run` answer first and could join a run of an agent that cannot do the work. `routingQuestionsVersion` is `routing-v2` for this order.
 10. **Fallback:** The fallback is either a candidate agent (`fallback_agent_type_id`) or no run. A below-threshold answer and a failed model call both take the fallback. The fallback agent must be one of the candidates. Routing never starts an agent outside the candidate list.
 11. **Failure accounting:** A failed model call records the gateway error on the routing decision. It counts toward auto-pause only when no fallback agent is configured and the failure is a configuration error: a 403 for a missing scope or an exhausted budget, a 400 or 422 for a rejected request, or a 404 for an unknown or disabled model. A 5xx, 529, 429 or timeout from the gateway never counts. `countsTowardAutoPause` treats platform faults on a run start the same way. A below-threshold answer does not count toward auto-pause.
-12. **Joinable runs (Option 5a):** orbit-triggers lists runs through `GET /api/v1/runs` with two new filters: `started_by=trigger` and repeated `agent_type_id`. Joinable runs have these properties:
+12. **Joinable runs (Option 5a):** kora-triggers lists runs through `GET /api/v1/runs` with two new filters: `started_by=trigger` and repeated `agent_type_id`. Joinable runs have these properties:
     - The run is in the trigger's tenant.
     - A trigger started it (`StartedBy` set).
     - Its state is `active` or `idle`.
@@ -154,7 +154,7 @@ A trigger cannot choose among agents or send a delivery to a run that is already
 15. **Lost race:** If the chosen run leaves `active` or `idle` before the message arrives (`ErrRunStarting` or `ErrRunNotAcceptingMessages`), the delivery starts a new run of that run's agent and records the change.
 16. **Grants:** A routed trigger's principal holds one grant with the following scopes:
     - `triggerRunScopes(slug)` for every candidate.
-    - `agents:types:<slug>:read` for every candidate, so `decide` can list the candidates through orbit-agents' per-agent type filter.
+    - `agents:types:<slug>:read` for every candidate, so `decide` can list the candidates through kora-agents' per-agent type filter.
     - `inference:invoke`.
     - `inference:<family>:<name>:use` for the decision model.
 
@@ -162,12 +162,12 @@ A trigger cannot choose among agents or send a delivery to a run that is already
 
     On every update of a routed trigger the stored grant is read from policy-service and compared with the scopes `routedGrantScopes` computes. When they differ the grant is replaced, so a trigger created before the read scope was added is fixed by its next update, including a rename.
 
-17. **Creation authority:** Create reads each candidate from orbit-agents with the caller's bearer and delegation. Each candidate must report `can_run`. A candidate without it rejects the request with 403 and names the agent. A candidate the caller cannot read is rejected with 400 as not found in the tenant, as for a single-agent trigger, so the response does not reveal that it exists. The policy evaluator orbit-triggers already holds (`policy.NewEvaluator` in `backend/cmd/kora-triggers/main.go`) checks `inference:invoke` and the model's use scope against the caller's claims. A missing scope rejects the request with 403 and lists the missing scopes. An update that changes what runs or when applies the same checks to the current candidates, and a candidate change applies them to the new ones as well. Those updates change the candidates, the model, the fallback agent, the join settings, the event, the filters, the prompt template or enablement. A rename or a description change needs only `triggers:write`. A replay or a source change requires `can_run` on every candidate of a routed trigger on the source. `CreateTrigger` and `UpdateTrigger` gain the caller's claims as a parameter.
+17. **Creation authority:** Create reads each candidate from kora-agents with the caller's bearer and delegation. Each candidate must report `can_run`. A candidate without it rejects the request with 403 and names the agent. A candidate the caller cannot read is rejected with 400 as not found in the tenant, as for a single-agent trigger, so the response does not reveal that it exists. The policy evaluator kora-triggers already holds (`policy.NewEvaluator` in `backend/cmd/kora-triggers/main.go`) checks `inference:invoke` and the model's use scope against the caller's claims. A missing scope rejects the request with 403 and lists the missing scopes. An update that changes what runs or when applies the same checks to the current candidates, and a candidate change applies them to the new ones as well. Those updates change the candidates, the model, the fallback agent, the join settings, the event, the filters, the prompt template or enablement. A rename or a description change needs only `triggers:write`. A replay or a source change requires `can_run` on every candidate of a routed trigger on the source. `CreateTrigger` and `UpdateTrigger` gain the caller's claims as a parameter.
 18. **Delegated agents:** `refuseDelegatedBinding` applies to every candidate and to the fallback agent.
 
 ### Data Model
 
-The migration is generated with `make migrate-create service=orbit-triggers name=add_trigger_routing`:
+The migration is generated with `make migrate-create service=kora-triggers name=add_trigger_routing`:
 
 ```sql
 -- +goose Up
@@ -305,7 +305,7 @@ The API does not return `question_version`.
 
 ### Console
 
-The target step and the delivery detail follow the routing stories under `Pages/Triggers`. The model list reads `GET /api/models` and keeps models whose `capabilities` include `decision`. orbit-triggers adds `GET /api/v1/triggers/routing/candidates` to return the tenant's agent types with a `runnable` flag from orbit-agents' `can_run` for the caller. The list holds the agent types the caller may read. The wizard lists non-runnable and delegated agents as disabled with their reason.
+The target step and the delivery detail follow the routing stories under `Pages/Triggers`. The model list reads `GET /api/models` and keeps models whose `capabilities` include `decision`. kora-triggers adds `GET /api/v1/triggers/routing/candidates` to return the tenant's agent types with a `runnable` flag from kora-agents' `can_run` for the caller. The list holds the agent types the caller may read. The wizard lists non-runnable and delegated agents as disabled with their reason.
 
 ---
 
@@ -324,7 +324,7 @@ The target step and the delivery detail follow the routing stories under `Pages/
 - A routed trigger's grant spans every candidate. Removing a candidate requires an update to replace the grant.
 - An update that replaces the grant stores the trigger only while its stored grant is still the one it replaced. A concurrent update that replaced it first wins, and the other deletes its new grant and answers 409. Revoking the replaced grant is retried a few times. A revocation that still fails is returned as an error, and the log names the grant that is still live. Durable cleanup of such a grant is follow-up work.
 - Routing quality depends on agent descriptions that agent owners write for people.
-- orbit-triggers needs mesh access to the inference gateway: a DestinationRule entry and an AuthorizationPolicy principal.
+- kora-triggers needs mesh access to the inference gateway: a DestinationRule entry and an AuthorizationPolicy principal.
 
 ### Neutral
 

@@ -60,9 +60,9 @@ EOF
 #               from versions.hcl.
 #   image       Image name (without tag); IMAGE=kora-foo → kora-foo:latest.
 #   namespace   Cluster namespace. Use {tenant} as a placeholder.
-#   workload    Workload kind/name pair (deployment/orbit-foo or statefulset/{slug}),
+#   workload    Workload kind/name pair (deployment/kora-foo or statefulset/{slug}),
 #               'sidecar' or 'release' for images with no workload of their own,
-#               rolled by re-applying the orbit release.
+#               rolled by re-applying the kora release.
 #               Use {slug} as a placeholder for the agent slug (== tenant).
 #   extra_workloads  Optional space-separated list of additional workloads that
 #               run the same image and must be rolled alongside `workload`.
@@ -83,22 +83,22 @@ context=backend
 build_arg=SERVICE=identity
 image=kora-identity
 values_key=identity
-namespace=orbit-system
-workload=deployment/orbit-identity
+namespace=kora-system
+workload=deployment/kora-identity
 post_build=layer_mkcert_ca
 restart=true
 EOF
       ;;
     identity-proxy)
       # Rendered into chart-templated system pods and webhook-injected tenant
-      # pods; rolled by re-applying the orbit release.
+      # pods; rolled by re-applying the kora release.
       cat <<'EOF'
 dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=identity-proxy
 image=kora-identity-proxy
 values_key=identityProxy
-namespace=orbit-system
+namespace=kora-system
 workload=sidecar
 restart=true
 EOF
@@ -110,8 +110,8 @@ context=backend
 build_arg=SERVICE=inference-gateway
 image=kora-inference-gateway
 values_key=inferenceGateway
-namespace=orbit-system
-workload=deployment/orbit-inference-gateway
+namespace=kora-system
+workload=deployment/kora-inference-gateway
 restart=true
 EOF
       ;;
@@ -122,8 +122,8 @@ context=backend
 build_arg=SERVICE=policy-service
 image=kora-policy-service
 values_key=policyService
-namespace=orbit-system
-workload=deployment/orbit-policy-service
+namespace=kora-system
+workload=deployment/kora-policy-service
 restart=true
 EOF
       ;;
@@ -134,8 +134,8 @@ context=backend
 build_arg=SERVICE=policy-gateway
 image=kora-policy-gateway
 values_key=policyGateway
-namespace=orbit-system
-workload=deployment/orbit-policy-gateway
+namespace=kora-system
+workload=deployment/kora-policy-gateway
 restart=true
 EOF
       ;;
@@ -146,8 +146,8 @@ context=backend
 build_arg=SERVICE=egress-gateway
 image=kora-egress-gateway
 values_key=egressGateway
-namespace=orbit-system
-workload=deployment/orbit-egress-gateway
+namespace=kora-system
+workload=deployment/kora-egress-gateway
 restart=true
 EOF
       ;;
@@ -158,8 +158,8 @@ context=backend
 build_arg=SERVICE=kora-agents
 image=kora-agents
 values_key=agents
-namespace=orbit-system
-workload=deployment/orbit-agents
+namespace=kora-system
+workload=deployment/kora-agents
 restart=true
 EOF
       ;;
@@ -170,8 +170,8 @@ context=frontend
 build_arg=NEXT_PUBLIC_APP_URL=https://orbit.local.clearroute.io:8443
 image=kora-frontend
 values_key=frontend
-namespace=orbit-system
-workload=deployment/orbit-frontend
+namespace=kora-system
+workload=deployment/kora-frontend
 restart=true
 EOF
       ;;
@@ -182,8 +182,8 @@ context=backend
 build_arg=SERVICE=kora-mcp
 image=kora-mcp
 values_key=koraMcp
-namespace=orbit-system
-workload=deployment/orbit-mcp
+namespace=kora-system
+workload=deployment/kora-mcp
 restart=true
 EOF
       ;;
@@ -194,8 +194,8 @@ context=backend
 build_arg=SERVICE=kora-triggers
 image=kora-triggers
 values_key=triggers
-namespace=orbit-system
-workload=deployment/orbit-triggers
+namespace=kora-system
+workload=deployment/kora-triggers
 restart=true
 EOF
       ;;
@@ -208,14 +208,14 @@ context=backend
 build_arg=SERVICE=tool-gateway
 image=kora-tool-gateway
 values_key=toolGateway
-namespace=orbit-system
-workload=deployment/orbit-tool-gateway
-extra_workloads=deployment/orbit-tool-gateway-publisher
+namespace=kora-system
+workload=deployment/kora-tool-gateway
+extra_workloads=deployment/kora-tool-gateway-publisher
 restart=true
 EOF
       ;;
     migrate)
-      # Runs as a pre-upgrade hook Job, not a Deployment; re-applying the orbit
+      # Runs as a pre-upgrade hook Job, not a Deployment; re-applying the kora
       # release with the new digest fires the hook.
       cat <<'EOF'
 dockerfile=backend/Dockerfile
@@ -223,7 +223,7 @@ context=backend
 build_arg=SERVICE=migrate
 image=kora-migrate
 values_key=migrate
-namespace=orbit-system
+namespace=kora-system
 workload=release
 restart=true
 EOF
@@ -235,8 +235,8 @@ context=.
 build_arg=
 image=kora-operator
 values_key=operator
-namespace=orbit-system
-workload=deployment/orbit-operator
+namespace=kora-system
+workload=deployment/kora-operator
 restart=true
 EOF
       ;;
@@ -246,8 +246,8 @@ dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=example
 image=kora-example
-namespace=orbit-tenant-{tenant}
-workload=deployment/orbit-example
+namespace=kora-tenant-{tenant}
+workload=deployment/kora-example
 restart=true
 tenant_default=example
 EOF
@@ -261,14 +261,14 @@ dockerfile=backend/Dockerfile.session-manager
 context=backend
 build_arg=
 image=kora-session-manager
-namespace=orbit-tenant-{tenant}
+namespace=kora-tenant-{tenant}
 workload=statefulset/{slug}
 restart=true
 tenant_default=example
 EOF
       ;;
     sandbox-mount)
-      # A chart DaemonSet in its own namespace, rolled by re-applying the orbit release.
+      # A chart DaemonSet in its own namespace, rolled by re-applying the kora release.
       cat <<'EOF'
 dockerfile=backend/Dockerfile.sandbox-mount
 context=backend
@@ -299,22 +299,22 @@ EOF
 
 list_services() {
   cat <<'EOF'
-identity            (deployment, orbit-system, +mkcert CA layer)
+identity            (deployment, kora-system, +mkcert CA layer)
 identity-proxy      (sidecar; restart by deleting injected pods)
-inference-gateway   (deployment, orbit-system)
-policy-service      (deployment, orbit-system)
-policy-gateway      (deployment, orbit-system)
-egress-gateway      (deployment, orbit-system)
-agents              (deployment, orbit-system)
-frontend            (deployment, orbit-system)
-kora-mcp            (deployment, orbit-system)
-tool-gateway        (deployment, orbit-system; also rolls the publisher)
-kora-triggers       (deployment, orbit-system)
-migrate             (hook Job; re-applies the orbit release so the schema migration runs)
-operator            (deployment, orbit-system)
-example             (deployment, orbit-tenant-<TENANT>)
-session-manager     (statefulset, orbit-tenant-<TENANT>; --slug to override workload name)
-sandbox-mount       (node agent DaemonSet; re-applies the orbit release)
+inference-gateway   (deployment, kora-system)
+policy-service      (deployment, kora-system)
+policy-gateway      (deployment, kora-system)
+egress-gateway      (deployment, kora-system)
+agents              (deployment, kora-system)
+frontend            (deployment, kora-system)
+kora-mcp            (deployment, kora-system)
+tool-gateway        (deployment, kora-system; also rolls the publisher)
+kora-triggers       (deployment, kora-system)
+migrate             (hook Job; re-applies the kora release so the schema migration runs)
+operator            (deployment, kora-system)
+example             (deployment, kora-tenant-<TENANT>)
+session-manager     (statefulset, kora-tenant-<TENANT>; --slug to override workload name)
+sandbox-mount       (node agent DaemonSet; re-applies the kora release)
 sandbox-base        (build-only; picked up by next sandbox)
 EOF
 }
@@ -583,14 +583,14 @@ case "$WORKLOAD" in
     # Sidecars are referenced by chart templates and the operator's injection
     # config; hook Jobs run on upgrade. Re-applying the release with the new
     # digest rolls system pods (tenant pods on next creation) or fires the hook.
-    log "Re-applying the orbit release with the new $SERVICE digest..."
-    (cd "$ROOT_DIR/deploy/reference" && helmfile -e local apply --selector name=orbit)
+    log "Re-applying the kora release with the new $SERVICE digest..."
+    (cd "$ROOT_DIR/deploy/reference" && helmfile -e local apply --selector name=kora)
     # Recorded only once the hook has run: `make redeploy` skips the migrate
     # rebuild while this hash matches the tree.
     if [ "$SERVICE" = "migrate" ]; then
       yq -i ".migrate.sourceHash = \"$(bash "$ROOT_DIR/scripts/cluster/migrations-hash.sh")\"" "$GENERATED"
     fi
-    ok "$SERVICE rolled via the orbit release"
+    ok "$SERVICE rolled via the kora release"
     ;;
   on-demand)
     info "$SERVICE has no long-lived workload to restart"

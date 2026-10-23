@@ -30,7 +30,7 @@ const (
 	podLabelOPAPolicy     = "runkora.io/opa-policy"
 	podLabelIdentityProxy = "runkora.io/identity-proxy"
 
-	// podLabelSpiffeService is matched by the orbit-tenant-service
+	// podLabelSpiffeService is matched by the kora-tenant-service
 	// ClusterSPIFFEID, which issues spiffe://<td>/tenant/<ns>/service/<value>.
 	// An MCP server pod needs it: kora's sidecars take their certificates from
 	// SPIRE, so a pod with no registration has no mesh identity.
@@ -57,7 +57,7 @@ const (
 	// looks for an external SDS socket.
 	volumeSpireSocket   = "workload-socket"
 	volumeIdentityProxy = "id-proxy-sock"
-	volumeOPAConfig     = "orbit-opa-config"
+	volumeOPAConfig     = "kora-opa-config"
 
 	containerIdentityProxy = "identity-proxy"
 	containerOPA           = "opa"
@@ -235,7 +235,7 @@ func (m *PodMutator) mutate(pod *corev1.Pod, tenantName, mcpServer string) error
 		Name: volumeOPAConfig,
 		VolumeSource: corev1.VolumeSource{
 			ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: "orbit-opa-config"},
+				LocalObjectReference: corev1.LocalObjectReference{Name: "kora-opa-config"},
 			},
 		},
 	})
@@ -285,7 +285,7 @@ func (m *PodMutator) identityProxyContainer(otlpEndpoint string) corev1.Containe
 		Image:           m.Config.IdentityProxyImage,
 		ImagePullPolicy: m.Config.IdentityProxyPullPolicy,
 		Env: []corev1.EnvVar{
-			{Name: "KORA_IDENTITY_SERVICE_URL", Value: fmt.Sprintf("http://orbit-identity.%s.svc.cluster.local", m.Config.SystemNamespace)},
+			{Name: "KORA_IDENTITY_SERVICE_URL", Value: fmt.Sprintf("http://kora-identity.%s.svc.cluster.local", m.Config.SystemNamespace)},
 			{Name: "SPIFFE_ENDPOINT_SOCKET", Value: spiffeSocketPath},
 			{Name: "KORA_OTLP_ENDPOINT", Value: otlpEndpoint},
 			{Name: "KORA_SAMPLING_RATE", Value: m.Config.SamplingRate},
@@ -436,7 +436,7 @@ func mergeUserVolumeMounts(existing string) (string, error) {
 
 // ensureVolume sets a kora-owned volume by name, overwriting any pod-supplied
 // definition of the same name. Every caller here is one of kora's own fixed
-// volume names (workload-socket, id-proxy-sock, orbit-opa-config): a tenant pod
+// volume names (workload-socket, id-proxy-sock, kora-opa-config): a tenant pod
 // that pre-declares one of these itself must not get its definition kept, or the
 // injected sidecar mounts an attacker-controlled volume instead of the real one.
 func ensureVolume(spec *corev1.PodSpec, v corev1.Volume) {

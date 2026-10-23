@@ -46,11 +46,11 @@ type Config struct {
 		// TrustDomain is the SPIFFE trust domain (e.g. "orbit.test").
 		// Used to build agent SPIFFE IDs for policy grant creation.
 		TrustDomain string `yaml:"trustDomain"`
-		// IdentityServiceURL is the base URL of the orbit-identity service.
+		// IdentityServiceURL is the base URL of the kora-identity service.
 		// Used by the policy client's token function to exchange the pod's SVID
 		// for a platform bearer token.
 		IdentityServiceURL string `yaml:"identityServiceURL"`
-		// PolicyServiceURL is the base URL of the orbit-policy-service.
+		// PolicyServiceURL is the base URL of the kora-policy-service.
 		// When empty, grant management is skipped (local dev without policy service).
 		PolicyServiceURL string `yaml:"policyServiceURL"`
 	} `yaml:"platform"`
@@ -116,7 +116,7 @@ type Config struct {
 			DrainGracePeriodSecs int64 `yaml:"drainGracePeriodSecs"`
 		} `yaml:"scheduling"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
-		// the operator's ConnectionAggregator into the orbit-tenant-connections
+		// the operator's ConnectionAggregator into the kora-tenant-connections
 		// ConfigMap. kora-agents reads it to serve the read-only connection
 		// catalog (GET /api/v1/connections). Absent/empty yields an empty catalog.
 		ConnectionRegistryPath string `yaml:"connectionRegistryPath"`
@@ -134,7 +134,7 @@ type Config struct {
 		SessionManager struct {
 			// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy
 			// beside each agent StatefulSet restricting its session-manager
-			// port to the orbit-agents principal. Requires SPIFFE/mTLS, so the
+			// port to the kora-agents principal. Requires SPIFFE/mTLS, so the
 			// chart sets it from platform.spiffe.enabled AND
 			// agents.authorizationPolicy.enabled.
 			AuthorizationPolicyEnabled bool `yaml:"authorizationPolicyEnabled"`
@@ -160,7 +160,7 @@ type EnvironmentSize struct {
 // PolicyConfig configures the in-process OPA policy evaluator.
 type PolicyConfig struct {
 	// BundleEndpoint is the base URL for the policy-service bundle API.
-	// e.g. http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles
+	// e.g. http://kora-policy-service.kora-system.svc/api/v1/policy/bundles
 	BundleEndpoint         string `yaml:"bundleEndpoint"`
 	BundlePollIntervalSecs int    `yaml:"bundlePollIntervalSecs"`
 }

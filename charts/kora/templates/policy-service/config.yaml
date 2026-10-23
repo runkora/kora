@@ -7,10 +7,10 @@ cmd/policy-service:
     enabled: {{ .Values.global.metrics.enabled }}
     port: {{ .Values.global.metrics.port | default 9464 }}
   bundle:
-    jwksURL: {{ printf "%s/api/v1/identity/.well-known/jwks.json" (include "kora.serviceURL" (dict "root" . "name" "orbit-identity")) | toJson }}
+    jwksURL: {{ printf "%s/api/v1/identity/.well-known/jwks.json" (include "kora.serviceURL" (dict "root" . "name" "kora-identity")) | toJson }}
     frontendHost: {{ include "kora.frontendHost" . | toJson }}
 {{ include "kora.observabilityConfigModule" . }}
 {{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "kora.tokenConfigModule" . }}
 {{- end }}
-{{- include "kora.configMap" (dict "root" $ "name" "policyService" "configMap" "orbit-policy-service-config" "modules" (include "kora.policyService.configModules" . | fromYaml)) }}
+{{- include "kora.configMap" (dict "root" $ "name" "policyService" "configMap" "kora-policy-service-config" "modules" (include "kora.policyService.configModules" . | fromYaml)) }}

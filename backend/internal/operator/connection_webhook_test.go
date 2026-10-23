@@ -19,7 +19,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-const connTestNS = "orbit-tenant-acme"
+const connTestNS = "kora-tenant-acme"
 
 var connTestEpoch = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 

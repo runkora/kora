@@ -17,7 +17,7 @@ That design holds and nothing here revisits it. Webhook verification stays HMAC-
 
 This ADR covers three things:
 
-1. **Extracting `orbit-triggers`** — the separate binary the v1 ADR committed to when a second trigger kind landed.
+1. **Extracting `kora-triggers`** — the separate binary the v1 ADR committed to when a second trigger kind landed.
 2. **Two new trigger kinds** — scheduled (cron) and manual (API-fired).
 3. **An operable delivery pipeline** — exact outcomes for every way a run can fail to start, per-trigger admission control, and the delivery-safety machinery (timeout, duplicate suppression, auto-pause, payload retention) that the console redesign needs in order to have anything real to show.
 
@@ -298,9 +298,9 @@ The same bounds apply to create and to update, so a trigger cannot be edited int
 
 **What "in flight" means.** `max_parallel` counts runs that are **genuinely running**, not runs that were started recently. The count is a read-only join from `trigger_delivery_runs` to the `runs` table, excluding runs that have **settled**: `completed`, `failed`, `budget_exhausted`, and `idle`. Counting starts-within-a-horizon instead would make the ceiling drift with run duration: a trigger whose runs finish in ten seconds would be throttled for the rest of the horizon by work that had already finished.
 
-**`idle` counts as settled, and this changes what `max_parallel` means.** `orbit-agents` does not treat `idle` as terminal, and correctly so: an idle run has finished its turn and is waiting for a message that would continue the conversation. A **trigger-started** run has nobody to send that message. There is no user attached to it, so the message never comes and the run sits idle until something reaps it. Treating idle as occupying a slot would let a trigger with `max_parallel = 4` wedge permanently after four fires, each holding a slot against a conversation that will never resume. Idle is therefore terminal *for admission purposes only*, and the divergence from the agent control plane's own view is deliberate rather than an oversight. The consequence to state plainly: `max_parallel` bounds runs that are actively working, not runs that exist.
+**`idle` counts as settled, and this changes what `max_parallel` means.** `kora-agents` does not treat `idle` as terminal, and correctly so: an idle run has finished its turn and is waiting for a message that would continue the conversation. A **trigger-started** run has nobody to send that message. There is no user attached to it, so the message never comes and the run sits idle until something reaps it. Treating idle as occupying a slot would let a trigger with `max_parallel = 4` wedge permanently after four fires, each holding a slot against a conversation that will never resume. Idle is therefore terminal *for admission purposes only*, and the divergence from the agent control plane's own view is deliberate rather than an oversight. The consequence to state plainly: `max_parallel` bounds runs that are actively working, not runs that exist.
 
-`runs` is owned by `orbit-agents`, so this is a **deliberate cross-service read**, and it is worth naming as a coupling rather than leaving it to be discovered. It is safe here for the reason it would not be in general: the platform runs one Postgres with pooled migrations, and the read is read-only and additive, so it can never be the cause of a write conflict. If the two services are ever split across databases, this join is the thing that breaks, and the replacement is a count served by `orbit-agents` over its typed client.
+`runs` is owned by `kora-agents`, so this is a **deliberate cross-service read**, and it is worth naming as a coupling rather than leaving it to be discovered. It is safe here for the reason it would not be in general: the platform runs one Postgres with pooled migrations, and the read is read-only and additive, so it can never be the cause of a write conflict. If the two services are ever split across databases, this join is the thing that breaks, and the replacement is a count served by `kora-agents` over its typed client.
 
 Two bounds sit on top of that count:
 
@@ -363,11 +363,11 @@ Fire authorization decides who may *ask*. This decides what the resulting princi
 
 A source or trigger principal is provisioned with `agents:types:read` and nothing else. The per-agent pair `agents:runs:<slug>:read` and `agents:runs:<slug>:write` is added only once a binding to that agent exists. The broad `agents:runs:read`/`agents:runs:write` pair is never granted: scope hierarchy is by prefix, so `agents:runs:write` covers every `agents:runs:<slug>:write`, and holding it would make the per-agent narrowing decorative. A leaked source token would start any agent in the tenant.
 
-That narrowing only holds if the route does not undo it. **`POST /api/v1/runs` is therefore authenticated-only at the route layer**, registered with an empty required scope, which the policy service records as authenticated-only. The scope that governs starting a run is per-agent, and the slug arrives in the request body, where a static path-prefix route map cannot see it. A route-level `agents:runs:write` would not narrow the endpoint; it would **widen** it, because the parent prefix-covers every child, so every principal permitted to start any run would need the scope that permits starting all of them. That is precisely what let a source token start any agent in its tenant. The authoritative check is `orbit-agents`' own per-slug `Authz.checkRun`, run in `RunService.authorizeStart` before the first write, so a refused start leaves nothing behind. It answers `403`, not `500`: a refusal is the caller's answer rather than a server fault, and the propagation retry below can only recognise a refusal that arrives as `403`. [orbit-agents Route and Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) is corrected accordingly.
+That narrowing only holds if the route does not undo it. **`POST /api/v1/runs` is therefore authenticated-only at the route layer**, registered with an empty required scope, which the policy service records as authenticated-only. The scope that governs starting a run is per-agent, and the slug arrives in the request body, where a static path-prefix route map cannot see it. A route-level `agents:runs:write` would not narrow the endpoint; it would **widen** it, because the parent prefix-covers every child, so every principal permitted to start any run would need the scope that permits starting all of them. That is precisely what let a source token start any agent in its tenant. The authoritative check is `kora-agents`' own per-slug `Authz.checkRun`, run in `RunService.authorizeStart` before the first write, so a refused start leaves nothing behind. It answers `403`, not `500`: a refusal is the caller's answer rather than a server fault, and the propagation retry below can only recognise a refusal that arrives as `403`. [kora-agents Route and Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) is corrected accordingly.
 
 #### Who may reach `orbit-triggers` at all
 
-Scope enforcement treats a `SYSTEM` principal as unrestricted, which is the platform-wide convention. `orbit-triggers` holds every webhook source's signing secret and can start a run under any trigger's principal, so under that convention a token minted by any other in-mesh component reaches every triggers route. Mesh-wide reachability is a far larger surface than the callers this service actually has.
+Scope enforcement treats a `SYSTEM` principal as unrestricted, which is the platform-wide convention. `kora-triggers` holds every webhook source's signing secret and can start a run under any trigger's principal, so under that convention a token minted by any other in-mesh component reaches every triggers route. Mesh-wide reachability is a far larger surface than the callers this service actually has.
 
 An Istio `AuthorizationPolicy` restricts it to them. It is an **ALLOW**, not a DENY: a DENY listing the callers to exclude is a list that must be kept complete forever, whereas an ALLOW listing the callers that exist fails closed when something new appears, which is the direction this service should fail in. The check runs in the sidecar, before the application sees the request.
 
@@ -417,7 +417,7 @@ Explicitly **not** built here: any deferred-work, step, or orchestration primiti
 
 **Chosen: 1B + 2A + 3A + 4A + 5A + 6A + 7 + 8A.**
 
-`internal/triggers/` is extracted into an `orbit-triggers` binary, executing the commitment made in v1, with the public webhook URL preserved by the existing path routing. Triggers are the platform's front door for starting things, so a trigger's target carries a kind discriminator (`agent` today, `workflow` when that pillar lands) rather than being an agent binding. The scheduler's existing insert-then-dispatch dedup is the concurrency-safety mechanism; missed ticks gain a bounded backfill that records rather than silently drops. Both existing status vocabularies are extended rather than replaced, with delivery status derived from the run fan-out. A webhook that fails authentication updates a rejection counter on its source rather than creating a delivery record, so an unauthenticated request can never grow a table. Admission control is a durable pending-delivery queue claimed with `SKIP LOCKED`, with every fire routed through it so an acknowledged fire always starts. The fire endpoint's unenforced scope is closed with an explicit per-trigger policy check under a corrected scope literal. Payloads are stored in full with automatic retention, and the event catalogue is adapter-declared plus observed. No workflow, orchestration or general deferred-work primitive is built here.
+`internal/triggers/` is extracted into an `kora-triggers` binary, executing the commitment made in v1, with the public webhook URL preserved by the existing path routing. Triggers are the platform's front door for starting things, so a trigger's target carries a kind discriminator (`agent` today, `workflow` when that pillar lands) rather than being an agent binding. The scheduler's existing insert-then-dispatch dedup is the concurrency-safety mechanism; missed ticks gain a bounded backfill that records rather than silently drops. Both existing status vocabularies are extended rather than replaced, with delivery status derived from the run fan-out. A webhook that fails authentication updates a rejection counter on its source rather than creating a delivery record, so an unauthenticated request can never grow a table. Admission control is a durable pending-delivery queue claimed with `SKIP LOCKED`, with every fire routed through it so an acknowledged fire always starts. The fire endpoint's unenforced scope is closed with an explicit per-trigger policy check under a corrected scope literal. Payloads are stored in full with automatic retention, and the event catalogue is adapter-declared plus observed. No workflow, orchestration or general deferred-work primitive is built here.
 
 ### Rationale
 
@@ -763,7 +763,7 @@ A run therefore carries `started_by`: `{trigger_id, trigger_name, delivery_id}`,
 - A principal named `trigger-source:<id>` is accepted without naming which trigger it is, because a source fans one delivery out to the several triggers hanging off it and that binding is knowable only in the triggers database. Tenancy still bounds it: `StartRun` derives `tenant_id` from the token and never from the body, so a source can only ever name a trigger inside its own tenant.
 - Every other principal, including a person, a PAT, the session-manager and any other in-mesh workload, is refused.
 
-**The residual, stated rather than hidden:** a source principal can name a *sibling* trigger id within its own tenant. Closing it would require `orbit-agents` to read the triggers database to resolve the source-to-trigger binding, which the feature boundary deliberately forbids. The durable fix is to stamp the trigger id into the minted token's claims so the binding travels with the credential and needs no lookup at all; it is recorded in [Future Work](#future-work).
+**The residual, stated rather than hidden:** a source principal can name a *sibling* trigger id within its own tenant. Closing it would require `kora-agents` to read the triggers database to resolve the source-to-trigger binding, which the feature boundary deliberately forbids. The durable fix is to stamp the trigger id into the minted token's claims so the binding travels with the credential and needs no lookup at all; it is recorded in [Future Work](#future-work).
 
 `trigger_name` is a snapshot taken at start time and there is no foreign key, for the same reason the delivery tables have neither: a run is audit history and outlives the trigger that started it. A deleted trigger still reads as something a person recognises, and a later rename does not rewrite what this run says happened.
 
@@ -810,19 +810,19 @@ Manual triggers get their own `var.` namespace: a declared input `region` is rea
 
 ### Grant propagation
 
-A trigger's run grant is written by `orbit-triggers` but enforced by `orbit-agents`, which learns about it only on its next OPA bundle poll (`policy.bundlePollIntervalSecs`, currently 3s). Between the two there is a window in which the grant exists and is refused. A `403` in that window means "not visible yet", not "not allowed", and the two are indistinguishable from the outside.
+A trigger's run grant is written by `kora-triggers` but enforced by `kora-agents`, which learns about it only on its next OPA bundle poll (`policy.bundlePollIntervalSecs`, currently 3s). Between the two there is a window in which the grant exists and is refused. A `403` in that window means "not visible yet", not "not allowed", and the two are indistinguishable from the outside.
 
 There are **two** sites on that window, sharing one retry budget of six seconds with exponential backoff from 250ms. The budget is sized against the poll interval and must comfortably exceed one poll; raising `bundlePollIntervalSecs` without raising the budget breaks trigger creation.
 
-**At create, `resolveAgentType`.** It mints a token for the trigger's own principal and asks `orbit-agents` for the agent type, which validates tenant ownership and stops a client-supplied slug from shaping the run grant's scope. For a scheduled or manual trigger this runs moments after the grant was created, so the self-signed token is used in the same request that wrote the grant. `ErrForbidden` is retried; `ErrAgentTypeNotFound` fails fast, because it means genuinely absent. A webhook trigger's principal is its source's, granted at source-creation time, so that path resolves on the first attempt.
+**At create, `resolveAgentType`.** It mints a token for the trigger's own principal and asks `kora-agents` for the agent type, which validates tenant ownership and stops a client-supplied slug from shaping the run grant's scope. For a scheduled or manual trigger this runs moments after the grant was created, so the self-signed token is used in the same request that wrote the grant. `ErrForbidden` is retried; `ErrAgentTypeNotFound` fails fast, because it means genuinely absent. A webhook trigger's principal is its source's, granted at source-creation time, so that path resolves on the first attempt.
 
 **At dispatch, the run start.** The same window reopens on the first fire, and it needs a second bound the create site does not, because dispatch happens repeatedly and indefinitely. A refusal here is only attributable to propagation while the **trigger is young**, so the retry is gated on `time.Since(trigger.CreatedAt) < 60s`. Beyond that window a `403` is a real denial (a revoked grant, a refused delegated agent type) and is returned immediately. Retrying it would delay an honest failure and hold a queue slot for the whole budget on every fire. The 60 second window is deliberately wider than the six second budget, because a fire queued behind others can reach dispatch well after its trigger was written.
 
-**This depends on `orbit-agents` answering `403` rather than `500`.** A start refused by the per-agent scope check previously fell through to an internal error, which misreports the caller's own answer as a server fault and silently defeats the retry: the loop can only recognise a refusal that arrives as `ErrForbidden`. The fix belongs on the agents side and is recorded in Decision 6 above.
+**This depends on `kora-agents` answering `403` rather than `500`.** A start refused by the per-agent scope check previously fell through to an internal error, which misreports the caller's own answer as a server fault and silently defeats the retry: the loop can only recognise a refusal that arrives as `ErrForbidden`. The fix belongs on the agents side and is recorded in Decision 6 above.
 
 ### Observability
 
-Four signals, wired on the meter `orbit-triggers` builds in its own `main`:
+Four signals, wired on the meter `kora-triggers` builds in its own `main`:
 
 | Signal | Instrument | Why |
 |---|---|---|
@@ -843,7 +843,7 @@ The meter is set up in `cmd/kora-triggers/main.go`, not in `internal/platform/ob
 
 - The fire endpoint stops being an unenforced gap that the documentation claimed was closed.
 - A `202` becomes a real promise: waiting work survives a restart, so the platform does not acknowledge fires it will silently lose.
-- `orbit-triggers` can scale independently of `identity`, and Decision 2 establishes it is already safe to do so without leader election.
+- `kora-triggers` can scale independently of `identity`, and Decision 2 establishes it is already safe to do so without leader election.
 - The docs stop describing a binary that does not exist, because it now exists.
 - Internet-facing ingestion no longer shares a process with the token authority, so a webhook flood cannot degrade OAuth, the device grant or JWKS.
 - Three background loops move out of a latency-sensitive request-serving auth API.
@@ -860,7 +860,7 @@ The meter is set up in `cmd/kora-triggers/main.go`, not in `internal/platform/ob
 - Every replica scans all scheduled triggers each minute. Cheap now, and a known thing to revisit.
 - Admission and the agent control plane disagree about `idle` on purpose. `max_parallel` therefore bounds runs that are actively working, not runs that exist, and anyone reading the two counts side by side has to know why they differ.
 - A webhook source principal can still attribute a run to a sibling trigger in its own tenant. Tenancy bounds the residual, and closing it needs the token claim in Future Work rather than a cross-service read.
-- The grant-propagation retries couple `orbit-triggers` to `orbit-agents`' bundle poll interval. Raising that interval without raising the retry budget breaks trigger creation, which is a coupling between two services' configuration that nothing enforces.
+- The grant-propagation retries couple `kora-triggers` to `kora-agents`' bundle poll interval. Raising that interval without raising the retry budget breaks trigger creation, which is a coupling between two services' configuration that nothing enforces.
 
 ### Neutral
 
@@ -879,7 +879,7 @@ Lands first, as its own PR, before any feature work. No behaviour changes.
 2. `git mv backend/cmd/identity/migrations/*trigger*.sql backend/cmd/kora-triggers/migrations/`. Filenames and timestamps preserved, so the pooled collection and `goose_db_version` see no change.
 3. Internal mint endpoint on `identity`; typed client in `internal/platform/clients/identity/` satisfying `TokenMinter`. The interface already exists and is injected from main, so nothing in `internal/triggers/` changes.
 4. Chart: deployment, service, client-mTLS DestinationRule, app port in the mesh netpol, Chart.yaml version bump, operator image rebuild.
-5. api VirtualService: repoint `/api/v1/webhooks/` to `orbit-triggers`. **The external URL is unchanged**; no source is re-pointed and no secret is re-issued.
+5. api VirtualService: repoint `/api/v1/webhooks/` to `kora-triggers`. **The external URL is unchanged**; no source is re-pointed and no secret is re-issued.
 6. Repoint in-mesh callers of the management API: the frontend BFF gains a triggers base URL alongside `KORA_API_URL`, and the MCP trigger tools follow.
 7. Update the binary tables in `AGENTS.md` and `docs/code-organization.md`, plus the in-cluster port map. `docs-check` validates the table against `backend/cmd/` in both directions and will fail the build without it.
 8. Verify before merging: an existing webhook source fires end to end against its unchanged URL, `make auth` still works, and the scheduler fires from the new binary.
@@ -935,7 +935,7 @@ Every subsequent migration is an additive `ALTER TABLE` with defaults, so it app
 - A trigger at `max_parallel = 1, overflow = 'replace'` receiving three overlapping fires produces one further run and two `superseded` rows.
 - Ten consecutive denials auto-pause a trigger; ten `dropped` rows do not.
 - A delivery matching three triggers, where one dispatches, one is denied and one is dropped, records all three per-trigger outcomes and a delivery summary of `dispatched`.
-- Two `orbit-triggers` replicas produce exactly one run per scheduled tick.
+- Two `kora-triggers` replicas produce exactly one run per scheduled tick.
 - After extraction, an existing webhook source fires end to end against its unchanged URL, with no reconfiguration on the sender's side.
 - Killing the pod between acknowledgement and dispatch loses no fire: it starts when the pod returns.
 - Payloads past the tenant's retention have `payload IS NULL` with every other column intact.
@@ -957,8 +957,8 @@ Four signals, instrumented as described in [Observability](#observability):
 
 ## Future Work
 
-- **Push-based bundle invalidation, to remove the poll coupling.** Both grant-propagation retry sites exist only because a grant written by `orbit-triggers` is not visible to `orbit-agents` until that service's next OPA bundle poll. Two retry loops, a six-second budget and a 60-second attributability window are all compensation for one missing push. [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) already names push-based invalidation as deferred; when it lands, both loops here delete rather than shrink, and a refusal becomes unambiguously a denial. Until then the budget is coupled to `policy.bundlePollIntervalSecs` and cannot be tuned independently of it.
-- **Stamp the trigger id into the minted `SERVICE` token's claims.** Attribution currently proves itself from the shape of the caller's principal id, which works exactly for a `trigger:<id>` principal and not at all for a `trigger-source:<id>` one, leaving the sibling-trigger residual described in [Run attribution](#run-attribution). Carrying the trigger id in the token makes the binding travel with the credential, so `orbit-agents` verifies it against a claim rather than a prefix and needs no lookup into a database it must not read. It closes the residual without weakening the feature boundary, which is why it is the durable fix rather than a cross-service query.
+- **Push-based bundle invalidation, to remove the poll coupling.** Both grant-propagation retry sites exist only because a grant written by `kora-triggers` is not visible to `kora-agents` until that service's next OPA bundle poll. Two retry loops, a six-second budget and a 60-second attributability window are all compensation for one missing push. [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) already names push-based invalidation as deferred; when it lands, both loops here delete rather than shrink, and a refusal becomes unambiguously a denial. Until then the budget is coupled to `policy.bundlePollIntervalSecs` and cannot be tuned independently of it.
+- **Stamp the trigger id into the minted `SERVICE` token's claims.** Attribution currently proves itself from the shape of the caller's principal id, which works exactly for a `trigger:<id>` principal and not at all for a `trigger-source:<id>` one, leaving the sibling-trigger residual described in [Run attribution](#run-attribution). Carrying the trigger id in the token makes the binding travel with the credential, so `kora-agents` verifies it against a claim rather than a prefix and needs no lookup into a database it must not read. It closes the residual without weakening the feature boundary, which is why it is the durable fix rather than a cross-service query.
 - **Route-declared per-resource scopes (Decision 6B).** The right long-term shape for every per-resource endpoint, not just this one. Its own ADR.
 - **Per-trigger payload opt-out.** The first thing to add if a tenant handling PII needs to record that a delivery happened without storing its body (PRD, PD4).
 - **Automatic retry with backoff.** Deliberately out of scope; revisit if Redeliver is observed being used as a manual substitute.
@@ -970,12 +970,12 @@ Four signals, instrumented as described in [Observability](#observability):
 
 ## Related Decisions
 
-- [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — v1. Its identity model, webhook verification and dispatch path are preserved unchanged. Its Notes committed to the `orbit-triggers` extraction; Decision 1 executes it.
+- [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — v1. Its identity model, webhook verification and dispatch path are preserved unchanged. Its Notes committed to the `kora-triggers` extraction; Decision 1 executes it.
 - [Trigger Deliveries Filter](2026-06-20-trigger-deliveries-filter.md) — the deliveries feed this ADR's widened vocabulary feeds.
 - [Run and Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — the run a trigger starts.
 - [Agent Identity and Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — the principal and grant provisioning each trigger kind reuses.
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — the model a trigger cannot satisfy. All three create paths refuse a delegated agent type, because a trigger has no delegator to intersect with.
-- [orbit-agents Route and Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md). Its `POST /api/v1/runs` binding is corrected by Decision 6: the governing scope is per-agent, so a route-level parent scope widens rather than narrows.
+- [kora-agents Route and Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md). Its `POST /api/v1/runs` binding is corrected by Decision 6: the governing scope is per-agent, so a route-level parent scope widens rather than narrows.
 - [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md). The OPA bundle poll whose propagation window both grant-propagation retry sites compensate for.
 - [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) — the middleware Decision 6 works around and 6B would extend.
 - [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) — the `RouteScope` mechanism whose limits Decision 6 documents.

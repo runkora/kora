@@ -1,4 +1,4 @@
-# Default-deny in orbit-system plus explicit allows below. SPIRE runs in its
+# Default-deny in kora-system plus explicit allows below. SPIRE runs in its
 # own namespace and needs no rule here: SVIDs arrive over a CSI-mounted socket,
 # not the network. Disable with networkPolicy.enabled=false.
 {{- if .Values.networkPolicy.enabled }}
@@ -42,7 +42,7 @@ spec:
 # port before iptables redirects into the sidecar: the app ports below are
 # required even though every call goes through Envoy.
 # 3000 frontend, 8080 identity, 8081 inference-gateway, 8083 policy-service,
-# 8084 policy-gateway, 8095 orbit-mcp, 8096 tool-gateway, 8097 triggers,
+# 8084 policy-gateway, 8095 kora-mcp, 8096 tool-gateway, 8097 triggers,
 # 9090 policy-gateway ext_authz, 15006/15008 Envoy redirect/HBONE, 15090 metrics.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -95,13 +95,13 @@ spec:
 ---
 # mTLS traffic from tenant namespaces, one rule per destination: identity-proxy
 # exchanging tokens with identity on 8080, session-manager pushing events to
-# orbit-agents on 8080 and calling inference-gateway on 8081 and tool-gateway
+# kora-agents on 8080 and calling inference-gateway on 8081 and tool-gateway
 # on 8096, OPA polling bundles from policy-service on 8083.
 {{- range $rule := list
-  (dict "name" "identity" "apps" (list "orbit-identity" "orbit-agents") "port" 8080)
-  (dict "name" "inference-gateway" "apps" (list "orbit-inference-gateway") "port" 8081)
-  (dict "name" "policy-service" "apps" (list "orbit-policy-service") "port" 8083)
-  (dict "name" "tool-gateway" "apps" (list "orbit-tool-gateway") "port" 8096) }}
+  (dict "name" "identity" "apps" (list "kora-identity" "kora-agents") "port" 8080)
+  (dict "name" "inference-gateway" "apps" (list "kora-inference-gateway") "port" 8081)
+  (dict "name" "policy-service" "apps" (list "kora-policy-service") "port" 8083)
+  (dict "name" "tool-gateway" "apps" (list "kora-tool-gateway") "port" 8096) }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -143,7 +143,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: orbit-tool-gateway
+      app: kora-tool-gateway
   policyTypes:
     - Egress
   egress:
@@ -237,7 +237,7 @@ spec:
 # The operator's own controller-runtime metrics (port 8080, fixed,
 # independent of global.metrics.enabled; see operator/deployment.yaml) are
 # scraped the same way, but scoped to the operator's own pods: 8080 is also
-# identity's and orbit-agents' real API port, so a rule on podSelector: {}
+# identity's and kora-agents' real API port, so a rule on podSelector: {}
 # would open their application traffic to the scraper namespace too.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -249,7 +249,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: orbit-operator
+      app: kora-operator
   policyTypes:
     - Ingress
   ingress:
@@ -263,9 +263,9 @@ spec:
 ---
 {{- end }}
 {{- end }}
-# orbit-agents creates, messages and terminates the session-manager process on
-# any agent pod in any tenant; scoped to app=orbit-agents so no other
-# orbit-system pod inherits that reach.
+# kora-agents creates, messages and terminates the session-manager process on
+# any agent pod in any tenant; scoped to app=kora-agents so no other
+# kora-system pod inherits that reach.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -276,7 +276,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: orbit-agents
+      app: kora-agents
   policyTypes:
     - Egress
   egress:
@@ -318,7 +318,7 @@ metadata:
   labels:
     {{- include "kora.labels" . | nindent 4 }}
 spec:
-  # The operator, orbit-agents and the preflight helm-test pod carry this label;
+  # The operator, kora-agents and the preflight helm-test pod carry this label;
   # the webhook Service selects on app, which is why the label is separate.
   podSelector:
     matchLabels:
@@ -350,7 +350,7 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [orbit-inference-gateway, orbit-egress-gateway, orbit-identity, orbit-tool-gateway]
+        values: [kora-inference-gateway, kora-egress-gateway, kora-identity, kora-tool-gateway]
   policyTypes:
     - Egress
   egress:
@@ -376,7 +376,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: orbit-egress-gateway
+      app: kora-egress-gateway
   policyTypes:
     - Egress
   egress:
@@ -403,7 +403,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: orbit-operator
+      app: kora-operator
   policyTypes:
     - Egress
   egress:
@@ -476,7 +476,7 @@ spec:
           protocol: TCP
         - port: 8096
           protocol: TCP
-        # orbit-triggers: public webhook ingestion and the trigger API.
+        # kora-triggers: public webhook ingestion and the trigger API.
         - port: 8097
           protocol: TCP
         - port: 9090
@@ -533,7 +533,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: orbit-operator
+      app: kora-operator
   policyTypes:
     - Ingress
   ingress:

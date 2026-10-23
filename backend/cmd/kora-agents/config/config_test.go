@@ -20,8 +20,8 @@ func TestBaseDefaults_NoLocalRegistryOrTrustDomain(t *testing.T) {
 	if cfg.Platform.TrustDomain != "" {
 		t.Errorf("trustDomain = %q, want empty so the chart must render it", cfg.Platform.TrustDomain)
 	}
-	if cfg.Kubernetes.SystemNamespace != "orbit-system" {
-		t.Errorf("systemNamespace = %q, want the orbit-system default", cfg.Kubernetes.SystemNamespace)
+	if cfg.Kubernetes.SystemNamespace != "kora-system" {
+		t.Errorf("systemNamespace = %q, want the kora-system default", cfg.Kubernetes.SystemNamespace)
 	}
 	if e := cfg.Agents.Environments; e.DefaultSize != (EnvironmentSize{CPU: "2", Memory: "4Gi", Disk: "10Gi"}) || e.MaxSize != e.DefaultSize {
 		t.Errorf("environments = %+v, want the documented default and maximum sizes", e)

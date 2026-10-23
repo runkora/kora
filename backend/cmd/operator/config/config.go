@@ -1,4 +1,4 @@
-// Package operatorConfig holds the configuration for the orbit-operator binary.
+// Package operatorConfig holds the configuration for the kora-operator binary.
 package operatorConfig
 
 import (

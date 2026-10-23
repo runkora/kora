@@ -7,7 +7,7 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: orbit-inference-gateway
+  name: kora-inference-gateway
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.inferenceGateway.labels" . | nindent 4 }}

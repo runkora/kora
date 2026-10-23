@@ -452,7 +452,7 @@ backend/
 ```
 
 **SPIFFE Identity:**  
-The inference-gateway pod carries label `spiffe.io/component: inference-gateway` in the `orbit-system` namespace. The generic `orbit-system-component` `ClusterSPIFFEID` template ([multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md)) automatically issues SPIFFE ID `spiffe://orbit.test/system/inference-gateway`. No per-service `ClusterSPIFFEID` resource is required.
+The inference-gateway pod carries label `spiffe.io/component: inference-gateway` in the `kora-system` namespace. The generic `kora-system-component` `ClusterSPIFFEID` template ([multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md)) automatically issues SPIFFE ID `spiffe://orbit.test/system/inference-gateway`. No per-service `ClusterSPIFFEID` resource is required.
 
 ### Request Lifecycle
 

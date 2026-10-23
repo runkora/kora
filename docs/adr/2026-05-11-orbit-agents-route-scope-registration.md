@@ -6,19 +6,19 @@ Accepted
 
 ## Context
 
-orbit-agents exposes an HTTP management API for agent types and runs. Traffic reaching it from external clients flows through the kora policy gateway (Envoy + OPA), which enforces route-level scope checks compiled from the policy-service's OPA bundles.
+kora-agents exposes an HTTP management API for agent types and runs. Traffic reaching it from external clients flows through the kora policy gateway (Envoy + OPA), which enforces route-level scope checks compiled from the policy-service's OPA bundles.
 
-Until orbit-agents registers its routes with the policy-service, the gateway has no bundle entries for those paths. Depending on the gateway's default posture this means requests are either silently passed through without scope enforcement or blanket-denied — neither is acceptable for a production control-plane API.
+Until kora-agents registers its routes with the policy-service, the gateway has no bundle entries for those paths. Depending on the gateway's default posture this means requests are either silently passed through without scope enforcement or blanket-denied — neither is acceptable for a production control-plane API.
 
 The platform already has a solution for exactly this: the `routescopes.Client` ([dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md)), used by inference-gateway and policy-service itself. Services POST their route→scope mappings and scope declarations at startup; the policy-service upserts them into the vocabulary and compiles the OPA bundles.
 
-orbit-agents is a platform service deployed in `orbit-system`. Its SPIFFE identity is attested as a **SYSTEM** principal by the identity-proxy sidecar, which means its registration is **global** — the declared scopes and routes are compiled into every tenant's OPA bundle, making them available for tenant administrators to grant to their team members via the policy portal.
+kora-agents is a platform service deployed in `kora-system`. Its SPIFFE identity is attested as a **SYSTEM** principal by the identity-proxy sidecar, which means its registration is **global** — the declared scopes and routes are compiled into every tenant's OPA bundle, making them available for tenant administrators to grant to their team members via the policy portal.
 
 Internal callback routes (`/internal/*`) are intentionally excluded from registration: they are protected by Istio `AuthorizationPolicy` at the mTLS layer, restricting access to the session-manager workload's SPIFFE identity only. Scope-based OPA enforcement would add no value there.
 
 ## Decision
 
-orbit-agents will register its public routes and scope vocabulary with the policy-service at startup using `routescopes.Client`, following the same pattern as `inference-gateway`.
+kora-agents will register its public routes and scope vocabulary with the policy-service at startup using `routescopes.Client`, following the same pattern as `inference-gateway`.
 
 ### Route → Scope Mapping
 
@@ -79,7 +79,7 @@ The service layer checks the read, run, usage and `agents:delegated:read` scopes
 
 ### Per-Agent-Type Scope Vocabulary
 
-In addition to the four static scopes above, orbit-agents registers per-agent-type scopes for every agent type slug defined in the platform. This mirrors the inference-gateway's per-model scope vocabulary and enables tenant administrators to grant access to individual agent types rather than all agents at once.
+In addition to the four static scopes above, kora-agents registers per-agent-type scopes for every agent type slug defined in the platform. This mirrors the inference-gateway's per-model scope vocabulary and enables tenant administrators to grant access to individual agent types rather than all agents at once.
 
 | Scope | Resource Type | Path Segments | Action | Description |
 |-------|--------------|---------------|--------|-------------|
@@ -121,7 +121,7 @@ func initScopeRegistration(ctx context.Context, logger logging.Logger, repo agen
             )
             return
         }
-        if err := client.Register(ctx, "orbit-agents", agentRoutes(), agentScopes(slugs)); err != nil {
+        if err := client.Register(ctx, "kora-agents", agentRoutes(), agentScopes(slugs)); err != nil {
             logger.Error(ctx, "route scope registration failed",
                 logging.Field{Key: "error", Value: err.Error()},
             )
@@ -137,18 +137,18 @@ func initScopeRegistration(ctx context.Context, logger logging.Logger, repo agen
 
 Registration runs in a background goroutine so it does not block server startup. The `routescopes.Client` retries with exponential backoff (up to 15 attempts, capped at 30 s) to tolerate the policy-service being temporarily unavailable. The 15-second initial delay allows the identity-proxy sidecar to exchange its SPIFFE certificate for a platform token before the first attempt.
 
-`PolicyServiceURL` is already present in the orbit-agents config under `platform.policyServiceURL` (used by the policy grant client), so no new config fields are required.
+`PolicyServiceURL` is already present in the kora-agents config under `platform.policyServiceURL` (used by the policy grant client), so no new config fields are required.
 
 ## Consequences
 
 **Policy portal visibility.** Once registered, the four static `agents:*` scopes plus two per-agent-type scopes appear in the policy vocabulary. Tenant administrators can immediately grant them to team members or PATs without any platform team involvement — the same self-service flow used for inference scopes today.
 
-**Gateway enforcement.** Requests to `POST /api/v1/agent-types` without `agents:types:write` in the caller's grant set will be rejected at the Envoy layer before reaching orbit-agents. orbit-agents itself does not need to duplicate scope checks in its handlers.
+**Gateway enforcement.** Requests to `POST /api/v1/agent-types` without `agents:types:write` in the caller's grant set will be rejected at the Envoy layer before reaching kora-agents. kora-agents itself does not need to duplicate scope checks in its handlers.
 
 **Granular agent-type access.** A tenant admin can create a role with only `agents:runs:coder:read/write` and assign it to a user, giving that user access only to the `coder` agent type — not all agents. The `scope_covers` hierarchy means a principal holding `agents:runs:write` automatically satisfies both read and write on all agent types.
 
-**Restart idempotency.** Route registration is stateless and idempotent. Each orbit-agents pod re-registers on startup, which is harmless — the policy-service's route store overwrites the previous entry for the same `(service, tenantID)` pair.
+**Restart idempotency.** Route registration is stateless and idempotent. Each kora-agents pod re-registers on startup, which is harmless — the policy-service's route store overwrites the previous entry for the same `(service, tenantID)` pair.
 
-**No schema migration.** Scope declarations are stored in the policy-service's in-memory vocabulary store; they are not persisted to a database. They are re-populated each time orbit-agents (re)starts.
+**No schema migration.** Scope declarations are stored in the policy-service's in-memory vocabulary store; they are not persisted to a database. They are re-populated each time kora-agents (re)starts.
 
-**Scope evolution.** Adding a new orbit-agents endpoint in future requires adding one `RouteScope` and optionally one `ScopeDeclaration` entry. The policy-service reconciles orphaned scopes from grants and roles automatically when a scope is removed from the registration. Deleting an agent type triggers an immediate re-registration that removes its per-type scopes from the vocabulary.
+**Scope evolution.** Adding a new kora-agents endpoint in future requires adding one `RouteScope` and optionally one `ScopeDeclaration` entry. The policy-service reconciles orphaned scopes from grants and roles automatically when a scope is removed from the registration. Deleting an agent type triggers an immediate re-registration that removes its per-type scopes from the vocabulary.

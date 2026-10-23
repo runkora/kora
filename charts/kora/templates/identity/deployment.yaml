@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-identity
+  name: kora-identity
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.identity.labels" . | nindent 4 }}
@@ -28,14 +28,14 @@ spec:
       hostAliases:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: orbit-identity
+      serviceAccountName: kora-identity
       {{- include "kora.imagePullSecrets" . | nindent 6 }}
       {{- include "kora.scheduling" (dict "root" $ "name" "identity") | nindent 6 }}
       securityContext:
         {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "kora.spireVolumes" . | nindent 8 }}
-        {{- include "kora.configVolume" (dict "root" $ "name" "identity" "configMap" "orbit-identity-config" "modules" (include "kora.identity.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "identity" "configMap" "kora-identity-config" "modules" (include "kora.identity.configModules" . | fromYaml)) | nindent 8 }}
         {{- include "kora.redisCAVolume" . | nindent 8 }}
         # Operator-owned tenant registries. All optional so identity starts before
         # any tenant exists; identity watches the files and reloads on change.
@@ -53,7 +53,7 @@ spec:
             optional: true
         {{- include "kora.extraVolumes" (dict "root" $ "name" "identity") | nindent 8 }}
       containers:
-        - name: orbit-identity
+        - name: kora-identity
           image: {{ include "kora.image" (dict "root" $ "name" "identity") | quote }}
           imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "identity") }}
           securityContext:

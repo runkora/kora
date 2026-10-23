@@ -1,5 +1,5 @@
 {{- /*
-orbit-triggers config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+kora-triggers config files (docs/adr/2026-10-06-rendered-service-config-files.md).
 */}}
 {{- define "kora.triggers.configModules" -}}
 cmd/kora-triggers:
@@ -7,16 +7,16 @@ cmd/kora-triggers:
     enabled: {{ .Values.global.metrics.enabled }}
     port: {{ .Values.global.metrics.port | default 9464 }}
   identity:
-    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
+    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-identity") | toJson }}
   agents:
-    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-agents") | toJson }}
+    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-agents") | toJson }}
   inference:
-    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-inference-gateway") | toJson }}
+    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-inference-gateway") | toJson }}
   policy:
-    policyServiceInternalURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
+    policyServiceInternalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-policy-service") | toJson }}
     bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}
 {{ include "kora.observabilityConfigModule" . }}
 {{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "kora.tokenConfigModule" . }}
 {{- end }}
-{{- include "kora.configMap" (dict "root" $ "name" "triggers" "configMap" "orbit-triggers-config" "modules" (include "kora.triggers.configModules" . | fromYaml)) }}
+{{- include "kora.configMap" (dict "root" $ "name" "triggers" "configMap" "kora-triggers-config" "modules" (include "kora.triggers.configModules" . | fromYaml)) }}

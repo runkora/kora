@@ -1,5 +1,5 @@
 // Static credentials for MCP servers: spec.auth validation, and the aggregated
-// orbit-system Secret the tool-gateway reads them from.
+// kora-system Secret the tool-gateway reads them from.
 // See docs/adr/2026-10-22-mcp-server-static-credentials.md.
 package operator
 
@@ -17,9 +17,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// aggregatedMCPServerSecretsName is the orbit-system Secret holding every
+// aggregatedMCPServerSecretsName is the kora-system Secret holding every
 // MCPServer credential, keyed by mcpSecretKey.
-const aggregatedMCPServerSecretsName = "orbit-mcp-server-secrets"
+const aggregatedMCPServerSecretsName = "kora-mcp-server-secrets"
 
 var (
 	// ErrMCPServerAuthWithForward is returned when spec.auth and
@@ -160,7 +160,7 @@ func readMCPCredential(ctx context.Context, c client.Reader, namespace string, r
 	}
 	// Operator-managed Secrets, such as the copied registry pull secret, hold
 	// platform credentials a tenant must not send to its own endpoint.
-	if secret.Labels["app.kubernetes.io/managed-by"] == "orbit-operator" {
+	if secret.Labels["app.kubernetes.io/managed-by"] == "kora-operator" {
 		return nil, fmt.Errorf("%w: Secret %q is managed by the operator", ErrMCPCredentialUnavailable, ref.Name)
 	}
 	v, ok := secret.Data[ref.Key]
@@ -205,7 +205,7 @@ func (a *MCPServerAggregator) upsertMCPServerSecret(ctx context.Context, data ma
 				Name:      aggregatedMCPServerSecretsName,
 				Namespace: systemNamespace,
 				Labels: map[string]string{
-					"app.kubernetes.io/managed-by": "orbit-operator",
+					"app.kubernetes.io/managed-by": "kora-operator",
 					"runkora.io/component":         "mcp-server-secrets",
 				},
 			},

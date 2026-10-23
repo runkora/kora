@@ -73,18 +73,18 @@ releases:
       - name: meshConfig.trustDomain
         value: {{ .Values.trustDomain }}
 
-  - name: orbit-crds
+  - name: kora-crds
     namespace: {{ .Values.systemNamespace }}
     chart: {{ .Values.kora.crdsChart }}
     version: {{ .Values.kora.version }}
 
   # Namespace labels must exist before the first kora pod; createNamespace cannot set them.
-  - name: orbit
+  - name: kora
     namespace: {{ .Values.systemNamespace }}
     disableValidationOnInstall: true
     chart: {{ .Values.kora.chart }}
     version: {{ .Values.kora.version }}
-    needs: [{{ .Values.systemNamespace }}/orbit-crds, spire-system/spire, istio-system/istiod]
+    needs: [{{ .Values.systemNamespace }}/kora-crds, spire-system/spire, istio-system/istiod]
     values:
       - values/kora.yaml
       {{- range (.Values | get "koraValuesFiles" list) }}

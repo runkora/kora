@@ -31,7 +31,7 @@ func renderChart(t *testing.T, values string, extra ...string) string {
 	if err := os.WriteFile(file, []byte(values), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	args := append([]string{"template", "orbit", chart, "-n", "orbit-system", "-f", filepath.Join(chart, "ci", "default-values.yaml"), "-f", file}, extra...)
+	args := append([]string{"template", "kora", chart, "-n", "kora-system", "-f", filepath.Join(chart, "ci", "default-values.yaml"), "-f", file}, extra...)
 	out, err := exec.Command("helm", args...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("helm template: %v\n%s", err, out)
@@ -58,7 +58,7 @@ func TestChartMaxSizeFallsBackToDefaultSize(t *testing.T) {
 		}
 		return
 	}
-	t.Fatal("no workload mounts the orbit-agents config")
+	t.Fatal("no workload mounts the kora-agents config")
 }
 
 // With no resources set, the headroom placeholder reserves one default sandbox
@@ -102,7 +102,7 @@ func TestChartHeadroomReservesDefaultSandboxPod(t *testing.T) {
 }
 
 // The chart exposes both idle timeouts, with the manual one at today's 20
-// minutes, and orbit-agents decodes what it renders.
+// minutes, and kora-agents decodes what it renders.
 func TestChartIdleTimeouts(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -134,7 +134,7 @@ func TestChartIdleTimeouts(t *testing.T) {
 				}
 				return
 			}
-			t.Fatal("no rendered orbit-agents config found")
+			t.Fatal("no rendered kora-agents config found")
 		})
 	}
 }

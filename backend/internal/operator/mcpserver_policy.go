@@ -26,7 +26,7 @@ const (
 	podLabelMCPServer = "runkora.io/mcp-server"
 
 	// mcpToolGatewayApp is the tool-gateway pod label, set by its chart.
-	mcpToolGatewayApp = "orbit-tool-gateway"
+	mcpToolGatewayApp = "kora-tool-gateway"
 
 	// mcpToolGatewayComponent is the tool-gateway's spiffe.io/component, which
 	// the platform ClusterSPIFFEID renders into
@@ -86,7 +86,7 @@ func (m *MCPServer) authorizationPolicyName() string { return "mcp-" + m.Name + 
 // managedPolicyLabels mark a policy as generated for one MCPServer.
 func (m *MCPServer) managedPolicyLabels() map[string]string {
 	return map[string]string{
-		"app.kubernetes.io/managed-by": "orbit-operator",
+		"app.kubernetes.io/managed-by": "kora-operator",
 		"runkora.io/mcp-server":        m.Name,
 		"runkora.io/mcp-server-ns":     m.Namespace,
 	}
@@ -190,7 +190,7 @@ func (m *MCPServer) destinationRule(port int32, host string) *unstructured.Unstr
 }
 
 // workloadSpiffeID is the identity SPIRE issues to the serving pods, from the
-// orbit-tenant-service ClusterSPIFFEID.
+// kora-tenant-service ClusterSPIFFEID.
 func (m *MCPServer) workloadSpiffeID() string {
 	return fmt.Sprintf("spiffe://%s/tenant/%s/service/%s", trustDomain, m.Namespace, m.Name)
 }

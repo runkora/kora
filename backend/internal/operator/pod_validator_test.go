@@ -22,7 +22,7 @@ func injectedPod() *corev1.Pod {
 
 func tenantNS(labels map[string]string) *corev1.Namespace {
 	labels["runkora.io/role"] = "tenant"
-	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "orbit-tenant-example", Labels: labels}}
+	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kora-tenant-example", Labels: labels}}
 }
 
 func TestValidator_RejectionReasons(t *testing.T) {

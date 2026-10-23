@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-inference-gateway
+  name: kora-inference-gateway
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.inferenceGateway.labels" . | nindent 4 }}
@@ -28,18 +28,18 @@ spec:
     spec:
       # Outlasts the shutdown timeout so Kubernetes does not kill the pod mid-drain.
       terminationGracePeriodSeconds: {{ add (int .Values.inferenceGateway.shutdownTimeoutSecs) 30 }}
-      serviceAccountName: orbit-inference-gateway
+      serviceAccountName: kora-inference-gateway
       {{- include "kora.imagePullSecrets" . | nindent 6 }}
       {{- include "kora.scheduling" (dict "root" $ "name" "inferenceGateway") | nindent 6 }}
       securityContext:
         {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "kora.spireVolumes" . | nindent 8 }}
-        {{- include "kora.configVolume" (dict "root" $ "name" "inferenceGateway" "configMap" "orbit-inference-gateway-config" "modules" (include "kora.inferenceGateway.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "inferenceGateway" "configMap" "kora-inference-gateway-config" "modules" (include "kora.inferenceGateway.configModules" . | fromYaml)) | nindent 8 }}
         {{- include "kora.redisCAVolume" . | nindent 8 }}
         {{- include "kora.extraVolumes" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
       containers:
-        - name: orbit-inference-gateway
+        - name: kora-inference-gateway
           image: {{ include "kora.image" (dict "root" $ "name" "inferenceGateway") | quote }}
           imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "inferenceGateway") }}
           securityContext:

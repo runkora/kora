@@ -3,7 +3,7 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: orbit-operator
+  name: kora-operator
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.operator.labels" . | nindent 4 }}

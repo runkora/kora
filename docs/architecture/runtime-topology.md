@@ -1,6 +1,6 @@
 # Runtime topology
 
-kora runs as a set of control-plane services in `orbit-system` and per-tenant workloads in tenant-isolated namespaces, on a shared substrate of Postgres, Redis, SPIRE, and an Istio mesh.
+kora runs as a set of control-plane services in `kora-system` and per-tenant workloads in tenant-isolated namespaces, on a shared substrate of Postgres, Redis, SPIRE, and an Istio mesh.
 
 ![Runtime topology](../diagrams/runtime-topology.svg)
 
@@ -10,7 +10,7 @@ Edge OPA at the Istio ingress gateway authorizes north-south requests. In tenant
 
 ## Control plane and tenant workloads
 
-- **Control plane (`orbit-system`).** The governing services own identity, policy, agent run lifecycle, and triggers. The operator reconciles the tenant and platform CRDs.
+- **Control plane (`kora-system`).** The governing services own identity, policy, agent run lifecycle, and triggers. The operator reconciles the tenant and platform CRDs.
 - **Tenant workloads.** The agent runtime pod and its per-run sandbox run in a tenant namespace. These workloads hold no credentials and reach the control plane over the mesh. See [agent execution](agent-execution.md) for pod internals.
 
 ## Egress brokers

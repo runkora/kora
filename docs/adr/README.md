@@ -96,7 +96,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) — `Accepted (Amended 2026-09-30)` · 2026-06-04
 - [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) — `Accepted (Amended 2026-09-29)` · 2026-05-11
 - [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted (Amended 2026-10-12)` · 2026-05-11
-- [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — `Accepted` · 2026-05-11
+- [kora-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — `Accepted` · 2026-05-11
 - [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — `Accepted (Amended 2026-10-12)` · 2026-05-11
 - [Run Scheduling](2026-10-12-run-scheduling.md) — `Accepted` · 2026-10-12
 - [Per-Run Cost on the Run Record](2026-10-20-run-cost-on-run-record.md) — `Proposed` · 2026-10-20
@@ -109,7 +109,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) — `Accepted` · 2026-09-18
 - [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) — `Accepted` · 2026-09-18
 - [Run Activity Events](2026-09-29-run-activity-events.md) — `Accepted` · 2026-09-29
-- [orbit-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
+- [kora-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
 - [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) — `Accepted` · 2026-06-04
 - [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) — `Accepted (Amended 2026-09-29, 2026-09-30, 2026-10-08)` · 2026-06-04
 - [Service-Layer Authorization for orbit-agents](2026-06-04-orbit-agents-authorization-model.md) — `Accepted` · 2026-06-04
@@ -236,8 +236,8 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-05-11 | [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) | Accepted (Amended 2026-09-29) | 0050 |
 | 2026-05-11 | [Agent Workspace Model](2026-05-11-agent-workspace-model.md) | Accepted | 0055 |
 | 2026-05-11 | [BYOC Agent Discovery & Observability](2026-05-11-byoc-agent-discovery-and-observability.md) | Accepted | 0056 |
-| 2026-05-11 | [orbit-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) | Accepted | 0060 |
-| 2026-05-11 | [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) | Accepted | 0052 |
+| 2026-05-11 | [kora-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) | Accepted | 0060 |
+| 2026-05-11 | [kora-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) | Accepted | 0052 |
 | 2026-05-11 | [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) | Accepted (Amended 2026-10-12) | 0053 |
 | 2026-05-11 | [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) | Accepted | 0059 |
 | 2026-05-13 | [Profile Page Architecture](2026-05-13-profile-page-architecture.md) | Proposed | — |

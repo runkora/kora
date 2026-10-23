@@ -7,7 +7,7 @@
 //
 // This file is the operator side of that contract: on first reconcile we
 // generate a fresh self-signed CA per tenant and persist it as the
-// orbit-tenant-ca Secret in the tenant's namespace. Subsequent reconciles are
+// kora-tenant-ca Secret in the tenant's namespace. Subsequent reconciles are
 // idempotent — the secret is only created if absent. Rotation is intentionally
 // out of scope here; the rotation cadence is days/months and rotating a CA
 // breaks all in-flight cached leaves on the gateway, so it must be a
@@ -35,17 +35,17 @@ import (
 )
 
 // tenantCASecretName is the Secret in each tenant namespace holding the
-// tenant's CA cert + key. The aggregator copies them into orbit-tenant-cas,
+// tenant's CA cert + key. The aggregator copies them into kora-tenant-cas,
 // which the egress gateway mounts and re-reads; the sandbox pod projects
 // ca.crt only into its trust store.
-const tenantCASecretName = "orbit-tenant-ca"
+const tenantCASecretName = "kora-tenant-ca"
 
 // caCertValidity is how long a freshly-minted tenant CA is valid for. Ten
 // years is the typical operator-managed root CA lifetime; rotation before
 // expiry is a deliberate, manual procedure.
 const caCertValidity = 10 * 365 * 24 * time.Hour
 
-// ensureTenantCA reconciles the orbit-tenant-ca Secret in the tenant
+// ensureTenantCA reconciles the kora-tenant-ca Secret in the tenant
 // namespace. If the secret does not exist, a fresh ECDSA P-256 self-signed
 // root CA is generated and persisted; if it exists, it is left alone.
 //
@@ -75,7 +75,7 @@ func (r *TenantReconciler) ensureTenantCA(ctx context.Context, tenant *KoraTenan
 			Name:      tenantCASecretName,
 			Namespace: ns,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "orbit-operator",
+				"app.kubernetes.io/managed-by": "kora-operator",
 				"runkora.io/tenant":            tenant.Name,
 			},
 		},

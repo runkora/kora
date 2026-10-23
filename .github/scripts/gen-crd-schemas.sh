@@ -10,7 +10,7 @@ out="${1:?usage: gen-crd-schemas.sh <output-dir>}"
 mkdir -p "${out}"
 
 crds="${out}/_crds.yaml"
-helm template orbit-crds charts/kora-crds -n orbit-system > "${crds}"
+helm template kora-crds charts/kora-crds -n kora-system > "${crds}"
 
 yq -N '
   select(.kind == "CustomResourceDefinition")

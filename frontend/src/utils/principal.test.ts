@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { agentNameFromPrincipalId } from './principal';
 
-const agentId = 'spiffe://orbit.test/tenant/orbit-tenant-example/agent/ci-failure-investigator';
+const agentId = 'spiffe://orbit.test/tenant/kora-tenant-example/agent/ci-failure-investigator';
 
 describe('agentNameFromPrincipalId', () => {
   it('takes the last path segment of a SPIFFE ID', () => {

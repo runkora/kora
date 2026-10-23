@@ -1,7 +1,7 @@
 // The tool-gateway binary governs MCP tool access. One image runs in two modes,
 // deployed as two separate Deployments that scale independently:
 //
-//   - publisher: mounts the operator-rendered orbit-mcp-servers registry,
+//   - publisher: mounts the operator-rendered kora-mcp-servers registry,
 //     introspects each server's tool surface (initialize + tools/list), publishes
 //     the discovered tools as mcp:<server>:<tool>:use scopes, and writes the tool
 //     catalog.
@@ -84,7 +84,7 @@ func realMain() error {
 		logging.Field{Key: "mode", Value: map[bool]string{true: "proxy", false: "publisher"}[proxyMode]})
 
 	// ── MCP server registry ──────────────────────────────────────────────────
-	// Sourced from the operator-aggregated orbit-mcp-servers ConfigMap the
+	// Sourced from the operator-aggregated kora-mcp-servers ConfigMap the
 	// gateway mounts, parsed + hot-reloaded from disk. Both modes read it.
 	registry, err := toolgateway.LoadRegistry(ctx, tgc.Current.Registry.ServersPath, logger)
 	if err != nil {

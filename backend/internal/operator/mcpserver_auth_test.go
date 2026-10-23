@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	testTenantNS = "orbit-tenant-acme"
+	testTenantNS = "kora-tenant-acme"
 	secretA      = "sk-alpha-value"
 	secretB      = "sk-bravo-value"
 )
@@ -168,7 +168,7 @@ func TestMCPAggregator_MissingCredentialKeepsServer(t *testing.T) {
 		{"too large", credentialSecret(map[string]string{"key": strings.Repeat("a", maxMCPCredentialSize+1)})},
 		{"operator managed", func() *corev1.Secret {
 			sec := credentialSecret(map[string]string{"key": secretA})
-			sec.Labels = map[string]string{"app.kubernetes.io/managed-by": "orbit-operator"}
+			sec.Labels = map[string]string{"app.kubernetes.io/managed-by": "kora-operator"}
 			return sec
 		}()},
 	}

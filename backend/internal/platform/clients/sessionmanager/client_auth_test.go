@@ -106,8 +106,8 @@ func TestClient_TokenErrorFailsTheCall(t *testing.T) {
 // A nil TokenFunc is the local-dev escape hatch and must not panic.
 
 func TestPodURL_TargetsTheSessionManagerPort(t *testing.T) {
-	got := PodURL("coder", 0, "orbit-tenant-acme")
-	want := "http://coder-0.coder.orbit-tenant-acme.svc.cluster.local:8090"
+	got := PodURL("coder", 0, "kora-tenant-acme")
+	want := "http://coder-0.coder.kora-tenant-acme.svc.cluster.local:8090"
 	if got != want {
 		t.Errorf("PodURL = %q, want %q", got, want)
 	}

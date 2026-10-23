@@ -11,15 +11,15 @@ cmd/tool-gateway:
     enabled: {{ .Values.global.metrics.enabled }}
     port: {{ .Values.global.metrics.port | default 9464 }}
   identity:
-    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
+    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-identity") | toJson }}
   policy:
-    policyServiceInternalURL: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
+    policyServiceInternalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-policy-service") | toJson }}
     bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}
 {{ include "kora.observabilityConfigModule" . }}
 {{ include "kora.storageConfigModule" (dict "root" . "redisClient" (eq $.mode "proxy")) }}
 {{ include "kora.tokenConfigModule" . }}
 {{- end }}
 {{- end }}
-{{- include "kora.configMap" (dict "root" $ "name" "toolGateway" "configMap" "orbit-tool-gateway-publisher-config" "modules" (include "kora.toolGateway.configModules" (dict "root" $ "mode" "publisher") | fromYaml)) }}
+{{- include "kora.configMap" (dict "root" $ "name" "toolGateway" "configMap" "kora-tool-gateway-publisher-config" "modules" (include "kora.toolGateway.configModules" (dict "root" $ "mode" "publisher") | fromYaml)) }}
 ---
-{{ include "kora.configMap" (dict "root" $ "name" "toolGateway" "configMap" "orbit-tool-gateway-config" "modules" (include "kora.toolGateway.configModules" (dict "root" $ "mode" "proxy") | fromYaml)) }}
+{{ include "kora.configMap" (dict "root" $ "name" "toolGateway" "configMap" "kora-tool-gateway-config" "modules" (include "kora.toolGateway.configModules" (dict "root" $ "mode" "proxy") | fromYaml)) }}

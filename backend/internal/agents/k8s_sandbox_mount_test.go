@@ -21,7 +21,7 @@ func sandboxMountProvisioner(enabled bool) *K8sProvisioner {
 // With the node agent enabled, the sandbox mounts its local disk's working folder
 // inside the workspace. Its workspace claim names its session-manager pod.
 func TestSandboxPod_SandboxMount(t *testing.T) {
-	pod := buildTestSandboxPod(sandboxMountProvisioner(true), Run{ID: "run-1", PodOrdinal: 2}, "coder", "orbit-tenant-acme", testSandboxSpec(), "token")
+	pod := buildTestSandboxPod(sandboxMountProvisioner(true), Run{ID: "run-1", PodOrdinal: 2}, "coder", "kora-tenant-acme", testSandboxSpec(), "token")
 
 	if pod.Name != "sandbox-run-1" || pod.Labels[sandboxfolder.RunIDLabel] != "run-1" || pod.Labels[sandboxfolder.RoleLabel] != "sandbox" {
 		t.Errorf("pod %q labels %v, want sandbox-run-1 with the run and role labels", pod.Name, pod.Labels)
@@ -44,7 +44,7 @@ func TestSandboxPod_SandboxMount(t *testing.T) {
 
 // Without the node agent no folder sits in the workspace.
 func TestSandboxPod_NoSandboxMount(t *testing.T) {
-	pod := buildTestSandboxPod(sandboxMountProvisioner(false), Run{ID: "run-1"}, "coder", "orbit-tenant-acme", testSandboxSpec(), "token")
+	pod := buildTestSandboxPod(sandboxMountProvisioner(false), Run{ID: "run-1"}, "coder", "kora-tenant-acme", testSandboxSpec(), "token")
 	if hasFolderMount(pod) {
 		t.Error("hasFolderMount = true without the node agent")
 	}

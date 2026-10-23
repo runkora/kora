@@ -1,31 +1,31 @@
 {{- if .Values.platform.spiffe.enabled }}
-# DestinationRule for orbit-egress-gateway mTLS peer authentication.
+# DestinationRule for kora-egress-gateway mTLS peer authentication.
 #
 # Required so that any Envoy proxy that dials the egress gateway — in
 # particular sandbox-pod sidecars forwarding a CONNECT through the credential
 # broker — uses ISTIO_MUTUAL with the correct SPIFFE SAN.
 #
-# Egress-gateway pods live in orbit-system, where the `istio-sidecar`
+# Egress-gateway pods live in kora-system, where the `istio-sidecar`
 # ClusterSPIFFEID (ns/<ns>/sa/<sa> template) is explicitly excluded; the
-# `orbit-system-component` ClusterSPIFFEID issues the SVID instead, keyed on the
+# `kora-system-component` ClusterSPIFFEID issues the SVID instead, keyed on the
 # pod's spiffe.io/component label:
 #
 #     spiffe://<trustDomain>/system/egress-gateway
 #
 # Without this DestinationRule, callers fall back to Istio's default expectation
-# (spiffe://<td>/ns/orbit-system/sa/orbit-egress-gateway) and the mTLS handshake
+# (spiffe://<td>/ns/kora-system/sa/kora-egress-gateway) and the mTLS handshake
 # fails SAN verification (503 UF, CERTIFICATE_VERIFY_FAILED:_SAN_match) — exactly
-# the failure mode every other orbit-system service avoids with its own
+# the failure mode every other kora-system service avoids with its own
 # *-client-policy DestinationRule.
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: orbit-egress-gateway-client-policy
+  name: kora-egress-gateway-client-policy
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.egressGateway.labels" . | nindent 4 }}
 spec:
-  host: orbit-egress-gateway.{{ include "kora.systemNamespace" . }}.svc.cluster.local
+  host: kora-egress-gateway.{{ include "kora.systemNamespace" . }}.svc.cluster.local
   exportTo: ["*"]
   trafficPolicy:
     tls:

@@ -101,9 +101,9 @@ func realMain() error {
 	// Publish the Triggers scope vocabulary so the policy service can validate
 	// triggers:read / triggers:write when they are granted, and keep it
 	// published across policy-service restarts.
-	go routescopes.KeepRegistered(ctx, logger, "orbit-triggers",
+	go routescopes.KeepRegistered(ctx, logger, "kora-triggers",
 		func(ctx context.Context) error {
-			return scopeClient.Register(ctx, "orbit-triggers", routeScopes(), scopeDeclarations())
+			return scopeClient.Register(ctx, "kora-triggers", routeScopes(), scopeDeclarations())
 		})
 
 	server := initServer(ctx, logger, controller, metricsBootstrap)

@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	// aggregatedSecretName is the Secret in orbit-system that collects all
+	// aggregatedSecretName is the Secret in kora-system that collects all
 	// per-tenant OIDC client secrets. The identity service mounts this as a
 	// volume and hot-reloads it when Kubelet updates the symlink.
-	aggregatedSecretName = "orbit-tenant-oidc-secrets"
+	aggregatedSecretName = "kora-tenant-oidc-secrets"
 
 	// aggregatedSecretKey is the key within the aggregated Secret that holds
 	// the YAML map of tenantID → clientSecret.
@@ -30,7 +30,7 @@ const (
 
 // ClientSecretAggregator reads per-tenant OIDC client secrets from the
 // Secrets referenced by spec.oidc.clientSecretRef and writes a single
-// aggregated Secret (orbit-tenant-oidc-secrets) in orbit-system.
+// aggregated Secret (kora-tenant-oidc-secrets) in kora-system.
 //
 // The identity service mounts this Secret as a file and hot-reloads it
 // via fsnotify when Kubelet writes a new symlink — tenant additions and
@@ -49,7 +49,7 @@ func NewClientSecretAggregator(c client.Client, logger logging.Logger) *ClientSe
 
 // Sync reads the OIDC client secret for each active KoraTenant that
 // specifies a clientSecretRef, then writes (or updates) the aggregated
-// Secret in orbit-system. Tenants without a clientSecretRef (public OIDC
+// Secret in kora-system. Tenants without a clientSecretRef (public OIDC
 // clients) are omitted — the identity service treats a missing entry as an
 // empty secret, which suppresses the client_secret parameter in token requests.
 //
@@ -131,7 +131,7 @@ func (a *ClientSecretAggregator) collectSecrets(ctx context.Context, tenants []K
 	return out, nil
 }
 
-// upsertAggregatedSecret creates or patches orbit-tenant-oidc-secrets.
+// upsertAggregatedSecret creates or patches kora-tenant-oidc-secrets.
 // It is a no-op when the content is unchanged to avoid spurious Kubelet
 // volume re-mounts.
 func (a *ClientSecretAggregator) upsertAggregatedSecret(ctx context.Context, secrets map[string]string) error {
@@ -166,7 +166,7 @@ func (a *ClientSecretAggregator) createAggregatedSecret(ctx context.Context, pay
 			Name:      aggregatedSecretName,
 			Namespace: systemNamespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "orbit-operator",
+				"app.kubernetes.io/managed-by": "kora-operator",
 				"runkora.io/component":         "tenant-client-secrets",
 			},
 		},

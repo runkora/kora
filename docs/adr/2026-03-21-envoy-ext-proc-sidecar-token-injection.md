@@ -259,7 +259,7 @@ identity-proxy binary
 6. Performs initial exchange:
    POST {KORA_IDENTITY_SERVICE_URL}/api/v1/identity/exchange
    where KORA_IDENTITY_SERVICE_URL is the scheme+host only, e.g.
-   "http://orbit-identity.orbit-system.svc.cluster.local".
+   "http://kora-identity.kora-system.svc.cluster.local".
    The "/api/v1/identity/exchange" suffix is appended by Exchange() —
    do NOT include it in the env var.
    mTLS: Envoy intercepts the outbound HTTP call and presents the pod's SPIRE
@@ -304,7 +304,7 @@ containers:
     image: orbit/identity-proxy:<version>
     env:
       - name: KORA_IDENTITY_SERVICE_URL
-        value: http://orbit-identity.orbit-system.svc.cluster.local
+        value: http://kora-identity.kora-system.svc.cluster.local
       - name: SPIFFE_ENDPOINT_SOCKET
         value: unix:///run/secrets/workload-spiffe-uds/socket
     volumeMounts:
@@ -446,7 +446,7 @@ This is an explicit, considered choice. The alternative (`failure_mode_allow: fa
 
 **Why fail-open is correct here:**
 
-1. **Defence-in-depth at the destination.** The orbit-identity service and all other kora platform APIs enforce token validation independently — an unauthenticated request without `Authorization: Bearer` will receive a 401 at the application level. The token injection sidecar is a convenience layer, not the sole enforcement point. Fail-closed would make this sidecar a single point of failure for all workload egress traffic.
+1. **Defence-in-depth at the destination.** The kora-identity service and all other kora platform APIs enforce token validation independently — an unauthenticated request without `Authorization: Bearer` will receive a 401 at the application level. The token injection sidecar is a convenience layer, not the sole enforcement point. Fail-closed would make this sidecar a single point of failure for all workload egress traffic.
 
 2. **Startup race.** identity-proxy takes a small but nonzero amount of time to start, connect to SPIRE, and obtain its initial token. During this window, fail-closed would cause the agent workload's first outbound requests to fail with 500s. Fail-open allows those requests to proceed (and fail with 401 at the destination if they need auth), without permanently erroring before the proxy is ready.
 

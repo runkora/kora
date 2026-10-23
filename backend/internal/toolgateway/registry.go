@@ -1,7 +1,7 @@
 // File-backed, hot-reloadable MCP server registry.
 //
-// The operator's MCPServerAggregator renders the orbit-mcp-servers ConfigMap
-// (one key, servers.json — a JSON array of Server entries) into orbit-system;
+// The operator's MCPServerAggregator renders the kora-mcp-servers ConfigMap
+// (one key, servers.json — a JSON array of Server entries) into kora-system;
 // the publisher mounts it as a file. This reader parses servers.json and holds
 // the parsed servers in memory, hot-reloading on change. It mirrors the egress
 // gateway's connection ConfigMapRegistry (internal/credentials/configmap.go):

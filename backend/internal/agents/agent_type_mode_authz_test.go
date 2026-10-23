@@ -42,7 +42,7 @@ func newModeTestService(t *testing.T, granted ...string) (*AgentTypeService, *mo
 		repo, repo, k8s, authz,
 		AgentTypeServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
-			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
+			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
 		},
 		logging.NewLoggerWithOutput(io.Discard),
 	)

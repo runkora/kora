@@ -12,7 +12,7 @@ kora reads secrets from environment variables at runtime.
 
 Everything with a safe default lives elsewhere: compose settings in `docker-compose.yml`, in-cluster settings in `deploy/reference/environments/local.yaml`. `.env.example` is not a template to copy; it documents the optional overrides (Bedrock, port collisions).
 
-`make up` reads `.env`, injects these values into the cluster's `orbit-secrets`, and brings the platform up.
+`make up` reads `.env`, injects these values into the cluster's `kora-secrets`, and brings the platform up.
 
 ---
 
@@ -35,7 +35,7 @@ Fail fast on startup if a required secret is missing, don't let the service star
 
 RSA private keys are PEM-encoded and multi-line. Standard `.env` parsers do not reliably preserve newlines, and `pem.Decode` requires real newlines to parse PEM headers and footers.
 
-**For local development**, `make gen-signing-key` writes the key to `secrets/signing.key` (gitignored). `make up` generates it automatically if absent, then loads it into the cluster's `orbit-secrets` as the inline `KORA_TOKEN_SIGNING_KEY`.
+**For local development**, `make gen-signing-key` writes the key to `secrets/signing.key` (gitignored). `make up` generates it automatically if absent, then loads it into the cluster's `kora-secrets` as the inline `KORA_TOKEN_SIGNING_KEY`.
 
 ```bash
 make gen-signing-key          # writes secrets/signing.key (gitignored)
@@ -86,7 +86,7 @@ Nothing to generate. The test user is `dev@orbit.local.clearroute.io` with passw
 | Variable | Where Set | Description |
 |---|---|---|
 | `KORA_TOKEN_SIGNING_KEY_FILE` | code fallback | Path to an RSA private key PEM file (mode 600). Checked first by the code. |
-| `KORA_TOKEN_SIGNING_KEY` | `orbit-secrets` (local) / secret manager | Inline RSA private key PEM. Local dev generates `secrets/signing.key` with `make gen-signing-key`; `make up` injects it here. |
+| `KORA_TOKEN_SIGNING_KEY` | `kora-secrets` (local) / secret manager | Inline RSA private key PEM. Local dev generates `secrets/signing.key` with `make gen-signing-key`; `make up` injects it here. |
 
 ### OIDC / Federated Identity
 
@@ -120,8 +120,8 @@ The application code is identical regardless: it always reads `os.Getenv`.
 ## Adding a New Secret
 
 1. Add `os.Getenv("YOUR_VAR")` with a fail-fast check in the relevant service initializer
-2. If it is machine-local, generate it into `.env` in the `env` target in the `Makefile`, and wire it into `orbit-secrets` via `scripts/cluster/create-secrets.sh`
-3. Add the key to the `kora.platformEnv` key list of each workload that reads it (`charts/kora/templates/<service>/deployment*.yaml`, or `migrate/job.yaml`) and to the expected keys in `backend/internal/platform/config/chart_secrets_test.go`. A pod receives only the `orbit-secrets` keys listed there
+2. If it is machine-local, generate it into `.env` in the `env` target in the `Makefile`, and wire it into `kora-secrets` via `scripts/cluster/create-secrets.sh`
+3. Add the key to the `kora.platformEnv` key list of each workload that reads it (`charts/kora/templates/<service>/deployment*.yaml`, or `migrate/job.yaml`) and to the expected keys in `backend/internal/platform/config/chart_secrets_test.go`. A pod receives only the `kora-secrets` keys listed there
 4. If it is an optional override, document it in `.env.example`
 5. Add it to this reference table above
 6. Add it to the relevant deployment secret store for staging/production

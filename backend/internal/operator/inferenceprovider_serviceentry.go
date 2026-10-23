@@ -191,7 +191,7 @@ func providerServiceEntryName(p *ip.InferenceProvider) string {
 // providerServiceEntry registers the provider's hosts with the mesh.
 func providerServiceEntry(p *ip.InferenceProvider, endpoints []providerEndpoint) *unstructured.Unstructured {
 	return externalServiceEntry(providerServiceEntryName(p), p.Namespace,
-		map[string]any{"app.kubernetes.io/managed-by": "orbit-operator"}, endpoints)
+		map[string]any{"app.kubernetes.io/managed-by": "kora-operator"}, endpoints)
 }
 
 // externalServiceEntry registers external hosts with the mesh. exportTo "."
@@ -291,7 +291,7 @@ func (r *InferenceProviderReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if !apierrors.IsAlreadyExists(createErr) {
 		return ctrl.Result{}, fmt.Errorf("create ServiceEntry %q: %w", se.GetName(), createErr)
 	}
-	if err := r.Client.Patch(ctx, se, client.Merge, client.FieldOwner("orbit-operator")); err != nil {
+	if err := r.Client.Patch(ctx, se, client.Merge, client.FieldOwner("kora-operator")); err != nil {
 		return ctrl.Result{}, fmt.Errorf("patch ServiceEntry %q: %w", se.GetName(), err)
 	}
 	return ctrl.Result{}, nil

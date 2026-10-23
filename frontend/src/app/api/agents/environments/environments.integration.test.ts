@@ -1,6 +1,6 @@
 /**
  * Integration tests for the environments BFF routes. MSW stands in for
- * orbit-agents and the session is mocked.
+ * kora-agents and the session is mocked.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';

@@ -107,7 +107,7 @@ func slugsByPrincipal(t *testing.T, pool *pgxpool.Pool, tenant string) map[strin
 	return out
 }
 
-const testNS = "spiffe://orbit.test/tenant/orbit-tenant-example/agent/"
+const testNS = "spiffe://orbit.test/tenant/kora-tenant-example/agent/"
 
 func TestPostgres_AgentSlugBackfill(t *testing.T) {
 	_, pool, tenant := testUsageRepo(t)
@@ -115,19 +115,19 @@ func TestPostgres_AgentSlugBackfill(t *testing.T) {
 		usageRow{tenant, testNS + "probe", "AGENT", 1, 0, 1, 0, time.Hour},
 		usageRow{tenant, testNS + "token-probe", "AGENT", 1, 0, 1, 0, time.Hour},
 		usageRow{tenant, testNS + "probe/sandbox/run-1", "AGENT", 1, 0, 1, 0, time.Hour},
-		usageRow{tenant, "spiffe://orbit.test/tenant/orbit-tenant-example/service/probe", "SERVICE", 1, 0, 1, 0, time.Hour},
+		usageRow{tenant, "spiffe://orbit.test/tenant/kora-tenant-example/service/probe", "SERVICE", 1, 0, 1, 0, time.Hour},
 		usageRow{tenant, testNS + "probe", "SERVICE", 1, 0, 1, 0, time.Hour},
 		usageRow{tenant, "CgNkZXYSCmxvY2FsLWxkYXA", "HUMAN", 1, 0, 1, 0, time.Hour},
 	)
 	runBackfill(t, pool)
 
 	want := map[string]string{
-		"AGENT " + testNS + "probe":                                             "probe",
-		"AGENT " + testNS + "token-probe":                                       "token-probe",
-		"AGENT " + testNS + "probe/sandbox/run-1":                               "probe",
-		"SERVICE spiffe://orbit.test/tenant/orbit-tenant-example/service/probe": "",
-		"SERVICE " + testNS + "probe":                                           "",
-		"HUMAN CgNkZXYSCmxvY2FsLWxkYXA":                                         "",
+		"AGENT " + testNS + "probe":                                            "probe",
+		"AGENT " + testNS + "token-probe":                                      "token-probe",
+		"AGENT " + testNS + "probe/sandbox/run-1":                              "probe",
+		"SERVICE spiffe://orbit.test/tenant/kora-tenant-example/service/probe": "",
+		"SERVICE " + testNS + "probe":                                          "",
+		"HUMAN CgNkZXYSCmxvY2FsLWxkYXA":                                        "",
 	}
 	got := slugsByPrincipal(t, pool, tenant)
 	for key, w := range want {

@@ -307,7 +307,7 @@ func TestDelegationSVIDWatcher_ExtractsSandboxRunID(t *testing.T) {
 	m, _ := newTestManager(&stubFetcher{})
 	watcher := m.SVIDWatcher(context.Background())
 
-	id := spiffeid.RequireFromString("spiffe://orbit.test/tenant/orbit-tenant-t1/agent/coder/sandbox/run-9")
+	id := spiffeid.RequireFromString("spiffe://orbit.test/tenant/kora-tenant-t1/agent/coder/sandbox/run-9")
 	watcher.OnX509ContextUpdate(&workloadapi.X509Context{SVIDs: []*x509svid.SVID{{ID: id}}})
 	if got := m.SandboxRunID(); got != "run-9" {
 		t.Fatalf("SandboxRunID = %q, want run-9", got)
@@ -318,7 +318,7 @@ func TestDelegationSVIDWatcher_SharedPodSVIDIgnored(t *testing.T) {
 	m, _ := newTestManager(&stubFetcher{})
 	watcher := m.SVIDWatcher(context.Background())
 
-	id := spiffeid.RequireFromString("spiffe://orbit.test/tenant/orbit-tenant-t1/agent/coder")
+	id := spiffeid.RequireFromString("spiffe://orbit.test/tenant/kora-tenant-t1/agent/coder")
 	watcher.OnX509ContextUpdate(&workloadapi.X509Context{SVIDs: []*x509svid.SVID{{ID: id}}})
 	if got := m.SandboxRunID(); got != "" {
 		t.Fatalf("SandboxRunID = %q, want empty for a shared-pod SVID", got)

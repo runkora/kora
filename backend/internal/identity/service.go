@@ -101,7 +101,7 @@ type Service struct {
 
 	// clientSecrets holds the latest resolved OIDC client secrets, keyed by
 	// tenant ID. Populated at startup by initClientSecrets and refreshed live
-	// by watchClientSecrets whenever orbit-tenant-oidc-secrets changes.
+	// by watchClientSecrets whenever kora-tenant-oidc-secrets changes.
 	// Access only while holding mu (read or write as appropriate).
 	clientSecrets map[string]string
 
@@ -176,7 +176,7 @@ func NewService(
 	}
 
 	// Load pre-registered (static) OAuth clients from the mounted
-	// orbit-tenant-oauth-clients ConfigMap (rendered by the operator from
+	// kora-tenant-oauth-clients ConfigMap (rendered by the operator from
 	// OAuthClient CRs) and layer them ahead of the dynamic DCR store. Admin-
 	// declared via GitOps; hot-reloaded on change, so applying/removing an
 	// OAuthClient CR takes effect without a pod restart.
@@ -999,7 +999,7 @@ func (s *Service) signToken(p *Principal, jti, sessionID, patID string, now time
 // The SYSTEM principal type allows cross-tenant operations in the policy service.
 func (s *Service) SystemToken(ctx context.Context) (string, error) {
 	principal := &Principal{
-		ID:       "orbit-identity-service",
+		ID:       "kora-identity-service",
 		Type:     token.PrincipalTypeSystem,
 		TenantID: "",
 		// The policy service accepts a SYSTEM route registration only under the

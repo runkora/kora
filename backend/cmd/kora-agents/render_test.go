@@ -79,7 +79,7 @@ func TestLoadWorkloads_ParsesPlacementAndWorkspace(t *testing.T) {
       cost-centre: platform
   sandbox:
     nodeSelector:
-      workload-tier: orbit-sandbox
+      workload-tier: kora-sandbox
 workspace:
   storageClassName: efs
   accessModes: [ReadWriteMany]
@@ -94,7 +94,7 @@ workspace:
 		t.Fatal(err)
 	}
 	sandbox := got.Workloads.ForSandbox()
-	if sandbox.NodeSelector["workload-tier"] != "orbit-sandbox" {
+	if sandbox.NodeSelector["workload-tier"] != "kora-sandbox" {
 		t.Errorf("sandbox nodeSelector: got %v", sandbox.NodeSelector)
 	}
 	if sandbox.PodLabels["cost-centre"] != "platform" {

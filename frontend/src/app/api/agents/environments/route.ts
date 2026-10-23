@@ -6,7 +6,7 @@ import { ApiError } from '@runkora/server/client';
 import type { EnvironmentRequest } from '@runkora/shared/api';
 
 // GET /api/agents/environments — the tenant's environments, read from
-// orbit-agents over the mesh; session forwarded by withAuth.
+// kora-agents over the mesh; session forwarded by withAuth.
 export const GET = withAuth(async (_req, session) => {
   try {
     const environments = await listEnvironments(session.accessToken);

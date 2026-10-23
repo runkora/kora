@@ -37,7 +37,7 @@ describe('GET /api/agents/types/overview/[slug]', () => {
     expect((await call('?period=constructor')).status).toBe(400);
   });
 
-  it('reads the gateway and orbit-agents for the slug and period with the session token', async () => {
+  it('reads the gateway and kora-agents for the slug and period with the session token', async () => {
     const seen: Record<string, string> = {};
     server.use(
       http.get('http://test-gw/usage/agent-type/:slug', ({ params, request: r }) => {

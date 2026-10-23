@@ -117,7 +117,7 @@ func TestToolGatewayURLForRun(t *testing.T) {
 	}{
 		{"plain", "http://tool-gw.test", "run-abc", "http://tool-gw.test/run/run-abc"},
 		{"trailing slash trimmed", "http://tool-gw.test/", "run-xyz", "http://tool-gw.test/run/run-xyz"},
-		{"cluster dns", "http://orbit-tool-gateway.orbit-system.svc.cluster.local", "run-1", "http://orbit-tool-gateway.orbit-system.svc.cluster.local/run/run-1"},
+		{"cluster dns", "http://kora-tool-gateway.kora-system.svc.cluster.local", "run-1", "http://kora-tool-gateway.kora-system.svc.cluster.local/run/run-1"},
 		{"empty base stays empty (no governed entries)", "", "run-1", ""},
 	}
 	for _, tc := range tests {

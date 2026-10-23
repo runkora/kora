@@ -1,5 +1,5 @@
 {{- /*
-orbit-mcp config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+kora-mcp config files (docs/adr/2026-10-06-rendered-service-config-files.md).
 */}}
 {{- define "kora.koraMcp.configModules" -}}
 cmd/kora-mcp:
@@ -7,13 +7,13 @@ cmd/kora-mcp:
     enabled: {{ .Values.global.metrics.enabled }}
     port: {{ .Values.global.metrics.port | default 9464 }}
   backends:
-    agents: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-agents") | toJson }}
-    policy: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
-    inference: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-inference-gateway") | toJson }}
-    identity: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
-    triggers: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-triggers") | toJson }}
-    toolGateway: {{ include "kora.serviceURL" (dict "root" . "name" "orbit-tool-gateway") | toJson }}
+    agents: {{ include "kora.serviceURL" (dict "root" . "name" "kora-agents") | toJson }}
+    policy: {{ include "kora.serviceURL" (dict "root" . "name" "kora-policy-service") | toJson }}
+    inference: {{ include "kora.serviceURL" (dict "root" . "name" "kora-inference-gateway") | toJson }}
+    identity: {{ include "kora.serviceURL" (dict "root" . "name" "kora-identity") | toJson }}
+    triggers: {{ include "kora.serviceURL" (dict "root" . "name" "kora-triggers") | toJson }}
+    toolGateway: {{ include "kora.serviceURL" (dict "root" . "name" "kora-tool-gateway") | toJson }}
 {{ include "kora.observabilityConfigModule" . }}
 {{ include "kora.brandConfigModule" . }}
 {{- end }}
-{{- include "kora.configMap" (dict "root" $ "name" "koraMcp" "configMap" "orbit-mcp-config" "modules" (include "kora.koraMcp.configModules" . | fromYaml)) }}
+{{- include "kora.configMap" (dict "root" $ "name" "koraMcp" "configMap" "kora-mcp-config" "modules" (include "kora.koraMcp.configModules" . | fromYaml)) }}

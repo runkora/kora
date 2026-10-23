@@ -119,7 +119,7 @@ A non-empty `image` replaces the reference, the same as `agents.config.sandboxIm
 
 ### 5. Operator
 
-On every tenant reconcile, the operator creates or patches each enabled bundled `SandboxImage` and deletes each disabled one. It labels them `app.kubernetes.io/managed-by: orbit-operator` and `runkora.io/component: bundled-sandbox-image`, and it changes only a `SandboxImage` that carries both labels. If a tenant registered its own `SandboxImage` under a bundled name, the operator leaves it in place, does not register the bundled image in that tenant, and logs the conflict at debug level. A failure on one image does not stop the others.
+On every tenant reconcile, the operator creates or patches each enabled bundled `SandboxImage` and deletes each disabled one. It labels them `app.kubernetes.io/managed-by: kora-operator` and `runkora.io/component: bundled-sandbox-image`, and it changes only a `SandboxImage` that carries both labels. If a tenant registered its own `SandboxImage` under a bundled name, the operator leaves it in place, does not register the bundled image in that tenant, and logs the conflict at debug level. A failure on one image does not stop the others.
 
 ### 6. Disabled Images
 

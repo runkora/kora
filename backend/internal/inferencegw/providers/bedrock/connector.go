@@ -457,7 +457,7 @@ func isAnthropicModel(id string) bool {
 }
 
 // defaultRoleSessionName names assumed sessions when the resource sets none.
-const defaultRoleSessionName = "orbit-inference-gateway"
+const defaultRoleSessionName = "kora-inference-gateway"
 
 // assumeRoleCredentials assumes roleARN with the base credentials in base. The
 // cache refreshes the session before it expires.

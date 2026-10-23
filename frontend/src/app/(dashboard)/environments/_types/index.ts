@@ -28,7 +28,7 @@ export interface EnvironmentRow {
 export function toEnvironmentRow(e: Environment): EnvironmentRow {
   return {
     id: e.id,
-    // An orbit-agents from the previous release sends only name, which is then the slug.
+    // A kora-agents from the previous release sends only name, which is then the slug.
     slug: e.slug || e.name,
     name: e.name,
     description: e.description,

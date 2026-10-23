@@ -13,7 +13,7 @@
 // Connection, an OAuthClient carries NO secret reference.
 //
 // The operator's OAuthClientAggregator reads these CRs and renders the
-// orbit-system ConfigMap the identity service mounts (oauth-clients.json),
+// kora-system ConfigMap the identity service mounts (oauth-clients.json),
 // mirroring the ConnectionAggregator. The identity service, a feature package,
 // never imports this CRD type; it reads the mounted ConfigMap instead.
 //

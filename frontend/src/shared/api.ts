@@ -527,7 +527,7 @@ export interface AgentInsightsResponse {
   trend: { start: string; cost_usd: number }[];
   /** Absent when the policy bundle could not be read. */
   budgets?: AgentBudgetStatus[];
-  /** Absent when orbit-agents could not count runs. */
+  /** Absent when kora-agents could not count runs. */
   outcomes?: { completed: number; failed: number };
 }
 
@@ -550,7 +550,7 @@ export interface RunStateCounts {
 /**
  * Mirrors Go: agents.RunStats.
  * The run counts and durations of one agent, or of every agent the caller can
- * read, for a window, from orbit-agents.
+ * read, for a window, from kora-agents.
  */
 export interface AgentRunStats {
   /** Runs created in the window, and the part a trigger started; the rest are manual. */

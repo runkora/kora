@@ -7,7 +7,7 @@ import type { HealthResponse } from '@runkora/shared/api';
 export function createHealthResponse(overrides: Partial<HealthResponse> = {}): HealthResponse {
   return {
     status: 'healthy',
-    service: 'orbit-identity',
+    service: 'kora-identity',
     timestamp: new Date().toISOString(),
     ...overrides,
   };

@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-agents
+  name: kora-agents
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.agents.labels" . | nindent 4 }}
@@ -16,7 +16,7 @@ spec:
         {{- include "kora.agents.selectorLabels" . | nindent 8 }}
         runkora.io/kube-api-client: "true"
         {{- include "kora.agents.labels" . | nindent 8 }}
-        spiffe.io/component: orbit-agents
+        spiffe.io/component: kora-agents
         {{- include "kora.podLabels" (dict "root" $ "name" "agents") | nindent 8 }}
       annotations:
         {{- include "kora.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
@@ -31,7 +31,7 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/agents/config.yaml") . | sha256sum }}
         {{- include "kora.podAnnotations" (dict "root" $ "name" "agents") | nindent 8 }}
     spec:
-      serviceAccountName: orbit-agents
+      serviceAccountName: kora-agents
       # Above the 30 s shutdown timeout, so a run start in flight can finish before the kubelet stops the pod.
       terminationGracePeriodSeconds: 45
       {{- include "kora.imagePullSecrets" . | nindent 6 }}
@@ -40,7 +40,7 @@ spec:
         {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "kora.spireVolumes" . | nindent 8 }}
-        {{- include "kora.configVolume" (dict "root" $ "name" "agents" "configMap" "orbit-agents-config" "modules" (include "kora.agents.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "agents" "configMap" "kora-agents-config" "modules" (include "kora.agents.configModules" . | fromYaml)) | nindent 8 }}
         # Connection registry aggregated by the operator; optional so the pod starts
         # before any Connection exists.
         - name: tenant-connections
@@ -51,16 +51,16 @@ spec:
         # resource (docs/adr/2026-09-15-manifest-patches-configmap.md).
         - name: manifest-patches
           configMap:
-            name: orbit-agents-manifest-patches
+            name: kora-agents-manifest-patches
         # Placement, pod metadata and workspace storage for provisioned
         # workloads (docs/adr/2026-09-16-first-class-workload-placement.md).
         - name: workloads
           configMap:
-            name: orbit-agents-workloads
+            name: kora-agents-workloads
         {{- include "kora.redisCAVolume" . | nindent 8 }}
         {{- include "kora.extraVolumes" (dict "root" $ "name" "agents") | nindent 8 }}
       containers:
-        - name: orbit-agents
+        - name: kora-agents
           image: {{ include "kora.image" (dict "root" $ "name" "agents") | quote }}
           imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "agents") }}
           securityContext:

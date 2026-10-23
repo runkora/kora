@@ -257,7 +257,7 @@ type BudgetResult struct {
 
 // NewEvaluator returns an Evaluator backed by in-process OPA.
 // bundleEndpoint is the base URL of the policy-service bundle API,
-// e.g. http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles
+// e.g. http://kora-policy-service.kora-system.svc/api/v1/policy/bundles
 func NewEvaluator(bundleEndpoint string, pollInterval time.Duration, logger logging.Logger) Evaluator {
 	return newEngine(bundleEndpoint, pollInterval, logger)
 }

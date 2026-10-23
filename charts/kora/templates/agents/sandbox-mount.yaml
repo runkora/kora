@@ -11,7 +11,7 @@ cmd/sandbox-mount:
 {{- if or (lt (int $m.port) 1) (gt (int $m.port) 65535) }}
   {{- fail "sandboxMount.port must be a TCP port" }}
 {{- end }}
-{{- $config := dict "root" $ "name" "sandboxMount" "configMap" "orbit-sandbox-mount-config" "modules" (include "kora.sandboxMount.configModules" . | fromYaml) }}
+{{- $config := dict "root" $ "name" "sandboxMount" "configMap" "kora-sandbox-mount-config" "modules" (include "kora.sandboxMount.configModules" . | fromYaml) }}
 {{- if $m.createNamespace }}
 apiVersion: v1
 kind: Namespace
@@ -27,7 +27,7 @@ metadata:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: orbit-sandbox-mount
+  name: kora-sandbox-mount
   namespace: {{ $m.namespace }}
   labels:
     {{- include "kora.sandboxMount.labels" . | nindent 4 }}
@@ -38,7 +38,7 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: orbit-sandbox-mount
+  name: kora-sandbox-mount
   labels:
     {{- include "kora.sandboxMount.labels" . | nindent 4 }}
 rules:
@@ -50,22 +50,22 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: orbit-sandbox-mount
+  name: kora-sandbox-mount
   labels:
     {{- include "kora.sandboxMount.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: orbit-sandbox-mount
+  name: kora-sandbox-mount
 subjects:
   - kind: ServiceAccount
-    name: orbit-sandbox-mount
+    name: kora-sandbox-mount
     namespace: {{ $m.namespace }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: orbit-sandbox-mount-config
+  name: kora-sandbox-mount-config
   namespace: {{ $m.namespace }}
   labels:
     {{- include "kora.sandboxMount.labels" . | nindent 4 }}
@@ -78,7 +78,7 @@ data:
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: orbit-sandbox-mount
+  name: kora-sandbox-mount
   namespace: {{ $m.namespace }}
   labels:
     {{- include "kora.sandboxMount.labels" . | nindent 4 }}
@@ -96,7 +96,7 @@ spec:
         # Restarts the agent when its config changes.
         checksum/config: {{ include "kora.configModules" $config | sha256sum }}
     spec:
-      serviceAccountName: orbit-sandbox-mount
+      serviceAccountName: kora-sandbox-mount
       {{- include "kora.imagePullSecrets" . | nindent 6 }}
       # nfsd serves, and the NFS client connects, from the node's own address.
       hostNetwork: true

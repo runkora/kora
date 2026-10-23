@@ -104,7 +104,7 @@ type messagesContentBlock struct {
 
 // Summarize produces a ≤120-char one-sentence label for initialMessage using the
 // given model, calling {baseURL}/v1/messages. baseURL is the per-run inference
-// base (e.g. http://orbit-inference-gateway.../run/{runID}).
+// base (e.g. http://kora-inference-gateway.../run/{runID}).
 func (s *summarizer) Summarize(ctx context.Context, baseURL, model, initialMessage string) (string, error) {
 	var result messagesResponse
 	var err error

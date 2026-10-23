@@ -371,7 +371,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// Step 3: wait for Envoy to be fully configured before making any outbound
 	// calls. Envoy returns 200 on localhost:15021/healthz/ready only after it
 	// has received all xDS configuration (listeners, clusters, and its SPIRE-
-	// issued mTLS certificate). Without this, the exchange call to orbit-identity
+	// issued mTLS certificate). Without this, the exchange call to kora-identity
 	// is RST by Envoy because it has no client cert to present for mTLS.
 	if err := s.waitForEnvoy(ctx); err != nil {
 		s.grpc.GracefulStop()
@@ -452,7 +452,7 @@ func (s *Server) waitForEnvoy(ctx context.Context) error {
 // listening. Istio's PostStart hook probes this to determine when it is safe
 // to configure iptables intercept. If we returned 503 until the first token
 // is cached, Envoy would never finish its PostStart hook and the identity-proxy
-// could never reach orbit-identity to exchange the token (circular deadlock).
+// could never reach kora-identity to exchange the token (circular deadlock).
 // The ext_proc Processor already handles an empty cache gracefully by passing
 // requests through without an Authorization header.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {

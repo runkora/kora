@@ -1,23 +1,23 @@
 {{- if .Values.platform.spiffe.enabled }}
-# Client mTLS policy for callers of orbit-mcp. Without this, a source Envoy has
-# no TLS transport socket for the orbit-mcp cluster and its outbound mTLS
+# Client mTLS policy for callers of kora-mcp. Without this, a source Envoy has
+# no TLS transport socket for the kora-mcp cluster and its outbound mTLS
 # connection fails (cx_connect_fail → 503) — which is why in-mesh callers (the
 # tool-gateway's introspection, and the Phase-4 proxy) could not reach it. Every
-# other in-mesh orbit service has this DestinationRule; orbit-mcp lacked one
+# other in-mesh kora service has this DestinationRule; kora-mcp lacked one
 # because it had no in-mesh consumer until the tool-gateway.
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: orbit-mcp-client-policy
+  name: kora-mcp-client-policy
   namespace: {{ include "kora.systemNamespace" . }}
   labels:
     {{- include "kora.koraMcp.labels" . | nindent 4 }}
 spec:
-  host: orbit-mcp.{{ include "kora.systemNamespace" . }}.svc.cluster.local
+  host: kora-mcp.{{ include "kora.systemNamespace" . }}.svc.cluster.local
   exportTo: ["*"]
   trafficPolicy:
     tls:
       mode: ISTIO_MUTUAL
       subjectAltNames:
-        - "spiffe://{{ include "kora.trustDomain" . }}/system/orbit-mcp"
+        - "spiffe://{{ include "kora.trustDomain" . }}/system/kora-mcp"
 {{- end }}

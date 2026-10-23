@@ -53,7 +53,7 @@ func (f fakeBundle) ListBudgets(context.Context, string) (map[string]policy.Prin
 	return f.principals, nil, nil
 }
 
-const agentNS = "spiffe://orbit.test/tenant/orbit-tenant-example/agent/"
+const agentNS = "spiffe://orbit.test/tenant/kora-tenant-example/agent/"
 
 var testEnd = time.Date(2026, 10, 3, 14, 0, 0, 0, time.UTC) // a Saturday
 

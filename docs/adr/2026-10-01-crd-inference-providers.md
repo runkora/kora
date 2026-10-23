@@ -11,7 +11,7 @@
 
 ## Context
 
-The inference gateway builds its provider connectors once at start from env vars: `BEDROCK_ACCOUNTS` and per-alias regions and keys, `VERTEX_*` and `AZURE_*`. The chart renders the Bedrock env from `inferenceGateway.bedrock.accounts`. Local development writes Bedrock credentials into `orbit-secrets`, which every platform service mounts through `envFrom`. A changed provider or credential needs a gateway restart. There is no connector for OpenAI, Anthropic or other compatible endpoints.
+The inference gateway builds its provider connectors once at start from env vars: `BEDROCK_ACCOUNTS` and per-alias regions and keys, `VERTEX_*` and `AZURE_*`. The chart renders the Bedrock env from `inferenceGateway.bedrock.accounts`. Local development writes Bedrock credentials into `kora-secrets`, which every platform service mounts through `envFrom`. A changed provider or credential needs a gateway restart. There is no connector for OpenAI, Anthropic or other compatible endpoints.
 
 `RoutingEngine.connectors` is fixed at construction. Postgres holds virtual models, routes, per-model toggles and prices, keyed by provider name. Three CHECK constraints allow only `bedrock`, `vertexai`, `azure` and `bedrock:<alias>`.
 
@@ -90,7 +90,7 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 
 | Type | Fields | Credential |
 |---|---|---|
-| `bedrock` | `region` (required), `assumeRoleARN`, `externalID`, `roleSessionName` (default `orbit-inference-gateway`) | `credentials.secretRef.name`: keys `accessKeyID`, `secretAccessKey`, optional `sessionToken`. Absent: workload identity (IRSA, EKS Pod Identity). AssumeRole applies on top of either. |
+| `bedrock` | `region` (required), `assumeRoleARN`, `externalID`, `roleSessionName` (default `kora-inference-gateway`) | `credentials.secretRef.name`: keys `accessKeyID`, `secretAccessKey`, optional `sessionToken`. Absent: workload identity (IRSA, EKS Pod Identity). AssumeRole applies on top of either. |
 | `vertexai` | `projectID`, `location` (required), `anthropicLocation` | `credentialsSecretRef {name, key}`: service account JSON. Absent: Application Default Credentials (GKE Workload Identity). |
 | `azure` | `endpoint`, `apiVersion` (required), `anthropicEndpoint` | `apiKeySecretRef {name, key}`, required. |
 | `compatible` | `baseURL` (required, http or https), `apis` (required) | `apiKeySecretRef {name, key}`, optional. |
@@ -119,7 +119,7 @@ apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: openrouter
-  namespace: orbit-system
+  namespace: kora-system
 spec:
   type: compatible
   compatible:
@@ -167,7 +167,7 @@ One expand migration replaces the provider CHECK on `virtual_model_routes`, `pro
 ### 8. Env vars and local development
 
 - The gateway reads no provider env vars. `inferenceGateway.bedrock.accounts` is removed from the chart, with its Bedrock ServiceEntries.
-- `make cluster-bedrock-creds` writes the SSO session into Secret `orbit-bedrock-credentials` and applies one Bedrock resource per alias in `.env`. `make up` runs it when `BEDROCK_ACCOUNTS` is set.
+- `make cluster-bedrock-creds` writes the SSO session into Secret `kora-bedrock-credentials` and applies one Bedrock resource per alias in `.env`. `make up` runs it when `BEDROCK_ACCOUNTS` is set.
 
 ### Rationale
 
@@ -181,12 +181,12 @@ One typed kind gives admission-time validation per provider with one list. A dec
 
 - A provider is one reviewable manifest. OpenRouter is one resource serving three APIs.
 - Provider changes and credential rotation apply within seconds, without a restart.
-- Provider credentials leave `orbit-secrets`. Only the gateway reads them.
+- Provider credentials leave `kora-secrets`. Only the gateway reads them.
 - One gateway identity can reach many AWS accounts through AssumeRole.
 
 ### Negative
 
-- The gateway holds Kubernetes API access. Its Role allows reading every Secret in the system namespace, even though it caches and reads only labelled ones. The gateway is a platform service in that namespace and already receives `orbit-secrets` through `envFrom`.
+- The gateway holds Kubernetes API access. Its Role allows reading every Secret in the system namespace, even though it caches and reads only labelled ones. The gateway is a platform service in that namespace and already receives `kora-secrets` through `envFrom`.
 - Every provider Secret needs the `runkora.io/inference-provider=true` label. An unlabelled Secret reports `SecretNotFound`.
 - Upgrading needs the resources applied in the same deploy. There is no env fallback.
 - A key on an `http://` base URL crosses the network in cleartext unless the network encrypts it. Choosing http is the admin's call.

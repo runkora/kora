@@ -152,7 +152,7 @@ if echo "$DEVICE_RESP" | jq -e '.code' >/dev/null 2>&1; then
     echo "       kubectl apply -f deploy/local/tenants/example.yaml"
     echo "       kubectl get koratenant -A"
     echo "  3. Check the tenant registry ConfigMap:"
-    echo "       kubectl get configmap orbit-tenants -n orbit-system -o yaml"
+    echo "       kubectl get configmap kora-tenants -n kora-system -o yaml"
     echo ""
     echo "  ── Cluster (k3d) ──────────────────────────────────────────────"
     echo "  Run 'make cluster-deploy' to register tenants, or apply the"

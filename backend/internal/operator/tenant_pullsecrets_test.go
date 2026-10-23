@@ -29,7 +29,7 @@ func replicatedPullSecret(name, ns, tenant string) *corev1.Secret {
 			Name:      name,
 			Namespace: ns,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "orbit-operator",
+				"app.kubernetes.io/managed-by": "kora-operator",
 				"runkora.io/component":         pullSecretComponent,
 				"runkora.io/tenant":            tenant,
 			},
@@ -44,7 +44,7 @@ func replicatedPullSecret(name, ns, tenant string) *corev1.Secret {
 // so the replica of a removed name stayed in every tenant namespace that had
 // received it and the revoked credential remained usable there.
 func TestEnsureImagePullSecrets_PrunesRemoved(t *testing.T) {
-	const ns = "orbit-tenant-example"
+	const ns = "kora-tenant-example"
 	tenant := &KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
 
 	c := fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(
@@ -54,9 +54,9 @@ func TestEnsureImagePullSecrets_PrunesRemoved(t *testing.T) {
 		// Same managed-by label, different component: the tenant CA must
 		// survive the prune.
 		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{
-			Name:      "orbit-tenant-ca",
+			Name:      "kora-tenant-ca",
 			Namespace: ns,
-			Labels:    map[string]string{"app.kubernetes.io/managed-by": "orbit-operator"},
+			Labels:    map[string]string{"app.kubernetes.io/managed-by": "kora-operator"},
 		}},
 	).Build()
 
@@ -72,14 +72,14 @@ func TestEnsureImagePullSecrets_PrunesRemoved(t *testing.T) {
 
 	assertSecretExists(t, c, ns, "keep-registry", true)
 	assertSecretExists(t, c, ns, "rotated-out", false)
-	assertSecretExists(t, c, ns, "orbit-tenant-ca", true)
+	assertSecretExists(t, c, ns, "kora-tenant-ca", true)
 }
 
 // TestEnsureImagePullSecrets_LabelsExistingReplica covers a replica created
 // before the component label existed. Without the label the prune cannot see
 // it, so reconciliation has to add it.
 func TestEnsureImagePullSecrets_LabelsExistingReplica(t *testing.T) {
-	const ns = "orbit-tenant-example"
+	const ns = "kora-tenant-example"
 	tenant := &KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
 
 	unlabelled := replicatedPullSecret("keep-registry", ns, "example")

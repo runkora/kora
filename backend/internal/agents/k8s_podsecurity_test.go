@@ -31,7 +31,7 @@ func podSecurityProvisioner() *K8sProvisioner {
 			SandboxGRPCPort:     50051,
 			ImagePullSecrets:    []string{"ghcr-pull", "mirror-pull"},
 			TrustDomain:         "orbit.example.com",
-			SystemNamespace:     "orbit-prod",
+			SystemNamespace:     "kora-prod",
 			OTLPEndpoint:        "http://otel-collector.observability.svc:4317",
 			SamplingRate:        "1.0",
 			ProductName:         "Acme",
@@ -40,12 +40,12 @@ func podSecurityProvisioner() *K8sProvisioner {
 }
 
 func renderedSandboxPod() *corev1.Pod {
-	return buildTestSandboxPod(podSecurityProvisioner(), Run{ID: "run-1", PodOrdinal: 0}, "coder", "orbit-tenant-acme", testSandboxSpec(), "test-exec-token")
+	return buildTestSandboxPod(podSecurityProvisioner(), Run{ID: "run-1", PodOrdinal: 0}, "coder", "kora-tenant-acme", testSandboxSpec(), "test-exec-token")
 }
 
 func renderedStatefulSet() appsv1.StatefulSet {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
-	return podSecurityProvisioner().buildSessionManagerStatefulSet(at, "orbit-tenant-acme", podLabels(at))
+	return podSecurityProvisioner().buildSessionManagerStatefulSet(at, "kora-tenant-acme", podLabels(at))
 }
 
 // assertRestrictedPodSpec checks the parts of the restricted Pod Security
@@ -186,16 +186,16 @@ func TestSessionManagerStatefulSet_UsesConfiguredSystemNamespace(t *testing.T) {
 	for _, e := range ss.Spec.Template.Spec.Containers[0].Env {
 		env[e.Name] = e.Value
 	}
-	if got, want := env["ANTHROPIC_BASE_URL"], "http://orbit-inference-gateway.orbit-prod.svc.cluster.local"; got != want {
+	if got, want := env["ANTHROPIC_BASE_URL"], "http://kora-inference-gateway.kora-prod.svc.cluster.local"; got != want {
 		t.Errorf("ANTHROPIC_BASE_URL = %q, want %q", got, want)
 	}
-	if got, want := env["KORA_AGENTS_URL"], "http://orbit-agents.orbit-prod.svc.cluster.local"; got != want {
+	if got, want := env["KORA_AGENTS_URL"], "http://kora-agents.kora-prod.svc.cluster.local"; got != want {
 		t.Errorf("KORA_AGENTS_URL = %q, want %q", got, want)
 	}
-	if got, want := env["KORA_INFERENCE_GATEWAY_URL"], "http://orbit-inference-gateway.orbit-prod.svc.cluster.local"; got != want {
+	if got, want := env["KORA_INFERENCE_GATEWAY_URL"], "http://kora-inference-gateway.kora-prod.svc.cluster.local"; got != want {
 		t.Errorf("KORA_INFERENCE_GATEWAY_URL = %q, want %q", got, want)
 	}
-	if got, want := env["KORA_TOOL_GATEWAY_URL"], "http://orbit-tool-gateway.orbit-prod.svc.cluster.local"; got != want {
+	if got, want := env["KORA_TOOL_GATEWAY_URL"], "http://kora-tool-gateway.kora-prod.svc.cluster.local"; got != want {
 		t.Errorf("KORA_TOOL_GATEWAY_URL = %q, want %q", got, want)
 	}
 	// Without this a provisioned agent traces nothing, and the only symptom is
@@ -250,7 +250,7 @@ func TestRuntimePods_NoPullSecretsWhenUnconfigured(t *testing.T) {
 // while the digest-pinned image is left alone.
 func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	stale := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns, Annotations: map[string]string{annotationImagePinned: "true"}},
 		Spec: appsv1.StatefulSetSpec{
@@ -262,7 +262,7 @@ func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
 					Containers: []corev1.Container{{
 						Name:  sessionManagerContainerName,
 						Image: "old",
-						Env:   []corev1.EnvVar{{Name: "ANTHROPIC_BASE_URL", Value: "http://orbit-inference-gateway.orbit-system.svc.cluster.local"}},
+						Env:   []corev1.EnvVar{{Name: "ANTHROPIC_BASE_URL", Value: "http://kora-inference-gateway.kora-system.svc.cluster.local"}},
 					}},
 				},
 			},
@@ -290,7 +290,7 @@ func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
 			base = e.Value
 		}
 	}
-	if base != "http://orbit-inference-gateway.orbit-prod.svc.cluster.local" {
+	if base != "http://kora-inference-gateway.kora-prod.svc.cluster.local" {
 		t.Errorf("ANTHROPIC_BASE_URL not synced to the configured system namespace: %q", base)
 	}
 }
@@ -300,7 +300,7 @@ func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
 // container contexts and pull secrets without a manual delete.
 func TestEnsureStatefulSet_ExistingPicksUpHardening(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	stale := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns, Annotations: map[string]string{annotationImagePinned: "true"}},
 		Spec: appsv1.StatefulSetSpec{
@@ -330,7 +330,7 @@ func TestEnsureStatefulSet_ExistingPicksUpHardening(t *testing.T) {
 // Run start creates a missing StatefulSet and leaves an existing one alone, so starting a run never rolls pods.
 func TestEnsureStatefulSet_CreateOnly(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	stale := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
 		Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
@@ -435,7 +435,7 @@ func TestRuntimePods_PeerMetadataInMeshOnly(t *testing.T) {
 // reconcile, so a chart upgrade reaches existing agents.
 func TestEnsureStatefulSet_UnpinnedImageFollowsRelease(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	stale := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
 		Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
@@ -457,7 +457,7 @@ func TestEnsureStatefulSet_UnpinnedImageFollowsRelease(t *testing.T) {
 }
 
 func TestReadyOrdinals(t *testing.T) {
-	const ns, slug = "orbit-tenant-acme", "coder"
+	const ns, slug = "kora-tenant-acme", "coder"
 	sel := map[string]string{"app": slug}
 	ss := func(gen, observed int64, rev string) *appsv1.StatefulSet {
 		return &appsv1.StatefulSet{

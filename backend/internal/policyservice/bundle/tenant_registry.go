@@ -11,7 +11,7 @@ import (
 )
 
 // TenantRegistry lists the tenants the operator has registered, read from the
-// orbit-tenants ConfigMap mounted at its path. It is read on every
+// kora-tenants ConfigMap mounted at its path. It is read on every
 // call so a recompile sees the current file. An unset path or an absent file
 // (the mount is optional) lists nothing.
 type TenantRegistry struct {

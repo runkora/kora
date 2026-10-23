@@ -1,5 +1,5 @@
 // Package toolgateway is the MCP tool-gateway's publisher-mode core (Phase 3):
-// it mounts the operator-rendered orbit-mcp-servers registry, introspects each
+// it mounts the operator-rendered kora-mcp-servers registry, introspects each
 // server's tool surface (initialize + tools/list), and (Phase 3.3) publishes the
 // discovered tools as mcp:<server>:<tool>:use scopes.
 //
@@ -20,7 +20,7 @@ const callerIdentityForward = "forward"
 
 // Server is one entry of the mounted servers.json registry — the runtime
 // contract the operator's MCPServerAggregator renders. tenant_id is "" for a
-// global (orbit-system) server and the owning tenant for a tenant server.
+// global (kora-system) server and the owning tenant for a tenant server.
 type Server struct {
 	TenantID                    string `json:"tenant_id"`
 	Name                        string `json:"name"`
@@ -31,7 +31,7 @@ type Server struct {
 	ReintrospectIntervalSeconds int    `json:"reintrospect_interval_seconds"`
 	CallerIdentity              string `json:"caller_identity"`
 	// AuthHeaders are static credential headers whose values are files in the
-	// mounted orbit-mcp-server-secrets Secret.
+	// mounted kora-mcp-server-secrets Secret.
 	AuthHeaders []AuthHeader `json:"auth_headers,omitempty"`
 }
 

@@ -159,12 +159,12 @@ Option C is the correct implementation of what [universal-gateway-policy-enforce
 
 **1. OPA Gateway Deployment**
 
-A Kubernetes Deployment running `openpolicyagent/opa:latest-envoy` in the `orbit-system` namespace. This is a standalone pod (not a sidecar) accessible to the IngressGateway via a ClusterIP Service.
+A Kubernetes Deployment running `openpolicyagent/opa:latest-envoy` in the `kora-system` namespace. This is a standalone pod (not a sidecar) accessible to the IngressGateway via a ClusterIP Service.
 
 ```
-orbit-opa-gateway          Deployment — OPA Envoy plugin, polls policy-service bundles
-orbit-opa-gateway          Service (ClusterIP) — gRPC port 9191, called by IngressGateway Envoy
-orbit-opa-gateway-config   ConfigMap — OPA bundle config
+kora-opa-gateway          Deployment — OPA Envoy plugin, polls policy-service bundles
+kora-opa-gateway          Service (ClusterIP) — gRPC port 9191, called by IngressGateway Envoy
+kora-opa-gateway-config   ConfigMap — OPA bundle config
 ```
 
 **Availability requirement:** The Deployment must run a minimum of 2 replicas at all times. A `PodDisruptionBudget` with `minAvailable: 1` is required; without it a single node drain takes down all OPA replicas and fails all external traffic closed. The Deployment must also configure liveness and readiness probes against the OPA health endpoint (`GET /health`) so that Kubernetes restarts unhealthy replicas before they appear in the ext_authz cluster.
@@ -281,7 +281,7 @@ The per-tenant bundle endpoint (`GET /v1/policy/bundles/{tenant_id}`) and `authz
 
 **3. EnvoyFilter — IngressGateway**
 
-An EnvoyFilter in `istio-system` targeting the IngressGateway (`istio: ingressgateway`) with `context: GATEWAY`. It inserts the ext_authz HTTP filter into the IngressGateway's filter chain, pointing at the `orbit-opa-gateway` Service via a STRICT_DNS cluster.
+An EnvoyFilter in `istio-system` targeting the IngressGateway (`istio: ingressgateway`) with `context: GATEWAY`. It inserts the ext_authz HTTP filter into the IngressGateway's filter chain, pointing at the `kora-opa-gateway` Service via a STRICT_DNS cluster.
 
 ```yaml
 apiVersion: networking.istio.io/v1alpha3
@@ -332,7 +332,7 @@ spec:
                   - endpoint:
                       address:
                         socket_address:
-                          address: orbit-opa-gateway.orbit-system.svc.cluster.local
+                          address: kora-opa-gateway.kora-system.svc.cluster.local
                           port_value: 9191
           http2_protocol_options: {}
 ```
@@ -356,9 +356,9 @@ BFF scope checks (`session.permissions`) are already UX-only — they control na
 
 **6. Workload Identity for the OPA Gateway Pod**
 
-The `orbit-opa-gateway` Deployment is assigned a Kubernetes ServiceAccount in `orbit-system`. The policy-service bundle endpoint (`GET /v1/policy/bundles/gateway`) is accessible without a bearer token — it is a cluster-internal polling endpoint, analogous to the per-tenant bundle endpoints.
+The `kora-opa-gateway` Deployment is assigned a Kubernetes ServiceAccount in `kora-system`. The policy-service bundle endpoint (`GET /v1/policy/bundles/gateway`) is accessible without a bearer token — it is a cluster-internal polling endpoint, analogous to the per-tenant bundle endpoints.
 
-The `orbit-opa-gateway` pod is labelled `spiffe.io/component: opa-gateway`, which selects it for the `orbit-system-component` ClusterSPIFFEID. SPIRE issues it the identity `spiffe://orbit.test/system/opa-gateway`. The Istio sidecar presents this SVID when OPA's bundle fetch reaches the policy-service, satisfying the Istio DENY AuthorizationPolicy that restricts the gateway bundle endpoint to verified `orbit-system` sources.
+The `kora-opa-gateway` pod is labelled `spiffe.io/component: opa-gateway`, which selects it for the `kora-system-component` ClusterSPIFFEID. SPIRE issues it the identity `spiffe://orbit.test/system/opa-gateway`. The Istio sidecar presents this SVID when OPA's bundle fetch reaches the policy-service, satisfying the Istio DENY AuthorizationPolicy that restricts the gateway bundle endpoint to verified `kora-system` sources.
 
 The pod runs as UID 1000 (not UID 1337). An earlier draft used UID 1337 on the assumption that it would prevent a recursive ext_authz loop on bundle fetches. This was incorrect: the `opa-gateway-ext-authz` EnvoyFilter targets the IngressGateway workload only (`app: gateway`); OPA's bundle fetch goes pod-to-pod within the cluster and never passes through the IngressGateway, so no loop is possible. Using UID 1337 had the opposite effect — it caused OPA's outbound traffic to bypass the Istio iptables redirect, making bundle fetches plain HTTP. Without an SVID in the TLS handshake, Istio's DENY policy treated OPA as an unverified source and blocked the fetch with 403.
 
@@ -366,8 +366,8 @@ The pod runs as UID 1000 (not UID 1337). An earlier draft used UID 1337 on the a
 
 1. Add `GET /v1/policy/bundles/gateway` endpoint to the policy-service; validate cross-tenant bundle compiles correctly including both global and tenant-scoped route registrations
 2. Write `authz_gateway.rego` and validate it evaluates correctly in unit tests: frontend host bypass, health check bypass, global route matching, tenant route matching, grant evaluation
-3. Deploy `orbit-opa-gateway` Deployment (2 replicas), Service, PodDisruptionBudget, and ServiceAccount in `orbit-system`
-4. Configure `orbit-opa-gateway` to poll the cross-tenant bundle endpoint; validate bundle sync and allow/deny decisions for principals across at least two tenants, including a tenant-registered service
+3. Deploy `kora-opa-gateway` Deployment (2 replicas), Service, PodDisruptionBudget, and ServiceAccount in `kora-system`
+4. Configure `kora-opa-gateway` to poll the cross-tenant bundle endpoint; validate bundle sync and allow/deny decisions for principals across at least two tenants, including a tenant-registered service
 5. Apply the `opa-gateway-ext-authz` EnvoyFilter — from this point, all external traffic is evaluated at the gateway
 6. Validate: PAT-authenticated request without `inference:invoke` → 403 at gateway; PAT with correct scope → 200; frontend traffic unaffected; agent pod traffic unaffected
 
