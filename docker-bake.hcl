@@ -57,7 +57,6 @@ target "backend-images" {
       { service = "egress-gateway" },
       { service = "tool-gateway" },
       { service = "migrate" },
-      { service = "example" },
     ]
   }
   args = {
