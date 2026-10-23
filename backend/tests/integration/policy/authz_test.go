@@ -10,7 +10,7 @@
 // Prerequisites:
 //
 //	make dev-cluster && make cluster-deploy   (cluster running with services)
-//	make auth-device-k3d                      (fresh user token at /tmp/orbit_credentials.json)
+//	make auth-device-k3d                      (fresh user token at /tmp/kora_credentials.json)
 //
 // Run:
 //
@@ -313,9 +313,9 @@ func revokeGrants(t *testing.T, principalType, principalID string) {
 func loadUserToken(t *testing.T) string {
 	t.Helper()
 
-	data, err := os.ReadFile("/tmp/orbit_credentials.json")
+	data, err := os.ReadFile("/tmp/kora_credentials.json")
 	if err != nil {
-		t.Fatal("no credentials file at /tmp/orbit_credentials.json — run: make auth-device-k3d")
+		t.Fatal("no credentials file at /tmp/kora_credentials.json — run: make auth-device-k3d")
 	}
 
 	var creds struct {

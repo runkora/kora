@@ -47,7 +47,7 @@ describe('GET /api/health', () => {
   });
 
   it('fails when the theme failed to load, so the pod never becomes ready', async () => {
-    vi.mocked(getTheme).mockRejectedValue(new Error('theme at /etc/orbit/theme is invalid'));
+    vi.mocked(getTheme).mockRejectedValue(new Error('theme at /etc/kora/theme is invalid'));
 
     await expect(GET()).rejects.toThrow('is invalid');
   });

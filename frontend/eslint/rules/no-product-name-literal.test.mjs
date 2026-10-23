@@ -30,7 +30,7 @@ tester.run('no-product-name-literal', rule, {
     { code: "const a = 'orbit-system';" },
     { code: "const a = 'orbit.io';" },
     { code: "const a = 'api.orbit.local';" },
-    { code: "const a = 'ORBIT_API_KEY';" },
+    { code: "const a = 'KORA_API_KEY';" },
     { code: "const a = '@runkora/hades';" },
     { code: "const a = 'orbit/authz/allow';" },
     { code: "const a = 'github.com/runkora/kora/docs';" },

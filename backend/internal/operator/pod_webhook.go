@@ -51,7 +51,7 @@ const (
 
 	spiffeSocketPath  = "unix:///run/secrets/workload-spiffe-uds/socket"
 	spiffeSocketMount = "/run/secrets/workload-spiffe-uds"
-	identityProxyMnt  = "/run/orbit"
+	identityProxyMnt  = "/run/kora"
 
 	// Named to override Istio's own emptyDir of this name, where istio-proxy
 	// looks for an external SDS socket.
@@ -285,10 +285,10 @@ func (m *PodMutator) identityProxyContainer(otlpEndpoint string) corev1.Containe
 		Image:           m.Config.IdentityProxyImage,
 		ImagePullPolicy: m.Config.IdentityProxyPullPolicy,
 		Env: []corev1.EnvVar{
-			{Name: "ORBIT_IDENTITY_SERVICE_URL", Value: fmt.Sprintf("http://orbit-identity.%s.svc.cluster.local", m.Config.SystemNamespace)},
+			{Name: "KORA_IDENTITY_SERVICE_URL", Value: fmt.Sprintf("http://orbit-identity.%s.svc.cluster.local", m.Config.SystemNamespace)},
 			{Name: "SPIFFE_ENDPOINT_SOCKET", Value: spiffeSocketPath},
-			{Name: "ORBIT_OTLP_ENDPOINT", Value: otlpEndpoint},
-			{Name: "ORBIT_SAMPLING_RATE", Value: m.Config.SamplingRate},
+			{Name: "KORA_OTLP_ENDPOINT", Value: otlpEndpoint},
+			{Name: "KORA_SAMPLING_RATE", Value: m.Config.SamplingRate},
 		},
 		Ports:           []corev1.ContainerPort{{Name: "health", ContainerPort: 9090, Protocol: corev1.ProtocolTCP}},
 		SecurityContext: restrictedContainerSecurityContext(1000, true),
@@ -338,7 +338,7 @@ func (m *PodMutator) opaContainer() corev1.Container {
 			"/config/authz.rego",
 		},
 		Env: []corev1.EnvVar{{
-			Name: "ORBIT_TENANT_ID",
+			Name: "KORA_TENANT_ID",
 			ValueFrom: &corev1.EnvVarSource{
 				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['" + podAnnotationTenantID + "']"},
 			},

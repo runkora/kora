@@ -63,7 +63,7 @@ make dev-down-clean  # DESTRUCTIVE: stops Postgres and Redis and deletes their v
 make auth
 ```
 
-Runs the Device Authorization Grant. Open the printed URL, enter the code, and log in. The token pair is written to `/tmp/orbit_credentials.json`.
+Runs the Device Authorization Grant. Open the printed URL, enter the code, and log in. The token pair is written to `/tmp/kora_credentials.json`.
 
 Local accounts are backed by `glauth` and surfaced to Dex over LDAP. Their default password is `password`.
 
@@ -76,9 +76,9 @@ Access tokens last four hours locally, set by `identity.config.accessTokenTtlMin
 
 ## Using your token
 
-`/tmp/orbit_credentials.json` holds the access and refresh token pair. Anything that calls the platform outside the browser reads the access token from there.
+`/tmp/kora_credentials.json` holds the access and refresh token pair. Anything that calls the platform outside the browser reads the access token from there.
 
-`$ORBIT_TOKEN` is not exported into subprocess shells. Read it from the file.
+`$KORA_TOKEN` is not exported into subprocess shells. Read it from the file.
 
 The local certificates come from a private CA. `curl` needs `-k`, and any other client needs the mkcert root or TLS verification off.
 
@@ -124,7 +124,7 @@ Full rebuilds build each image serially by default. If your Docker VM has headro
 
 ```bash
 # .env
-ORBIT_PARALLEL_BUILDS=1
+KORA_PARALLEL_BUILDS=1
 ```
 
 With the flag set, `make redeploy-platform` runs one `docker buildx bake` graph over every platform image. BuildKit builds them concurrently and deduplicates the shared Go module and source layers. Single-service redeploys are unaffected.
@@ -167,7 +167,7 @@ Migrations are DDL only: no `INSERT` or `DELETE`, an `UPDATE` only alongside an 
 `Down` sections exist for local development only. To roll back one migration against the compose Postgres:
 
 ```bash
-cd backend && ORBIT_MIGRATE_ALLOW_DOWN=1 APP_ENV=local DB_PASSWORD=orbit go run ./cmd/migrate down
+cd backend && KORA_MIGRATE_ALLOW_DOWN=1 APP_ENV=local DB_PASSWORD=orbit go run ./cmd/migrate down
 ```
 
 `APP_ENV=local` reads the compose Postgres address from `backend/internal/platform/storage/config/local.yaml`.
@@ -183,7 +183,7 @@ There are no migration `Down` triggers in kora, a rollback via `helm rollback` w
 | `DB_PASSWORD` | Fixed default `orbit` | Postgres password. Baked into the volume at first initialisation. Changing it requires `make dev-down-clean` first. |
 | `REDIS_PASSWORD` | Fixed default `orbit` | Redis password. |
 | `BFF_SESSION_SECRET` | Generated with `openssl rand -base64 32` | Signs the frontend iron-session cookie. Written into `orbit-frontend-secrets`. |
-| `ORBIT_TRIGGERS_ENCRYPTION_KEY` | Generated with `openssl rand -base64 32` | Encrypts stored trigger credentials. `kora-triggers` fails to start without it. |
+| `KORA_TRIGGERS_ENCRYPTION_KEY` | Generated with `openssl rand -base64 32` | Encrypts stored trigger credentials. `kora-triggers` fails to start without it. |
 
 `create-secrets.sh` reads these from `.env` and, together with `secrets/signing.key`, writes them into `orbit-secrets` and `orbit-frontend-secrets` in the cluster.
 
@@ -208,7 +208,7 @@ make test-integration
 
 ### Postgres-backed repository tests
 
-Repository tests that hit a real database are gated on `ORBIT_TEST_DB_URL` and skip when it is unset. `make test-postgres` runs them against the local Postgres.
+Repository tests that hit a real database are gated on `KORA_TEST_DB_URL` and skip when it is unset. `make test-postgres` runs them against the local Postgres.
 
 ```bash
 make test-postgres

@@ -177,7 +177,7 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 	}
 	runEnv := []string{
 		"CODEX_HOME=" + codexHome,
-		"ORBIT_INFERENCE_KEY=orbit-managed",
+		"KORA_INFERENCE_KEY=orbit-managed",
 	}
 	runEnv = append(runEnv, r.cfg.ExtraEnv...)
 	// HOME and TMPDIR last: nothing earlier may move the agent off the only
@@ -393,11 +393,11 @@ command = "kora-runtime-mcp"
 args    = []
 default_tools_approval_mode = "approve"
 # Codex starts MCP servers with a filtered env; the run token proves the run on /internal calls.
-env_vars = ["ORBIT_RUN_TOKEN"]
+env_vars = ["KORA_RUN_TOKEN"]
 
 [mcp_servers.runtime.env]
-ORBIT_SESSION_MANAGER_URL = %q
-ORBIT_RUN_ID              = %q
+KORA_SESSION_MANAGER_URL = %q
+KORA_RUN_ID              = %q
 `, r.cfg.SessionManagerURL, r.cfg.RunID)
 
 	// The agent calls the gateway unauthenticated; the identity-proxy sidecar
@@ -1043,8 +1043,8 @@ const codexProvider = "orbit"
 // writeCodexConfig creates a per-run CODEX_HOME directory under workDir and
 // writes a config.toml that points Codex at the kora inference gateway.
 //
-// The bearer token is read from the ORBIT_INFERENCE_KEY environment variable
-// (env_key = "ORBIT_INFERENCE_KEY" in config.toml). This keeps the credential
+// The bearer token is read from the KORA_INFERENCE_KEY environment variable
+// (env_key = "KORA_INFERENCE_KEY" in config.toml). This keeps the credential
 // out of process argv — which is world-readable on Linux via /proc — and relies
 // on the OS environment being scoped to the subprocess, which is the standard
 // safe approach for secrets in child processes.
@@ -1067,7 +1067,7 @@ func (r *CodexRunner) writeCodexConfig(workDir string) (string, error) {
 	// Build minimal config.toml: one custom provider pointing at the gateway.
 	// wire_api = "responses" is required — Codex only speaks the Responses API.
 	// env_key names an environment variable that holds the bearer token; the
-	// identity-proxy sidecar injects a platform token via ORBIT_INFERENCE_KEY,
+	// identity-proxy sidecar injects a platform token via KORA_INFERENCE_KEY,
 	// so the actual secret value never appears on the command line or in the file.
 	configContent := fmt.Sprintf(`model_provider = %q
 model = %q
@@ -1095,7 +1095,7 @@ enabled = false
 [model_providers.%s]
 name     = %q
 base_url = %q
-env_key  = "ORBIT_INFERENCE_KEY"
+env_key  = "KORA_INFERENCE_KEY"
 wire_api = "responses"
 
 [projects.%q]

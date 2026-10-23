@@ -3,7 +3,7 @@
 # The identity-proxy is the MANDATORY trust enforcement point for all kora
 # platform agent workloads. It is not optional. Every agent pod on the platform
 # must carry the label `orbit.io/identity-proxy: "enabled"` and an identity-proxy
-# container sharing the /run/orbit socket with istio-proxy, both added by the
+# container sharing the /run/kora socket with istio-proxy, both added by the
 # operator webhook. kora's own services carry neither; they fetch their own
 # platform token in-process.
 #
@@ -81,5 +81,5 @@ spec:
                           # Unix socket path: must match the mountPath of the
                           # id-proxy-sock emptyDir volume in the identity-proxy
                           # identity-proxy container and istio-proxy (chart helper or operator webhook).
-                          path: /run/orbit/identity-proxy.sock
+                          path: /run/kora/identity-proxy.sock
           http2_protocol_options: {}

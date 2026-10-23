@@ -99,14 +99,14 @@ network. `make cluster-restore` only re-pushes images after a restart — it won
 ### 3b. Authenticate
 ```bash
 make auth-device-k3d     # device grant → browser → dev@orbit.local.clearroute.io / password
-                         # token → /tmp/orbit_credentials.json
+                         # token → /tmp/kora_credentials.json
 make auth-refresh-k3d    # tokens expire (~15 min); refresh, don't re-auth, while iterating
 ```
 Call APIs by reading the token inline (it is NOT in the env), through a port-forward:
 ```bash
 kubectl port-forward svc/orbit-identity -n orbit-system 6069:80 &
 kubectl port-forward svc/orbit-inference-gateway -n orbit-system 8081:80 &
-TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8081/v1/models
+TOKEN=$(jq -r '.access_token' /tmp/kora_credentials.json) && curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8081/v1/models
 ```
 Re-establish port-forwards after every pod restart (a dropped forward shows as `HTTP 000`).
 
@@ -193,7 +193,7 @@ ones** (cite exact lines), then re-run CI to green.
 | Switch to local cluster | `kubectl config use-context k3d-orbit-local` |
 | Cluster health | `kubectl get pods -A \| grep -vE 'Running\|Completed'` |
 | Rebuild cluster (confirm first) | `make dev-cluster-down && make dev-cluster && make cluster-platform && make cluster-deploy` |
-| Auth / refresh | `make auth-device-k3d` · `make auth-refresh-k3d` (token: `/tmp/orbit_credentials.json`) |
+| Auth / refresh | `make auth-device-k3d` · `make auth-refresh-k3d` (token: `/tmp/kora_credentials.json`) |
 | Redeploy a service | `make redeploy SERVICE=<svc>` · `make redeploy-frontend` · `make redeploy-list` |
 | Postgres | `docker exec orbit-postgres psql -U orbit -d orbit -c "…"` |
 | Frontend URL | `https://orbit.local.clearroute.io` |

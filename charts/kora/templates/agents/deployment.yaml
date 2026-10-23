@@ -99,12 +99,12 @@ spec:
             {{- include "kora.configVolumeMount" . | nindent 12 }}
             {{- include "kora.redisCAVolumeMount" . | nindent 12 }}
             - name: tenant-connections
-              mountPath: /var/run/orbit/connections
+              mountPath: /var/run/kora/connections
               readOnly: true
             - name: manifest-patches
-              mountPath: /etc/orbit/manifest-patches
+              mountPath: /etc/kora/manifest-patches
               readOnly: true
             - name: workloads
-              mountPath: /etc/orbit/workloads
+              mountPath: /etc/kora/workloads
               readOnly: true
             {{- include "kora.extraVolumeMounts" (dict "root" $ "name" "agents") | nindent 12 }}

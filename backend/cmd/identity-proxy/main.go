@@ -1,14 +1,14 @@
 // Command identity-proxy is the kora identity-proxy sidecar binary.
 //
 // It runs as an Envoy External Processing (ext_proc) gRPC server on the Unix
-// socket defined in config (default: /run/orbit/identity-proxy.sock). Envoy
+// socket defined in config (default: /run/kora/identity-proxy.sock). Envoy
 // calls it for every outbound request from the agent pod; the proxy injects a
 // platform Bearer token into the Authorization header so downstream kora
 // services can verify the caller without knowing about SPIRE.
 //
 // Secrets and deployment-specific values are supplied via environment variables:
 //
-//	ORBIT_IDENTITY_SERVICE_URL  Full base URL of the identity service
+//	KORA_IDENTITY_SERVICE_URL  Full base URL of the identity service
 //	                            e.g. http://orbit-identity.orbit-system.svc.cluster.local
 //	                            Plain HTTP — Istio handles mTLS transparently.
 //	SPIFFE_ENDPOINT_SOCKET      Path to SPIRE Agent workload API socket (optional;
@@ -89,11 +89,11 @@ func mainRun() int {
 
 // run is the actual entrypoint so main() stays clean and errors can be returned.
 func run(ctx context.Context, cfg *identityProxyConfig.Config, logger logging.Logger) error {
-	// ORBIT_IDENTITY_SERVICE_URL must be provided at runtime — it is not in YAML
+	// KORA_IDENTITY_SERVICE_URL must be provided at runtime — it is not in YAML
 	// because it is a deployment-specific endpoint, not a tuneable default.
-	identityURL := os.Getenv("ORBIT_IDENTITY_SERVICE_URL")
+	identityURL := os.Getenv("KORA_IDENTITY_SERVICE_URL")
 	if identityURL == "" {
-		return fmt.Errorf("ORBIT_IDENTITY_SERVICE_URL must be set")
+		return fmt.Errorf("KORA_IDENTITY_SERVICE_URL must be set")
 	}
 
 	// SPIFFE_ENDPOINT_SOCKET may be overridden via env; the YAML base.yaml

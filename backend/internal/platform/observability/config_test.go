@@ -65,7 +65,7 @@ func TestTenantOTLPEndpoint(t *testing.T) {
 }
 
 func TestApplyGoSetEnv(t *testing.T) {
-	env := map[string]string{"ORBIT_OTLP_ENDPOINT": "http://collector:4317", "ORBIT_SAMPLING_RATE": "0.25"}
+	env := map[string]string{"KORA_OTLP_ENDPOINT": "http://collector:4317", "KORA_SAMPLING_RATE": "0.25"}
 	cfg := &ObservabilityConfig{OTLPEndpoint: "from-file"}
 	if err := applyGoSetEnv(cfg, func(k string) string { return env[k] }); err != nil {
 		t.Fatalf("applyGoSetEnv() error: %v", err)
@@ -79,8 +79,8 @@ func TestApplyGoSetEnv(t *testing.T) {
 		t.Errorf("unset env changed the file value: %q, %v", unset.OTLPEndpoint, err)
 	}
 
-	bad := map[string]string{"ORBIT_SAMPLING_RATE": "most"}
+	bad := map[string]string{"KORA_SAMPLING_RATE": "most"}
 	if err := applyGoSetEnv(&ObservabilityConfig{}, func(k string) string { return bad[k] }); err == nil {
-		t.Error("a malformed ORBIT_SAMPLING_RATE must fail")
+		t.Error("a malformed KORA_SAMPLING_RATE must fail")
 	}
 }

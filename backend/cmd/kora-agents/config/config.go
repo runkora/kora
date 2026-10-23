@@ -15,7 +15,7 @@ import (
 //
 //  1. cmd/kora-agents/config/base.yaml  — service defaults
 //  2. cmd/kora-agents/config/{env}.yaml — env overrides (optional)
-//  3. /etc/orbit/config/cmd/kora-agents.yaml — rendered by the chart
+//  3. /etc/kora/config/cmd/kora-agents.yaml — rendered by the chart
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`

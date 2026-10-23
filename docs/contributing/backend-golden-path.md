@@ -163,20 +163,20 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 }
 ```
 
-Config is loaded per-binary with `config.MustLoadService[T]` from `cmd/{service}/config/base.yaml` (+ optional `{env}.yaml`, selected by `APP_ENV`, and the chart-rendered `/etc/orbit/config/cmd/{service}.yaml`). No raw viper or yaml.
+Config is loaded per-binary with `config.MustLoadService[T]` from `cmd/{service}/config/base.yaml` (+ optional `{env}.yaml`, selected by `APP_ENV`, and the chart-rendered `/etc/kora/config/cmd/{service}.yaml`). No raw viper or yaml.
 
 ## 6. Test it
 
 Unit-test services and handlers with table-driven tests and a fake repository (see the `*_test.go` files in `internal/triggers/`).
 
-Repository tests that need a real database are gated on `ORBIT_TEST_DB_URL` so they stay out of `make test` and CI. From [`internal/triggers/postgres_test.go`](../../backend/internal/triggers/postgres_test.go):
+Repository tests that need a real database are gated on `KORA_TEST_DB_URL` so they stay out of `make test` and CI. From [`internal/triggers/postgres_test.go`](../../backend/internal/triggers/postgres_test.go):
 
 ```go
 func testRepo(t *testing.T) (*postgresRepository, string) {
 	t.Helper()
-	dsn := os.Getenv("ORBIT_TEST_DB_URL")
+	dsn := os.Getenv("KORA_TEST_DB_URL")
 	if dsn == "" {
-		t.Skip("set ORBIT_TEST_DB_URL to run Postgres integration tests")
+		t.Skip("set KORA_TEST_DB_URL to run Postgres integration tests")
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
@@ -191,7 +191,7 @@ func testRepo(t *testing.T) (*postgresRepository, string) {
 Run against the local Postgres that `make up` starts:
 
 ```bash
-ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
+KORA_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
   go test ./internal/triggers/ -run Postgres
 ```
 

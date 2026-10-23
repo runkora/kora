@@ -81,7 +81,7 @@ func startSibling(t *testing.T, bin string) int {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(bin, dir, "/bin/sh", "-c", "sleep 30; true", "--append-system-prompt", "SIBLING-SECRET")
-	cmd.Env = append(os.Environ(), "ORBIT_RUN_TOKEN=SIBLING-TOKEN")
+	cmd.Env = append(os.Environ(), "KORA_RUN_TOKEN=SIBLING-TOKEN")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start sibling: %v", err)
 	}

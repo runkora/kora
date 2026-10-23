@@ -14,7 +14,7 @@ import (
 //
 //  1. cmd/tool-gateway/config/base.yaml      — service defaults
 //  2. cmd/tool-gateway/config/{env}.yaml     — env overrides (optional)
-//  3. /etc/orbit/config/cmd/tool-gateway.yaml — rendered by the chart per Deployment
+//  3. /etc/kora/config/cmd/tool-gateway.yaml — rendered by the chart per Deployment
 //
 // The tool-gateway runs in two modes from one binary: the publisher (this
 // phase — mounts the registry, introspects, publishes scopes) and the

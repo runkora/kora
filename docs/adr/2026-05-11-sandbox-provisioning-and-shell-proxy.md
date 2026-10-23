@@ -98,8 +98,8 @@ Claude Code's exact model in `--print` / stream-json mode is confirmed as per-in
       "command": "/usr/local/bin/orbit-runtime-mcp",
       "args": [],
       "env": {
-        "ORBIT_SESSION_MANAGER_URL": "http://localhost:<port>",
-        "ORBIT_RUN_ID": "<run_id>"
+        "KORA_SESSION_MANAGER_URL": "http://localhost:<port>",
+        "KORA_RUN_ID": "<run_id>"
       }
     }
   }

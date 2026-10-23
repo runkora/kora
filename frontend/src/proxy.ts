@@ -33,14 +33,14 @@ import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from '@runkora/lib/routi
  * Attempts a best-effort inline token refresh against the Go identity service.
  * Returns the updated token data on success, or `null` on any failure.
  *
- * `process.env.ORBIT_API_URL` is available in Edge Runtime — it is a
+ * `process.env.KORA_API_URL` is available in Edge Runtime — it is a
  * server-side env var read at request time, not baked in at build time.
  */
 async function tryRefresh(
   refreshToken: string,
   tenantId: string,
 ): Promise<BackendSessionResponse | null> {
-  const apiBase = process.env.ORBIT_API_URL?.replace(/\/$/, '');
+  const apiBase = process.env.KORA_API_URL?.replace(/\/$/, '');
   if (!apiBase) return null;
 
   try {

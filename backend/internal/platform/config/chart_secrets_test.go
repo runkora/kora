@@ -15,8 +15,8 @@ import (
 func TestChartPlatformSecretKeysPerService(t *testing.T) {
 	rendered := workloadContainers(renderChart(t, ""))
 	want := map[string][]string{
-		"orbit-identity":               {"DB_PASSWORD", "ORBIT_TOKEN_SIGNING_KEY", "REDIS_PASSWORD"},
-		"orbit-triggers":               {"DB_PASSWORD", "ORBIT_TRIGGERS_ENCRYPTION_KEY", "REDIS_PASSWORD"},
+		"orbit-identity":               {"DB_PASSWORD", "KORA_TOKEN_SIGNING_KEY", "REDIS_PASSWORD"},
+		"orbit-triggers":               {"DB_PASSWORD", "KORA_TRIGGERS_ENCRYPTION_KEY", "REDIS_PASSWORD"},
 		"orbit-agents":                 {"DB_PASSWORD", "REDIS_PASSWORD"},
 		"orbit-inference-gateway":      {"DB_PASSWORD", "REDIS_PASSWORD"},
 		"orbit-policy-service":         {"DB_PASSWORD", "REDIS_PASSWORD"},

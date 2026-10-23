@@ -79,7 +79,7 @@ func wrapExec(wrapperPath, workDir, binary string, args ...string) (string, []st
 // and TMPDIR as environment entries.
 //
 // Landlock must make all of them writable. An agent left on the
-// image's /home/orbit fails on its first write. Per-run also keeps sibling runs
+// image's /home/kora fails on its first write. Per-run also keeps sibling runs
 // out of each other's caches.
 func runHomeDirs(workDir string) ([]string, error) {
 	runHome := runfs.HomeDir(workDir)

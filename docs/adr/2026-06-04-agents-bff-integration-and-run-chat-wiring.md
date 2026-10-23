@@ -98,7 +98,7 @@ The `AgentType` model and its settings form include a model selector. The curren
 
 ### BFF config and client
 
-A new environment variable `ORBIT_AGENTS_URL` is added to `frontend/src/server/config.ts` alongside the existing `ORBIT_API_URL` and `INFERENCE_GATEWAY_URL`. A typed `agentsClient(accessToken)` is created in `frontend/src/server/agents-client.ts` following the existing `orbitClient` pattern (10-second timeout, `no-store` cache, `Authorization: Bearer` header).
+A new environment variable `KORA_AGENTS_URL` is added to `frontend/src/server/config.ts` alongside the existing `KORA_API_URL` and `INFERENCE_GATEWAY_URL`. A typed `agentsClient(accessToken)` is created in `frontend/src/server/agents-client.ts` following the existing `orbitClient` pattern (10-second timeout, `no-store` cache, `Authorization: Bearer` header).
 
 ### BFF route wiring
 
@@ -132,7 +132,7 @@ A new route handler `frontend/src/app/api/agents/runs/[runId]/events/route.ts` i
 
 1. Validates session via `withAuth`
 2. Extracts `Last-Event-ID` from the incoming request headers
-3. Opens a `fetch()` to `${ORBIT_AGENTS_URL}/api/v1/runs/{runId}/events` with `Authorization: Bearer {accessToken}` and the forwarded `Last-Event-ID`
+3. Opens a `fetch()` to `${KORA_AGENTS_URL}/api/v1/runs/{runId}/events` with `Authorization: Bearer {accessToken}` and the forwarded `Last-Event-ID`
 4. Constructs a streaming `NextResponse` that pipes the backend response body directly — no buffering
 5. Sets response headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`
 
@@ -186,7 +186,7 @@ The "Stop run" action in the run topbar calls `DELETE /api/agents/runs/{runId}` 
 ### Neutral
 
 - Mock data in `_mock/data.ts`, `agents-server.ts`, and `agent-detail-server.ts` is removed; local development requires `orbit-agents` to be running or a local stub
-- `ORBIT_AGENTS_URL` is a new required environment variable in all deployment environments
+- `KORA_AGENTS_URL` is a new required environment variable in all deployment environments
 
 ---
 
@@ -200,7 +200,7 @@ Step 2  Backend: UpdateAgentTypeRequest struct + Service.UpdateAgentType method
                  + PATCH /api/v1/agent-types/{id} handler registered in server.go and agentRoutes()
         (Steps 1–2 can land in one PR; settings save unblocked after merge)
 
-Step 3  Frontend: ORBIT_AGENTS_URL config + agentsClient (agents-client.ts)
+Step 3  Frontend: KORA_AGENTS_URL config + agentsClient (agents-client.ts)
 Step 4  Frontend: Add model_id to UpdateAgentTypeRequest in frontend/src/shared/api.ts
 Step 5  Frontend: Replace all ten BFF mock route handlers with real calls
                   (includes adding the missing PATCH export to types/[typeId]/route.ts)

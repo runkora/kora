@@ -119,8 +119,8 @@ func TestFetchSandbox(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			t.Setenv("ORBIT_SESSION_MANAGER_URL", srv.URL)
-			t.Setenv("ORBIT_RUN_ID", "run-1")
+			t.Setenv("KORA_SESSION_MANAGER_URL", srv.URL)
+			t.Setenv("KORA_RUN_ID", "run-1")
 
 			sb, provisioned, err := fetchSandbox()
 			if tc.wantErr {
@@ -159,8 +159,8 @@ func TestFetchSandbox_MissingEnvIsAnError(t *testing.T) {
 		{name: "run id only", runID: "run-1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("ORBIT_SESSION_MANAGER_URL", tc.smURL)
-			t.Setenv("ORBIT_RUN_ID", tc.runID)
+			t.Setenv("KORA_SESSION_MANAGER_URL", tc.smURL)
+			t.Setenv("KORA_RUN_ID", tc.runID)
 
 			_, provisioned, err := fetchSandbox()
 			if err == nil {
@@ -199,9 +199,9 @@ func TestSandboxCallbacks_SendTheRunToken(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Setenv("WORKSPACE", ws)
-			t.Setenv("ORBIT_SESSION_MANAGER_URL", srv.URL)
-			t.Setenv("ORBIT_RUN_ID", "run-1")
-			t.Setenv("ORBIT_RUN_TOKEN", "run-token-abc")
+			t.Setenv("KORA_SESSION_MANAGER_URL", srv.URL)
+			t.Setenv("KORA_RUN_ID", "run-1")
+			t.Setenv("KORA_RUN_TOKEN", "run-token-abc")
 
 			switch tc.name {
 			case "fetchSandbox":

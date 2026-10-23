@@ -47,7 +47,7 @@ spec:
         - name: validate-theme
           image: {{ include "kora.image" (dict "root" $ "name" "frontend") | quote }}
           imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "frontend") }}
-          command: ["node", "/app/validate-theme.mjs", "/etc/orbit/theme/theme.yaml"]
+          command: ["node", "/app/validate-theme.mjs", "/etc/kora/theme/theme.yaml"]
           securityContext:
             {{- include "kora.containerSecurityContext" (dict "readOnlyRootFilesystem" true) | nindent 12 }}
           resources:

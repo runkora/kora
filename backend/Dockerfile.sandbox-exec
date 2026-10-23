@@ -248,7 +248,7 @@ RUN if [ "$INSTALL_BROWSERS" = "true" ]; then \
 # kubectl — for agents granted a `kubernetes` connection.
 #
 # The agent runs plain `kubectl get pods`. sandbox-exec writes $HOME/.kube/config
-# at startup from ORBIT_KUBE_CLUSTERS (internal/agents/sandbox/kubeconfig), so
+# at startup from KORA_KUBE_CLUSTERS (internal/agents/sandbox/kubeconfig), so
 # there is no server URL to pass, no kubeconfig to author and no token to find.
 #
 # No credential ever reaches the sandbox. The rendered kubeconfig carries a
@@ -324,13 +324,13 @@ COPY --from=builder /sandbox-exec /usr/local/bin/sandbox-exec
 
 # Non-root user (UID 100 matches the session-manager pod security context).
 # GID 100 (users) already exists in debian; reuse it.
-RUN useradd -u 100 -g 100 -m -s /bin/bash orbit
+RUN useradd -u 100 -g 100 -m -s /bin/bash kora
 
 # The run's shell path has to resolve in both containers. Codex bakes its shell
 # into a snapshot it prefixes onto every command, so a command arriving here
 # names the agent pod's path. There it is the kora-shell proxy; here it is the
 # shell that runs the command.
-RUN mkdir -p /opt/orbit/shell && ln -sf /bin/bash /opt/orbit/shell/bash
+RUN mkdir -p /opt/kora/shell && ln -sf /bin/bash /opt/kora/shell/bash
 
 # Workspaces directory — mounted from the agent pod's PVC at runtime.
 RUN mkdir -p /workspaces && chown 100:100 /workspaces

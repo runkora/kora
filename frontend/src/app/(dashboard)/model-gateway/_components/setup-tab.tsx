@@ -80,7 +80,7 @@ function ClaudeCodeGuide({ baseUrl }: { baseUrl: string }) {
         </Text>
         <CodeBlock
           text={`export ANTHROPIC_BASE_URL="${baseUrl}"
-export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
+export ANTHROPIC_API_KEY="$KORA_API_KEY"`}
           filename="~/.zshrc"
         />
       </Step>
@@ -134,7 +134,7 @@ model = "anthropic/claude-sonnet-4-6"`}
           text={`[model_providers.${providerKey}]
 name     = "${productName}"
 base_url = "${baseUrl}/v1"
-env_key  = "ORBIT_API_KEY"
+env_key  = "KORA_API_KEY"
 wire_api = "responses"`}
           filename="~/.codex/config.toml"
         />
@@ -145,7 +145,7 @@ wire_api = "responses"`}
             </Heading>
             <Text size="caption" color="muted">
               Codex reads the bearer token from the environment variable named by{' '}
-              <Code>env_key</Code>. Export your {productName} API key as <Code>ORBIT_API_KEY</Code>{' '}
+              <Code>env_key</Code>. Export your {productName} API key as <Code>KORA_API_KEY</Code>{' '}
               in your shell profile.
             </Text>
           </Stack>
@@ -185,7 +185,7 @@ function OpenCodeGuide({ baseUrl }: { baseUrl: string }) {
       "name": "${productName}",
       "options": {
         "baseURL": "${baseUrl}/v1",
-        "apiKey": "{env:ORBIT_API_KEY}"
+        "apiKey": "{env:KORA_API_KEY}"
       },
       "models": {
         "anthropic/claude-sonnet-4-6": {
@@ -206,11 +206,11 @@ function OpenCodeGuide({ baseUrl }: { baseUrl: string }) {
         <Callout>
           <Stack gap="snug">
             <Heading variant="label">
-              <Code>{'{env:ORBIT_API_KEY}'}</Code> reads from your environment
+              <Code>{'{env:KORA_API_KEY}'}</Code> reads from your environment
             </Heading>
             <Text size="caption" color="muted">
               OpenCode resolves <Code>{'{env:VAR_NAME}'}</Code> at runtime from the named
-              environment variable. Export <Code>ORBIT_API_KEY</Code> in your shell profile; no{' '}
+              environment variable. Export <Code>KORA_API_KEY</Code> in your shell profile; no{' '}
               <Code>/connect</Code> command is needed when the key is supplied this way.
             </Text>
           </Stack>
@@ -231,9 +231,9 @@ function VSCodeGuide({ baseUrl }: { baseUrl: string }) {
           value is picked up.
         </Text>
         <CodeBlock
-          text={`export ORBIT_API_KEY="orb_xxxxxxxx-xxxxxxxx-xxxxxxxx"
+          text={`export KORA_API_KEY="orb_xxxxxxxx-xxxxxxxx-xxxxxxxx"
 export ANTHROPIC_BASE_URL="${baseUrl}"
-export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
+export ANTHROPIC_API_KEY="$KORA_API_KEY"`}
           filename="~/.zshrc"
         />
         <Text size="caption" color="subtle">
@@ -283,7 +283,7 @@ export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
       "provider": "openai",
       "model": "anthropic/claude-sonnet-4-6",
       "apiBase": "${baseUrl}/v1",
-      "apiKey": "\${env:ORBIT_API_KEY}"
+      "apiKey": "\${env:KORA_API_KEY}"
     }
   ]
 }`}
@@ -387,7 +387,7 @@ export function SetupTab() {
                 to version control.
               </Text>
               <CodeBlock
-                text={`export ORBIT_API_KEY="orb_xxxxxxxx-xxxxxxxx-xxxxxxxx"`}
+                text={`export KORA_API_KEY="orb_xxxxxxxx-xxxxxxxx-xxxxxxxx"`}
                 filename="~/.zshrc"
               />
               <Text size="caption" color="subtle">

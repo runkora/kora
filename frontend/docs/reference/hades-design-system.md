@@ -428,12 +428,12 @@ This is intentional: the rule prevents the codebase from accumulating ad-hoc HTM
 import { Code } from '@runkora/hades';
 
 // ❌ Banned
-<code>ORBIT_API_KEY</code>
+<code>KORA_API_KEY</code>
 
 // ✅ Correct
-<Code>ORBIT_API_KEY</Code>                      // default: inline (subtle bg)
+<Code>KORA_API_KEY</Code>                      // default: inline (subtle bg)
 <Code variant="bare">--color-accent</Code>      // inside a table cell or badge
-<Code variant="highlight">ORBIT_API_KEY</Code>  // deliberate emphasis
+<Code variant="highlight">KORA_API_KEY</Code>  // deliberate emphasis
 ```
 
 For a whole cell or label that is a technical value (not inside prose), use `Text mono` instead:
@@ -444,7 +444,7 @@ For a whole cell or label that is a technical value (not inside prose), use `Tex
 
 // Code — technical string embedded in prose
 <Text size="body">
-  Set the <Code>ORBIT_API_KEY</Code> environment variable before starting.
+  Set the <Code>KORA_API_KEY</Code> environment variable before starting.
 </Text>
 ```
 

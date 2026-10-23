@@ -484,16 +484,16 @@ func newOIDCTestServer(t *testing.T) (issuerURL string, setTokenResponse func(st
 // ── service construction helpers ──────────────────────────────────────────────
 
 // newTestService builds a *Service with no OIDC configured and an ephemeral RSA
-// signing key. ORBIT_ALLOW_EPHEMERAL_KEY is set so initSigningKey falls through
+// signing key. KORA_ALLOW_EPHEMERAL_KEY is set so initSigningKey falls through
 // to ephemeral key generation rather than failing with a misconfiguration error.
 func newTestService(t *testing.T, sessions SessionRepository, refreshTokens RefreshTokenRepository, blocklist JTIBlocklistRepository, pats *mockPATRepository) *Service {
 	t.Helper()
 	// Permit ephemeral key generation in tests — never set this in production.
-	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("KORA_ALLOW_EPHEMERAL_KEY", "true")
 	// Unset signing key env vars to force ephemeral key generation in tests.
 	// This ensures tests don't depend on the local dev signing key file.
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY", "")
 	cfg := &Config{
 		Token: TokenConfig{
 			AccessTokenTTLMinutes: 60,
@@ -538,11 +538,11 @@ func newTestServiceWithOIDC(
 ) *Service {
 	t.Helper()
 	// Permit ephemeral key generation in tests — never set this in production.
-	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("KORA_ALLOW_EPHEMERAL_KEY", "true")
 	// Unset signing key env vars to force ephemeral key generation in tests.
 	// This ensures tests don't depend on the local dev signing key file.
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY", "")
 
 	// Write a minimal tenant registry so the service initialises its per-tenant
 	// OIDC provider. Two tenant IDs are registered so both service tests
@@ -632,9 +632,9 @@ func newFullTestServiceWithPolicy(t *testing.T) (
 	policy *mockPolicyClient,
 ) {
 	t.Helper()
-	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("KORA_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY", "")
 	sessions = newMockSessionRepo()
 	refreshTokens = newMockRefreshTokenRepo()
 	blocklist = newMockBlocklistRepo()
@@ -1001,9 +1001,9 @@ func newTestControllerWithProfiles(t *testing.T) (
 	profiles *mockUserProfileRepository,
 ) {
 	t.Helper()
-	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("KORA_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY", "")
 	pats = newMockPATRepo()
 	profiles = newMockProfileRepo()
 	cfg := &Config{
@@ -1044,9 +1044,9 @@ func newTestControllerWithProfiles(t *testing.T) (
 // DiscoverTenantByEmail tests that need email routing to be populated.
 func newTestServiceWithDomains(t *testing.T, issuerURL string, emailDomains []string) *Service {
 	t.Helper()
-	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("KORA_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY", "")
 
 	domainsJSON, _ := json.Marshal(emailDomains)
 	registry := fmt.Sprintf(`version: "v1"
@@ -1158,9 +1158,9 @@ func (m *mockUserPreferencesRepository) Delete(_ context.Context, userID, tenant
 // handler tests that exercise /preferences.
 func newTestControllerWithPrefs(t *testing.T) (*Controller, *mockUserPreferencesRepository) {
 	t.Helper()
-	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("KORA_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY", "")
 	prefsRepo := newMockPrefsRepo()
 	cfg := &Config{
 		Token: TokenConfig{

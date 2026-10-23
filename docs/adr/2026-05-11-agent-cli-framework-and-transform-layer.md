@@ -247,7 +247,7 @@ Additional apk packages required at runtime:
 | `ANTHROPIC_API_KEY` | Kubernetes Secret / Envoy injection | API key for Claude Code's `--bare` auth mode |
 | `ANTHROPIC_BASE_URL` | Pod env | Routes Claude Code's API calls through the kora inference gateway |
 | `NODE_EXTRA_CA_CERTS` | Pod env | Trusts the cluster's mkcert CA for local TLS; set to the CA PEM path |
-| `ORBIT_AGENTS_URL` | Pod env | Where events are pushed; orbit-agents records them, so the pod reaches no database |
+| `KORA_AGENTS_URL` | Pod env | Where events are pushed; orbit-agents records them, so the pod reaches no database |
 
 ### Non-Root User
 

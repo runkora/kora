@@ -1,7 +1,7 @@
 {{- /*
 Workload customisation ConfigMap (docs/adr/2026-09-16-first-class-workload-placement.md).
 
-Mounted at /etc/orbit/workloads inside the orbit-agents pod and applied to the
+Mounted at /etc/kora/workloads inside the orbit-agents pod and applied to the
 resources it provisions in tenant namespaces, before manifest patches.
 */}}
 {{- /*

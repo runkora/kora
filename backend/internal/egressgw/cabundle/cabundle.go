@@ -1,6 +1,6 @@
 // Package cabundle is the per-tenant CA loader for the egress gateway. It reads
 // tenant CA material from the secret root the binary configures, typically a
-// Kubernetes Secret mounted at /var/run/orbit/tenant-ca/, and holds one
+// Kubernetes Secret mounted at /var/run/kora/tenant-ca/, and holds one
 // tlsca.IssuingCA per tenant in memory.
 //
 // The mount is flat, one pair of keys per tenant:

@@ -144,8 +144,8 @@ func TestRuntimePods_BoundedScratchStorage(t *testing.T) {
 		spec  corev1.PodSpec
 		paths []string
 	}{
-		"sandbox":     {renderedSandboxPod().Spec, []string{"/var/tmp", "/home/orbit"}},
-		"statefulset": {renderedStatefulSet().Spec.Template.Spec, []string{"/tmp", "/home/orbit"}},
+		"sandbox":     {renderedSandboxPod().Spec, []string{"/var/tmp", "/home/kora"}},
+		"statefulset": {renderedStatefulSet().Spec.Template.Spec, []string{"/tmp", "/home/kora"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := tc.spec.Containers[0]
@@ -189,24 +189,24 @@ func TestSessionManagerStatefulSet_UsesConfiguredSystemNamespace(t *testing.T) {
 	if got, want := env["ANTHROPIC_BASE_URL"], "http://orbit-inference-gateway.orbit-prod.svc.cluster.local"; got != want {
 		t.Errorf("ANTHROPIC_BASE_URL = %q, want %q", got, want)
 	}
-	if got, want := env["ORBIT_AGENTS_URL"], "http://orbit-agents.orbit-prod.svc.cluster.local"; got != want {
-		t.Errorf("ORBIT_AGENTS_URL = %q, want %q", got, want)
+	if got, want := env["KORA_AGENTS_URL"], "http://orbit-agents.orbit-prod.svc.cluster.local"; got != want {
+		t.Errorf("KORA_AGENTS_URL = %q, want %q", got, want)
 	}
-	if got, want := env["ORBIT_INFERENCE_GATEWAY_URL"], "http://orbit-inference-gateway.orbit-prod.svc.cluster.local"; got != want {
-		t.Errorf("ORBIT_INFERENCE_GATEWAY_URL = %q, want %q", got, want)
+	if got, want := env["KORA_INFERENCE_GATEWAY_URL"], "http://orbit-inference-gateway.orbit-prod.svc.cluster.local"; got != want {
+		t.Errorf("KORA_INFERENCE_GATEWAY_URL = %q, want %q", got, want)
 	}
-	if got, want := env["ORBIT_TOOL_GATEWAY_URL"], "http://orbit-tool-gateway.orbit-prod.svc.cluster.local"; got != want {
-		t.Errorf("ORBIT_TOOL_GATEWAY_URL = %q, want %q", got, want)
+	if got, want := env["KORA_TOOL_GATEWAY_URL"], "http://orbit-tool-gateway.orbit-prod.svc.cluster.local"; got != want {
+		t.Errorf("KORA_TOOL_GATEWAY_URL = %q, want %q", got, want)
 	}
 	// Without this a provisioned agent traces nothing, and the only symptom is
 	// an absence of spans.
-	if got, want := env["ORBIT_OTLP_ENDPOINT"], "http://otel-collector.observability.svc:4317"; got != want {
-		t.Errorf("ORBIT_OTLP_ENDPOINT = %q, want %q", got, want)
+	if got, want := env["KORA_OTLP_ENDPOINT"], "http://otel-collector.observability.svc:4317"; got != want {
+		t.Errorf("KORA_OTLP_ENDPOINT = %q, want %q", got, want)
 	}
 	// Without this a provisioned agent samples at its image default, so its
 	// traces are dropped at a different rate than the platform's.
-	if got, want := env["ORBIT_SAMPLING_RATE"], "1.0"; got != want {
-		t.Errorf("ORBIT_SAMPLING_RATE = %q, want %q", got, want)
+	if got, want := env["KORA_SAMPLING_RATE"], "1.0"; got != want {
+		t.Errorf("KORA_SAMPLING_RATE = %q, want %q", got, want)
 	}
 	// The env var is the only way the product name reaches a session pod.
 	if got, want := env[brand.EnvProductName], "Acme"; got != want {
@@ -222,14 +222,14 @@ func TestSessionManagerStatefulSet_PassesNodeHeapCap(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	ss := p.buildSessionManagerStatefulSet(at, "ns", podLabels(at))
 	for _, e := range ss.Spec.Template.Spec.Containers[0].Env {
-		if e.Name == "ORBIT_NODE_MAX_OLD_SPACE_MB" {
+		if e.Name == "KORA_NODE_MAX_OLD_SPACE_MB" {
 			if e.Value != "768" {
-				t.Errorf("ORBIT_NODE_MAX_OLD_SPACE_MB = %q, want 768", e.Value)
+				t.Errorf("KORA_NODE_MAX_OLD_SPACE_MB = %q, want 768", e.Value)
 			}
 			return
 		}
 	}
-	t.Error("session-manager env is missing ORBIT_NODE_MAX_OLD_SPACE_MB")
+	t.Error("session-manager env is missing KORA_NODE_MAX_OLD_SPACE_MB")
 }
 
 func TestRuntimePods_NoPullSecretsWhenUnconfigured(t *testing.T) {
@@ -361,7 +361,7 @@ func TestEnsureStatefulSet_CreateOnly(t *testing.T) {
 }
 
 // TestRuntimePods_RenderYAML marshals both runtime-created pod specs. With
-// ORBIT_RENDER_POD_SPECS_DIR set it writes them out so CI can evaluate the
+// KORA_RENDER_POD_SPECS_DIR set it writes them out so CI can evaluate the
 // files against the pod-security restricted policy set.
 func TestRuntimePods_RenderYAML(t *testing.T) {
 	pod := renderedSandboxPod()
@@ -373,7 +373,7 @@ func TestRuntimePods_RenderYAML(t *testing.T) {
 		"sandbox-pod.yaml":                 pod,
 		"session-manager-statefulset.yaml": ss,
 	}
-	dir := os.Getenv("ORBIT_RENDER_POD_SPECS_DIR")
+	dir := os.Getenv("KORA_RENDER_POD_SPECS_DIR")
 	for name, obj := range docs {
 		out, err := yaml.Marshal(obj)
 		if err != nil {

@@ -58,7 +58,7 @@ export default defineConfig({
       // of whether BFF_SESSION_SECRET is set in the host environment (e.g.
       // when invoked via `make` which exports the root .env).
       BFF_SESSION_SECRET: 'playwright-test-session-secret-32ch',
-      ORBIT_API_URL: process.env.ORBIT_API_URL ?? 'http://localhost:8080',
+      KORA_API_URL: process.env.KORA_API_URL ?? 'http://localhost:8080',
       // These URLs are not called during E2E tests (all BFF fetches are
       // intercepted by page.route()), but config.ts requires them at boot.
       // A new requireEnv() in config.ts must be added here too: without it the
@@ -67,8 +67,8 @@ export default defineConfig({
       INFERENCE_GATEWAY_URL: process.env.INFERENCE_GATEWAY_URL ?? 'http://localhost:8081/v1',
       POLICY_SERVICE_URL: process.env.POLICY_SERVICE_URL ?? 'http://localhost:8083/api/v1',
       POLICY_GATEWAY_URL: process.env.POLICY_GATEWAY_URL ?? 'http://localhost:8084/v1',
-      ORBIT_AGENTS_URL: process.env.ORBIT_AGENTS_URL ?? 'http://localhost:8080',
-      ORBIT_TRIGGERS_URL: process.env.ORBIT_TRIGGERS_URL ?? 'http://localhost:8097',
+      KORA_AGENTS_URL: process.env.KORA_AGENTS_URL ?? 'http://localhost:8080',
+      KORA_TRIGGERS_URL: process.env.KORA_TRIGGERS_URL ?? 'http://localhost:8097',
       TOOL_GATEWAY_URL: process.env.TOOL_GATEWAY_URL ?? 'http://localhost:8096',
     },
   },

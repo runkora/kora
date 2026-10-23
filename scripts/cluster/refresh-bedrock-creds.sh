@@ -27,7 +27,7 @@ step() { echo -e "\n${YELLOW}▶ $*${RESET}"; }
 ok()   { echo -e "${GREEN}✓ $*${RESET}"; }
 fail() { echo -e "${RED}✗ $*${RESET}"; exit 1; }
 
-NAMESPACE="${ORBIT_SYSTEM_NAMESPACE:-orbit-system}"
+NAMESPACE="${KORA_SYSTEM_NAMESPACE:-orbit-system}"
 SECRET=orbit-bedrock-credentials
 
 [[ -n "${AWS_PROFILE:-}" ]] || fail "AWS_PROFILE is not set; add AWS_PROFILE=<your-profile> to .env"

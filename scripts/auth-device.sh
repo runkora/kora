@@ -15,7 +15,7 @@
 #   --help, -h           Show this help message and exit
 #
 # Environment Variables:
-#   ORBIT_TENANT_ID      Default tenant ID if --tenant-id not provided
+#   KORA_TENANT_ID      Default tenant ID if --tenant-id not provided
 #
 # ─── Local dev (default) ──────────────────────────────────────────────────────
 #
@@ -36,22 +36,22 @@
 #   OIDC config is per-tenant — configure it in config/tenants.yaml (local dev)
 #   or via the OrbitTenant CR spec.oidc.* fields (cluster). Each tenant declares
 #   its own issuerURL, clientID, and clientSecretEnv. There are no global
-#   ORBIT_OIDC_* environment variables.
+#   KORA_OIDC_* environment variables.
 #
 #   Example OrbitTenant OIDC config:
 #     spec:
 #       oidc:
 #         issuerURL: https://login.microsoftonline.com/<tenant-id>/v2.0
 #         clientID: <app-registration-client-id>
-#         clientSecretEnv: ORBIT_TENANT_EXAMPLE_OIDC_CLIENT_SECRET
+#         clientSecretEnv: KORA_TENANT_EXAMPLE_OIDC_CLIENT_SECRET
 #         scopes: [openid, profile, email]
 #
 #   Then: make auth-device-k3d tenant=<tenant-name>
 #
 # ─── Environment variables ────────────────────────────────────────────────────
 #
-#   ORBIT_API_BASE    — kora API base URL  (default: http://localhost:8080/api/v1)
-#   ORBIT_TENANT_ID   — kora tenant ID     (overridden by --tenant-id flag)
+#   KORA_API_BASE    — kora API base URL  (default: http://localhost:8080/api/v1)
+#   KORA_TENANT_ID   — kora tenant ID     (overridden by --tenant-id flag)
 #
 # Prerequisites: curl, jq
 # =============================================================================
@@ -83,8 +83,8 @@ done
 
 # ─── Argument parsing ─────────────────────────────────────────────────────────
 
-TENANT_ID="${ORBIT_TENANT_ID:-}"
-API_BASE="${ORBIT_API_BASE:-http://localhost:8080/api/v1}"
+TENANT_ID="${KORA_TENANT_ID:-}"
+API_BASE="${KORA_API_BASE:-http://localhost:8080/api/v1}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -106,7 +106,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$TENANT_ID" ]] || die "Tenant ID is required. Pass --tenant-id <id> or set ORBIT_TENANT_ID."
+[[ -n "$TENANT_ID" ]] || die "Tenant ID is required. Pass --tenant-id <id> or set KORA_TENANT_ID."
 
 # ─── Step 1: Initiate device flow ─────────────────────────────────────────────
 
@@ -162,7 +162,7 @@ if echo "$DEVICE_RESP" | jq -e '.code' >/dev/null 2>&1; then
     echo "  ── Real provider (Entra, Okta, …) ────────────────────────────"
     echo "  OIDC config is per-tenant in config/tenants.yaml (local dev)"
     echo "  or via OrbitTenant CR spec.oidc.* (cluster)."
-    echo "  There are no global ORBIT_OIDC_* env vars — configure per tenant."
+    echo "  There are no global KORA_OIDC_* env vars — configure per tenant."
     echo ""
   fi
   exit 1
@@ -207,13 +207,13 @@ while true; do
     die "Device code expired after ${EXPIRES_IN}s. Run the script again to start a new flow."
   fi
 
-  POLL_HTTP_CODE=$(curl -s -o /tmp/orbit_poll_resp.json -w "%{http_code}" \
+  POLL_HTTP_CODE=$(curl -s -o /tmp/kora_poll_resp.json -w "%{http_code}" \
     -X POST "${API_BASE}/identity/session" \
     -H "Content-Type: application/json" \
     -d "{\"grant_type\": \"urn:ietf:params:oauth:grant-type:device_code\", \"device_code\": \"${DEVICE_CODE}\", \"tenant_id\": \"${TENANT_ID}\"}")
 
-  POLL_RESP=$(cat /tmp/orbit_poll_resp.json)
-  chmod 600 /tmp/orbit_poll_resp.json
+  POLL_RESP=$(cat /tmp/kora_poll_resp.json)
+  chmod 600 /tmp/kora_poll_resp.json
 
   if [[ "$POLL_HTTP_CODE" == "202" ]]; then
     CODE=$(echo "$POLL_RESP" | jq -r '.code // ""')
@@ -254,12 +254,12 @@ while true; do
     # Optionally export for use in subsequent curl calls
     echo -e "  ${YELLOW}To use in curl:${RESET}"
     echo ""
-    echo "    export ORBIT_TOKEN=${ACCESS_TOKEN}"
-    echo "    curl -H \"Authorization: Bearer \$ORBIT_TOKEN\" ${API_BASE}/..."
+    echo "    export KORA_TOKEN=${ACCESS_TOKEN}"
+    echo "    curl -H \"Authorization: Bearer \$KORA_TOKEN\" ${API_BASE}/..."
     echo ""
 
     # Write to a temp credentials file for convenience
-    CREDS_FILE="/tmp/orbit_credentials.json"
+    CREDS_FILE="/tmp/kora_credentials.json"
     echo "$POLL_RESP" > "$CREDS_FILE"
     chmod 600 "$CREDS_FILE"
     info "Full response saved to ${CREDS_FILE} (mode 600)"

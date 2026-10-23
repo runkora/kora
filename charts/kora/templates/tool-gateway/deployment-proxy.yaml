@@ -85,9 +85,9 @@ spec:
             {{- include "kora.configVolumeMount" . | nindent 12 }}
             {{- include "kora.redisCAVolumeMount" . | nindent 12 }}
             - name: mcp-servers
-              mountPath: /var/run/orbit/mcp-servers
+              mountPath: /var/run/kora/mcp-servers
               readOnly: true
             - name: mcp-server-secrets
-              mountPath: /var/run/orbit/mcp-server-secrets
+              mountPath: /var/run/kora/mcp-server-secrets
               readOnly: true
             {{- include "kora.extraVolumeMounts" (dict "root" $ "name" "toolGateway") | nindent 12 }}

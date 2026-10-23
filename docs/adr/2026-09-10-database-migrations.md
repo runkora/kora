@@ -112,7 +112,7 @@ Subcommands:
 - `up` applies every pending migration, including files versioned below the highest applied one (`WithAllowOutofOrder`), and exits 0.
 - `status` prints applied and pending versions.
 - `create --service <name> <slug>` writes a new timestamped file into that service's directory. Development only, run with `go run` from `backend/`.
-- `down` refuses to run unless `ORBIT_MIGRATE_ALLOW_DOWN=1` is set.
+- `down` refuses to run unless `KORA_MIGRATE_ALLOW_DOWN=1` is set.
 - `lint` runs the content rule (Decision 7) over the embedded set.
 
 The goose CLI is removed from `make install-tools`.
@@ -188,7 +188,7 @@ Values: `migrate.image`, `migrate.activeDeadlineSeconds`, `migrate.config`, and 
 
 `make redeploy`, for any service, hashes `backend/cmd/*/migrations/*.sql` and compares it with the hash recorded in `local.generated.yaml`. On a change it rebuilds and pushes the migrate image, records the digest under `migrate.image.digest` and the hash beside it, and runs `helmfile -e local apply` for the `orbit` release. Helmfile upgrades the release on the digest change and the hook fires.
 
-`make test-postgres` exports the `DB_*` variables and `ORBIT_POSTGRES_SSL_MODE=disable` and runs `go run ./cmd/migrate up` before the tests. The `example` repository test is gated on `ORBIT_EXAMPLE_TEST_DB_URL`. Nothing sets it; its tables are no longer migrated. `make migrate-create` and `make migrate-status` wrap `go run ./cmd/migrate`. `make migrate-up` and `make migrate-down` are removed.
+`make test-postgres` exports the `DB_*` variables and `ORBIT_POSTGRES_SSL_MODE=disable` and runs `go run ./cmd/migrate up` before the tests. The `example` repository test is gated on `KORA_EXAMPLE_TEST_DB_URL`. Nothing sets it; its tables are no longer migrated. `make migrate-create` and `make migrate-status` wrap `go run ./cmd/migrate`. `make migrate-up` and `make migrate-down` are removed.
 
 ---
 

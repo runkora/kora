@@ -1,6 +1,6 @@
 # Observability Configuration
 
-Shared observability tunables load from the `internal/platform/observability` config module: `config/base.yaml`, its `{APP_ENV}.yaml` overlay and, in a chart install, the rendered `/etc/orbit/config/internal/platform/observability.yaml`. *Reference: See `internal/platform/observability/config.go`.*
+Shared observability tunables load from the `internal/platform/observability` config module: `config/base.yaml`, its `{APP_ENV}.yaml` overlay and, in a chart install, the rendered `/etc/kora/config/internal/platform/observability.yaml`. *Reference: See `internal/platform/observability/config.go`.*
 
 ## Service Identity
 
@@ -41,7 +41,7 @@ policyService:
       samplingRate: 1.0
 ```
 
-The session-manager and the identity-proxy sidecar have no rendered file. kora-agents and the operator pass them the endpoint and the sampling rate as `ORBIT_OTLP_ENDPOINT` and `ORBIT_SAMPLING_RATE`.
+The session-manager and the identity-proxy sidecar have no rendered file. kora-agents and the operator pass them the endpoint and the sampling rate as `KORA_OTLP_ENDPOINT` and `KORA_SAMPLING_RATE`.
 
 ## Configuration Modes
 

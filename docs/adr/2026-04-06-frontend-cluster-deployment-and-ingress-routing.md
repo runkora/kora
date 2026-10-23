@@ -175,12 +175,12 @@ The frontend is deployed in `orbit-system` as a platform service via the `kora` 
 | Service port | 80 → 3000 |
 | SPIFFE SVID | `spiffe://<trust-domain>/system/frontend` |
 | Istio templates | `sidecar,spire` |
-| ConfigMap | `orbit-frontend-config` (ORBIT_API_URL, NEXT_PUBLIC_APP_URL) |
+| ConfigMap | `orbit-frontend-config` (KORA_API_URL, NEXT_PUBLIC_APP_URL) |
 | Secret | `orbit-frontend-secrets` (BFF_SESSION_SECRET) |
 
 The frontend pod gets the `spiffe.io/component: frontend` label, which causes the existing `orbit-system-component` ClusterSPIFFEID to issue it a SVID at path `/system/frontend`. No new ClusterSPIFFEID is required.
 
-`ORBIT_API_URL` points at the identity service via in-cluster DNS: `http://orbit-identity.orbit-system/api/v1`. The frontend's Envoy sidecar transparently upgrades this to mTLS using the SPIFFE SVIDs of both pods.
+`KORA_API_URL` points at the identity service via in-cluster DNS: `http://orbit-identity.orbit-system/api/v1`. The frontend's Envoy sidecar transparently upgrades this to mTLS using the SPIFFE SVIDs of both pods.
 
 `NEXT_PUBLIC_APP_URL` is both injected at runtime via the `orbit-frontend-config` ConfigMap (for server-side code) and baked into the Docker image at build time via `--build-arg NEXT_PUBLIC_APP_URL=...` (for Next.js client bundles, which inline `NEXT_PUBLIC_*` values during `next build`).
 

@@ -93,7 +93,7 @@ type K8sProvisionerConfig struct {
 	// OTLPEndpoint is passed to the session-manager so a provisioned agent
 	// exports to the same collector as the platform. Empty disables its export.
 	OTLPEndpoint string
-	// ProductName is passed to the session-manager as ORBIT_PRODUCT_NAME.
+	// ProductName is passed to the session-manager as KORA_PRODUCT_NAME.
 	ProductName string
 	// SamplingRate is passed alongside it so a provisioned agent samples at the
 	// same rate as the platform. Empty keeps the image's own default.
@@ -1133,7 +1133,7 @@ func egressGatewayURL(cfg K8sProvisionerConfig) string {
 // sandboxTenantCAPath is where the tenant CA root is mounted inside the
 // sandbox container. The runtime env hints in sandboxContainerEnv all point
 // here.
-const sandboxTenantCAPath = "/var/run/orbit/tenant-ca/ca.crt"
+const sandboxTenantCAPath = "/var/run/kora/tenant-ca/ca.crt"
 
 // osTrustBundlePath is the OS-wide CA bundle (Debian/Ubuntu base images) that
 // tools falling back to the system trust store read. Mounting the tenant CA
@@ -1208,8 +1208,8 @@ const (
 	localHomeSubPath = "home"
 )
 
-// imageHomeDir is the orbit user's home in both images, used by tools that read it from passwd.
-const imageHomeDir = "/home/orbit"
+// imageHomeDir is the kora user's home in both images, used by tools that read it from passwd.
+const imageHomeDir = "/home/kora"
 
 // Ephemeral storage for the app containers. With a read-only root only the scratch volumes and
 // container logs use node disk, so 1Gi fits a normal run and stops one pod filling a node.
@@ -1273,7 +1273,7 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 		mounts = append(mounts,
 			corev1.VolumeMount{
 				Name:      tenantCAVolumeName,
-				MountPath: "/var/run/orbit/tenant-ca",
+				MountPath: "/var/run/kora/tenant-ca",
 				ReadOnly:  true,
 			},
 			// Overlay the OS trust bundle so OS-store tools (wget, curl CLI, Go
@@ -1880,21 +1880,21 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 							// out of its own environment.
 							Env: []corev1.EnvVar{
 								{Name: "ANTHROPIC_BASE_URL", Value: inferenceURL},
-								{Name: "ORBIT_OTLP_ENDPOINT", Value: p.cfg.OTLPEndpoint},
-								{Name: "ORBIT_SAMPLING_RATE", Value: p.cfg.SamplingRate},
+								{Name: "KORA_OTLP_ENDPOINT", Value: p.cfg.OTLPEndpoint},
+								{Name: "KORA_SAMPLING_RATE", Value: p.cfg.SamplingRate},
 								{Name: brand.EnvProductName, Value: p.cfg.ProductName},
 								// kora-agents URL for live event push (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
-								{Name: "ORBIT_AGENTS_URL", Value: fmt.Sprintf("http://orbit-agents.%s.svc.cluster.local", p.cfg.SystemNamespace)},
+								{Name: "KORA_AGENTS_URL", Value: fmt.Sprintf("http://orbit-agents.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								// Codex, OpenCode and MCP URLs follow the install's system namespace.
-								{Name: "ORBIT_INFERENCE_GATEWAY_URL", Value: inferenceURL},
-								{Name: "ORBIT_TOOL_GATEWAY_URL", Value: fmt.Sprintf("http://orbit-tool-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)},
+								{Name: "KORA_INFERENCE_GATEWAY_URL", Value: inferenceURL},
+								{Name: "KORA_TOOL_GATEWAY_URL", Value: fmt.Sprintf("http://orbit-tool-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								// Placeholder key; actual auth is the identity-proxy-issued JWT
 								// injected on every outbound request by the Envoy ext_proc filter.
 								// Claude Code requires a non-empty value to start in --bare mode.
 								{Name: "ANTHROPIC_API_KEY", Value: "orbit-managed"},
-								{Name: "ORBIT_NODE_MAX_OLD_SPACE_MB", Value: strconv.Itoa(p.cfg.NodeMaxOldSpaceMB)},
+								{Name: "KORA_NODE_MAX_OLD_SPACE_MB", Value: strconv.Itoa(p.cfg.NodeMaxOldSpaceMB)},
 								// The session-manager ends its drain before the kubelet stops the pod.
-								{Name: "ORBIT_TERMINATION_GRACE_PERIOD_SECS", Value: strconv.FormatInt(p.cfg.DrainGracePeriodSecs, 10)},
+								{Name: "KORA_TERMINATION_GRACE_PERIOD_SECS", Value: strconv.FormatInt(p.cfg.DrainGracePeriodSecs, 10)},
 							},
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{

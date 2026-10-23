@@ -18,7 +18,7 @@ kora's backend services have OTel tracing everywhere, but metrics are push-only 
 
 ### Current State
 
-`backend/internal/platform/observability/metrics.go` builds an OTel `MeterProvider` that only ever has a reader when `ORBIT_OTLP_ENDPOINT` is configured; otherwise it records nothing. Only `orbit-triggers` calls it today. There is no Prometheus exporter dependency wired for application use (`github.com/prometheus/client_golang` is present only as an indirect transitive dependency), no ServiceMonitor/PodMonitor CRDs, and no Prometheus server anywhere in this repo's local dev stack (`docker-compose.yml`, `make up`).
+`backend/internal/platform/observability/metrics.go` builds an OTel `MeterProvider` that only ever has a reader when `KORA_OTLP_ENDPOINT` is configured; otherwise it records nothing. Only `orbit-triggers` calls it today. There is no Prometheus exporter dependency wired for application use (`github.com/prometheus/client_golang` is present only as an indirect transitive dependency), no ServiceMonitor/PodMonitor CRDs, and no Prometheus server anywhere in this repo's local dev stack (`docker-compose.yml`, `make up`).
 
 ### User Pain Points
 
@@ -46,7 +46,7 @@ kora's backend services have OTel tracing everywhere, but metrics are push-only 
 
 ### Success Metrics
 
-- `curl :9464/metrics` on every rolled-out service returns live OTel-fed series, with `ORBIT_OTLP_ENDPOINT` unset.
+- `curl :9464/metrics` on every rolled-out service returns live OTel-fed series, with `KORA_OTLP_ENDPOINT` unset.
 - `make check` passes with the new dependency and no new lint exceptions beyond what's already scoped.
 - `docs-check` passes with the new PRD/ADR indexed and the binary table updated.
 
@@ -70,7 +70,7 @@ kora's backend services have OTel tracing everywhere, but metrics are push-only 
 **Acceptance Criteria:**
 - [x] Each rolled-out service listens on a dedicated metrics port, separate from its API port.
 - [x] `/metrics` returns Prometheus text-format output with the uniform HTTP request counter/histogram. Service-specific domain metrics are catalogued in the ADR as follow-up work (see Non-Goals), not delivered by this PRD.
-- [x] Disabling `ORBIT_OTLP_ENDPOINT` has no effect on whether `/metrics` populates.
+- [x] Disabling `KORA_OTLP_ENDPOINT` has no effect on whether `/metrics` populates.
 
 **As a** platform operator who already runs an OTel collector,
 **I want** the same instruments to also flow to that collector,

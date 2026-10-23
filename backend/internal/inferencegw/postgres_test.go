@@ -16,16 +16,16 @@ import (
 )
 
 // Postgres integration tests for the inference usage repository. They run only
-// when ORBIT_TEST_DB_URL points at a database with inference_usage migrated;
+// when KORA_TEST_DB_URL points at a database with inference_usage migrated;
 // otherwise they skip. Each test isolates itself under a random tenant.
 //
-//	ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
 //	  go test ./internal/inferencegw/ -run Postgres
 func testUsageRepo(t *testing.T) (*PostgresInferenceUsageRepository, *pgxpool.Pool, string) {
 	t.Helper()
-	dsn := os.Getenv("ORBIT_TEST_DB_URL")
+	dsn := os.Getenv("KORA_TEST_DB_URL")
 	if dsn == "" {
-		t.Skip("set ORBIT_TEST_DB_URL to run inference usage Postgres integration tests")
+		t.Skip("set KORA_TEST_DB_URL to run inference usage Postgres integration tests")
 	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)

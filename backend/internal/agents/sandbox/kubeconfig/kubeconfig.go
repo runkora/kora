@@ -33,7 +33,7 @@ const PlaceholderToken = "placeholder-credential-injected-by-orbit-egress-gatewa
 
 // ClustersEnvVar carries the JSON-encoded []Cluster from kora-agents into the
 // sandbox, where sandbox-exec renders it to disk at startup.
-const ClustersEnvVar = "ORBIT_KUBE_CLUSTERS"
+const ClustersEnvVar = "KORA_KUBE_CLUSTERS"
 
 // ErrNoServer is returned when a cluster entry names no API server.
 var ErrNoServer = errors.New("kubeconfig cluster has no server")

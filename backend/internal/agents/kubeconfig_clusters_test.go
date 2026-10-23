@@ -92,7 +92,7 @@ func TestKubeClusters_NoResolverWired(t *testing.T) {
 }
 
 // TestSandboxContainerEnv_KubeClusters locks that the resolved clusters actually
-// reach the sandbox as ORBIT_KUBE_CLUSTERS, and that an agent with none gets no
+// reach the sandbox as KORA_KUBE_CLUSTERS, and that an agent with none gets no
 // env var at all rather than an empty/"null" one.
 func TestSandboxContainerEnv_KubeClusters(t *testing.T) {
 	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "orbit-system"}

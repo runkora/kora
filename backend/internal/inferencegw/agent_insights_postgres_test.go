@@ -14,7 +14,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
-// Agent rollup tests; gated on ORBIT_TEST_DB_URL (see testUsageRepo).
+// Agent rollup tests; gated on KORA_TEST_DB_URL (see testUsageRepo).
 
 type agentRow struct {
 	slug, model string
@@ -176,9 +176,9 @@ func TestPostgres_AgentBudgetSpend(t *testing.T) {
 // The rollups must use pgx.QueryExecModeExec; checking for leftover prepared
 // statements does not depend on the planner.
 func TestPostgres_AgentRollups_DoNotPrepareStatements(t *testing.T) {
-	dsn := os.Getenv("ORBIT_TEST_DB_URL")
+	dsn := os.Getenv("KORA_TEST_DB_URL")
 	if dsn == "" {
-		t.Skip("set ORBIT_TEST_DB_URL to run inference usage Postgres integration tests")
+		t.Skip("set KORA_TEST_DB_URL to run inference usage Postgres integration tests")
 	}
 	ctx := context.Background()
 	cfg, err := pgxpool.ParseConfig(dsn)

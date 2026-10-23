@@ -155,7 +155,7 @@ The fail-safe design (`issuerUrl: ""` → `ErrOIDCNotConfigured` → HTTP 400) m
 
 ### Neutral
 
-- The `ORBIT_OIDC_ISSUER_URL` environment variable overrides the YAML `issuerUrl` value at runtime — this is intentional and allows pointing at a real provider without modifying committed YAML files
+- The `KORA_OIDC_ISSUER_URL` environment variable overrides the YAML `issuerUrl` value at runtime — this is intentional and allows pointing at a real provider without modifying committed YAML files
 - The `tenant_id` field in the device auth request payload is a kora application concept, not forwarded to the OIDC provider — it exists for future multi-tenant session scoping
 
 ---
@@ -204,9 +204,9 @@ Setting `issuerUrl: ""` disables OIDC; `InitiateDeviceAuth` and `PollDeviceAuth`
 
 | Variable | Purpose |
 |---|---|
-| `ORBIT_OIDC_ISSUER_URL` | Override issuer URL at runtime (e.g., point at real Entra without changing YAML) |
-| `ORBIT_OIDC_CLIENT_ID` | OAuth2 client ID — required when OIDC is enabled |
-| `ORBIT_OIDC_CLIENT_SECRET` | OAuth2 client secret — leave empty for public clients (Dex `orbit-local` is a public client) |
+| `KORA_OIDC_ISSUER_URL` | Override issuer URL at runtime (e.g., point at real Entra without changing YAML) |
+| `KORA_OIDC_CLIENT_ID` | OAuth2 client ID — required when OIDC is enabled |
+| `KORA_OIDC_CLIENT_SECRET` | OAuth2 client secret — leave empty for public clients (Dex `orbit-local` is a public client) |
 
 ### Local Dex Configuration
 
@@ -242,9 +242,9 @@ make dex-hash password=mypass  # uses a custom password
 To use Microsoft Entra instead of local Dex, set environment variables before `make dev`:
 
 ```bash
-export ORBIT_OIDC_ISSUER_URL=https://login.microsoftonline.com/{tenant-id}/v2.0
-export ORBIT_OIDC_CLIENT_ID={your-app-client-id}
-export ORBIT_OIDC_CLIENT_SECRET={your-app-client-secret}
+export KORA_OIDC_ISSUER_URL=https://login.microsoftonline.com/{tenant-id}/v2.0
+export KORA_OIDC_CLIENT_ID={your-app-client-id}
+export KORA_OIDC_CLIENT_SECRET={your-app-client-secret}
 ```
 
 No code changes are required. The OIDC discovery endpoint is fetched at service startup; if discovery fails, the service refuses to start.
@@ -256,7 +256,7 @@ No code changes are required. The OIDC discovery endpoint is fetched at service 
 ### Success Criteria
 
 - `make dev-up && make auth-device` produces a valid kora platform JWT signed with the local signing key against local Dex
-- Setting `ORBIT_OIDC_ISSUER_URL` to a real Entra tenant and running `make auth-device` produces a valid kora platform JWT — no code changes required
+- Setting `KORA_OIDC_ISSUER_URL` to a real Entra tenant and running `make auth-device` produces a valid kora platform JWT — no code changes required
 - Setting `issuerUrl: ""` in `local.yaml` (and unsetting the env override) causes `POST /api/v1/identity/device` to return HTTP 400 with `{"code":"oidc_not_configured"}`
 - The JTI in the issued kora JWT differs from the Dex ID token JTI — the platform issues its own token; it does not forward the provider token
 

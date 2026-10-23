@@ -18,7 +18,7 @@
 //
 // # Rendered config files
 //
-// Both loaders merge /etc/orbit/config/{module}.yaml last when it exists. The
+// Both loaders merge /etc/kora/config/{module}.yaml last when it exists. The
 // chart renders it per install and mounts it there; see
 // docs/adr/2026-10-06-rendered-service-config-files.md. Decoding is strict:
 // an unknown key or a mistyped value fails the load.
@@ -50,7 +50,7 @@ import (
 const defaultEnvironment = "production"
 
 // overlayRoot is where the chart mounts the rendered config files. Tests point it elsewhere.
-var overlayRoot = "/etc/orbit/config"
+var overlayRoot = "/etc/kora/config"
 
 // Environment reads the APP_ENV environment variable.
 // Returns "production" if APP_ENV is unset or empty.

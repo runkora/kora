@@ -35,23 +35,23 @@ Local development runs in Kubernetes. There is one environment. For the full wal
 ```bash
 make setup   # once per machine: generate .env, install tools, git hooks, local DNS, mkcert TLS
 make up      # backing services, k3d cluster, migrations, operator (SPIRE + Istio + Orbit), tenants, workloads. Idempotent.
-make auth    # Device Authorization Grant → dev@orbit.local.clearroute.io / password. Token → /tmp/orbit_credentials.json
+make auth    # Device Authorization Grant → dev@orbit.local.clearroute.io / password. Token → /tmp/kora_credentials.json
 ```
 
 `make up` is idempotent: re-run it whenever the cluster drifts. `make down` tears it down. The inner loop is `make redeploy` (`SERVICE=<name>` narrows it to one service).
 
 **Calling authenticated kora APIs (curl):**
 
-Read the token inline from `/tmp/orbit_credentials.json`; `$ORBIT_TOKEN` is not available in subprocess shells. Use `curl -sk` against the cluster ingress.
+Read the token inline from `/tmp/kora_credentials.json`; `$KORA_TOKEN` is not available in subprocess shells. Use `curl -sk` against the cluster ingress.
 
 ```bash
 # Standard pattern for any authenticated API call
-TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk \
+TOKEN=$(jq -r '.access_token' /tmp/kora_credentials.json) && curl -sk \
   -H "Authorization: Bearer $TOKEN" \
   https://api.orbit.local.clearroute.io/v1/models
 
 # POST example (inference gateway)
-TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk -X POST \
+TOKEN=$(jq -r '.access_token' /tmp/kora_credentials.json) && curl -sk -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"model":"bedrock/claude-sonnet-4-5-20250929-v1","max_tokens":50,"messages":[{"role":"user","content":"Hello"}]}' \
@@ -76,7 +76,7 @@ TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk -X POST \
 **If a call returns `{"code":"unauthorized","message":"invalid or expired platform token"}` (the token expired):**
 
 ```bash
-make auth-refresh   # rotate the token pair in /tmp/orbit_credentials.json
+make auth-refresh   # rotate the token pair in /tmp/kora_credentials.json
 ```
 
 If the refresh token itself is expired, run `make auth` to start a fresh session. Never refresh with raw `curl`: see `scripts/auth-refresh.sh` for why.
@@ -114,7 +114,7 @@ An agent **must** follow these conventions when modifying this codebase. Each co
 ### Configuration
 
 - **No secrets in YAML**: Secrets load via `os.Getenv` only; YAML configs use `yaml:"-"` for secret fields.
-- **Config uses `config.LoadService[T]` / `config.Load[T]`**: Binaries load a typed config from `backend/cmd/{service}/config/base.yaml` (+ optional `{env}.yaml`, then the chart-rendered `/etc/orbit/config/{module}.yaml`) via `MustLoadService[T]`; `APP_ENV` selects the environment. No raw viper, no raw yaml library imports outside `platform/config/`.
+- **Config uses `config.LoadService[T]` / `config.Load[T]`**: Binaries load a typed config from `backend/cmd/{service}/config/base.yaml` (+ optional `{env}.yaml`, then the chart-rendered `/etc/kora/config/{module}.yaml`) via `MustLoadService[T]`; `APP_ENV` selects the environment. No raw viper, no raw yaml library imports outside `platform/config/`.
 
 ### Errors & Observability
 
@@ -245,7 +245,7 @@ This describes what the backend test suite **actually is today**, and (separatel
 **What exists today:**
 
 - **Unit tests**: the bulk of coverage, table-driven, across packages. Run by `make test` (race + coverage) and by `make check`; no cluster or database required.
-- **Postgres-backed repository tests**: named `TestPostgres_*` and gated on `ORBIT_TEST_DB_URL`, so they skip when it is unset and `make check` never needs a database. They live beside the repository they exercise, including:
+- **Postgres-backed repository tests**: named `TestPostgres_*` and gated on `KORA_TEST_DB_URL`, so they skip when it is unset and `make check` never needs a database. They live beside the repository they exercise, including:
 
   | Package                | File                                                                                                                     | Covers                                                                                                                                                                                                                  |
   | ---------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -254,7 +254,7 @@ This describes what the backend test suite **actually is today**, and (separatel
   | `policyservice/grants` | `postgres_test.go`                                                                                                       | scope purging across grants                                                                                                                                                                                             |
   | `policyservice/roles`  | `postgres_test.go`                                                                                                       | scope purging across roles                                                                                                                                                                                              |
   | `inferencegw`          | `postgres_test.go`, `pricing_postgres_test.go`                                                                           | the `agent_slug` backfill and write path, per-agent usage aggregates and their index; price overrides without a synced row, and discovered prices replacing a provider's synced rows atomically while keeping overrides |
-  | `example`              | `postgres_test.go`                                                                                                       | the reference repository; gated on `ORBIT_EXAMPLE_TEST_DB_URL` instead, after applying `backend/cmd/example/migrations/*.sql` by hand. Its tables are outside the product schema                                        |
+  | `example`              | `postgres_test.go`                                                                                                       | the reference repository; gated on `KORA_EXAMPLE_TEST_DB_URL` instead, after applying `backend/cmd/example/migrations/*.sql` by hand. Its tables are outside the product schema                                        |
 
   Run them against the local Postgres (`make test-postgres` applies the schema with `cmd/migrate` first):
 

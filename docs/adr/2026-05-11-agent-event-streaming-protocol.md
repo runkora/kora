@@ -189,7 +189,7 @@ User messages are stored in a separate `run_messages` table ([run-and-session-li
 | `tool_result` | Yes (session-manager) | Yes |
 | `run_state` | Yes (orbit-agents) | Yes (direct fan-out, no HTTP round-trip needed) |
 
-The session-manager pushes to `orbit-agents` at `http://orbit-agents.orbit-system.svc.cluster.local/internal/runs/{id}/events`. This URL is injected as `ORBIT_AGENTS_URL` into session-manager pods at provision time.
+The session-manager pushes to `orbit-agents` at `http://orbit-agents.orbit-system.svc.cluster.local/internal/runs/{id}/events`. This URL is injected as `KORA_AGENTS_URL` into session-manager pods at provision time.
 
 ### Backpressure
 

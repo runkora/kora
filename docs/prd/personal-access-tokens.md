@@ -141,7 +141,7 @@ PATs carry no refresh token. When a PAT expires or is revoked, the user simply c
 ```bash
 # Create a PAT with default 90-day expiry
 curl -X POST https://orbit.example.com/api/v1/identity/tokens \
-  -H "Authorization: Bearer $ORBIT_SESSION_TOKEN" \
+  -H "Authorization: Bearer $KORA_SESSION_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "claude-code-local"}'
 

@@ -3,7 +3,7 @@
 // Overlay for local k3d development — re-tags every image at localhost:5001
 // (the k3d local registry) and adds a :git-sha tag so kubectl describe shows
 // which build is running. Used by `make redeploy-platform-bake` (the
-// ORBIT_PARALLEL_BUILDS=1 path), `make redeploy-tenant-bake` and
+// KORA_PARALLEL_BUILDS=1 path), `make redeploy-tenant-bake` and
 // `make redeploy-sandbox-images`; CI continues to use docker-bake.hcl alone.
 //
 // Keep the local-platform group in sync with BAKE_PLATFORM_IMAGES in the
@@ -155,7 +155,7 @@ target "kora-sandbox-dev" {
 }
 target "kora-frontend" {
   args = {
-    ORBIT_VERSION = GIT_SHA
+    KORA_VERSION = GIT_SHA
   }
   tags = [
     "localhost:5001/kora-frontend:latest",

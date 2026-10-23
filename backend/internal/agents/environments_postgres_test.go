@@ -11,17 +11,17 @@ import (
 )
 
 // Postgres integration tests for environments and their agent links. They run
-// only when ORBIT_TEST_DB_URL points at a database with the kora-agents
+// only when KORA_TEST_DB_URL points at a database with the kora-agents
 // migrations applied. drafts_postgres_test.go uses the same harness.
 //
-//	ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
 //	  go test ./internal/agents/ -run Postgres_
 
 func testEnvironmentRepo(t *testing.T) (*PostgresRepository, string) {
 	t.Helper()
-	dsn := os.Getenv("ORBIT_TEST_DB_URL")
+	dsn := os.Getenv("KORA_TEST_DB_URL")
 	if dsn == "" {
-		t.Skip("set ORBIT_TEST_DB_URL to run environment Postgres integration tests")
+		t.Skip("set KORA_TEST_DB_URL to run environment Postgres integration tests")
 	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)

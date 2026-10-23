@@ -26,7 +26,7 @@ import (
 )
 
 // allowDownEnv guards down. The chart never sets it.
-const allowDownEnv = "ORBIT_MIGRATE_ALLOW_DOWN"
+const allowDownEnv = "KORA_MIGRATE_ALLOW_DOWN"
 
 // sources maps each table-owning service to its embedded migrations.
 // cmd/example is the reference implementation and is left out.

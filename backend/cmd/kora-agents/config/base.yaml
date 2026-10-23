@@ -75,13 +75,13 @@ agents:
     provisionBudgetSecs: 600
     minReplicas: 2
     drainGracePeriodSecs: 3600
-  connectionRegistryPath: "/var/run/orbit/connections/connections.json"
+  connectionRegistryPath: "/var/run/kora/connections/connections.json"
   # Where the chart mounts the manifest patches ConfigMap.
-  manifestPatchDir: /etc/orbit/manifest-patches
+  manifestPatchDir: /etc/kora/manifest-patches
   # Where the chart mounts the workload customization ConfigMap (placement, pod
   # metadata, service account annotations and workspace storage). A missing file
   # means no customization.
-  workloadsFile: /etc/orbit/workloads/workloads.yaml
+  workloadsFile: /etc/kora/workloads/workloads.yaml
   sessionManager:
     # Restricts each agent pod's session-manager port to the orbit-agents
     # SPIFFE principal at the mesh layer. Requires SPIFFE.

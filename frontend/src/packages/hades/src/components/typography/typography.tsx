@@ -463,7 +463,7 @@ export interface CodeProps
  * ```tsx
  * <Code>agent-7f2a3b</Code>
  * <Code variant="bare">--color-accent</Code>
- * <Code variant="highlight">ORBIT_API_KEY</Code>
+ * <Code variant="highlight">KORA_API_KEY</Code>
  * ```
  */
 const Code = React.forwardRef<HTMLElement, CodeProps>(({ className, variant, ...props }, ref) => (

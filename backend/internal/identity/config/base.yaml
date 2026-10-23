@@ -17,6 +17,6 @@ token:
 # Where the chart mounts the operator-rendered tenant registry, OIDC client
 # secrets and pre-registered OAuth clients.
 registry:
-  tenantsPath: /etc/orbit/tenants.yaml
-  clientSecretsPath: /etc/orbit/tenant-secrets/client-secrets.yaml
-  oauthClientsPath: /etc/orbit/oauth-clients/oauth-clients.json
+  tenantsPath: /etc/kora/tenants.yaml
+  clientSecretsPath: /etc/kora/tenant-secrets/client-secrets.yaml
+  oauthClientsPath: /etc/kora/oauth-clients/oauth-clients.json

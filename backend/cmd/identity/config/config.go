@@ -16,7 +16,7 @@ import (
 //
 //  1. cmd/identity/config/base.yaml        — service defaults
 //  2. cmd/identity/config/{env}.yaml       — service env overrides (optional)
-//  3. /etc/orbit/config/cmd/identity.yaml  — rendered by the chart
+//  3. /etc/kora/config/cmd/identity.yaml  — rendered by the chart
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`

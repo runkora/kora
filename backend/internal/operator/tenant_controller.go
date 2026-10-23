@@ -557,7 +557,7 @@ func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *KoraTena
 bundles:
   authz:
     service: policy-service
-    resource: "bundles/${ORBIT_TENANT_ID}"
+    resource: "bundles/${KORA_TENANT_ID}"
     polling:
       min_delay_seconds: %d
       max_delay_seconds: %d

@@ -340,7 +340,7 @@ data:
 
 {{/* Path of the Redis CA bundle inside the pod, rendered into the storage config as caFile. */}}
 {{- define "kora.redisCAFile" -}}
-/etc/orbit/redis-ca/ca.crt
+/etc/kora/redis-ca/ca.crt
 {{- end }}
 
 {{/*
@@ -383,7 +383,7 @@ Take the root context.
 
 {{- define "kora.configVolumeMount" -}}
 - name: config-files
-  mountPath: /etc/orbit/config
+  mountPath: /etc/kora/config
   readOnly: true
 {{- end }}
 
@@ -486,11 +486,11 @@ Fails the render on a bad name, using the bounds in files/hades-product-name.jso
 {{- end }}
 
 {{/*
-Mounts the theme ConfigMap at /etc/orbit/theme. Take the root context.
+Mounts the theme ConfigMap at /etc/kora/theme. Take the root context.
 */}}
 {{- define "kora.themeVolumeMounts" -}}
 - name: theme-document
-  mountPath: /etc/orbit/theme
+  mountPath: /etc/kora/theme
   readOnly: true
 {{- end }}
 

@@ -117,7 +117,7 @@ Fields orbit-agents computes per agent type at runtime:
 - StatefulSet `spec.selector.matchLabels` and pod template labels share `podLabels(at)`, which includes the agent-type UUID.
 - StatefulSet pod template `spec.serviceAccountName` = agent slug.
 - StatefulSet pod template `envFrom` references a per-tenant `{at.TenantID}-config` ConfigMap.
-- StatefulSet pod template `env` includes URLs built from the system namespace (`ANTHROPIC_BASE_URL`, `ORBIT_AGENTS_URL`).
+- StatefulSet pod template `env` includes URLs built from the system namespace (`ANTHROPIC_BASE_URL`, `KORA_AGENTS_URL`).
 - HPA `spec.scaleTargetRef.name` = agent slug.
 
 Fields orbit-agents computes per run at runtime for the sandbox Pod:
@@ -258,9 +258,7 @@ Fields absent from both objects are equal, so a patch may add volumes, container
 
 ### Loading at startup
 
-`backend/cmd/kora-agents/main.go` reads patches from `ORBIT_MANIFEST_PATCH_DIR` (default `/etc/orbit/manifest-patches`), then renders every patchable resource, sandbox Pod included, for a stand-in agent type. A patch that fails to load or apply, or that changes a protected field, fails the pod at boot. A patch scoped by name or label to a real agent type is a no-op in that pass and is checked again when it applies at provision time. The provisioner config is built by one function shared by the server and the render mode, so both see the same images, pull secrets, trust domain and ports.
-
-orbit-agents logs a warning for every `ORBIT_MANIFEST__*` env var it finds, since those are ignored.
+`backend/cmd/kora-agents/main.go` reads patches from `ORBIT_MANIFEST_PATCH_DIR` (default `/etc/kora/manifest-patches`), then renders every patchable resource, sandbox Pod included, for a stand-in agent type. A patch that fails to load or apply, or that changes a protected field, fails the pod at boot. A patch scoped by name or label to a real agent type is a no-op in that pass and is checked again when it applies at provision time. The provisioner config is built by one function shared by the server and the render mode, so both see the same images, pull secrets, trust domain and ports.
 
 ### Debug render mode
 
@@ -269,7 +267,7 @@ orbit-agents logs a warning for every `ORBIT_MANIFEST__*` env var it finds, sinc
 ### Helm chart
 
 - `templates/agents/patches-configmap.yaml` renders `agents.manifestPatches` into the `orbit-agents-manifest-patches` ConfigMap. `agents.manifestPatches` is a map from a bare patch name to a kustomize `patches:` entry; each entry is written as `<key>.yaml`, so keys decide apply order.
-- `templates/agents/deployment.yaml` drops the `ORBIT_MANIFEST__*` env stanzas, mounts the ConfigMap at `/etc/orbit/manifest-patches`, and adds a `checksum/patches` pod annotation.
+- `templates/agents/deployment.yaml` drops the `ORBIT_MANIFEST__*` env stanzas, mounts the ConfigMap at `/etc/kora/manifest-patches`, and adds a `checksum/patches` pod annotation.
 - `values.yaml` removes `agents.runtimePods.*` and adds `agents.manifestPatches: {}`.
 
 Example:

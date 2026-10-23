@@ -14,7 +14,7 @@ const ABSENT = path.join(FIXTURES, 'does-not-exist');
 
 async function freshModule(dir: string) {
   vi.resetModules();
-  process.env.ORBIT_THEME_DIR = dir;
+  process.env.KORA_THEME_DIR = dir;
   return import('./index');
 }
 
@@ -75,7 +75,7 @@ describe('loadThemeFrom', () => {
   });
 
   it('accepts a theme of the same major and compares it on a release build', async () => {
-    vi.stubEnv('NEXT_PUBLIC_ORBIT_VERSION', 'v1.4.0');
+    vi.stubEnv('NEXT_PUBLIC_KORA_VERSION', 'v1.4.0');
     const loaded = await loadThemeFrom(VALID);
     expect(loaded.koraVersion).toBe('1.4.0');
     expect(loaded.report.versionCheckSkipped).toBe(false);
@@ -84,7 +84,7 @@ describe('loadThemeFrom', () => {
   });
 
   it('refuses a theme written against another major, naming both releases', async () => {
-    vi.stubEnv('NEXT_PUBLIC_ORBIT_VERSION', 'v2.0.0');
+    vi.stubEnv('NEXT_PUBLIC_KORA_VERSION', 'v2.0.0');
     const failure = await loadThemeFrom(VALID).catch((e: unknown) => e);
     expect(failure).toBeInstanceOf(ThemeLoadError);
     expect(String((failure as Error).message)).toContain('kora 1.0.0 (major 1)');
@@ -164,7 +164,7 @@ describe('loadThemeFrom', () => {
 });
 
 describe('getTheme and getBrand', () => {
-  const originalDir = process.env.ORBIT_THEME_DIR;
+  const originalDir = process.env.KORA_THEME_DIR;
 
   beforeEach(() => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -172,11 +172,11 @@ describe('getTheme and getBrand', () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
-    if (originalDir === undefined) delete process.env.ORBIT_THEME_DIR;
-    else process.env.ORBIT_THEME_DIR = originalDir;
+    if (originalDir === undefined) delete process.env.KORA_THEME_DIR;
+    else process.env.KORA_THEME_DIR = originalDir;
   });
 
-  it('reads ORBIT_THEME_DIR, loads once and caches the result', async () => {
+  it('reads KORA_THEME_DIR, loads once and caches the result', async () => {
     const mod = await freshModule(VALID);
     expect(mod.themeDir()).toBe(VALID);
     const first = mod.getTheme();
@@ -194,9 +194,9 @@ describe('getTheme and getBrand', () => {
     await expect(mod.getBrand()).rejects.toBeInstanceOf(mod.ThemeLoadError);
   });
 
-  it('falls back to the default directory when ORBIT_THEME_DIR is unset', async () => {
+  it('falls back to the default directory when KORA_THEME_DIR is unset', async () => {
     vi.resetModules();
-    delete process.env.ORBIT_THEME_DIR;
+    delete process.env.KORA_THEME_DIR;
     const mod = await import('./index');
     expect(mod.themeDir()).toBe(mod.DEFAULT_THEME_DIR);
   });

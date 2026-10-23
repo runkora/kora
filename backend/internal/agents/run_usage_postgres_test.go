@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// RunUsageTotals against real SQL; gated on ORBIT_TEST_DB_URL (see testRunRepo).
+// RunUsageTotals against real SQL; gated on KORA_TEST_DB_URL (see testRunRepo).
 func TestPostgres_RunUsageTotals(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	ctx := context.Background()

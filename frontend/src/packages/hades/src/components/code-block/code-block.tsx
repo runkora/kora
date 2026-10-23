@@ -192,7 +192,7 @@ function highlightJson(src: string): React.ReactNode[] {
  * merged via shared border and split corner radii.
  *
  * ```tsx
- * <CodeBlock text={`export ORBIT_API_KEY="sk-orbit-xxx"`} filename="~/.zshrc" />
+ * <CodeBlock text={`export KORA_API_KEY="sk-orbit-xxx"`} filename="~/.zshrc" />
  * ```
  */
 export const CodeBlock = React.forwardRef<HTMLElement, CodeBlockProps>(

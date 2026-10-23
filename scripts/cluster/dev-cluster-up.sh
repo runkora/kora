@@ -176,7 +176,7 @@ fi
 ok "Docker bridge gateway: ${DOCKER_BRIDGE_IP}, Dex: ${DEX_IP}, Postgres: ${POSTGRES_IP}, Redis: ${REDIS_IP}"
 
 # Custom server block for *.orbit.local.clearroute.io zone resolution.
-ORBIT_SERVER_BLOCK="orbit.local.clearroute.io:53 {
+KORA_SERVER_BLOCK="orbit.local.clearroute.io:53 {
     hosts {
       ${DEX_IP} dex.orbit.local.clearroute.io
       ${DOCKER_BRIDGE_IP} orbit.local.clearroute.io
@@ -189,7 +189,7 @@ ORBIT_SERVER_BLOCK="orbit.local.clearroute.io:53 {
 
 kubectl create configmap coredns-custom \
   --namespace kube-system \
-  --from-literal=orbit.local.clearroute.io.server="${ORBIT_SERVER_BLOCK}" \
+  --from-literal=orbit.local.clearroute.io.server="${KORA_SERVER_BLOCK}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # Inject orbit-postgres and orbit-redis into NodeHosts so the hosts plugin

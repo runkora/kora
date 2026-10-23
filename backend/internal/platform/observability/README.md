@@ -40,13 +40,13 @@ func main() {
 
 ## Configuration
 
-The package loads the `internal/platform/observability` config module: `config/base.yaml`, the `{APP_ENV}.yaml` overlay and the file the chart renders at `/etc/orbit/config/internal/platform/observability.yaml`. `APP_ENV` defaults to `production` and also sets the `deployment.environment` attribute.
+The package loads the `internal/platform/observability` config module: `config/base.yaml`, the `{APP_ENV}.yaml` overlay and the file the chart renders at `/etc/kora/config/internal/platform/observability.yaml`. `APP_ENV` defaults to `production` and also sets the `deployment.environment` attribute.
 
 *   **`otlpEndpoint`:** The OTLP collector URL (e.g., `http://localhost:4317`). The scheme sets plaintext or TLS.
 *   **`samplingRate`:** The fraction of root spans sampled (0.0 to 1.0).
 *   **`logFormat`:** `console` or `json`.
 
-`ORBIT_OTLP_ENDPOINT` and `ORBIT_SAMPLING_RATE` override the first two for the session-manager and identity-proxy containers that kora-agents and the operator build.
+`KORA_OTLP_ENDPOINT` and `KORA_SAMPLING_RATE` override the first two for the session-manager and identity-proxy containers that kora-agents and the operator build.
 
 Service name and version are not environment variables: each binary passes them in its `Config`.
 
@@ -80,7 +80,7 @@ go run ./cmd/identity/main.go
 
 ```bash
 # Export to a local OTEL collector: set otlpEndpoint: http://localhost:4317
-# in /etc/orbit/config/internal/platform/observability.yaml
+# in /etc/kora/config/internal/platform/observability.yaml
 export APP_ENV=production
 go run ./cmd/identity/main.go
 

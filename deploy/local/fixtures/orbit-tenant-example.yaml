@@ -67,7 +67,7 @@ spec:
                 name: orbit-secrets
           volumeMounts:
             - name: config-files
-              mountPath: /etc/orbit/config
+              mountPath: /etc/kora/config
               readOnly: true
           livenessProbe:
             httpGet:

@@ -60,7 +60,7 @@ CI feedback is 10 minutes when the work it does justifies about 3, and local ful
 
 ### Option 1: Remove the job gate, fix cache keying, drop the redundant vet step; opt-in parallel bake locally
 
-**Description:** Three CI changes: drop `needs: build` from Test, replace setup-go's stale-by-design cache with an explicit `actions/cache` using per-commit keys and prefix restore-keys (so every run restores the nearest warm cache and saves an updated one), and delete the standalone `go vet` step. Locally, gate a single-invocation `docker buildx bake` over the full platform group behind `ORBIT_PARALLEL_BUILDS=1` in `.env`, repairing the drifted bake overlay in the process.
+**Description:** Three CI changes: drop `needs: build` from Test, replace setup-go's stale-by-design cache with an explicit `actions/cache` using per-commit keys and prefix restore-keys (so every run restores the nearest warm cache and saves an updated one), and delete the standalone `go vet` step. Locally, gate a single-invocation `docker buildx bake` over the full platform group behind `KORA_PARALLEL_BUILDS=1` in `.env`, repairing the drifted bake overlay in the process.
 
 **Pros:**
 - Attacks the measured costs directly; no new infrastructure or spend.
@@ -133,9 +133,9 @@ The measured waste is structural, not compute-bound: a false job dependency, a c
 - The Lint job's cache additionally includes `~/.cache/golangci-lint` (the analysis cache), and the golangci-lint action runs with `skip-cache: true` so its built-in 7-day rotating cache does not double-save the same directory. Each job gets its own key family (`go-build-`, `go-test-`, `go-lint-`) because the three compile with different flag sets and would overwrite each other's saves.
 - `.golangci.yml`: `run.timeout` raised from 5m to 15m. A fully cold lint run (no compile cache, no analysis cache) takes ~6m, and `actions/cache` does not save on job failure, so a timeout failure left every subsequent run cold and failing the same way. The ceiling breaks that loop; warm runs finish in about a minute and never approach it. The cold cost recurs only on cache eviction or a `.golangci.yml` change, since golangci keys its analysis cache on the config hash.
 - `.github/workflows/frontend-ci.yml`: static checks (lint, type check, format) split into their own `frontend-static` job so the vitest suites no longer wait on them.
-- `Makefile`: `redeploy-platform` dispatches to the bake path when `ORBIT_PARALLEL_BUILDS=1`; `redeploy-platform-bake` becomes a single bake invocation of the `local-platform` group with corrected image-name push loop and the mkcert CA layer preserved.
+- `Makefile`: `redeploy-platform` dispatches to the bake path when `KORA_PARALLEL_BUILDS=1`; `redeploy-platform-bake` becomes a single bake invocation of the `local-platform` group with corrected image-name push loop and the mkcert CA layer preserved.
 - `docker-bake.local.hcl`: add `orbit-egress-gateway`, `orbit-mcp`, `orbit-tool-gateway`; extend the `local-platform` group.
-- `.env.example`: document `ORBIT_PARALLEL_BUILDS=1` and recommended Colima sizing for high-spec machines.
+- `.env.example`: document `KORA_PARALLEL_BUILDS=1` and recommended Colima sizing for high-spec machines.
 - `docs/contributing/local-development.md`: parallel-builds section under the inner-loop guide.
 
 ---
@@ -160,7 +160,7 @@ The warm Test figure benefits from Go's test-result cache; a change touching man
 ### Success Metrics
 
 - Backend CI wall clock ≤ 4 minutes on a warm cache (measured: under 2 minutes).
-- `ORBIT_PARALLEL_BUILDS=1 make redeploy-platform` completes a full rebuild faster than the serial loop on the reference machine, with all 13 images pushed and rolled correctly. Not yet measured; needs a resized Docker VM.
+- `KORA_PARALLEL_BUILDS=1 make redeploy-platform` completes a full rebuild faster than the serial loop on the reference machine, with all 13 images pushed and rolled correctly. Not yet measured; needs a resized Docker VM.
 
 ### Monitoring
 

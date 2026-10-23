@@ -47,7 +47,7 @@ func TestFilterEnv_AllowsSafeVariables(t *testing.T) {
 		"WORKSPACE=/workspaces/run-abc",
 		"ANTHROPIC_BASE_URL=https://api.example.com",
 		"CUSTOM_VAR=hello",
-		"HOME=/home/orbit",
+		"HOME=/home/kora",
 	}
 
 	got := filterEnv(safe)

@@ -120,7 +120,7 @@ proxy.istio.io/config: |
   proxyMetadata:
     PILOT_CERT_PROVIDER: spire
     SPIFFE_ENDPOINT_SOCKET: unix:///run/secrets/workload-spiffe-uds/socket
-sidecar.istio.io/userVolumeMount: '{"workload-socket":{"mountPath":"/run/secrets/workload-spiffe-uds","readOnly":true},"id-proxy-sock":{"mountPath":"/run/orbit"}}'
+sidecar.istio.io/userVolumeMount: '{"workload-socket":{"mountPath":"/run/secrets/workload-spiffe-uds","readOnly":true},"id-proxy-sock":{"mountPath":"/run/kora"}}'
 ```
 
 `holdApplicationUntilProxyStarts` is kept for clusters without native sidecars and is inert otherwise. Existing `proxy.istio.io/config` and `userVolumeMount` values on the incoming pod are merged, not replaced.
@@ -129,7 +129,7 @@ sidecar.istio.io/userVolumeMount: '{"workload-socket":{"mountPath":"/run/secrets
 
 **Pod fields:** `imagePullSecrets` from `global.imagePullSecrets` (the operator replicates those Secrets into each tenant namespace during tenant reconcile).
 
-**Containers:** `identity-proxy` and `opa`, built from typed structs in the operator, parameterised from `operator.injection.*` (image registry, repository, tag or digest, pull policy, resources, log level). Both carry the restricted security context of Decision 6. The identity service URL and the OPA policy-service URL are rendered from `ORBIT_SYSTEM_NAMESPACE`, replacing the hardcoded `orbit-system` literals the pre-refactor templates and `tenant_controller.go` used. OPA listens on `127.0.0.1:8181` with diagnostics on `0.0.0.0:8282` for probes only; the pre-refactor `--addr=0.0.0.0:8181` let the untrusted agent read the tenant's whole grant bundle from `localhost:8181/v1/data`.
+**Containers:** `identity-proxy` and `opa`, built from typed structs in the operator, parameterised from `operator.injection.*` (image registry, repository, tag or digest, pull policy, resources, log level). Both carry the restricted security context of Decision 6. The identity service URL and the OPA policy-service URL are rendered from `KORA_SYSTEM_NAMESPACE`, replacing the hardcoded `orbit-system` literals the pre-refactor templates and `tenant_controller.go` used. OPA listens on `127.0.0.1:8181` with diagnostics on `0.0.0.0:8282` for probes only; the pre-refactor `--addr=0.0.0.0:8181` let the untrusted agent read the tenant's whole grant bundle from `localhost:8181/v1/data`.
 
 The `inject.istio.io/templates` annotation is no longer set. `mergeIstioTemplates` is deleted. The `orbit.io/skip-injection` opt-out label is removed with its `objectSelector`: it is a pod label, so anyone who can create a tenant pod could remove enforcement, and nothing in the repository sets it.
 
@@ -247,7 +247,7 @@ kubectl / orbit-agents ──create Pod──▶ API server
                                           │
                                           ▼
                      EnvoyFilters select on the two labels:
-                       identity-proxy ext_proc over /run/orbit/identity-proxy.sock
+                       identity-proxy ext_proc over /run/kora/identity-proxy.sock
                        opa ext_authz over localhost:9191
 ```
 
@@ -341,7 +341,7 @@ operator:
 
 ## Implementation
 
-1. **Mutating webhook** (`backend/internal/operator/pod_webhook.go`): move the two container specs and volumes from `istio_templates.go` into typed structs built from an `InjectionConfig` loaded from env (populated by the chart from `operator.injection.*` and `ORBIT_SYSTEM_NAMESPACE`); OPA on loopback; build the JSON patch for labels, annotations, `imagePullSecrets`, volumes and containers; merge existing annotations; remove the skip label; unit tests for a bare pod, a pod with existing `proxy.istio.io/config`, a pod with `excludeInboundPorts` as `orbit-agents` sets on sandboxes, and idempotency on reinvocation. Delete `istio_templates.go` and `mergeIstioTemplates`.
+1. **Mutating webhook** (`backend/internal/operator/pod_webhook.go`): move the two container specs and volumes from `istio_templates.go` into typed structs built from an `InjectionConfig` loaded from env (populated by the chart from `operator.injection.*` and `KORA_SYSTEM_NAMESPACE`); OPA on loopback; build the JSON patch for labels, annotations, `imagePullSecrets`, volumes and containers; merge existing annotations; remove the skip label; unit tests for a bare pod, a pod with existing `proxy.istio.io/config`, a pod with `excludeInboundPorts` as `orbit-agents` sets on sandboxes, and idempotency on reinvocation. Delete `istio_templates.go` and `mergeIstioTemplates`.
 2. **Validating webhook** (`pod_validator.go`): the checks in Decision 2; unit tests for each rejection.
 3. **Webhook configurations and TLS**: chart renders both configurations without `caBundle` or `failurePolicy`; operator gains a `webhookcert` package (leader creates or adopts the Secret, followers watch, `GetCertificate` serving, rotation with dual CA, watch and re-patch of `caBundle` and `failurePolicy`); cert-manager path behind the value; remove `genCA`/`lookup` from the chart.
 4. **Tenant namespace labels**: injection label from `istio.revision`, PSA labels from `operator.tenantPodSecurity`, pull-secret replication, in `tenant_controller.go`.

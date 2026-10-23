@@ -55,7 +55,7 @@ Each send-message request becomes the parent of the turn it starts. Claude Code 
 
 **Chosen Option:** Option 1, parent every turn to the create-session span.
 
-When the platform OTLP endpoint (`ORBIT_OTLP_ENDPOINT`) is set, the session-manager adds to the Claude Code subprocess environment:
+When the platform OTLP endpoint (`KORA_OTLP_ENDPOINT`) is set, the session-manager adds to the Claude Code subprocess environment:
 
 | Variable | Value | Purpose |
 |---|---|---|
@@ -64,7 +64,7 @@ When the platform OTLP endpoint (`ORBIT_OTLP_ENDPOINT`) is set, the session-mana
 | `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA` | `1` | Turns on span export |
 | `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER` | `otlp` | Exports traces, metrics and events |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | Matches the platform endpoint, which is a gRPC URL |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `ORBIT_OTLP_ENDPOINT` | Same collector as the platform services |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `KORA_OTLP_ENDPOINT` | Same collector as the platform services |
 | `CLAUDE_CODE_PROPAGATE_TRACEPARENT` | `1` | Sends `traceparent` to the inference and tool gateways |
 | `OTEL_RESOURCE_ATTRIBUTES` | `orbit.run_id`, `orbit.tenant_id` | Finds a run's telemetry without the trace |
 
@@ -110,7 +110,7 @@ Content capture keeps Claude Code's defaults: prompt text, tool inputs and tool 
 On a cluster with a collector:
 
 - A single run shows one trace containing `agents.StartRun`, the session-manager create-session span, `claude_code.interaction` spans, and inference gateway and tool gateway server spans under the matching `claude_code.llm_request` and `claude_code.tool` spans.
-- Claude Code exports over gRPC to the `ORBIT_OTLP_ENDPOINT` URL as given.
+- Claude Code exports over gRPC to the `KORA_OTLP_ENDPOINT` URL as given.
 - With a sampling rate of `0`, the run exports no turn spans.
 
 ---

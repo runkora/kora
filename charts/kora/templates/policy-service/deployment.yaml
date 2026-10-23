@@ -81,6 +81,6 @@ spec:
             {{- include "kora.configVolumeMount" . | nindent 12 }}
             {{- include "kora.redisCAVolumeMount" . | nindent 12 }}
             - name: tenants-config
-              mountPath: /etc/orbit
+              mountPath: /etc/kora
               readOnly: true
             {{- include "kora.extraVolumeMounts" (dict "root" $ "name" "policyService") | nindent 12 }}

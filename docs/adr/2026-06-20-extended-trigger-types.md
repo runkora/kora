@@ -94,7 +94,7 @@ Triggers went into `identity` in v1 because it was small. It is no longer small,
 - **Token minting was already designed for this.** `TokenMinter` is a one-method interface injected from main, and `internal/triggers/` never imports the identity feature package. Swapping the in-process implementation for a typed client is the platform-clients pattern used throughout the codebase, and `internal/triggers/` itself does not change.
 - **Migrations are a file move.** `make migrate-up` collects every `backend/cmd/*/migrations/*.sql` into one directory against a single `goose_db_version` table, ordered by timestamp prefix. Moving the trigger migrations to a new binary preserves filenames and ordering, so goose sees no change at all.
 
-What remains is mechanical and follows documented patterns: a `cmd/kora-triggers/` main and config, an internal mint endpoint on `identity` with a typed client satisfying `TokenMinter`, a chart deployment and service, a client-mTLS DestinationRule and the app port in the mesh netpol, a Chart.yaml version bump and operator rebuild, and repointing in-mesh callers of the management API (the frontend BFF's `ORBIT_API_URL`, which gains a triggers base URL, and the MCP trigger tools).
+What remains is mechanical and follows documented patterns: a `cmd/kora-triggers/` main and config, an internal mint endpoint on `identity` with a typed client satisfying `TokenMinter`, a chart deployment and service, a client-mTLS DestinationRule and the app port in the mesh netpol, a Chart.yaml version bump and operator rebuild, and repointing in-mesh callers of the management API (the frontend BFF's `KORA_API_URL`, which gains a triggers base URL, and the MCP trigger tools).
 
 **Sequencing: extraction lands first, before any feature phase.** The package is the smallest it will ever be right now. Extracting after admission control, the worker loop and retention have been built means moving substantially more code. It ships as its own PR so the deployment and mesh changes are reviewable separately from the feature work.
 
@@ -880,7 +880,7 @@ Lands first, as its own PR, before any feature work. No behaviour changes.
 3. Internal mint endpoint on `identity`; typed client in `internal/platform/clients/identity/` satisfying `TokenMinter`. The interface already exists and is injected from main, so nothing in `internal/triggers/` changes.
 4. Chart: deployment, service, client-mTLS DestinationRule, app port in the mesh netpol, Chart.yaml version bump, operator image rebuild.
 5. api VirtualService: repoint `/api/v1/webhooks/` to `orbit-triggers`. **The external URL is unchanged**; no source is re-pointed and no secret is re-issued.
-6. Repoint in-mesh callers of the management API: the frontend BFF gains a triggers base URL alongside `ORBIT_API_URL`, and the MCP trigger tools follow.
+6. Repoint in-mesh callers of the management API: the frontend BFF gains a triggers base URL alongside `KORA_API_URL`, and the MCP trigger tools follow.
 7. Update the binary tables in `AGENTS.md` and `docs/code-organization.md`, plus the in-cluster port map. `docs-check` validates the table against `backend/cmd/` in both directions and will fail the build without it.
 8. Verify before merging: an existing webhook source fires end to end against its unchanged URL, `make auth` still works, and the scheduler fires from the new binary.
 

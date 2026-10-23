@@ -49,7 +49,7 @@ func TestMutate_OTLPEndpointSkippedForSandboxes(t *testing.T) {
 				continue
 			}
 			for _, e := range c.Env {
-				if e.Name == "ORBIT_OTLP_ENDPOINT" {
+				if e.Name == "KORA_OTLP_ENDPOINT" {
 					return e.Value
 				}
 			}

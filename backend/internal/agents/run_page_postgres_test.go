@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Keyset paging and run stats against real SQL; gated on ORBIT_TEST_DB_URL (see testRunRepo).
+// Keyset paging and run stats against real SQL; gated on KORA_TEST_DB_URL (see testRunRepo).
 
 // seedRunAt writes a run in state with the given created_at and started_at.
 func seedRunAt(t *testing.T, r *PostgresRepository, tenant, agentTypeID, createdBy string, state RunState, createdAt time.Time, startedAt *time.Time) string {
