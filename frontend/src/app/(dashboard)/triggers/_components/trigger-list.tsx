@@ -14,12 +14,19 @@ import { useMemo } from 'react';
 import { Badge, DataTable, Icon, IconTile, Sparkline, Stack, Text, Toggle } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
 import { consoleKindOf, KIND_ICON, relativeTime, runTargets } from '../_types';
-import type { ConsoleKind, DeliveryRow, SourceCategory, TriggerRow } from '../_types';
+import type {
+  ConsoleKind,
+  DeliveryRow,
+  SourceCategory,
+  SourceConnection,
+  TriggerRow,
+} from '../_types';
 import { chatEventLabel } from '../_lib/chat';
 import { lastFired, recentFailures, sparkline } from '../_types/fleet';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
 import { useHasScope } from '../../_components/permissions-provider';
 import { PermissionHint } from '@runkora/components';
+import { ConnectionBadge } from './connection-badge';
 
 // ── View-model type ───────────────────────────────────────────────────────────
 
@@ -57,11 +64,17 @@ function firesOn(t: TriggerRow, kind: ConsoleKind): string {
   }
 }
 
+/** Why a Discord source was refused, shown in the row since the badge holds only the state. */
+function rejectionReason(connection: SourceConnection | undefined): string {
+  return connection?.state === 'rejected' ? (connection.reason ?? '') : '';
+}
+
 // ── Column definitions ────────────────────────────────────────────────────────
 
 function makeColumns(
   sourceName: (id: string) => string,
   sourceWaiting: (id: string) => boolean,
+  sourceConnection: (id: string) => SourceConnection | undefined,
   onToggle: (t: TriggerRow) => void,
   canWrite: boolean,
   canRunAgent: (agentTypeId: string) => boolean,
@@ -93,6 +106,9 @@ function makeColumns(
                   Waiting for signing secret
                 </Badge>
               )}
+              {row.kind === 'webhook' && (
+                <ConnectionBadge connection={sourceConnection(row.sourceId)} />
+              )}
               {row.failures > 0 && (
                 <Badge variant="error" size="sm" shape="pill">
                   {row.failures} failed
@@ -101,7 +117,9 @@ function makeColumns(
             </Stack>
             <Text size="caption" color="subtle" truncate>
               {row.kind === 'webhook'
-                ? sourceName(row.sourceId)
+                ? [sourceName(row.sourceId), rejectionReason(sourceConnection(row.sourceId))]
+                    .filter(Boolean)
+                    .join(' · ')
                 : row.kind === 'scheduled'
                   ? (row.scheduleConfig?.timezone ?? 'schedule')
                   : `POST /api/v1/trigger-fires/${row.id}`}
@@ -229,6 +247,7 @@ function triggerMatchesSearch(row: TriggerDisplayRow, q: string): boolean {
 /** Used when the caller does not know source categories: every source reads as a webhook source. */
 const noCategory = (): SourceCategory | undefined => undefined;
 const notWaiting = (): boolean => false;
+const noConnection = (): SourceConnection | undefined => undefined;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -241,6 +260,8 @@ interface TriggerListProps {
   sourceCategory?: (id: string) => SourceCategory | undefined;
   /** Whether a source is still waiting for its signing secret; such a trigger cannot fire yet. */
   sourceWaiting?: (id: string) => boolean;
+  /** A Gateway source's connection state; undefined for a source that receives requests. */
+  sourceConnection?: (id: string) => SourceConnection | undefined;
   onOpen: (t: TriggerRow) => void;
   onToggle: (t: TriggerRow) => void;
   /** Whether the caller may run an agent; the on or off switch needs it. */
@@ -264,6 +285,7 @@ export function TriggerList({
   sourceName,
   sourceCategory = noCategory,
   sourceWaiting = notWaiting,
+  sourceConnection = noConnection,
   onOpen,
   onToggle,
   canRunAgent,
@@ -297,8 +319,8 @@ export function TriggerList({
 
   const canWrite = useHasScope('triggers:write');
   const columns = useMemo(
-    () => makeColumns(sourceName, sourceWaiting, onToggle, canWrite, canRunAgent),
-    [sourceName, sourceWaiting, onToggle, canWrite, canRunAgent],
+    () => makeColumns(sourceName, sourceWaiting, sourceConnection, onToggle, canWrite, canRunAgent),
+    [sourceName, sourceWaiting, sourceConnection, onToggle, canWrite, canRunAgent],
   );
 
   return (

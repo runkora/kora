@@ -16,6 +16,7 @@ import type {
   InputField,
   SenderRestriction,
   SourceCategory,
+  SourceConnection,
   Trigger,
   TriggerCoalesce as TriggerCoalesceWire,
   TriggerDelivery,
@@ -33,6 +34,7 @@ import type {
 export type {
   InputField,
   SourceCategory,
+  SourceConnection,
   TriggerKind,
   TriggerOverflow,
   TriggerRouteOutcome,
@@ -137,6 +139,8 @@ export interface SourceRow {
   enabled: boolean;
   /** False for a source whose provider issues its secret and that is still waiting for it. */
   signingSecretSet: boolean;
+  /** Set on a Gateway source (Discord); null for a source that receives requests. */
+  connection: SourceConnection | null;
   createdAt: string;
   /**
    * Requests that failed authentication. Never deliveries, since those are
@@ -305,6 +309,7 @@ export function toSourceRow(s: WebhookSource): SourceRow {
     category: s.category ?? 'webhook',
     enabled: s.enabled,
     signingSecretSet: s.signing_secret_set ?? true,
+    connection: s.connection ?? null,
     createdAt: s.created_at,
     rejectionCount: s.rejection_count ?? 0,
     lastRejectionAt: s.last_rejection_at ?? null,

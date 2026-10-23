@@ -216,6 +216,8 @@ export interface WizardState {
   newSourceCreated: { id: string; name: string; provider: string } | null;
   /** Whether the created source holds its signing secret. */
   newSourceSecretSaved: boolean;
+  /** A Discord source's application id: builds the invite link here and is never sent to the backend. */
+  newSourceApplicationId: string;
   eventType: string;
   /**
    * The chosen event's field paths, for a kind that checks placeholders

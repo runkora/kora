@@ -47,9 +47,11 @@ import { consoleKindOf, KIND_ICON, LIMITS } from '../_types';
 import type { DeliveryRow, Senders, SourceRow, TriggerCoalesce, TriggerRow } from '../_types';
 import { isStartedOutcome, recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
-import { SLACK_PROVIDER } from '../_lib/slack-app-manifest';
+import { DISCORD_PROVIDER } from '../_lib/discord-invite';
+import { ISSUED_SECRETS, type IssuedSecret } from '../_lib/providers';
+import { ConnectionBadge } from './connection-badge';
 import { chatConversationKey, chatEventLabel } from '../_lib/chat';
-import { providerName, SENDER_ID_EXAMPLE } from '../_lib/providers';
+import { SENDER_ID_EXAMPLE } from '../_lib/providers';
 import { ChatEventPicker } from './chat-event-picker';
 import { CatalogPicker } from './catalog-picker';
 import { CoalesceEditor } from './coalesce-editor';
@@ -282,12 +284,12 @@ function EditActions({
  * nothing is shown back.
  */
 function IssuedSecretRow({
-  providerName,
+  secret,
   waiting = false,
   onReplace,
 }: {
-  /** The provider's display name, e.g. "Slack". */
-  providerName: string;
+  /** What the provider calls the secret, and the words around it. */
+  secret: IssuedSecret;
   /** The source has no secret yet: the first one is set, not replaced. */
   waiting?: boolean;
   onReplace?: (secret: string) => Promise<boolean>;
@@ -312,13 +314,9 @@ function IssuedSecretRow({
   return (
     <Stack gap="snug">
       <FormField
-        label="Signing secret"
+        label={secret.title}
         id={id}
-        hint={
-          waiting
-            ? `Waiting for the signing secret. Copy it from your ${providerName} app's Basic Information page and paste it here.`
-            : `Regenerate it in your ${providerName} app, then paste the new secret here.`
-        }
+        hint={waiting ? secret.waitingHint : secret.replaceHint}
       >
         <Input
           id={id}
@@ -329,7 +327,9 @@ function IssuedSecretRow({
           disabled={onReplace === undefined || pending}
           onChange={(e) => setValue(e.target.value)}
           placeholder={
-            waiting ? 'Paste the signing secret' : 'Stored. Paste a new secret to replace it.'
+            waiting
+              ? `Paste the ${secret.label}`
+              : `Stored. Paste a new ${secret.label} to replace it.`
           }
           maxLength={256}
         />
@@ -337,15 +337,15 @@ function IssuedSecretRow({
       {saved !== null && (
         <Text size="caption" color="subtle">
           {saved === 'first'
-            ? 'The signing secret is stored. The source now accepts events.'
-            : 'The new secret is stored. Requests signed with the old one are rejected.'}
+            ? `The ${secret.label} is stored. The source now accepts events.`
+            : secret.replacedNote}
         </Text>
       )}
       <EditActions
         dirty={value.trim() !== ''}
         pending={pending}
         error={null}
-        saveLabel={waiting ? 'Set secret' : 'Replace secret'}
+        saveLabel={waiting ? `Set ${secret.short}` : `Replace ${secret.short}`}
         onSave={save}
         onDiscard={() => setValue('')}
       />
@@ -586,6 +586,8 @@ export function TriggerDrawer({
   if (trigger === null) return null;
 
   const source = sources.find((s) => s.id === trigger.sourceId);
+  // A Gateway source has no request URL, and reports no connection while disabled.
+  const gateway = source?.provider === DISCORD_PROVIDER;
   // A chat command is stored as a webhook trigger; its source's category tells them apart.
   const kind = consoleKindOf(trigger, (id) => sources.find((s) => s.id === id)?.category);
   const eventName =
@@ -679,26 +681,42 @@ export function TriggerDrawer({
               {trigger.kind === 'webhook' && (
                 <Stack gap="snug">
                   <Stack direction="horizontal" gap="snug" align="center">
-                    <SectionLabel>{kind === 'chat' ? 'Request URL' : 'Endpoint'}</SectionLabel>
-                    {source !== undefined && !source.signingSecretSet && (
-                      <Badge variant="degraded" size="sm" shape="pill">
-                        Waiting for signing secret
-                      </Badge>
+                    <SectionLabel>
+                      {gateway ? 'Connection' : kind === 'chat' ? 'Request URL' : 'Endpoint'}
+                    </SectionLabel>
+                    {gateway ? (
+                      <ConnectionBadge connection={source?.connection ?? undefined} />
+                    ) : (
+                      source !== undefined &&
+                      !source.signingSecretSet && (
+                        <Badge variant="degraded" size="sm" shape="pill">
+                          Waiting for signing secret
+                        </Badge>
+                      )
                     )}
                   </Stack>
-                  <FieldRow
-                    leading={<Icon name="lock" size="2xs" color="status-healthy" />}
-                    actions={<CopyButton value={endpoint} label="Copy" />}
-                  >
-                    <Text mono size="caption" truncate>
-                      {endpoint}
-                    </Text>
-                  </FieldRow>
+                  {/* A Gateway source has no request URL: kora connects out. */}
+                  {gateway ? (
+                    source?.connection?.state === 'rejected' && (
+                      <Alert variant="error">
+                        {source.connection.reason || 'Discord refused the connection.'}
+                      </Alert>
+                    )
+                  ) : (
+                    <FieldRow
+                      leading={<Icon name="lock" size="2xs" color="status-healthy" />}
+                      actions={<CopyButton value={endpoint} label="Copy" />}
+                    >
+                      <Text mono size="caption" truncate>
+                        {endpoint}
+                      </Text>
+                    </FieldRow>
+                  )}
 
-                  {source?.provider === SLACK_PROVIDER ? (
+                  {source !== undefined && ISSUED_SECRETS[source.provider] ? (
                     <IssuedSecretRow
                       key={trigger.id}
-                      providerName={providerName(source.provider)}
+                      secret={ISSUED_SECRETS[source.provider]!}
                       waiting={!source.signingSecretSet}
                       onReplace={
                         onRotateSecret &&
@@ -771,11 +789,13 @@ export function TriggerDrawer({
                     </Text>
                   )}
 
-                  <Text size="caption" color="subtle">
-                    Deliveries are verified with an HMAC signature over the raw body. Unsigned or
-                    stale requests are rejected before any run starts, and are counted on the source
-                    rather than recorded as deliveries.
-                  </Text>
+                  {!gateway && (
+                    <Text size="caption" color="subtle">
+                      Deliveries are verified with an HMAC signature over the raw body. Unsigned or
+                      stale requests are rejected before any run starts, and are counted on the
+                      source rather than recorded as deliveries.
+                    </Text>
+                  )}
                 </Stack>
               )}
 
