@@ -109,21 +109,23 @@ func sourceWriteError(what string, err error) error {
 	return fmt.Errorf("%s: %w", what, err)
 }
 
-const sourceColumns = `id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, created_at, updated_at, rejection_count, last_rejection_at, last_rejection_reason, accepted_count, secret_rotated_at`
+const sourceColumns = `id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, created_at, updated_at, rejection_count, last_rejection_at, last_rejection_reason, accepted_count, secret_rotated_at, gateway_status, gateway_reason, gateway_status_at`
 
 func scanSource(row pgx.Row) (*WebhookSource, error) {
 	var s WebhookSource
 	var configJSON []byte
-	var lastRejectionReason *string
+	var lastRejectionReason, gatewayStatus, gatewayReason *string
 	if err := row.Scan(
 		&s.ID, &s.TenantID, &s.Name, &s.Provider, &s.PrincipalID, &s.GrantID,
 		&s.SecretCiphertext, &configJSON, &s.Enabled, &s.CreatedAt, &s.UpdatedAt,
 		&s.RejectionCount, &s.LastRejectionAt, &lastRejectionReason,
 		&s.AcceptedCount, &s.SecretRotatedAt,
+		&gatewayStatus, &gatewayReason, &s.GatewayStatusAt,
 	); err != nil {
 		return nil, err
 	}
 	s.LastRejectionReason = deref(lastRejectionReason)
+	s.GatewayStatus, s.GatewayReason = deref(gatewayStatus), deref(gatewayReason)
 	if len(configJSON) > 0 {
 		if err := json.Unmarshal(configJSON, &s.Config); err != nil {
 			return nil, fmt.Errorf("unmarshal source config: %w", err)
@@ -162,6 +164,9 @@ func (r *postgresRepository) UpdateSource(ctx context.Context, s *WebhookSource)
 		SET    name = $1, secret_ciphertext = $2, grant_id = $3, config = $4, enabled = $5,
 		       secret_rotated_at = CASE WHEN secret_ciphertext IS DISTINCT FROM $2
 		                                THEN now() ELSE secret_rotated_at END,
+		       gateway_status    = CASE WHEN secret_ciphertext IS DISTINCT FROM $2 THEN NULL ELSE gateway_status END,
+		       gateway_reason    = CASE WHEN secret_ciphertext IS DISTINCT FROM $2 THEN NULL ELSE gateway_reason END,
+		       gateway_status_at = CASE WHEN secret_ciphertext IS DISTINCT FROM $2 THEN NULL ELSE gateway_status_at END,
 		       updated_at = now()
 		WHERE  id = $6 AND tenant_id = $7
 	`, s.Name, s.SecretCiphertext, s.GrantID, configJSON, s.Enabled, s.ID, s.TenantID)
@@ -170,6 +175,27 @@ func (r *postgresRepository) UpdateSource(ctx context.Context, s *WebhookSource)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrSourceNotFound
+	}
+	return nil
+}
+
+// ListGatewaySources returns the enabled sources of a provider that hold a
+// secret, across all tenants: the sources a Gateway session runs for.
+func (r *postgresRepository) ListGatewaySources(ctx context.Context, provider string) ([]WebhookSource, error) {
+	return queryList(ctx, r.pool, "gateway sources", scanSource,
+		`SELECT `+sourceColumns+` FROM webhook_sources WHERE provider = $1 AND enabled AND secret_ciphertext <> ''`, provider)
+}
+
+// SetGatewayStatus records a session's state. It writes only while the source
+// still holds the secret the session started with, so a session of a replaced
+// secret cannot mark the new one rejected.
+func (r *postgresRepository) SetGatewayStatus(ctx context.Context, sourceID string, rotatedAt *time.Time, status, reason string) error {
+	if _, err := r.pool.Exec(ctx, `
+		UPDATE webhook_sources
+		SET    gateway_status = $2, gateway_reason = NULLIF($3, ''), gateway_status_at = now()
+		WHERE  id = $1 AND secret_rotated_at IS NOT DISTINCT FROM $4::timestamptz
+	`, sourceID, status, reason, rotatedAt); err != nil {
+		return fmt.Errorf("set gateway status: %w", err)
 	}
 	return nil
 }
