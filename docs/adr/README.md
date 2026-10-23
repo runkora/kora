@@ -128,6 +128,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) — `Accepted (curated fields and sub-decision 3 superseded in part 2026-09-29)` · 2026-07-21
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — `Accepted` · 2026-07-23
 - [Hades Wizard Component](2026-08-03-terra-wizard-component.md) — `Proposed` · 2026-08-03
+- [Hades Wizard Animated Hint Banner](2026-10-22-hades-wizard-animated-hint.md) — `Proposed` · 2026-10-22
 - [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) — `Proposed` · 2026-09-06
 - [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) — `Proposed` · 2026-09-18
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) — `Accepted` · 2026-09-28
@@ -320,4 +321,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-19 | [Repository Id Owner Selection in the Egress Gateway](2026-10-19-repository-id-owner-selection.md) | Accepted | — |
 | 2026-10-20 | [Actions Results Receiver Classification](2026-10-20-actions-results-receiver-classification.md) | Accepted | — |
 | 2026-10-22 | [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md) | Accepted | — |
+| 2026-10-22 | [Hades Wizard Animated Hint Banner](2026-10-22-hades-wizard-animated-hint.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
