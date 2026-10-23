@@ -337,7 +337,8 @@ spec:
 ---
 # Outbound HTTPS for the services that call out of the cluster: model
 # providers (inference-gateway), brokered upstreams (egress-gateway), the OIDC
-# issuer and JWKS (identity), external MCP servers (tool-gateway).
+# issuer and JWKS (identity), external MCP servers (tool-gateway), and the
+# Discord Gateway (triggers).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -350,7 +351,7 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [kora-inference-gateway, kora-egress-gateway, kora-identity, kora-tool-gateway]
+        values: [kora-inference-gateway, kora-egress-gateway, kora-identity, kora-tool-gateway, kora-triggers]
   policyTypes:
     - Egress
   egress:
