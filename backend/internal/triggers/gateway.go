@@ -38,6 +38,7 @@ const (
 	gatewayCloseTimeout    = 5 * time.Second
 	gatewayIngestTimeout   = 30 * time.Second
 	gatewayStatusTimeout   = 10 * time.Second
+	gatewayMessageQueue    = 256
 
 	// GUILDS, GUILD_MESSAGES and DIRECT_MESSAGES: 4609, none privileged (ADR Decision 4).
 	gatewayIntents = gateway.IntentGuilds | gateway.IntentGuildMessages | gateway.IntentDirectMessages
@@ -120,7 +121,7 @@ type GatewayManager struct {
 	wake     chan struct{}
 	cancel   context.CancelFunc
 	loopDone chan struct{}
-	wg       sync.WaitGroup // in-flight message and status writes
+	wg       sync.WaitGroup // the sessions' ingest workers
 }
 
 // NewGatewayManager creates a manager. It does not run until Start.
@@ -140,7 +141,7 @@ func NewGatewayManager(
 		cipher:   cipher,
 		logger:   logger,
 		cfg:      cfg,
-		limiter:  &identifyLimiter{spacing: cfg.IdentifySpacing},
+		limiter:  newIdentifyLimiter(cfg.IdentifySpacing),
 		wake:     make(chan struct{}, 1),
 		loopDone: make(chan struct{}),
 	}
@@ -157,6 +158,9 @@ func (m *GatewayManager) Start(ctx context.Context) {
 
 // Stop ends every session and waits for them, or for ctx.
 func (m *GatewayManager) Stop(ctx context.Context) {
+	if m.cancel == nil {
+		return
+	}
 	m.cancel()
 	select {
 	case <-m.loopDone:
@@ -182,6 +186,7 @@ type gatewaySession struct {
 	adapter   SourceAdapter
 	cancel    context.CancelFunc
 	done      chan struct{}
+	msgs      chan []byte // wrapped messages for the ingest worker, in arrival order
 }
 
 func (m *GatewayManager) loop(ctx context.Context) {
@@ -237,9 +242,11 @@ func (m *GatewayManager) reconcile(ctx context.Context, sessions map[string]*gat
 		sctx, cancel := context.WithCancel(ctx)
 		s := &gatewaySession{
 			sourceID: id, rotatedAt: src.SecretRotatedAt, token: token, adapter: adapter,
-			cancel: cancel, done: make(chan struct{}),
+			cancel: cancel, done: make(chan struct{}), msgs: make(chan []byte, gatewayMessageQueue),
 		}
 		sessions[id] = s
+		m.wg.Add(1)
+		go m.ingestLoop(sctx, s)
 		go m.run(sctx, s)
 	}
 }
@@ -298,12 +305,28 @@ func (m *GatewayManager) run(ctx context.Context, s *gatewaySession) {
 		if reason, rejected := rejectionReason(err); rejected {
 			m.logger.Error(ctx, "discord rejected the gateway session",
 				logging.Field{Key: "source_id", Value: s.sourceID}, logging.Field{Key: "reason", Value: reason})
-			m.setStatus(ctx, s, connRejected, reason)
+			m.recordRejection(ctx, s, reason)
 			return
 		}
 		failures++
 		m.logger.Warn(ctx, "gateway session ended; starting a new one after a backoff",
 			logging.Field{Key: "source_id", Value: s.sourceID}, logging.Field{Key: "error", Value: err.Error()})
+	}
+}
+
+// recordRejection writes the rejection until it lands: a lost write would let
+// the next process retry Identify with a token Discord already refused.
+func (m *GatewayManager) recordRejection(ctx context.Context, s *gatewaySession, reason string) {
+	for failures := 1; ctx.Err() == nil; failures++ {
+		if m.setStatus(ctx, s, connRejected, reason) == nil {
+			return
+		}
+		t := time.NewTimer(m.backoff(failures))
+		select {
+		case <-ctx.Done():
+		case <-t.C:
+		}
+		t.Stop()
 	}
 }
 
@@ -378,7 +401,7 @@ func (m *GatewayManager) connect(ctx context.Context, s *gatewaySession) (reache
 		bot.WithEventListenerFunc(func(e *events.Ready) {
 			botUserID.Store(e.User.ID.String())
 			// Synchronous: a rejection written after this must not be overwritten by a late connected.
-			m.setStatus(ctx, s, connConnected, "")
+			_ = m.setStatus(ctx, s, connConnected, "") // logged; the next Ready writes it again
 		}),
 		bot.WithEventListenerFunc(func(e *events.Raw) {
 			if e.EventType != gateway.EventTypeMessageCreate {
@@ -443,14 +466,29 @@ func (m *GatewayManager) onMessage(ctx context.Context, s *gatewaySession, clien
 	if s.adapter.EventType(nil, body) == "" {
 		return
 	}
-	m.async(func() {
-		ictx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gatewayIngestTimeout)
-		defer cancel()
-		if _, err := m.ingest.IngestGateway(ictx, s.sourceID, body); err != nil {
-			m.logger.Error(ictx, "ingest gateway message failed",
-				logging.Field{Key: "source_id", Value: s.sourceID}, logging.Field{Key: "error", Value: err.Error()})
+	select {
+	case s.msgs <- body:
+	default:
+		m.logger.Error(ctx, "gateway message dropped: ingest queue full", logging.Field{Key: "source_id", Value: s.sourceID})
+	}
+}
+
+// ingestLoop ingests a session's messages in order, off the read loop that must keep answering heartbeats.
+func (m *GatewayManager) ingestLoop(ctx context.Context, s *gatewaySession) {
+	defer m.wg.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case body := <-s.msgs:
+			ictx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gatewayIngestTimeout)
+			if _, err := m.ingest.IngestGateway(ictx, s.sourceID, body); err != nil {
+				m.logger.Error(ictx, "ingest gateway message failed",
+					logging.Field{Key: "source_id", Value: s.sourceID}, logging.Field{Key: "error", Value: err.Error()})
+			}
+			cancel()
 		}
-	})
+	}
 }
 
 // threadOf reads the channel cache: a cached thread, with its parent's type, or nil.
@@ -471,50 +509,58 @@ func threadOf(caches cache.Caches, channelID snowflake.ID) *koraThread {
 }
 
 // setStatus records the session's state, unless the source's secret has changed.
-func (m *GatewayManager) setStatus(ctx context.Context, s *gatewaySession, status, reason string) {
+func (m *GatewayManager) setStatus(ctx context.Context, s *gatewaySession, status, reason string) error {
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gatewayStatusTimeout)
 	defer cancel()
-	if err := m.store.SetGatewayStatus(sctx, s.sourceID, s.rotatedAt, status, reason); err != nil {
+	err := m.store.SetGatewayStatus(sctx, s.sourceID, s.rotatedAt, status, reason)
+	if err != nil {
 		m.logger.Error(ctx, "record gateway status failed",
 			logging.Field{Key: "source_id", Value: s.sourceID}, logging.Field{Key: "error", Value: err.Error()})
 	}
-}
-
-// async runs fn off the session's read loop, which must keep answering heartbeats.
-func (m *GatewayManager) async(fn func()) {
-	m.wg.Add(1)
-	go func() {
-		defer m.wg.Done()
-		fn()
-	}()
+	return err
 }
 
 // identifyLimiter admits one Identify at a time and spaces them, across every
 // session of the manager. Resumes do not call it.
 type identifyLimiter struct {
+	slot    chan struct{} // holds a token while an Identify is in flight
 	mu      sync.Mutex
 	next    time.Time
 	spacing time.Duration
 }
 
+func newIdentifyLimiter(spacing time.Duration) *identifyLimiter {
+	return &identifyLimiter{slot: make(chan struct{}, 1), spacing: spacing}
+}
+
 func (l *identifyLimiter) Wait(ctx context.Context, _ int) error {
-	l.mu.Lock()
-	if d := time.Until(l.next); d > 0 {
-		t := time.NewTimer(d)
-		defer t.Stop()
-		select {
-		case <-ctx.Done():
-			l.mu.Unlock()
-			return fmt.Errorf("wait for identify slot: %w", ctx.Err())
-		case <-t.C:
-		}
+	select {
+	case l.slot <- struct{}{}:
+	case <-ctx.Done():
+		return fmt.Errorf("wait for identify slot: %w", ctx.Err())
 	}
-	return nil
+	l.mu.Lock()
+	d := time.Until(l.next)
+	l.mu.Unlock()
+	if d <= 0 {
+		return nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		<-l.slot
+		return fmt.Errorf("wait for identify slot: %w", ctx.Err())
+	case <-t.C:
+		return nil
+	}
 }
 
 func (l *identifyLimiter) Unlock(int) {
+	l.mu.Lock()
 	l.next = time.Now().Add(l.spacing)
 	l.mu.Unlock()
+	<-l.slot
 }
 
 func (l *identifyLimiter) Close(context.Context) {}
