@@ -20,12 +20,11 @@ import {
 } from '@runkora/hades';
 import Link from 'next/link';
 import { revokeToken } from '../_actions/tokens';
-import { CreateTokenModal } from './create-token-modal';
-import { TokenCreatedModal } from './token-created-modal';
+import { CreateApiKeyWizard } from './create-api-key-wizard';
 import { EditScopesModal } from './edit-scopes-modal';
 import { ScopeChip } from '@runkora/components';
 import type { ScopeOption } from '@runkora/components';
-import type { CreatePATResponse, PAT } from '@runkora/shared/api';
+import type { PAT } from '@runkora/shared/api';
 import { fmtDate, fmtExpiry, fmtNumCompact, isExpired } from '@runkora/utils';
 import type { TokenUsageStat } from '../_services/usage-server';
 
@@ -212,20 +211,13 @@ export function KeysTab({
   const router = useRouter();
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [createdPAT, setCreatedPAT] = useState<CreatePATResponse | null>(null);
   const [revokeCandidate, setRevokeCandidate] = useState<PATViewModel | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
   const [editScopesCandidate, setEditScopesCandidate] = useState<PATViewModel | null>(null);
 
-  const handleCreated = useCallback(
-    (pat: CreatePATResponse) => {
-      setCreateOpen(false);
-      setCreatedPAT(pat);
-      router.refresh();
-    },
-    [router],
-  );
+  // The wizard stays open on its success step; this only refreshes the list behind it.
+  const handleCreated = useCallback(() => router.refresh(), [router]);
 
   const handleRevokeConfirm = useCallback(
     async (id: string) => {
@@ -301,14 +293,14 @@ export function KeysTab({
       </Stack>
 
       {/* Modals */}
-      <CreateTokenModal
-        open={createOpen}
-        availableScopes={effectiveScopes}
-        scopeOptions={scopeOptions}
-        onClose={() => setCreateOpen(false)}
-        onCreated={handleCreated}
-      />
-      <TokenCreatedModal pat={createdPAT} onClose={() => setCreatedPAT(null)} />
+      {createOpen && (
+        <CreateApiKeyWizard
+          availableScopes={effectiveScopes}
+          scopeOptions={scopeOptions}
+          onClose={() => setCreateOpen(false)}
+          onCreated={handleCreated}
+        />
+      )}
       <ConfirmDialog
         open={!!revokeCandidate}
         title="Revoke API key"

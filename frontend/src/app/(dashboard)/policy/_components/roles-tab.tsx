@@ -33,6 +33,7 @@ import { SmartTable } from '@runkora/components';
 import type { DataTableColumn } from '@runkora/components';
 import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
+import { CreateRoleWizard } from './create-role-wizard';
 import { useHasScope } from '../../_components/permissions-provider';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { ScopeChipList, scopeColumnFilter } from '@runkora/components';
@@ -220,24 +221,33 @@ export function RolesTab({
         }}
       />
 
-      {/* Create/Edit role modal */}
-      <UpsertRoleModal
-        key={editingRole?.id ?? (creating ? 'create' : 'closed')}
-        open={creating || editingRole !== null}
-        editingRole={editingRole}
-        availableScopes={availableScopes}
-        scopeOptions={scopeOptions}
-        scopesError={scopesError}
-        onClose={() => {
-          setCreating(false);
-          setEditingRole(null);
-        }}
-        onSaved={() => {
-          setCreating(false);
-          setEditingRole(null);
-          router.refresh();
-        }}
-      />
+      {creating && (
+        <CreateRoleWizard
+          availableScopes={availableScopes}
+          scopeOptions={scopeOptions}
+          scopesError={scopesError}
+          existingRoleNames={roles.map((r) => r.role)}
+          onClose={() => setCreating(false)}
+          // The wizard stays open on its success step; this only refreshes the list behind it.
+          onCreated={() => router.refresh()}
+        />
+      )}
+
+      {/* Edit role modal */}
+      {editingRole && (
+        <EditRoleModal
+          key={editingRole.id}
+          editingRole={editingRole}
+          availableScopes={availableScopes}
+          scopeOptions={scopeOptions}
+          scopesError={scopesError}
+          onClose={() => setEditingRole(null)}
+          onSaved={() => {
+            setEditingRole(null);
+            router.refresh();
+          }}
+        />
+      )}
     </Stack>
   );
 }
@@ -489,10 +499,9 @@ function RoleTable({
   );
 }
 
-// ── Create / Edit modal ──────────────────────────────────────────────────────
+// ── Edit modal ───────────────────────────────────────────────────────────────
 
-function UpsertRoleModal({
-  open,
+function EditRoleModal({
   editingRole,
   availableScopes,
   scopeOptions,
@@ -500,23 +509,22 @@ function UpsertRoleModal({
   onClose,
   onSaved,
 }: {
-  open: boolean;
-  editingRole: RoleEntry | null;
+  editingRole: RoleEntry;
   availableScopes: string[];
   scopeOptions?: ScopeOption[];
   scopesError: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  // Initialized from props; component is keyed so it remounts for each open/edit.
-  const [roleName, setRoleName] = useState(editingRole?.role ?? '');
-  const [selectedScopes, setSelectedScopes] = useState<string[]>([...(editingRole?.scopes ?? [])]);
-  const [budgetEnabled, setBudgetEnabled] = useState(!!editingRole?.budget);
+  // Initialized from props; component is keyed so it remounts for each edit.
+  const [roleName, setRoleName] = useState(editingRole.role);
+  const [selectedScopes, setSelectedScopes] = useState<string[]>([...(editingRole.scopes ?? [])]);
+  const [budgetEnabled, setBudgetEnabled] = useState(!!editingRole.budget);
   const [limitUSD, setLimitUSD] = useState(
-    editingRole?.budget?.limit_usd ? String(editingRole.budget.limit_usd) : '',
+    editingRole.budget?.limit_usd ? String(editingRole.budget.limit_usd) : '',
   );
-  const [cadence, setCadence] = useState(editingRole?.budget?.reset_cadence ?? 'monthly');
-  const [pooled, setPooled] = useState(editingRole?.budget?.pooled ?? false);
+  const [cadence, setCadence] = useState(editingRole.budget?.reset_cadence ?? 'monthly');
+  const [pooled, setPooled] = useState(editingRole.budget?.pooled ?? false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -542,8 +550,8 @@ function UpsertRoleModal({
   }, [roleName, selectedScopes, budgetEnabled, limitUSD, cadence, pooled, onSaved]);
 
   return (
-    <Modal open={open} onClose={onClose} size="lg">
-      <ModalHeader title={editingRole ? 'Edit Role' : 'Create Role'} />
+    <Modal open onClose={onClose} size="lg">
+      <ModalHeader title="Edit Role" />
       <ModalBody flushY constrained>
         <Stack gap="comfortable">
           {/* Role name */}
@@ -554,7 +562,7 @@ function UpsertRoleModal({
               placeholder="e.g. ml-engineer"
               value={roleName}
               onChange={(e) => setRoleName(e.target.value)}
-              disabled={!!editingRole}
+              disabled
             />
           </Stack>
 
@@ -570,7 +578,7 @@ function UpsertRoleModal({
             )}
             <ScopePicker
               options={scopesError ? undefined : scopeOptions}
-              scopes={scopesError ? (editingRole?.scopes ?? []) : availableScopes}
+              scopes={scopesError ? (editingRole.scopes ?? []) : availableScopes}
               selected={selectedScopes}
               onChange={setSelectedScopes}
             />
@@ -664,7 +672,7 @@ function UpsertRoleModal({
           onClick={() => void handleSubmit()}
           disabled={submitting || !roleName || selectedScopes.length === 0}
         >
-          {submitting ? 'Saving...' : editingRole ? 'Update Role' : 'Create Role'}
+          {submitting ? 'Saving...' : 'Update Role'}
         </Button>
       </ModalFooter>
     </Modal>
