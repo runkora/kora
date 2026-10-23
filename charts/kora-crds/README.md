@@ -10,7 +10,10 @@ Defines the KoraTenant, Connection, OAuthClient, MCPServer, InferenceProvider an
 
 | Name | Email | Url |
 | ---- | ------ | --- |
-| kora Team |  |  |
+| Justin Wilkin |  | <https://github.com/justinwilkin> |
+| Tom Morelly |  | <https://github.com/FalcoSuessgott> |
+| Qj Stout-Spykers |  | <https://github.com/QjStout> |
+| Chandan Joshi |  | <https://github.com/cjoshidev> |
 
 ## Requirements
 
