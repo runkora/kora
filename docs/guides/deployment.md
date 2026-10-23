@@ -515,6 +515,18 @@ helm upgrade --install kora oci://ghcr.io/runkora/charts/kora \
 Pin `--version` on both to install a specific release rather than the latest.
 Your `kora.yaml` must also set `global.trustDomain`, which the Helmfile injected for you but helm does not. 
 
+### Verify a release
+
+Each release signs its charts and images with keyless cosign, using the release workflow's GitHub identity. Verify a chart with cosign 3 or later:
+
+```bash
+cosign verify ghcr.io/runkora/charts/kora:<version> \
+  --certificate-identity-regexp '^https://github\.com/runkora/kora/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+The kora images verify the same way, with their own image reference.
+
 ### Argo CD (GitOps)
 
 `deploy/reference/argocd/app-of-apps.yaml` is an app-of-apps example: one `Application` per release which is ordered by `argocd.argoproj.io/sync-wave`. Copy it into your own GitOps repository and edit the values:
