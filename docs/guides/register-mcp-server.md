@@ -52,14 +52,25 @@ metadata:
   name: github-mcp
   namespace: orbit-tenant-example
 spec:
+  selector:
+    matchLabels:
+      app: github-mcp
   template:
     metadata:
       labels:
         app: github-mcp                      # matched by spec.workload.selector
     spec:
+      securityContext:                       # tenant namespaces enforce the restricted Pod Security Standard
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: github-mcp
           image: <your MCP server image, serving Streamable HTTP>
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           ports:
             - containerPort: 8000
           env:                               # the server authenticates upstream itself
