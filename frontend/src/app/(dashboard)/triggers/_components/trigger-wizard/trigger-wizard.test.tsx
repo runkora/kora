@@ -587,6 +587,36 @@ describe('chat command kind', () => {
     expect(api.updateSource).not.toHaveBeenCalled();
   });
 
+  it('keeps the invite link in the done block after the setup step is gone', async () => {
+    const onCreate = vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        triggerId: 'trg-1',
+        endpoint: 'https://x/api/v1/webhooks/src-new',
+      });
+    renderWizard('chat', [], onCreate);
+    fillNameAndPrompt();
+    fireEvent.click(screen.getByText('New source'));
+    await createDiscordSource();
+    fireEvent.change(screen.getByLabelText(/Application ID/), {
+      target: { value: '123456789012345678' },
+    });
+    fireEvent.change(screen.getByLabelText(/Bot token/), { target: { value: 'tok' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save token' }));
+    await screen.findByText('Bot token saved.');
+    await chooseEventAndContinue();
+    fireEvent.click(screen.getByRole('radio', { name: 'Coder' }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Create trigger/ }));
+
+    expect(await screen.findByRole('button', { name: 'Copy invite link' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Copy request URL' })).toBeNull();
+    expect(JSON.stringify(onCreate.mock.calls)).not.toContain('123456789012345678');
+    expect(JSON.stringify(api.updateSource.mock.calls)).not.toContain('123456789012345678');
+  });
+
   it('keeps the wizard on the source step when the source cannot be created', async () => {
     api.createSource.mockResolvedValue({ source: null, error: 'name already taken' });
     renderWizard('chat', []);

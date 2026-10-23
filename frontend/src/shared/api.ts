@@ -730,16 +730,16 @@ export interface UpdateAgentTypeRequest {
 // Types mirror Go: internal/triggers.
 // See docs/adr/2026-06-20-extended-trigger-types.md.
 
-/**
- * A webhook source is a registered inbound origin of webhook deliveries (e.g. a
- * GitHub repository). Mirrors Go: triggers.WebhookSource.
- */
 /** A Gateway source's session state. Mirrors Go: triggers.SourceConnection. */
 export interface SourceConnection {
   state: 'waiting' | 'connecting' | 'connected' | 'rejected';
   reason?: string;
 }
 
+/**
+ * A webhook source is a registered inbound origin of webhook deliveries (e.g. a
+ * GitHub repository). Mirrors Go: triggers.WebhookSource.
+ */
 export interface WebhookSource {
   id: string;
   tenant_id: string;

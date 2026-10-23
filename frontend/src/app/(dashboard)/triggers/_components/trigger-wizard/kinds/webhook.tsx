@@ -521,20 +521,16 @@ function IssuedSecretFields({
   patch: (next: Partial<WizardState>) => void;
   setup: ReturnType<typeof useIssuedSourceSetup>;
 }) {
-  const { label: secret = 'secret', short = 'secret' } = ISSUED_SECRETS[provider] ?? {};
+  const { title = 'Secret', short = 'secret' } = ISSUED_SECRETS[provider] ?? {};
   if (state.newSourceSecretSaved)
     return (
       <Text size="caption" color="status-healthy">
-        {secret.charAt(0).toUpperCase() + secret.slice(1)} saved.
+        {title} saved.
       </Text>
     );
   return (
     <Stack gap="snug">
-      <FormField
-        label={secret.charAt(0).toUpperCase() + secret.slice(1)}
-        id="wizard-source-secret"
-        required
-      >
+      <FormField label={title} id="wizard-source-secret" required>
         <Input
           id="wizard-source-secret"
           type="password"
@@ -644,6 +640,25 @@ function SlackAppSetup({
   );
 }
 
+/** The Discord invite link with its copy button; nothing until the application id is valid. */
+function InviteLinkRow({ url }: { url: string | null }) {
+  if (url === null) return null;
+  return (
+    <FieldRow
+      leading={
+        <Text as="span" size="caption" mono color="subtle">
+          invite link
+        </Text>
+      }
+      actions={<CopyButton value={url} label="Copy invite link" />}
+    >
+      <Text as="span" size="caption" mono truncate>
+        {url}
+      </Text>
+    </FieldRow>
+  );
+}
+
 /**
  * A new Discord source's setup. The source is created first, with no token,
  * then the admin saves the bot token. A Discord source has no request URL: kora
@@ -657,8 +672,7 @@ function DiscordBotSetup({
   patch: (next: Partial<WizardState>) => void;
 }) {
   const setup = useIssuedSourceSetup(DISCORD_PROVIDER, state, patch);
-  const [applicationId, setApplicationId] = useState('');
-  const inviteUrl = discordInviteUrl(applicationId);
+  const inviteUrl = discordInviteUrl(state.newSourceApplicationId);
 
   if (state.newSourceCreated === null) {
     return (
@@ -716,26 +730,13 @@ function DiscordBotSetup({
           id="wizard-discord-application-id"
           mono
           inputMode="numeric"
-          value={applicationId}
-          onChange={(e) => setApplicationId(e.target.value)}
+          value={state.newSourceApplicationId}
+          onChange={(e) => patch({ newSourceApplicationId: e.target.value })}
           placeholder="123456789012345678"
           maxLength={20}
         />
       </FormField>
-      {inviteUrl !== null && (
-        <FieldRow
-          leading={
-            <Text as="span" size="caption" mono color="subtle">
-              invite link
-            </Text>
-          }
-          actions={<CopyButton value={inviteUrl} label="Copy invite link" />}
-        >
-          <Text as="span" size="caption" mono truncate>
-            {inviteUrl}
-          </Text>
-        </FieldRow>
-      )}
+      <InviteLinkRow url={inviteUrl} />
     </Stack>
   );
 }
@@ -745,10 +746,13 @@ function ChatDoneContent({ state, context, endpoint }: DoneContentProps) {
   const provider = catalogProvider(state, context.sources);
   if (provider === DISCORD_PROVIDER)
     return (
-      <Text size="caption" color="subtle" align="center">
-        Invite the bot to your Discord server. It starts a run when someone mentions it or sends it
-        a direct message.
-      </Text>
+      <Stack gap="snug" minWidth="prose" maxWidth="prose">
+        <InviteLinkRow url={discordInviteUrl(state.newSourceApplicationId)} />
+        <Text size="caption" color="subtle" align="center">
+          Invite the bot to your Discord server. It starts a run when someone mentions it or sends
+          it a direct message.
+        </Text>
+      </Stack>
     );
   if (!endpoint) return null;
   const isNew = state.sourceChoice === NEW_SOURCE;

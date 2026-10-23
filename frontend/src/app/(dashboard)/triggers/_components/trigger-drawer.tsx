@@ -48,10 +48,10 @@ import type { DeliveryRow, Senders, SourceRow, TriggerCoalesce, TriggerRow } fro
 import { isStartedOutcome, recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
 import { DISCORD_PROVIDER } from '../_lib/discord-invite';
-import { ISSUED_SECRETS } from '../_lib/providers';
+import { ISSUED_SECRETS, type IssuedSecret } from '../_lib/providers';
 import { ConnectionBadge } from './connection-badge';
 import { chatConversationKey, chatEventLabel } from '../_lib/chat';
-import { providerName, SENDER_ID_EXAMPLE } from '../_lib/providers';
+import { SENDER_ID_EXAMPLE } from '../_lib/providers';
 import { ChatEventPicker } from './chat-event-picker';
 import { CatalogPicker } from './catalog-picker';
 import { CoalesceEditor } from './coalesce-editor';
@@ -283,20 +283,13 @@ function EditActions({
  * admin regenerates it in the provider's app and pastes the new value here;
  * nothing is shown back.
  */
-function capitalise(text: string) {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
 function IssuedSecretRow({
-  providerName,
   secret,
   waiting = false,
   onReplace,
 }: {
-  /** The provider's display name, e.g. "Slack". */
-  providerName: string;
-  /** What the provider calls the secret and where its app shows it. */
-  secret: { label: string; short: string; origin: string };
+  /** What the provider calls the secret, and the words around it. */
+  secret: IssuedSecret;
   /** The source has no secret yet: the first one is set, not replaced. */
   waiting?: boolean;
   onReplace?: (secret: string) => Promise<boolean>;
@@ -321,13 +314,9 @@ function IssuedSecretRow({
   return (
     <Stack gap="snug">
       <FormField
-        label={capitalise(secret.label)}
+        label={secret.title}
         id={id}
-        hint={
-          waiting
-            ? `Waiting for the ${secret.label}. Copy it from the ${secret.origin} and paste it here.`
-            : `Regenerate it in your ${providerName} app, then paste the new ${secret.label} here.`
-        }
+        hint={waiting ? secret.waitingHint : secret.replaceHint}
       >
         <Input
           id={id}
@@ -349,7 +338,7 @@ function IssuedSecretRow({
         <Text size="caption" color="subtle">
           {saved === 'first'
             ? `The ${secret.label} is stored. The source now accepts events.`
-            : `The new ${secret.short} is stored. The old one stops working.`}
+            : secret.replacedNote}
         </Text>
       )}
       <EditActions
@@ -727,7 +716,6 @@ export function TriggerDrawer({
                   {source !== undefined && ISSUED_SECRETS[source.provider] ? (
                     <IssuedSecretRow
                       key={trigger.id}
-                      providerName={providerName(source.provider)}
                       secret={ISSUED_SECRETS[source.provider]!}
                       waiting={!source.signingSecretSet}
                       onReplace={
