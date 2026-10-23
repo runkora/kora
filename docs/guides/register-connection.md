@@ -22,9 +22,9 @@ spec:
   secretRef: github-app-key
   secretKey: key.pem
   config:
-    app_id: "4015347"
-    installation_id: 139299720
-    owner: clear-route
+    app_id: "123456"
+    installation_id: 12345678
+    owner: runkora
 ```
 
 - `adapter`: selects the credential mechanism. See [Adapters](#adapters) for the available adapters and their config.
