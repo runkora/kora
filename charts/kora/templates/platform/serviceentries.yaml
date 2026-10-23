@@ -43,4 +43,25 @@ spec:
       name: tcp-redis
       protocol: TCP
 {{- end }}
+---
+# kora-triggers holds the Discord Gateway sessions. The resume URL Discord
+# returns is a separate host under discord.gg.
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: kora-discord
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  hosts:
+    - gateway.discord.gg
+    - "*.discord.gg"
+    - discord.com
+  location: MESH_EXTERNAL
+  resolution: DNS
+  ports:
+    - number: 443
+      name: tls-https
+      protocol: TLS
 {{- end }}
