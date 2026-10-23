@@ -278,7 +278,7 @@ func TestBoot_CreateAsksWithCallerBearer(t *testing.T) {
 
 	req := withTenant(newRequest(t, http.MethodPost, "/triggers", nil, validReq(KindManual)))
 	req.Header.Set("Authorization", "Bearer caller-tok")
-	req.Header.Set("X-Orbit-Delegation-Token", "caller-delegation")
+	req.Header.Set("X-Kora-Delegation-Token", "caller-delegation")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 

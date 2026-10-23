@@ -189,7 +189,7 @@ Every registered MCP server receives:
    - **Tenant-scope**: `spiffe://orbit.{instance-id}/tenant/{tenant-id}/service/{service-id}`
 2. An Envoy sidecar deployed alongside the server process, handling:
    - Inbound mTLS termination from agents
-   - `X-Orbit-Delegation-Token` header validation via `ext_authz`
+   - `X-Kora-Delegation-Token` header validation via `ext_authz`
    - OPA policy evaluation for which agents may connect
 3. Registration in the kora service registry for discovery
 
@@ -200,7 +200,7 @@ Open-source or third-party MCP servers that kora does not own require no code ch
 ```
 GET /mcp/services
 Authorization: Bearer {platform-session-token}
-X-Orbit-Delegation-Token: {delegation-token}
+X-Kora-Delegation-Token: {delegation-token}
 
 Response:
 {
@@ -228,14 +228,14 @@ At task dispatch, kora includes MCP server configuration in the task context:
 ```json
 {
   "task_id": "task-abc",
-  "delegation_token": "{X-Orbit-Delegation-Token}",
+  "delegation_token": "{X-Kora-Delegation-Token}",
   "mcp_servers": [
     {
       "id": "mcp-msgraph",
       "endpoint": "https://mcp-msgraph.internal.orbit.svc",
       "transport": "sse",
       "headers": {
-        "X-Orbit-Delegation-Token": "{delegation-token}"
+        "X-Kora-Delegation-Token": "{delegation-token}"
       }
     }
   ],

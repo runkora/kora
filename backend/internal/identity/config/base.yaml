@@ -8,7 +8,7 @@ token:
   # Maximum PAT lifetime a caller may request.
   patMaxTtlDays: 365
   # JWT aud claim.
-  audience: orbit-platform
+  audience: kora-platform
   # Delegation token lifetime (delegated-agent-identity ADR, Decision 3). A
   # short backstop, not the revocation mechanism: retrieval re-signs from the
   # live issuance record.

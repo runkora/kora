@@ -327,7 +327,7 @@ All of the questions this PRD raised have been resolved by the three accepted AD
 5. **Transport** → Gateway ADR: Streamable HTTP.
 6. **Streaming & long-running tools** → Gateway ADR: per-call timeout, cancellation propagated upstream, backpressure via the streamed channel.
 7. **`tools/list` filter performance** → Gateway ADR: one `Query` over the server's candidate set, cacheable per `(principal, server, bundle-revision)`.
-8. **MCP OAuth scope of MVP** → OAuth ADR: OAuth 2.1 + PKCE + DCR ship in MVP; the issued token is an ordinary `aud=orbit-platform` platform token (per-resource audiences deferred to a future ADR).
+8. **MCP OAuth scope of MVP** → OAuth ADR: OAuth 2.1 + PKCE + DCR ship in MVP; the issued token is an ordinary `aud=kora-platform` platform token (per-resource audiences deferred to a future ADR).
 
 > Also resolved: binary placement (new `cmd/tool-gateway`); audit (OTel span + structured log, no event-spine dependency); who introspects/publishes (the tool-gateway in a `replicas=1` publisher deployment, *not* the operator — the operator only aggregates CRs).
 

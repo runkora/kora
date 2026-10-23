@@ -73,7 +73,7 @@ The runner acts as the **client** (it sends requests; OpenCode is the server). T
   "params": {
     "protocolVersion": 1,
     "clientCapabilities": {},
-    "clientInfo": { "name": "orbit-session-manager", "version": "1.0" }
+    "clientInfo": { "name": "kora-session-manager", "version": "1.0" }
   }
 }
 
@@ -320,7 +320,7 @@ Touches *How does it connect?* and *What can it access?* Every OpenCode model ca
 **Decision.**
 
 - The run's OpenCode config declares one provider, `orbit`, using `@ai-sdk/openai-compatible` (bundled with OpenCode) at `{gateway}/run/{run_id}/v1`. Chat completions serves every gateway model. The agent type's model is the provider's only model.
-- `enabled_providers` is `["orbit"]`, and `model` and `small_model` are `orbit/{agent model}`. OpenCode loads no other provider, including its hosted one.
+- `enabled_providers` is `["kora"]`, and `model` and `small_model` are `kora/{agent model}`. OpenCode loads no other provider, including its hosted one.
 - The config reaches OpenCode as `OPENCODE_CONFIG_CONTENT` rather than a file in the workspace. OpenCode merges that variable after every config file, so an `opencode.json` or `.opencode/` directory the agent writes, or a cloned repository carries, cannot re-enable a provider or change the model.
 - `Start` fails when the model is empty, as it does for an empty gateway URL.
 - `share` is `disabled` and `autoupdate` is `false`. The `webfetch` and `websearch` tools are denied, since both fetch from the session-manager container outside the sandbox's egress policy.

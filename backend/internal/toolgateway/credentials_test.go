@@ -62,7 +62,7 @@ func redirectingUpstream(t *testing.T) (endpoint string, followed *atomic.Int32)
 
 func TestProxyCallTool_DoesNotFollowRedirects(t *testing.T) {
 	endpoint, followed := redirectingUpstream(t)
-	srv := Server{Name: "orbit", Endpoint: endpoint, CallerIdentity: callerIdentityForward}
+	srv := Server{Name: "kora", Endpoint: endpoint, CallerIdentity: callerIdentityForward}
 
 	_, err := NewProxy(NewUpstreamCredentials(""), "test", logging.NewLogger()).
 		CallTool(context.Background(), srv, "echo", nil, &Caller{Bearer: "agent-token"})

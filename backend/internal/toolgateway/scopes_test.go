@@ -24,8 +24,8 @@ func TestNormalizeSegment(t *testing.T) {
 }
 
 func TestToolScopePath(t *testing.T) {
-	got := toolScopePath("orbit", "agents.create")
-	want := []string{"orbit", "agents", "create"}
+	got := toolScopePath("kora", "agents.create")
+	want := []string{"kora", "agents", "create"}
 	if len(got) != len(want) {
 		t.Fatalf("path = %v, want %v", got, want)
 	}
@@ -47,7 +47,7 @@ func scopeSet(decls []routescopes.ScopeDeclaration) map[string]routescopes.Scope
 
 func TestBuildScopes_MultiSegmentRollups(t *testing.T) {
 	snaps := []ServerSnapshot{{
-		Server: Server{TenantID: "", Name: "orbit"},
+		Server: Server{TenantID: "", Name: "kora"},
 		State:  StateOK,
 		Tools: []Tool{
 			{Name: "agents.list"},
@@ -63,13 +63,13 @@ func TestBuildScopes_MultiSegmentRollups(t *testing.T) {
 	got := scopeSet(decls)
 
 	want := []string{
-		"mcp:invoke",                  // coarse gate
-		"mcp:orbit:use",               // server rollup
-		"mcp:orbit:agents:use",        // domain rollup
-		"mcp:orbit:agents:list:use",   // leaf
-		"mcp:orbit:agents:create:use", // leaf
-		"mcp:orbit:models:use",        // domain rollup
-		"mcp:orbit:models:list:use",   // leaf
+		"mcp:invoke",                 // coarse gate
+		"mcp:kora:use",               // server rollup
+		"mcp:kora:agents:use",        // domain rollup
+		"mcp:kora:agents:list:use",   // leaf
+		"mcp:kora:agents:create:use", // leaf
+		"mcp:kora:models:use",        // domain rollup
+		"mcp:kora:models:list:use",   // leaf
 	}
 	for _, w := range want {
 		if _, ok := got[w]; !ok {
@@ -78,16 +78,16 @@ func TestBuildScopes_MultiSegmentRollups(t *testing.T) {
 	}
 
 	// The agents rollup must carry the right resource_type + path for coverage.
-	rollup := got["mcp:orbit:agents:use"]
+	rollup := got["mcp:kora:agents:use"]
 	if rollup.ResourceType != "mcp" || rollup.Action != "use" || len(rollup.PathSegments) != 2 ||
-		rollup.PathSegments[0] != "orbit" || rollup.PathSegments[1] != "agents" {
+		rollup.PathSegments[0] != "kora" || rollup.PathSegments[1] != "agents" {
 		t.Errorf("agents rollup decl wrong: %+v", rollup)
 	}
 
 	// agents.* rollup must be deduped (generated once though two tools share it).
 	count := 0
 	for _, d := range decls {
-		if d.Scope == "mcp:orbit:agents:use" {
+		if d.Scope == "mcp:kora:agents:use" {
 			count++
 		}
 	}
@@ -155,15 +155,15 @@ func TestBuildScopes_LeafRequires(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			decls, _ := BuildScopes([]ServerSnapshot{{
-				Server: Server{TenantID: tt.tenantID, Name: "orbit"},
+				Server: Server{TenantID: tt.tenantID, Name: "kora"},
 				State:  tt.state,
 				Tools:  []Tool{tt.tool},
 			}})
-			got := scopeSet(decls)["mcp:orbit:agents:list:use"].Requires
+			got := scopeSet(decls)["mcp:kora:agents:list:use"].Requires
 			if (got == nil) != (tt.want == nil) || !slices.Equal(got, tt.want) {
 				t.Errorf("leaf requires = %#v, want %#v", got, tt.want)
 			}
-			if rollup := scopeSet(decls)["mcp:orbit:agents:use"].Requires; rollup != nil {
+			if rollup := scopeSet(decls)["mcp:kora:agents:use"].Requires; rollup != nil {
 				t.Errorf("rollup requires = %#v, want nil", rollup)
 			}
 		})

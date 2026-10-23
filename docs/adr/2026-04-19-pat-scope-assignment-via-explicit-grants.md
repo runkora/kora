@@ -174,8 +174,8 @@ At issuance, `PatID` is set to the UUID from `user_pat_tokens.id`. For all other
 The policy evaluator derives `_principal_id` for PAT principals from `PatID`, not `sub`:
 
 ```rego
-_principal_id := claims.orbit.pat_id if {
-    claims.orbit.principal_type == "PAT"
+_principal_id := claims.kora.pat_id if {
+    claims.kora.principal_type == "PAT"
 } else := claims.sub
 ```
 

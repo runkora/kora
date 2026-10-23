@@ -321,7 +321,7 @@ func (c *MCPController) initializeResult(server string) map[string]any {
 	return map[string]any{
 		"protocolVersion": mcpProtocolVersion,
 		"capabilities":    map[string]any{"tools": map[string]any{}},
-		"serverInfo":      map[string]any{"name": "orbit/" + server, "version": "0.1.0"},
+		"serverInfo":      map[string]any{"name": "kora/" + server, "version": "0.1.0"},
 	}
 }
 

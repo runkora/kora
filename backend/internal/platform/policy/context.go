@@ -5,7 +5,7 @@ import "context"
 type delegationContextKey struct{}
 
 // WithDelegation returns a child context carrying parsed delegation claims.
-// Called by DelegationMiddlewareWithBlocklist after extracting the X-Orbit-Delegation-Token header.
+// Called by DelegationMiddlewareWithBlocklist after extracting the X-Kora-Delegation-Token header.
 func WithDelegation(ctx context.Context, d *DelegationClaims) context.Context {
 	return context.WithValue(ctx, delegationContextKey{}, d)
 }

@@ -378,8 +378,8 @@ func TestProcessor_StripsInboundDelegationHeader(t *testing.T) {
 	p := NewProcessor(cache, m, "", discardLogger())
 
 	resp := p.handleRequestHeaders(context.Background(), reqHeaders(map[string]string{
-		":path":                    "/run/run-a/v1/messages",
-		"x-orbit-delegation-token": "forged-by-subprocess",
+		":path":                   "/run/run-a/v1/messages",
+		"x-kora-delegation-token": "forged-by-subprocess",
 	}))
 	mutation := mutationOf(t, resp)
 
@@ -396,8 +396,8 @@ func TestProcessor_EmptyCache_StillStripsDelegationHeader(t *testing.T) {
 	p := NewProcessor(cache, nil, "", discardLogger())
 
 	resp := p.handleRequestHeaders(context.Background(), reqHeaders(map[string]string{
-		":path":                    "/run/run-a/v1/messages",
-		"x-orbit-delegation-token": "forged",
+		":path":                   "/run/run-a/v1/messages",
+		"x-kora-delegation-token": "forged",
 	}))
 	mutation := mutationOf(t, resp)
 	if !removesHeader(mutation, delegationHeader) {

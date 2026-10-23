@@ -17,7 +17,7 @@ import (
 // OAuth 2.1 authorization-code + PKCE for the MCP profile. The BFF /authorize
 // (after its session check) calls CreateAuthCode with the authenticated human;
 // the MCP client back-channel exchanges the code at /token via ExchangeAuthCode,
-// which mints an ordinary aud=orbit-platform HUMAN token.
+// which mints an ordinary aud=kora-platform HUMAN token.
 
 const (
 	// authCodeTTL bounds the window between /authorize and /token. Short by
@@ -170,7 +170,7 @@ type TokenResponse struct {
 
 // ExchangeAuthCode consumes a single-use code, verifies PKCE and the
 // redirect_uri/client_id binding, and mints the human's ordinary
-// aud=orbit-platform HUMAN token (JTI-revocable, same as any platform token).
+// aud=kora-platform HUMAN token (JTI-revocable, same as any platform token).
 func (s *Service) ExchangeAuthCode(ctx context.Context, req TokenRequest) (*TokenResponse, error) {
 	if req.GrantType != "authorization_code" {
 		return nil, fmt.Errorf("%w: unsupported grant_type", ErrInvalidOAuthRequest)

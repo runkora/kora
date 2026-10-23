@@ -100,10 +100,10 @@ func signTestJWT(t *testing.T, principalType, tenantID, principalID string, kora
 	}
 	maps.Copy(koraClaims, koraExtra)
 	claims := jwt.MapClaims{
-		"sub":   principalID,
-		"iss":   "orbit",
-		"aud":   jwt.ClaimStrings{"orbit-platform"},
-		"orbit": koraClaims,
+		"sub":  principalID,
+		"iss":  "kora",
+		"aud":  jwt.ClaimStrings{"kora-platform"},
+		"kora": koraClaims,
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	signed, err := tok.SignedString(getTestRSAKey())
@@ -161,10 +161,10 @@ func signDelegationClaims(t *testing.T, claims jwt.MapClaims) string {
 func signDelegationClaimsWithKey(t *testing.T, claims jwt.MapClaims, key *rsa.PrivateKey) string {
 	t.Helper()
 	if _, ok := claims["iss"]; !ok {
-		claims["iss"] = "orbit"
+		claims["iss"] = "kora"
 	}
 	if _, ok := claims["aud"]; !ok {
-		claims["aud"] = jwt.ClaimStrings{"orbit-platform"}
+		claims["aud"] = jwt.ClaimStrings{"kora-platform"}
 	}
 	if _, ok := claims["exp"]; !ok {
 		claims["exp"] = time.Now().Add(time.Hour).Unix()
@@ -207,8 +207,8 @@ func compileAndPrepareGateway(t *testing.T, opts gatewayBundleOpts) rego.Prepare
 
 	cfg := bundle.Config{
 		JWKSURL:      jwksURL,
-		Issuer:       "orbit",
-		Audience:     "orbit-platform",
+		Issuer:       "kora",
+		Audience:     "kora-platform",
 		FrontendHost: opts.frontendHost,
 	}
 
@@ -255,7 +255,7 @@ func compileAndPrepareGateway(t *testing.T, opts gatewayBundleOpts) rego.Prepare
 	}
 
 	pq, err := rego.New(
-		rego.Query(`x := {"allow": data.orbit.authz_gateway.allow, "reason": data.orbit.authz_gateway.reason}`),
+		rego.Query(`x := {"allow": data.kora.authz_gateway.allow, "reason": data.kora.authz_gateway.reason}`),
 		rego.ParsedBundle("gateway", &b),
 	).PrepareForEval(context.Background())
 	if err != nil {
@@ -298,7 +298,7 @@ func TestGateway_SelfEnforcedMCP_PathBoundary(t *testing.T) {
 
 	// The MCP gateway is self-enforcing → its paths are allowed unauthenticated so
 	// it can issue its own 401 challenge.
-	for _, p := range []string{"/v1/mcp", "/v1/mcp/orbit"} {
+	for _, p := range []string{"/v1/mcp", "/v1/mcp/kora"} {
 		if allow, _ := evalGateway(t, pq, "POST", p, hdr); !allow {
 			t.Errorf("%s should be self-enforced (allowed unauthenticated)", p)
 		}
@@ -712,8 +712,8 @@ func TestGateway_Delegation_NoMainJWT(t *testing.T) {
 	})
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-		"authorization":            "Bearer not.a.valid.jwt",
-		"x-orbit-delegation-token": "some.delegation.token",
+		"authorization":           "Bearer not.a.valid.jwt",
+		"x-kora-delegation-token": "some.delegation.token",
 	})
 	if allow {
 		t.Error("expected deny for delegated request with invalid main JWT")
@@ -750,8 +750,8 @@ func TestGateway_Delegation_NoDelegationScope(t *testing.T) {
 	delegationToken := signDelegationJWT(t, delegatorID, []string{"inference:list"})
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": delegationToken,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": delegationToken,
 	})
 	if allow {
 		t.Error("expected deny when delegation token lacks required scope")
@@ -786,8 +786,8 @@ func TestGateway_Delegation_NoDelegatorGrant(t *testing.T) {
 	delegationToken := signDelegationJWT(t, delegatorID, []string{"inference:invoke"})
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": delegationToken,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": delegationToken,
 	})
 	if allow {
 		t.Error("expected deny when delegator has no grant")

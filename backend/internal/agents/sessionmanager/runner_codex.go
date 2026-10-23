@@ -177,7 +177,7 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 	}
 	runEnv := []string{
 		"CODEX_HOME=" + codexHome,
-		"KORA_INFERENCE_KEY=orbit-managed",
+		"KORA_INFERENCE_KEY=kora-managed",
 	}
 	runEnv = append(runEnv, r.cfg.ExtraEnv...)
 	// HOME and TMPDIR last: nothing earlier may move the agent off the only
@@ -223,7 +223,7 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 
 	// Synchronous initialize handshake — 30-second deadline.
 	if err := r.sendRPCRequest(ctx, "initialize", map[string]any{
-		"clientInfo":   map[string]string{"name": "orbit-session-manager", "version": "1.0"},
+		"clientInfo":   map[string]string{"name": "kora-session-manager", "version": "1.0"},
 		"capabilities": map[string]any{},
 	}); err != nil {
 		cleanupProc()
@@ -1038,7 +1038,7 @@ func (r *CodexRunner) emit(t EventType, payload any) {
 }
 
 // codexProvider is Codex's config-table key for the inference gateway, not the product name.
-const codexProvider = "orbit"
+const codexProvider = "kora"
 
 // writeCodexConfig creates a per-run CODEX_HOME directory under workDir and
 // writes a config.toml that points Codex at the kora inference gateway.

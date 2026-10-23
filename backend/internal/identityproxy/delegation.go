@@ -15,7 +15,7 @@ import (
 
 // Per-run delegation token attachment (docs/adr/2026-07-23-delegated-agent-identity.md,
 // Decision 4). The identity-proxy — already the platform-token injection point —
-// also attaches X-Orbit-Delegation-Token, selecting the run by:
+// also attaches X-Kora-Delegation-Token, selecting the run by:
 //
 //   - Path mode (shared agent pod): the /run/{run_id} base-URL path prefix the
 //     runners already point every subprocess at.
@@ -33,7 +33,7 @@ import (
 
 // delegationHeader is the canonical delegation token header. Any inbound value
 // is stripped unconditionally: the untrusted subprocess must never inject one.
-const delegationHeader = "x-orbit-delegation-token"
+const delegationHeader = "x-kora-delegation-token"
 
 // runPathPattern extracts the run id from a /run/{run_id}/… request path.
 // Mirrors middleware.StripRunPrefix's pattern — the two must stay in lockstep

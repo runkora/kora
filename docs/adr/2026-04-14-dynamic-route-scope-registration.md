@@ -141,7 +141,7 @@ The compiler writes both route sets to `routes/data.json`: global registrations 
 The JWKS URL, issuer, and audience are moved out of `authz.rego` into a config data document compiled into each bundle:
 
 ```
-data/config/data.json → {"jwks_url": "...", "issuer": "orbit", "audience": "orbit-platform"}
+data/config/data.json → {"jwks_url": "...", "issuer": "kora", "audience": "kora-platform"}
 ```
 
 `authz.rego` reads `data.config.jwks_url`, `data.config.issuer`, `data.config.audience`. Values are set via environment variables on the policy-service deployment (`POLICY_SERVICE_BUNDLE_JWKS_URL`, `POLICY_SERVICE_BUNDLE_ISSUER`, `POLICY_SERVICE_BUNDLE_AUDIENCE`), removing the last cluster-specific value from the Rego source.

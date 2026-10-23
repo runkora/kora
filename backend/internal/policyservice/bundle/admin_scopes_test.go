@@ -19,16 +19,16 @@ func TestAdminScopes(t *testing.T) {
 		entry("inference:anthropic:use"),
 		entry("inference:anthropic:claude-sonnet-4-6:use"),
 		entry("inference:list"),
-		entry("mcp:orbit:use"),
-		entry("mcp:orbit:agents:use"),
-		entry("mcp:orbit:agents:create:use"),
+		entry("mcp:kora:use"),
+		entry("mcp:kora:agents:use"),
+		entry("mcp:kora:agents:create:use"),
 		entry("mcp:github:use"),
 		entry("platform:grants:read"),
 		entry("platform:grants:write"),
 		entry("trigger:fire"),
 		entry("triggers:read"),
 	})
-	want := []string{"inference:list", "inference:use", "mcp:github:use", "mcp:orbit:use", "platform:grants:read", "platform:grants:write", "trigger:fire", "triggers:read"}
+	want := []string{"inference:list", "inference:use", "mcp:github:use", "mcp:kora:use", "platform:grants:read", "platform:grants:write", "trigger:fire", "triggers:read"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("AdminScopes = %v, want %v", got, want)
 	}

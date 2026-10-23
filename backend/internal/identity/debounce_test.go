@@ -36,7 +36,7 @@ func newWatcherTestService(t *testing.T) *Service {
 			RefreshTokenTTLDays:   30,
 			PATDefaultTTLDays:     90,
 			PATMaxTTLDays:         365,
-			Audience:              "orbit-platform",
+			Audience:              "kora-platform",
 		},
 	}
 	svc, err := NewService(

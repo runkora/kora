@@ -64,13 +64,13 @@ func TestQualifiedConnectionScopeBase(t *testing.T) {
 		{"connection:github:use", "", false},
 
 		// malformed qualifiers
-		{"connection:github:issues::write", "", false},       // empty
-		{"connection:github:issues:Orbit:write", "", false},  // not lowercase
-		{"connection:github:issues:a b:write", "", false},    // whitespace
-		{"connection:github:issues:*:write", "", false},      // wildcard — never valid
-		{"connection:github:issues:a/b:write", "", false},    // path separator
-		{"egress:api.github.com:connect", "", false},         // wrong resource type
-		{"mcp:orbit:tools:agents_list:use:extra", "", false}, // wrong resource type
+		{"connection:github:issues::write", "", false},      // empty
+		{"connection:github:issues:Orbit:write", "", false}, // not lowercase
+		{"connection:github:issues:a b:write", "", false},   // whitespace
+		{"connection:github:issues:*:write", "", false},     // wildcard — never valid
+		{"connection:github:issues:a/b:write", "", false},   // path separator
+		{"egress:api.github.com:connect", "", false},        // wrong resource type
+		{"mcp:kora:tools:agents_list:use:extra", "", false}, // wrong resource type
 	}
 	for _, tc := range cases {
 		t.Run(tc.scope, func(t *testing.T) {

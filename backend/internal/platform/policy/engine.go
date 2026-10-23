@@ -23,11 +23,11 @@ import (
 // with a non-200 status code.
 var ErrBundleUnexpectedStatus = errors.New("bundle endpoint returned unexpected status")
 
-const decisionQuery = "x := {\"allow\": data.orbit.authz.allow, \"reason\": data.orbit.authz.reason}"
-const scopesQuery = "x := data.orbit.authz.principal_all_scopes"
-const grantDetailQuery = "x := data.orbit.authz.principal_grant_detail"
-const roleDetailQuery = "x := data.orbit.authz.principal_role_detail"
-const budgetQuery = "x := {\"allow\": data.orbit.budget.budget_allow, \"spend_limit_reached\": data.orbit.budget.spend_limit_reached, \"has_limit\": data.orbit.budget.has_limit, \"ceilings\": data.orbit.budget.ceilings}"
+const decisionQuery = "x := {\"allow\": data.kora.authz.allow, \"reason\": data.kora.authz.reason}"
+const scopesQuery = "x := data.kora.authz.principal_all_scopes"
+const grantDetailQuery = "x := data.kora.authz.principal_grant_detail"
+const roleDetailQuery = "x := data.kora.authz.principal_role_detail"
+const budgetQuery = "x := {\"allow\": data.kora.budget.budget_allow, \"spend_limit_reached\": data.kora.budget.spend_limit_reached, \"has_limit\": data.kora.budget.has_limit, \"ceilings\": data.kora.budget.ceilings}"
 const budgetCategoriesQuery = "x := data.budgets[input.principal_id].categories"
 const roleBudgetsQuery = "x := data.role_budgets.role_budgets"
 const allBudgetsQuery = "x := data.budgets"
@@ -478,7 +478,7 @@ func (e *engine) ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesE
 	}, nil
 }
 
-// buildBudgetCheckInput assembles the OPA input for the orbit.budget module,
+// buildBudgetCheckInput assembles the OPA input for the kora.budget module,
 // normalising nil maps to empty ones so rego sees JSON objects, never null.
 // The delegation block is attached only when a verified delegation is present
 // (delegated-agent-identity ADR, Decision 5).
@@ -516,7 +516,7 @@ func buildBudgetCheckInput(tenantID string, req BudgetCheckRequest) BudgetCheckI
 	return input
 }
 
-// CheckBudget evaluates the orbit.budget hierarchical ceiling rules.
+// CheckBudget evaluates the kora.budget hierarchical ceiling rules.
 // Implements Evaluator. Fails open (allow=true, hasLimit=false) when the
 // tenant bundle is unavailable or evaluation fails.
 func (e *engine) CheckBudget(ctx context.Context, tenantID string, req BudgetCheckRequest) (BudgetResult, error) {

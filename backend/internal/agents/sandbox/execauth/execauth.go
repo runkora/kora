@@ -19,7 +19,7 @@ const (
 	TokenEnv = "SANDBOX_EXEC_TOKEN"
 	// MetadataKey is where a caller presents it. gRPC lowercases metadata keys,
 	// so this is already in its wire form.
-	MetadataKey = "orbit-sandbox-exec-token"
+	MetadataKey = "kora-sandbox-exec-token"
 )
 
 // WithToken returns ctx carrying the token as outgoing gRPC metadata.

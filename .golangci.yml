@@ -472,12 +472,12 @@ linters:
         linters:
           - gocritic
         text: "product name must come from internal/platform/brand"
-        source: 'const codexProvider = "orbit"'
+        source: 'const codexProvider = "kora"'
       - path: "internal/agents/sessionmanager/runner_opencode.go"
         linters:
           - gocritic
         text: "product name must come from internal/platform/brand"
-        source: 'const openCodeProvider = "orbit"'
+        source: 'const openCodeProvider = "kora"'
 
       # kora-session-runner is a thin exec() wrapper: its entire purpose is to
       # exec the binary supplied as argv[3] after applying Landlock restrictions.

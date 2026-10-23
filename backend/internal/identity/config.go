@@ -51,7 +51,7 @@ type TokenConfig struct {
 	// PATMaxTTLDays is the maximum lifetime a caller may request for a PAT.
 	PATMaxTTLDays int `yaml:"patMaxTtlDays"`
 
-	// Audience is the JWT `aud` claim value. Defaults to "orbit-platform".
+	// Audience is the JWT `aud` claim value. Defaults to "kora-platform".
 	// Override per environment to scope tokens to a specific cluster or deployment.
 	Audience string `yaml:"audience"`
 

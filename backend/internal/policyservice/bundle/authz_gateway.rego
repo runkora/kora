@@ -1,4 +1,4 @@
-package orbit.authz_gateway
+package kora.authz_gateway
 
 import rego.v1
 
@@ -50,48 +50,48 @@ _claims := claims if {
 
 # ══ NORMALISED PRINCIPAL ══════════════════════════════════════════════════════
 
-_tenant_id := _claims.orbit.tenant_id
+_tenant_id := _claims.kora.tenant_id
 
-_principal_type := _claims.orbit.principal_type
+_principal_type := _claims.kora.principal_type
 
-_principal_id := _claims.orbit.pat_id if {
-	_claims.orbit.principal_type == "PAT"
-	_claims.orbit.pat_id != ""
+_principal_id := _claims.kora.pat_id if {
+	_claims.kora.principal_type == "PAT"
+	_claims.kora.pat_id != ""
 }
 
 _principal_id := _claims.sub if {
-	_claims.orbit.principal_type != "PAT"
+	_claims.kora.principal_type != "PAT"
 }
 
 _principal_roles := roles if {
-	raw := _claims.orbit.claims.roles
+	raw := _claims.kora.claims.roles
 	raw != ""
 	roles := split(raw, ",")
 }
 
 _principal_roles := [] if {
-	not _claims.orbit.claims.roles
+	not _claims.kora.claims.roles
 }
 
 _principal_roles := [] if {
-	_claims.orbit.claims.roles == ""
+	_claims.kora.claims.roles == ""
 }
 
 # ══ DELEGATION ════════════════════════════════════════════════════════════════
 #
 # Delegation at the gateway mirrors authz.rego Layer 1: the
-# X-Orbit-Delegation-Token header is verified against the same JWKS, issuer,
+# X-Kora-Delegation-Token header is verified against the same JWKS, issuer,
 # and audience as the platform token (the identity service signs both with one
 # key). The delegatee service verifies it again in-process; the policy no
 # longer depends on that happening.
 
 _is_delegated if {
-	input.attributes.request.http.headers["x-orbit-delegation-token"] != ""
+	input.attributes.request.http.headers["x-kora-delegation-token"] != ""
 }
 
 _layer1_delegation_claims := claims if {
 	_is_delegated
-	raw := input.attributes.request.http.headers["x-orbit-delegation-token"]
+	raw := input.attributes.request.http.headers["x-kora-delegation-token"]
 	result := io.jwt.decode_verify(raw, {
 		"cert": _signing_jwk,
 		"iss":  data.config.issuer,
@@ -159,7 +159,7 @@ _delegation_run_mismatch if {
 _delegation_run_mismatch if {
 	_is_delegated
 	_delegation_run_id != ""
-	_claims.orbit.claims.run_id != _delegation_run_id
+	_claims.kora.claims.run_id != _delegation_run_id
 }
 
 # The delegation header is present but the token did not verify: bad signature,

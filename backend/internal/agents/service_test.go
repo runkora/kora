@@ -95,8 +95,8 @@ func TestMCPToolScopes(t *testing.T) {
 		want []string
 	}{
 		{"none", nil, nil},
-		{"one tool derives the coarse gate", []string{"mcp:orbit:agents:list:use"}, []string{"mcp:orbit:agents:list:use", "mcp:invoke"}},
-		{"many tools, one gate", []string{"mcp:orbit:agents:list:use", "mcp:orbit:models:list:use"}, []string{"mcp:orbit:agents:list:use", "mcp:orbit:models:list:use", "mcp:invoke"}},
+		{"one tool derives the coarse gate", []string{"mcp:kora:agents:list:use"}, []string{"mcp:kora:agents:list:use", "mcp:invoke"}},
+		{"many tools, one gate", []string{"mcp:kora:agents:list:use", "mcp:kora:models:list:use"}, []string{"mcp:kora:agents:list:use", "mcp:kora:models:list:use", "mcp:invoke"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1263,13 +1263,13 @@ func TestAgentType_MCPServers(t *testing.T) {
 		want  []string
 	}{
 		{"empty", nil, []string{}},
-		{"single", []string{"mcp:orbit:agents:list:use"}, []string{"orbit"}},
+		{"single", []string{"mcp:kora:agents:list:use"}, []string{"kora"}},
 		{
 			"multi distinct, first-seen order + dedup",
-			[]string{"mcp:orbit:agents:list:use", "mcp:github:issues:create:use", "mcp:orbit:agents:create:use"},
-			[]string{"orbit", "github"},
+			[]string{"mcp:kora:agents:list:use", "mcp:github:issues:create:use", "mcp:kora:agents:create:use"},
+			[]string{"kora", "github"},
 		},
-		{"malformed skipped", []string{"not-a-scope", "mcp:", "mcp:orbit:x:use"}, []string{"orbit"}},
+		{"malformed skipped", []string{"not-a-scope", "mcp:", "mcp:kora:x:use"}, []string{"kora"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

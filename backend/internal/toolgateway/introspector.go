@@ -25,7 +25,7 @@ import (
 )
 
 // introspectClientName identifies the gateway in the MCP initialize handshake.
-const introspectClientName = "orbit-tool-gateway"
+const introspectClientName = "kora-tool-gateway"
 
 // defaultIntrospectTimeout bounds a single server's initialize + tools/list.
 const defaultIntrospectTimeout = 15 * time.Second
@@ -201,7 +201,7 @@ func (i *Introspector) introspectOne(ctx context.Context, srv Server) ([]Tool, e
 
 // metaRequiresKey is the tool _meta field a global MCP server uses to
 // declare the platform scopes its tool calls upstream (see Tool.RequiresScopes).
-const metaRequiresKey = "orbit/requires"
+const metaRequiresKey = "kora/requires"
 
 // requiresFromMeta extracts the declared upstream scopes from a tool's _meta.
 // It accepts a JSON array of strings under metaRequiresKey; anything else

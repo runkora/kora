@@ -49,13 +49,13 @@ func TestChallengeMiddleware(t *testing.T) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	rec := httptest.NewRecorder()
-	req := requestWithHost(http.MethodPost, "/v1/mcp/orbit", "mcp.example.com")
-	req.SetPathValue("server", "orbit")
+	req := requestWithHost(http.MethodPost, "/v1/mcp/kora", "mcp.example.com")
+	req.SetPathValue("server", "kora")
 	h401.ServeHTTP(rec, req)
 	wa := rec.Header().Get("WWW-Authenticate")
 	// The metadata pointer is the per-server PRM path (RFC 9728), so the client
-	// fetches it verbatim and learns resource=<host>/v1/mcp/orbit.
-	want := "https://mcp.example.com/v1/mcp/orbit/.well-known/oauth-protected-resource"
+	// fetches it verbatim and learns resource=<host>/v1/mcp/kora.
+	want := "https://mcp.example.com/v1/mcp/kora/.well-known/oauth-protected-resource"
 	if !strings.Contains(wa, want) || !strings.HasPrefix(wa, "Bearer ") {
 		t.Errorf("401 WWW-Authenticate = %q, want it to reference %q", wa, want)
 	}

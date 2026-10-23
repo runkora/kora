@@ -46,7 +46,7 @@ var reservedHeaders = map[string]bool{
 
 // delegationTokenHeader is mw.DelegationTokenHeader, lowercased. A test keeps
 // the two in step without importing the middleware into the operator.
-const delegationTokenHeader = "x-orbit-delegation-token"
+const delegationTokenHeader = "x-kora-delegation-token"
 
 // reservedHeaderPrefixes cover proxy and Envoy control headers.
 var reservedHeaderPrefixes = []string{"x-forwarded-", "x-envoy-"}

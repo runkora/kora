@@ -29,7 +29,7 @@ import (
 // deliberately non-functional and self-describing: it never reaches the API
 // server (the gateway strips it), and it reads unambiguously as a non-secret to
 // a credential scanner. Same value and reasoning as the sandbox's GH_TOKEN.
-const PlaceholderToken = "placeholder-credential-injected-by-orbit-egress-gateway"
+const PlaceholderToken = "placeholder-credential-injected-by-kora-egress-gateway"
 
 // ClustersEnvVar carries the JSON-encoded []Cluster from kora-agents into the
 // sandbox, where sandbox-exec renders it to disk at startup.

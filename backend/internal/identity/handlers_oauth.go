@@ -120,7 +120,7 @@ func (c *Controller) handleCreateOAuthCode(w http.ResponseWriter, r *http.Reques
 
 // handleOAuthToken handles POST /identity/oauth/token (public, RFC 6749
 // authorization_code grant, form-encoded). Validates the code + PKCE and mints
-// the human's ordinary aud=orbit-platform token.
+// the human's ordinary aud=kora-platform token.
 func (c *Controller) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	r.Body = http.MaxBytesReader(w, r.Body, 16*1024) // bound the token-endpoint body

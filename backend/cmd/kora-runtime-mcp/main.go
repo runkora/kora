@@ -131,7 +131,7 @@ func (s *mcpServer) handleInitialize(req jsonRPCRequest) jsonRPCResponse {
 		Result: map[string]any{
 			"protocolVersion": "2024-11-05",
 			"serverInfo": map[string]any{
-				"name":    "orbit-runtime",
+				"name":    "kora-runtime",
 				"version": "1.0.0",
 			},
 			"capabilities": map[string]any{
@@ -302,7 +302,7 @@ func (s *mcpServer) call(method, action string, body io.Reader) ([]byte, error) 
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Orbit-Run-Token", os.Getenv("KORA_RUN_TOKEN"))
+	req.Header.Set("X-Kora-Run-Token", os.Getenv("KORA_RUN_TOKEN"))
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, err

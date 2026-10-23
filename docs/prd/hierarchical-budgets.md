@@ -115,7 +115,7 @@ A pool counter can only be rebuilt after a Redis loss if usage rows record which
 
 ### Enforcement (inference gateway + Rego)
 
-- Gateway resolves run identity from `X-Orbit-Run-Id` (AGENT principals only), gathers the windows/pools applicable to the caller from bundle data + JWT roles, reads the corresponding canonical counters (rehydrating window-aware from `inference_usage` on miss), and passes a spends document to OPA: `{ run, principal: {weekly?, monthly?}, role_pools: {role: spend}, tenant: {weekly?, monthly?} }`.
+- Gateway resolves run identity from `X-Kora-Run-Id` (AGENT principals only), gathers the windows/pools applicable to the caller from bundle data + JWT roles, reads the corresponding canonical counters (rehydrating window-aware from `inference_usage` on miss), and passes a spends document to OPA: `{ run, principal: {weekly?, monthly?}, role_pools: {role: spend}, tenant: {weekly?, monthly?} }`.
 - `budget.rego` denies when ANY applicable ceiling is met:
   - principal per window: spend(window) ≥ MAX of (grant ∪ held-role per-member) limits for that window.
   - role pool: pool spend ≥ pool limit, for each held pooled role.

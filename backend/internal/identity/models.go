@@ -46,7 +46,7 @@ type Principal = token.Principal
 type PlatformClaims = token.PlatformClaims
 
 // KoraClaims are the kora-specific claims embedded in the platform token's
-// "orbit" namespace. Aliased from internal/platform/token.
+// "kora" namespace. Aliased from internal/platform/token.
 type KoraClaims = token.KoraClaims
 
 // ─── Storage records ─────────────────────────────────────────────────────────

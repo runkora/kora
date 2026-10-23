@@ -1,4 +1,4 @@
-package orbit.authz
+package kora.authz
 
 import rego.v1
 
@@ -70,43 +70,43 @@ _layer1_claims := claims if {
 # ══ NORMALISED PRINCIPAL ════════════════════════════════════════════════════
 
 _principal_type := input.principal.type if not _is_envoy
-_principal_type := _layer1_claims.orbit.principal_type if _is_envoy
+_principal_type := _layer1_claims.kora.principal_type if _is_envoy
 
 _principal_id := input.principal.id if not _is_envoy
 
 # For PAT principals in Layer 1, use the pat_id claim as the grant lookup key.
 # sub holds the issuing user's OIDC subject for attribution; pat_id holds the
 # PAT UUID that identifies the grant row.
-_principal_id := _layer1_claims.orbit.pat_id if {
+_principal_id := _layer1_claims.kora.pat_id if {
 	_is_envoy
-	_layer1_claims.orbit.principal_type == "PAT"
-	_layer1_claims.orbit.pat_id != ""
+	_layer1_claims.kora.principal_type == "PAT"
+	_layer1_claims.kora.pat_id != ""
 }
 
 _principal_id := _layer1_claims.sub if {
 	_is_envoy
-	_layer1_claims.orbit.principal_type != "PAT"
+	_layer1_claims.kora.principal_type != "PAT"
 }
 
 # Roles: Layer 2 receives a pre-split []string; Layer 1 splits the
-# comma-separated roles string from the orbit.claims.roles JWT field.
+# comma-separated roles string from the kora.claims.roles JWT field.
 _principal_roles := input.principal.roles if not _is_envoy
 
 _principal_roles := roles if {
 	_is_envoy
-	raw := _layer1_claims.orbit.claims.roles
+	raw := _layer1_claims.kora.claims.roles
 	raw != ""
 	roles := split(raw, ",")
 }
 
 _principal_roles := [] if {
 	_is_envoy
-	not _layer1_claims.orbit.claims.roles
+	not _layer1_claims.kora.claims.roles
 }
 
 _principal_roles := [] if {
 	_is_envoy
-	_layer1_claims.orbit.claims.roles == ""
+	_layer1_claims.kora.claims.roles == ""
 }
 
 # ══ NORMALISED REQUIRED SCOPE ════════════════════════════════════════════════
@@ -172,7 +172,7 @@ _required_scope := _route.required_scope if not _authenticated_route
 #          has already verified and parsed the delegation token via
 #          ParseDelegationToken (signature, issuer, audience, expiry).
 #
-# Layer 1: delegation token is read from the X-Orbit-Delegation-Token header
+# Layer 1: delegation token is read from the X-Kora-Delegation-Token header
 #          and verified here against the same JWKS, issuer, and audience as the
 #          platform token — the identity service signs both with one key
 #          (signDelegationToken in internal/identity). DelegationMiddleware
@@ -186,7 +186,7 @@ _is_delegated if {
 
 _is_delegated if {
 	_is_envoy
-	input.attributes.request.http.headers["x-orbit-delegation-token"] != ""
+	input.attributes.request.http.headers["x-kora-delegation-token"] != ""
 }
 
 # Layer 1: verify and parse the delegation token header. Signature, expiry,
@@ -197,7 +197,7 @@ _is_delegated if {
 _layer1_delegation_claims := claims if {
 	_is_envoy
 	_is_delegated
-	raw := input.attributes.request.http.headers["x-orbit-delegation-token"]
+	raw := input.attributes.request.http.headers["x-kora-delegation-token"]
 	result := io.jwt.decode_verify(raw, {
 		"cert": _signing_jwk,
 		"iss":  data.config.issuer,
@@ -295,7 +295,7 @@ _delegation_run_mismatch if {
 _delegation_run_mismatch if {
 	_is_delegated
 	_delegation_run_id != ""
-	_layer1_claims.orbit.claims.run_id != _delegation_run_id
+	_layer1_claims.kora.claims.run_id != _delegation_run_id
 }
 
 # The delegation header is present but the token did not verify: bad signature,

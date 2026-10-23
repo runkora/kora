@@ -256,8 +256,8 @@ func TestAuthz_Egress_Delegated_AllowedWithoutDelegatorEgressGrant(t *testing.T)
 	delegationToken := signDelegationJWT(t, testDelegateID, nil)
 
 	allow, reason := evalLayer1Connect(t, pq, "api.github.com:443", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": delegationToken,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": delegationToken,
 	})
 	if !allow {
 		t.Errorf("expected delegated egress allow, got deny (reason: %s)", reason)
@@ -284,8 +284,8 @@ func TestAuthz_Egress_Delegated_AgentPostureStillBounds(t *testing.T) {
 	delegationToken := signDelegationJWT(t, testDelegateID, nil)
 
 	allow, _ := evalLayer1Connect(t, pq, "evil.example.com:443", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": delegationToken,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": delegationToken,
 	})
 	if allow {
 		t.Error("expected deny: the delegator's egress grants must never widen the agent's posture")
@@ -326,8 +326,8 @@ func TestGateway_DelegatorLeg_RoleDerivedAllow(t *testing.T) {
 	delegationToken := signDelegationJWT(t, delegatorID, nil)
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": delegationToken,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": delegationToken,
 	})
 	if !allow {
 		t.Errorf("expected allow via the delegator's role at the gateway, got deny (reason: %s)", reason)
@@ -382,8 +382,8 @@ func TestGateway_DelegatorLeg_RequiresProjection(t *testing.T) {
 			delegationToken := signDelegationJWT(t, delegatorID, nil)
 
 			allow, reason := evalGateway(t, pq, "POST", "/v1/mcp-proxy/github/create_issue", map[string]string{
-				"authorization":            "Bearer " + mainJWT,
-				"x-orbit-delegation-token": delegationToken,
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": delegationToken,
 			})
 			if allow != tc.wantAllow {
 				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)

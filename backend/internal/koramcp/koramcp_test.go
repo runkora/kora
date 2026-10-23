@@ -901,8 +901,8 @@ func TestToolsDeclareNoRequires(t *testing.T) {
 			tm, _ := rt.(map[string]any)
 			name, _ := tm["name"].(string)
 			count++
-			if m, _ := tm["_meta"].(map[string]any); m["orbit/requires"] != nil {
-				t.Errorf("%s declares _meta requires %v; orbit tools must confer nothing", name, m["orbit/requires"])
+			if m, _ := tm["_meta"].(map[string]any); m["kora/requires"] != nil {
+				t.Errorf("%s declares _meta requires %v; orbit tools must confer nothing", name, m["kora/requires"])
 			}
 			if text := noAccess(name, nil).Content[0].(*sdk.TextContent).Text; strings.Contains(text, "this resource") {
 				t.Errorf("%s has no accessNouns entry: %q", name, text)

@@ -321,7 +321,7 @@ The Envoy sidecar performs the exchange on behalf of the agent workload. The age
 
 Authentication (who is this workload?) is fully transparent. Delegation context (under whose authority am I acting?) is not — and intentionally so.
 
-When an agent operates under a human delegation grant ([agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) Pattern 1), the delegation token is task-specific: it was issued for a particular scope, for a particular job. The agent workload must know it has been delegated to. It attaches the `X-Orbit-Delegation-Token` header explicitly when making requests that require delegated authority.
+When an agent operates under a human delegation grant ([agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) Pattern 1), the delegation token is task-specific: it was issued for a particular scope, for a particular job. The agent workload must know it has been delegated to. It attaches the `X-Kora-Delegation-Token` header explicitly when making requests that require delegated authority.
 
 This is the correct split of concerns:
 - **Authentication infrastructure** — invisible to the agent, owned by the sidecar layer

@@ -65,7 +65,7 @@ We need to define:
 
 - Replacing the SPIRE CSI driver's role in mounting the Workload API socket into pods — the CSI driver (node-level DaemonSet) continues to serve as the mechanism by which `istio-proxy` and identity-proxy access SVIDs
 - Implementing in-application policy enforcement inside the agent workload (that is Layer 2 per [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md))
-- Handling the delegation token (`X-Orbit-Delegation-Token`) — delegation is an application-level concern per [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md); the sidecar only handles the workload identity token
+- Handling the delegation token (`X-Kora-Delegation-Token`) — delegation is an application-level concern per [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md); the sidecar only handles the workload identity token
 - Defining the ext_authz OPA policy evaluation path (separate from token injection)
 
 ---

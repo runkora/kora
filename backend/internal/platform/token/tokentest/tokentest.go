@@ -48,7 +48,7 @@ func (s *Signer) Sign(t *testing.T, claims jwt.MapClaims) string {
 // Agent signs an AGENT platform token for the subject in the tenant.
 func (s *Signer) Agent(t *testing.T, subject, tenantID string) string {
 	t.Helper()
-	return s.Sign(t, jwt.MapClaims{"sub": subject, "jti": "platform-" + subject, "orbit": map[string]any{"tenant_id": tenantID, "principal_type": "AGENT"}})
+	return s.Sign(t, jwt.MapClaims{"sub": subject, "jti": "platform-" + subject, "kora": map[string]any{"tenant_id": tenantID, "principal_type": "AGENT"}})
 }
 
 // Delegation signs a delegation token: person delegates to agent for one run.
@@ -70,7 +70,7 @@ func Request(method, target, bearer, delegation string) *http.Request {
 	r := httptest.NewRequestWithContext(context.Background(), method, target, nil)
 	r.Header.Set("Authorization", "Bearer "+bearer)
 	if delegation != "" {
-		r.Header.Set("X-Orbit-Delegation-Token", delegation)
+		r.Header.Set("X-Kora-Delegation-Token", delegation)
 	}
 	return r
 }

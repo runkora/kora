@@ -861,7 +861,7 @@ func (s *Service) delegatorBudgetScopes(ctx context.Context, tenantID string) (s
 	return d.Sub, windows, perRunLimit
 }
 
-// checkBudget evaluates the orbit.budget hierarchical ceilings via the policy
+// checkBudget evaluates the kora.budget hierarchical ceilings via the policy
 // evaluator. It reads every applicable canonical counter (principal windows,
 // role pools, tenant cap, run), then delegates the decision to OPA, which
 // denies if ANY ceiling is met. Fails open on any infrastructure error so

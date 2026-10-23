@@ -97,7 +97,7 @@ func assertDelegationMarkers(t *testing.T, grantsJSON []byte) {
 // carries the fail-closed marker into grants/data.json
 // (delegated-agent-identity ADR, Decision 2).
 func TestCompile_EmitsDelegationRequiredMarker(t *testing.T) {
-	cfg := Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "orbit", Audience: "orbit-platform"}
+	cfg := Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "kora", Audience: "kora-platform"}
 	compiler := NewCompiler(cfg, routes.NewStore())
 
 	cached, err := compiler.Compile("acme", delegationTestGrants(), nil, nil, nil, nil)
@@ -110,7 +110,7 @@ func TestCompile_EmitsDelegationRequiredMarker(t *testing.T) {
 // TestCompileGateway_EmitsDelegationRequiredMarker verifies the marker also
 // flows into the gateway bundle's per-tenant grants document.
 func TestCompileGateway_EmitsDelegationRequiredMarker(t *testing.T) {
-	cfg := Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "orbit", Audience: "orbit-platform", FrontendHost: "orbit.example.com"}
+	cfg := Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "kora", Audience: "kora-platform", FrontendHost: "orbit.example.com"}
 	compiler := NewCompiler(cfg, routes.NewStore())
 
 	cached, err := compiler.CompileGateway(

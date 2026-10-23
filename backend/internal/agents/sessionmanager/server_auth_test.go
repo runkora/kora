@@ -32,7 +32,7 @@ func newAuthController(t *testing.T, verifier *token.Verifier) *Controller {
 // bearer), so the verifier only needs to exist.
 func unreachableVerifier(t *testing.T) *token.Verifier {
 	t.Helper()
-	return token.NewVerifier(context.Background(), "http://127.0.0.1:1/jwks.json", "orbit", "orbit-platform")
+	return token.NewVerifier(context.Background(), "http://127.0.0.1:1/jwks.json", "kora", "kora-platform")
 }
 
 // ── route classification ──────────────────────────────────────────────────────

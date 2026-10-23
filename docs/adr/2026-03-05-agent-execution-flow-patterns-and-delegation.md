@@ -147,7 +147,7 @@ A human principal explicitly grants an agent authority to act within a bounded s
    - `exp`: the delegation expiry
    - `tenant_id`: tenant scope
    - `jti`: unique token ID for revocation
-5. The agent attaches the delegation token to requests via the `X-Orbit-Delegation-Token` header — this is the one identity-layer concern the agent workload is explicitly aware of, because delegation is task-specific context tied to what the agent is doing, not who it is
+5. The agent attaches the delegation token to requests via the `X-Kora-Delegation-Token` header — this is the one identity-layer concern the agent workload is explicitly aware of, because delegation is task-specific context tied to what the agent is doing, not who it is
 6. The Envoy sidecar injects the platform session token (`Authorization: Bearer`) transparently — the agent workload does not manage or attach its own platform token
 7. The policy engine sees the full delegation chain and evaluates against the combined context
 
@@ -354,7 +354,7 @@ kora should expose:
 There is a deliberate asymmetry in how the two token types reach the enforcement boundary:
 
 - **Platform session token** (`Authorization: Bearer`) — injected by the Envoy sidecar transparently. The agent workload never sees, holds, or attaches this token. The sidecar handles the full SVID-to-platform-token exchange and rotation lifecycle ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md)).
-- **Delegation token** (`X-Orbit-Delegation-Token`) — attached by the agent workload explicitly. Delegation is a task-specific, application-level concern: the agent knows it is operating under a human's delegated authority for a particular job. It is correct for this to be visible at the application layer.
+- **Delegation token** (`X-Kora-Delegation-Token`) — attached by the agent workload explicitly. Delegation is a task-specific, application-level concern: the agent knows it is operating under a human's delegated authority for a particular job. It is correct for this to be visible at the application layer.
 
 This separation keeps the principal's own identity infrastructure fully invisible to the agent while ensuring delegation context — which is semantically meaningful to the agent's task — remains explicit.
 

@@ -146,7 +146,7 @@ type MCPServerSpec struct {
     ReintrospectIntervalSeconds int `json:"reintrospectIntervalSeconds,omitempty"`
     // CallerIdentity controls whether the gateway conveys the CALLER's identity to
     // this upstream on a tool call. Default "none": the caller's token is NEVER
-    // forwarded (the caller's full-power aud=orbit-platform token must not leak to
+    // forwarded (the caller's full-power aud=kora-platform token must not leak to
     // an upstream) — the server acts as itself with its own backend credential.
     // "forward": the gateway forwards the caller's bearer so the server acts AS the
     // caller against first-party Orbit APIs.
@@ -188,7 +188,7 @@ spec:
   # third-party server; it acts as itself with its own backend credential.
 ```
 
-kora registers the global kora MCP identically, in `kora-system` — same kind, different namespace — but with `callerIdentity: forward`, because the kora MCP must act *as the caller* against first-party kora APIs (it holds no standing authority). That flag is the **only** thing that makes the gateway convey the caller's token to an upstream, and it is **enforced global-only**: because CR-apply authority is the tenant's own namespace RBAC, a guidance comment is not enough — a tenant CR setting `callerIdentity: forward` is **rejected at reconcile** (`Status: Invalid`), since otherwise a tenant admin could point it at a pod they control and harvest every caller's full-power `aud=orbit-platform` token to replay across all of kora (same-tenant escalation). `forward` is honoured only on `kora-system` (kora-applied) servers.
+kora registers the global kora MCP identically, in `kora-system` — same kind, different namespace — but with `callerIdentity: forward`, because the kora MCP must act *as the caller* against first-party kora APIs (it holds no standing authority). That flag is the **only** thing that makes the gateway convey the caller's token to an upstream, and it is **enforced global-only**: because CR-apply authority is the tenant's own namespace RBAC, a guidance comment is not enough — a tenant CR setting `callerIdentity: forward` is **rejected at reconcile** (`Status: Invalid`), since otherwise a tenant admin could point it at a pod they control and harvest every caller's full-power `aud=kora-platform` token to replay across all of kora (same-tenant escalation). `forward` is honoured only on `kora-system` (kora-applied) servers.
 
 ### Two loops: operator aggregation, gateway introspection
 

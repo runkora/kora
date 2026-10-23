@@ -1,4 +1,4 @@
-package orbit.budget
+package kora.budget
 
 import rego.v1
 

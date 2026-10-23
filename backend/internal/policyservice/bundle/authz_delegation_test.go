@@ -293,8 +293,8 @@ func TestGateway_DelegationRequired_UnscopedDelegation_FullChain_Allowed(t *test
 	delegationToken := signDelegationJWT(t, delegatorID, nil)
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": delegationToken,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": delegationToken,
 	})
 	if !allow {
 		t.Errorf("expected allow for unscoped delegation with both other legs satisfied, got deny (reason: %s)", reason)
@@ -388,8 +388,8 @@ func TestAuthz_Layer1_DelegationRunBinding_PathMode(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			allow, reason := evalLayer1(t, pq, "POST", tc.path, map[string]string{
-				"authorization":            "Bearer " + mainJWT,
-				"x-orbit-delegation-token": delegationToken,
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": delegationToken,
 			})
 			if allow != tc.wantAllow {
 				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
@@ -422,8 +422,8 @@ func TestAuthz_Layer1_DelegationRunBinding_SandboxMode(t *testing.T) {
 				"claims": map[string]any{"run_id": tc.tokenRunID},
 			})
 			allow, reason := evalLayer1(t, pq, "POST", "/v1/messages", map[string]string{
-				"authorization":            "Bearer " + mainJWT,
-				"x-orbit-delegation-token": delegationToken,
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": delegationToken,
 			})
 			if allow != tc.wantAllow {
 				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
@@ -473,8 +473,8 @@ func TestAuthz_Layer1_DelegationRunBinding_UnboundTokenDenied(t *testing.T) {
 			}
 			mainJWT := signTestJWT(t, "AGENT", testTenantID, testAgentID, koraExtra)
 			allow, reason := evalLayer1(t, pq, "POST", tc.path, map[string]string{
-				"authorization":            "Bearer " + mainJWT,
-				"x-orbit-delegation-token": tc.delegation,
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": tc.delegation,
 			})
 			if allow != tc.wantAllow {
 				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
@@ -498,8 +498,8 @@ func TestAuthz_Layer1_DelegationRunBinding_UnboundTokenDeniedOnEgress(t *testing
 
 	mainJWT := signTestJWT(t, "AGENT", testTenantID, testAgentID, nil)
 	allow, reason := evalLayer1Connect(t, pq, "api.github.com:443", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": signDelegationJWTWithoutRunID(t, testDelegateID),
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": signDelegationJWTWithoutRunID(t, testDelegateID),
 	})
 	if allow {
 		t.Error("expected deny: an unbound delegation must not satisfy the delegated egress rule")
@@ -535,8 +535,8 @@ func TestGateway_DelegationRunBinding_UnboundTokenDenied(t *testing.T) {
 	for _, path := range []string{"/v1/chat/completions", "/run/run-a/v1/chat/completions"} {
 		t.Run(path, func(t *testing.T) {
 			allow, reason := evalGateway(t, pq, "POST", path, map[string]string{
-				"authorization":            "Bearer " + mainJWT,
-				"x-orbit-delegation-token": unbound,
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": unbound,
 			})
 			if allow {
 				t.Error("expected deny at the gateway for a delegation bound to no run")
@@ -615,8 +615,8 @@ func TestAuthz_Layer1_DelegationTokenVerification(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			allow, reason := evalLayer1(t, pq, "POST", "/run/run-a/v1/messages", map[string]string{
-				"authorization":            "Bearer " + mainJWT,
-				"x-orbit-delegation-token": tc.token,
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": tc.token,
 			})
 			if allow != tc.wantAllow {
 				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
@@ -643,8 +643,8 @@ func TestAuthz_Layer1_ForgedDelegation_NoAutonomousFallback(t *testing.T) {
 	}, getOtherRSAKey())
 
 	allow, reason := evalLayer1(t, pq, "POST", "/v1/messages", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": forged,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": forged,
 	})
 	if allow {
 		t.Error("expected deny: a forged delegation must not be honoured, nor fall back to autonomous access")
@@ -693,8 +693,8 @@ func TestGateway_DelegationTokenVerification_ForgedDenied(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-				"authorization":            "Bearer " + mainJWT,
-				"x-orbit-delegation-token": tc.token,
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": tc.token,
 			})
 			if allow != tc.wantAllow {
 				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
@@ -729,8 +729,8 @@ func TestGateway_DelegationRunBinding_PathMismatchDenied(t *testing.T) {
 	delegationToken := signDelegationJWTWithRunID(t, delegatorID, "run-a")
 
 	allow, reason := evalGateway(t, pq, "POST", "/run/run-b/v1/chat/completions", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": delegationToken,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": delegationToken,
 	})
 	if allow {
 		t.Error("expected deny at the gateway for a delegation bound to a different run")

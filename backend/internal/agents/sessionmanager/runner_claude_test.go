@@ -600,8 +600,8 @@ func TestWriteMCPConfig(t *testing.T) {
 		t.Errorf("KORA_RUN_ID = %v", env["KORA_RUN_ID"])
 	}
 	// No gateway URL configured — no governed MCP entry.
-	if _, ok := servers["orbit"]; ok {
-		t.Error("unexpected mcpServers.orbit without ToolGatewayURL")
+	if _, ok := servers["kora"]; ok {
+		t.Error("unexpected mcpServers.kora without ToolGatewayURL")
 	}
 }
 
@@ -609,7 +609,7 @@ func TestWriteMCPConfig_ToolGateway(t *testing.T) {
 	r := newTestRunner()
 	r.cfg.ToolGatewayURL = "http://kora-tool-gateway.kora-system.svc.cluster.local/"
 	// The agent has grants on two servers → one governed entry each.
-	r.cfg.MCPServers = []string{"orbit", "github"}
+	r.cfg.MCPServers = []string{"kora", "github"}
 
 	dir := t.TempDir()
 	path, err := r.writeMCPConfig(dir)
@@ -626,7 +626,7 @@ func TestWriteMCPConfig_ToolGateway(t *testing.T) {
 	}
 	servers, _ := cfg["mcpServers"].(map[string]any)
 	base := "http://kora-tool-gateway.kora-system.svc.cluster.local/v1/mcp/"
-	for _, name := range []string{"orbit", "github"} {
+	for _, name := range []string{"kora", "github"} {
 		entry, _ := servers[name].(map[string]any)
 		if entry == nil {
 			t.Fatalf("missing mcpServers.%s gateway entry", name)

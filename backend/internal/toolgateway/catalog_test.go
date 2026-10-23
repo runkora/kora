@@ -5,7 +5,7 @@ import "testing"
 func TestCatalogToolsFromSnapshots(t *testing.T) {
 	snaps := []ServerSnapshot{
 		{
-			Server: Server{TenantID: "", Name: "orbit"},
+			Server: Server{TenantID: "", Name: "kora"},
 			State:  StateOK,
 			Tools: []Tool{
 				{Name: "agents.create", Description: "create an agent"},
@@ -30,12 +30,12 @@ func TestCatalogToolsFromSnapshots(t *testing.T) {
 		byScope[r.Scope] = r
 	}
 
-	kora, ok := byScope["mcp:orbit:agents:create:use"]
+	kora, ok := byScope["mcp:kora:agents:create:use"]
 	if !ok {
-		t.Fatalf("missing orbit tool scope; rows=%+v", rows)
+		t.Fatalf("missing kora tool scope; rows=%+v", rows)
 	}
-	if kora.TenantID != "" || kora.ServerSlug != "orbit" || kora.ToolName != "agents.create" || kora.Description != "create an agent" {
-		t.Errorf("orbit row wrong: %+v", kora)
+	if kora.TenantID != "" || kora.ServerSlug != "kora" || kora.ToolName != "agents.create" || kora.Description != "create an agent" {
+		t.Errorf("kora row wrong: %+v", kora)
 	}
 
 	gh, ok := byScope["mcp:github:create_issue:use"]

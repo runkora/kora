@@ -664,7 +664,7 @@ func TestHandleGetRunUsage(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/usage/run/3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43", nil)
 	req.SetPathValue("runID", "3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43")
 	req.Header.Set("Authorization", "Bearer caller-token")
-	req.Header.Set("X-Orbit-Delegation-Token", "deleg-token")
+	req.Header.Set("X-Kora-Delegation-Token", "deleg-token")
 	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
 	w := httptest.NewRecorder()
 	c.handleGetRunUsage(w, req)

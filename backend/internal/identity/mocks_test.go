@@ -500,7 +500,7 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 			RefreshTokenTTLDays:   30,
 			PATDefaultTTLDays:     90,
 			PATMaxTTLDays:         365,
-			Audience:              "orbit-platform",
+			Audience:              "kora-platform",
 		},
 	}
 	svc, err := NewService(
@@ -577,7 +577,7 @@ tenants:
 		Token: TokenConfig{
 			AccessTokenTTLMinutes: 60,
 			RefreshTokenTTLDays:   30,
-			Audience:              "orbit-platform",
+			Audience:              "kora-platform",
 		},
 	}
 	svc, err := NewService(
@@ -646,7 +646,7 @@ func newFullTestServiceWithPolicy(t *testing.T) (
 			RefreshTokenTTLDays:   30,
 			PATDefaultTTLDays:     90,
 			PATMaxTTLDays:         365,
-			Audience:              "orbit-platform",
+			Audience:              "kora-platform",
 		},
 	}
 	var err error
@@ -1012,7 +1012,7 @@ func newTestControllerWithProfiles(t *testing.T) (
 			RefreshTokenTTLDays:   30,
 			PATDefaultTTLDays:     90,
 			PATMaxTTLDays:         365,
-			Audience:              "orbit-platform",
+			Audience:              "kora-platform",
 		},
 	}
 	svc, err := NewService(
@@ -1074,7 +1074,7 @@ tenants:
 		Token: TokenConfig{
 			AccessTokenTTLMinutes: 60,
 			RefreshTokenTTLDays:   30,
-			Audience:              "orbit-platform",
+			Audience:              "kora-platform",
 		},
 	}
 	svc, err := NewService(
@@ -1168,7 +1168,7 @@ func newTestControllerWithPrefs(t *testing.T) (*Controller, *mockUserPreferences
 			RefreshTokenTTLDays:   30,
 			PATDefaultTTLDays:     90,
 			PATMaxTTLDays:         365,
-			Audience:              "orbit-platform",
+			Audience:              "kora-platform",
 		},
 	}
 	svc, err := NewService(
