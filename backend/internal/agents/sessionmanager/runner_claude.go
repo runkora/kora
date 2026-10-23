@@ -114,7 +114,7 @@ func NewClaudeRunner(cfg ClaudeRunnerConfig) *ClaudeRunner {
 }
 
 // claudeAttributionSettings disables Claude Code's own commit trailer and
-// pull-request footer. Orbit is the control plane of record for who ran an
+// pull-request footer. kora is the control plane of record for who ran an
 // agent and under what authority; a second, unverifiable identity string
 // baked into the subprocess's default settings would contradict that.
 const claudeAttributionSettings = `{"attribution":{"commit":"","pr":""}}`

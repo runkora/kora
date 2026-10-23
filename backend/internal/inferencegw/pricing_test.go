@@ -163,7 +163,7 @@ func TestVmEffectivePricing(t *testing.T) {
 // Anthropic reports input_tokens with the cache buckets held separately. The cost
 // function prices disjoint buckets, so the OpenAI side has to subtract first or
 // the cached tokens are charged at both the full and the cached rate.
-// See https://github.com/clear-route/orbit/issues/262.
+// See https://github.com/runkora/kora/issues/262.
 func TestDisjointPromptTokens(t *testing.T) {
 	tests := []struct {
 		name         string

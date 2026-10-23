@@ -878,7 +878,7 @@ func TestToolForwardsCallerDelegation(t *testing.T) {
 	}
 }
 
-// TestToolsDeclareNoRequires locks that no orbit tool confers a platform scope:
+// TestToolsDeclareNoRequires locks that no kora tool confers a platform scope:
 // each tool's scope only lets the caller call it, and the platform checks its own
 // permission. It also checks every tool names a resource for the no-access error.
 func TestToolsDeclareNoRequires(t *testing.T) {
@@ -902,7 +902,7 @@ func TestToolsDeclareNoRequires(t *testing.T) {
 			name, _ := tm["name"].(string)
 			count++
 			if m, _ := tm["_meta"].(map[string]any); m["kora/requires"] != nil {
-				t.Errorf("%s declares _meta requires %v; orbit tools must confer nothing", name, m["kora/requires"])
+				t.Errorf("%s declares _meta requires %v; kora tools must confer nothing", name, m["kora/requires"])
 			}
 			if text := noAccess(name, nil).Content[0].(*sdk.TextContent).Text; strings.Contains(text, "this resource") {
 				t.Errorf("%s has no accessNouns entry: %q", name, text)

@@ -390,7 +390,7 @@ func LoggingMiddleware(logger logging.Logger) Middleware {
 Query logs with trace correlation:
 
 ```logql
-{service="orbit"} 
+{service="kora-identity"} 
   | json 
   | trace_id="2482aff647d2da4b929d57bc10bcfa74"
 ```
@@ -398,7 +398,7 @@ Query logs with trace correlation:
 ### Datadog
 
 ```
-service:orbit trace_id:2482aff647d2da4b929d57bc10bcfa74
+service:kora-identity trace_id:2482aff647d2da4b929d57bc10bcfa74
 ```
 
 ### Elasticsearch

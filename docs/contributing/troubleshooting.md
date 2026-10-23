@@ -9,9 +9,9 @@ Before debugging an individual service, check that you are looking at the local 
 ```bash
 kubectl config current-context                    # expected: k3d-kora-local
 docker compose ps                                 # Postgres, Redis, glauth, Dex, HAProxy
-kubectl get orbitplatform orbit                   # operator reconciliation state
-kubectl get pods -n kora-system                  # control-plane services
-kubectl get pods -n kora-tenant-example          # example tenant workloads
+kubectl get koratenants -A                        # operator reconciliation state
+kubectl get pods -n kora-system                   # control-plane services
+kubectl get pods -n kora-tenant-example           # example tenant workloads
 ```
 
 The operator's preflight reports whether SPIRE and Istio meet kora's prerequisites. If a tenant is not `Ready`, check its `PrerequisitesSatisfied` condition and the operator log before chasing an application pod:

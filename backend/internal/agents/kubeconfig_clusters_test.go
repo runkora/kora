@@ -120,7 +120,7 @@ func TestSandboxContainerEnv_KubeClusters(t *testing.T) {
 }
 
 // TestSandboxContainer_WorkspaceMountScopedToRunID locks the fix for
-// https://github.com/clear-route/orbit/issues/134: the workspaces PVC is
+// https://github.com/runkora/kora/issues/134: the workspaces PVC is
 // shared by every run co-located on the same pod ordinal, so the sandbox
 // container must mount it with SubPath: runID at /workspaces/{runID} — never
 // the bare PVC root — so a run's sandbox pod cannot see a sibling run's

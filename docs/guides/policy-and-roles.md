@@ -22,7 +22,7 @@ The vocabulary is the global set of valid scopes, and every tenant validates aga
 
 A vocabulary entry can declare `requires`: the scopes the holder also needs for the scope to work. The bundle compiler adds every required scope to each grant and tenant role that covers the entry. The built-in roles take no `requires` expansion.
 
-An MCP tool scope only allows calling the tool. The platform API behind an orbit tool checks its own scope against the caller, and orbit tools declare no `requires`.
+An MCP tool scope only allows calling the tool. The platform API behind a kora tool checks its own scope against the caller, and kora tools declare no `requires`.
 
 A grant or role write returns `warnings` for scopes that do nothing without a companion scope the write does not include. Examples are a model scope without `inference:invoke`, an MCP tool scope without `mcp:invoke`, a GitHub category scope without the connection's `metadata:read`, a per-agent run scope without read on that agent, an agent-type write without `agents:types:read`, and `triggers:write` without `triggers:read`. A warning never blocks the write. The principal may hold the companion through another grant or role.
 
@@ -146,7 +146,7 @@ PUT /api/v1/policy/roles
 }
 ```
 
-The `scopes` list replaces the role's scopes in full. Every scope must be in the vocabulary. A repository-qualified connection scope such as `connection:github:issues:orbit:write` is accepted when its unqualified base is registered. A role accepts `egress:connect` and rejects per-host (`egress:<host>:connect`) and connector egress scopes. Those scopes belong in agent grants.
+The `scopes` list replaces the role's scopes in full. Every scope must be in the vocabulary. A repository-qualified connection scope such as `connection:github:issues:kora:write` is accepted when its unqualified base is registered. A role accepts `egress:connect` and rejects per-host (`egress:<host>:connect`) and connector egress scopes. Those scopes belong in agent grants.
 
 **Change a Role's Budget:**
 

@@ -1,4 +1,4 @@
-title = "Orbit Gitleaks Configuration"
+title = "kora Gitleaks Configuration"
 
 # Extend gitleaks' built-in ruleset so we benefit from upstream rule updates
 # without having to maintain every pattern ourselves.

@@ -501,7 +501,7 @@ const (
 // The PVC is shared by every run scheduled onto that pod ordinal, so the
 // mount is scoped with SubPath: run.ID (see sandboxContainer); this run's
 // sandbox pod only ever has its own {runID} directory mounted, never a
-// sibling run's. See https://github.com/clear-route/orbit/issues/134.
+// sibling run's. See https://github.com/runkora/kora/issues/134.
 func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error) {
 	ctx, span := k8sTracer.Start(ctx, "agents.k8s.ProvisionSandbox",
 		trace.WithAttributes(
@@ -1245,7 +1245,7 @@ func runWorkspaceDir(runID string) string {
 // the (StatefulSet-shared) PVC is scoped to its own run directory only:
 // sibling runs co-located on the same pod ordinal share the underlying PVC
 // but are not mounted into each other's sandbox pods at all. See
-// https://github.com/clear-route/orbit/issues/134.
+// https://github.com/runkora/kora/issues/134.
 func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execToken string) (corev1.Container, error) {
 	resources, err := sandboxResources(spec.Size)
 	if err != nil {

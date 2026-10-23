@@ -39,7 +39,7 @@ func TestBuildFlags_BaseFlags(t *testing.T) {
 }
 
 // Every run must disable Claude Code's own commit trailer and PR footer:
-// Orbit, not the subprocess's default settings, is the record of who ran an
+// kora, not the subprocess's default settings, is the record of who ran an
 // agent.
 func TestBuildFlags_DisablesOwnAttribution(t *testing.T) {
 	r := NewClaudeRunner(ClaudeRunnerConfig{

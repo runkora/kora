@@ -43,7 +43,7 @@ box(442, 470, 236, 42, "External thing"); // (place under a real layout)
 arrow(348, 152, 72, 0, EDGE); ctext(384, 138, "flow label", 9, EDGE);
 // ==================================================
 
-const doc = { type: "excalidraw", version: 2, source: "orbit", elements: els, appState: { viewBackgroundColor: "#ffffff", gridSize: null }, files: {} };
+const doc = { type: "excalidraw", version: 2, source: "kora", elements: els, appState: { viewBackgroundColor: "#ffffff", gridSize: null }, files: {} };
 const out = process.argv[2];
 if (!out) { console.error("usage: node scene-template.mjs <out.excalidraw>"); process.exit(1); }
 fs.writeFileSync(out, JSON.stringify(doc, null, 2) + "\n");

@@ -226,10 +226,6 @@ const meta: Meta<typeof {Name}> = {
   tags: ['autodocs'],
   parameters: {
     layout: 'centered',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#070a0f' }],
-    },
   },
   argTypes: {
     // Union props: control: 'select'
@@ -291,8 +287,8 @@ If the user explicitly requests a story anyway, create it without a `title` pref
 ### Promotion story changes
 
 Update the `title` field to match the new tier's prefix. Add or remove the `parameters` block:
-- Tier 3 → 2: remove `parameters.layout` and `parameters.backgrounds`; set `title: 'App/Shared/…'`
-- Tier 2 → 1: add `parameters.layout: 'centered'` and the orbit `backgrounds` preset; set
+- Tier 3 → 2: remove `parameters.layout`; set `title: 'App/Shared/…'`
+- Tier 2 → 1: add `parameters.layout: 'centered'`; set
   `title: 'Hades/{category}/…'`
 
 ---
@@ -335,8 +331,8 @@ Both must exit zero before the task is done. Do not declare success until they d
    reach for `className`.
 3. **ESLint Hades rules are suppressed inside `src/packages/hades/**`** — raw `<div>` in a story
    render function inside the Hades package is fine. Everywhere else it fails lint.
-4. **Storybook runs outside the component tree** — CSS variable tokens don't resolve. The three
-   background presets in `preview.ts` use hardcoded hex values for this reason; don't change them.
+4. **Storybook backgrounds are disabled**: the canvas uses the Hades background colour, so it
+   follows the brand and theme toolbar. Do not add a `backgrounds` preset to a story.
 5. **`pnpm tsc --noEmit` from `frontend/`** — not the repo root. The root `tsconfig.json` does
    not cover `frontend/src`.
 6. **Tier 3 has no barrel** — relative imports only. A Tier 3 component accidentally exported

@@ -36,7 +36,7 @@
 //	}
 //	go routescopes.KeepRegistered(ctx, logger, "inference-gateway", register)
 //
-// [issue #170]: https://github.com/clear-route/orbit/issues/170
+// [issue #170]: https://github.com/runkora/kora/issues/170
 package routescopes
 
 import (

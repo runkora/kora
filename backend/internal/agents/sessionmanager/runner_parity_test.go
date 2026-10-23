@@ -14,7 +14,7 @@ import (
 
 // Every framework goes through kora-session-runner, so Codex and OpenCode runs
 // are confined the same way a Claude run is.
-// See https://github.com/clear-route/orbit/issues/217.
+// See https://github.com/runkora/kora/issues/217.
 func TestWrapExec(t *testing.T) {
 	const (
 		wrapper = "/usr/local/bin/kora-session-runner"
@@ -142,7 +142,7 @@ func TestRunEnv_NodeHeapCap(t *testing.T) {
 
 // Without the runtime MCP server a run cannot ask for a sandbox, and without an
 // entry per governed server its mcp_tools grants do nothing.
-// See https://github.com/clear-route/orbit/issues/217.
+// See https://github.com/runkora/kora/issues/217.
 func TestCodexConfig_MCPServers(t *testing.T) {
 	workDir := t.TempDir()
 	r := NewCodexRunner(CodexRunnerConfig{

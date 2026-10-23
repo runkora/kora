@@ -50,7 +50,7 @@ Authenticates an agent to GitHub as a GitHub App installation. `secretRef` shoul
 config:
   app_id: (string) the GitHub App's ID.
   installation_id: (number) the installation on your organisation or repositories.
-  owner: (string) the org or user the App is installed on. Orbit rejects requests addressed to any other owner.
+  owner: (string) the org or user the App is installed on. kora rejects requests addressed to any other owner.
   permissions: (map) optional ceiling, intersected with the permissions each action derives.
 ```
 
