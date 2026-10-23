@@ -88,7 +88,7 @@ func readSandbox() sandbox {
 
 // runTokenHeader carries this run's credential to the session-manager. It must
 // match sessionmanager.runTokenHeader.
-const runTokenHeader = "X-Orbit-Run-Token"
+const runTokenHeader = "X-Kora-Run-Token"
 
 // provisionTimeout sits above the session-manager's worst case for a provision
 // (its retry budget, at most 600s, plus the 90s egress canary), so its verdict

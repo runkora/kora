@@ -12,7 +12,7 @@ import (
 )
 
 // runTokenHeader carries the run's own credential on the /internal routes.
-const runTokenHeader = "X-Orbit-Run-Token"
+const runTokenHeader = "X-Kora-Run-Token"
 
 // The /internal routes authenticate the caller as loopback in this container,
 // which every subprocess of every run on this pod satisfies. The run token is
@@ -30,7 +30,7 @@ func runTokenPath(workspaces, runID string) (string, bool) {
 	if !runfs.IsRunID(runID) {
 		return "", false
 	}
-	return filepath.Join(workspaces, runID, ".orbit", "run-token"), true
+	return filepath.Join(workspaces, runID, ".kora", "run-token"), true
 }
 
 // mintRunToken returns the run's token, generating and storing one on first

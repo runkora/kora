@@ -780,7 +780,7 @@ func newAgentsStub() *agentsStub {
 		if auth := r.Header.Get("Authorization"); auth != "Bearer minted-token" {
 			as.callerReads = append(as.callerReads, r.PathValue("id"))
 			as.callerBearers = append(as.callerBearers, auth)
-			as.callerDelegs = append(as.callerDelegs, r.Header.Get("X-Orbit-Delegation-Token"))
+			as.callerDelegs = append(as.callerDelegs, r.Header.Get("X-Kora-Delegation-Token"))
 			if as.callerStatus != 0 {
 				status = as.callerStatus
 			}

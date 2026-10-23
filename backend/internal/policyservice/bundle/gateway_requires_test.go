@@ -18,9 +18,9 @@ func TestGateway_RequiresExpansion_RolesAndGrants(t *testing.T) {
 	vocab := []*vocabulary.ScopeEntry{
 		{Scope: "inference:list", ResourceType: "inference", Action: "list"},
 		{
-			Scope:        "mcp:orbit:models:list:use",
+			Scope:        "mcp:kora:models:list:use",
 			ResourceType: "mcp",
-			PathSegments: []string{"orbit", "models", "list"},
+			PathSegments: []string{"kora", "models", "list"},
 			Action:       "use",
 			Requires:     []string{"inference:list"},
 		},
@@ -34,7 +34,7 @@ func TestGateway_RequiresExpansion_RolesAndGrants(t *testing.T) {
 			vocab:        vocab,
 			globalRoutes: route,
 			roles: map[string][]*roles.RoleEntry{
-				testTenantID: {{TenantID: testTenantID, Role: "engineer", Scopes: []string{"mcp:orbit:use"}}},
+				testTenantID: {{TenantID: testTenantID, Role: "engineer", Scopes: []string{"mcp:kora:use"}}},
 			},
 		})
 		jwt := signTestJWT(t, "HUMAN", testTenantID, "user-1", map[string]any{
@@ -53,7 +53,7 @@ func TestGateway_RequiresExpansion_RolesAndGrants(t *testing.T) {
 			vocab:        vocab,
 			globalRoutes: route,
 			grants: map[string][]*grants.Grant{
-				testTenantID: {{TenantID: testTenantID, PrincipalType: grants.PrincipalTypeHuman, PrincipalID: "user-2", Scopes: []string{"mcp:orbit:use"}}},
+				testTenantID: {{TenantID: testTenantID, PrincipalType: grants.PrincipalTypeHuman, PrincipalID: "user-2", Scopes: []string{"mcp:kora:use"}}},
 			},
 		})
 		jwt := signTestJWT(t, "HUMAN", testTenantID, "user-2", nil)

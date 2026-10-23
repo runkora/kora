@@ -95,7 +95,7 @@ A kora admin cannot express any GitHub authorization narrower than "all reads" /
 **Pros:**
 - Zero stored-grant migration. Every existing `repo:read`/`repo:write` grant expands to the full category set at the next bundle compile — behaviorally identical to today.
 - The go-forward umbrella needs no expansion machinery at all: `connection:<n>:read`/`write` cover the whole subtree by the prefix rule, including scopes that don't exist yet (future categories, any repository qualifier).
-- Reuses the exact mechanism the MCP tool gateway already ships for scope dependency (`orbit/requires`) for the legacy bridge, and the platform's one hierarchy mechanism (`covers`) for breadth — no wildcard semantics invented anywhere.
+- Reuses the exact mechanism the MCP tool gateway already ships for scope dependency (`kora/requires`) for the legacy bridge, and the platform's one hierarchy mechanism (`covers`) for breadth — no wildcard semantics invented anywhere.
 
 **Cons:**
 - Two umbrella spellings coexist during the deprecation window: legacy `repo:read`/`repo:write` (requires-expanded) and the covering parents. The vocabulary description strings must state that `repo:*` is the *catch-all category plus legacy bridge*, and new grants should prefer the parents.

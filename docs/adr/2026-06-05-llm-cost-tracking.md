@@ -322,7 +322,7 @@ WHERE principal_id = $1
 
 **Fail-open:** If Redis is unreachable during a budget check, or if OPA evaluation fails (e.g. bundle not yet loaded, evaluation error), the request proceeds and a structured log event is emitted. This is a fixed platform behaviour — agent continuity takes precedence over budget cap guarantees during infrastructure outages. It is not configurable per tenant.
 
-**Role of Redis in enforcement:** Redis provides the current-month spend value (`current_spend_usd`). The inference gateway reads this value, injects it into the OPA input document alongside the principal identity, and evaluates `data.orbit.budget.budget_allow` via `pol.CheckBudget`. Redis does not make the enforcement decision — OPA does. Redis is simply the fast data source for spend.
+**Role of Redis in enforcement:** Redis provides the current-month spend value (`current_spend_usd`). The inference gateway reads this value, injects it into the OPA input document alongside the principal identity, and evaluates `data.kora.budget.budget_allow` via `pol.CheckBudget`. Redis does not make the enforcement decision — OPA does. Redis is simply the fast data source for spend.
 
 ---
 
@@ -407,10 +407,10 @@ CREATE TABLE principal_quotas (
 
 **Effective quota resolution:**
 
-Resolution is implemented in Rego (`policy/budget.rego`), not in Go. Quota limits and role memberships are compiled into the tenant bundle as `data/quotas/data.json`. The inference gateway reads current spend from Redis, injects it into the OPA input, and evaluates `data.orbit.budget.budget_allow`. The Rego rule applies the resolution order:
+Resolution is implemented in Rego (`policy/budget.rego`), not in Go. Quota limits and role memberships are compiled into the tenant bundle as `data/quotas/data.json`. The inference gateway reads current spend from Redis, injects it into the OPA input, and evaluates `data.kora.budget.budget_allow`. The Rego rule applies the resolution order:
 
 ```rego
-package orbit.budget
+package kora.budget
 
 import rego.v1
 
@@ -523,8 +523,8 @@ Budget enforcement is split into two sub-phases: migrating quota ownership to po
 2. Implement quota repository in `internal/policyservice/quotas/` — `postgres.go` with CRUD methods; `repository.go` interface.
 3. Add quota CRUD API routes to policy-service under `platform:quotas:read`/`write` scopes, replacing the inference-gateway quota handlers. Quota admin API is now co-located with grants admin.
 4. Extend the bundle compiler (`internal/policyservice/bundle/compiler.go`) to load quota data and include `data/quotas/data.json` in every tenant bundle. Recompile triggers on every quota write — same mechanism as grant writes.
-5. Write `policy/budget.rego` and embed it in the bundle alongside `authz.rego`. Update the bundle manifest `Roots` to include `"orbit/budget"` and `"quotas"` alongside the existing roots (`"orbit/authz"`, `"grants"`, `"vocabulary"`, `"roles"`, `"routes"`, `"config"`). Both new roots are required: `"orbit/budget"` for the Rego package, `"quotas"` for the `data/quotas/data.json` document. Without both declared, OPA will not load them from the bundle.
-6. Add a `CheckBudget(ctx, tenantID, principalID string, currentSpendUSD float64) (allow bool, err error)` method to `internal/platform/policy.Evaluator` and the in-process engine — evaluates `data.orbit.budget.budget_allow`.
+5. Write `policy/budget.rego` and embed it in the bundle alongside `authz.rego`. Update the bundle manifest `Roots` to include `"kora/budget"` and `"quotas"` alongside the existing roots (`"kora/authz"`, `"grants"`, `"vocabulary"`, `"roles"`, `"routes"`, `"config"`). Both new roots are required: `"kora/budget"` for the Rego package, `"quotas"` for the `data/quotas/data.json` document. Without both declared, OPA will not load them from the bundle.
+6. Add a `CheckBudget(ctx, tenantID, principalID string, currentSpendUSD float64) (allow bool, err error)` method to `internal/platform/policy.Evaluator` and the in-process engine — evaluates `data.kora.budget.budget_allow`.
 7. Migrate any existing quota data from the inference-gateway database to policy-service.
 8. Drop quota tables from the inference-gateway database.
 
@@ -536,7 +536,7 @@ Budget enforcement is split into two sub-phases: migrating quota ownership to po
 4. Remove quota route registrations from `cmd/inference-gateway/main.go`. Remove `QuotaCache` and `QuotaRepository` wiring.
 5. Add a new Goose migration in `cmd/inference-gateway/migrations/` that drops the `quota_roles`, `principal_quota_role_memberships`, and `principal_quotas` tables. Do not delete the earlier `20260608015333_create_quota_tables.sql` migration — Goose requires the full history to remain intact. The new down migration is the correct mechanism for removing the tables.
 6. Delete the inference-gateway quota test files: `handlers_quota_test.go`, `quota_cache_test.go` (if present), and `quota_repository_test.go` (if present). Quota behaviour is now covered by policy-service tests.
-7. Add quota status API endpoint to **policy-service**: returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached }` for the authenticated principal. Policy-service reads current spend from the Redis counter (same key format as the gateway: `quota:{principal_id}:{YYYY-MM}`) and evaluates `orbit.budget.budget_allow` to derive `spend_limit_reached`. This keeps the quota read path co-located with quota data ownership and avoids a cross-service call from the gateway for the status response.
+7. Add quota status API endpoint to **policy-service**: returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached }` for the authenticated principal. Policy-service reads current spend from the Redis counter (same key format as the gateway: `quota:{principal_id}:{YYYY-MM}`) and evaluates `kora.budget.budget_allow` to derive `spend_limit_reached`. This keeps the quota read path co-located with quota data ownership and avoids a cross-service call from the gateway for the status response.
 8. Verify: integration test confirms zero successful inference requests after a principal's monthly spend meets their effective budget.
 
 ### Phase 3: Frontend

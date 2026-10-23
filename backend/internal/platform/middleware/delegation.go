@@ -12,7 +12,7 @@ import (
 )
 
 // DelegationTokenHeader carries a run's delegation token alongside the platform token.
-const DelegationTokenHeader = "X-Orbit-Delegation-Token"
+const DelegationTokenHeader = "X-Kora-Delegation-Token"
 
 // JTIBlocklist reports whether a token's JTI has been revoked. Implemented by
 // internal/platform/storage.JTIBlocklist (the Redis set the identity service
@@ -62,7 +62,7 @@ func DelegationRefusalMessage(err error) string {
 	return ErrDelegationInvalid.Error()
 }
 
-// DelegationMiddlewareWithBlocklist extracts the optional X-Orbit-Delegation-Token
+// DelegationMiddlewareWithBlocklist extracts the optional X-Kora-Delegation-Token
 // header, verifies the delegation JWT (signature, issuer, audience, expiry) with
 // the given verifier, and stores the result in context via policy.WithDelegation.
 // Downstream handlers retrieve it with policy.DelegationFromContext.

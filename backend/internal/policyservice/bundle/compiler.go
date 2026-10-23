@@ -4,7 +4,7 @@
 // Each tenant's bundle is compiled on every grant write and cached in memory.
 // The bundle contains:
 //   - policy/authz.rego         — the kora authorisation rules
-//   - policy/budget.rego        — the orbit.budget enforcement rules
+//   - policy/budget.rego        — the kora.budget enforcement rules
 //   - data/grants/data.json     — this tenant's grants only
 //   - data/vocabulary/data.json — the scope vocabulary (shared, but bundled per-tenant)
 //   - data/roles/data.json      — OIDC role → platform scope mappings
@@ -632,7 +632,7 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 	// Build manifest
 	mf := manifest{
 		Revision: revision,
-		Roots:    []string{"orbit/authz", "orbit/budget", "grants", "vocabulary", "roles", "principal_roles", "routes", "config", "budgets", "role_budgets", "tenant_budget"},
+		Roots:    []string{"kora/authz", "kora/budget", "grants", "vocabulary", "roles", "principal_roles", "routes", "config", "budgets", "role_budgets", "tenant_budget"},
 		Metadata: &metadata{
 			CompiledAt: time.Now().UTC().Format(time.RFC3339),
 			TenantID:   tenantID,
@@ -799,7 +799,7 @@ func buildGatewayBundle(
 
 	mf := manifest{
 		Revision: revision,
-		Roots:    []string{"orbit/authz_gateway", "routes", "config", "vocabulary", "tenants"},
+		Roots:    []string{"kora/authz_gateway", "routes", "config", "vocabulary", "tenants"},
 		Metadata: &metadata{
 			CompiledAt: time.Now().UTC().Format(time.RFC3339),
 		},

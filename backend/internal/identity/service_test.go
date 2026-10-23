@@ -724,7 +724,7 @@ func TestExchangeIDToken_PropagatesRoles(t *testing.T) {
 	}
 
 	// Decode the access token (unverified — trusted from our own service)
-	// and check that orbit.claims.roles was populated.
+	// and check that kora.claims.roles was populated.
 	parts := strings.Split(resp.AccessToken, ".")
 	if len(parts) != 3 {
 		t.Fatalf("expected 3-part JWT, got %d parts", len(parts))
@@ -742,7 +742,7 @@ func TestExchangeIDToken_PropagatesRoles(t *testing.T) {
 		t.Fatal("expected MapClaims")
 	}
 
-	kora, ok := claims["orbit"].(map[string]any)
+	kora, ok := claims["kora"].(map[string]any)
 	if !ok {
 		t.Fatal("expected orbit claims object")
 	}
@@ -754,7 +754,7 @@ func TestExchangeIDToken_PropagatesRoles(t *testing.T) {
 
 	rolesRaw, ok := koraClaims["roles"]
 	if !ok {
-		t.Fatal("expected orbit.claims.roles to be set")
+		t.Fatal("expected kora.claims.roles to be set")
 	}
 
 	rolesStr, ok := rolesRaw.(string)
@@ -792,12 +792,12 @@ func TestExchangeIDToken_PropagatesGroupsAsRoles(t *testing.T) {
 	}
 
 	claims := tok.Claims.(jwt.MapClaims)
-	kora := claims["orbit"].(map[string]any)
+	kora := claims["kora"].(map[string]any)
 	koraClaims := kora["claims"].(map[string]any)
 
 	rolesStr, ok := koraClaims["roles"].(string)
 	if !ok {
-		t.Fatal("expected orbit.claims.roles to be set as a string")
+		t.Fatal("expected kora.claims.roles to be set as a string")
 	}
 
 	if rolesStr != "platform-admin,users" {
@@ -830,7 +830,7 @@ func TestExchangeIDToken_NoRolesOmitsClaimField(t *testing.T) {
 	}
 
 	claims := tok.Claims.(jwt.MapClaims)
-	kora := claims["orbit"].(map[string]any)
+	kora := claims["kora"].(map[string]any)
 	koraClaims, ok := kora["claims"].(map[string]any)
 	if !ok {
 		t.Fatal("expected orbit.claims map")

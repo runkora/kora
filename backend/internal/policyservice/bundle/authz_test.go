@@ -65,8 +65,8 @@ func compileAndPrepare(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
 	}
 	cfg := bundle.Config{
 		JWKSURL:            jwksURL,
-		Issuer:             "orbit",
-		Audience:           "orbit-platform",
+		Issuer:             "kora",
+		Audience:           "kora-platform",
 		TelemetryCollector: opts.telemetryCollector,
 	}
 
@@ -97,7 +97,7 @@ func compileAndPrepare(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
 	}
 
 	pq, err := rego.New(
-		rego.Query(`x := {"allow": data.orbit.authz.allow, "reason": data.orbit.authz.reason}`),
+		rego.Query(`x := {"allow": data.kora.authz.allow, "reason": data.kora.authz.reason}`),
 		rego.ParsedBundle(testTenantID, &b),
 	).PrepareForEval(context.Background())
 	if err != nil {
@@ -237,8 +237,8 @@ func compileAndPrepareScopesQuery(t *testing.T, opts bundleOpts) rego.PreparedEv
 
 	cfg := bundle.Config{
 		JWKSURL:  "http://127.0.0.1:1/jwks",
-		Issuer:   "orbit",
-		Audience: "orbit-platform",
+		Issuer:   "kora",
+		Audience: "kora-platform",
 	}
 
 	routeStore := routes.NewStore()
@@ -268,7 +268,7 @@ func compileAndPrepareScopesQuery(t *testing.T, opts bundleOpts) rego.PreparedEv
 	}
 
 	pq, err := rego.New(
-		rego.Query(`x := data.orbit.authz.principal_all_scopes`),
+		rego.Query(`x := data.kora.authz.principal_all_scopes`),
 		rego.ParsedBundle(testTenantID, &b),
 	).PrepareForEval(context.Background())
 	if err != nil {

@@ -15,7 +15,7 @@ import (
 func TestProvisionSandbox_SendsTheRunToken(t *testing.T) {
 	var gotHeader, gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotHeader = r.Header.Get("X-Orbit-Run-Token")
+		gotHeader = r.Header.Get("X-Kora-Run-Token")
 		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"endpoint":"10.0.0.5:50051"}`)) //nolint:errcheck
@@ -30,7 +30,7 @@ func TestProvisionSandbox_SendsTheRunToken(t *testing.T) {
 	}
 
 	if gotHeader != "run-token-abc" {
-		t.Errorf("X-Orbit-Run-Token = %q, want the run token", gotHeader)
+		t.Errorf("X-Kora-Run-Token = %q, want the run token", gotHeader)
 	}
 	if gotPath != "/internal/session/run-1/provision-sandbox" {
 		t.Errorf("path = %q", gotPath)

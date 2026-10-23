@@ -70,7 +70,7 @@ func TestMCPMiddleware_DelegationBlocklist(t *testing.T) {
 	const agent = "spiffe://orbit.test/tenant/acme/agent/coder"
 	signer := newTestSigner(t)
 	verifier := platformtoken.NewVerifier(context.Background(), signer.url, platformtoken.DefaultIssuer, platformtoken.DefaultAudience)
-	platform := signer.sign(t, jwt.MapClaims{"sub": agent, "orbit": map[string]any{"tenant_id": "acme", "principal_type": "AGENT"}})
+	platform := signer.sign(t, jwt.MapClaims{"sub": agent, "kora": map[string]any{"tenant_id": "acme", "principal_type": "AGENT"}})
 	delegation := signer.sign(t, jwt.MapClaims{"sub": "person-1", "act": map[string]string{"sub": agent}, "jti": "jti-1", "run_id": "run-1", "delegator_principal_type": "HUMAN"})
 
 	cases := []struct {
@@ -90,9 +90,9 @@ func TestMCPMiddleware_DelegationBlocklist(t *testing.T) {
 				seen = policy.DelegationFromContext(r.Context())
 				w.WriteHeader(http.StatusOK)
 			})
-			req := httptest.NewRequest(http.MethodPost, "/v1/mcp/orbit", nil)
+			req := httptest.NewRequest(http.MethodPost, "/v1/mcp/kora", nil)
 			req.Header.Set("Authorization", "Bearer "+platform)
-			req.Header.Set("X-Orbit-Delegation-Token", delegation)
+			req.Header.Set("X-Kora-Delegation-Token", delegation)
 			rec := httptest.NewRecorder()
 			c.Middleware()(next).ServeHTTP(rec, req)
 

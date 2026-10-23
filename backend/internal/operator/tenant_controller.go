@@ -565,7 +565,7 @@ bundles:
 plugins:
   envoy_ext_authz_grpc:
     addr: localhost:9191
-    path: orbit/authz/allow
+    path: kora/authz/allow
     allow_if_undefined: false
 
 decision_logs:

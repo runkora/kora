@@ -32,7 +32,7 @@ func TestPostgres_AgentTypeRoundTrip(t *testing.T) {
 		Framework:               AgentFrameworkClaudeCode,
 		GrantScopes:             []string{"inference:invoke"},
 		Connectors:              []Connector{},
-		MCPTools:                []string{"mcp:orbit:agents.list:use"},
+		MCPTools:                []string{"mcp:kora:agents.list:use"},
 		MaxConcurrentRunsPerPod: 2,
 		State:                   AgentTypeStateActive,
 		ModelID:                 new("bedrock/claude-sonnet-4-5"),

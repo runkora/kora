@@ -94,7 +94,7 @@ func (s *Service) Enforce(ctx context.Context, req Request) (Decision, error) {
         "time":     time.Now().UTC(),
     }
 
-    result, err := s.opa.Evaluate(ctx, "orbit/authz/allow", input)
+    result, err := s.opa.Evaluate(ctx, "kora/authz/allow", input)
     if err != nil {
         return Decision{}, fmt.Errorf("policy evaluation: %w", err)
     }

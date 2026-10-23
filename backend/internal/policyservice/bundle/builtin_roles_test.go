@@ -89,7 +89,7 @@ func TestCompile_BuiltinRoles(t *testing.T) {
 		{TenantID: "acme", Role: "engineer", Scopes: []string{"inference:list"}},
 		{TenantID: "acme", Role: "reader", Scopes: []string{"agents:types:read"}},
 	}
-	compiler := NewCompiler(Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "orbit", Audience: "orbit-platform"}, routes.NewStore())
+	compiler := NewCompiler(Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "kora", Audience: "kora-platform"}, routes.NewStore())
 
 	cases := []struct {
 		name    string
@@ -152,7 +152,7 @@ func TestBuiltinRoles_Tiers(t *testing.T) {
 	adminOnly := []string{
 		"platform:grants:write", "platform:roles:write", "platform:budgets:write", "platform:catalog:write",
 		"agents:types:write", "agents:runs:write", "agents:environments:write",
-		"agents:delegated:read", "mcp:orbit:use",
+		"agents:delegated:read", "mcp:kora:use",
 	}
 	for role, scopes := range builtinRoles {
 		for _, sc := range scopes {

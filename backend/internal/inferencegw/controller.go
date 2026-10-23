@@ -68,7 +68,7 @@ func (c *Controller) GroupedBy() string { return "" }
 //	xAPIKeyMiddleware                 — promotes x-api-key to Authorization: Bearer
 //	orbCredentialMiddleware           — strips orb_ prefix from bearer value
 //	AuthMiddleware                    — verifies JWT, stores claims in context
-//	DelegationMiddlewareWithBlocklist — extracts X-Orbit-Delegation-Token, stores in context
+//	DelegationMiddlewareWithBlocklist — extracts X-Kora-Delegation-Token, stores in context
 func (c *Controller) Middleware() mw.MiddlewareHandler {
 	return mw.MiddlewareChain(
 		xAPIKeyMiddleware(),

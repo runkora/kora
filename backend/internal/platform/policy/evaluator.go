@@ -28,7 +28,7 @@ type Evaluator interface {
 	// ScopesExplain returns the principal's scopes broken down by source.
 	ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesExplainResult, error)
 
-	// CheckBudget evaluates the orbit.budget hierarchical ceiling rules for
+	// CheckBudget evaluates the kora.budget hierarchical ceiling rules for
 	// the caller. The request carries verified identity context (principal,
 	// type, JWT roles, run identity) and the spends the gateway read from the
 	// canonical counters; OPA resolves the applicable ceilings from bundle
@@ -226,7 +226,7 @@ type DelegationClaims struct {
 	TenantID string
 }
 
-// BudgetCheckInput is the OPA input shape for the orbit.budget module.
+// BudgetCheckInput is the OPA input shape for the kora.budget module.
 type BudgetCheckInput struct {
 	Principal  budgetPrincipal   `json:"principal"`
 	Delegation *budgetDelegation `json:"delegation,omitempty"`

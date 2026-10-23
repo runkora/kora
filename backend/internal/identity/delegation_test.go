@@ -130,7 +130,7 @@ func newDelegationTestService(t *testing.T) (*Service, *mockDelegationRepository
 			RefreshTokenTTLDays:       30,
 			PATDefaultTTLDays:         90,
 			PATMaxTTLDays:             365,
-			Audience:                  "orbit-platform",
+			Audience:                  "kora-platform",
 			DelegationTokenTTLMinutes: 30,
 		},
 	}
@@ -173,7 +173,7 @@ func newDelegationTestServiceWithPAT(t *testing.T) (*Service, *mockDelegationRep
 			RefreshTokenTTLDays:       30,
 			PATDefaultTTLDays:         90,
 			PATMaxTTLDays:             365,
-			Audience:                  "orbit-platform",
+			Audience:                  "kora-platform",
 			DelegationTokenTTLMinutes: 30,
 		},
 	}
@@ -334,7 +334,7 @@ func newDelegationVerifier(t *testing.T, svc *Service) *token.Verifier {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return token.NewVerifier(context.Background(), srv.URL+"/keys", token.DefaultIssuer, "orbit-platform")
+	return token.NewVerifier(context.Background(), srv.URL+"/keys", token.DefaultIssuer, "kora-platform")
 }
 
 // ── mint ──────────────────────────────────────────────────────────────────────
@@ -783,7 +783,7 @@ func TestDelegationMiddleware_RejectsRevokedJTI(t *testing.T) {
 			)(next)
 
 			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(nil))
-			req.Header.Set("X-Orbit-Delegation-Token", raw)
+			req.Header.Set("X-Kora-Delegation-Token", raw)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)
 

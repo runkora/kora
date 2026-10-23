@@ -197,13 +197,13 @@ The gateway bundle is recompiled on every grant, role, or route write. On startu
 4. **Cross-tenant data partition** — grants and roles are looked up under `data.tenants[_tenant_id]` rather than `data.grants` / `data.roles`.
 
 ```rego
-package orbit.authz
+package kora.authz
 
 import rego.v1
 
 default allow := false
 
-_tenant_id := _layer1_claims.orbit.tenant_id
+_tenant_id := _layer1_claims.kora.tenant_id
 
 # ── FRONTEND HOST BYPASS ─────────────────────────────────────────────────────
 # The frontend (orbit.local.clearroute.io) uses session cookies, not Bearer

@@ -96,7 +96,7 @@ func TestOAuth_RoundTrip_MintsHumanToken(t *testing.T) {
 			PrincipalType string            `json:"principal_type"`
 			TenantID      string            `json:"tenant_id"`
 			Claims        map[string]string `json:"claims"`
-		} `json:"orbit"`
+		} `json:"kora"`
 	}
 	if err := json.Unmarshal(raw, &claims); err != nil {
 		t.Fatalf("decode claims: %v", err)
@@ -170,7 +170,7 @@ func TestOAuth_RefreshToken_RotatesAndPreservesClaims(t *testing.T) {
 	var claims struct {
 		Kora struct {
 			Claims map[string]string `json:"claims"`
-		} `json:"orbit"`
+		} `json:"kora"`
 	}
 	parts := strings.Split(second.AccessToken, ".")
 	raw, _ := base64.RawURLEncoding.DecodeString(parts[1])

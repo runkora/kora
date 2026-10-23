@@ -279,7 +279,7 @@ spec:
   # OIDC configuration for this tenant. Binds the tenant to a specific IdP.
   oidc:
     issuerURL: "https://acme.okta.com/oauth2/default"
-    clientID: "orbit-platform"
+    clientID: "kora-platform"
     # secretRef points at a pre-existing Secret with key OIDC_CLIENT_SECRET.
     # For public clients (device flow only), omit this field.
     # The Secret can be created by ESO, Vault Agent, SealedSecret, or manually —

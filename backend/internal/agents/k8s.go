@@ -1104,7 +1104,7 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Clu
 		// strips this header. A non-empty, obviously-non-functional placeholder lets
 		// gh issue the request (which the gateway then authenticates); the value
 		// never reaches GitHub and reads clearly as a non-secret to credential scanners.
-		corev1.EnvVar{Name: "GH_TOKEN", Value: "placeholder-credential-injected-by-orbit-egress-gateway"},
+		corev1.EnvVar{Name: "GH_TOKEN", Value: "placeholder-credential-injected-by-kora-egress-gateway"},
 	)
 	// Kubernetes connections the agent is granted. sandbox-exec renders these to
 	// $HOME/.kube/config at startup, so the agent runs `kubectl get pods` with no
@@ -1891,7 +1891,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								// Placeholder key; actual auth is the identity-proxy-issued JWT
 								// injected on every outbound request by the Envoy ext_proc filter.
 								// Claude Code requires a non-empty value to start in --bare mode.
-								{Name: "ANTHROPIC_API_KEY", Value: "orbit-managed"},
+								{Name: "ANTHROPIC_API_KEY", Value: "kora-managed"},
 								{Name: "KORA_NODE_MAX_OLD_SPACE_MB", Value: strconv.Itoa(p.cfg.NodeMaxOldSpaceMB)},
 								// The session-manager ends its drain before the kubelet stops the pod.
 								{Name: "KORA_TERMINATION_GRACE_PERIOD_SECS", Value: strconv.FormatInt(p.cfg.DrainGracePeriodSecs, 10)},

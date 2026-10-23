@@ -304,7 +304,7 @@ The OPA sidecar:
 - Runs the OPA Envoy plugin which natively implements the `envoy.service.auth.v3.Authorization` gRPC protocol
 - Listens on `localhost:9191` — same-pod loopback only, not exposed to the mesh
 - Polls the policy-service bundle endpoint directly in the background
-- Evaluates `data.orbit.authz.allow` against the locally loaded bundle on every Check call
+- Evaluates `data.kora.authz.allow` against the locally loaded bundle on every Check call
 
 An EnvoyFilter in `istio-system` wires the outbound ext_authz filter on agent pods to `localhost:9191`. It is inserted **after** the identity-proxy ext_proc filter so the platform token is already present in the `Authorization` header when OPA receives the CheckRequest:
 
@@ -459,7 +459,7 @@ Note: data files at `<dir>/data.json` are loaded into `data.<dir>` in OPA's name
 
 Core Rego evaluation:
 ```rego
-package orbit.authz
+package kora.authz
 
 import rego.v1
 
@@ -584,7 +584,7 @@ The Rego for Layer 1 derives `required_scope` from `data.routes.route_scopes` us
 
 ### Layer 1 and Layer 2 Enforcement
 
-**Layer 1 (Envoy outbound, OPA sidecar):** Handles path-level decisions — can this principal reach this service at this path? The OPA Envoy plugin sidecar receives the Envoy `CheckRequest` on `localhost:9191` and evaluates `data.orbit.authz.allow` against the locally loaded bundle. Returns 403 before the request leaves the calling pod. Applies to all outbound requests from agent pods, covering all destination services — owned and third-party — with no application code changes required at the destination.
+**Layer 1 (Envoy outbound, OPA sidecar):** Handles path-level decisions — can this principal reach this service at this path? The OPA Envoy plugin sidecar receives the Envoy `CheckRequest` on `localhost:9191` and evaluates `data.kora.authz.allow` against the locally loaded bundle. Returns 403 before the request leaves the calling pod. Applies to all outbound requests from agent pods, covering all destination services — owned and third-party — with no application code changes required at the destination.
 
 **Layer 2 (in-process, owned services only):** Handles payload-aware decisions — can this principal use this specific resource identified in the request body? Owned services call `platform/policy.Evaluator.Check()` or `.Query()` inline in their handler code. Evaluation is pure in-memory against the service's own locally loaded bundle. Listing endpoints call `.Query()` to filter their response sets, passing the full resource catalog as candidates. The service owns the catalog; the policy system owns the grants.
 

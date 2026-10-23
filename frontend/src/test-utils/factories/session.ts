@@ -51,7 +51,7 @@ export function createSessionPayload(overrides: Partial<SessionPayload> = {}): S
   const accessToken = buildFakeJwt({
     sub: user.sub,
     exp: expiresAt,
-    orbit: {
+    kora: {
       display_name: user.name,
       claims: { email: user.email },
     },
@@ -87,7 +87,7 @@ export function createBackendSessionResponse(
   const accessToken = buildFakeJwt({
     sub: user.sub,
     exp: issuedAt + expiresIn,
-    orbit: {
+    kora: {
       display_name: user.name,
       claims: { email: user.email },
     },

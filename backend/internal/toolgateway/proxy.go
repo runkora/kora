@@ -20,7 +20,7 @@ import (
 )
 
 // proxyClientName identifies the gateway to upstreams in the MCP handshake.
-const proxyClientName = "orbit-tool-gateway-proxy"
+const proxyClientName = "kora-tool-gateway-proxy"
 
 // defaultCallTimeout bounds a single upstream tools/call.
 const defaultCallTimeout = 60 * time.Second

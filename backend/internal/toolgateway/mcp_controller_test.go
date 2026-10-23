@@ -73,7 +73,7 @@ func (m *memCatalog) ListByTenant(context.Context, string) ([]CatalogTool, error
 
 func testController(eval policy.Evaluator, cat CatalogRepository) *MCPController {
 	reg := &Registry{
-		servers: []Server{{TenantID: "", Name: "orbit", Endpoint: "http://orbit/mcp", CallerIdentity: "forward"}},
+		servers: []Server{{TenantID: "", Name: "kora", Endpoint: "http://kora/mcp", CallerIdentity: "forward"}},
 		loaded:  true,
 	}
 	return NewMCPController(nil, eval, cat, reg, NewProxy(NewUpstreamCredentials(""), "test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
@@ -100,8 +100,8 @@ func doRPC(t *testing.T, c *MCPController, server, body string) (*httptest.Respo
 
 func TestToolsList_FiltersToGranted(t *testing.T) {
 	cat := &memCatalog{tools: []CatalogTool{
-		{ServerSlug: "orbit", ToolName: "agents.list", Scope: "mcp:orbit:agents:list:use"},
-		{ServerSlug: "orbit", ToolName: "agents.create", Scope: "mcp:orbit:agents:create:use"},
+		{ServerSlug: "kora", ToolName: "agents.list", Scope: "mcp:kora:agents:list:use"},
+		{ServerSlug: "kora", ToolName: "agents.create", Scope: "mcp:kora:agents:create:use"},
 		// A tool on a different server must NOT appear on the orbit endpoint.
 		{ServerSlug: "github", ToolName: "issues.create", Scope: "mcp:github:issues:create:use"},
 	}}
@@ -109,7 +109,7 @@ func TestToolsList_FiltersToGranted(t *testing.T) {
 	eval := &fakeEval{allow: map[string]bool{"agents.list": true}}
 	c := testController(eval, cat)
 
-	_, resp := doRPC(t, c, "orbit", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	_, resp := doRPC(t, c, "kora", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %+v", resp.Error)
 	}
@@ -130,7 +130,7 @@ func TestToolsCall_DeniedBeforeUpstream(t *testing.T) {
 	eval := &fakeEval{checkOK: false}
 	c := testController(eval, &memCatalog{})
 
-	_, resp := doRPC(t, c, "orbit", `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"agents.create","arguments":{}}}`)
+	_, resp := doRPC(t, c, "kora", `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"agents.create","arguments":{}}}`)
 	if resp.Error == nil || resp.Error.Code != -32001 {
 		t.Fatalf("expected -32001 tool not permitted, got %+v (result=%v)", resp.Error, resp.Result)
 	}
@@ -241,7 +241,7 @@ func TestRegistryLookup_SelectsEndpoint(t *testing.T) {
 func TestEmptyToolName(t *testing.T) {
 	eval := &fakeEval{checkOK: true}
 	c := testController(eval, &memCatalog{})
-	_, resp := doRPC(t, c, "orbit", `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"","arguments":{}}}`)
+	_, resp := doRPC(t, c, "kora", `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"","arguments":{}}}`)
 	if resp.Error == nil || resp.Error.Code != -32602 {
 		t.Fatalf("expected -32602 for empty tool name, got %+v", resp.Error)
 	}
@@ -251,7 +251,7 @@ func TestEmptyToolName(t *testing.T) {
 func TestNotification_202EmptyBody(t *testing.T) {
 	eval := &fakeEval{checkOK: true}
 	c := testController(eval, &memCatalog{})
-	rec, _ := doRPC(t, c, "orbit", `{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	rec, _ := doRPC(t, c, "kora", `{"jsonrpc":"2.0","method":"notifications/initialized"}`)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", rec.Code)
 	}
@@ -280,7 +280,7 @@ func TestToolDecisions_CarryDelegationAndRun(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			eval := &fakeEval{}
-			cat := &memCatalog{tools: []CatalogTool{{ServerSlug: "orbit", ToolName: "agents.list", Scope: "mcp:orbit:agents:list:use"}}}
+			cat := &memCatalog{tools: []CatalogTool{{ServerSlug: "kora", ToolName: "agents.list", Scope: "mcp:kora:agents:list:use"}}}
 			c := testController(eval, cat)
 
 			claims := &platformtoken.PlatformClaims{}
@@ -291,8 +291,8 @@ func TestToolDecisions_CarryDelegationAndRun(t *testing.T) {
 			if tc.delegation != nil {
 				ctx = policy.WithDelegation(ctx, tc.delegation)
 			}
-			req := httptest.NewRequest(http.MethodPost, "/run/run-1/v1/mcp/orbit", strings.NewReader(tc.body)).WithContext(ctx)
-			req.SetPathValue("server", "orbit")
+			req := httptest.NewRequest(http.MethodPost, "/run/run-1/v1/mcp/kora", strings.NewReader(tc.body)).WithContext(ctx)
+			req.SetPathValue("server", "kora")
 			mw.StripRunPrefix(http.HandlerFunc(c.handleMCP)).ServeHTTP(httptest.NewRecorder(), req)
 
 			got := eval.lastCheck.Delegation
@@ -341,7 +341,7 @@ func TestToolsCall_ForwardsDelegationToForwardIdentityOnly(t *testing.T) {
 			defer ts.Close()
 
 			reg := &Registry{
-				servers: []Server{{TenantID: tc.tenantID, Name: "orbit", Endpoint: ts.URL + "/mcp", CallerIdentity: tc.callerIdentity}},
+				servers: []Server{{TenantID: tc.tenantID, Name: "kora", Endpoint: ts.URL + "/mcp", CallerIdentity: tc.callerIdentity}},
 				loaded:  true,
 			}
 			c := NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg, NewProxy(NewUpstreamCredentials(""), "test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
@@ -350,8 +350,8 @@ func TestToolsCall_ForwardsDelegationToForwardIdentityOnly(t *testing.T) {
 			claims.Kora.TenantID = "acme"
 			claims.Subject = "agent-1"
 			body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agents.list","arguments":{}}}`
-			req := httptest.NewRequest(http.MethodPost, "/v1/mcp/orbit", strings.NewReader(body)).WithContext(platformtoken.WithClaims(context.Background(), claims))
-			req.SetPathValue("server", "orbit")
+			req := httptest.NewRequest(http.MethodPost, "/v1/mcp/kora", strings.NewReader(body)).WithContext(platformtoken.WithClaims(context.Background(), claims))
+			req.SetPathValue("server", "kora")
 			req.Header.Set("Authorization", "Bearer agent-token")
 			req.Header.Set(mw.DelegationTokenHeader, "delegation-token")
 			rec := httptest.NewRecorder()

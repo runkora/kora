@@ -244,8 +244,8 @@ The cluster runs `kora-mcp` behind the tool gateway. With kora running, point an
 ```json
 {
   "mcpServers": {
-    "orbit": {
-      "url": "https://api.orbit.local.clearroute.io/v1/mcp/orbit",
+    "kora": {
+      "url": "https://api.orbit.local.clearroute.io/v1/mcp/kora",
       "type": "streamable-http"
     }
   }

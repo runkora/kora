@@ -228,7 +228,7 @@ tenants:
     state: "active"
     oidc:
       issuerURL: "https://accounts.google.com"
-      clientID: "orbit-platform"
+      clientID: "kora-platform"
       clientSecretEnv: "ORBIT_TENANT_PLATFORM_TEAM_OIDC_CLIENT_SECRET"
       scopes:
         - openid

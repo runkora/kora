@@ -79,7 +79,7 @@ func TestGateway_RouteMatching(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			headers := map[string]string{":authority": "api.orbit.example.com", "authorization": bearer}
 			if tc.delegation != "" {
-				headers["x-orbit-delegation-token"] = tc.delegation
+				headers["x-kora-delegation-token"] = tc.delegation
 			}
 			allow, reason := evalGateway(t, pq, tc.method, tc.path, headers)
 			if allow != tc.wantAllow || reason != tc.wantReason {
@@ -103,7 +103,7 @@ func TestAuthz_Layer1_RouteMatching(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			headers := map[string]string{"authorization": bearer}
 			if tc.delegation != "" {
-				headers["x-orbit-delegation-token"] = tc.delegation
+				headers["x-kora-delegation-token"] = tc.delegation
 			}
 			allow, reason := evalLayer1(t, pq, tc.method, tc.path, headers)
 			if allow != tc.wantAllow || reason != tc.wantReason {

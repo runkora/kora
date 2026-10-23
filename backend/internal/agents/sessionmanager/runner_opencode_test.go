@@ -579,17 +579,17 @@ func TestOpenCodeWriteConfig(t *testing.T) {
 		t.Fatalf("unmarshal config: %v", err)
 	}
 
-	if len(cfg.EnabledProviders) != 1 || cfg.EnabledProviders[0] != "orbit" {
-		t.Errorf("enabled_providers = %v, want [orbit]", cfg.EnabledProviders)
+	if len(cfg.EnabledProviders) != 1 || cfg.EnabledProviders[0] != "kora" {
+		t.Errorf("enabled_providers = %v, want [kora]", cfg.EnabledProviders)
 	}
-	const want = "orbit/anthropic/claude-sonnet-5"
+	const want = "kora/anthropic/claude-sonnet-5"
 	if cfg.Model != want || cfg.SmallModel != want {
 		t.Errorf("model, small_model = %q, %q; want %q for both", cfg.Model, cfg.SmallModel, want)
 	}
 	if len(cfg.Provider) != 1 {
-		t.Fatalf("providers = %v, want only orbit", cfg.Provider)
+		t.Fatalf("providers = %v, want only kora", cfg.Provider)
 	}
-	kora := cfg.Provider["orbit"]
+	kora := cfg.Provider["kora"]
 	if kora.Name != "Acme" {
 		t.Errorf("provider name = %q, want Acme", kora.Name)
 	}

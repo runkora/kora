@@ -30,7 +30,7 @@ A tenant agent pod runs the coupled pair injected by `internal/operator/pod_webh
 
 ```
 ext_proc  → identity-proxy   injects Authorization: Bearer <platform-token> (from SVID exchange)
-ext_authz → OPA sidecar      localhost:9191, path orbit/authz/allow, fail-closed (allow_if_undefined: false)
+ext_authz → OPA sidecar      localhost:9191, path kora/authz/allow, fail-closed (allow_if_undefined: false)
 router    → out
 ```
 
@@ -112,7 +112,7 @@ Define how a sandbox-resident tool makes an external call such that: (1) the rea
 The following sub-decisions are part of this ADR:
 
 1. **The sandbox rejoins the mesh.** Drop `skip-injection`/`inject:false` for sandbox pods; they receive the standard `identity-proxy` + `opa-policy` pair. The "no outbound calls" rationale no longer holds. Reusing identity-proxy means **no bespoke egress shim is built**.
-2. **Caller identity is the platform token (a Bearer JWT).** identity-proxy injects it as today. The egress gateway authenticates and authorizes from it. This is chosen over a bespoke mTLS-SVID channel specifically because **delegation will later ride the same header channel** (`X-Orbit-Delegation-Token` / an `act:` claim) with no transport change.
+2. **Caller identity is the platform token (a Bearer JWT).** identity-proxy injects it as today. The egress gateway authenticates and authorizes from it. This is chosen over a bespoke mTLS-SVID channel specifically because **delegation will later ride the same header channel** (`X-Kora-Delegation-Token` / an `act:` claim) with no transport change.
 3. **Per-run sandbox SVID.** The sandbox is attested as `spiffe://<td>/tenant/<ns>/agent/<slug>/sandbox/<run-id>`. The principal extractor normalizes this to the agent principal (`…/agent/<slug>`) for **authorization** (existing agent grants apply unchanged) and lifts `run_id` into claims for **attribution**. This is *authorize-as-agent, attribute-as-run*. Per the PRD, "any human with the scope can run any run of the agent" — authority is at the agent level; the run-id is for audit and forward-compatibility with per-run delegation.
 4. **The egress gateway is per-tenant and holds the minting material.** One per-tenant component holds the tenant CA intermediate signing key (it must, for TLS termination), the connection minting secrets, and the connection registry it serves from. It embeds the in-process `policy.Evaluator` (zero-hop OPA, same per-tenant bundle the sidecars use). There is exactly one place that resolves a secret and mints. A thin, shared **connection-registration control plane** stores connection config + secret references (admin CRUD); it never mints and never handles a live credential in flight.
 5. **Connections are data; adapters are code.** A connection is a tenant-scoped registration naming an adapter, a base host, a secret reference, a scope ceiling, and (for now) the bot authority model. Adapters implement a small interface (below). New SaaS using an existing adapter is a registration, not a code change.
@@ -320,7 +320,7 @@ It does **not**, and cannot, see:
 - **the connection name** (`github`) — the `host → connection` mapping lives in the gateway's connection registry (`Broker` / `conns.GetByHost`); the sandbox bundle has no registry.
 - **the action** (`repo:write`) — classified by the adapter from the **inner HTTP method+path**, which is *inside the TLS tunnel*: encrypted and invisible until the gateway terminates TLS.
 
-OPA's Layer-1 derives the required scope from `data.routes.route_scopes` by **path-prefix + method**; a CONNECT has no path → it matches no route → `no_route_match` → fail-closed **deny**. The deployed decision log for `curl https://example.com` confirms exactly this: a valid injected Bearer, `method=CONNECT`, `host=example.com:443`, `orbit/authz/allow → result:false`. Identity arrives; the connection and action do not.
+OPA's Layer-1 derives the required scope from `data.routes.route_scopes` by **path-prefix + method**; a CONNECT has no path → it matches no route → `no_route_match` → fail-closed **deny**. The deployed decision log for `curl https://example.com` confirms exactly this: a valid injected Bearer, `method=CONNECT`, `host=example.com:443`, `kora/authz/allow → result:false`. Identity arrives; the connection and action do not.
 
 The gateway's `Broker.Authorize` already performs the correct check — `GetByHost` → `adapter.ClassifyAction(innerRequest)` → `policy.Check(connection:<name>:<action>)`, fail-closed, then mint — because it is the only place holding both the registry and the decrypted inner request. (`internal/egressgw/scopes.go` already states the egress hot path "is authorized in-process by `Broker.Authorize`".)
 

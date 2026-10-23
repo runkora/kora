@@ -8,8 +8,8 @@ server:
 
 bundle:
   # The chart renders jwksURL and frontendHost.
-  issuer: "orbit"
-  audience: "orbit-platform"
+  issuer: "kora"
+  audience: "kora-platform"
   # Where the chart mounts the kora-tenants ConfigMap.
   tenantsPath: /etc/kora/tenants.yaml
 

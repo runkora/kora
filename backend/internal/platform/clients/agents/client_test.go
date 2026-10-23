@@ -20,7 +20,7 @@ func newTestClient(t *testing.T, status int, body string) (*Client, *capture) {
 		cap.path = r.URL.Path
 		cap.query = r.URL.RawQuery
 		cap.auth = r.Header.Get("Authorization")
-		cap.delegation = r.Header.Get("X-Orbit-Delegation-Token")
+		cap.delegation = r.Header.Get("X-Kora-Delegation-Token")
 		raw, _ := io.ReadAll(r.Body)
 		cap.body = string(raw)
 		w.Header().Set("Content-Type", "application/json")
@@ -201,7 +201,7 @@ func TestCanReadRun(t *testing.T) {
 	for _, tc := range cases {
 		var gotPath, gotAuth, gotDelegation string
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			gotPath, gotAuth, gotDelegation = r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("X-Orbit-Delegation-Token")
+			gotPath, gotAuth, gotDelegation = r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("X-Kora-Delegation-Token")
 			w.WriteHeader(tc.status)
 		}))
 		err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).CanReadRun(context.Background(), "tok", "deleg", "run-1")

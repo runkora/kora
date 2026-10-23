@@ -1,5 +1,5 @@
 # The in-cluster JWKS endpoint for the default kora-system namespace. The chart
 # renders the install's own.
 jwksURL: "http://kora-identity.kora-system.svc.cluster.local/api/v1/identity/.well-known/jwks.json"
-issuer: orbit
-audience: orbit-platform
+issuer: kora
+audience: kora-platform

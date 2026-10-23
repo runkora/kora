@@ -44,7 +44,7 @@ import { getSession, isSessionValid } from '@runkora/server/session';
 interface KoraJwtPayload {
   sub: string;
   exp: number;
-  orbit?: {
+  kora?: {
     display_name?: string;
     claims?: Record<string, string>;
   };
@@ -66,8 +66,8 @@ function isKoraJwtPayload(v: unknown): v is KoraJwtPayload {
   ) {
     return false;
   }
-  const orbit = (v as Record<string, unknown>)['orbit'];
-  if (orbit !== undefined && (typeof orbit !== 'object' || orbit === null)) {
+  const kora = (v as Record<string, unknown>)['kora'];
+  if (kora !== undefined && (typeof kora !== 'object' || kora === null)) {
     return false;
   }
   return true;
@@ -205,8 +205,8 @@ export async function POST(request: Request): Promise<Response> {
 
   const user: SessionUser = {
     sub: claims.sub,
-    email: claims.orbit?.claims?.['email'] ?? '',
-    name: claims.orbit?.display_name ?? '',
+    email: claims.kora?.claims?.['email'] ?? '',
+    name: claims.kora?.display_name ?? '',
   };
 
   const payload: SessionPayload = {

@@ -186,7 +186,7 @@ func (r *OpenCodeRunner) Start(ctx context.Context, workDir string) error {
 	initResult, err := r.sendRPCRequest(ctx, "initialize", map[string]any{
 		"protocolVersion":    1,
 		"clientCapabilities": map[string]any{},
-		"clientInfo":         map[string]string{"name": "orbit-session-manager", "version": "1.0"},
+		"clientInfo":         map[string]string{"name": "kora-session-manager", "version": "1.0"},
 	})
 	if err != nil {
 		cleanupProc()
@@ -416,7 +416,7 @@ func lockOpenCodeGlobalConfig(workDir string) error {
 
 // openCodeProvider is the only provider OpenCode may load: the inference gateway.
 // It is the provider's table key and the model id prefix, not the product name.
-const openCodeProvider = "orbit"
+const openCodeProvider = "kora"
 
 // openCodeConfig is the run's OpenCode config. The agent type's model is the
 // only model on offer, served by the inference gateway, and every other provider
@@ -438,7 +438,7 @@ func (r *OpenCodeRunner) openCodeConfig(workDir string) ([]byte, error) {
 				"options": map[string]string{
 					"baseURL": fmt.Sprintf("%s/run/%s/v1", gatewayURL, r.cfg.RunID),
 					// Placeholder: the identity-proxy sidecar replaces the Authorization header.
-					"apiKey": "orbit-managed",
+					"apiKey": "kora-managed",
 				},
 				"models": map[string]any{r.cfg.Model: map[string]any{}},
 			},

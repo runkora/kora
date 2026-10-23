@@ -73,7 +73,7 @@ func testAgentType(tenant string, envs ...AgentEnvironment) AgentType {
 		MaxConcurrentRunsPerPod: 1,
 		State:                   AgentTypeStateActive,
 		ModelID:                 new("bedrock/claude-sonnet-4-5"),
-		MCPTools:                []string{"mcp:orbit:use"},
+		MCPTools:                []string{"mcp:kora:use"},
 		Environments:            envs,
 		IdentityMode:            IdentityModeDelegated,
 	}
@@ -178,7 +178,7 @@ func TestPostgres_AgentEnvironments(t *testing.T) {
 	if len(got.Environments) != 2 || got.Environments[0] != (AgentEnvironment{EnvironmentID: goEnv.ID, IsDefault: true}) {
 		t.Errorf("environments = %+v, want the go default first", got.Environments)
 	}
-	if got.IdentityMode != IdentityModeDelegated || got.MCPTools[0] != "mcp:orbit:use" {
+	if got.IdentityMode != IdentityModeDelegated || got.MCPTools[0] != "mcp:kora:use" {
 		t.Errorf("agent type = %+v", got)
 	}
 

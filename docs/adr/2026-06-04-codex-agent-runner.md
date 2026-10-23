@@ -37,7 +37,7 @@ The protocol resembles JSON-RPC 2.0 but **omits the `"jsonrpc": "2.0"` field**. 
 
 ```json
 // Runner → server
-{"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "orbit-session-manager", "version": "1.0"}, "capabilities": {}}}
+{"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "kora-session-manager", "version": "1.0"}, "capabilities": {}}}
 
 // Server → runner
 {"id": 1, "result": {"userAgent": "codex/...", "platformOs": "linux"}}
@@ -140,7 +140,7 @@ trust_level = "trusted"
 
 #### Bearer token: `env_key` not inline
 
-The `env_key` field names an environment variable from which Codex reads the bearer token at startup. The runner sets `KORA_INFERENCE_KEY=orbit-managed` in the subprocess environment — the identity-proxy sidecar intercepts outbound calls and injects the real platform token, so `orbit-managed` is a placeholder that is never sent to the upstream provider.
+The `env_key` field names an environment variable from which Codex reads the bearer token at startup. The runner sets `KORA_INFERENCE_KEY=kora-managed` in the subprocess environment — the identity-proxy sidecar intercepts outbound calls and injects the real platform token, so `kora-managed` is a placeholder that is never sent to the upstream provider.
 
 This is preferable to passing the token via a `-c` CLI flag because process argv is world-readable on Linux (`/proc/<pid>/cmdline`) and would expose the token to any process on the same node. Passing it as an environment variable scopes it to the subprocess and its children, which is the standard safe approach for secrets in child processes.
 

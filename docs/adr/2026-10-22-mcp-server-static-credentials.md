@@ -127,7 +127,7 @@ The operator marks an `MCPServer` `Invalid` when any of these rules fails:
 *   `spec.auth.headers` lists at most 8 headers.
 *   Each header `name` uses only letters, digits and hyphens, is at most 64 characters, and is unique case-insensitively. These names are also valid in a Secret data key, and the longest key is 192 characters.
 *   A `prefix` is at most 256 characters.
-*   A header `name` is not reserved. The reserved names are `Host`, `Content-Length`, `Content-Type`, `Accept`, `Transfer-Encoding`, `Connection`, `Keep-Alive`, `Proxy-Connection`, `Proxy-Authenticate`, `Proxy-Authorization`, `TE`, `Trailer`, `Upgrade`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`, `traceparent`, `tracestate`, `X-Orbit-Delegation-Token` (`mw.DelegationTokenHeader`), and any name starting with `X-Forwarded-` or `X-Envoy-`.
+*   A header `name` is not reserved. The reserved names are `Host`, `Content-Length`, `Content-Type`, `Accept`, `Transfer-Encoding`, `Connection`, `Keep-Alive`, `Proxy-Connection`, `Proxy-Authenticate`, `Proxy-Authorization`, `TE`, `Trailer`, `Upgrade`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`, `traceparent`, `tracestate`, `X-Kora-Delegation-Token` (`mw.DelegationTokenHeader`), and any name starting with `X-Forwarded-` or `X-Envoy-`.
 *   A `prefix` contains no control character other than tab.
 *   `secretRef.name` is a valid Secret name, and `secretRef.key` is a valid Secret data key.
 *   `spec.auth` and `callerIdentity: forward` are not both set. Both would set `Authorization`.

@@ -31,8 +31,8 @@ func prepareAuthzFuncQuery(t *testing.T, query string) rego.PreparedEvalQuery {
 
 	cfg := bundle.Config{
 		JWKSURL:  "http://127.0.0.1:1/jwks",
-		Issuer:   "orbit",
-		Audience: "orbit-platform",
+		Issuer:   "kora",
+		Audience: "kora-platform",
 	}
 	compiler := bundle.NewCompiler(cfg, routes.NewStore())
 	cached, err := compiler.Compile(testTenantID, nil, nil, nil, nil, nil)
@@ -71,7 +71,7 @@ func evalHostMatch(t *testing.T, pq rego.PreparedEvalQuery, pattern, host string
 }
 
 func TestEgress_HostMatches(t *testing.T) {
-	pq := prepareAuthzFuncQuery(t, `x := data.orbit.authz._host_matches(input.pattern, input.host)`)
+	pq := prepareAuthzFuncQuery(t, `x := data.kora.authz._host_matches(input.pattern, input.host)`)
 
 	cases := []struct {
 		name    string
@@ -129,7 +129,7 @@ func evalEgressPattern(t *testing.T, pq rego.PreparedEvalQuery, scope string) (s
 }
 
 func TestEgress_HostPatternExtraction(t *testing.T) {
-	pq := prepareAuthzFuncQuery(t, `x := data.orbit.authz._egress_host_pattern(input.scope)`)
+	pq := prepareAuthzFuncQuery(t, `x := data.kora.authz._egress_host_pattern(input.scope)`)
 
 	cases := []struct {
 		name    string

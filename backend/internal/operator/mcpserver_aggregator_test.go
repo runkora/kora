@@ -136,7 +136,7 @@ func TestBuildMCPRegistry(t *testing.T) {
 
 	servers := []MCPServer{
 		// Global server with forward — valid, tenant_id "".
-		mcpSrv("orbit", systemNamespace, MCPServerSpec{
+		mcpSrv("kora", systemNamespace, MCPServerSpec{
 			Endpoint:                    "http://kora-mcp.kora-system.svc:8095/mcp",
 			ReintrospectIntervalSeconds: 900,
 			CallerIdentity:              CallerIdentityForward,
@@ -164,7 +164,7 @@ func TestBuildMCPRegistry(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("got %d entries, want 2: %+v", len(entries), entries)
 	}
-	if entries[0].Name != "orbit" || entries[0].TenantID != "" {
+	if entries[0].Name != "kora" || entries[0].TenantID != "" {
 		t.Errorf("entry[0] = %+v, want global orbit", entries[0])
 	}
 	if entries[0].CallerIdentity != CallerIdentityForward {

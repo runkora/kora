@@ -30,7 +30,7 @@ data:
     plugins:
       envoy_ext_authz_grpc:
         addr: ":9191"
-        path: "orbit/authz_gateway/allow"
+        path: "kora/authz_gateway/allow"
         dry-run: false
         enable-reflection: false
 

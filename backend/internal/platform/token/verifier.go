@@ -38,8 +38,8 @@ func NewVerifierFromConfig(ctx context.Context, cfg Config) *Verifier {
 //
 //	http://kora-identity.kora-system.svc.cluster.local/api/v1/identity/.well-known/jwks.json
 //
-// issuer    — must match the "iss" claim in platform tokens (default: "orbit")
-// audience  — must match the "aud" claim in platform tokens (default: "orbit-platform")
+// issuer    — must match the "iss" claim in platform tokens (default: "kora")
+// audience  — must match the "aud" claim in platform tokens (default: "kora-platform")
 func NewVerifier(ctx context.Context, jwksURL, issuer, audience string) *Verifier {
 	keySet := gooidc.NewRemoteKeySet(ctx, jwksURL)
 	inner := gooidc.NewVerifier(issuer, keySet, &gooidc.Config{

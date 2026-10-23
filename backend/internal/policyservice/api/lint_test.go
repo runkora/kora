@@ -13,7 +13,7 @@ func TestCoherenceWarnings(t *testing.T) {
 	vocab := []*vocabulary.ScopeEntry{
 		{Scope: "connection:github:metadata:read"},
 		{Scope: "connection:github:issues:write", Requires: []string{"connection:github:metadata:read"}},
-		{Scope: "mcp:orbit:runs.list:use", Requires: []string{"agents:runs:read"}},
+		{Scope: "mcp:kora:runs.list:use", Requires: []string{"agents:runs:read"}},
 	}
 
 	cases := []struct {

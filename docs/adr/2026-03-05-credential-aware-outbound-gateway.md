@@ -22,7 +22,7 @@ At the same time, kora's security model requires that:
 
 ### Background
 
-[unified-identity-model](2026-03-05-unified-identity-model.md) established the unified identity model and platform session token. [agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) established delegation flow patterns using RFC 8693, including the `X-Orbit-Delegation-Token` header for carrying delegation context. [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md) established Envoy as the universal policy enforcement data plane.
+[unified-identity-model](2026-03-05-unified-identity-model.md) established the unified identity model and platform session token. [agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) established delegation flow patterns using RFC 8693, including the `X-Kora-Delegation-Token` header for carrying delegation context. [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md) established Envoy as the universal policy enforcement data plane.
 
 These ADRs collectively define how identity and policy work inside the platform. What they do not address is how agents reach services outside the platform. This is the outbound leg of the platform — there is no existing component that owns the external call path.
 
@@ -233,7 +233,7 @@ The gateway implements one adapter per credential mechanism. Service registratio
 For Entra-backed services (MSGraph, SharePoint, Teams, any Azure service). Used when the agent is acting on behalf of a delegating human.
 
 The adapter:
-1. Retrieves the human delegator's retained Entra access token from the session store (using the delegator principal ID from `X-Orbit-Delegation-Token`)
+1. Retrieves the human delegator's retained Entra access token from the session store (using the delegator principal ID from `X-Kora-Delegation-Token`)
 2. Computes the scope intersection: `min(delegation grant scopes, human Entra session scopes, service registration allowed scopes)`
 3. Performs the OBO exchange against Entra's token endpoint:
    ```
@@ -265,7 +265,7 @@ For delegated calls using the OBO adapter, the external credential scope is alwa
 
 ```
 OBO token scopes = min(
-  delegation grant permitted scopes,     // from X-Orbit-Delegation-Token
+  delegation grant permitted scopes,     // from X-Kora-Delegation-Token
   human Entra session scopes,            // from the retained Entra access token
   service registration allowed scopes    // configured ceiling for this service
 )
@@ -430,7 +430,7 @@ scope:      [msgraph:mail:read]
 expiry:     now + 15 minutes
 ```
 
-This is exchanged via RFC 8693 into a delegation token and passed to the agent as `X-Orbit-Delegation-Token` in its task context. The scope is `msgraph:mail:read` only — Sarah did not grant calendar access for this task.
+This is exchanged via RFC 8693 into a delegation token and passed to the agent as `X-Kora-Delegation-Token` in its task context. The scope is `msgraph:mail:read` only — Sarah did not grant calendar access for this task.
 
 ### Step 3 — The agent makes a plain HTTP call
 
@@ -439,7 +439,7 @@ The agent constructs a plain HTTP request with no knowledge of MSGraph's OAuth m
 ```
 GET /proxy/msgraph/v1.0/me/mailFolders/inbox/messages?$filter=isRead eq false
 Authorization: Bearer {agent-platform-session-token}
-X-Orbit-Delegation-Token: {delegation-token}
+X-Kora-Delegation-Token: {delegation-token}
 ```
 
 The agent does not know what an OBO token is. It calls the proxy URL and expects email data in return.
@@ -466,7 +466,7 @@ OPA returns allow. The gateway sidecar forwards the request to the gateway handl
 The gateway receives the forwarded request and:
 
 1. Parses the path prefix `msgraph` → looks up the service registration → base URL `https://graph.microsoft.com`, adapter type `oauth2_obo`
-2. Reads `X-Orbit-Delegation-Token` → extracts delegator principal ID `principal-sarah-xyz` and delegation scopes `[msgraph:mail:read]`
+2. Reads `X-Kora-Delegation-Token` → extracts delegator principal ID `principal-sarah-xyz` and delegation scopes `[msgraph:mail:read]`
 3. Selects the Entra OBO adapter
 
 ### Step 7 — OBO adapter computes the scope intersection
@@ -564,10 +564,10 @@ sequenceDiagram
     %% Delegation
     Sarah->>+EdgeEnvoy: Trigger email summarisation task
     EdgeEnvoy->>EdgeEnvoy: Create delegation grant<br/>delegator: principal-sarah-xyz<br/>agent: principal-email-agent-abc<br/>scope: [msgraph:mail:read]<br/>expiry: now + 15min
-    EdgeEnvoy-->>-Agent: Task context + X-Orbit-Delegation-Token
+    EdgeEnvoy-->>-Agent: Task context + X-Kora-Delegation-Token
 
     %% Agent makes plain HTTP call
-    Agent->>+Sidecar: GET /proxy/msgraph/v1.0/me/mailFolders/inbox/messages<br/>Authorization: Bearer {platform-session-token}<br/>X-Orbit-Delegation-Token: {delegation-token}
+    Agent->>+Sidecar: GET /proxy/msgraph/v1.0/me/mailFolders/inbox/messages<br/>Authorization: Bearer {platform-session-token}<br/>X-Kora-Delegation-Token: {delegation-token}
 
     %% Sidecar validates and forwards east-west
     Sidecar->>Sidecar: Validate platform session token<br/>Check jti revocation list
@@ -637,7 +637,7 @@ sequenceDiagram
 ## Related Decisions
 
 - [unified-identity-model](2026-03-05-unified-identity-model.md) — Unified identity model and platform session token; extended by this ADR to add Entra token retention for OBO flows
-- [agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) — Delegation flow patterns and RFC 8693 token format; the `X-Orbit-Delegation-Token` is consumed by the OBO adapter for scope derivation
+- [agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) — Delegation flow patterns and RFC 8693 token format; the `X-Kora-Delegation-Token` is consumed by the OBO adapter for scope derivation
 - [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) — SPIFFE/SPIRE workload attestation; the gateway validates the agent's platform session token (injected by Envoy sidecar) before accepting proxy calls
 - [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md) — Universal Envoy-based policy enforcement; the Edge Envoy layer enforces gateway-access policy for outbound calls before forwarding to the credential gateway
 

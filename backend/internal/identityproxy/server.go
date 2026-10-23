@@ -68,7 +68,7 @@ const istioReadyURL = "http://localhost:15021/healthz/ready"
 // Processor implements ExternalProcessorServer.
 // It injects the cached platform JWT as an Authorization header on every
 // request, and — when the request carries per-run identity — the run's
-// delegation token as X-Orbit-Delegation-Token
+// delegation token as X-Kora-Delegation-Token
 // (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 4). Any inbound
 // delegation header is stripped unconditionally: the untrusted subprocess must
 // never be able to inject one. The zero-value is not usable — use NewProcessor.
@@ -142,7 +142,7 @@ func headerValue(headers *ext_procv3.HttpHeaders, key string) string {
 // handleRequestHeaders reads the cached tokens and returns a ProcessingResponse
 // that injects the Authorization header — and, when the request carries run
 // identity (the /run/{run_id} path prefix, or this pod's own sandbox SVID) and
-// that run holds an active delegation, the X-Orbit-Delegation-Token header —
+// that run holds an active delegation, the X-Kora-Delegation-Token header —
 // into the upstream request.
 func (p *Processor) handleRequestHeaders(ctx context.Context, headers *ext_procv3.HttpHeaders) *ext_procv3.ProcessingResponse {
 	// Telemetry export is platform infrastructure: the collector gets neither

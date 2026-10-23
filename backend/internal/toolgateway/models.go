@@ -50,7 +50,7 @@ type Tool struct {
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"input_schema"`
 	// RequiresScopes are platform scopes this tool needs upstream, declared by
-	// a global server in the tool's _meta["orbit/requires"].
+	// a global server in the tool's _meta["kora/requires"].
 	// Published on the leaf scope declaration so the effective grant confers them.
 	// Always empty for a tenant server.
 	RequiresScopes []string `json:"requires_scopes,omitempty"`
