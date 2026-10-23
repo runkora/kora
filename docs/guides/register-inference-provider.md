@@ -1,4 +1,4 @@
-# Model providers
+# Register an inference provider
 
 Register each model provider with an `InferenceProvider` resource in the kora system namespace (`orbit-system` by default). The provider's name is `<type>:<metadata.name>`, for example `compatible:openrouter`. Changes to the resource or its Secret apply without a restart.
 

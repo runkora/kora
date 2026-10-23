@@ -1,4 +1,4 @@
-# Connections
+# Register a connection
 
 For agents to be effective, they often need to reach external services. kora grants this access through a `Connection`, which brokers the agent's request. The egress gateway intercepts the agent's outbound call and injects the credential in flight, provisioning for the upstream service just-in-time. The agent never holds the secret and cannot exfiltrate it.
 

@@ -35,7 +35,7 @@ When an agent's task requires compute or tooling, it can provision a [sandbox](s
 
 ## Outbound path
 
-The kora-operator injects the Istio `istio-proxy`, the kora `identity-proxy` and an OPA `ext_authz` sidecar which govern all egress and the chain stamps a [platform credential](platform-tokens.md) on all requests.
+The kora-operator injects the Istio `istio-proxy`, the kora `identity-proxy` and an OPA `ext_authz` sidecar which govern all egress and the chain stamps a [platform credential](../concepts/platform-tokens.md) on all requests.
 
 No credentials are brokered or stored in an agent's environment, session or sandbox. Every outbound request leaves the pod through its sidecar chain:
 
