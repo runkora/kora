@@ -34,10 +34,8 @@ type discordEnvelope struct {
 	Kora koraContext `json:"kora"`
 }
 
-func parseDiscordEnvelope(body []byte) discordEnvelope {
-	var e discordEnvelope
-	_ = json.Unmarshal(body, &e)
-	return e
+func parseDiscordEnvelope(body []byte) (e discordEnvelope, ok bool) {
+	return e, json.Unmarshal(body, &e) == nil
 }
 
 func (a *discordAdapter) Provider() string { return providerDiscord }
@@ -47,14 +45,15 @@ func (a *discordAdapter) Verify(string, http.Header, []byte) error { return ErrS
 
 // DeliveryID returns the message id.
 func (a *discordAdapter) DeliveryID(_ http.Header, body []byte) string {
-	return parseDiscordEnvelope(body).D.ID
+	e, _ := parseDiscordEnvelope(body)
+	return e.D.ID
 }
 
 // EventType returns "" for every bot and webhook message, so the agent's own replies never match.
 func (a *discordAdapter) EventType(_ http.Header, body []byte) string {
-	e := parseDiscordEnvelope(body)
+	e, ok := parseDiscordEnvelope(body)
 	d := e.D
-	if d.Author.Bot == true || d.WebhookID != "" || (d.Type != discordMessageDefault && d.Type != discordMessageReply) {
+	if !ok || d.Author.Bot == true || d.WebhookID != "" || (d.Type != discordMessageDefault && d.Type != discordMessageReply) {
 		return ""
 	}
 	if d.GuildID == "" {
