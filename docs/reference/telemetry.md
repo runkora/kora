@@ -19,7 +19,7 @@ observability:
 ## Config Keys
 
 *   **`otlpEndpoint`:** The OTLP collector's gRPC URL. `http://` is plaintext and `https://` is TLS. An endpoint without a scheme fails startup, and an empty endpoint disables OTLP export.
-*   **`samplingRate`:** The fraction of root spans sampled, from 0.0 to 1.0. It is 0.1 in `production.yaml` and 1.0 in `local.yaml`.
+*   **`samplingRate`:** The fraction of root spans sampled, from 0.0 to 1.0. It is 0.1 in `production.yaml` and 0 in `local.yaml`. A rate of 0 samples no traces.
 *   **`logFormat`:** `console` or `json`. It is `json` in `production.yaml` and `console` in `local.yaml`.
 
 The `kora` chart renders these keys from `global.observability.otlpEndpoint`, `global.observability.samplingRate` and `global.logFormat`:
@@ -122,7 +122,7 @@ Check a workload's rendered values with `kubectl -n kora-system get configmap ko
 **Solutions:**
 1. Verify TLS certificates are valid
 2. For a collector serving plaintext, use an `http://` endpoint
-3. Check that endpoint uses correct port (4317 for gRPC, 4318 for HTTP)
+3. Check that the endpoint uses the OTLP gRPC port, usually 4317. kora exports only over OTLP gRPC, and an OTLP HTTP endpoint on 4318 never connects.
 
 ### High overhead
 
