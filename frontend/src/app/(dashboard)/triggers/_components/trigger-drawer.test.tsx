@@ -674,6 +674,13 @@ describe('a Discord source', () => {
     expect(screen.getByText(/the bot token is invalid/)).toBeTruthy();
   });
 
+  it('shows no request URL and no signing secret wording while disabled', () => {
+    renderDiscord(discord(null, false));
+    expect(screen.queryByText('Request URL')).toBeNull();
+    expect(screen.queryByText(/signing secret/i)).toBeNull();
+    expect(screen.queryByText(/HMAC/)).toBeNull();
+  });
+
   it('sets the first bot token of a source that is waiting for one', async () => {
     const onRotateSecret = renderDiscord(discord({ state: 'waiting' }, false));
     expect(screen.getByText('Waiting for bot token')).toBeTruthy();

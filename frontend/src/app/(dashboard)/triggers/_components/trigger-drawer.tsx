@@ -47,6 +47,7 @@ import { consoleKindOf, KIND_ICON, LIMITS } from '../_types';
 import type { DeliveryRow, Senders, SourceRow, TriggerCoalesce, TriggerRow } from '../_types';
 import { isStartedOutcome, recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
+import { DISCORD_PROVIDER } from '../_lib/discord-invite';
 import { ISSUED_SECRETS } from '../_lib/providers';
 import { ConnectionBadge } from './connection-badge';
 import { chatConversationKey, chatEventLabel } from '../_lib/chat';
@@ -596,6 +597,8 @@ export function TriggerDrawer({
   if (trigger === null) return null;
 
   const source = sources.find((s) => s.id === trigger.sourceId);
+  // A Gateway source has no request URL, and reports no connection while disabled.
+  const gateway = source?.provider === DISCORD_PROVIDER;
   // A chat command is stored as a webhook trigger; its source's category tells them apart.
   const kind = consoleKindOf(trigger, (id) => sources.find((s) => s.id === id)?.category);
   const eventName =
@@ -690,14 +693,10 @@ export function TriggerDrawer({
                 <Stack gap="snug">
                   <Stack direction="horizontal" gap="snug" align="center">
                     <SectionLabel>
-                      {source?.connection
-                        ? 'Connection'
-                        : kind === 'chat'
-                          ? 'Request URL'
-                          : 'Endpoint'}
+                      {gateway ? 'Connection' : kind === 'chat' ? 'Request URL' : 'Endpoint'}
                     </SectionLabel>
-                    {source?.connection ? (
-                      <ConnectionBadge connection={source.connection} />
+                    {gateway ? (
+                      <ConnectionBadge connection={source?.connection ?? undefined} />
                     ) : (
                       source !== undefined &&
                       !source.signingSecretSet && (
@@ -708,11 +707,10 @@ export function TriggerDrawer({
                     )}
                   </Stack>
                   {/* A Gateway source has no request URL: kora connects out. */}
-                  {source?.connection ? (
-                    source.connection.state === 'rejected' && (
+                  {gateway ? (
+                    source?.connection?.state === 'rejected' && (
                       <Alert variant="error">
-                        Discord refused the connection
-                        {source.connection.reason ? `: ${source.connection.reason}` : '.'}
+                        {source.connection.reason || 'Discord refused the connection.'}
                       </Alert>
                     )
                   ) : (
@@ -803,7 +801,7 @@ export function TriggerDrawer({
                     </Text>
                   )}
 
-                  {!source?.connection && (
+                  {!gateway && (
                     <Text size="caption" color="subtle">
                       Deliveries are verified with an HMAC signature over the raw body. Unsigned or
                       stale requests are rejected before any run starts, and are counted on the

@@ -203,6 +203,16 @@ describe('a trigger on a Discord source', () => {
     expect(screen.getByText(label)).toBeTruthy();
   });
 
+  it('gives the reason a rejected source was refused for', () => {
+    render(
+      list({
+        triggers: [trigger],
+        sourceConnection: () => ({ state: 'rejected', reason: 'bad token' }),
+      }),
+    );
+    expect(screen.getByText(/bad token/)).toBeTruthy();
+  });
+
   it('shows no state for a source that receives requests', () => {
     render(list({ triggers: [trigger] }));
     expect(screen.queryByText('Connected')).toBeNull();

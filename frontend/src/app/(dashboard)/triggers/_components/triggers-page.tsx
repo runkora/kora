@@ -33,6 +33,7 @@ import { TriggerList } from './trigger-list';
 import { DeliveryGrid } from './delivery-grid';
 import { consoleKindOf, matchesStatusFilter, runTargets } from '../_types';
 import { ingestHostFromWindow } from '../_lib/endpoints';
+import { DISCORD_PROVIDER } from '../_lib/discord-invite';
 import type {
   AgentOption,
   ConsoleKind,
@@ -107,9 +108,11 @@ export function TriggersPage({
   }, [sources]);
 
   const sourceWaiting = useMemo(() => {
-    // A Gateway source shows its own connection state instead.
+    // A Discord source shows its connection state instead, and none while disabled.
     const waiting = new Set(
-      sources.filter((s) => !s.signingSecretSet && s.connection === null).map((s) => s.id),
+      sources
+        .filter((s) => !s.signingSecretSet && s.provider !== DISCORD_PROVIDER)
+        .map((s) => s.id),
     );
     return (id: string) => waiting.has(id);
   }, [sources]);

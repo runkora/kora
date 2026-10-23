@@ -64,6 +64,11 @@ function firesOn(t: TriggerRow, kind: ConsoleKind): string {
   }
 }
 
+/** Why a Discord source was refused, shown in the row since the badge holds only the state. */
+function rejectionReason(connection: SourceConnection | undefined): string {
+  return connection?.state === 'rejected' ? (connection.reason ?? '') : '';
+}
+
 // ── Column definitions ────────────────────────────────────────────────────────
 
 function makeColumns(
@@ -112,7 +117,9 @@ function makeColumns(
             </Stack>
             <Text size="caption" color="subtle" truncate>
               {row.kind === 'webhook'
-                ? sourceName(row.sourceId)
+                ? [sourceName(row.sourceId), rejectionReason(sourceConnection(row.sourceId))]
+                    .filter(Boolean)
+                    .join(' · ')
                 : row.kind === 'scheduled'
                   ? (row.scheduleConfig?.timezone ?? 'schedule')
                   : `POST /api/v1/trigger-fires/${row.id}`}
