@@ -179,7 +179,7 @@ export function TriggersPage({
   // Triggers tab so the two surfaces drive the same drawer identically.
   const refresh = useCallback(() => router.refresh(), [router]);
 
-  // A connecting source gets its result from the backend without any action here, so poll until none is.
+  // Refresh while a source is connecting: the backend records the session result.
   const anyConnecting = sources.some((s) => s.connection?.state === 'connecting');
   useEffect(() => {
     if (!anyConnecting) return;

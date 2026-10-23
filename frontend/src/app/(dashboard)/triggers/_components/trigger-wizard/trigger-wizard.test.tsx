@@ -588,13 +588,11 @@ describe('chat command kind', () => {
   });
 
   it('keeps the invite link in the done block after the setup step is gone', async () => {
-    const onCreate = vi
-      .fn()
-      .mockResolvedValue({
-        ok: true,
-        triggerId: 'trg-1',
-        endpoint: 'https://x/api/v1/webhooks/src-new',
-      });
+    const onCreate = vi.fn().mockResolvedValue({
+      ok: true,
+      triggerId: 'trg-1',
+      endpoint: 'https://x/api/v1/webhooks/src-new',
+    });
     renderWizard('chat', [], onCreate);
     fillNameAndPrompt();
     fireEvent.click(screen.getByText('New source'));
