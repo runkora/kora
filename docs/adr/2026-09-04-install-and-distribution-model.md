@@ -289,12 +289,12 @@ A `release.yml` workflow on `v*` tags, reusing `docker.yml` through `workflow_ca
 2. Resolve digests for the third-party images the chart references (OPA).
 3. Set `version` and `appVersion` on both charts to the tag, and write every digest into the packaged chart's `values.yaml` at `helm package` time. Source `values.yaml` keeps empty digests so local development uses tags and the tag matches the published source.
 4. `helm push` both charts to `oci://ghcr.io/runkora/charts/`.
-5. Sign charts and images with cosign using a repository-held key while the repository is private (keyless signing writes image names to the public transparency log), switching to keyless with the GitHub OIDC identity when the repository opens. Attach SLSA provenance. The workflow holds `id-token: write`, `packages: write`, `attestations: write`.
+5. Sign charts and images with keyless cosign, using the release workflow's GitHub OIDC identity. Signatures go to the public Sigstore transparency log. Attach SLSA provenance. The workflow holds `id-token: write`, `packages: write`, `attestations: write`.
 6. Publish release assets: `images.txt` (every image the release publishes, plus the third-party images the chart references), `compatibility.yaml` (supported Kubernetes, Istio, SPIRE, Helm, Helmfile and helm-diff versions), and release notes generated from conventional commits with a breaking-changes section.
 
 Chart CI on every pull request touching `charts/`, `deploy/reference/`, `backend/internal/operator/` or `backend/internal/agents/k8s*.go`: `ct lint` with `values.schema.json` (`check-version-increment: false`, versions are stamped at release), `helm template | kubeconform` per supported Kubernetes minor with `istioctl analyze --use-kube=false` on the rendered output for the Istio resources kubeconform has no schema for, the restricted pod security check from the companion ADR, and a k3d matrix that runs the reference Helmfile against Istio N and N-1 (k3d rather than kind so CI and local development use the same cluster tooling). The Argo CD example is render-validated; exercising it as an install is a future improvement. Renovate tracks the Istio and SPIRE versions in `deploy/reference/`.
 
-While the repository is private, the GHCR packages are private. The quickstart carries one marked preview step (`helm registry login ghcr.io`, a pull secret named in `global.imagePullSecrets`). Nothing in the charts assumes credentials.
+The GHCR packages are public. The charts and images pull without credentials.
 
 ### Decision 8: Compatibility statement, upgrades and rollback
 
