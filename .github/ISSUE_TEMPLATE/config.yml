@@ -1,0 +1,10 @@
+# Blank issues are off so every issue starts from a form. Questions and
+# vulnerability reports go elsewhere, through the contact links below.
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://runkora.io/discord
+    about: Ask for help or talk through an idea in #help on Discord.
+  - name: Report a security vulnerability
+    url: https://github.com/runkora/kora/security/advisories/new
+    about: Report vulnerabilities privately. Please don't open a public issue.
