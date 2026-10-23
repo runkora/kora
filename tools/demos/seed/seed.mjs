@@ -23,12 +23,12 @@ import { signIn } from "../lib/session.mjs";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const config = {
-  baseURL: process.env.KORA_URL ?? "https://orbit.local.clearroute.io",
-  username: process.env.KORA_USERNAME ?? "dev@orbit.local.clearroute.io",
+  baseURL: process.env.KORA_URL ?? "https://local.runkora.io",
+  username: process.env.KORA_USERNAME ?? "dev@local.runkora.io",
   password: process.env.KORA_PASSWORD ?? "password",
   stateFile: path.join(dir, "..", ".auth", "state.json"),
 };
-const DB_CONTAINER = process.env.ORBIT_DB_CONTAINER ?? "orbit-postgres";
+const DB_CONTAINER = process.env.KORA_DB_CONTAINER ?? "kora-postgres";
 const DAYS = 14;
 const REPO = "runkora/kora";
 
@@ -175,7 +175,7 @@ export async function reseed(request) {
 async function seed(api) {
   // Seeding rewrites history in the local database, so it runs only against
   // the local cluster's kora.
-  if (!/\.local\.clearroute\.io$|^localhost$/.test(new URL(config.baseURL).hostname)) {
+  if (!/(^|\.)local\.runkora\.io$|^localhost$/.test(new URL(config.baseURL).hostname)) {
     throw new Error(`refusing to seed ${config.baseURL}: not the local cluster`);
   }
   const tenant = sql("SELECT DISTINCT tenant_id FROM agent_types LIMIT 1").trim() || "example";
@@ -349,7 +349,7 @@ function historySql(tenant, triggers) {
           const completion = Math.round(300 + random() * 2200);
           const cost = (prompt * 2.2 + completion * 11 + cached * 0.22) / 1e6;
           usage.push(
-            `(${q(crypto.randomUUID())}, ${q(tenant)}, ${q(`spiffe://orbit.test/tenant/orbit-tenant-${tenant}/agent/${t.agent}`)}, 'AGENT', ` +
+            `(${q(crypto.randomUUID())}, ${q(tenant)}, ${q(`spiffe://runkora.test/tenant/kora-tenant-${tenant}/agent/${t.agent}`)}, 'AGENT', ` +
               `'anthropic', 'bedrock:us', 'anthropic/claude-sonnet-5', 'anthropic', ${prompt}, ${completion}, ${prompt + completion}, ` +
               `${cached}, ${cost.toFixed(8)}, 'success', ${Math.round(2000 + random() * 12000)}, ` +
               `${ts(started + ((done - started) * (i + 0.5)) / calls)}, ${q(runId)}, ${q(t.agent)})`,
@@ -621,7 +621,7 @@ function fixture(name) {
 }
 
 function sql(text) {
-  const res = spawnSync("docker", ["exec", "-i", DB_CONTAINER, "psql", "-v", "ON_ERROR_STOP=1", "-qAt", "-U", "orbit", "-d", "orbit"], {
+  const res = spawnSync("docker", ["exec", "-i", DB_CONTAINER, "psql", "-v", "ON_ERROR_STOP=1", "-qAt", "-U", "kora", "-d", "kora"], {
     input: text,
     encoding: "utf8",
   });

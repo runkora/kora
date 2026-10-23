@@ -23,8 +23,8 @@ const dir = path.dirname(fileURLToPath(import.meta.url));
 const outDir = path.join(dir, "out");
 
 const config = {
-  baseURL: process.env.KORA_URL ?? "https://orbit.local.clearroute.io",
-  username: process.env.KORA_USERNAME ?? "dev@orbit.local.clearroute.io",
+  baseURL: process.env.KORA_URL ?? "https://local.runkora.io",
+  username: process.env.KORA_USERNAME ?? "dev@local.runkora.io",
   password: process.env.KORA_PASSWORD ?? "password",
   stateFile: path.join(dir, ".auth", "state.json"),
   githubStateFile: path.join(dir, ".auth", "github.json"),
