@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { TooltipProvider } from '@runkora/hades';
 
-const upsertRoleAction = vi.fn();
+const createRoleAction = vi.fn();
 
 vi.mock('../_actions/roles', () => ({
-  upsertRoleAction: (...args: unknown[]) => upsertRoleAction(...args),
+  createRoleAction: (...args: unknown[]) => createRoleAction(...args),
 }));
 
 import { CreateRoleWizard } from './create-role-wizard';
@@ -45,7 +45,7 @@ function toBudget() {
 }
 
 describe('CreateRoleWizard', () => {
-  beforeEach(() => upsertRoleAction.mockReset());
+  beforeEach(() => createRoleAction.mockReset());
 
   it('holds Continue until the role has a name', () => {
     renderWizard();
@@ -57,15 +57,40 @@ describe('CreateRoleWizard', () => {
     expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled();
   });
 
-  it('refuses a name that would replace an existing role', () => {
+  it('refuses a name that matches an existing role exactly, ignoring surrounding spaces', () => {
     renderWizard();
-    fillName(' Engineer ');
-    expect(screen.getByText(/A role named "Engineer" already exists/)).toBeInTheDocument();
+    fillName(' engineer ');
+    expect(
+      screen.getByText('A role named "engineer" already exists. Choose a different name.'),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled();
   });
 
+  it('allows a name that differs only by case, since role names are case-sensitive', () => {
+    renderWizard();
+    fillName('Engineer');
+    expect(screen.queryByText(/already exists/)).toBeNull();
+    expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled();
+  });
+
+  it('shows the action refusal when the name was taken after the list loaded', async () => {
+    createRoleAction.mockResolvedValue({
+      ok: false,
+      status: 409,
+      message: 'A role named "ml-engineer" already exists.',
+    });
+    const { onCreated } = renderWizard();
+    toBudget();
+    next();
+    fireEvent.click(createButton());
+    expect(
+      await screen.findByText('A role named "ml-engineer" already exists.'),
+    ).toBeInTheDocument();
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+
   it('requires a scope, then creates the role with no budget', async () => {
-    upsertRoleAction.mockResolvedValue({ ok: true, data: {} });
+    createRoleAction.mockResolvedValue({ ok: true, data: {} });
     const { onCreated } = renderWizard();
     fillName();
     next();
@@ -74,8 +99,8 @@ describe('CreateRoleWizard', () => {
     next(); // budget, left off
     next(); // review
     fireEvent.click(createButton());
-    await waitFor(() => expect(upsertRoleAction).toHaveBeenCalledTimes(1));
-    expect(upsertRoleAction).toHaveBeenCalledWith({
+    await waitFor(() => expect(createRoleAction).toHaveBeenCalledTimes(1));
+    expect(createRoleAction).toHaveBeenCalledWith({
       role: 'ml-engineer',
       scopes: SCOPES,
       budget: null,
@@ -88,7 +113,7 @@ describe('CreateRoleWizard', () => {
     ['per member', false],
     ['pooled', true],
   ])('sends a %s spend limit', async (_label, pooled) => {
-    upsertRoleAction.mockResolvedValue({ ok: true, data: {} });
+    createRoleAction.mockResolvedValue({ ok: true, data: {} });
     renderWizard();
     toBudget();
     fireEvent.click(spendSwitch());
@@ -97,8 +122,8 @@ describe('CreateRoleWizard', () => {
     if (pooled) fireEvent.click(screen.getByRole('switch', { name: /pool/i }));
     next();
     fireEvent.click(createButton());
-    await waitFor(() => expect(upsertRoleAction).toHaveBeenCalled());
-    const budget = upsertRoleAction.mock.calls[0]![0].budget;
+    await waitFor(() => expect(createRoleAction).toHaveBeenCalled());
+    const budget = createRoleAction.mock.calls[0]![0].budget;
     expect(budget.limit_usd).toBe(25);
     expect(Boolean(budget.pooled)).toBe(pooled);
   });
@@ -112,7 +137,7 @@ describe('CreateRoleWizard', () => {
   });
 
   it('keeps the wizard on review with the server message when creation fails', async () => {
-    upsertRoleAction.mockResolvedValue({ ok: false, status: 403, message: 'Forbidden role' });
+    createRoleAction.mockResolvedValue({ ok: false, status: 403, message: 'Forbidden role' });
     const { onCreated } = renderWizard();
     toBudget();
     next();
@@ -123,7 +148,7 @@ describe('CreateRoleWizard', () => {
   });
 
   it('shows a retryable error when the action throws', async () => {
-    upsertRoleAction.mockRejectedValueOnce(new Error('network down'));
+    createRoleAction.mockRejectedValueOnce(new Error('network down'));
     renderWizard();
     toBudget();
     next();
@@ -133,7 +158,7 @@ describe('CreateRoleWizard', () => {
   });
 
   it('resets for another role and closes from Done', async () => {
-    upsertRoleAction.mockResolvedValue({ ok: true, data: {} });
+    createRoleAction.mockResolvedValue({ ok: true, data: {} });
     const { onClose } = renderWizard();
     toBudget();
     next();

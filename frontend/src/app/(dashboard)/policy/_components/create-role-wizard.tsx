@@ -27,7 +27,7 @@ import {
 } from '@runkora/components';
 import type { BudgetLimitValues, ScopeOption } from '@runkora/components';
 import { fmtUsd } from '@runkora/utils';
-import { upsertRoleAction } from '../_actions/roles';
+import { createRoleAction } from '../_actions/roles';
 
 interface CreateRoleWizardProps {
   /** Every scope the role can carry. */
@@ -36,7 +36,7 @@ interface CreateRoleWizardProps {
   scopeOptions?: ScopeOption[];
   /** Set when the scope vocabulary failed to load; scopes cannot be chosen without it. */
   scopesError?: string | null;
-  /** Names already in use. Saving a role under one of them replaces that role, so they are refused. */
+  /** Names already in use, for early feedback. The create action checks the name again before saving. */
   existingRoleNames: string[];
   onClose: () => void;
   /** Called once the role exists, so the list can refresh behind the success screen. */
@@ -76,7 +76,8 @@ export function CreateRoleWizard({
   const [limits, setLimits] = useState<BudgetLimitValues>(EMPTY_BUDGET_LIMIT_VALUES);
 
   const name = roleName.trim();
-  const nameTaken = existingRoleNames.some((n) => n.toLowerCase() === name.toLowerCase());
+  // Role names are case-sensitive in the policy service, so `Engineer` is not `engineer`.
+  const nameTaken = existingRoleNames.includes(name);
 
   // A role budget is a spend limit, so the spend row off means no budget.
   const budgetAsked = budgetLimitsAnyOn(limits, 'role');
@@ -122,7 +123,7 @@ export function CreateRoleWizard({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const result = await upsertRoleAction({ role: name, scopes, budget });
+      const result = await createRoleAction({ role: name, scopes, budget });
       if (!result.ok) {
         setSubmitError(result.message);
         return;

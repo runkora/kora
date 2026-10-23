@@ -197,6 +197,17 @@ export async function fetchRoles(
   );
 }
 
+export async function getRole(
+  accessToken: string,
+  tenantId: string,
+  role: string,
+): Promise<Result<RoleEntry>> {
+  return policyServiceFetch(
+    `/roles/${encodeURIComponent(role)}?tenant_id=${encodeURIComponent(tenantId)}`,
+    accessToken,
+  );
+}
+
 export async function upsertRole(
   accessToken: string,
   body: UpsertRoleRequest,
