@@ -258,8 +258,8 @@ func initController(
 
 	// The operator applies TriggerSource and Trigger resources through the declared-item endpoints.
 	declared := declarative.NewController(verifier, logger, map[string]declarative.Applier{
-		declarative.KindTriggerSources: triggers.NewSourceApplier(sources),
-		declarative.KindTriggers:       triggers.NewTriggerApplier(lifecycle),
+		declarative.KindTriggerSources: sources,
+		declarative.KindTriggers:       lifecycle,
 	})
 	return []platformapi.Controller{
 		triggers.NewController(svc, sources, lifecycle, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger),

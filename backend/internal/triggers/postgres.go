@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
@@ -117,7 +118,7 @@ const sourceColumns = `id, tenant_id, name, provider, principal_id, grant_id, se
 // write paths set one.
 func rowSource(source string) string {
 	if source == "" {
-		return SourceAPI
+		return declarative.SourceAPI
 	}
 	return source
 }
@@ -164,9 +165,17 @@ func (r *postgresRepository) GetSourceByName(ctx context.Context, tenantID, name
 		`SELECT `+sourceColumns+` FROM webhook_sources WHERE tenant_id = $1 AND name = $2`, tenantID, name)
 }
 
-func (r *postgresRepository) ListDeclaredSources(ctx context.Context, tenantID string) ([]WebhookSource, error) {
-	return queryList(ctx, r.pool, "declared webhook sources", scanSource,
-		`SELECT `+sourceColumns+` FROM webhook_sources WHERE tenant_id = $1 AND source = 'crd'`, tenantID)
+func (r *postgresRepository) ListDeclaredSources(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
+	return queryList(ctx, r.pool, "declared webhook sources", scanDeclared,
+		`SELECT name, resource_uid FROM webhook_sources WHERE tenant_id = $1 AND source = 'crd'`, tenantID)
+}
+
+func scanDeclared(row pgx.Row) (*declarative.Declared, error) {
+	var d declarative.Declared
+	if err := row.Scan(&d.Name, &d.UID); err != nil {
+		return nil, err
+	}
+	return &d, nil
 }
 
 func (r *postgresRepository) UpdateSource(ctx context.Context, s *WebhookSource) error {
@@ -453,15 +462,15 @@ func (r *postgresRepository) ListTriggers(ctx context.Context, tenantID, agentTy
 
 // GetDeclaredTrigger returns the trigger a Trigger resource projects to.
 func (r *postgresRepository) GetDeclaredTrigger(ctx context.Context, tenantID, name string) (*Trigger, error) {
-	ts, err := r.listTriggers(ctx, "declared trigger",
-		`SELECT `+triggerColumns+` FROM triggers WHERE tenant_id = $1 AND name = $2 AND source = 'crd' LIMIT 1`, tenantID, name)
+	t, err := getOne(ctx, r.pool, "declared trigger", ErrTriggerNotFound, scanTrigger,
+		`SELECT `+triggerColumns+` FROM triggers WHERE tenant_id = $1 AND name = $2 AND source = 'crd'`, tenantID, name)
 	if err != nil {
 		return nil, err
 	}
-	if len(ts) == 0 {
-		return nil, ErrTriggerNotFound
+	if err := r.attachRoutes(ctx, []*Trigger{t}); err != nil {
+		return nil, err
 	}
-	return &ts[0], nil
+	return t, nil
 }
 
 // TriggerNameTaken reports whether a trigger from source already has the name in the tenant.
@@ -475,9 +484,9 @@ func (r *postgresRepository) TriggerNameTaken(ctx context.Context, tenantID, nam
 	return taken, nil
 }
 
-func (r *postgresRepository) ListDeclaredTriggers(ctx context.Context, tenantID string) ([]Trigger, error) {
-	return queryList(ctx, r.pool, "declared triggers", scanTrigger,
-		`SELECT `+triggerColumns+` FROM triggers WHERE tenant_id = $1 AND source = 'crd'`, tenantID)
+func (r *postgresRepository) ListDeclaredTriggers(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
+	return queryList(ctx, r.pool, "declared triggers", scanDeclared,
+		`SELECT name, resource_uid FROM triggers WHERE tenant_id = $1 AND source = 'crd'`, tenantID)
 }
 
 // UpdateDeclaredTrigger writes every field a Trigger resource owns, including

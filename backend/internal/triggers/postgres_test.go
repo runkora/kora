@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"os"
 	"slices"
 	"strings"
@@ -2419,7 +2420,7 @@ func TestPostgres_DeclaredColumns(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
 	apiSrc := seedSource(t, r, tenant)
-	if got, _ := r.GetSource(ctx, tenant, apiSrc.ID); got.Source != SourceAPI || got.ResourceUID != "" {
+	if got, _ := r.GetSource(ctx, tenant, apiSrc.ID); got.Source != declarative.SourceAPI || got.ResourceUID != "" {
 		t.Errorf("API source = %q %q, want api and no UID", got.Source, got.ResourceUID)
 	}
 
@@ -2427,25 +2428,23 @@ func TestPostgres_DeclaredColumns(t *testing.T) {
 	src := &WebhookSource{
 		ID: uuid.NewString(), TenantID: tenant, Name: "github-org", Provider: ProviderGitHub,
 		PrincipalID: "trigger-source:y", GrantID: &gid, Enabled: true, SecretCiphertext: "c",
-		Source: SourceCRD, ResourceUID: "uid-s",
+		Source: declarative.SourceCRD, ResourceUID: "uid-s",
 	}
 	if err := r.CreateSource(ctx, src); err != nil {
 		t.Fatalf("CreateSource: %v", err)
 	}
 	byName, err := r.GetSourceByName(ctx, tenant, "github-org")
-	if err != nil || byName.ID != src.ID || byName.Source != SourceCRD || byName.ResourceUID != "uid-s" {
+	if err != nil || byName.ID != src.ID || byName.Source != declarative.SourceCRD || byName.ResourceUID != "uid-s" {
 		t.Fatalf("GetSourceByName = %+v, %v", byName, err)
 	}
-	declared, _ := r.ListDeclaredSources(ctx, tenant)
-	if !slices.ContainsFunc(declared, func(s WebhookSource) bool { return s.ID == src.ID }) ||
-		slices.ContainsFunc(declared, func(s WebhookSource) bool { return s.ID == apiSrc.ID }) {
-		t.Errorf("ListDeclaredSources lists the wrong rows")
+	if declared, _ := r.ListDeclaredSources(ctx, tenant); !slices.Equal(declared, []declarative.Declared{{Name: "github-org", UID: "uid-s"}}) {
+		t.Errorf("ListDeclaredSources = %+v", declared)
 	}
 
 	tr := &Trigger{
 		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, TargetKind: TargetKindAgent, SourceID: src.ID,
 		Name: "review-on-pr", AgentTypeID: "at-1", AgentSlug: "code-reviewer", EventType: "pull_request",
-		PromptTemplate: "p", GrantID: &gid, Enabled: true, Source: SourceCRD, ResourceUID: "uid-t",
+		PromptTemplate: "p", GrantID: &gid, Enabled: true, Source: declarative.SourceCRD, ResourceUID: "uid-t",
 	}
 	admissionDefaults(tr)
 	if err := r.CreateTrigger(ctx, tr); err != nil {
@@ -2459,14 +2458,14 @@ func TestPostgres_DeclaredColumns(t *testing.T) {
 	if !sameDeclared(stored, tr) {
 		t.Errorf("a stored declared trigger does not match its spec:\n stored %+v\n spec   %+v", stored, tr)
 	}
-	if taken, _ := r.TriggerNameTaken(ctx, tenant, "review-on-pr", SourceCRD); !taken {
+	if taken, _ := r.TriggerNameTaken(ctx, tenant, "review-on-pr", declarative.SourceCRD); !taken {
 		t.Error("TriggerNameTaken(crd) = false")
 	}
-	if taken, _ := r.TriggerNameTaken(ctx, tenant, "review-on-pr", SourceAPI); taken {
+	if taken, _ := r.TriggerNameTaken(ctx, tenant, "review-on-pr", declarative.SourceAPI); taken {
 		t.Error("TriggerNameTaken(api) = true")
 	}
-	if all, _ := r.ListDeclaredTriggers(ctx, tenant); !slices.ContainsFunc(all, func(x Trigger) bool { return x.ID == tr.ID }) {
-		t.Error("ListDeclaredTriggers misses the trigger")
+	if all, _ := r.ListDeclaredTriggers(ctx, tenant); !slices.Equal(all, []declarative.Declared{{Name: "review-on-pr", UID: "uid-t"}}) {
+		t.Errorf("ListDeclaredTriggers = %+v", all)
 	}
 
 	// The declared write moves the agent and the source. An auto-pause and the
@@ -2508,7 +2507,7 @@ func TestPostgres_DeclaredRoundTrip(t *testing.T) {
 	}
 	for name, tr := range cases {
 		tr.ID, tr.TenantID, tr.Name, tr.PromptTemplate = uuid.NewString(), tenant, name, "p"
-		tr.GrantID, tr.Enabled, tr.Source, tr.ResourceUID = &gid, true, SourceCRD, "uid-"+name
+		tr.GrantID, tr.Enabled, tr.Source, tr.ResourceUID = &gid, true, declarative.SourceCRD, "uid-"+name
 		admissionDefaults(tr)
 		if err := r.CreateTrigger(ctx, tr); err != nil {
 			t.Fatalf("%s: CreateTrigger: %v", name, err)

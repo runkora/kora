@@ -95,29 +95,14 @@ const (
 	TargetKindRouted = "routed"
 )
 
-// Where a source or trigger row came from: the API, or a declarative resource.
-const (
-	SourceAPI = "api"
-	SourceCRD = "crd"
-)
-
 // Sentinel errors. Callers branch on these with errors.Is.
 var (
-	// ErrManagedByResource is returned for an API write to a row projected
-	// from a declarative resource.
-	ErrManagedByResource = errors.New("this item is managed by a declarative resource; change the resource instead")
-	// ErrAPIAuthoringDisabled is returned for an API write in a tenant that
-	// takes its sources and triggers from declarative resources only.
-	ErrAPIAuthoringDisabled = errors.New("this tenant takes its sources and triggers from declarative resources only")
 	// ErrDeclaredNameTaken is returned when an API trigger would take the name
 	// of a declared trigger.
 	ErrDeclaredNameTaken = errors.New("a trigger managed by a declarative resource already has this name")
 	// ErrAgentProvisioning is a validation error for an agent whose run
 	// scopes are not registered yet. It clears once the agent's pods are ready.
-	ErrAgentProvisioning = fmt.Errorf("%w", ErrValidation)
-	// ErrNameConflict is returned when a declarative resource names a live row
-	// the API created.
-	ErrNameConflict = errors.New("an item created through the API already has this name")
+	ErrAgentProvisioning = fmt.Errorf("%w: agent is still provisioning", ErrValidation)
 	// ErrSourceNotFound is returned when a webhook source does not exist (or is
 	// not visible to the caller's tenant).
 	ErrSourceNotFound = errors.New("webhook source not found")
@@ -210,7 +195,7 @@ type WebhookSource struct {
 	Enabled     bool           `json:"enabled"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
-	// Source is SourceAPI or SourceCRD. ResourceUID is the projected resource's UID.
+	// Source is declarative.SourceAPI or SourceCRD. ResourceUID is the projected resource's UID.
 	Source      string `json:"source"`
 	ResourceUID string `json:"-"`
 
@@ -414,7 +399,7 @@ type Trigger struct {
 	Enabled     bool      `json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
-	// Source is SourceAPI or SourceCRD. ResourceUID is the projected resource's UID.
+	// Source is declarative.SourceAPI or SourceCRD. ResourceUID is the projected resource's UID.
 	Source      string `json:"source"`
 	ResourceUID string `json:"-"`
 

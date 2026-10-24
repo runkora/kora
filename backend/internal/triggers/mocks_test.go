@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -242,13 +243,13 @@ func (m *mockRepository) GetSourceByName(_ context.Context, tenantID, name strin
 	return nil, ErrSourceNotFound
 }
 
-func (m *mockRepository) ListDeclaredSources(_ context.Context, tenantID string) ([]WebhookSource, error) {
+func (m *mockRepository) ListDeclaredSources(_ context.Context, tenantID string) ([]declarative.Declared, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var out []WebhookSource
+	var out []declarative.Declared
 	for _, s := range m.sources {
-		if s.TenantID == tenantID && s.Source == SourceCRD {
-			out = append(out, *s)
+		if s.TenantID == tenantID && s.Source == declarative.SourceCRD {
+			out = append(out, declarative.Declared{Name: s.Name, UID: s.ResourceUID})
 		}
 	}
 	return out, nil
@@ -258,7 +259,7 @@ func (m *mockRepository) GetDeclaredTrigger(_ context.Context, tenantID, name st
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, t := range m.triggers {
-		if t.TenantID == tenantID && t.Name == name && t.Source == SourceCRD {
+		if t.TenantID == tenantID && t.Name == name && t.Source == declarative.SourceCRD {
 			cp := *t
 			return &cp, nil
 		}
@@ -277,13 +278,13 @@ func (m *mockRepository) TriggerNameTaken(_ context.Context, tenantID, name, sou
 	return false, nil
 }
 
-func (m *mockRepository) ListDeclaredTriggers(_ context.Context, tenantID string) ([]Trigger, error) {
+func (m *mockRepository) ListDeclaredTriggers(_ context.Context, tenantID string) ([]declarative.Declared, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var out []Trigger
+	var out []declarative.Declared
 	for _, t := range m.triggers {
-		if t.TenantID == tenantID && t.Source == SourceCRD {
-			out = append(out, *t)
+		if t.TenantID == tenantID && t.Source == declarative.SourceCRD {
+			out = append(out, declarative.Declared{Name: t.Name, UID: t.ResourceUID})
 		}
 	}
 	return out, nil

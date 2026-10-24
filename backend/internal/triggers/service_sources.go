@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -21,7 +22,7 @@ type sourceStore interface {
 	GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error)
 	ListSources(ctx context.Context, tenantID string) ([]WebhookSource, error)
 	GetSourceByName(ctx context.Context, tenantID, name string) (*WebhookSource, error)
-	ListDeclaredSources(ctx context.Context, tenantID string) ([]WebhookSource, error)
+	ListDeclaredSources(ctx context.Context, tenantID string) ([]declarative.Declared, error)
 	UpdateSource(ctx context.Context, s *WebhookSource) error
 	DeleteSource(ctx context.Context, tenantID, id string) error
 	ObservedEventTypes(ctx context.Context, sourceID string) ([]string, error)
@@ -87,16 +88,10 @@ func (s *SourceService) WebhookPath(sourceID string) string { return s.webhookBa
 // provider handshake until an admin sets it.
 func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req CreateSourceRequest) (*SourceResponse, error) {
 	if !s.tenants.APIAuthoringEnabled(tenantID) {
-		return nil, ErrAPIAuthoringDisabled
+		return nil, declarative.ErrAPIAuthoringDisabled
 	}
 	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
-	}
-	if err := validateTextBounds(name, ""); err != nil {
-		return nil, err
-	}
-	if err := s.registry.validateProvider(req.Provider); err != nil {
+	if err := s.validateSourceCreate(name, req.Provider); err != nil {
 		return nil, err
 	}
 	adapter, _ := s.registry.Get(req.Provider)
@@ -125,6 +120,17 @@ func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req C
 		WebhookPath:   s.WebhookPath(src.ID),
 		Secret:        returnedSecret(secret, issued),
 	}, nil
+}
+
+// validateSourceCreate checks a new source's name and provider.
+func (s *SourceService) validateSourceCreate(name, provider string) error {
+	if name == "" {
+		return fmt.Errorf("%w: name is required", ErrValidation)
+	}
+	if err := validateTextBounds(name, ""); err != nil {
+		return err
+	}
+	return s.registry.validateProvider(provider)
 }
 
 // insertSource gives a new source its id, its SERVICE principal and the
@@ -262,13 +268,16 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 }
 
 // refuseUpdate refuses every API change to a declared source. In a locked
-// tenant it allows secret rotation and nothing else.
+// tenant it allows secret rotation on an API source and nothing else. The
+// lock is reported first, as the other services do.
 func (s *SourceService) refuseUpdate(src *WebhookSource, req UpdateSourceRequest) error {
-	if src.Source == SourceCRD {
-		return ErrManagedByResource
+	declared := src.Source == declarative.SourceCRD
+	toggles := req.Enabled != nil && *req.Enabled != src.Enabled
+	if !s.tenants.APIAuthoringEnabled(src.TenantID) && (declared || toggles) {
+		return declarative.ErrAPIAuthoringDisabled
 	}
-	if !s.tenants.APIAuthoringEnabled(src.TenantID) && req.Enabled != nil && *req.Enabled != src.Enabled {
-		return ErrAPIAuthoringDisabled
+	if declared {
+		return declarative.ErrManagedByResource
 	}
 	return nil
 }
@@ -314,17 +323,23 @@ func sourceSecret(adapter SourceAdapter, supplied string, optional bool) (secret
 		secret, err = generateSecret()
 		return secret, false, err
 	}
-	secret = strings.TrimSpace(supplied)
-	if secret == "" && optional && supplied == "" {
+	if optional && supplied == "" {
 		return "", true, nil
 	}
+	secret, err = suppliedSecret(supplied)
+	return secret, true, err
+}
+
+// suppliedSecret trims a signing secret the admin or a resource supplies and checks its bounds.
+func suppliedSecret(supplied string) (string, error) {
+	secret := strings.TrimSpace(supplied)
 	if secret == "" {
-		return "", true, fmt.Errorf("%w: signing_secret is required for provider %q", ErrValidation, adapter.Provider())
+		return "", fmt.Errorf("%w: signing_secret is required", ErrValidation)
 	}
 	if len(secret) > maxSigningSecretBytes {
-		return "", true, fmt.Errorf("%w: signing_secret must be at most %d bytes", ErrValidation, maxSigningSecretBytes)
+		return "", fmt.Errorf("%w: signing_secret must be at most %d bytes", ErrValidation, maxSigningSecretBytes)
 	}
-	return secret, true, nil
+	return secret, nil
 }
 
 // returnedSecret is the secret a create or rotation response carries: the
@@ -343,11 +358,11 @@ func (s *SourceService) DeleteSource(ctx context.Context, tenantID, id string) e
 	if err != nil {
 		return err
 	}
-	if src.Source == SourceCRD {
-		return ErrManagedByResource
-	}
 	if !s.tenants.APIAuthoringEnabled(tenantID) {
-		return ErrAPIAuthoringDisabled
+		return declarative.ErrAPIAuthoringDisabled
+	}
+	if src.Source == declarative.SourceCRD {
+		return declarative.ErrManagedByResource
 	}
 	return s.deleteSource(ctx, src)
 }
