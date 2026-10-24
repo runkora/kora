@@ -621,3 +621,19 @@ describe('a chat command trigger', () => {
     expect(screen.queryByRole('checkbox')).toBeNull();
   });
 });
+
+describe('source missing', () => {
+  it('says the source was deleted and shows no endpoint', () => {
+    renderDrawer(trigger({ sourceId: '', sourceMissing: true }));
+    expect(screen.getByText(/The source of this trigger was deleted/)).toBeTruthy();
+    expect(screen.queryByText(/\/api\/v1\/webhooks\//)).toBeNull();
+  });
+
+  it('can be turned off but not back on', () => {
+    const view = renderDrawer(trigger({ sourceId: '', sourceMissing: true, enabled: true }));
+    expect(screen.getByRole('switch', { name: /^Disable/ }).hasAttribute('disabled')).toBe(false);
+    view.unmount();
+    renderDrawer(trigger({ sourceId: '', sourceMissing: true, enabled: false }));
+    expect(screen.getByRole('switch', { name: /^Enable/ }).hasAttribute('disabled')).toBe(true);
+  });
+});

@@ -305,8 +305,8 @@ func returnedSecret(secret string, issued bool) string {
 	return secret
 }
 
-// DeleteSource removes a webhook source, its triggers (FK cascade), and all
-// policy grants attached to its mapped principal.
+// DeleteSource removes a webhook source and every policy grant its principal
+// holds. Its triggers stay with no source and stop firing.
 func (s *SourceService) DeleteSource(ctx context.Context, tenantID, id string) error {
 	src, err := s.repo.GetSource(ctx, tenantID, id)
 	if err != nil {

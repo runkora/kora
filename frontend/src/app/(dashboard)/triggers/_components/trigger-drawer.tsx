@@ -420,8 +420,10 @@ export function TriggerDrawer({
   // Firing has its own per-trigger answer from the API.
   const canWrite = useHasScope('triggers:write');
   const canShapeRuns = canWrite && canRunAgent;
-  const onUpdateSafety = canWrite ? updateSafetyAction : undefined;
-  const onEdit = canWrite ? editAction : undefined;
+  // A trigger whose source was deleted takes no edits; it can only be turned off or deleted.
+  const sourceMissing = trigger?.sourceMissing === true;
+  const onUpdateSafety = canWrite && !sourceMissing ? updateSafetyAction : undefined;
+  const onEdit = canWrite && !sourceMissing ? editAction : undefined;
   const onRotateSecret = canShapeRuns ? rotateSecretAction : undefined;
   const canFire = !!trigger?.canFire;
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -617,7 +619,7 @@ export function TriggerDrawer({
     : 'no event type (never fires)';
   const subtitle =
     trigger.kind === 'webhook'
-      ? `${kind === 'chat' ? 'Chat command' : 'Webhook'} · ${source?.name ?? trigger.sourceId} · ${firesOn}`
+      ? `${kind === 'chat' ? 'Chat command' : 'Webhook'} · ${source?.name ?? (trigger.sourceMissing ? 'no source' : trigger.sourceId)} · ${firesOn}`
       : trigger.kind === 'scheduled'
         ? `Schedule · ${trigger.scheduleConfig?.cronExpression ?? ''}`
         : 'Manual · run on demand';
@@ -637,7 +639,7 @@ export function TriggerDrawer({
           <Toggle
             checked={trigger.enabled}
             onChange={(next) => onToggleEnabled(trigger, next)}
-            disabled={!canShapeRuns}
+            disabled={!canShapeRuns || (sourceMissing && !trigger.enabled)}
             aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} ${trigger.name}`}
           />
         }
@@ -674,9 +676,16 @@ export function TriggerDrawer({
                 </Alert>
               )}
 
+              {trigger.sourceMissing && (
+                <Alert variant="error">
+                  The source of this trigger was deleted. It no longer fires and can only be turned
+                  off or deleted.
+                </Alert>
+              )}
+
               {/* Webhook: the address to paste into a provider, and the secret
                   that proves deliveries came from it. */}
-              {trigger.kind === 'webhook' && (
+              {trigger.kind === 'webhook' && !trigger.sourceMissing && (
                 <Stack gap="snug">
                   <Stack direction="horizontal" gap="snug" align="center">
                     <SectionLabel>{kind === 'chat' ? 'Request URL' : 'Endpoint'}</SectionLabel>
