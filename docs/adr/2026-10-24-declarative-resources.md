@@ -301,7 +301,7 @@ Status also carries `status.id`, the projected row's id. A `TriggerSource` repor
 
 ### 4. Service Endpoints
 
-`backend/internal/platform/declarative` holds the contract, a server helper and one client:
+`backend/internal/platform/declarative` holds the contract and a server helper. The client is `backend/internal/platform/clients/declared`:
 
 ```go
 // Item is one declared resource the operator asks a service to apply.
@@ -431,7 +431,7 @@ The work ships as one stacked chain of pull requests:
 1.  This ADR and the PRD.
 2.  Agent soft delete in `kora-agents`.
 3.  `ON DELETE SET NULL` for trigger sources in `kora-triggers`.
-4.  The six CRDs, their Go types, the `KoraTenant` fields, the registry fields and the endpoint contract in `backend/internal/platform/declarative`.
+4.  The six CRDs, their Go types, the `KoraTenant` fields, the registry fields, the endpoint contract in `backend/internal/platform/declarative` and its client in `backend/internal/platform/clients/declared`.
 5.  The `VirtualModel` endpoint, the source column and the platform switch in `inference-gateway`.
 6.  The `Environment` and `Agent` endpoints, source columns and API refusals in `kora-agents`.
 7.  The `TriggerSource` and `Trigger` endpoints, source columns and API refusals in `kora-triggers`.
