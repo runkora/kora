@@ -370,10 +370,18 @@ var (
 	ErrTokenParseFailed      = errors.New("failed to parse platform token")
 	ErrUsageRecordNotFound   = errors.New("inference usage record not found")
 	ErrVirtualModelNotFound  = errors.New("virtual model not found")
-	ErrNoCatalog             = errors.New("virtual model catalog not loaded")
-	ErrModelPricingNotFound  = errors.New("model pricing not found")
-	ErrIncompleteOverride    = errors.New("a regional pricing row needs input and output prices")
-	ErrBudgetExceeded        = errors.New("budget exceeded")
+	// ErrVirtualModelManaged is an API write to a row a VirtualModel resource owns.
+	ErrVirtualModelManaged = errors.New("virtual model is managed by a resource")
+	// ErrVirtualModelExists is an API write to a family and name another API row holds.
+	ErrVirtualModelExists = errors.New("virtual model family and name already exist")
+	// ErrVirtualModelNameConflict is a declared write to a family and name an API row or another resource holds.
+	ErrVirtualModelNameConflict = errors.New("virtual model family and name are held by another virtual model")
+	// ErrVirtualModelRouteTaken is a write whose route another virtual model already serves.
+	ErrVirtualModelRouteTaken = errors.New("virtual model route is served by another virtual model")
+	ErrNoCatalog              = errors.New("virtual model catalog not loaded")
+	ErrModelPricingNotFound   = errors.New("model pricing not found")
+	ErrIncompleteOverride     = errors.New("a regional pricing row needs input and output prices")
+	ErrBudgetExceeded         = errors.New("budget exceeded")
 )
 
 // BudgetCeilingStatus is one applicable spending ceiling with its current spend.

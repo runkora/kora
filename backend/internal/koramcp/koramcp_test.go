@@ -1141,3 +1141,43 @@ func TestServerReadsTheBrand(t *testing.T) {
 
 // testBrand is a name no default produces, so text carrying it proves injection.
 var testBrand = brand.MustNew("Acme")
+
+// TestVirtualModelWriteRefusalsSurfaceTheMessage locks that the catalog's
+// authoring refusals reach the model with the platform's message.
+func TestVirtualModelWriteRefusalsSurfaceTheMessage(t *testing.T) {
+	cases := []struct {
+		status int
+		body   string
+		want   string
+	}{
+		{http.StatusForbidden, `{"code":"api_authoring_disabled","message":"virtual model authoring through the API is disabled on this platform"}`,
+			"The platform said: virtual model authoring through the API is disabled on this platform"},
+		{http.StatusConflict, `{"code":"managed_by_resource","message":"virtual model is managed by a VirtualModel resource; change the resource instead"}`,
+			"virtual model is managed by a VirtualModel resource; change the resource instead"},
+	}
+	for _, tc := range cases {
+		t.Run(http.StatusText(tc.status), func(t *testing.T) {
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer backend.Close()
+			srv := NewServer(Backends{Inference: backend.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
+			gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+			defer gw.Close()
+			call := mcpCaller(t, gw.URL)
+			call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+			resp := call("tools/call", map[string]any{"name": "models.virtual.delete", "arguments": map[string]any{"id": "vm-1"}})
+			result, _ := resp["result"].(map[string]any)
+			content := asSlice(result["content"])
+			if result["isError"] != true || len(content) != 1 {
+				t.Fatalf("result = %v, want one error content", result)
+			}
+			if text, _ := content[0].(map[string]any)["text"].(string); !strings.Contains(text, tc.want) {
+				t.Errorf("text = %q, want it to contain %q", text, tc.want)
+			}
+		})
+	}
+}

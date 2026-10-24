@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 )
 
 // ─── CatalogRepository ──────────────────────────────────────────────────────
@@ -16,17 +18,30 @@ import (
 // management. All writes are immediately followed by a LoadSnapshot call to
 // keep the routing engine's in-memory cache consistent.
 type CatalogRepository interface {
-	// CreateVirtualModel persists a new virtual model with its routes.
+	// CreateVirtualModel persists a new API virtual model with its routes.
 	// The caller must set vm.ID and all route IDs before calling.
 	CreateVirtualModel(ctx context.Context, vm VirtualModel) error
 
-	// UpdateVirtualModel replaces a virtual model and its routes atomically.
+	// UpdateVirtualModel replaces an API virtual model and its routes atomically.
 	// The existing routes are deleted and replaced with vm.Routes.
 	// Returns the updated model (with DB-generated timestamps).
 	UpdateVirtualModel(ctx context.Context, vm VirtualModel) (VirtualModel, error)
 
-	// DeleteVirtualModel removes a virtual model and cascades to its routes.
+	// DeleteVirtualModel removes an API virtual model and cascades to its routes.
 	DeleteVirtualModel(ctx context.Context, id string) error
+
+	// UpsertDeclaredVirtualModel writes the row a VirtualModel resource
+	// projects, keyed on vm.ResourceName, and replaces its routes. The caller
+	// must set vm.ID and all route IDs; vm.ID is used only for a new row.
+	// It returns the row id and false when the row already matched.
+	UpsertDeclaredVirtualModel(ctx context.Context, vm VirtualModel) (string, bool, error)
+
+	// DeleteDeclaredVirtualModel deletes the row of the named resource and
+	// reports whether there was one.
+	DeleteDeclaredVirtualModel(ctx context.Context, resourceName string) (bool, error)
+
+	// ListDeclaredVirtualModels returns the resource of every declared row.
+	ListDeclaredVirtualModels(ctx context.Context) ([]declarative.Declared, error)
 
 	// GetVirtualModel returns a single virtual model with its routes.
 	GetVirtualModel(ctx context.Context, id string) (VirtualModel, error)
@@ -71,6 +86,12 @@ func NewPostgresCatalogRepository(pool *pgxpool.Pool) *PostgresCatalogRepository
 // CreateVirtualModel inserts a virtual model and its routes in a single transaction.
 func (r *PostgresCatalogRepository) CreateVirtualModel(ctx context.Context, vm VirtualModel) error {
 	return r.inTx(ctx, func(tx pgx.Tx) error {
+		if err := keyHeld(ctx, tx, vm); err != nil {
+			return err
+		}
+		if err := routeTaken(ctx, tx, vm.ID, vm.Routes); err != nil {
+			return err
+		}
 		const q = `
 			INSERT INTO virtual_models (id, family, name, display_name, description, strategy, enabled, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
@@ -78,6 +99,9 @@ func (r *PostgresCatalogRepository) CreateVirtualModel(ctx context.Context, vm V
 			vm.ID, vm.Family, vm.Name, vm.DisplayName, vm.Description,
 			string(vm.Strategy), vm.Enabled, vm.CreatedAt, vm.UpdatedAt,
 		)
+		if isUniqueViolation(err) {
+			return fmt.Errorf("insert virtual model %s: %w", vm.FullID(), ErrVirtualModelExists)
+		}
 		if err != nil {
 			return fmt.Errorf("insert virtual model: %w", err)
 		}
@@ -90,11 +114,30 @@ func (r *PostgresCatalogRepository) CreateVirtualModel(ctx context.Context, vm V
 func (r *PostgresCatalogRepository) UpdateVirtualModel(ctx context.Context, vm VirtualModel) (VirtualModel, error) {
 	var result VirtualModel
 	err := r.inTx(ctx, func(tx pgx.Tx) error {
+		var source string
+		err := tx.QueryRow(ctx, `SELECT source FROM virtual_models WHERE id=$1 FOR UPDATE`, vm.ID).Scan(&source)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return fmt.Errorf("update virtual model %s: %w", vm.ID, ErrVirtualModelNotFound)
+		case err != nil:
+			return fmt.Errorf("lock virtual model: %w", err)
+		case source != SourceAPI:
+			return fmt.Errorf("update virtual model %s: %w", vm.ID, ErrVirtualModelManaged)
+		}
+		// Renaming onto a declared key collides with that row; the edited row is not managed.
+		if err := keyHeld(ctx, tx, vm); errors.Is(err, ErrVirtualModelManaged) {
+			return fmt.Errorf("update virtual model %s: %w", vm.FullID(), ErrVirtualModelExists)
+		} else if err != nil {
+			return err
+		}
+		if err := routeTaken(ctx, tx, vm.ID, vm.Routes); err != nil {
+			return err
+		}
 		const q = `
 			UPDATE virtual_models
 			SET family=$2, name=$3, display_name=$4, description=$5, strategy=$6, enabled=$7, updated_at=now()
 			WHERE id=$1
-			RETURNING id, family, name, display_name, description, strategy, enabled, created_at, updated_at`
+			RETURNING id, family, name, display_name, description, strategy, enabled, source, created_at, updated_at`
 
 		var strategy string
 		row := tx.QueryRow(ctx, q,
@@ -103,10 +146,13 @@ func (r *PostgresCatalogRepository) UpdateVirtualModel(ctx context.Context, vm V
 		)
 		if err := row.Scan(
 			&result.ID, &result.Family, &result.Name, &result.DisplayName, &result.Description,
-			&strategy, &result.Enabled, &result.CreatedAt, &result.UpdatedAt,
+			&strategy, &result.Enabled, &result.Source, &result.CreatedAt, &result.UpdatedAt,
 		); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return fmt.Errorf("update virtual model %s: %w", vm.ID, ErrVirtualModelNotFound)
+			}
+			if isUniqueViolation(err) {
+				return fmt.Errorf("update virtual model %s: %w", vm.FullID(), ErrVirtualModelExists)
 			}
 			return fmt.Errorf("update virtual model: %w", err)
 		}
@@ -128,16 +174,137 @@ func (r *PostgresCatalogRepository) UpdateVirtualModel(ctx context.Context, vm V
 	return result, nil
 }
 
-// DeleteVirtualModel removes the virtual model; routes cascade via FK.
+// DeleteVirtualModel removes an API virtual model; routes cascade via FK.
 func (r *PostgresCatalogRepository) DeleteVirtualModel(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM virtual_models WHERE id=$1`, id)
+	tag, err := r.pool.Exec(ctx, `DELETE FROM virtual_models WHERE id=$1 AND source='api'`, id)
 	if err != nil {
 		return fmt.Errorf("delete virtual model %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete virtual model %s: %w", id, ErrVirtualModelNotFound)
+		return fmt.Errorf("delete virtual model %s: %w", id, missingAPIRow(ctx, r.pool, id))
 	}
 	return nil
+}
+
+// UpsertDeclaredVirtualModel projects a VirtualModel resource. The operator
+// settles which resource holds a family and name; any other holder refuses
+// the write with ErrVirtualModelNameConflict.
+func (r *PostgresCatalogRepository) UpsertDeclaredVirtualModel(ctx context.Context, vm VirtualModel) (string, bool, error) {
+	var id string
+	changed := true
+	err := r.inTx(ctx, func(tx pgx.Tx) error {
+		var unchanged bool
+		var err error
+		id, unchanged, err = r.declaredRowID(ctx, tx, vm)
+		if err != nil || unchanged {
+			changed = !unchanged
+			return err
+		}
+		if err := routeTaken(ctx, tx, id, vm.Routes); err != nil {
+			return err
+		}
+		const q = `
+			INSERT INTO virtual_models (id, family, name, display_name, description, strategy, enabled, source, resource_name, resource_uid)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, 'crd', $8, $9)
+			ON CONFLICT (id) DO UPDATE SET
+				family=EXCLUDED.family, name=EXCLUDED.name, display_name=EXCLUDED.display_name,
+				description=EXCLUDED.description, strategy=EXCLUDED.strategy, enabled=EXCLUDED.enabled,
+				resource_uid=EXCLUDED.resource_uid, updated_at=now()`
+		if _, err := tx.Exec(ctx, q,
+			id, vm.Family, vm.Name, vm.DisplayName, vm.Description, string(vm.Strategy), vm.Enabled, vm.ResourceName, vm.ResourceUID,
+		); err != nil {
+			return fmt.Errorf("upsert declared virtual model: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM virtual_model_routes WHERE virtual_model_id=$1`, id); err != nil {
+			return fmt.Errorf("delete old routes: %w", err)
+		}
+		return r.insertRoutes(ctx, tx, id, vm.Routes)
+	})
+	if err != nil {
+		return "", false, err
+	}
+	return id, changed, nil
+}
+
+// declaredRowID locks and picks the row a declared write lands on: the
+// resource's own row, else vm.ID. A resource recreated under the same name
+// keeps its row. It also reports a row that already matches.
+func (r *PostgresCatalogRepository) declaredRowID(ctx context.Context, tx pgx.Tx, vm VirtualModel) (string, bool, error) {
+	var keyID, keySource, keyResource string
+	err := tx.QueryRow(ctx,
+		`SELECT id, source, COALESCE(resource_name, '') FROM virtual_models WHERE family=$1 AND name=$2 FOR UPDATE`,
+		vm.Family, vm.Name).Scan(&keyID, &keySource, &keyResource)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", false, fmt.Errorf("lock virtual model key: %w", err)
+	}
+	if keyID != "" && (keySource == SourceAPI || keyResource != vm.ResourceName) {
+		return "", false, fmt.Errorf("upsert declared virtual model %s: %w", vm.FullID(), ErrVirtualModelNameConflict)
+	}
+
+	id := vm.ID
+	err = tx.QueryRow(ctx, `SELECT id FROM virtual_models WHERE resource_name=$1 FOR UPDATE`, vm.ResourceName).Scan(&id)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return id, false, nil
+	case err != nil:
+		return "", false, fmt.Errorf("lock declared virtual model: %w", err)
+	}
+	current, err := r.getByID(ctx, tx, id)
+	if err != nil {
+		return "", false, err
+	}
+	return id, len(current) == 1 && sameDeclared(current[0], vm), nil
+}
+
+// sameDeclared reports whether a stored row already carries a declared
+// spec. Route IDs and order do not count.
+func sameDeclared(row, vm VirtualModel) bool {
+	if row.ResourceUID != vm.ResourceUID || row.ResourceName != vm.ResourceName || row.Family != vm.Family || row.Name != vm.Name ||
+		row.DisplayName != vm.DisplayName || row.Description != vm.Description ||
+		row.Strategy != vm.Strategy || row.Enabled != vm.Enabled || len(row.Routes) != len(vm.Routes) {
+		return false
+	}
+	type routeSpec struct {
+		priority, weight int
+		enabled          bool
+	}
+	stored := make(map[string]routeSpec, len(row.Routes))
+	for _, rt := range row.Routes {
+		stored[string(rt.Provider)+"/"+rt.ModelID] = routeSpec{rt.Priority, rt.Weight, rt.Enabled}
+	}
+	for _, rt := range vm.Routes {
+		if stored[string(rt.Provider)+"/"+rt.ModelID] != (routeSpec{rt.Priority, rt.Weight, rt.Enabled}) {
+			return false
+		}
+	}
+	return true
+}
+
+// DeleteDeclaredVirtualModel deletes the named resource's row; routes cascade.
+func (r *PostgresCatalogRepository) DeleteDeclaredVirtualModel(ctx context.Context, resourceName string) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM virtual_models WHERE source='crd' AND resource_name=$1`, resourceName)
+	if err != nil {
+		return false, fmt.Errorf("delete declared virtual model %s: %w", resourceName, err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// ListDeclaredVirtualModels returns the name and UID behind every declared row.
+func (r *PostgresCatalogRepository) ListDeclaredVirtualModels(ctx context.Context) ([]declarative.Declared, error) {
+	rows, err := r.pool.Query(ctx, `SELECT resource_name, resource_uid FROM virtual_models WHERE source='crd' ORDER BY resource_name`)
+	if err != nil {
+		return nil, fmt.Errorf("list declared virtual models: %w", err)
+	}
+	defer rows.Close()
+	var out []declarative.Declared
+	for rows.Next() {
+		var d declarative.Declared
+		if err := rows.Scan(&d.Name, &d.UID); err != nil {
+			return nil, fmt.Errorf("scan declared virtual model: %w", err)
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
 }
 
 // GetVirtualModel returns a single virtual model with routes.
@@ -243,6 +410,69 @@ func (r *PostgresCatalogRepository) LoadSnapshot(ctx context.Context) (*virtualC
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
+// rowGetter abstracts *pgxpool.Pool and pgx.Tx for single-row reads.
+type rowGetter interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func isUniqueViolation(err error) bool {
+	var pe interface{ SQLState() string }
+	return errors.As(err, &pe) && pe.SQLState() == "23505"
+}
+
+// missingAPIRow explains why an API write matched no row: the id is unknown
+// or a resource owns the row.
+func missingAPIRow(ctx context.Context, q rowGetter, id string) error {
+	var source string
+	err := q.QueryRow(ctx, `SELECT source FROM virtual_models WHERE id=$1`, id).Scan(&source)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return ErrVirtualModelNotFound
+	case err != nil:
+		return fmt.Errorf("read virtual model source: %w", err)
+	}
+	return ErrVirtualModelManaged
+}
+
+// keyHeld refuses an API write to a family and name another row holds.
+func keyHeld(ctx context.Context, tx pgx.Tx, vm VirtualModel) error {
+	var source string
+	err := tx.QueryRow(ctx, `SELECT source FROM virtual_models WHERE family=$1 AND name=$2 AND id<>$3`,
+		vm.Family, vm.Name, vm.ID).Scan(&source)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil
+	case err != nil:
+		return fmt.Errorf("check virtual model key: %w", err)
+	case source == SourceCRD:
+		return fmt.Errorf("virtual model %s: %w", vm.FullID(), ErrVirtualModelManaged)
+	default:
+		return fmt.Errorf("virtual model %s: %w", vm.FullID(), ErrVirtualModelExists)
+	}
+}
+
+// routeTaken refuses a route another virtual model already serves.
+// The catalog snapshot cannot load two models that share a route.
+func routeTaken(ctx context.Context, tx pgx.Tx, id string, routes []VirtualModelRoute) error {
+	keys := make([]string, len(routes))
+	for i, rt := range routes {
+		keys[i] = string(rt.Provider) + "/" + rt.ModelID
+	}
+	var key, holder string
+	err := tx.QueryRow(ctx, `
+		SELECT rt.provider || '/' || rt.model_id, vm.family || '/' || vm.name
+		FROM virtual_model_routes rt JOIN virtual_models vm ON vm.id = rt.virtual_model_id
+		WHERE rt.virtual_model_id <> $1 AND rt.provider || '/' || rt.model_id = ANY($2)
+		LIMIT 1`, id, keys).Scan(&key, &holder)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("check declared routes: %w", err)
+	}
+	return fmt.Errorf("route %s is served by %s: %w", key, holder, ErrVirtualModelRouteTaken)
+}
+
 func (r *PostgresCatalogRepository) inTx(ctx context.Context, fn func(pgx.Tx) error) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -278,7 +508,7 @@ func (r *PostgresCatalogRepository) getByID(ctx context.Context, q rowQuerier, i
 	const sql = `
 		SELECT
 			vm.id, vm.family, vm.name, vm.display_name, vm.description,
-			vm.strategy, vm.enabled, vm.created_at, vm.updated_at,
+			vm.strategy, vm.enabled, vm.source, COALESCE(vm.resource_name, ''), COALESCE(vm.resource_uid, ''), vm.created_at, vm.updated_at,
 			rt.id, rt.provider, rt.model_id, rt.priority, rt.weight,
 			rt.enabled
 		FROM virtual_models vm
@@ -294,7 +524,7 @@ func (r *PostgresCatalogRepository) listAll(ctx context.Context, q rowQuerier) (
 	const sql = `
 		SELECT
 			vm.id, vm.family, vm.name, vm.display_name, vm.description,
-			vm.strategy, vm.enabled, vm.created_at, vm.updated_at,
+			vm.strategy, vm.enabled, vm.source, COALESCE(vm.resource_name, ''), COALESCE(vm.resource_uid, ''), vm.created_at, vm.updated_at,
 			rt.id, rt.provider, rt.model_id, rt.priority, rt.weight,
 			rt.enabled
 		FROM virtual_models vm
@@ -353,7 +583,7 @@ func (r *PostgresCatalogRepository) scanVirtualModelRows(ctx context.Context, q 
 		)
 		if err := rows.Scan(
 			&vm.ID, &vm.Family, &vm.Name, &vm.DisplayName, &vm.Description,
-			&strategy, &vm.Enabled, &vm.CreatedAt, &vm.UpdatedAt,
+			&strategy, &vm.Enabled, &vm.Source, &vm.ResourceName, &vm.ResourceUID, &vm.CreatedAt, &vm.UpdatedAt,
 			&rtID, &rtProvider, &rtModelID, &rtPriority, &rtWeight,
 			&rtEnabled,
 		); err != nil {

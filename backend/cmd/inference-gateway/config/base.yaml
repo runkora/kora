@@ -27,3 +27,8 @@ pricing:
 
 policy:
   bundlePollIntervalSecs: 30
+
+catalog:
+  # Virtual model writes through the API. The chart renders
+  # inferenceGateway.catalog.apiAuthoring here.
+  apiAuthoring: true
