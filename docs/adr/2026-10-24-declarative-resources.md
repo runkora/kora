@@ -144,8 +144,8 @@ All kinds are `runkora.io/v1alpha1`, namespaced, with a status subresource. They
 *   A ValidatingAdmissionPolicy in the `kora` chart rejects a `VirtualModel` outside the system namespace.
 *   `metadata.name` is a DNS-1123 label. CEL limits an `Agent` name to a DNS-1035 label of at most 52 characters.
 *   Spec fields mirror the API request fields in camelCase. Server-derived fields are absent.
-*   A reference to another resource is a name in the same namespace. `VirtualModel` references from tenant kinds use `family` and `name`.
-*   Secrets are referenced by `{name, key}` in the same namespace.
+*   A reference to another resource is a name in the same namespace. An `MCPServer` reference also matches a global server in the system namespace. `VirtualModel` references from tenant kinds use `family` and `name`.
+*   Secrets are referenced by `{name, key}` in the same namespace. A `TriggerSource` Secret must carry the label `runkora.io/trigger-source=true`.
 
 A `VirtualModel`:
 
@@ -229,7 +229,7 @@ spec:
   source: github-org
   eventType: pull_request
   agent: code-reviewer
-  promptTemplate: "Review {{ .payload.pull_request.html_url }}"
+  promptTemplate: "Review {{ pull_request.html_url }}"
 ```
 
 *   `spec.agent` and `spec.routing` are mutually exclusive through CEL. `spec.routing.candidates` and `spec.routing.fallback` are `Agent` names.
@@ -286,17 +286,19 @@ func SetConditions(status *Status, generation int64, accepted, resolved, ready m
 *   A live row with the same key and `source = 'api'` leaves the resource unprojected with `Accepted=False` and reason `NameConflict`. Soft-deleted rows do not conflict.
 *   When two resources claim the same key, the older resource keeps it and the newer one reports `NameConflict`.
 *   A resource in a namespace with no tenant gets `Accepted=False` and reason `UnknownTenant`.
-*   A missing reference gives `ResolvedRefs=False` with reason `RefNotFound` and the missing name in the message. A new resource with a missing reference is not projected. A projected resource keeps its last applied row.
+*   A missing reference gives `ResolvedRefs=False` with reason `RefNotFound` and the missing name in the message. A new resource with a missing reference is not projected. A projected resource keeps its last applied row and reports `Ready=False` until its current spec is applied.
 *   A reference to a dashboard-built item counts as missing.
 *   Unresolved resources requeue every 30 seconds, and every resource resyncs every 5 minutes.
-*   Each row stores its resource UID in `resource_uid`. A delete event deletes the row with that UID.
+*   Each row stores its resource UID in `resource_uid`. A reconcile that finds the resource gone deletes its declared row.
+*   Deleting an `Environment` resource while an agent is attached keeps the row and retries every 30 seconds.
+*   Changing a `Trigger`'s `kind`, or switching between `agent` and `routing`, recreates the trigger. Changing a `TriggerSource`'s `provider` recreates the source with a new id and webhook path.
 *   At startup, after the cache syncs, each service deletes live `source = 'crd'` rows whose UID is absent from the cache. It skips a tenant missing from the registry and a tenant whose namespace does not exist.
 
 Each resource reports three conditions:
 
 *   `Accepted`: the spec is valid, the tenant is known and the key is free.
 *   `ResolvedRefs`: every reference exists as a resource.
-*   `Ready`: the item is projected and live. An `Agent` is `Ready` when its row reaches `state = 'active'`.
+*   `Ready`: the current spec is projected and live. An `Agent` is `Ready` when its row reaches `state = 'active'`, and a trigger without a source is never `Ready`.
 
 A `TriggerSource` also reports `status.webhookPath`, the ingest path that includes the source's id.
 
@@ -342,7 +344,8 @@ ALTER TABLE agent_types
 *   The agent fields `can_edit` and `can_delete` are false for declared agents and for every agent in a locked tenant.
 *   An API trigger cannot take the name of a declared trigger. A declared trigger with the name of a live API trigger reports `NameConflict`.
 *   The kora MCP server calls the same APIs and inherits these refusals.
-*   `identity` returns `api_authoring` for the caller's tenant on the session response. `GET /v1/catalog/virtual-models` returns the platform switch.
+*   `identity` returns `api_authoring` for the caller's tenant on the session response. `GET /v1/catalog/virtual-models` returns `{"data": [...], "api_authoring": bool}`.
+*   An API create that takes a declared item's key returns HTTP 409 with code `resource_already_exists`.
 
 ### 7. Dashboard
 
@@ -365,7 +368,7 @@ CREATE UNIQUE INDEX agent_types_tenant_slug_live ON agent_types (tenant_id, slug
 *   Runs, sessions, events and messages stay.
 *   Agent lists, slug lookups, `GetAgentType` and `ListAgentTypesByEnvironment` exclude deleted agents. A deleted agent returns 404.
 *   A pending run claimed after its agent is deleted fails with the existing missing-agent error.
-*   A deleted agent's runs stay readable by the run's initiator and by platform admins. Per-agent run scopes do not cover them. A new agent with the same slug does not expose them.
+*   A deleted agent's runs stay readable by the run's initiator, the agent's creator and holders of the tenant-wide `agents:runs:read` scope. Per-agent run scopes do not cover them. A new agent with the same slug does not expose them.
 *   A trigger whose agent is deleted auto-pauses on the 404 as it does today.
 *   A new agent with a deleted agent's slug gets a new row and no runs.
 
@@ -386,7 +389,7 @@ CREATE UNIQUE INDEX agent_types_tenant_slug_live ON agent_types (tenant_id, slug
 *   `policy-service` gains a ClusterRole with `get/list/watch` on `policyroles` and `patch` on `policyroles/status`.
 *   `kora-triggers` and `policy-service` gain the `runkora.io/kube-api-client` label.
 *   The operator creates a RoleBinding in each tenant namespace that grants `kora-triggers` Secret `get`. `kora-triggers` reads Secrets through the manager's uncached API reader.
-*   Each service gains `get/create/update` on `leases` in the system namespace.
+*   Each service gains `get/create/update` on `leases` and `create/patch` on `events` in the system namespace, and `get` on `namespaces` for the startup sweep.
 
 ### Rationale
 
@@ -433,7 +436,10 @@ On the local cluster:
 
 ### Negative
 
-*   Anyone who can write the tenant namespace can define an agent with any scope in that tenant.
+*   Anyone who can write the tenant namespace can define agents and `PolicyRole`s with any scope a tenant platform admin holds, including `platform:*` scopes.
+*   An API agent can attach a declared `Environment`. A later change to that `Environment` widens the agent's egress and connectors without a scope ceiling check.
+*   Inference gateway replicas that do not hold the Lease load declared virtual model changes on restart. API writes have the same per-replica gap today.
+*   A service exits and restarts when its declarative manager stops, including on a missing CRD at startup. `kora-crds` must be applied before `kora`.
 *   `kora-triggers` and `policy-service` gain Kubernetes API access, and `kora-triggers` can read every Secret in tenant namespaces.
 *   Changing a tenant's namespace requires deleting and recreating the `KoraTenant`.
 *   A rotated trigger source Secret takes effect on the next resync, up to 5 minutes later.
