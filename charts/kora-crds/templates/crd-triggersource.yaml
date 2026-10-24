@@ -72,7 +72,7 @@ spec:
                   description: Provider-specific configuration, as the API accepts it.
                 signingSecretRef:
                   type: object
-                  description: The Secret key in this namespace that holds the signing secret.
+                  description: The Secret key in this namespace that holds the signing secret. The Secret must carry the label runkora.io/trigger-source=true.
                   required:
                     - name
                     - key

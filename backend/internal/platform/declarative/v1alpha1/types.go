@@ -222,8 +222,8 @@ type TriggerSource struct {
 }
 
 // TriggerSourceSpec mirrors the source create request. The signing secret
-// comes from a Secret instead of the request body. Enabled defaults to true
-// in the CRD.
+// comes from a Secret instead of the request body. The Secret must carry the
+// label runkora.io/trigger-source=true. Enabled defaults to true in the CRD.
 type TriggerSourceSpec struct {
 	Provider         string                `json:"provider"`
 	Config           *runtime.RawExtension `json:"config,omitempty"`
