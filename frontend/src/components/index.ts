@@ -72,3 +72,7 @@ export type {
   BudgetLimitValues,
   BudgetLimits,
 } from './budget-limit-fields';
+
+/** Marks items declared in the configuration repository, and pages that are read-only because of it. */
+export { ManagedInGitBadge, ManagedInGitCallout } from './managed-in-git';
+export type { ManagedInGitCalloutProps } from './managed-in-git';

@@ -34,6 +34,11 @@ export interface SessionPayload {
   expiresAt: number;
   /** Tenant ID the session was created against (used for token refresh). */
   tenantId: string;
+  /**
+   * False when the tenant takes its changes from its configuration repository.
+   * Absent on sessions sealed before the field existed, which read as true.
+   */
+  apiAuthoring?: boolean;
 }
 
 // ── Backend API response shapes ──────────────────────────────────────────────
@@ -52,6 +57,8 @@ export interface BackendSessionResponse {
    * cookie stays alive for exactly as long as the refresh token is valid.
    */
   refresh_token_expires_in?: number;
+  /** False when the caller's tenant takes its changes from its configuration repository. */
+  api_authoring?: boolean;
 }
 
 // ── Cookie names ──────────────────────────────────────────────────────────────

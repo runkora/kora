@@ -296,6 +296,25 @@ describe('POST /api/auth/session', () => {
       expect(capturedSession.tenantId).toBe('tenant-1');
       expect(typeof capturedSession.expiresAt).toBe('number');
     });
+
+    it.each([
+      [false, false],
+      [true, true],
+      [undefined, true],
+    ])('stores api_authoring %s as apiAuthoring %s', async (upstream, stored) => {
+      const backendData = { ...createBackendSessionResponse(), api_authoring: upstream };
+      server.use(
+        http.post('http://test-kora-api/identity/session', () => HttpResponse.json(backendData)),
+      );
+      const session: Record<string, unknown> = { save: vi.fn().mockResolvedValue(undefined) };
+      vi.mocked(getIronSession).mockResolvedValue(
+        session as unknown as IronSession<SessionPayload>,
+      );
+
+      await POST(makePostRequest({ id_token: backendData.access_token, tenant_id: 'tenant-1' }));
+
+      expect(session.apiAuthoring).toBe(stored);
+    });
   });
 });
 
@@ -352,6 +371,19 @@ describe('GET /api/auth/session', () => {
       'agents:read',
       'connections:read',
     ]);
+  });
+
+  it.each([
+    [false, false],
+    [undefined, true],
+  ])('returns apiAuthoring %s from the session as %s', async (sealed, returned) => {
+    const payload = { ...createSessionPayload(), apiAuthoring: sealed };
+    vi.mocked(getSession).mockResolvedValue(payload as unknown as IronSession<SessionPayload>);
+    vi.mocked(isSessionValid).mockReturnValue(true);
+
+    const body = (await (await GET()).json()) as Record<string, unknown>;
+
+    expect(body.apiAuthoring).toBe(returned);
   });
 
   it('returns empty scopes when the policy gateway is unavailable', async () => {

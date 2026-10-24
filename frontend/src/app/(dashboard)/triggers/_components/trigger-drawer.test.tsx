@@ -477,6 +477,60 @@ describe('permissions', () => {
   });
 });
 
+describe('managed in git', () => {
+  function renderManaged(
+    row: TriggerRow,
+    opts: { apiAuthoring?: boolean; sources?: SourceRow[] } = {},
+  ) {
+    return renderWithProviders(
+      <TriggerDrawer
+        canRunAgent
+        trigger={row}
+        sources={opts.sources ?? SOURCES}
+        deliveries={[]}
+        ingestHost="local.runkora.io:8443"
+        onClose={vi.fn()}
+        onToggleEnabled={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn().mockResolvedValue(null)}
+        onUpdateSafety={vi.fn()}
+        onRotateSecret={vi.fn().mockResolvedValue('s')}
+      />,
+      { apiAuthoring: opts.apiAuthoring ?? true },
+    );
+  }
+
+  it('shows a declared trigger read-only with no delete', () => {
+    renderManaged(trigger({ declared: true }));
+    expect(screen.getByText('Managed in git')).toBeTruthy();
+    expect(screen.getByText(/item is managed in git/)).toBeTruthy();
+    expect(screen.getByRole('switch', { name: /^(Enable|Disable) / })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Settings' }));
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+  });
+
+  it('keeps the switch for re-enabling an auto-paused declared trigger', () => {
+    renderManaged(
+      trigger({ declared: true, enabled: false, autoPausedAt: '2026-07-01T00:00:00Z' }),
+    );
+    expect(screen.getByRole('switch', { name: /^(Enable|Disable) / })).toBeEnabled();
+  });
+
+  it('treats every trigger in a locked tenant as managed in git, keeping API source rotation', () => {
+    renderManaged(trigger(), { apiAuthoring: false });
+    expect(screen.getByText(/tenant is managed in git/)).toBeTruthy();
+    expect(screen.getByRole('switch', { name: /^(Enable|Disable) / })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Rotate' })).toBeEnabled();
+  });
+
+  it('offers no rotation for a declared source', () => {
+    renderManaged(trigger(), { sources: [{ ...SOURCES[0]!, declared: true }] });
+    expect(screen.getByText('Managed in git')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Rotate' })).toBeDisabled();
+  });
+});
+
 describe('a source whose provider issues the secret', () => {
   const SLACK: SourceRow[] = [
     { ...SOURCES[0]!, name: 'acme slack', provider: 'slack', category: 'chat' },

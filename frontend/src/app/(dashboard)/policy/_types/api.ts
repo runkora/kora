@@ -3,6 +3,7 @@
 // Mirrors the JSON shapes returned by the policy-service (PAP) and
 // policy-gateway (PDP). Feature-local — NOT in shared/api.ts.
 // Only promote to shared when another feature module needs them.
+import type { ResourceSource } from '@runkora/lib/declarative';
 
 // ── Budget ───────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,8 @@ export interface RoleEntry {
   reserved?: boolean;
   /** Built-in role scopes no service has registered yet. */
   unregistered_scopes?: string[];
+  /** "crd" when the role is declared in the configuration repository. Reserved roles omit it. */
+  source?: ResourceSource;
 }
 
 export interface RolesListResponse {

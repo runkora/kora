@@ -15,7 +15,7 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
-import { PermissionHint, StatusBadge } from '@runkora/components';
+import { ManagedInGitBadge, PermissionHint, StatusBadge } from '@runkora/components';
 import { fmtUsd } from '@runkora/utils';
 import type { AgentTypeUsage } from '@runkora/shared/api';
 import { APP_ROUTES } from '@runkora/lib/routing';
@@ -81,6 +81,7 @@ export function AgentCard({
                 Delegated
               </Text>
             )}
+            {agent.declared && <ManagedInGitBadge />}
           </Stack>
         }
         action={

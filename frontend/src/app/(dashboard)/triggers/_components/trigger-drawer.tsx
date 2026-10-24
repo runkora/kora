@@ -43,7 +43,13 @@ import {
   SegmentedControl,
   EmptyState,
 } from '@runkora/hades';
-import { consoleKindOf, KIND_ICON, LIMITS } from '../_types';
+import {
+  consoleKindOf,
+  KIND_ICON,
+  LIMITS,
+  triggerManagedInGit,
+  triggerToggleOpen,
+} from '../_types';
 import type { DeliveryRow, Senders, SourceRow, TriggerCoalesce, TriggerRow } from '../_types';
 import { isStartedOutcome, recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
@@ -86,8 +92,9 @@ import {
 } from './trigger-wizard/cron';
 import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
 import { useEditableSection } from './use-editable-section';
-import { useHasScope } from '../../_components/permissions-provider';
-import { PermissionHint, permissionHintText } from '@runkora/components';
+import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
+import { ManagedInGitBadge, PermissionHint, permissionHintText } from '@runkora/components';
+import { declarativeRefusal } from '@runkora/lib/declarative';
 
 /**
  * A correction to a stored trigger. Every field is optional: a section saves
@@ -422,9 +429,16 @@ export function TriggerDrawer({
   const canShapeRuns = canWrite && canRunAgent;
   // A trigger whose source was deleted takes no edits; it can only be turned off or deleted.
   const sourceMissing = trigger?.sourceMissing ?? false;
-  const onUpdateSafety = canWrite && !sourceMissing ? updateSafetyAction : undefined;
-  const onEdit = canWrite && !sourceMissing ? editAction : undefined;
-  const onRotateSecret = canShapeRuns ? rotateSecretAction : undefined;
+  // A trigger managed in git keeps its fire and auto-pause controls and nothing else.
+  const tenantLocked = useTenantLocked();
+  const managed = trigger !== null && triggerManagedInGit(trigger, tenantLocked);
+  // Secret rotation stays available on an API source, even in a locked tenant.
+  const sourceDeclared =
+    trigger?.kind === 'webhook' &&
+    sources.some((s) => s.id === trigger.sourceId && s.declared === true);
+  const onUpdateSafety = canWrite && !sourceMissing && !managed ? updateSafetyAction : undefined;
+  const onEdit = canWrite && !sourceMissing && !managed ? editAction : undefined;
+  const onRotateSecret = canShapeRuns && !sourceDeclared ? rotateSecretAction : undefined;
   const canFire = !!trigger?.canFire;
   const [expanded, setExpanded] = useState<string | null>(null);
   // Rotation is destructive (the provider's configured secret stops working the
@@ -639,7 +653,11 @@ export function TriggerDrawer({
           <Toggle
             checked={trigger.enabled}
             onChange={(next) => onToggleEnabled(trigger, next)}
-            disabled={!canShapeRuns || (sourceMissing && !trigger.enabled)}
+            disabled={
+              !canShapeRuns ||
+              (sourceMissing && !trigger.enabled) ||
+              !triggerToggleOpen(trigger, tenantLocked)
+            }
             aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} ${trigger.name}`}
           />
         }
@@ -656,7 +674,22 @@ export function TriggerDrawer({
 
         <SidePanelBody padding="compact">
           {/* One notice covers every disabled edit control in the drawer. */}
-          {!canWrite ? (
+          {managed ? (
+            <Stack gap="snug">
+              {trigger.declared && (
+                <Stack direction="horizontal">
+                  <ManagedInGitBadge />
+                </Stack>
+              )}
+              <Alert variant="info">
+                {declarativeRefusal(
+                  trigger.declared ? 'managed_by_resource' : 'api_authoring_disabled',
+                )}
+                {trigger.autoPausedAt !== null &&
+                  ' You can still re-enable this trigger after its auto-pause.'}
+              </Alert>
+            </Stack>
+          ) : !canWrite ? (
             <Alert variant="info">{permissionHintText('edit triggers')}</Alert>
           ) : (
             !canRunAgent && (
@@ -689,6 +722,7 @@ export function TriggerDrawer({
                 <Stack gap="snug">
                   <Stack direction="horizontal" gap="snug" align="center">
                     <SectionLabel>{kind === 'chat' ? 'Request URL' : 'Endpoint'}</SectionLabel>
+                    {source?.declared && <ManagedInGitBadge />}
                     {source !== undefined && !source.signingSecretSet && (
                       <Badge variant="degraded" size="sm" shape="pill">
                         Waiting for signing secret
@@ -1288,20 +1322,22 @@ export function TriggerDrawer({
                 </Stack>
               </Stack>
 
-              <DangerZone
-                title="Delete trigger"
-                description="Stops all future deliveries. Anything still waiting is recorded as dropped, and history is retained."
-                action={
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    disabled={!canWrite}
-                    onClick={() => onDelete(trigger)}
-                  >
-                    Delete
-                  </Button>
-                }
-              />
+              {!managed && (
+                <DangerZone
+                  title="Delete trigger"
+                  description="Stops all future deliveries. Anything still waiting is recorded as dropped, and history is retained."
+                  action={
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={!canWrite}
+                      onClick={() => onDelete(trigger)}
+                    >
+                      Delete
+                    </Button>
+                  }
+                />
+              )}
             </Stack>
           </TabsContent>
         </SidePanelBody>

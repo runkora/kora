@@ -17,6 +17,7 @@ import 'server-only';
  * move the fetch calls into a loader function co-located with the page.
  */
 
+import type { ResourceSource } from '@runkora/lib/declarative';
 import { config } from '@runkora/server/config';
 
 // ── Result types ─────────────────────────────────────────────────────────────
@@ -55,6 +56,8 @@ export interface VirtualModel {
   updated_at: string;
   routes: VirtualModelRoute[];
   pricing?: VirtualModelPricingWire;
+  /** "crd" when the model is declared in the configuration repository. */
+  source?: ResourceSource;
 }
 
 export interface ProviderModel {
@@ -140,7 +143,7 @@ async function catalogFetch<T>(
 
 export async function fetchVirtualModels(
   accessToken: string,
-): Promise<Result<{ data: VirtualModel[] }>> {
+): Promise<Result<{ data: VirtualModel[]; api_authoring?: boolean }>> {
   return catalogFetch('/virtual-models', accessToken);
 }
 

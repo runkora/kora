@@ -44,6 +44,8 @@ export interface VirtualModel {
   routes: RouteTarget[];
   enabled: boolean;
   pricing?: VirtualModelPricing;
+  /** Declared in the configuration repository: read-only here. */
+  declared?: boolean;
 }
 
 export interface ProviderModel {

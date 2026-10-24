@@ -18,12 +18,18 @@ import {
 } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
 import Link from 'next/link';
-import { PermissionHint, StatusBadge, ViewToggle } from '@runkora/components';
+import {
+  ManagedInGitBadge,
+  ManagedInGitCallout,
+  PermissionHint,
+  StatusBadge,
+  ViewToggle,
+} from '@runkora/components';
 import type { ViewMode } from '@runkora/components';
 import type { AgentInsightsResponse, AgentTypeUsage } from '@runkora/shared/api';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { useAgentsContext } from '../_context/agents-context';
-import { useHasScope } from '../../_components/permissions-provider';
+import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
 import { useAgentsInsights } from '../_hooks/use-agents-insights';
 import { StartRunModal } from './start-run-modal';
 import { openBuilder } from '../_lib/builder-url';
@@ -88,6 +94,8 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
   const canCreateDelegated = useHasScope('agents:types:delegated:write');
   const canCreateAutonomous = useHasScope('agents:types:autonomous:write');
   const canCreate = canCreateDelegated || canCreateAutonomous;
+  // A locked tenant takes new agents from its configuration repository, so create is not offered.
+  const locked = useTenantLocked();
   const runnableAgentTypes = useMemo(() => agentTypes.filter((a) => a.canRun), [agentTypes]);
 
   // The control picks the window. Without data for it the figures say so rather than show zeros.
@@ -219,6 +227,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
                 Delegated
               </Badge>
             )}
+            {row.declared && <ManagedInGitBadge />}
           </Stack>
         ),
       },
@@ -299,11 +308,13 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
             onChange={(value) => setPeriod(value as Period)}
             options={PERIOD_OPTIONS}
           />
-          <DraftsButton
-            count={drafts.length}
-            open={draftsOpen}
-            onToggle={() => setDraftsOpen((open) => !open)}
-          />
+          {!locked && (
+            <DraftsButton
+              count={drafts.length}
+              open={draftsOpen}
+              onToggle={() => setDraftsOpen((open) => !open)}
+            />
+          )}
           <PermissionHint allowed={runnableAgentTypes.length > 0} action="start runs of any agent">
             <Button
               variant="outline"
@@ -314,18 +325,24 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
               New Run
             </Button>
           </PermissionHint>
-          <PermissionHint allowed={canCreate} action="create agents">
-            <Button disabled={!canCreate} onClick={() => openBuilder()}>
-              <Icon name="plus" size="xs" />
-              New Agent
-            </Button>
-          </PermissionHint>
+          {!locked && (
+            <PermissionHint allowed={canCreate} action="create agents">
+              <Button disabled={!canCreate} onClick={() => openBuilder()}>
+                <Icon name="plus" size="xs" />
+                New Agent
+              </Button>
+            </PermissionHint>
+          )}
         </Stack>
       </Stack>
 
+      {locked && <ManagedInGitCallout subject="Agents in this tenant" />}
+
       {/* The caller's saved builder drafts (a draft has no status, runs, or
           spend, so it does not merge into the agent list) */}
-      {draftsOpen && drafts.length > 0 && <DraftsList drafts={drafts} onChanged={refreshDrafts} />}
+      {!locked && draftsOpen && drafts.length > 0 && (
+        <DraftsList drafts={drafts} onChanged={refreshDrafts} />
+      )}
 
       {/* Headline figures beside the spend card */}
       <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
@@ -389,16 +406,18 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
           icon="bot"
           title="No agents yet"
           description={
-            canCreate
+            canCreate && !locked
               ? 'Create your first agent definition to start running AI tasks.'
               : 'No agents are shared with you yet.'
           }
           action={
-            <PermissionHint allowed={canCreate} action="create agents">
-              <Button disabled={!canCreate} onClick={() => openBuilder()}>
-                New Agent
-              </Button>
-            </PermissionHint>
+            locked ? undefined : (
+              <PermissionHint allowed={canCreate} action="create agents">
+                <Button disabled={!canCreate} onClick={() => openBuilder()}>
+                  New Agent
+                </Button>
+              </PermissionHint>
+            )
           }
         />
       ) : viewMode === 'cards' ? (

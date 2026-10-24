@@ -86,6 +86,7 @@ describe('DashboardSidebar', () => {
         scopes: ['platform:grants:read'],
         user: null,
         loaded: true,
+        apiAuthoring: true,
       });
       renderSidebar();
       expect(screen.getByText('Policy')).toBeInTheDocument();
@@ -104,6 +105,7 @@ describe('DashboardSidebar', () => {
         scopes: ['agents:environments:read'],
         user: null,
         loaded: true,
+        apiAuthoring: true,
       });
       renderSidebar();
       expect(screen.getByRole('link', { name: /environments/i })).toHaveAttribute(
@@ -122,6 +124,7 @@ describe('DashboardSidebar', () => {
         scopes: ['agents:read'],
         user: null,
         loaded: true,
+        apiAuthoring: true,
       });
       renderSidebar();
       expect(screen.getByRole('link', { name: /agents/i })).toBeInTheDocument();
@@ -133,6 +136,7 @@ describe('DashboardSidebar', () => {
         scopes: ['platform:roles:read'],
         user: null,
         loaded: true,
+        apiAuthoring: true,
       });
       renderSidebar();
       expect(screen.getByRole('link', { name: /roles/i })).toHaveAttribute(
@@ -146,6 +150,7 @@ describe('DashboardSidebar', () => {
         scopes: ['inference:list'],
         user: null,
         loaded: true,
+        apiAuthoring: true,
       });
       renderSidebar();
       expect(screen.getByRole('link', { name: /^models$/i })).toBeInTheDocument();
@@ -166,6 +171,7 @@ describe('DashboardSidebar', () => {
         scopes: ['inference:list'],
         user: null,
         loaded: true,
+        apiAuthoring: true,
       });
       renderSidebar();
       expect(screen.getByRole('link', { name: /models/i })).toHaveAttribute(
@@ -179,6 +185,7 @@ describe('DashboardSidebar', () => {
         scopes: ['agents:types:read'],
         user: null,
         loaded: true,
+        apiAuthoring: true,
       });
       renderSidebar();
       expect(screen.getByRole('link', { name: /agents/i })).toHaveAttribute(
@@ -233,6 +240,7 @@ describe('DashboardSidebar', () => {
         scopes: ['platform:grants:read', 'agents:environments:read', 'inference:list'],
         user: null,
         loaded: true,
+        apiAuthoring: true,
       });
       renderSidebar();
 

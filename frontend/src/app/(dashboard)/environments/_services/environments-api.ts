@@ -3,6 +3,7 @@
 // All functions call the BFF routes under /api/agents/environments. Never
 // throws — callers pattern-match on the returned `error` field.
 
+import { declarativeRefusal, writeErrorMessage } from '@runkora/lib/declarative';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type {
   Connector,
@@ -56,7 +57,7 @@ export async function createEnvironment(
     const body = await res.json().catch(() => ({}) as { message?: string });
     return {
       environment: null,
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
+      error: writeErrorMessage(res.status, body),
     };
   }
   const body = (await res.json()) as { data: Environment };
@@ -83,7 +84,7 @@ export async function updateEnvironment(
     const body = await res.json().catch(() => ({}) as { message?: string });
     return {
       environment: null,
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
+      error: writeErrorMessage(res.status, body),
     };
   }
   const body = (await res.json()) as { data: Environment };
@@ -137,10 +138,12 @@ export async function deleteEnvironment(id: string): Promise<{ error: string | n
   } catch {
     return { error: 'Network error: could not reach the server.' };
   }
-  if (res.status === 409) return { error: ENVIRONMENT_IN_USE_MESSAGE };
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
-    return { error: (body as { message?: string }).message ?? `Request failed (${res.status})` };
+    if (res.status === 409 && declarativeRefusal((body as { code?: unknown }).code) === null) {
+      return { error: ENVIRONMENT_IN_USE_MESSAGE };
+    }
+    return { error: writeErrorMessage(res.status, body) };
   }
   return { error: null };
 }

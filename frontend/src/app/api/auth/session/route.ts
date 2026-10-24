@@ -18,7 +18,7 @@
  * GET  — returns the public (non-sensitive) portion of the current session for
  *        use by client components that need to know who is logged in.
  *
- *        Response: 200 { user: SessionUser, expiresAt: number } — active session
+ *        Response: 200 { user, expiresAt, permissions, apiAuthoring } — active session
  *                  401 { error: 'unauthorized' }                — no/expired session
  *
  * The access token and refresh token are NEVER included in GET responses —
@@ -215,6 +215,7 @@ export async function POST(request: Request): Promise<Response> {
     refreshToken: data.refresh_token,
     expiresAt: data.issued_at + data.expires_in,
     tenantId: tenantId as string,
+    apiAuthoring: data.api_authoring ?? true,
   };
 
   // Create the session with a maxAge derived from the backend's refresh token
@@ -248,5 +249,6 @@ export async function GET(): Promise<Response> {
     user: session.user,
     expiresAt: session.expiresAt,
     permissions: { scopes },
+    apiAuthoring: session.apiAuthoring ?? true,
   });
 }

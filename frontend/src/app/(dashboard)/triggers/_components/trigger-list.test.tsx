@@ -197,3 +197,30 @@ describe('source missing', () => {
     expect(screen.getByText('No source')).toBeTruthy();
   });
 });
+
+describe('managed in git', () => {
+  it('marks a declared trigger and locks its switch', () => {
+    render(list({ triggers: [makeTrigger({ declared: true })] }));
+    expect(screen.getByText('Managed in git')).toBeTruthy();
+    expect(screen.getByRole('switch')).toBeDisabled();
+  });
+
+  it('locks every switch in a locked tenant but one that clears an auto-pause', () => {
+    render(
+      list({
+        triggers: [
+          makeTrigger({ id: 'a', name: 'live' }),
+          makeTrigger({
+            id: 'b',
+            name: 'paused',
+            enabled: false,
+            autoPausedAt: '2026-07-01T00:00:00Z',
+          }),
+        ],
+      }),
+      { apiAuthoring: false },
+    );
+    expect(screen.getByRole('switch', { name: 'Disable live' })).toBeDisabled();
+    expect(screen.getByRole('switch', { name: 'Enable paused' })).toBeEnabled();
+  });
+});

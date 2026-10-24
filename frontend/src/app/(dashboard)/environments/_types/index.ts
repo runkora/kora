@@ -3,6 +3,7 @@
 // EnvironmentRow is the shape consumed by the UI. The raw API shape
 // (Environment) only appears at the service-layer boundary.
 
+import { isDeclared } from '@runkora/lib/declarative';
 import type { Environment, Connector, EnvironmentSize } from '@runkora/shared/api';
 
 export type { Connector };
@@ -21,6 +22,8 @@ export interface EnvironmentRow {
   connectors: Connector[];
   createdAt: string;
   updatedAt: string;
+  /** Declared in the configuration repository: read-only here. */
+  declared: boolean;
 }
 
 // ── Transformers ──────────────────────────────────────────────────────────────
@@ -38,6 +41,7 @@ export function toEnvironmentRow(e: Environment): EnvironmentRow {
     connectors: e.connectors ?? [],
     createdAt: e.created_at,
     updatedAt: e.updated_at,
+    declared: isDeclared(e),
   };
 }
 

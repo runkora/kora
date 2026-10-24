@@ -1,0 +1,37 @@
+import { describe, expect, it } from 'vitest';
+
+import { declarativeRefusal, isDeclared, writeErrorMessage } from './declarative';
+
+describe('isDeclared', () => {
+  it('is true only for crd items', () => {
+    expect(isDeclared({ source: 'crd' })).toBe(true);
+    expect(isDeclared({ source: 'api' })).toBe(false);
+    expect(isDeclared({})).toBe(false);
+    expect(isDeclared(null)).toBe(false);
+  });
+});
+
+describe('declarativeRefusal', () => {
+  it('names the configuration repository for both refusal codes', () => {
+    expect(declarativeRefusal('managed_by_resource')).toMatch(/item is managed in git/);
+    expect(declarativeRefusal('api_authoring_disabled')).toMatch(/tenant is managed in git/);
+  });
+
+  it('is null for any other code', () => {
+    expect(declarativeRefusal('conflict')).toBeNull();
+    expect(declarativeRefusal(undefined)).toBeNull();
+  });
+});
+
+describe('writeErrorMessage', () => {
+  it('prefers the managed-in-git message for a refusal code', () => {
+    expect(
+      writeErrorMessage(409, { code: 'managed_by_resource', message: 'upstream text' }),
+    ).toMatch(/managed in git/);
+  });
+
+  it('falls back to the API message, then the status', () => {
+    expect(writeErrorMessage(400, { code: 'invalid', message: 'bad name' })).toBe('bad name');
+    expect(writeErrorMessage(500, null)).toBe('Request failed (500)');
+  });
+});

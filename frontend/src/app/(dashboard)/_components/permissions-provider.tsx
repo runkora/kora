@@ -20,6 +20,8 @@ interface SessionContextValue {
   user: SessionUser | null;
   /** Whether the session has been loaded from the BFF. */
   loaded: boolean;
+  /** False when the tenant takes its changes from its configuration repository. */
+  apiAuthoring: boolean;
 }
 
 // ── Context ──────────────────────────────────────────────────────────────────
@@ -28,6 +30,7 @@ const SessionContext = createContext<SessionContextValue>({
   scopes: [],
   user: null,
   loaded: false,
+  apiAuthoring: true,
 });
 
 // ── Provider ─────────────────────────────────────────────────────────────────
@@ -45,6 +48,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     scopes: [],
     user: null,
     loaded: false,
+    apiAuthoring: true,
   });
 
   useEffect(() => {
@@ -61,6 +65,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
         scopes: data?.permissions?.scopes ?? [],
         user: data?.user ?? null,
         loaded: true,
+        apiAuthoring: data?.apiAuthoring ?? true,
       });
 
       // Schedule a proactive re-fetch 4 minutes before the token expires so
@@ -76,7 +81,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     }
 
     loadSession().catch(() => {
-      if (mounted) setValue({ scopes: [], user: null, loaded: true });
+      if (mounted) setValue({ scopes: [], user: null, loaded: true, apiAuthoring: true });
     });
 
     return () => {
@@ -91,13 +96,15 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
 /** Supplies a fixed, loaded scope set. For tests and stories, where no BFF session exists. */
 export function StaticPermissionsProvider({
   scopes,
+  apiAuthoring = true,
   children,
 }: {
   scopes: string[];
+  apiAuthoring?: boolean;
   children: ReactNode;
 }) {
   return (
-    <SessionContext.Provider value={{ scopes, user: null, loaded: true }}>
+    <SessionContext.Provider value={{ scopes, user: null, loaded: true, apiAuthoring }}>
       {children}
     </SessionContext.Provider>
   );
@@ -123,4 +130,14 @@ export function usePermissions(): { scopes: string[]; loaded: boolean } {
 export function useHasScope(required: string): boolean {
   const { scopes, loaded } = useContext(SessionContext);
   return loaded && hasScopeCovering(scopes, required);
+}
+
+/**
+ * Returns whether the tenant takes its changes from its configuration
+ * repository. Agents, environments, triggers, trigger sources and roles are
+ * then read-only. False until the session loads.
+ */
+export function useTenantLocked(): boolean {
+  const { apiAuthoring, loaded } = useContext(SessionContext);
+  return loaded && !apiAuthoring;
 }
