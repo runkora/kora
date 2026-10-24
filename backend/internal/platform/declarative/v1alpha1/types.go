@@ -32,6 +32,8 @@ func AddToScheme(s *runtime.Scheme) error {
 // Status is the status every declarative kind reports. The owning service
 // writes it.
 type Status struct {
+	// ID is the id of the item the resource is projected to.
+	ID                 string             `json:"id,omitempty"`
 	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
 }
@@ -354,8 +356,10 @@ func (r *PolicyRole) RoleName() string {
 	return r.Name
 }
 
-// PolicyRoleSpec mirrors the role upsert request.
+// PolicyRoleSpec mirrors the role upsert request. Tenant is set only on a
+// PolicyRole in the system namespace; the operator refuses it elsewhere.
 type PolicyRoleSpec struct {
+	Tenant string      `json:"tenant,omitempty"`
 	Role   string      `json:"role,omitempty"`
 	Scopes []string    `json:"scopes"`
 	Budget *RoleBudget `json:"budget,omitempty"`

@@ -121,6 +121,9 @@ spec:
             status:
               type: object
               properties:
+                id:
+                  type: string
+                  description: The id of the item the resource is projected to.
                 observedGeneration:
                   type: integer
                   format: int64

@@ -15,7 +15,7 @@ var full = map[string]string{
 	"VirtualModel": `
 metadata: {name: m, labels: {a: b}}
 spec: {family: a, name: b, displayName: B, routes: [{provider: 'bedrock:p', modelID: m, priority: 1, weight: 100, enabled: true}]}
-status: {observedGeneration: 1, conditions: [{type: Ready, status: "True", reason: R, message: M, lastTransitionTime: "2026-10-24T00:00:00Z"}]}`,
+status: {id: v1, observedGeneration: 1, conditions: [{type: Ready, status: "True", reason: R, message: M, lastTransitionTime: "2026-10-24T00:00:00Z"}]}`,
 	"Environment": `
 metadata: {name: e}
 spec: {displayName: E, size: {cpu: "1"}, egressHosts: [a], connectors: [{connection: gh, actions: [read], resources: [r]}]}
@@ -57,7 +57,7 @@ spec:
 status: {conditions: [{type: Ready, status: "True", reason: R, message: M, lastTransitionTime: "2026-10-24T00:00:00Z"}]}`,
 	"PolicyRole": `
 metadata: {name: r}
-spec: {scopes: [a], budget: {limitUSD: 1}}
+spec: {tenant: acme, role: r, scopes: [a], budget: {limitUSD: 1}}
 status: {conditions: [{type: Ready, status: "True", reason: R, message: M, lastTransitionTime: "2026-10-24T00:00:00Z"}]}`,
 }
 

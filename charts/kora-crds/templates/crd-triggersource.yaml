@@ -96,6 +96,9 @@ spec:
                 webhookPath:
                   type: string
                   description: The ingest path to configure in the provider. It includes the source id.
+                id:
+                  type: string
+                  description: The id of the item the resource is projected to.
                 observedGeneration:
                   type: integer
                   format: int64

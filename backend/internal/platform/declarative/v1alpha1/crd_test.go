@@ -444,6 +444,8 @@ func TestSchemaRejections(t *testing.T) {
 		{"crd-policyrole.yaml", "no scopes", "{role: r}", true},
 		{"crd-policyrole.yaml", "empty scopes", "{scopes: []}", true},
 		{"crd-policyrole.yaml", "zero budget", "{scopes: [a], budget: {limitUSD: 0}}", true},
+		{"crd-policyrole.yaml", "system role with a tenant", "{tenant: acme, role: admins, scopes: ['platform:catalog:write']}", false},
+		{"crd-policyrole.yaml", "empty tenant", "{tenant: '', scopes: [a]}", true},
 		{"crd-policyrole.yaml", "pooled weekly", "{scopes: [a], budget: {limitUSD: 10, resetCadence: weekly, pooled: true}}", false},
 	}
 	for _, tc := range cases {
