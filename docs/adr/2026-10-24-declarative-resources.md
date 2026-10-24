@@ -374,7 +374,7 @@ CREATE UNIQUE INDEX agent_types_tenant_slug_live ON agent_types (tenant_id, slug
 *   `triggers_source_id_fkey` becomes `ON DELETE SET NULL`.
 *   Deleting a source still revokes every grant its principal holds.
 *   A webhook trigger with no source does not fire and reports `source_missing` in the API. Paths that read a trigger's source handle a null `source_id`.
-*   An API trigger with no source cannot be re-linked and can only be deleted.
+*   An API trigger with no source cannot be re-linked. It can only be disabled or deleted.
 *   A declared trigger reports `ResolvedRefs=False`. When the source resource returns, the trigger is re-linked and its grants recreated.
 
 ### 10. RBAC
