@@ -17,4 +17,4 @@ kubectl get virtualmodels -n kora-system
 kubectl get environments,agents.runkora.io,triggersources,triggers.runkora.io,policyroles -n kora-tenant-example
 ```
 
-Each resource reports `Ready=True` once its references exist. `kubectl delete -f deploy/local/declarative/` removes them.
+Each resource reports `Ready=True` once the resources it references are `Ready`. `kubectl delete -f deploy/local/declarative/` removes them.

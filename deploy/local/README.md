@@ -37,7 +37,7 @@ A connection without its credential is skipped, not failed.
 
 ## Declarative Resources
 
-`declarative/` holds one example of each declarative resource kind for the example tenant. Nothing applies them automatically. See [declarative/README.md](declarative/README.md).
+`declarative/` holds one example of each declarative kind for the example tenant, applied by hand as described in [declarative/README.md](declarative/README.md).
 
 ## Fixtures
 
