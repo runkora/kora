@@ -3,6 +3,8 @@ package operator
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -110,49 +112,41 @@ func declaredStatus(obj client.Object) *dv1.Status {
 // refused reports a resource the operator or its service did not accept. An
 // older refused resource does not hold a key against a newer one.
 func refused(s *dv1.Status) bool {
-	return meta.IsStatusConditionFalse(s.Conditions, declarative.ConditionAccepted)
+	return meta.IsStatusConditionFalse(s.Conditions, condAccepted)
 }
 
 func isReady(s *dv1.Status) bool {
-	return s.ID != "" && meta.IsStatusConditionTrue(s.Conditions, declarative.ConditionReady)
+	return s.ID != "" && meta.IsStatusConditionTrue(s.Conditions, condReady)
 }
 
 func refusal(reason, message string) *metav1.Condition {
-	c := declarative.False(reason, message)
+	c := condFalse(reason, message)
 	return &c
 }
 
-// declaredBefore orders resources claiming one key: the older keeps it, with
-// the name breaking a tie.
-func declaredBefore(a, b client.Object) bool {
-	ta, tb := a.GetCreationTimestamp(), b.GetCreationTimestamp()
-	if !ta.Equal(&tb) {
-		return ta.Before(&tb)
-	}
-	return a.GetNamespace()+"/"+a.GetName() < b.GetNamespace()+"/"+b.GetName()
-}
-
-// tenantFor maps a namespace to the active tenant that holds it.
-func (r *DeclaredReconciler) tenantFor(ctx context.Context, namespace string) (string, bool, error) {
+// servedNamespaces maps each namespace held by an active tenant to that tenant.
+func (r *DeclaredReconciler) servedNamespaces(ctx context.Context) (map[string]string, error) {
 	list := &KoraTenantList{}
 	if err := r.List(ctx, list); err != nil {
-		return "", false, fmt.Errorf("list KoraTenants: %w", err)
+		return nil, fmt.Errorf("list KoraTenants: %w", err)
 	}
+	out := map[string]string{}
 	for _, t := range servedTenants(list.Items) {
-		if tenantNamespace(&t) == namespace {
-			return t.Name, true, nil
-		}
+		out[tenantNamespace(&t)] = t.Name
 	}
-	return "", false, nil
+	return out, nil
 }
 
 // tenantOrRefusal resolves the tenant of a tenant-namespace resource.
 func (r *DeclaredReconciler) tenantOrRefusal(ctx context.Context, obj client.Object) (prepared, error) {
-	id, ok, err := r.tenantFor(ctx, obj.GetNamespace())
-	if err != nil || ok {
-		return prepared{tenantID: id}, err
+	served, err := r.servedNamespaces(ctx)
+	if err != nil {
+		return prepared{}, err
 	}
-	return prepared{refusal: refusal(declarative.ReasonUnknownTenant, fmt.Sprintf("Namespace %q belongs to no active tenant.", obj.GetNamespace()))}, nil
+	if id, ok := served[obj.GetNamespace()]; ok {
+		return prepared{tenantID: id}, nil
+	}
+	return prepared{refusal: refusal(reasonUnknownTenant, fmt.Sprintf("Namespace %q belongs to no active tenant.", obj.GetNamespace()))}, nil
 }
 
 // exists reports whether the object is found. Other errors are returned.
@@ -254,7 +248,7 @@ func (f *refs) connections(ctx context.Context, r *DeclaredReconciler, namespace
 func prepareVirtualModel(ctx context.Context, r *DeclaredReconciler, obj client.Object) (prepared, error) {
 	vm := obj.(*dv1.VirtualModel)
 	if vm.Namespace != systemNamespace {
-		return prepared{refusal: refusal(declarative.ReasonInvalid, fmt.Sprintf("A VirtualModel must be in the %s namespace.", systemNamespace))}, nil
+		return prepared{refusal: refusal(reasonInvalid, fmt.Sprintf("A VirtualModel must be in the %s namespace.", systemNamespace))}, nil
 	}
 	list := &dv1.VirtualModelList{}
 	if err := r.List(ctx, list, client.InNamespace(systemNamespace)); err != nil {
@@ -263,7 +257,7 @@ func prepareVirtualModel(ctx context.Context, r *DeclaredReconciler, obj client.
 	for i := range list.Items {
 		other := &list.Items[i]
 		if other.UID != vm.UID && other.Spec.Family == vm.Spec.Family && other.Spec.Name == vm.Spec.Name && declaredBefore(other, vm) && !refused(&other.Status) {
-			return prepared{refusal: refusal(declarative.ReasonNameConflict,
+			return prepared{refusal: refusal(reasonNameConflict,
 				fmt.Sprintf("VirtualModel %q already declares %s/%s.", other.Name, vm.Spec.Family, vm.Spec.Name))}, nil
 		}
 	}
@@ -297,7 +291,7 @@ func prepareAgent(ctx context.Context, r *DeclaredReconciler, obj client.Object)
 	}
 	var f refs
 	for _, e := range a.Spec.Environments {
-		if err := f.declared(ctx, r, "Environment", "environment/"+e.Name, a.Namespace, e.Name, &dv1.Environment{}); err != nil {
+		if err := f.declared(ctx, r, "Environment", declarative.RefEnvironment(e.Name), a.Namespace, e.Name, &dv1.Environment{}); err != nil {
 			return p, err
 		}
 	}
@@ -348,19 +342,13 @@ func prepareTrigger(ctx context.Context, r *DeclaredReconciler, obj client.Objec
 		return p, err
 	}
 	var f refs
-	agent := func(name string) error {
-		return f.declared(ctx, r, "Agent", "agent/"+name, t.Namespace, name, &dv1.Agent{})
-	}
 	if t.Spec.Source != "" {
-		if err := f.declared(ctx, r, "TriggerSource", "source/"+t.Spec.Source, t.Namespace, t.Spec.Source, &dv1.TriggerSource{}); err != nil {
+		if err := f.declared(ctx, r, "TriggerSource", declarative.RefSource(t.Spec.Source), t.Namespace, t.Spec.Source, &dv1.TriggerSource{}); err != nil {
 			return p, err
 		}
 	}
 	for _, name := range triggerAgents(t) {
-		if _, done := f.ids["agent/"+name]; done {
-			continue
-		}
-		if err := agent(name); err != nil {
+		if err := f.declared(ctx, r, "Agent", declarative.RefAgent(name), t.Namespace, name, &dv1.Agent{}); err != nil {
 			return p, err
 		}
 	}
@@ -384,13 +372,13 @@ func (r *DeclaredReconciler) delegatedBinding(ctx context.Context, t *dv1.Trigge
 			return nil, err
 		}
 		if ok && a.Spec.IdentityMode == "delegated" {
-			return refusal(declarative.ReasonInvalid, fmt.Sprintf("Agent %q is delegated. Delegated agents cannot be bound to triggers.", name)), nil
+			return refusal(reasonInvalid, fmt.Sprintf("Agent %q is delegated. Delegated agents cannot be bound to triggers.", name)), nil
 		}
 	}
 	return nil, nil
 }
 
-// triggerAgents lists every Agent a Trigger names.
+// triggerAgents lists every Agent a Trigger names, once each.
 func triggerAgents(t *dv1.Trigger) []string {
 	var names []string
 	if t.Spec.Agent != "" {
@@ -402,7 +390,8 @@ func triggerAgents(t *dv1.Trigger) []string {
 			names = append(names, rt.Fallback)
 		}
 	}
-	return names
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 // preparePolicyRole applies the role rules: a tenant-namespace role belongs to
@@ -413,23 +402,23 @@ func preparePolicyRole(ctx context.Context, r *DeclaredReconciler, obj client.Ob
 	var p prepared
 	if role.Namespace == systemNamespace {
 		if role.Spec.Tenant == "" {
-			return prepared{refusal: refusal(declarative.ReasonInvalid, fmt.Sprintf("A PolicyRole in the %s namespace must set spec.tenant.", systemNamespace))}, nil
+			return prepared{refusal: refusal(reasonInvalid, fmt.Sprintf("A PolicyRole in the %s namespace must set spec.tenant.", systemNamespace))}, nil
 		}
-		served, err := r.servedTenantIDs(ctx)
+		served, err := r.servedNamespaces(ctx)
 		if err != nil {
 			return p, err
 		}
-		if !served[role.Spec.Tenant] {
-			return prepared{refusal: refusal(declarative.ReasonUnknownTenant, fmt.Sprintf("Tenant %q does not exist or is not active.", role.Spec.Tenant))}, nil
+		if !slices.Contains(slices.Collect(maps.Values(served)), role.Spec.Tenant) {
+			return prepared{refusal: refusal(reasonUnknownTenant, fmt.Sprintf("Tenant %q does not exist or is not active.", role.Spec.Tenant))}, nil
 		}
 		p.tenantID = role.Spec.Tenant
 	} else {
 		if role.Spec.Tenant != "" {
-			return prepared{refusal: refusal(declarative.ReasonInvalid, fmt.Sprintf("spec.tenant is allowed only in the %s namespace.", systemNamespace))}, nil
+			return prepared{refusal: refusal(reasonInvalid, fmt.Sprintf("spec.tenant is allowed only in the %s namespace.", systemNamespace))}, nil
 		}
 		for _, s := range role.Spec.Scopes {
 			if strings.HasPrefix(s, "platform:") {
-				return prepared{refusal: refusal(declarative.ReasonInvalid, fmt.Sprintf("Scope %q is a platform scope. Declare it in the %s namespace.", s, systemNamespace))}, nil
+				return prepared{refusal: refusal(reasonInvalid, fmt.Sprintf("Scope %q is a platform scope. Declare it in the %s namespace.", s, systemNamespace))}, nil
 			}
 		}
 		var err error
@@ -439,7 +428,7 @@ func preparePolicyRole(ctx context.Context, r *DeclaredReconciler, obj client.Ob
 	}
 	if winner, err := r.olderRole(ctx, role, p.tenantID); err != nil || winner != "" {
 		if winner != "" {
-			p.refusal = refusal(declarative.ReasonNameConflict, fmt.Sprintf("PolicyRole %s already declares role %q or the name %q for this tenant.", winner, role.RoleName(), role.Name))
+			p.refusal = refusal(reasonNameConflict, fmt.Sprintf("PolicyRole %s already declares role %q or the name %q for this tenant.", winner, role.RoleName(), role.Name))
 		}
 		return p, err
 	}
@@ -456,6 +445,10 @@ func (r *DeclaredReconciler) olderRole(ctx context.Context, role *dv1.PolicyRole
 	if err := r.List(ctx, list); err != nil {
 		return "", fmt.Errorf("list PolicyRoles: %w", err)
 	}
+	served, err := r.servedNamespaces(ctx)
+	if err != nil {
+		return "", err
+	}
 	for i := range list.Items {
 		other := &list.Items[i]
 		// The service keys a declared role by resource name as well as by role.
@@ -464,29 +457,13 @@ func (r *DeclaredReconciler) olderRole(ctx context.Context, role *dv1.PolicyRole
 		}
 		otherTenant := other.Spec.Tenant
 		if other.Namespace != systemNamespace {
-			id, _, err := r.tenantFor(ctx, other.Namespace)
-			if err != nil {
-				return "", err
-			}
-			otherTenant = id
+			otherTenant = served[other.Namespace]
 		}
 		if otherTenant == tenantID {
 			return other.Namespace + "/" + other.Name, nil
 		}
 	}
 	return "", nil
-}
-
-func (r *DeclaredReconciler) servedTenantIDs(ctx context.Context) (map[string]bool, error) {
-	list := &KoraTenantList{}
-	if err := r.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("list KoraTenants: %w", err)
-	}
-	out := map[string]bool{}
-	for _, t := range servedTenants(list.Items) {
-		out[t.Name] = true
-	}
-	return out, nil
 }
 
 // ─── Watches ──────────────────────────────────────────────────────────────────
