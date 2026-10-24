@@ -15,6 +15,12 @@ const (
 	KindPolicyRoles    = "policyroles"
 )
 
+// Sources of a projected row: built through the API or projected from a resource.
+const (
+	SourceAPI = "api"
+	SourceCRD = "crd"
+)
+
 // PlatformTenant is the tenant the operator sends for platform-wide kinds such
 // as VirtualModel. It is not a valid tenant name, so it cannot collide with one.
 const PlatformTenant = "_platform"
@@ -40,7 +46,7 @@ type Item struct {
 	UID        string          `json:"uid"`
 	Generation int64           `json:"generation"`
 	Spec       json.RawMessage `json:"spec"`
-	// Refs holds resolved ids, such as an agent name to its agent id.
+	// Refs holds resolved ids keyed by RefEnvironment, RefAgent and RefSource.
 	Refs map[string]string `json:"refs,omitempty"`
 	// Secret is the TriggerSource signing secret. Other kinds leave it empty.
 	Secret []byte `json:"secret,omitempty"`
@@ -67,3 +73,12 @@ type Applier interface {
 	Delete(ctx context.Context, tenantID, name string) error
 	List(ctx context.Context, tenantID string) ([]Declared, error)
 }
+
+// RefEnvironment is the Item.Refs key holding the id of the Environment name.
+func RefEnvironment(name string) string { return "environment/" + name }
+
+// RefAgent is the Item.Refs key holding the id of the Agent name.
+func RefAgent(name string) string { return "agent/" + name }
+
+// RefSource is the Item.Refs key holding the id of the TriggerSource name.
+func RefSource(name string) string { return "source/" + name }
