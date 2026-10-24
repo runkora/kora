@@ -33,6 +33,14 @@ interface TenantCapCardProps {
   cap: TenantCapStatus | null;
 }
 
+/** A declared tenant budget refuses API writes with 409. The cap status this card reads does not say it is declared. */
+const MANAGED_CAP_MESSAGE =
+  'The tenant budget is managed in git. Make changes in the configuration repository.';
+
+function capErrorMessage(result: { status: number; message: string }): string {
+  return result.status === 409 ? MANAGED_CAP_MESSAGE : result.message;
+}
+
 export function TenantCapCard({ cap }: TenantCapCardProps) {
   const router = useRouter();
   const canWrite = useHasScope('platform:budgets:write');
@@ -133,7 +141,7 @@ function TenantCapModal({
     if (result.ok) {
       onSaved();
     } else {
-      setSubmitError(result.message);
+      setSubmitError(capErrorMessage(result));
     }
     setSubmitting(false);
   }, [parsed, cadence, onSaved]);
@@ -145,7 +153,7 @@ function TenantCapModal({
     if (result.ok) {
       onSaved();
     } else {
-      setSubmitError(result.message);
+      setSubmitError(capErrorMessage(result));
     }
     setSubmitting(false);
   }, [onSaved]);

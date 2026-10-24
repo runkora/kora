@@ -14,12 +14,13 @@ import {
   Text,
 } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
-import { useHasScope } from '../../../_components/permissions-provider';
+import { useHasScope, useTenantLocked } from '../../../_components/permissions-provider';
+import { isDeclared } from '@runkora/lib/declarative';
 import { fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { updateRoleBudgetAction } from '../../../policy/_actions/roles';
 import type { RoleEntry } from '../../../policy/_types/api';
 import { BudgetEditModal } from './budget-edit-modal';
-import { PermissionHint } from '@runkora/components';
+import { ManagedInGitBadge, PermissionHint } from '@runkora/components';
 
 interface BudgetRolesTabProps {
   roles: RoleEntry[];
@@ -28,6 +29,8 @@ interface BudgetRolesTabProps {
 export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
   const router = useRouter();
   const canWrite = useHasScope('platform:budgets:write');
+  // Role budgets of a declared role, or of any role in a locked tenant, change in the configuration repository.
+  const locked = useTenantLocked();
   const [editing, setEditing] = useState<RoleEntry | null>(null);
 
   const columns = useMemo<DataTableColumn<RoleEntry>[]>(
@@ -50,6 +53,7 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
                 not budgetable
               </Badge>
             )}
+            {isDeclared(r) && <ManagedInGitBadge />}
           </Stack>
         ),
       },
@@ -98,7 +102,7 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
         gridWidth: '4rem',
         cell: (r) => {
           // Reserved roles cannot carry budgets: the bundle compiler skips them.
-          if (r.reserved) return null;
+          if (r.reserved || locked || isDeclared(r)) return null;
           return (
             <PermissionHint allowed={canWrite} action="change role budgets">
               <Button
@@ -118,7 +122,7 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
         },
       },
     ],
-    [canWrite],
+    [canWrite, locked],
   );
 
   return (

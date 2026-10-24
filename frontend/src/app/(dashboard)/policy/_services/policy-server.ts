@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { declarativeRefusal } from '@runkora/lib/declarative';
 import { config } from '@runkora/server/config';
 import { policyGatewayFetch } from '@runkora/server/services/policy-gateway-server';
 import type {
@@ -27,6 +28,15 @@ export { fetchScopesExplain } from '@runkora/server/services/policy-gateway-serv
 type Ok<T> = { ok: true; data: T };
 type Err = { ok: false; status: number; message: string };
 type Result<T> = Ok<T> | Err;
+
+/** The managed-in-git message when the body carries a declarative refusal code. */
+function refusalOf(body: string): string | null {
+  try {
+    return declarativeRefusal((JSON.parse(body) as { code?: unknown }).code);
+  } catch {
+    return null;
+  }
+}
 
 // ── Internal fetch helper ────────────────────────────────────────────────────
 
@@ -68,7 +78,7 @@ async function policyServiceFetch<T>(
       status: res.status,
       statusText: res.statusText,
     });
-    return { ok: false, status: res.status, message: body || res.statusText };
+    return { ok: false, status: res.status, message: refusalOf(body) ?? (body || res.statusText) };
   }
 
   // 204 No Content — successful mutation with no body.

@@ -102,6 +102,7 @@ describe('Agents page permissions', () => {
     scopes: string[],
     agentTypes = AGENT_ROWS,
     runsError: string | null = null,
+    apiAuthoring = true,
   ) {
     server.use(http.get('/api/agents/types/drafts', () => HttpResponse.json({ data: [] })));
     return renderWithProviders(
@@ -112,7 +113,7 @@ describe('Agents page permissions', () => {
         initialRunsError={runsError}
         initialInsights={mockInsightsResponse('7d')}
       />,
-      { scopes },
+      { scopes, apiAuthoring },
     );
   }
 
@@ -150,6 +151,26 @@ describe('Agents page permissions', () => {
   it('enables New Agent for a delegated-only creator', () => {
     renderAgents([...VIEWER_SCOPES, 'agents:types:delegated:write']);
     expect(screen.getByRole('button', { name: /new agent/i })).toBeEnabled();
+  });
+
+  it('hides create in a locked tenant and keeps runs', () => {
+    renderAgents(
+      [...VIEWER_SCOPES, 'agents:types:delegated:write'],
+      AGENT_ROWS.map((a) => ({ ...a, canRun: true })),
+      null,
+      false,
+    );
+    expect(screen.queryByRole('button', { name: /new agent/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Agents in this tenant are managed in git/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /new run/i })).toBeEnabled();
+  });
+
+  it('marks a declared agent as managed in git', () => {
+    renderAgents(
+      VIEWER_SCOPES,
+      AGENT_ROWS.map((a, i) => ({ ...a, declared: i === 0 })),
+    );
+    expect(screen.getAllByText('Managed in git')).toHaveLength(1);
   });
 
   it('keeps the agents on screen when the runs are refused', () => {

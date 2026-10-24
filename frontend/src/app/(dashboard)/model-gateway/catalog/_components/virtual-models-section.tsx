@@ -13,7 +13,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@runkora/hades';
-import { PermissionHint, SmartTable } from '@runkora/components';
+import { ManagedInGitBadge, PermissionHint, SmartTable } from '@runkora/components';
 import type { DataTableColumn } from '@runkora/components';
 import { fmtCost } from '@runkora/utils';
 import type { VirtualModel } from '../_types/catalog';
@@ -24,6 +24,8 @@ import { useHasScope } from '../../../_components/permissions-provider';
 interface VirtualModelsSectionProps {
   models: VirtualModel[];
   onSelect: (m: VirtualModel) => void;
+  /** False when the platform takes virtual models from the configuration repository only. */
+  apiAuthoring?: boolean;
 }
 
 function virtualModelMatchesSearch(m: VirtualModel, q: string): boolean {
@@ -88,7 +90,11 @@ const NEW_VIRTUAL_MODEL: VirtualModel = {
   enabled: true,
 };
 
-export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionProps) {
+export function VirtualModelsSection({
+  models,
+  onSelect,
+  apiAuthoring = true,
+}: VirtualModelsSectionProps) {
   const canWrite = useHasScope('platform:catalog:write');
   const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
 
@@ -121,9 +127,12 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
             <Text size="caption" color="subtle">
               {m.family}
             </Text>
-            <Text size="supporting" weight="emphasis" mono>
-              {m.name}
-            </Text>
+            <Stack direction="horizontal" align="center" gap="snug" wrap>
+              <Text size="supporting" weight="emphasis" mono>
+                {m.name}
+              </Text>
+              {m.declared && <ManagedInGitBadge />}
+            </Stack>
             <Text size="caption" color="muted">
               {m.displayName}
             </Text>
@@ -225,12 +234,14 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
         />
       }
       toolbarActions={
-        <PermissionHint allowed={canWrite} action="change the model catalog">
-          <Button size="sm" disabled={!canWrite} onClick={() => onSelect(NEW_VIRTUAL_MODEL)}>
-            <Icon name="plus" size="2xs" />
-            New Virtual Model
-          </Button>
-        </PermissionHint>
+        apiAuthoring ? (
+          <PermissionHint allowed={canWrite} action="change the model catalog">
+            <Button size="sm" disabled={!canWrite} onClick={() => onSelect(NEW_VIRTUAL_MODEL)}>
+              <Icon name="plus" size="2xs" />
+              New Virtual Model
+            </Button>
+          </PermissionHint>
+        ) : undefined
       }
     />
   );

@@ -27,15 +27,28 @@ import type { VirtualModel as ApiVirtualModel } from '../../_services/catalog-se
 import { vmFullId, vmPolicyScope, vmToApiPayload, toVirtualModel } from '../_utils/catalog-api';
 import { RoutesTab } from './routes-tab';
 import { useHasScope } from '../../../_components/permissions-provider';
-import { PermissionHint } from '@runkora/components';
+import { declarativeRefusal, writeErrorMessage } from '@runkora/lib/declarative';
+import { ManagedInGitBadge, PermissionHint } from '@runkora/components';
 
 interface EditorPanelProps {
   model: VirtualModel | null;
   onClose: () => void;
   onSaved: (vm: VirtualModel) => void;
   onDeleted: (id: string) => void;
+  /** False when the platform takes virtual models from the configuration repository only. */
+  apiAuthoring?: boolean;
   providerModels: ProviderModel[];
   providers: Provider[];
+}
+
+/** The virtual model switch is platform-wide, so its refusal names the platform, not the tenant. */
+const PLATFORM_LOCKED_MESSAGE =
+  'Virtual models on this platform are managed in git. Make changes in the configuration repository.';
+
+function vmWriteError(status: number, body: unknown): string {
+  return (body as { code?: unknown } | null)?.code === 'api_authoring_disabled'
+    ? PLATFORM_LOCKED_MESSAGE
+    : writeErrorMessage(status, body);
 }
 
 export function EditorPanel({
@@ -45,6 +58,7 @@ export function EditorPanel({
   onDeleted,
   providerModels,
   providers,
+  apiAuthoring = true,
 }: EditorPanelProps) {
   const canWrite = useHasScope('platform:catalog:write');
   const [draft, setDraft] = useState<VirtualModel | null>(model);
@@ -68,6 +82,8 @@ export function EditorPanel({
   if (!draft) return null;
 
   const isNew = draft.id === '__new__';
+  // A declared model, or any model with the platform switch off, changes only in the configuration repository.
+  const managedInGit = draft.declared === true || !apiAuthoring;
   const fullId = draft.family && draft.name ? vmFullId(draft) : null;
 
   async function handleSave() {
@@ -86,8 +102,7 @@ export function EditorPanel({
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { message?: string };
-        setError(body.message ?? 'Save failed');
+        setError(vmWriteError(res.status, await res.json().catch(() => ({}))));
         return;
       }
       const body = (await res.json()) as { data: ApiVirtualModel };
@@ -113,8 +128,7 @@ export function EditorPanel({
         onClose();
         return;
       }
-      const body = (await res.json().catch(() => ({}))) as { message?: string };
-      setDeleteError(body.message ?? 'Delete failed');
+      setDeleteError(vmWriteError(res.status, await res.json().catch(() => ({}))));
     } catch {
       setDeleteError('Network error');
     } finally {
@@ -139,6 +153,7 @@ export function EditorPanel({
                 {draft.enabled ? 'Enabled' : 'Disabled'}
               </Badge>
             )}
+            {draft.declared && <ManagedInGitBadge />}
           </Stack>
           {fullId && (
             <Text size="caption" color="muted" mono>
@@ -154,6 +169,15 @@ export function EditorPanel({
 
       <SidePanelBody>
         <Stack gap="comfortable">
+          {managedInGit && (
+            <Alert variant="info">
+              <Text size="caption">
+                {draft.declared
+                  ? declarativeRefusal('managed_by_resource')
+                  : PLATFORM_LOCKED_MESSAGE}
+              </Text>
+            </Alert>
+          )}
           {/* Identity fields */}
           <Stack paddingBottom="comfortable">
             <Grid cols={2} gap="snug">
@@ -246,7 +270,7 @@ export function EditorPanel({
 
       <SidePanelFooter justify="between">
         <Stack direction="horizontal" align="center" gap="snug">
-          {!isNew && (
+          {!isNew && !managedInGit && (
             <PermissionHint allowed={canWrite} action="change the model catalog">
               <Button
                 variant="ghost"
@@ -263,7 +287,7 @@ export function EditorPanel({
             <Toggle
               checked={draft.enabled}
               onChange={(v) => setDraft({ ...draft, enabled: v })}
-              disabled={!canWrite}
+              disabled={!canWrite || managedInGit}
             />
           </PermissionHint>
           <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
@@ -274,11 +298,13 @@ export function EditorPanel({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <PermissionHint allowed={canWrite} action="change the model catalog">
-            <Button onClick={() => void handleSave()} disabled={!canWrite || saving}>
-              {saving ? 'Saving…' : 'Save Changes'}
-            </Button>
-          </PermissionHint>
+          {!managedInGit && (
+            <PermissionHint allowed={canWrite} action="change the model catalog">
+              <Button onClick={() => void handleSave()} disabled={!canWrite || saving}>
+                {saving ? 'Saving…' : 'Save Changes'}
+              </Button>
+            </PermissionHint>
+          )}
         </Stack>
       </SidePanelFooter>
 

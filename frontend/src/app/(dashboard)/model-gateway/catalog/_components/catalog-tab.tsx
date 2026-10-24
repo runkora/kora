@@ -26,6 +26,7 @@ import { VirtualModelsSection } from './virtual-models-section';
 import { ProviderCatalogSection } from './provider-catalog-section';
 import { ProvidersSection } from './providers-section';
 import { EditorPanel } from './editor-panel';
+import { ManagedInGitCallout } from '@runkora/components';
 import { SyncStatusBanner } from './sync-status-banner';
 import type { SyncSummary } from './sync-status-banner';
 
@@ -36,6 +37,8 @@ interface CatalogTabProps {
   providersError?: string | null;
   initialError?: string | null;
   syncSummary: SyncSummary;
+  /** False when the platform takes virtual models from the configuration repository only. */
+  apiAuthoring?: boolean;
 }
 
 /** Enabled against disabled for a stat card ring, so a half-switched-off catalog shows at a glance. */
@@ -53,6 +56,7 @@ export function CatalogTab({
   providersError,
   initialError,
   syncSummary,
+  apiAuthoring = true,
 }: CatalogTabProps) {
   const [selectedModel, setSelectedModel] = useState<VirtualModel | null>(null);
   const [virtualModels, setVirtualModels] = useState<VirtualModel[]>(
@@ -113,6 +117,7 @@ export function CatalogTab({
           </Alert>
         )}
         <SyncStatusBanner sync={syncSummary} />
+        {!apiAuthoring && <ManagedInGitCallout subject="Virtual models" />}
       </Stack>
 
       <Grid cols={{ base: 2, lg: 4 }} gap="snug">
@@ -170,7 +175,11 @@ export function CatalogTab({
           </TabsTrigger>
         </TabsList>
         <TabsContent value="virtual">
-          <VirtualModelsSection models={virtualModels} onSelect={setSelectedModel} />
+          <VirtualModelsSection
+            models={virtualModels}
+            onSelect={setSelectedModel}
+            apiAuthoring={apiAuthoring}
+          />
         </TabsContent>
         <TabsContent value="provider">
           <ProviderCatalogSection models={providerModels} />
@@ -188,6 +197,7 @@ export function CatalogTab({
           onDeleted={handleModelDeleted}
           providerModels={providerModels}
           providers={routeProviders}
+          apiAuthoring={apiAuthoring}
         />
       )}
     </Stack>

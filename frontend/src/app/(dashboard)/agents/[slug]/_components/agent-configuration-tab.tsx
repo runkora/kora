@@ -36,6 +36,8 @@ import { GuardrailsFields } from '../../_components/motif/guardrail-rows';
 import type { GuardrailValues } from '../../_components/motif/guardrail-rows';
 import { PlannedLimits } from '../../_components/motif/planned-limits';
 import { EffectiveAccessPanel, PermissionHint, permissionHintText } from '@runkora/components';
+import { declarativeRefusal } from '@runkora/lib/declarative';
+import { useTenantLocked } from '../../../_components/permissions-provider';
 import { ConfigurationRail } from './configuration-rail';
 import { useAgentConfiguration } from '../_hooks/use-agent-configuration';
 
@@ -64,11 +66,14 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
   // Capacity has a stored value on every live agent; "off" here means "leave
   // it as it is", so the row dims but nothing is unset on save.
   const [capacityOn, setCapacityOn] = useState(true);
+  const locked = useTenantLocked();
 
   if (!cfg.agent) return null;
   const agent = cfg.agent;
   // Without edit access every field is read only; the notice above the form says why.
   const readOnly = !agent.canEdit;
+  // A declared agent, or any agent in a locked tenant, changes only in the configuration repository.
+  const managedInGit = agent.declared || locked;
 
   const guardrailValues: GuardrailValues = {
     agentBudgetOn: cfg.budgetLimitUSD !== '',
@@ -125,14 +130,24 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
       <ConfigurationRail active={active} onSelect={setActive} updatedAt={agent.updatedAt} />
 
       <Stack grow gap="relaxed">
-        {readOnly && (
+        {managedInGit ? (
           <Alert variant="info">
             <Text size="caption">
-              {permissionHintText('change this agent')} Changing it needs the agents:types:
-              {agent.identityMode}:write scope
-              {agent.identityMode === 'autonomous' ? ' and every scope the agent holds.' : '.'}
+              {declarativeRefusal(
+                agent.declared ? 'managed_by_resource' : 'api_authoring_disabled',
+              )}
             </Text>
           </Alert>
+        ) : (
+          readOnly && (
+            <Alert variant="info">
+              <Text size="caption">
+                {permissionHintText('change this agent')} Changing it needs the agents:types:
+                {agent.identityMode}:write scope
+                {agent.identityMode === 'autonomous' ? ' and every scope the agent holds.' : '.'}
+              </Text>
+            </Alert>
+          )
         )}
         {/* ── Identity ─────────────────────────────────────────────────────── */}
         {active === 'identity' && (
@@ -358,15 +373,17 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
                       runs.
                     </Text>
                   </Stack>
-                  <PermissionHint allowed={agent.canDelete} action="delete this agent">
-                    <Button
-                      variant="destructive"
-                      disabled={!agent.canDelete}
-                      onClick={() => cfg.setDeleteOpen(true)}
-                    >
-                      Delete agent
-                    </Button>
-                  </PermissionHint>
+                  {!managedInGit && (
+                    <PermissionHint allowed={agent.canDelete} action="delete this agent">
+                      <Button
+                        variant="destructive"
+                        disabled={!agent.canDelete}
+                        onClick={() => cfg.setDeleteOpen(true)}
+                      >
+                        Delete agent
+                      </Button>
+                    </PermissionHint>
+                  )}
                 </Stack>
               </CardContent>
             </Card>

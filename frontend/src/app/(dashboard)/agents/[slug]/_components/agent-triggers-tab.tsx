@@ -43,8 +43,8 @@ import { runTargets, toDeliveryRow, toSourceRow, toTriggerRow } from '../../../t
 import type { DeliveryRow, SourceRow, TriggerRow } from '../../../triggers/_types';
 import { ingestHostFromWindow } from '../../../triggers/_lib/endpoints';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
-import { useHasScope } from '../../../_components/permissions-provider';
-import { PermissionHint } from '@runkora/components';
+import { useHasScope, useTenantLocked } from '../../../_components/permissions-provider';
+import { ManagedInGitCallout, PermissionHint } from '@runkora/components';
 import { fetchAgentTypes } from '../../_services/agents-api';
 import type { AgentTypeRow } from '../../_types';
 
@@ -62,6 +62,7 @@ export function AgentTriggersTab() {
 
   const [wizardOpen, setWizardOpen] = useState(false);
   const canWrite = useHasScope('triggers:write');
+  const locked = useTenantLocked();
   const [notice, setNotice] = useState<TriggerNotice | null>(null);
   const [drawerTrigger, setDrawerTrigger] = useState<TriggerRow | null>(null);
   const [detailDelivery, setDetailDelivery] = useState<DeliveryRow | null>(null);
@@ -206,14 +207,17 @@ export function AgentTriggersTab() {
             Managed by platform admins.
           </Text>
         </Stack>
-        <PermissionHint allowed={canWrite} action="create triggers">
-          <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
-            <Icon name="plus" size="xs" />
-            New trigger
-          </Button>
-        </PermissionHint>
+        {!locked && (
+          <PermissionHint allowed={canWrite} action="create triggers">
+            <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
+              <Icon name="plus" size="xs" />
+              New trigger
+            </Button>
+          </PermissionHint>
+        )}
       </Stack>
 
+      {locked && <ManagedInGitCallout subject="Triggers in this tenant" />}
       {loadError && <Alert variant="error">{loadError}</Alert>}
       {notice && <Alert variant={notice.ok ? 'info' : 'error'}>{notice.message}</Alert>}
 
@@ -225,12 +229,14 @@ export function AgentTriggersTab() {
           title="No triggers for this agent"
           description="Create a trigger to run this agent automatically from a webhook event, a schedule, or a manual fire."
           action={
-            <PermissionHint allowed={canWrite} action="create triggers">
-              <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
-                <Icon name="plus" size="xs" />
-                New trigger
-              </Button>
-            </PermissionHint>
+            locked ? undefined : (
+              <PermissionHint allowed={canWrite} action="create triggers">
+                <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
+                  <Icon name="plus" size="xs" />
+                  New trigger
+                </Button>
+              </PermissionHint>
+            )
           }
         />
       ) : (

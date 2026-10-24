@@ -3,6 +3,7 @@
 // All functions call the BFF routes added in Plan 2. Never throws — callers
 // pattern-match on the returned `error` field.
 
+import { writeErrorMessage } from '@runkora/lib/declarative';
 import { loadErrorMessage } from '@runkora/lib/load-error';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type {
@@ -182,7 +183,7 @@ export async function createAgentType(
     const body = await res.json().catch(() => ({}) as { message?: string });
     return {
       agentType: null,
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
+      error: writeErrorMessage(res.status, body),
     };
   }
   const body = (await res.json()) as { data: AgentType };

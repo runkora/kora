@@ -41,8 +41,8 @@ import type {
   SourceRow,
   TriggerRow,
 } from '../_types';
-import { useHasScope } from '../../_components/permissions-provider';
-import { PermissionHint } from '@runkora/components';
+import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
+import { ManagedInGitCallout, PermissionHint } from '@runkora/components';
 
 interface TriggersPageProps {
   sources: SourceRow[];
@@ -82,6 +82,8 @@ export function TriggersPage({
 }: TriggersPageProps) {
   const router = useRouter();
   const canWrite = useHasScope('triggers:write');
+  // A locked tenant takes its triggers and sources from the configuration repository.
+  const locked = useTenantLocked();
   const ingestHost = ingestHostFromWindow();
 
   const canRunAgent = useCallback(
@@ -219,6 +221,7 @@ export function TriggersPage({
         </Stack>
       </Stack>
 
+      {locked && <ManagedInGitCallout subject="Triggers and sources in this tenant" />}
       {error && <Alert variant="error">{error}</Alert>}
       {fireResult && <Alert variant={fireResult.ok ? 'info' : 'error'}>{fireResult.message}</Alert>}
 
@@ -276,12 +279,14 @@ export function TriggersPage({
                 />
               }
               toolbarActions={
-                <PermissionHint allowed={canWrite} action="create triggers">
-                  <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
-                    <Icon name="plus" size="xs" />
-                    New trigger
-                  </Button>
-                </PermissionHint>
+                locked ? undefined : (
+                  <PermissionHint allowed={canWrite} action="create triggers">
+                    <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
+                      <Icon name="plus" size="xs" />
+                      New trigger
+                    </Button>
+                  </PermissionHint>
+                )
               }
               resetKey={kindFilter}
               triggers={visibleTriggers}
