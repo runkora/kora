@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -41,7 +42,9 @@ type CatalogController struct {
 	eval           policy.Evaluator
 	routes         []routescopes.RouteScope
 	basePath       string
-	logger         logging.Logger
+	// apiAuthoring is the platform switch for virtual model writes through the API.
+	apiAuthoring bool
+	logger       logging.Logger
 }
 
 // NewCatalogController constructs a CatalogController.
@@ -52,8 +55,10 @@ type CatalogController struct {
 // prefix entries in that table. basePath must match the server's BasePath
 // (e.g. "/v1") so the middleware can reconstruct absolute paths after
 // http.StripPrefix.
-func NewCatalogController(store *CatalogStore, providers providerStatuses, pricingCatalog PricingCatalogRepository, verifier *token.Verifier, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *CatalogController {
-	return &CatalogController{store: store, providers: providers, pricingCatalog: pricingCatalog, verifier: verifier, eval: eval, routes: routes, basePath: basePath, logger: logger}
+//
+// apiAuthoring false refuses every virtual model write with 403.
+func NewCatalogController(store *CatalogStore, providers providerStatuses, pricingCatalog PricingCatalogRepository, verifier *token.Verifier, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, apiAuthoring bool, logger logging.Logger) *CatalogController {
+	return &CatalogController{store: store, providers: providers, pricingCatalog: pricingCatalog, verifier: verifier, eval: eval, routes: routes, basePath: basePath, apiAuthoring: apiAuthoring, logger: logger}
 }
 
 // providerStatuses is the admin view of the configured providers.
@@ -117,6 +122,7 @@ type virtualModelJSON struct {
 	Description string                   `json:"description"`
 	Strategy    string                   `json:"strategy"`
 	Enabled     bool                     `json:"enabled"`
+	Source      string                   `json:"source"`
 	CreatedAt   time.Time                `json:"created_at"`
 	UpdatedAt   time.Time                `json:"updated_at"`
 	Routes      []routeJSON              `json:"routes"`
@@ -196,7 +202,31 @@ func (c *CatalogController) handleListVirtualModels(w http.ResponseWriter, r *ht
 	for i, vm := range vms {
 		items[i] = toVirtualModelJSON(vm, pricingIdx)
 	}
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": items})
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": items, "api_authoring": c.apiAuthoring})
+}
+
+// refuseLocked answers 403 when the platform switch turns off virtual model
+// writes through the API and reports whether it did.
+func (c *CatalogController) refuseLocked(ctx context.Context, w http.ResponseWriter) bool {
+	return !c.apiAuthoring && declarative.WriteRefusal(ctx, w, c.logger, declarative.ErrAPIAuthoringDisabled)
+}
+
+// writeStoreError answers the 409s a virtual model write can meet and
+// reports whether it did.
+func (c *CatalogController) writeStoreError(ctx context.Context, w http.ResponseWriter, err error) bool {
+	if declarative.WriteRefusal(ctx, w, c.logger, err) {
+		return true
+	}
+	switch {
+	case errors.Is(err, ErrVirtualModelRouteTaken):
+		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
+	case errors.Is(err, ErrVirtualModelExists):
+		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeResourceExists,
+			"a virtual model with this family and name already exists", nil), nil)
+	default:
+		return false
+	}
+	return true
 }
 
 // handleCreateVirtualModel creates a virtual model. Family and name are
@@ -207,6 +237,9 @@ func (c *CatalogController) handleListVirtualModels(w http.ResponseWriter, r *ht
 // offending character(s).
 func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if c.refuseLocked(ctx, w) {
+		return
+	}
 
 	var req virtualModelRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
@@ -227,6 +260,7 @@ func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *h
 		Description: req.Description,
 		Strategy:    VirtualModelStrategy(req.Strategy),
 		Enabled:     req.Enabled,
+		Source:      declarative.SourceAPI,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		Routes:      toVirtualModelRoutes(vmID, req.Routes),
@@ -237,6 +271,9 @@ func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *h
 	}
 
 	if err := c.store.CreateVirtualModel(ctx, vm); err != nil {
+		if c.writeStoreError(ctx, w, err) {
+			return
+		}
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to create virtual model", nil), err)
 		return
 	}
@@ -283,6 +320,9 @@ func (c *CatalogController) handleGetVirtualModel(w http.ResponseWriter, r *http
 // offending character(s).
 func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if c.refuseLocked(ctx, w) {
+		return
+	}
 	id := r.PathValue("id")
 
 	var req virtualModelRequest
@@ -314,6 +354,9 @@ func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *h
 
 	updated, err := c.store.UpdateVirtualModel(ctx, vm)
 	if err != nil {
+		if c.writeStoreError(ctx, w, err) {
+			return
+		}
 		if errors.Is(err, ErrVirtualModelNotFound) {
 			api.ErrorResponse(ctx, w, c.logger, api.NotFoundError("not_found", "virtual model not found", nil), nil)
 			return
@@ -334,9 +377,15 @@ func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *h
 
 func (c *CatalogController) handleDeleteVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if c.refuseLocked(ctx, w) {
+		return
+	}
 	id := r.PathValue("id")
 
 	if err := c.store.DeleteVirtualModel(ctx, id); err != nil {
+		if c.writeStoreError(ctx, w, err) {
+			return
+		}
 		if errors.Is(err, ErrVirtualModelNotFound) {
 			api.ErrorResponse(ctx, w, c.logger, api.NotFoundError("not_found", "virtual model not found", nil), nil)
 			return
@@ -588,6 +637,7 @@ func toVirtualModelJSON(vm VirtualModel, pricingIdx *pricingIndex[*pricingEntryJ
 		Description: vm.Description,
 		Strategy:    string(vm.Strategy),
 		Enabled:     vm.Enabled,
+		Source:      vm.Source,
 		CreatedAt:   vm.CreatedAt,
 		UpdatedAt:   vm.UpdatedAt,
 		Routes:      routes,
@@ -609,6 +659,24 @@ func toVirtualModelRoutes(vmID string, inputs []routeInput) []VirtualModelRoute 
 		}
 	}
 	return routes
+}
+
+// validateVirtualModel runs the API's create and update validation on a
+// virtual model built from a VirtualModel resource.
+func validateVirtualModel(vm VirtualModel) error {
+	req := virtualModelRequest{
+		Family:      vm.Family,
+		Name:        vm.Name,
+		DisplayName: vm.DisplayName,
+		Description: vm.Description,
+		Strategy:    string(vm.Strategy),
+		Enabled:     vm.Enabled,
+		Routes:      make([]routeInput, len(vm.Routes)),
+	}
+	for i, rt := range vm.Routes {
+		req.Routes[i] = routeInput{Provider: string(rt.Provider), ModelID: rt.ModelID, Priority: rt.Priority, Weight: rt.Weight, Enabled: rt.Enabled}
+	}
+	return validateVirtualModelRequest(req)
 }
 
 // validateVirtualModelRequest validates the fields common to create and update
@@ -635,10 +703,16 @@ func validateVirtualModelRequest(req virtualModelRequest) error {
 		return fmt.Errorf("strategy must be one of: priority, weighted, lowest_cost; got %q", req.Strategy)
 	}
 
+	seen := make(map[string]bool, len(req.Routes))
 	for i, r := range req.Routes {
 		if err := validateRouteInput(i, r); err != nil {
 			return err
 		}
+		key := r.Provider + "/" + r.ModelID
+		if seen[key] {
+			return fmt.Errorf("route[%d] repeats %s", i, key)
+		}
+		seen[key] = true
 	}
 
 	// Weighted strategy: enabled route weights must sum to 100.

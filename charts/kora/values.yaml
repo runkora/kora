@@ -422,6 +422,10 @@ inferenceGateway:
   serviceAccount:
     # e.g. eks.amazonaws.com/role-arn for Bedrock access via IRSA.
     annotations: {}
+  catalog:
+    # -- Allow virtual model writes through the API, dashboard and MCP. With
+    # false, virtual models come only from VirtualModel resources.
+    apiAuthoring: true
   # -- Raw config merged last over the rendered config files, keyed by config
   # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
   # the Go config structs; an unknown key fails startup.
