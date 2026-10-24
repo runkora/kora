@@ -15,6 +15,10 @@ const (
 	KindPolicyRoles    = "policyroles"
 )
 
+// PlatformTenant is the tenant the operator sends for platform-wide kinds such
+// as VirtualModel. It is not a valid tenant name, so it cannot collide with one.
+const PlatformTenant = "_platform"
+
 // Outcomes a service reports for an applied item.
 const (
 	// OutcomeProjected means the current spec is applied. Ready says whether
