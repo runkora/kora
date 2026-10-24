@@ -13,6 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 )
 
 // TenantBudget is the rollup spending cap for a tenant.
@@ -27,9 +29,6 @@ type TenantBudget struct {
 
 // ErrTenantBudgetNotFound is returned when a tenant has no budget configured.
 var ErrTenantBudgetNotFound = errors.New("tenant budget not found")
-
-// ErrManagedByResource is returned when an API write targets a crd budget.
-var ErrManagedByResource = errors.New("tenant budget is managed by the tenant resource")
 
 // Repository defines the tenant budget storage contract.
 type Repository interface {
@@ -79,9 +78,9 @@ func (r *postgresRepository) Upsert(ctx context.Context, tb *TenantBudget) error
 		return fmt.Errorf("upsert tenant budget: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrManagedByResource
+		return declarative.ErrManagedByResource
 	}
-	tb.Source = "api"
+	tb.Source = declarative.SourceAPI
 	return nil
 }
 
@@ -99,7 +98,7 @@ func (r *postgresRepository) UpsertDeclared(ctx context.Context, tb *TenantBudge
 	if err != nil {
 		return fmt.Errorf("upsert declared tenant budget: %w", err)
 	}
-	tb.Source = "crd"
+	tb.Source = declarative.SourceCRD
 	return nil
 }
 

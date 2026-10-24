@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 )
 
 // Postgres integration tests for the tenant budget Repository. They run only
@@ -56,7 +58,7 @@ func TestPostgres_DeclaredTenantBudget(t *testing.T) {
 	if err := repo.Upsert(ctx, &TenantBudget{TenantID: tenant, LimitUSD: 5, ResetCadence: "weekly"}); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
-	if got, err := repo.Get(ctx, tenant); err != nil || got.Source != "api" {
+	if got, err := repo.Get(ctx, tenant); err != nil || got.Source != declarative.SourceAPI {
 		t.Fatalf("Get = %+v, %v", got, err)
 	}
 	// An api budget is not declared, so removing the declared budget leaves it.
@@ -71,14 +73,14 @@ func TestPostgres_DeclaredTenantBudget(t *testing.T) {
 		t.Fatalf("UpsertDeclared: %v", err)
 	}
 	got, err := repo.Get(ctx, tenant)
-	if err != nil || got.Source != "crd" || got.LimitUSD != 1000 || got.ResetCadence != "monthly" {
+	if err != nil || got.Source != declarative.SourceCRD || got.LimitUSD != 1000 || got.ResetCadence != "monthly" {
 		t.Fatalf("Get = %+v, %v", got, err)
 	}
 	if tb := declaredFor(t, repo, tenant); tb == nil || tb.LimitUSD != 1000 {
 		t.Errorf("ListDeclared entry = %+v", tb)
 	}
 
-	if err := repo.Upsert(ctx, &TenantBudget{TenantID: tenant, LimitUSD: 1, ResetCadence: "weekly"}); !errors.Is(err, ErrManagedByResource) {
+	if err := repo.Upsert(ctx, &TenantBudget{TenantID: tenant, LimitUSD: 1, ResetCadence: "weekly"}); !errors.Is(err, declarative.ErrManagedByResource) {
 		t.Errorf("api upsert over a crd budget: err = %v", err)
 	}
 	if err := repo.Delete(ctx, tenant); !errors.Is(err, ErrTenantBudgetNotFound) {

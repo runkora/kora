@@ -23,7 +23,6 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/token"
 	"github.com/runkora/kora/backend/internal/policyservice/api"
 	"github.com/runkora/kora/backend/internal/policyservice/bundle"
-	"github.com/runkora/kora/backend/internal/policyservice/declared"
 	"github.com/runkora/kora/backend/internal/policyservice/grants"
 	"github.com/runkora/kora/backend/internal/policyservice/principalroles"
 	"github.com/runkora/kora/backend/internal/policyservice/roles"
@@ -143,12 +142,12 @@ func realMain() error {
 	policyEval.Start(ctx)
 
 	// Declared tenant budgets follow the tenant registry (docs/adr/2026-10-24-declarative-resources.md).
-	go declared.RunTenantBudgets(ctx, svc, tenantRegistry, declared.BudgetSyncInterval, logger)
+	go svc.RunTenantBudgets(ctx, tenantRegistry)
 
 	controller := api.NewController(svc, logger, verifier, storage.NewJTIBlocklist(redis), policyEval, policyServiceRoutes(), psc.Current.Server.BasePath, tenantRegistry)
 	// The operator applies PolicyRole resources through /api/v1/internal/declared/policyroles.
 	declaredController := declarative.NewController(verifier, logger, map[string]declarative.Applier{
-		declarative.KindPolicyRoles: declared.NewRoleApplier(svc),
+		declarative.KindPolicyRoles: api.NewRoleApplier(svc),
 	})
 	server := initServer(ctx, logger, metrics, controller, declaredController)
 
