@@ -537,14 +537,15 @@ cosign verify-blob kora-<version>.tgz \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-The release also attaches SLSA build provenance for its files as `kora-<version>.intoto.jsonl`. Check a file with [slsa-verifier](https://github.com/slsa-framework/slsa-verifier):
+The release also attests SLSA build provenance for its files, and attaches the attestation as `kora-<version>.intoto.jsonl`. Check a file with the GitHub CLI:
 
 ```bash
-slsa-verifier verify-artifact kora-<version>.tgz \
-  --provenance-path kora-<version>.intoto.jsonl \
-  --source-uri github.com/runkora/kora \
-  --source-tag v<version>
+gh attestation verify kora-<version>.tgz \
+  --repo runkora/kora \
+  --signer-workflow runkora/kora/.github/workflows/release.yml
 ```
+
+Pass `--bundle kora-<version>.intoto.jsonl` to verify against the attached attestation instead of GitHub's attestation store.
 
 ### Argo CD (GitOps)
 
