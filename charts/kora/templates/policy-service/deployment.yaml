@@ -33,8 +33,9 @@ spec:
         {{- include "kora.spireVolumes" . | nindent 8 }}
         {{- include "kora.configVolume" (dict "root" $ "name" "policyService" "configMap" "kora-policy-service-config" "modules" (include "kora.policyService.configModules" . | fromYaml)) | nindent 8 }}
         # Operator-owned tenant registry: the gateway bundle lists every
-        # registered tenant, with or without policy rows. Optional so the
-        # service starts before any tenant exists; re-read on every compile.
+        # registered tenant, with or without policy rows. Each tenant's
+        # authoring switch and declared budget come from it too. Optional so
+        # the service starts before any tenant exists.
         - name: tenants-config
           configMap:
             name: {{ .Values.policyService.tenantsConfigMap }}
