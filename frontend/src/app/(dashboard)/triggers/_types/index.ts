@@ -152,6 +152,8 @@ export interface TriggerRow {
   id: string;
   kind: TriggerKind;
   sourceId: string;
+  /** A webhook trigger whose source was deleted. It does not fire and can only be deleted. */
+  sourceMissing?: boolean;
   name: string;
   /** "routed" triggers have no single agent: both agent fields are empty. */
   targetKind: TriggerTargetKind;
@@ -317,6 +319,7 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     id: t.id,
     kind: t.kind,
     sourceId: t.source_id ?? '',
+    sourceMissing: t.source_missing ?? false,
     name: t.name,
     targetKind: t.target_kind ?? 'agent',
     agentTypeId: t.agent_type_id ?? '',

@@ -103,7 +103,8 @@ func (s *TriggerService) resolveRouting(ctx context.Context, src WebhookSource, 
 // reports a new grant on t; oldGrant is the one it replaces, deleted once the
 // row is stored. A trigger that is not routed is left alone.
 func (s *TriggerService) applyRoutingUpdate(ctx context.Context, t *Trigger, claims *token.PlatformClaims, raw *RoutingConfig, checkCaller bool) (replaced bool, oldGrant *string, err error) {
-	if t.TargetKind != TargetKindRouted {
+	// A sourceless trigger only accepts a disable, which needs no source and no new grant.
+	if t.TargetKind != TargetKindRouted || t.SourceMissing {
 		return false, nil, nil
 	}
 	if t.Routing == nil {

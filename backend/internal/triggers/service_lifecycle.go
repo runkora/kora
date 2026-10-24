@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -460,6 +461,9 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 		return nil, err
 	}
 	wasEnabled := t.Enabled
+	if err = refuseSourceMissing(t, req); err != nil {
+		return nil, err
+	}
 	if err = refuseRetarget(t, req); err != nil {
 		return nil, err
 	}
@@ -528,6 +532,15 @@ func runTargets(t Trigger) []string {
 		return t.Routing.Candidates
 	}
 	return []string{t.AgentTypeID}
+}
+
+// refuseSourceMissing rejects every edit to a trigger whose source was deleted
+// except turning it off. Such a trigger cannot be re-linked.
+func refuseSourceMissing(t *Trigger, req UpdateTriggerRequest) error {
+	if !t.SourceMissing || reflect.DeepEqual(req, UpdateTriggerRequest{Enabled: new(false)}) {
+		return nil
+	}
+	return fmt.Errorf("%w: the source of this trigger was deleted; the trigger can only be disabled or deleted", ErrValidation)
 }
 
 // refuseRetarget rejects a change of target kind, and routing on a trigger that is not routed.
