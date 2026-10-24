@@ -49,7 +49,7 @@ func (e budgetsEval) Check(context.Context, policy.CheckInput) (policy.Result, e
 
 func budgetTestController(stored *roles.RoleEntry, holdsBudgetsWrite bool) *Controller {
 	svc := &Service{roleRepo: oneRoleRepo{entry: stored}, logger: logging.NewLoggerWithOutput(io.Discard)}
-	return &Controller{svc: svc, eval: budgetsEval{allow: holdsBudgetsWrite}, logger: logging.NewLoggerWithOutput(io.Discard)}
+	return &Controller{svc: svc, eval: budgetsEval{allow: holdsBudgetsWrite}, logger: logging.NewLoggerWithOutput(io.Discard), registry: fakeRegistry{}}
 }
 
 func TestRoleBudgetChangeAllowed(t *testing.T) {
