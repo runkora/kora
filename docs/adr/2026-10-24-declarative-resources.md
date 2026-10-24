@@ -146,7 +146,7 @@ All kinds are `runkora.io/v1alpha1`, namespaced, with a status subresource. They
 | `Agent` | tenant | `kora-agents` | `agent_types`, `agent_environments` |
 | `TriggerSource` | tenant | `kora-triggers` | `webhook_sources` |
 | `Trigger` | tenant | `kora-triggers` | `triggers`, `trigger_routes`, `trigger_route_candidates` |
-| `PolicyRole` | tenant | `policy-service` | `policy_role_scopes` |
+| `PolicyRole` | tenant, or system with `spec.tenant` | `policy-service` | `policy_role_scopes` |
 
 *   A ValidatingAdmissionPolicy in the `kora` chart rejects a `VirtualModel` outside the system namespace.
 *   `metadata.name` is a DNS-1123 label. CEL limits an `Agent` name to a DNS-1035 label of at most 52 characters.
@@ -287,7 +287,7 @@ The operator runs one controller per kind under its existing leader election:
 *   A reference counts as resolved when the referenced resource is `Ready`. A reference to a dashboard-built item counts as missing.
 *   Unresolved resources requeue every 30 seconds, and every resource resyncs every 5 minutes.
 *   Each row stores its resource UID in `resource_uid`. A reconcile that finds the resource gone deletes its declared row.
-*   At startup the operator lists each service's declared items per tenant and deletes those whose UID matches no resource. It skips a tenant whose namespace does not exist.
+*   At startup and every sync period, the operator lists each service's declared items per tenant and deletes those whose UID matches no resource. It skips a tenant whose namespace does not exist.
 *   Deleting an `Environment` resource while an agent is attached keeps the row and retries every 30 seconds.
 *   Changing a `Trigger`'s `kind`, or switching between `agent` and `routing`, recreates the trigger. Changing a `TriggerSource`'s `provider` recreates the source with a new id and webhook path.
 
@@ -331,7 +331,7 @@ type Applier interface {
 }
 ```
 
-*   Each service mounts `POST /internal/declared/{kind}`, `DELETE /internal/declared/{kind}/{tenant}/{name}` and `GET /internal/declared/{kind}/{tenant}` through the server helper.
+*   Each service mounts `POST /internal/declared/{kind}`, `DELETE /internal/declared/{kind}/{tenant}/{name}` and `GET /internal/declared/{kind}/{tenant}` under its base path (`/` for kora-agents, `/api/v1` for kora-triggers and policy-service, `/v1` for inference-gateway).
 *   The helper accepts only the operator's system principal.
 *   The operator calls every service through one client that embeds `httpclient.Base`.
 *   `Apply` is idempotent. The operator re-applies an unready item to read its readiness.
@@ -340,7 +340,7 @@ Each `Applier` runs the API's validation and provisioning without a caller:
 
 *   `kora-agents` skips the identity-mode write check, the scope ceiling and `refuseDelegatedAutonomousWrite`. `created_by` is `resource:<namespace>/<name>`.
 *   `kora-triggers` takes agent and source ids from `Item.Refs`. The operator reads them from the referenced resources' `status.id`. A recreated agent gets a new id, and its declared triggers, routed candidates and fallbacks follow it.
-*   `kora-triggers` skips `requireRunAuthority` and `authorizeCaller` and still runs `refuseDelegatedBinding`.
+*   `kora-triggers` skips `requireRunAuthority` and `authorizeCaller`. The operator refuses a `Trigger` that names a delegated agent before it calls `kora-triggers`.
 *   The declared trigger path sets `agent_type_id`, `source_id` and the routing candidates directly. The API still cannot change them.
 *   A routed trigger's `routing.model` is a `VirtualModel` reference.
 *   `policy-service` skips the role scope ceiling and the budget permission check. A scope missing from the vocabulary gives `ResolvedRefs=False`.
@@ -350,21 +350,28 @@ The operator owns every spec field. `auto_paused_at` and `consecutive_failures` 
 
 ### 5. Source Columns
 
-Each projected table gains two columns in an expand migration:
+Each projected table gains a `source` column in an expand migration, plus the resource columns its declared path needs:
 
 ```sql
 ALTER TABLE agent_types
   ADD COLUMN source TEXT NOT NULL DEFAULT 'api' CHECK (source IN ('api', 'crd')),
-  ADD COLUMN resource_uid TEXT;
+  ADD COLUMN resource_uid TEXT,
+  ADD COLUMN resource_generation BIGINT NOT NULL DEFAULT 0;
 ```
 
-*   The tables are `virtual_models`, `environments`, `agent_types`, `webhook_sources`, `triggers`, `policy_role_scopes` and `policy_tenant_budgets`.
+| Table | Columns added |
+|---|---|
+| `agent_types`, `environments` | `source`, `resource_uid`, `resource_generation` |
+| `webhook_sources`, `triggers` | `source`, `resource_uid` |
+| `virtual_models`, `policy_role_scopes` | `source`, `resource_uid`, `resource_name` |
+| `policy_tenant_budgets` | `source` |
+
 *   Child tables (`virtual_model_routes`, `agent_environments`, `trigger_routes`, `trigger_route_candidates`) follow their parent.
 
 ### 6. API Behavior
 
 *   Every list and get response for the projected kinds carries `source: "api" | "crd"`.
-*   A create, update or delete of a `source = 'crd'` row returns HTTP 409 with code `managed_by_resource`.
+*   An update or delete of a `source = 'crd'` row returns HTTP 409 with code `managed_by_resource`. A role `PUT` on a declared role counts as an update.
 *   With `apiAuthoring: Disabled`, these writes in the tenant return HTTP 403 with code `api_authoring_disabled`:
     *   Create, update and delete of agents, environments, triggers, trigger sources and roles.
     *   Role budget changes.
@@ -375,7 +382,7 @@ ALTER TABLE agent_types
 *   An API trigger cannot take the name of a declared trigger. A declared trigger with the name of a live API trigger reports `NameConflict`.
 *   The kora MCP server calls the same APIs and inherits these refusals.
 *   `identity` returns `api_authoring` for the caller's tenant on the session response. `GET /v1/catalog/virtual-models` returns `{"data": [...], "api_authoring": bool}`.
-*   An API create that takes a declared item's key returns HTTP 409 with code `resource_already_exists`.
+*   An API create, or a rename, that takes a declared item's key returns HTTP 409 with code `resource_already_exists`.
 
 ### 7. Dashboard
 
@@ -415,7 +422,7 @@ CREATE UNIQUE INDEX agent_types_tenant_slug_live ON agent_types (tenant_id, slug
 *   The six new CRDs carry `helm.sh/resource-policy: keep`.
 *   The operator ClusterRole gains `get/list/watch` on the six kinds and `patch` on their status.
 *   The operator gets an Istio sidecar. Its webhook port is excluded from inbound interception with `traffic.sidecar.istio.io/excludeInboundPorts`. It mounts the SPIRE workload socket and gets a platform token as `/system/operator`.
-*   Each service gains a mesh AuthorizationPolicy rule that allows the operator to reach `/internal/declared/`.
+*   A mesh AuthorizationPolicy on each service denies `/internal/declared/` under its base path to every principal except the operator. The edge returns 404 for these paths.
 *   `inference-gateway`, `kora-agents`, `kora-triggers` and `policy-service` gain no Kubernetes access.
 
 ### Rationale
@@ -492,6 +499,7 @@ On the local cluster:
 *   [Sandbox Environments](2026-10-03-sandbox-environments.md): environments gain a resource form.
 *   [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md): trigger source deletion no longer cascades.
 *   [Tenant Registration and OIDC Provider Binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md): the registry gains fields.
+*   [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md): the operator now joins the mesh with its webhook port excluded.
 *   [Install and Distribution Model](2026-09-04-install-and-distribution-model.md): CRD packaging and upgrade rules. The operator's role widens from tenants to declared resources (Amendment 1 there).
 *   [Database Migrations](2026-09-10-database-migrations.md): expand migrations for the new columns.
 

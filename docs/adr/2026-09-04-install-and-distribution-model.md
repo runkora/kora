@@ -514,7 +514,8 @@ Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouche
 
 *   The operator's role widens from tenant reconciliation to tenants and declared resources.
 *   The operator joins the mesh for outbound calls. Its webhook port is excluded from inbound interception, so the kube-apiserver still reaches it without a mesh certificate.
-*   The operator calls each owning service's `/internal/declared/` endpoints with a platform token from its SPIFFE identity.
+*   The operator calls each owning service's `/internal/declared/` endpoints, under the service's base path, with a platform token from its SPIFFE identity.
+*   The operator ClusterRole gains get/list/watch on the six kinds and get/patch on their status.
 
 **Consequences.**
 
