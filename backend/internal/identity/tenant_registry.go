@@ -27,8 +27,9 @@ import (
 //	    apiAuthoring: "Enabled"   # Enabled | Disabled
 //	    budget: {limitUSD: 1000, resetCadence: monthly}  # optional
 //
-// identity reads id, state, oidc and apiAuthoring. Services that own declarative
-// resources read apiAuthoring and budget through internal/platform/declarative.
+// identity reads id, state and oidc here, and apiAuthoring through
+// internal/platform/declarative. Services that own declarative resources read
+// apiAuthoring and budget the same way.
 //
 // OIDC client secrets are NOT stored in this file. They are read from the
 // aggregated Secret kora-tenant-oidc-secrets (managed by the kora-operator)
@@ -47,21 +48,7 @@ type tenantEntry struct {
 	DisplayName string          `json:"displayName"`
 	State       string          `json:"state"`
 	OIDC        tenantOIDCEntry `json:"oidc"`
-	// APIAuthoring is "Disabled" for a tenant whose items are authored only in
-	// its configuration repository. Any other value, or none, means enabled.
-	APIAuthoring string `json:"apiAuthoring"`
 }
-
-// tenantRegistry is the parsed registry: OIDC config per active tenant and
-// the active tenants that have API authoring disabled.
-type tenantRegistry struct {
-	OIDC                 map[string]TenantOIDCConfig
-	APIAuthoringDisabled map[string]bool
-}
-
-// registryAPIAuthoringDisabled is the registry value that locks a tenant's
-// items to its configuration repository.
-const registryAPIAuthoringDisabled = "Disabled"
 
 // tenantOIDCEntry holds per-tenant OIDC config from the registry file.
 // Client secrets are NOT stored here — they are injected from the aggregated
@@ -89,33 +76,30 @@ type TenantOIDCConfig struct {
 	EmailDomains []string
 }
 
-// loadTenantRegistry reads the tenant registry at path and returns the OIDC
-// config and API authoring state keyed by tenant ID. Client secrets
+// loadTenantRegistry reads the tenant registry at path and returns a map keyed
+// by tenant ID. Client secrets
 // are resolved from clientSecrets (keyed by tenant ID), which is populated
 // from the aggregated Secret kora-tenant-oidc-secrets.
 //
-// An empty path is not an error — it returns an empty registry,
+// An empty path is not an error — it returns an empty map,
 // which causes tenantOIDC to return ErrOIDCNotConfigured for any tenant,
 // consistent with the service running without OIDC.
-func loadTenantRegistry(path string, clientSecrets map[string]string) (tenantRegistry, error) {
-	out := tenantRegistry{
-		OIDC:                 map[string]TenantOIDCConfig{},
-		APIAuthoringDisabled: map[string]bool{},
-	}
+func loadTenantRegistry(path string, clientSecrets map[string]string) (map[string]TenantOIDCConfig, error) {
 	if path == "" {
-		return out, nil
+		return map[string]TenantOIDCConfig{}, nil
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return tenantRegistry{}, fmt.Errorf("read tenant registry %s: %w", path, err)
+		return nil, fmt.Errorf("read tenant registry %s: %w", path, err)
 	}
 
 	var reg tenantRegistryFile
 	if err := yaml.Unmarshal(data, &reg); err != nil {
-		return tenantRegistry{}, fmt.Errorf("parse tenant registry %s: %w", path, err)
+		return nil, fmt.Errorf("parse tenant registry %s: %w", path, err)
 	}
 
+	out := make(map[string]TenantOIDCConfig, len(reg.Tenants))
 	// Track email domain ownership to detect collisions at startup.
 	domainOwner := make(map[string]string) // lowercase domain → tenant ID
 
@@ -132,7 +116,7 @@ func loadTenantRegistry(path string, clientSecrets map[string]string) (tenantReg
 		for _, d := range t.OIDC.EmailDomains {
 			lower := strings.ToLower(d)
 			if owner, exists := domainOwner[lower]; exists {
-				return tenantRegistry{}, fmt.Errorf(
+				return nil, fmt.Errorf(
 					"duplicate email domain %q: claimed by both tenant %q and %q",
 					lower, owner, t.ID,
 				)
@@ -140,11 +124,7 @@ func loadTenantRegistry(path string, clientSecrets map[string]string) (tenantReg
 			domainOwner[lower] = t.ID
 		}
 
-		if t.APIAuthoring == registryAPIAuthoringDisabled {
-			out.APIAuthoringDisabled[t.ID] = true
-		}
-
-		out.OIDC[t.ID] = TenantOIDCConfig{
+		out[t.ID] = TenantOIDCConfig{
 			IssuerURL:    t.OIDC.IssuerURL,
 			ClientID:     t.OIDC.ClientID,
 			ClientSecret: clientSecrets[t.ID],
