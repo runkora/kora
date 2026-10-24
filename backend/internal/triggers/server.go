@@ -553,6 +553,10 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	var ive *InputValidationError
 	var mse *MissingScopesError
 	var gre *GrantRevokeError
+	if apiErr := authoringError(err); apiErr != nil {
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
 	switch {
 	case errors.As(err, &mse):
 		// 403 with the scopes, so the caller knows what to ask for.
@@ -579,7 +583,7 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 		// 'resource_already_exists' — nothing was being created, and a client
 		// branching on the code was being told the opposite of what happened.
 		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
-	case errors.Is(err, ErrSourceNameTaken):
+	case errors.Is(err, ErrSourceNameTaken), errors.Is(err, ErrDeclaredNameTaken):
 		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeResourceExists, err.Error(), nil), nil)
 	case errors.Is(err, ErrNotRedeliverable):
 		// 400: the delivery exists and the caller may see it, but replaying this
@@ -603,6 +607,17 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	default:
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "request failed", nil), err)
 	}
+}
+
+// authoringError answers the refusals that protect declared rows and locked tenants.
+func authoringError(err error) *api.APIError {
+	switch {
+	case errors.Is(err, ErrManagedByResource):
+		return api.ConflictError(api.ErrCodeManagedByResource, err.Error(), nil)
+	case errors.Is(err, ErrAPIAuthoringDisabled):
+		return api.ForbiddenError(api.ErrCodeAPIAuthoringDisabled, err.Error(), nil)
+	}
+	return nil
 }
 
 type bearerKey struct{}

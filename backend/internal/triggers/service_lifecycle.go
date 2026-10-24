@@ -19,8 +19,8 @@ import (
 )
 
 // triggerStore is what managing triggers touches: the triggers themselves, the
-// one source read a webhook trigger needs to find its principal, and the
-// failure counter that re-enabling clears.
+// one source read a webhook trigger needs to find its principal, the failure
+// counter that re-enabling clears, and the declared triggers' reads and write.
 type triggerStore interface {
 	CreateTrigger(ctx context.Context, t *Trigger) error
 	GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error)
@@ -30,6 +30,10 @@ type triggerStore interface {
 	DeleteTrigger(ctx context.Context, tenantID, id string) error
 	GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error)
 	ResetConsecutiveFailures(ctx context.Context, triggerID string) error
+	GetDeclaredTrigger(ctx context.Context, tenantID, name string) (*Trigger, error)
+	TriggerNameTaken(ctx context.Context, tenantID, name, source string) (bool, error)
+	ListDeclaredTriggers(ctx context.Context, tenantID string) ([]Trigger, error)
+	UpdateDeclaredTrigger(ctx context.Context, t *Trigger) error
 }
 
 // agentTypeReader reads an agent type as a given bearer. Asked with the caller's bearer, it answers can_run for the caller.
@@ -52,6 +56,7 @@ type TriggerService struct {
 	agents    *agentsclient.Client
 	eval      scopeChecker
 	admission *Admission
+	tenants   authoringSwitch
 	logger    logging.Logger
 }
 
@@ -68,9 +73,10 @@ func NewTriggerService(
 	agents *agentsclient.Client,
 	eval scopeChecker,
 	admission *Admission,
+	tenants authoringSwitch,
 	logger logging.Logger,
 ) *TriggerService {
-	return &TriggerService{repo: repo, registry: registry, policy: policy, agents: agents, eval: eval, admission: admission, logger: logger}
+	return &TriggerService{repo: repo, registry: registry, policy: policy, agents: agents, eval: eval, admission: admission, tenants: tenants, logger: logger}
 }
 
 // ─── Triggers ─────────────────────────────────────────────────────────────────
@@ -80,6 +86,12 @@ func NewTriggerService(
 // among candidate agents (a routed webhook trigger). claims are the caller's,
 // which a routed trigger's grant is checked against.
 func (s *TriggerService) CreateTrigger(ctx context.Context, tenantID string, claims *token.PlatformClaims, req CreateTriggerRequest) (*Trigger, error) {
+	if !s.tenants.APIAuthoringEnabled(tenantID) {
+		return nil, ErrAPIAuthoringDisabled
+	}
+	if err := s.refuseDeclaredName(ctx, tenantID, req.Name); err != nil {
+		return nil, err
+	}
 	kind := req.Kind
 	if kind == "" {
 		kind = KindWebhook // backward-compatible default
@@ -95,6 +107,33 @@ func (s *TriggerService) CreateTrigger(ctx context.Context, tenantID string, cla
 	default:
 		return nil, fmt.Errorf("%w: unknown trigger kind %q", ErrValidation, kind)
 	}
+}
+
+// refuseDeclaredName refuses an API trigger name a declared trigger in the tenant holds.
+func (s *TriggerService) refuseDeclaredName(ctx context.Context, tenantID, name string) error {
+	taken, err := s.repo.TriggerNameTaken(ctx, tenantID, strings.TrimSpace(name), SourceCRD)
+	if err != nil {
+		return err
+	}
+	if taken {
+		return ErrDeclaredNameTaken
+	}
+	return nil
+}
+
+// refuseAPIWrite refuses an API change to a declared trigger or to any
+// trigger in a locked tenant. Clearing an auto-pause stays available.
+func (s *TriggerService) refuseAPIWrite(t *Trigger, req *UpdateTriggerRequest) error {
+	if req != nil && t.AutoPausedAt != nil && reflect.DeepEqual(*req, UpdateTriggerRequest{Enabled: new(true)}) {
+		return nil
+	}
+	if t.Source == SourceCRD {
+		return ErrManagedByResource
+	}
+	if !s.tenants.APIAuthoringEnabled(t.TenantID) {
+		return ErrAPIAuthoringDisabled
+	}
+	return nil
 }
 
 // refuseDelegatedBinding rejects an agent type that a trigger may not bind.
@@ -461,7 +500,7 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 		return nil, err
 	}
 	wasEnabled := t.Enabled
-	if err = refuseSourceMissing(t, req); err != nil {
+	if err = s.refuseEdit(ctx, t, req); err != nil {
 		return nil, err
 	}
 	if err = refuseRetarget(t, req); err != nil {
@@ -532,6 +571,21 @@ func runTargets(t Trigger) []string {
 		return t.Routing.Candidates
 	}
 	return []string{t.AgentTypeID}
+}
+
+// refuseEdit refuses an edit the API may not make: one to a declared trigger
+// or in a locked tenant, a rename to a declared trigger's name, and any edit
+// but a disable to a sourceless trigger.
+func (s *TriggerService) refuseEdit(ctx context.Context, t *Trigger, req UpdateTriggerRequest) error {
+	if err := s.refuseAPIWrite(t, &req); err != nil {
+		return err
+	}
+	if req.Name != nil && strings.TrimSpace(*req.Name) != t.Name {
+		if err := s.refuseDeclaredName(ctx, t.TenantID, *req.Name); err != nil {
+			return err
+		}
+	}
+	return refuseSourceMissing(t, req)
 }
 
 // refuseSourceMissing rejects every edit to a trigger whose source was deleted
@@ -817,6 +871,15 @@ func (s *TriggerService) DeleteTrigger(ctx context.Context, tenantID, id string)
 	if err != nil {
 		return err
 	}
+	if err := s.refuseAPIWrite(t, nil); err != nil {
+		return err
+	}
+	return s.deleteTrigger(ctx, t)
+}
+
+// deleteTrigger drops the trigger's waiting fires, revokes its grants and deletes the row.
+func (s *TriggerService) deleteTrigger(ctx context.Context, t *Trigger) error {
+	tenantID, id := t.TenantID, t.ID
 	// Anything still waiting has nowhere to go. Record it as dropped rather
 	// than letting it vanish: deleting a trigger with a backlog should be
 	// visible in the delivery history, not silent.

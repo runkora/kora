@@ -15,11 +15,13 @@ import (
 
 // ─── Sources ──────────────────────────────────────────────────────────────────
 
-// sourceStore is the six methods managing webhook sources takes.
+// sourceStore is what managing webhook sources takes.
 type sourceStore interface {
 	CreateSource(ctx context.Context, s *WebhookSource) error
 	GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error)
 	ListSources(ctx context.Context, tenantID string) ([]WebhookSource, error)
+	GetSourceByName(ctx context.Context, tenantID, name string) (*WebhookSource, error)
+	ListDeclaredSources(ctx context.Context, tenantID string) ([]WebhookSource, error)
 	UpdateSource(ctx context.Context, s *WebhookSource) error
 	DeleteSource(ctx context.Context, tenantID, id string) error
 	ObservedEventTypes(ctx context.Context, sourceID string) ([]string, error)
@@ -38,8 +40,15 @@ type SourceService struct {
 	cipher      *secretCipher
 	policy      *policyclient.Client
 	agents      agentTypeReader
+	tenants     authoringSwitch
 	logger      logging.Logger
 	webhookBase string
+}
+
+// authoringSwitch reports whether a tenant accepts API writes to its sources
+// and triggers. declarative.Registry satisfies it.
+type authoringSwitch interface {
+	APIAuthoringEnabled(tenantID string) bool
 }
 
 // NewSourceService constructs the sources half of Triggers. webhookBase is the
@@ -50,6 +59,7 @@ func NewSourceService(
 	cipher *secretCipher,
 	policy *policyclient.Client,
 	agents agentTypeReader,
+	tenants authoringSwitch,
 	webhookBase string,
 	logger logging.Logger,
 ) *SourceService {
@@ -59,6 +69,7 @@ func NewSourceService(
 		cipher:      cipher,
 		policy:      policy,
 		agents:      agents,
+		tenants:     tenants,
 		logger:      logger,
 		webhookBase: webhookBase,
 	}
@@ -75,6 +86,9 @@ func (s *SourceService) WebhookPath(sourceID string) string { return s.webhookBa
 // secret on create: the source is stored without one and answers only the
 // provider handshake until an admin sets it.
 func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req CreateSourceRequest) (*SourceResponse, error) {
+	if !s.tenants.APIAuthoringEnabled(tenantID) {
+		return nil, ErrAPIAuthoringDisabled
+	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
@@ -91,47 +105,49 @@ func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req C
 		return nil, err
 	}
 
-	id := uuid.NewString()
-	principalID := "trigger-source:" + id
-
 	ciphertext, err := s.sealSecret(secret)
 	if err != nil {
 		return nil, err
 	}
-
-	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), principalID, sourceRunScopes, nil, false)
-	if err != nil {
-		return nil, fmt.Errorf("create source grant: %w", err)
-	}
-
 	src := &WebhookSource{
-		ID:               id,
 		TenantID:         tenantID,
 		Name:             name,
 		Provider:         req.Provider,
-		PrincipalID:      principalID,
-		GrantID:          &grantID,
 		Config:           req.Config,
 		Enabled:          true,
 		SecretCiphertext: ciphertext,
 	}
-	if err := s.repo.CreateSource(ctx, src); err != nil {
-		deleteGrantsBestEffort(ctx, s.policy, s.logger, "source create failed and grant cleanup failed",
-			[]string{grantID}, logging.Field{Key: "source_id", Value: id})
+	if err := s.insertSource(ctx, src); err != nil {
 		return nil, err
 	}
-
-	s.logger.Info(ctx, "webhook source created",
-		logging.Field{Key: "source_id", Value: id},
-		logging.Field{Key: "tenant_id", Value: tenantID},
-		logging.Field{Key: "provider", Value: req.Provider},
-	)
-
 	return &SourceResponse{
 		WebhookSource: *s.present(s.readBackSource(ctx, src)),
-		WebhookPath:   s.WebhookPath(id),
+		WebhookPath:   s.WebhookPath(src.ID),
 		Secret:        returnedSecret(secret, issued),
 	}, nil
+}
+
+// insertSource gives a new source its id, its SERVICE principal and the
+// principal's grant, then stores it. The grant is removed if the store fails.
+func (s *SourceService) insertSource(ctx context.Context, src *WebhookSource) error {
+	src.ID = uuid.NewString()
+	src.PrincipalID = "trigger-source:" + src.ID
+	grantID, err := s.policy.CreateGrant(ctx, src.TenantID, string(token.PrincipalTypeService), src.PrincipalID, sourceRunScopes, nil, false)
+	if err != nil {
+		return fmt.Errorf("create source grant: %w", err)
+	}
+	src.GrantID = &grantID
+	if err := s.repo.CreateSource(ctx, src); err != nil {
+		deleteGrantsBestEffort(ctx, s.policy, s.logger, "source create failed and grant cleanup failed",
+			[]string{grantID}, logging.Field{Key: "source_id", Value: src.ID})
+		return err
+	}
+	s.logger.Info(ctx, "webhook source created",
+		logging.Field{Key: "source_id", Value: src.ID},
+		logging.Field{Key: "tenant_id", Value: src.TenantID},
+		logging.Field{Key: "provider", Value: src.Provider},
+	)
+	return nil
 }
 
 // readBackSource returns the stored row rather than the struct the create was
@@ -207,6 +223,9 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 	if err != nil {
 		return nil, err
 	}
+	if err := s.refuseUpdate(src, req); err != nil {
+		return nil, err
+	}
 	changesSecret := req.RotateSecret || s.takesFirstSecret(src, req)
 	// A new secret signs deliveries for every trigger on the source. Enabling or disabling it starts or pauses all of them.
 	if changesSecret || (req.Enabled != nil && *req.Enabled != src.Enabled) {
@@ -240,6 +259,18 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 		WebhookPath:   s.WebhookPath(id),
 		Secret:        rotated,
 	}, nil
+}
+
+// refuseUpdate refuses every API change to a declared source. In a locked
+// tenant it allows secret rotation and nothing else.
+func (s *SourceService) refuseUpdate(src *WebhookSource, req UpdateSourceRequest) error {
+	if src.Source == SourceCRD {
+		return ErrManagedByResource
+	}
+	if !s.tenants.APIAuthoringEnabled(src.TenantID) && req.Enabled != nil && *req.Enabled != src.Enabled {
+		return ErrAPIAuthoringDisabled
+	}
+	return nil
 }
 
 // takesFirstSecret reports whether the request sets the first secret of a source
@@ -312,6 +343,18 @@ func (s *SourceService) DeleteSource(ctx context.Context, tenantID, id string) e
 	if err != nil {
 		return err
 	}
+	if src.Source == SourceCRD {
+		return ErrManagedByResource
+	}
+	if !s.tenants.APIAuthoringEnabled(tenantID) {
+		return ErrAPIAuthoringDisabled
+	}
+	return s.deleteSource(ctx, src)
+}
+
+// deleteSource revokes the source principal's grants and deletes the row.
+func (s *SourceService) deleteSource(ctx context.Context, src *WebhookSource) error {
+	tenantID, id := src.TenantID, src.ID
 	grants, err := s.policy.ListGrants(ctx, tenantID, string(token.PrincipalTypeService), src.PrincipalID)
 	if err != nil {
 		s.logger.Error(ctx, "failed to list source grants for cleanup",
