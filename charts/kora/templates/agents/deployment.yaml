@@ -57,9 +57,9 @@ spec:
         - name: workloads
           configMap:
             name: kora-agents-workloads
-        # Operator-owned tenant registry: each tenant's authoring switch and
-        # budget. Optional so the pod starts before any tenant exists; read
-        # again when it changes.
+        # Operator-owned tenant registry: each tenant's authoring switch.
+        # Optional so the pod starts before any tenant exists; read again when
+        # it changes.
         - name: tenants-config
           configMap:
             name: {{ .Values.agents.tenantsConfigMap }}

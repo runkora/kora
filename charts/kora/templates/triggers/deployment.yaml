@@ -32,9 +32,9 @@ spec:
       volumes:
         {{- include "kora.spireVolumes" . | nindent 8 }}
         {{- include "kora.configVolume" (dict "root" $ "name" "triggers" "configMap" "kora-triggers-config" "modules" (include "kora.triggers.configModules" . | fromYaml)) | nindent 8 }}
-        # Operator-owned tenant registry: each tenant's authoring switch and
-        # budget. Optional so the pod starts before any tenant exists; read
-        # again when it changes.
+        # Operator-owned tenant registry: each tenant's authoring switch.
+        # Optional so the pod starts before any tenant exists; read again when
+        # it changes.
         - name: tenants-config
           configMap:
             name: {{ .Values.triggers.tenantsConfigMap }}

@@ -27,12 +27,7 @@ spec:
         - name: Provider
           type: string
           jsonPath: .spec.provider
-        - name: Accepted
-          type: string
-          jsonPath: .status.conditions[?(@.type=="Accepted")].status
-        - name: Ready
-          type: string
-          jsonPath: .status.conditions[?(@.type=="Ready")].status
+        {{- include "kora-crds.declaredColumns" . | nindent 8 }}
         - name: Path
           type: string
           priority: 1
@@ -44,15 +39,16 @@ spec:
         openAPIV3Schema:
           description: >
             TriggerSource defines a webhook source for the tenant whose
-            namespace holds it. kora-triggers watches it, reads the signing
-            secret from the referenced Secret and reports the ingest path in
-            status.webhookPath.
+            namespace holds it. The operator reads the signing secret from the
+            referenced Secret, which must carry the label
+            runkora.io/trigger-source=true, and projects the source into
+            kora-triggers. status.webhookPath is the ingest path to configure in
+            the provider.
           type: object
           required:
             - spec
           x-kubernetes-validations:
-            - rule: "self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name) <= 63"
-              message: metadata.name must be a DNS label.
+            {{- include "kora-crds.dnsLabelName" . | nindent 12 }}
           properties:
             apiVersion:
               type: string
@@ -96,37 +92,4 @@ spec:
                 webhookPath:
                   type: string
                   description: The ingest path to configure in the provider. It includes the source id.
-                id:
-                  type: string
-                  description: The id of the item the resource is projected to.
-                observedGeneration:
-                  type: integer
-                  format: int64
-                conditions:
-                  type: array
-                  x-kubernetes-list-type: map
-                  x-kubernetes-list-map-keys:
-                    - type
-                  items:
-                    type: object
-                    required:
-                      - type
-                      - status
-                      - lastTransitionTime
-                      - reason
-                      - message
-                    properties:
-                      type:
-                        type: string
-                      status:
-                        type: string
-                      observedGeneration:
-                        type: integer
-                        format: int64
-                      lastTransitionTime:
-                        type: string
-                        format: date-time
-                      reason:
-                        type: string
-                      message:
-                        type: string
+                {{- include "kora-crds.declaredStatus" . | nindent 16 }}

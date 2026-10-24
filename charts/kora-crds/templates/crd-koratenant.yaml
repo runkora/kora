@@ -51,7 +51,7 @@ spec:
           required:
             - spec
           x-kubernetes-validations:
-            # Services map a namespace's resources to its tenant. A tenant that changed namespace would take another namespace's resources.
+            # The operator maps a namespace's resources to its tenant. A tenant that changed namespace would take another namespace's resources.
             # CEL reserves the word namespace, so the field is spelled __namespace__.
             - rule: "has(oldSelf.spec.__namespace__) ? (has(self.spec.__namespace__) && self.spec.__namespace__ == oldSelf.spec.__namespace__) : (!has(self.spec.__namespace__) || self.spec.__namespace__ == 'kora-tenant-' + self.metadata.name)"
               message: spec.namespace is immutable. Recreate the KoraTenant to use another namespace.
