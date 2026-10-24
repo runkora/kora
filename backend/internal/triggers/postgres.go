@@ -1185,7 +1185,7 @@ func (r *postgresRepository) ClaimPending(ctx context.Context, limit int) ([]Pen
 		),
 		ranked AS (
 		    SELECT p.id, p.enqueued_at,
-		           row_number() OVER (PARTITION BY p.trigger_id ORDER BY p.enqueued_at) AS position,
+		           row_number() OVER (PARTITION BY p.trigger_id ORDER BY p.enqueued_at, p.id) AS position,
 		           COALESCE(f.n, 0) AS in_flight,
 		           t.max_parallel
 		    FROM   trigger_pending_deliveries p
@@ -1200,7 +1200,7 @@ func (r *postgresRepository) ClaimPending(ctx context.Context, limit int) ([]Pen
 		    FROM   trigger_pending_deliveries p
 		    JOIN   ranked k ON k.id = p.id
 		    WHERE  k.in_flight + k.position <= k.max_parallel
-		    ORDER  BY k.enqueued_at
+		    ORDER  BY k.enqueued_at, k.id
 		    LIMIT  $1
 		    FOR UPDATE OF p SKIP LOCKED
 		)
@@ -1462,7 +1462,7 @@ func (r *postgresRepository) TrimPending(ctx context.Context, triggerID string, 
 		  AND  id IN (
 		    SELECT id FROM trigger_pending_deliveries
 		    WHERE  trigger_id = $1 AND claimed_at IS NULL
-		    ORDER  BY enqueued_at DESC
+		    ORDER  BY enqueued_at DESC, id DESC
 		    OFFSET $2
 		)
 		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at, hold_count
@@ -1524,7 +1524,7 @@ func (r *postgresRepository) DrainOrphanedPending(ctx context.Context, limit int
 		    LEFT   JOIN triggers t ON t.id = p2.trigger_id
 		    WHERE  p2.claimed_at IS NULL
 		      AND  (t.id IS NULL OR t.enabled = false)
-		    ORDER  BY p2.enqueued_at
+		    ORDER  BY p2.enqueued_at, p2.id
 		    LIMIT  $1
 		) g
 		WHERE  p.id = g.id
