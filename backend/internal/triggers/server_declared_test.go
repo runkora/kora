@@ -2,6 +2,8 @@ package triggers
 
 import (
 	"context"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/declarative/v1alpha1"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,12 +21,9 @@ func errorCode(t *testing.T, w *httptest.ResponseRecorder) string {
 
 func TestHandlers_DeclaredRowsAreReadOnly(t *testing.T) {
 	c, deps, _ := newTestController(t)
-	ctx := context.Background()
-	src, _ := deps.sources.ApplyDeclaredSource(ctx, declaredSource("uid-s"))
-	tr, err := deps.triggers.ApplyDeclaredTrigger(ctx, declaredWebhook(src.ID, "at-1"))
-	if err != nil {
-		t.Fatalf("seed: %v", err)
-	}
+	src := projectedSource(t, deps, "uid-s")
+	res := mustApply(t, deps.triggers, triggerItem(t, "uid-t", webhookSpec("code-reviewer"), agentRefs(src.ID)), declarative.OutcomeProjected)
+	tr := &Trigger{ID: res.ID}
 	srcPath, trPath := map[string]string{"id": src.ID}, map[string]string{"id": tr.ID}
 
 	for name, w := range map[string]*httptest.ResponseRecorder{
@@ -93,10 +92,8 @@ func TestHandlers_LockedTenant(t *testing.T) {
 func TestHandlers_APITriggerCannotTakeDeclaredName(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	ctx := context.Background()
-	src, _ := deps.sources.ApplyDeclaredSource(ctx, declaredSource("uid-s"))
-	if _, err := deps.triggers.ApplyDeclaredTrigger(ctx, declaredWebhook(src.ID, "at-1")); err != nil {
-		t.Fatalf("seed declared: %v", err)
-	}
+	src := projectedSource(t, deps, "uid-s")
+	mustApply(t, deps.triggers, triggerItem(t, "uid-t", webhookSpec("code-reviewer"), agentRefs(src.ID)), declarative.OutcomeProjected)
 	apiSrc := mustSource(t, deps.sources)
 
 	w := call(t, c.handleCreateTrigger, http.MethodPost, "/triggers", nil, CreateTriggerRequest{
@@ -120,22 +117,19 @@ func TestHandlers_APITriggerCannotTakeDeclaredName(t *testing.T) {
 
 func TestHandlers_ListsCarrySource(t *testing.T) {
 	c, deps, _ := newTestController(t)
-	ctx := context.Background()
-	src, _ := deps.sources.ApplyDeclaredSource(ctx, declaredSource("uid-s"))
-	if _, err := deps.triggers.ApplyDeclaredTrigger(ctx, declaredWebhook(src.ID, "at-1")); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
+	src := projectedSource(t, deps, "uid-s")
+	mustApply(t, deps.triggers, triggerItem(t, "uid-t", webhookSpec("code-reviewer"), agentRefs(src.ID)), declarative.OutcomeProjected)
 
 	sources := decode[struct {
 		Sources []map[string]any `json:"sources"`
 	}](t, call(t, c.handleListSources, http.MethodGet, "/trigger-sources", nil, nil))
-	if len(sources.Sources) != 1 || sources.Sources[0]["source"] != SourceCRD {
+	if len(sources.Sources) != 1 || sources.Sources[0]["source"] != declarative.SourceCRD {
 		t.Errorf("sources = %v", sources.Sources)
 	}
 	triggers := decode[struct {
 		Triggers []map[string]any `json:"triggers"`
 	}](t, call(t, c.handleListTriggers, http.MethodGet, "/triggers", nil, nil))
-	if len(triggers.Triggers) != 1 || triggers.Triggers[0]["source"] != SourceCRD {
+	if len(triggers.Triggers) != 1 || triggers.Triggers[0]["source"] != declarative.SourceCRD {
 		t.Errorf("triggers = %v", triggers.Triggers)
 	}
 }
@@ -143,12 +137,8 @@ func TestHandlers_ListsCarrySource(t *testing.T) {
 // Manual fires stay available on declared triggers and in locked tenants.
 func TestFireDeclaredTriggerInLockedTenant(t *testing.T) {
 	svc, deps := newTestService(t)
-	d := declaredWebhook("", "at-1")
-	d.Request = CreateTriggerRequest{Kind: KindManual, Name: "fire", AgentTypeID: "at-1", PromptTemplate: "p"}
-	tr, err := deps.triggers.ApplyDeclaredTrigger(context.Background(), d)
-	if err != nil {
-		t.Fatalf("seed: %v", err)
-	}
+	spec := v1alpha1.TriggerSpec{Kind: KindManual, Agent: "code-reviewer", PromptTemplate: "p", Enabled: true}
+	tr := mustApply(t, deps.triggers, triggerItem(t, "uid-t", spec, agentRefs("")), declarative.OutcomeProjected)
 	locked := openTenants{locked: map[string]bool{testTenant: true}}
 	deps.sources.tenants, deps.triggers.tenants = locked, locked
 	if _, err := svc.FireTrigger(context.Background(), testTenant, tr.ID, "user-1", FireTriggerRequest{}); err != nil {
@@ -159,11 +149,8 @@ func TestFireDeclaredTriggerInLockedTenant(t *testing.T) {
 // No response carries a declared source's signing secret or its ciphertext.
 func TestHandlers_DeclaredSecretNeverReturned(t *testing.T) {
 	c, deps, _ := newTestController(t)
-	src, err := deps.sources.ApplyDeclaredSource(context.Background(), declaredSource("uid-s"))
-	if err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	stored, _ := deps.repo.GetSource(context.Background(), testTenant, src.ID)
+	stored := projectedSource(t, deps, "uid-s")
+	src := stored
 	path := map[string]string{"id": src.ID}
 	for name, w := range map[string]*httptest.ResponseRecorder{
 		"list":   call(t, c.handleListSources, http.MethodGet, "/trigger-sources", nil, nil),
@@ -173,6 +160,25 @@ func TestHandlers_DeclaredSecretNeverReturned(t *testing.T) {
 		body := w.Body.String()
 		if strings.Contains(body, "s3cret") || strings.Contains(body, stored.SecretCiphertext) {
 			t.Errorf("%s response carries the signing secret: %s", name, body)
+		}
+	}
+}
+
+// In a locked tenant a declared item reports the lock first, as agents and roles do.
+func TestHandlers_LockedTenantBeforeManaged(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	src := projectedSource(t, deps, "uid-s")
+	res := mustApply(t, deps.triggers, triggerItem(t, "uid-t", webhookSpec("code-reviewer"), agentRefs(src.ID)), declarative.OutcomeProjected)
+	locked := openTenants{locked: map[string]bool{testTenant: true}}
+	deps.sources.tenants, deps.triggers.tenants = locked, locked
+
+	for name, w := range map[string]*httptest.ResponseRecorder{
+		"source rotate":  call(t, c.handleUpdateSource, http.MethodPatch, "/trigger-sources/x", map[string]string{"id": src.ID}, UpdateSourceRequest{RotateSecret: true}),
+		"source delete":  call(t, c.handleDeleteSource, http.MethodDelete, "/trigger-sources/x", map[string]string{"id": src.ID}, nil),
+		"trigger delete": call(t, c.handleDeleteTrigger, http.MethodDelete, "/triggers/x", map[string]string{"id": res.ID}, nil),
+	} {
+		if code := errorCode(t, w); w.Code != http.StatusForbidden || code != "api_authoring_disabled" {
+			t.Errorf("%s: %d %s, want 403 api_authoring_disabled", name, w.Code, code)
 		}
 	}
 }

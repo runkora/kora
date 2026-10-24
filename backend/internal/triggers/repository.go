@@ -3,6 +3,8 @@ package triggers
 import (
 	"context"
 	"time"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 )
 
 // Repository is the storage contract for the Triggers feature: the union of the
@@ -56,7 +58,7 @@ type SourceStore interface {
 	// unique per tenant across API and declared sources.
 	GetSourceByName(ctx context.Context, tenantID, name string) (*WebhookSource, error)
 	// ListDeclaredSources returns the tenant's sources projected from a resource.
-	ListDeclaredSources(ctx context.Context, tenantID string) ([]WebhookSource, error)
+	ListDeclaredSources(ctx context.Context, tenantID string) ([]declarative.Declared, error)
 	UpdateSource(ctx context.Context, s *WebhookSource) error
 	DeleteSource(ctx context.Context, tenantID, id string) error
 
@@ -124,7 +126,7 @@ type TriggerStore interface {
 	// TriggerNameTaken reports whether a trigger with the name and source exists in the tenant.
 	TriggerNameTaken(ctx context.Context, tenantID, name, source string) (bool, error)
 	// ListDeclaredTriggers returns the tenant's triggers projected from a resource.
-	ListDeclaredTriggers(ctx context.Context, tenantID string) ([]Trigger, error)
+	ListDeclaredTriggers(ctx context.Context, tenantID string) ([]declarative.Declared, error)
 	// UpdateDeclaredTrigger writes every field a Trigger resource owns. It
 	// never writes auto_paused_at or consecutive_failures.
 	UpdateDeclaredTrigger(ctx context.Context, t *Trigger) error

@@ -13,6 +13,7 @@ import (
 
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
@@ -32,7 +33,7 @@ type triggerStore interface {
 	ResetConsecutiveFailures(ctx context.Context, triggerID string) error
 	GetDeclaredTrigger(ctx context.Context, tenantID, name string) (*Trigger, error)
 	TriggerNameTaken(ctx context.Context, tenantID, name, source string) (bool, error)
-	ListDeclaredTriggers(ctx context.Context, tenantID string) ([]Trigger, error)
+	ListDeclaredTriggers(ctx context.Context, tenantID string) ([]declarative.Declared, error)
 	UpdateDeclaredTrigger(ctx context.Context, t *Trigger) error
 }
 
@@ -87,31 +88,63 @@ func NewTriggerService(
 // which a routed trigger's grant is checked against.
 func (s *TriggerService) CreateTrigger(ctx context.Context, tenantID string, claims *token.PlatformClaims, req CreateTriggerRequest) (*Trigger, error) {
 	if !s.tenants.APIAuthoringEnabled(tenantID) {
-		return nil, ErrAPIAuthoringDisabled
+		return nil, declarative.ErrAPIAuthoringDisabled
 	}
 	if err := s.refuseDeclaredName(ctx, tenantID, req.Name); err != nil {
 		return nil, err
 	}
-	kind := req.Kind
-	if kind == "" {
-		kind = KindWebhook // backward-compatible default
+	if req.Kind == "" {
+		req.Kind = KindWebhook // backward-compatible default
 	}
-	switch kind {
+	if err := validateTriggerCreate(req); err != nil {
+		return nil, err
+	}
+	t, principal, scopes, err := s.buildTrigger(ctx, tenantID, req, s.callerBinder(tenantID))
+	if err != nil {
+		return nil, err
+	}
+	// Each candidate passed can_run as it resolved; the caller must also hold the decision model's scopes (ADR Decision 17).
+	if t.Routing != nil {
+		if err := s.authorizeCaller(ctx, claims, routedCallerScopes(t.Routing)); err != nil {
+			return nil, err
+		}
+	}
+	return s.provisionTrigger(ctx, t, principal, scopes)
+}
+
+// validateTriggerCreate runs the create validation of the request's kind.
+func validateTriggerCreate(req CreateTriggerRequest) error {
+	switch req.Kind {
 	case KindWebhook:
-		// Webhook triggers keep their own path: they borrow the source's
-		// existing principal and grant instead of provisioning their own, which
-		// is the one structural difference between the kinds.
-		return s.createWebhookTrigger(ctx, tenantID, claims, req)
-	case KindScheduled, KindManual:
-		return s.createOwnedTrigger(ctx, tenantID, req, kind)
+		return validateWebhookTriggerCreate(req)
+	case KindScheduled:
+		return validateScheduledTriggerCreate(req)
+	case KindManual:
+		return validateManualTriggerCreate(req)
 	default:
-		return nil, fmt.Errorf("%w: unknown trigger kind %q", ErrValidation, kind)
+		return fmt.Errorf("%w: unknown trigger kind %q", ErrValidation, req.Kind)
+	}
+}
+
+// binder resolves an agent type a trigger binds. The API path reads it as the
+// caller; the declared path takes it from the resource's refs.
+type binder func(ctx context.Context, agentTypeID string) (*agentsclient.AgentType, error)
+
+// callerBinder requires the caller to be able to run the agent, and refuses a
+// delegated agent or one from another tenant.
+func (s *TriggerService) callerBinder(tenantID string) binder {
+	return func(ctx context.Context, agentTypeID string) (*agentsclient.AgentType, error) {
+		at, err := requireRunAuthority(ctx, s.agents, agentTypeID)
+		if err != nil {
+			return nil, err
+		}
+		return at, refuseDelegatedBinding(at, tenantID, agentTypeID)
 	}
 }
 
 // refuseDeclaredName refuses an API trigger name a declared trigger in the tenant holds.
 func (s *TriggerService) refuseDeclaredName(ctx context.Context, tenantID, name string) error {
-	taken, err := s.repo.TriggerNameTaken(ctx, tenantID, strings.TrimSpace(name), SourceCRD)
+	taken, err := s.repo.TriggerNameTaken(ctx, tenantID, strings.TrimSpace(name), declarative.SourceCRD)
 	if err != nil {
 		return err
 	}
@@ -127,11 +160,11 @@ func (s *TriggerService) refuseAPIWrite(t *Trigger, req *UpdateTriggerRequest) e
 	if req != nil && t.AutoPausedAt != nil && reflect.DeepEqual(*req, UpdateTriggerRequest{Enabled: new(true)}) {
 		return nil
 	}
-	if t.Source == SourceCRD {
-		return ErrManagedByResource
-	}
 	if !s.tenants.APIAuthoringEnabled(t.TenantID) {
-		return ErrAPIAuthoringDisabled
+		return declarative.ErrAPIAuthoringDisabled
+	}
+	if t.Source == declarative.SourceCRD {
+		return declarative.ErrManagedByResource
 	}
 	return nil
 }
@@ -235,68 +268,67 @@ func (s *TriggerService) rollbackGrants(ctx context.Context, triggerID string, g
 		grantIDs, logging.Field{Key: "trigger_id", Value: triggerID})
 }
 
-// createWebhookTrigger creates a trigger on an existing webhook source.
-//
-// It is the one kind that does not provision a principal: the source already has
-// one, granted at source-creation time, and the trigger only adds the scopes for
-// the agent it binds, or for every candidate and the decision model when it is
-// routed. That is why it does not share createOwnedTrigger.
-func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID string, claims *token.PlatformClaims, req CreateTriggerRequest) (_ *Trigger, err error) {
-	if err = validateWebhookTriggerCreate(req); err != nil {
-		return nil, err
+// buildTrigger builds a validated create request into the trigger to store.
+// A webhook trigger borrows its source's principal, returned as principal;
+// scheduled and manual triggers get their own when provisioned. scopes are
+// what the trigger's grant holds: the bound agent's run scopes, or every
+// candidate's and the decision model's when it is routed.
+func (s *TriggerService) buildTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest, bind binder) (t *Trigger, principal string, scopes []string, err error) {
+	t = &Trigger{
+		TenantID:       tenantID,
+		Kind:           req.Kind,
+		TargetKind:     TargetKindAgent,
+		Name:           strings.TrimSpace(req.Name),
+		PromptTemplate: req.PromptTemplate,
+		Enabled:        true,
 	}
-	src, err := s.repo.GetSource(ctx, tenantID, req.SourceID)
-	if err != nil {
-		return nil, err
+	switch req.Kind {
+	case KindScheduled:
+		t.ScheduleConfig = req.ScheduleConfig
+	case KindManual:
+		t.ManualConfig = req.ManualConfig
 	}
-	// Validated by validateWebhookTriggerCreate above; read again for the value.
-	coalesce, err := coalesceForCreate(req)
-	if err != nil {
-		return nil, err
+	if err = applyAdmissionCreate(t, req); err != nil {
+		return nil, "", nil, err
 	}
-	restriction, err := createSourceRules(s.registry, src.Provider, req, coalesce)
-	if err != nil {
-		return nil, err
-	}
-
-	t := &Trigger{
-		TenantID:          tenantID,
-		Kind:              KindWebhook,
-		TargetKind:        TargetKindAgent,
-		SourceID:          req.SourceID,
-		Name:              strings.TrimSpace(req.Name),
-		EventType:         strings.TrimSpace(req.EventType),
-		MatchCondition:    req.MatchCondition,
-		MatchContains:     req.MatchContains,
-		PromptTemplate:    req.PromptTemplate,
-		Enabled:           true,
-		SenderRestriction: restriction,
-		Coalesce:          coalesce,
-	}
-	var scopes []string
-	if req.TargetKind == TargetKindRouted {
-		t.TargetKind = TargetKindRouted
-		if t.Routing, err = s.resolveRouting(ctx, *src, req.Routing); err != nil {
-			return nil, err
+	var src *WebhookSource
+	if req.Kind == KindWebhook {
+		if src, err = s.repo.GetSource(ctx, tenantID, req.SourceID); err != nil {
+			return nil, "", nil, err
 		}
-		if scopes, err = routedGrantScopes(t.Routing); err != nil {
-			return nil, err
+		if t.Coalesce, err = coalesceForCreate(req); err != nil {
+			return nil, "", nil, err
 		}
-		// Each candidate passed can_run as it resolved; the caller must also hold the decision model's scopes (ADR Decision 17).
-		if err = s.authorizeCaller(ctx, claims, routedCallerScopes(t.Routing)); err != nil {
-			return nil, err
+		if t.SenderRestriction, err = createSourceRules(s.registry, src.Provider, req, t.Coalesce); err != nil {
+			return nil, "", nil, err
 		}
-	} else {
+		t.SourceID, t.EventType = src.ID, strings.TrimSpace(req.EventType)
+		t.MatchCondition, t.MatchContains = req.MatchCondition, req.MatchContains
+		principal = src.PrincipalID
+	}
+	if req.TargetKind != TargetKindRouted {
 		var at *agentsclient.AgentType
-		if at, err = requireRunAuthority(ctx, s.agents, req.AgentTypeID); err != nil {
-			return nil, err
+		if at, err = bind(ctx, req.AgentTypeID); err != nil {
+			return nil, "", nil, err
 		}
-		if err = refuseDelegatedBinding(at, tenantID, req.AgentTypeID); err != nil {
-			return nil, err
-		}
-		t.AgentTypeID, t.AgentSlug, scopes = at.ID, at.Slug, triggerRunScopes(at.Slug)
+		t.AgentTypeID, t.AgentSlug = at.ID, at.Slug
+		return t, principal, triggerRunScopes(at.Slug), nil
 	}
+	t.TargetKind = TargetKindRouted
+	if t.Routing, err = resolveRouting(ctx, req.Routing, bind); err != nil {
+		return nil, "", nil, err
+	}
+	if scopes, err = routedGrantScopes(t.Routing); err != nil {
+		return nil, "", nil, err
+	}
+	return t, principal, scopes, nil
+}
 
+// provisionTrigger gives a built trigger its id and grants and stores it. A
+// scheduled or manual trigger gets its own SERVICE principal with the
+// provisioning grant; a webhook trigger's grant goes to principal, its
+// source's. Grants are removed if the create fails.
+func (s *TriggerService) provisionTrigger(ctx context.Context, t *Trigger, principal string, scopes []string) (_ *Trigger, err error) {
 	t.ID = uuid.NewString()
 	var grants []string
 	defer func() {
@@ -304,28 +336,31 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 			s.rollbackGrants(ctx, t.ID, grants)
 		}
 	}()
-
-	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), src.PrincipalID, scopes, nil, false)
+	if t.Kind != KindWebhook {
+		t.PrincipalID = "trigger:" + t.ID
+		principal = t.PrincipalID
+		var svcGrantID string
+		if svcGrantID, err = s.policy.CreateGrant(ctx, t.TenantID, string(token.PrincipalTypeService), principal, sourceRunScopes, nil, false); err != nil {
+			return nil, fmt.Errorf("create trigger service grant: %w", err)
+		}
+		grants = append(grants, svcGrantID)
+		t.GrantIDSvc = &svcGrantID
+	}
+	grantID, err := s.policy.CreateGrant(ctx, t.TenantID, string(token.PrincipalTypeService), principal, scopes, nil, false)
 	if err != nil {
 		return nil, grantCreateError(err, t.Routing, t.AgentSlug)
 	}
 	grants = append(grants, grantID)
 	t.GrantID = &grantID
-
-	// Already validated by validateWebhookTriggerCreate above, before the grant
-	// existed; the rollback here is belt and braces.
-	if err = applyAdmissionCreate(t, req); err != nil {
-		return nil, err
-	}
 	if err = s.repo.CreateTrigger(ctx, t); err != nil {
 		return nil, err
 	}
-
 	s.logger.Info(ctx, "trigger created",
 		logging.Field{Key: "trigger_id", Value: t.ID},
-		logging.Field{Key: "kind", Value: KindWebhook},
+		logging.Field{Key: "kind", Value: t.Kind},
 		logging.Field{Key: "target_kind", Value: t.TargetKind},
-		logging.Field{Key: "source_id", Value: req.SourceID},
+		logging.Field{Key: "source", Value: rowSource(t.Source)},
+		logging.Field{Key: "source_id", Value: t.SourceID},
 		logging.Field{Key: "agent_slug", Value: t.AgentSlug},
 	)
 	return s.readBackTrigger(ctx, t), nil
@@ -343,91 +378,6 @@ func createSourceRules(registry *Registry, provider string, req CreateTriggerReq
 		return nil, err
 	}
 	return normalizeRestriction(registry, provider, req.SenderRestriction)
-}
-
-// createOwnedTrigger creates a trigger that owns its principal: scheduled and
-// manual triggers have no source to borrow one from, so they provision a
-// SERVICE principal with the provisioning grant, and then grant it the scopes
-// for that specific agent.
-//
-// The two kinds differ only in which config field they carry, so they share one
-// function rather than one per kind. A per-kind strategy object would be
-// ceremony around a single varying assignment.
-func (s *TriggerService) createOwnedTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest, kind string) (_ *Trigger, err error) {
-	validate := validateManualTriggerCreate
-	if kind == KindScheduled {
-		validate = validateScheduledTriggerCreate
-	}
-	if err = validate(req); err != nil {
-		return nil, err
-	}
-
-	id := uuid.NewString()
-	principalID := "trigger:" + id
-
-	// Grants accumulate as they are created, and unwind together on any failure
-	// below. A grant this create made must not outlive the create that failed.
-	var grants []string
-	defer func() {
-		if err != nil {
-			s.rollbackGrants(ctx, id, grants)
-		}
-	}()
-
-	svcGrantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), principalID, sourceRunScopes, nil, false)
-	if err != nil {
-		return nil, fmt.Errorf("create trigger service grant: %w", err)
-	}
-	grants = append(grants, svcGrantID)
-
-	at, err := requireRunAuthority(ctx, s.agents, req.AgentTypeID)
-	if err != nil {
-		return nil, err
-	}
-	if err = refuseDelegatedBinding(at, tenantID, req.AgentTypeID); err != nil {
-		return nil, err
-	}
-
-	runGrantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), principalID, triggerRunScopes(at.Slug), nil, false)
-	if err != nil {
-		return nil, grantCreateError(err, nil, at.Slug)
-	}
-	grants = append(grants, runGrantID)
-
-	t := &Trigger{
-		ID:             id,
-		TenantID:       tenantID,
-		Kind:           kind,
-		TargetKind:     TargetKindAgent,
-		Name:           strings.TrimSpace(req.Name),
-		AgentTypeID:    at.ID,
-		AgentSlug:      at.Slug,
-		PromptTemplate: req.PromptTemplate,
-		PrincipalID:    principalID,
-		GrantID:        &runGrantID,
-		GrantIDSvc:     &svcGrantID,
-		Enabled:        true,
-	}
-	if kind == KindScheduled {
-		t.ScheduleConfig = req.ScheduleConfig
-	} else {
-		t.ManualConfig = req.ManualConfig
-	}
-	// Already validated above, before either grant existed; the rollback here is
-	// belt and braces.
-	if err = applyAdmissionCreate(t, req); err != nil {
-		return nil, err
-	}
-	if err = s.repo.CreateTrigger(ctx, t); err != nil {
-		return nil, err
-	}
-
-	s.logger.Info(ctx, "trigger created",
-		logging.Field{Key: "trigger_id", Value: t.ID},
-		logging.Field{Key: "kind", Value: kind},
-		logging.Field{Key: "agent_slug", Value: at.Slug},
-	)
-	return s.readBackTrigger(ctx, t), nil
 }
 
 // readBackTrigger returns the trigger as it was actually stored, after a

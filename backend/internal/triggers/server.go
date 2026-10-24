@@ -13,6 +13,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/api"
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -553,8 +554,7 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	var ive *InputValidationError
 	var mse *MissingScopesError
 	var gre *GrantRevokeError
-	if apiErr := authoringError(err); apiErr != nil {
-		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+	if declarative.WriteRefusal(ctx, w, c.logger, err) {
 		return
 	}
 	switch {
@@ -607,17 +607,6 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	default:
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "request failed", nil), err)
 	}
-}
-
-// authoringError answers the refusals that protect declared rows and locked tenants.
-func authoringError(err error) *api.APIError {
-	switch {
-	case errors.Is(err, ErrManagedByResource):
-		return api.ConflictError(api.ErrCodeManagedByResource, err.Error(), nil)
-	case errors.Is(err, ErrAPIAuthoringDisabled):
-		return api.ForbiddenError(api.ErrCodeAPIAuthoringDisabled, err.Error(), nil)
-	}
-	return nil
 }
 
 type bearerKey struct{}
