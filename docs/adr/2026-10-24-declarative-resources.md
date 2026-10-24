@@ -130,7 +130,7 @@ This touches *What can it access?* A declared agent's grant is derived from its 
 
 ### 1. Resource Kinds
 
-All kinds are `runkora.io/v1alpha1`, namespaced, with a status subresource. They ship in `charts/kora-crds`. Go types live in `backend/internal/platform/<kind>/v1alpha1/` and follow the hand-written pattern of `backend/internal/platform/inferenceproviders/v1alpha1/`.
+All kinds are `runkora.io/v1alpha1`, namespaced, with a status subresource. They ship in `charts/kora-crds`. Go types for all six kinds live in `backend/internal/platform/declarative/v1alpha1/` and follow the hand-written pattern of `backend/internal/platform/inferenceproviders/v1alpha1/`.
 
 | Kind | Namespace | Owner | Table |
 |---|---|---|---|
@@ -260,7 +260,7 @@ spec:
 ```
 
 *   The operator adds `namespace`, `apiAuthoring` and `budget` to each entry in the `kora-tenants` registry (`backend/internal/operator/registry.go`).
-*   CEL makes `spec.namespace` immutable once set. The operator refuses to reconcile a tenant whose namespace is the system namespace or another tenant's namespace.
+*   CEL makes `spec.namespace` immutable. An unset namespace can only be set to the derived `kora-tenant-<name>`. The operator refuses to reconcile a tenant whose namespace is the system namespace or another tenant's namespace.
 *   `kora-agents` and `kora-triggers` mount the registry as `identity` and `policy-service` do.
 *   The platform switch for virtual models is `inferenceGateway.catalog.apiAuthoring` in the `kora` chart values.
 *   A tenant budget on `KoraTenant` replaces any budget set through the API. Removing it from the spec deletes the declared budget.
