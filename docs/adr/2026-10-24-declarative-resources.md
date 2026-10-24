@@ -64,28 +64,30 @@ This touches *What can it access?* A declared agent's grant is derived from its 
 
 ### Decision 2: Delivery to Services
 
-*   **Option A (chosen):** Each owning service watches its own kinds with a controller-runtime manager and writes their status.
-*   **Option B (rejected):** The operator aggregates resources into ConfigMaps that services mount. Status would need a second writer, and the file format would be a second contract between two binaries.
+*   **Option A (rejected):** Each owning service watches its own kinds with a controller-runtime manager and writes their status. Four services would gain Kubernetes API access. `kora-triggers` receives public webhooks and would read Secrets in every tenant namespace.
+*   **Option B (rejected):** The operator aggregates resources into ConfigMaps that services mount. A service could not write status. Name conflicts, invalid specs and readiness would not reach the resource. Changes would wait for the kubelet sync, and each ConfigMap is limited to 1 MiB.
+*   **Option C (rejected):** A new projector binary in the mesh watches every kind and calls each service. It adds a binary, a chart and a deployment for work the operator can do.
+*   **Option D (chosen):** The operator watches every kind, calls an internal endpoint on each owning service and writes status from the response.
 
-### Decision 3: Tenant Mapping and Switch Delivery
+### Decision 3: Operator Transport
 
-*   **Option A (chosen):** The operator adds each tenant's namespace, authoring switch and budget to the `kora-tenants` registry. Services that need them mount the registry.
-*   **Option B (rejected):** Every service watches `KoraTenant`. Four services would gain cluster-scoped access to tenants and each would resolve namespaces itself.
+*   **Option A (chosen):** The operator joins the mesh with its webhook port excluded from inbound interception. It calls services with a platform token from its SPIFFE identity.
+*   **Option B (rejected):** The operator calls services from outside the mesh. Strict mTLS refuses a caller with no mesh certificate.
 
 ### Decision 4: Deletion Detection
 
-*   **Option A (chosen):** A service deletes a declared row on the resource's delete event, and at startup when the row's resource UID is absent from a synced cache.
-*   **Option B (rejected):** Each resource carries a finalizer. A stopped service would block every namespace deletion in the cluster.
+*   **Option A (chosen):** The operator deletes a declared item when its resource is gone, and at startup when a declared item's UID matches no resource.
+*   **Option B (rejected):** Each resource carries a finalizer. A stopped operator would block every namespace deletion in the cluster.
 
 ### Decision 5: Trigger Source Signing Secrets
 
-*   **Option A (chosen):** The operator binds `kora-triggers` to Secret `get` in each tenant namespace. `kora-triggers` reads the referenced Secret on each reconcile and stores it encrypted as it does today.
-*   **Option B (rejected):** `kora-triggers` gets a ClusterRole to watch Secrets. It could read every Secret in the cluster.
+*   **Option A (chosen):** The operator reads the referenced Secret and sends its value to `kora-triggers` with the item. The operator already holds Secret `get`.
+*   **Option B (rejected):** `kora-triggers` reads tenant Secrets itself. An internet-facing service would gain Secret access in every tenant namespace.
 
-### Decision 6: Concurrent Replicas
+### Decision 6: Platform Scopes in Roles
 
-*   **Option A (chosen):** Each service's manager runs with leader election. One replica projects and provisions at a time.
-*   **Option B (rejected):** Every replica projects. Two replicas could provision the same agent at once.
+*   **Option A (chosen):** A `PolicyRole` in a tenant namespace cannot hold `platform:*` scopes. A `PolicyRole` in the system namespace can, and states its tenant in `spec.tenant`.
+*   **Option B (rejected):** Any `PolicyRole` can hold any scope. Write access to a tenant namespace would grant platform-wide scopes such as `platform:catalog:write`.
 
 ### Decision 7: Role Kind Name
 
@@ -106,22 +108,27 @@ This touches *What can it access?* A declared agent's grant is derived from its 
 
 ## Decision
 
-**Chosen Options:** Decision 1 A, Decision 2 A, Decision 3 A, Decision 4 A, Decision 5 A, Decision 6 A, Decision 7 A, Decision 8 A, Decision 9 A.
+**Chosen Options:** Decision 1 A, Decision 2 D, Decision 3 A, Decision 4 A, Decision 5 A, Decision 6 A, Decision 7 A, Decision 8 A, Decision 9 A.
 
 ### Architecture
 
 ```
   repository ──► Argo CD / Flux ──► Kubernetes API
-                                          │ watch
+                                          │ watch (one Lease)
+                                          ▼
+                                       operator
+            resolves tenant and references, reads TriggerSource Secrets,
+            writes status
+                                          │ POST /internal/declared/{kind}
           ┌───────────────┬───────────────┼───────────────┐
           ▼               ▼               ▼               ▼
   inference-gateway  kora-agents     kora-triggers   policy-service
   VirtualModel       Environment     TriggerSource   PolicyRole
-                     Agent           Trigger         tenant budget
+                     Agent           Trigger
           │               │               │               │
           ▼               ▼               ▼               ▼
   virtual_models     environments    webhook_sources policy_role_scopes
-  (source=crd)       agent_types     triggers        policy_tenant_budgets
+  (source=crd)       agent_types     triggers
                           │
                           ▼
              same provisioning path as the API
@@ -250,6 +257,7 @@ spec:
 ```
 
 *   `spec.role` is the identity provider's role claim. It defaults to `metadata.name`.
+*   A `PolicyRole` in the system namespace sets `spec.tenant` and can hold any scope. `spec.tenant` is refused in a tenant namespace.
 
 ### 2. KoraTenant Additions
 
@@ -259,64 +267,86 @@ spec:
   budget: {limitUSD: 1000, resetCadence: monthly}
 ```
 
-*   The operator adds `namespace`, `apiAuthoring` and `budget` to each entry in the `kora-tenants` registry (`backend/internal/operator/registry.go`).
+*   The operator adds `apiAuthoring` and `budget` to each entry in the `kora-tenants` registry (`backend/internal/operator/registry.go`).
+*   `kora-agents` and `kora-triggers` mount the registry as `identity` and `policy-service` do. The registry is a mounted file and gives them no Kubernetes access.
 *   CEL makes `spec.namespace` immutable. An unset namespace can only be set to the derived `kora-tenant-<name>`. The operator refuses to reconcile a tenant whose namespace is the system namespace or another tenant's namespace.
-*   `kora-agents` and `kora-triggers` mount the registry as `identity` and `policy-service` do.
 *   The platform switch for virtual models is `inferenceGateway.catalog.apiAuthoring` in the `kora` chart values.
 *   A tenant budget on `KoraTenant` replaces any budget set through the API. Removing it from the spec deletes the declared budget.
 
 ### 3. Projection
 
-A shared package, `backend/internal/platform/declarative`, holds the parts every owning service uses:
+The operator runs one controller per kind under its existing leader election:
 
-```go
-// Tenants resolves a resource's namespace to its tenant from the mounted registry.
-type Tenants interface {
-	TenantForNamespace(namespace string) (tenantID string, ok bool)
-	APIAuthoringEnabled(tenantID string) bool
-}
-
-// SetConditions sets the standard conditions and observedGeneration on a status.
-func SetConditions(status *Status, generation int64, accepted, resolved, ready metav1.Condition)
-```
-
-*   Each service starts one controller-runtime manager with leader election and the Lease name `<service>-declarative`.
-*   A reconcile resolves the tenant, validates the spec with the API's validation code, resolves references against the cache and upserts the row through the service's declared write path.
+*   A reconcile resolves the tenant from the resource's namespace, checks references against the other resources, reads a TriggerSource's Secret and calls the owning service.
+*   The service validates the item with its API validation code and applies it through its declared write path. Its response sets the resource's status.
 *   The row key is the item's existing unique key: `metadata.name` for `Agent`, `Environment`, `TriggerSource` and `Trigger`, `spec.role` for `PolicyRole`, and `spec.family` with `spec.name` for `VirtualModel`.
 *   A live row with the same key and `source = 'api'` leaves the resource unprojected with `Accepted=False` and reason `NameConflict`. Soft-deleted rows do not conflict.
 *   When two resources claim the same key, the older resource keeps it and the newer one reports `NameConflict`.
 *   A resource in a namespace with no tenant gets `Accepted=False` and reason `UnknownTenant`.
 *   A missing reference gives `ResolvedRefs=False` with reason `RefNotFound` and the missing name in the message. A new resource with a missing reference is not projected. A projected resource keeps its last applied row and reports `Ready=False` until its current spec is applied.
-*   A reference to a dashboard-built item counts as missing.
+*   A reference counts as resolved when the referenced resource is `Ready`. A reference to a dashboard-built item counts as missing.
 *   Unresolved resources requeue every 30 seconds, and every resource resyncs every 5 minutes.
 *   Each row stores its resource UID in `resource_uid`. A reconcile that finds the resource gone deletes its declared row.
+*   At startup the operator lists each service's declared items per tenant and deletes those whose UID matches no resource. It skips a tenant whose namespace does not exist.
 *   Deleting an `Environment` resource while an agent is attached keeps the row and retries every 30 seconds.
 *   Changing a `Trigger`'s `kind`, or switching between `agent` and `routing`, recreates the trigger. Changing a `TriggerSource`'s `provider` recreates the source with a new id and webhook path.
-*   At startup, after the cache syncs, each service deletes live `source = 'crd'` rows whose UID is absent from the cache. It skips a tenant missing from the registry and a tenant whose namespace does not exist.
 
 Each resource reports three conditions:
 
 *   `Accepted`: the spec is valid, the tenant is known and the key is free.
-*   `ResolvedRefs`: every reference exists as a resource.
+*   `ResolvedRefs`: every reference is a `Ready` resource.
 *   `Ready`: the current spec is projected and live. An `Agent` is `Ready` when its row reaches `state = 'active'`, and a trigger without a source is never `Ready`.
 
-A `TriggerSource` also reports `status.webhookPath`, the ingest path that includes the source's id.
+Status also carries `status.id`, the projected row's id. A `TriggerSource` reports `status.webhookPath`, the ingest path that includes its id.
 
-### 4. Declared Write Path
+### 4. Service Endpoints
 
-Each service gains a write path for declared items that runs the API's validation and provisioning without a caller:
+`backend/internal/platform/declarative` holds the contract, a server helper and one client:
+
+```go
+// Item is one declared resource the operator asks a service to apply.
+type Item struct {
+	TenantID   string
+	Name       string
+	UID        string
+	Generation int64
+	Spec       json.RawMessage
+	Refs       map[string]string // resolved ids, such as agent name to agent id
+	Secret     []byte            // TriggerSource signing secret only
+}
+
+// Result is the service's outcome. The operator writes it to the resource's status.
+type Result struct {
+	Outcome string // Projected, NameConflict, Invalid, Pending
+	Message string
+	ID      string
+	Ready   bool
+}
+
+// Applier is implemented by each owning service once per kind.
+type Applier interface {
+	Apply(ctx context.Context, item Item) (Result, error)
+	Delete(ctx context.Context, tenantID, name string) error
+	List(ctx context.Context, tenantID string) ([]Declared, error)
+}
+```
+
+*   Each service mounts `POST /internal/declared/{kind}`, `DELETE /internal/declared/{kind}/{tenant}/{name}` and `GET /internal/declared/{kind}/{tenant}` through the server helper.
+*   The helper accepts only the operator's system principal.
+*   The operator calls every service through one client that embeds `httpclient.Base`.
+*   `Apply` is idempotent. The operator re-applies an unready item to read its readiness.
+
+Each `Applier` runs the API's validation and provisioning without a caller:
 
 *   `kora-agents` skips the identity-mode write check, the scope ceiling and `refuseDelegatedAutonomousWrite`. `created_by` is `resource:<namespace>/<name>`.
-*   `kora-agents` serves an internal lookup of an agent by tenant and slug for system callers. It returns the id, `source`, `state` and `identity_mode`.
-*   `kora-triggers` resolves each agent name against the `Agent` resources it watches, then calls the internal lookup with its own service identity for the id. A declared trigger requires a declared, active agent.
-*   `kora-triggers` re-resolves agent ids when an `Agent` resource changes. A recreated agent gets a new id, and its declared triggers, routed candidates and fallbacks follow it.
+*   `kora-triggers` takes agent and source ids from `Item.Refs`. The operator reads them from the referenced resources' `status.id`. A recreated agent gets a new id, and its declared triggers, routed candidates and fallbacks follow it.
 *   `kora-triggers` skips `requireRunAuthority` and `authorizeCaller` and still runs `refuseDelegatedBinding`.
 *   The declared trigger path sets `agent_type_id`, `source_id` and the routing candidates directly. The API still cannot change them.
 *   A routed trigger's `routing.model` is a `VirtualModel` reference.
 *   `policy-service` skips the role scope ceiling and the budget permission check. A scope missing from the vocabulary gives `ResolvedRefs=False`.
 *   Grants for agents, trigger sources and triggers are created as they are today.
 
-The reconciler owns every spec field. `auto_paused_at` and `consecutive_failures` stay runtime state on `triggers`, and a reconcile never clears an auto-pause.
+The operator owns every spec field. `auto_paused_at` and `consecutive_failures` stay runtime state on `triggers`, and a reconcile never clears an auto-pause.
 
 ### 5. Source Columns
 
@@ -380,20 +410,17 @@ CREATE UNIQUE INDEX agent_types_tenant_slug_live ON agent_types (tenant_id, slug
 *   An API trigger with no source cannot be re-linked. It can only be disabled or deleted.
 *   A declared trigger reports `ResolvedRefs=False`. When the source resource returns, the trigger is re-linked and its grants recreated.
 
-### 10. RBAC
+### 10. Access
 
 *   The six new CRDs carry `helm.sh/resource-policy: keep`.
-*   `inference-gateway` gains `get/list/watch` on `virtualmodels` and `patch` on `virtualmodels/status` in its system namespace Role.
-*   The `kora-agents` ClusterRole gains `get/list/watch` on `environments`, `agents`, `virtualmodels`, `connections`, `mcpservers` and `sandboximages`, and `patch` on the status of its kinds.
-*   `kora-triggers` gains a ClusterRole with `get/list/watch` on `triggersources`, `triggers`, `agents` and `virtualmodels`, and `patch` on the status of its kinds.
-*   `policy-service` gains a ClusterRole with `get/list/watch` on `policyroles` and `patch` on `policyroles/status`.
-*   `kora-triggers` and `policy-service` gain the `runkora.io/kube-api-client` label.
-*   The operator creates a RoleBinding in each tenant namespace that grants `kora-triggers` Secret `get`. `kora-triggers` reads Secrets through the manager's uncached API reader.
-*   Each service gains `get/create/update` on `leases` and `create/patch` on `events` in the system namespace, and `get` on `namespaces` for the startup sweep.
+*   The operator ClusterRole gains `get/list/watch` on the six kinds and `patch` on their status.
+*   The operator gets an Istio sidecar. Its webhook port is excluded from inbound interception with `traffic.sidecar.istio.io/excludeInboundPorts`. It mounts the SPIRE workload socket and gets a platform token as `/system/operator`.
+*   Each service gains a mesh AuthorizationPolicy rule that allows the operator to reach `/internal/declared/`.
+*   `inference-gateway`, `kora-agents`, `kora-triggers` and `policy-service` gain no Kubernetes access.
 
 ### Rationale
 
-Projection keeps provisioning, grants, runs and analytics on the code that exists. Read-only declared items keep the dashboard and the repository from overwriting each other. The registry gives services the tenant facts they need without new access to `KoraTenant`.
+Projection keeps provisioning, grants, runs and analytics on the code that exists. Read-only declared items keep the dashboard and the repository from overwriting each other. The operator already holds the cluster access the feature needs. The owning services stay free of Kubernetes access.
 
 ---
 
@@ -404,13 +431,14 @@ The work ships as one stacked chain of pull requests:
 1.  This ADR and the PRD.
 2.  Agent soft delete in `kora-agents`.
 3.  `ON DELETE SET NULL` for trigger sources in `kora-triggers`.
-4.  The six CRDs, their Go types, the `KoraTenant` fields, the registry fields and `backend/internal/platform/declarative`.
-5.  `VirtualModel` projection, the source column and the platform switch in `inference-gateway`.
-6.  `Environment` and `Agent` projection, source columns and API refusals in `kora-agents`.
-7.  `TriggerSource` and `Trigger` projection, source columns, the Secret RoleBinding and API refusals in `kora-triggers`.
-8.  `PolicyRole` and tenant budget projection, source columns and API refusals in `policy-service`.
-9.  The dashboard badge, read-only views, locked-tenant create controls and the `api_authoring` session field.
-10.  `docs/guides/declarative-resources.md` with an example per kind, and local examples under `deploy/local/`.
+4.  The six CRDs, their Go types, the `KoraTenant` fields, the registry fields and the endpoint contract in `backend/internal/platform/declarative`.
+5.  The `VirtualModel` endpoint, the source column and the platform switch in `inference-gateway`.
+6.  The `Environment` and `Agent` endpoints, source columns and API refusals in `kora-agents`.
+7.  The `TriggerSource` and `Trigger` endpoints, source columns and API refusals in `kora-triggers`.
+8.  The `PolicyRole` endpoint, tenant budget projection, source columns and API refusals in `policy-service`.
+9.  The operator controllers, its mesh sidecar and its platform token.
+10.  The dashboard badge, read-only views, locked-tenant create controls and the `api_authoring` session field.
+11.  `docs/guides/declarative-resources.md` with an example per kind, and local examples under `deploy/local/`.
 
 ---
 
@@ -436,11 +464,14 @@ On the local cluster:
 
 ### Negative
 
-*   Anyone who can write the tenant namespace can define agents and `PolicyRole`s with any scope a tenant platform admin holds, including `platform:*` scopes.
+*   Anyone who can write the tenant namespace can define agents and `PolicyRole`s with any tenant scope. Only the system namespace can hold `platform:*` scopes.
 *   An API agent can attach a declared `Environment`. A later change to that `Environment` widens the agent's egress and connectors without a scope ceiling check.
-*   Inference gateway replicas that do not hold the Lease load declared virtual model changes on restart. API writes have the same per-replica gap today.
-*   A service exits and restarts when its declarative manager stops, including on a missing CRD at startup. `kora-crds` must be applied before `kora`.
-*   `kora-triggers` and `policy-service` gain Kubernetes API access, and `kora-triggers` can read every Secret in tenant namespaces.
+*   Inference gateway replicas other than the one that served the operator's call load declared virtual model changes on restart. API writes have the same per-replica gap today.
+*   Declared changes wait while the operator is down. Projected items keep running from Postgres.
+*   The operator's start depends on the mesh issuing it a certificate.
+*   The operator depends on an internal endpoint in four services.
+*   The authoring switch reaches each service when its registry mount refreshes. Services can disagree for up to about two minutes.
+*   `kora-crds` must be applied before `kora`.
 *   Changing a tenant's namespace requires deleting and recreating the `KoraTenant`.
 *   A rotated trigger source Secret takes effect on the next resync, up to 5 minutes later.
 *   Inference usage is keyed by `agent_slug`. A new agent with a deleted agent's slug shares its usage history.
@@ -450,7 +481,6 @@ On the local cluster:
 
 ### Neutral
 
-*   A service with one replica holds its own Lease.
 *   Existing resource kinds are unchanged.
 
 ---
@@ -462,7 +492,7 @@ On the local cluster:
 *   [Sandbox Environments](2026-10-03-sandbox-environments.md): environments gain a resource form.
 *   [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md): trigger source deletion no longer cascades.
 *   [Tenant Registration and OIDC Provider Binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md): the registry gains fields.
-*   [Install and Distribution Model](2026-09-04-install-and-distribution-model.md): CRD packaging and upgrade rules.
+*   [Install and Distribution Model](2026-09-04-install-and-distribution-model.md): CRD packaging and upgrade rules. The operator's role widens from tenants to declared resources (Amendment 1 there).
 *   [Database Migrations](2026-09-10-database-migrations.md): expand migrations for the new columns.
 
 ---
