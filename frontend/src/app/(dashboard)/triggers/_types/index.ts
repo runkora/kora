@@ -152,7 +152,7 @@ export interface TriggerRow {
   id: string;
   kind: TriggerKind;
   sourceId: string;
-  /** A webhook trigger whose source was deleted. It does not fire and can only be deleted. */
+  /** A webhook trigger whose source was deleted. It does not fire and can only be disabled or deleted. */
   sourceMissing?: boolean;
   name: string;
   /** "routed" triggers have no single agent: both agent fields are empty. */
