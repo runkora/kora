@@ -241,6 +241,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
 	}, logger)
+	atSvc.SetPubSub(pubsub)
 
 	sizes := environmentSizes(cfg)
 	if validateErr := sizes.Validate(); validateErr != nil {

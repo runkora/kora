@@ -308,7 +308,7 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 			return ignoreNotFound(p.client.AppsV1().StatefulSets(namespace).Delete(ctx, slug, opts))
 		},
 		func() error {
-			// The agent's runs are gone, so its pods skip the drain grace period.
+			// The agent is being deleted and its runs end with it. Its pods skip the drain grace period.
 			return p.deleteAgentPods(ctx, at, namespace)
 		},
 		func() error {

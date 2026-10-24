@@ -150,8 +150,8 @@ export function toRunRow(r: RunWithAttribution, agentTypeById: Map<string, Agent
   return {
     id: r.id,
     agentTypeId: r.agent_type_id,
-    agentTypeName: agent?.name ?? 'Unknown',
-    agentTypeSlug: agent?.slug ?? r.agent_type_id,
+    agentTypeName: agent?.name ?? r.agent_name ?? 'Unknown',
+    agentTypeSlug: agent?.slug ?? r.agent_slug ?? r.agent_type_id,
     state: r.state,
     createdBy: r.created_by,
     createdByName: r.created_by_name ?? null,
@@ -162,7 +162,7 @@ export function toRunRow(r: RunWithAttribution, agentTypeById: Map<string, Agent
           deliveryId: r.started_by.delivery_id ?? null,
         }
       : null,
-    delegated: agent?.identityMode === 'delegated',
+    delegated: (agent?.identityMode ?? r.identity_mode) === 'delegated',
     startedAt: r.started_at,
     completedAt: r.completed_at,
     createdAt: r.created_at,

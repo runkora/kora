@@ -72,15 +72,20 @@ type AgentTypeService struct {
 	envs     environmentLookup // validates attached environments; nil = skip validation
 	resolver *ScopeResolver    // resolves effective access for the read endpoint; nil = degraded
 	callers  callerScopeSource // caller scopes for the ceiling; nil refuses autonomous writes
-	// delegation revokes run delegations when agent-type deletion force-deletes
-	// runs (the delegation ends with the run); nil = skip (issuer not wired).
+	// delegation revokes the delegations of runs that agent deletion cancels
+	// (the delegation ends with the run); nil = skip (issuer not wired).
 	delegation *DelegationBroker
+	// pubsub tells live viewers of a cancelled run that it ended; nil = skip.
+	pubsub *PubSub
 }
 
 // SetDelegationBroker installs the broker used to revoke delegation issuances
-// for runs force-deleted during agent-type deletion
+// of runs cancelled by agent-type deletion
 // (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3).
 func (s *AgentTypeService) SetDelegationBroker(b *DelegationBroker) { s.delegation = b }
+
+// SetPubSub installs the run event fan-out shared with RunService.
+func (s *AgentTypeService) SetPubSub(p *PubSub) { s.pubsub = p }
 
 // NewAgentTypeService creates an AgentTypeService with the given dependencies.
 func NewAgentTypeService(
@@ -866,10 +871,10 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 	if at.TenantID != tenantFromContext(ctx) {
 		return ErrNotFound
 	}
-	if err := s.authz.checkAgentTypeModeWrite(ctx, at.IdentityMode.OrDefault()); err != nil {
+	if err = s.authz.checkAgentTypeModeWrite(ctx, at.IdentityMode.OrDefault()); err != nil {
 		return err
 	}
-	if err := refuseDelegatedAutonomousWrite(ctx, *at); err != nil {
+	if err = refuseDelegatedAutonomousWrite(ctx, *at); err != nil {
 		return err
 	}
 	span.SetAttributes(attribute.String("slug", at.Slug))
@@ -881,7 +886,7 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 		if at.State == AgentTypeStateProvisioning {
 			fromState = AgentTypeStateProvisioning
 		}
-		if err := s.repo.SetAgentTypeState(ctx, id, fromState, AgentTypeStateDeleting); err != nil {
+		if err = s.repo.SetAgentTypeState(ctx, id, fromState, AgentTypeStateDeleting); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "set agent type deleting")
 			return fmt.Errorf("set agent type deleting: %w", err)
@@ -889,34 +894,27 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
-	if err := s.k8s.DeprovisionAgentType(ctx, *at, namespace); err != nil {
+	if err = s.k8s.DeprovisionAgentType(ctx, *at, namespace); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "deprovision k8s resources")
 		return fmt.Errorf("deprovision agent type k8s resources: %w", err)
 	}
 
-	// Runs must be removed before the agent type row to satisfy the FK constraint.
-	deletedRuns, delRunsErr := s.runRepo.DeleteRunsByAgentType(ctx, id)
-	if delRunsErr != nil {
-		span.RecordError(delRunsErr)
-		span.SetStatus(codes.Error, "delete runs for agent type")
-		return fmt.Errorf("delete runs for agent type: %w", delRunsErr)
-	}
-
-	// DeprovisionAgentType only removes StatefulSet-scoped resources; per-run sandbox
-	// pods (sandbox-{runID}) outlive it. Delete them best-effort so they are not
-	// orphaned — the run rows are gone, so the reaper can no longer reclaim them.
-	// Force-deletion is a terminal state, so any delegation issuances are
-	// tombstoned too (best-effort — the agent's grant is being removed anyway,
-	// which the fail-closed marker turns into a full deny).
-	for _, deleted := range deletedRuns {
-		s.cleanupForceDeletedRun(ctx, deleted, namespace)
-	}
-
-	if err := s.repo.DeleteAgentType(ctx, id); err != nil {
+	// Runs and their history stay. Unfinished runs end here.
+	cancelled, err := s.runRepo.CancelRunsByAgentType(ctx, id)
+	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "delete agent type")
-		return err
+		span.SetStatus(codes.Error, "cancel runs for agent type")
+		return fmt.Errorf("cancel runs for agent type: %w", err)
+	}
+	for _, run := range cancelled {
+		s.cleanupCancelledRun(ctx, run, namespace)
+	}
+
+	if err = s.repo.SoftDeleteAgentType(ctx, id); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "soft delete agent type")
+		return fmt.Errorf("soft delete agent type: %w", err)
 	}
 	if s.hook != nil {
 		s.hook()
@@ -924,16 +922,27 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 	return nil
 }
 
-// cleanupForceDeletedRun tombstones a force-deleted run's delegation issuance
-// (the delegation ends with the run) and deletes its sandbox pod. Both are
-// best-effort — agent-type deletion must not wedge on either.
-func (s *AgentTypeService) cleanupForceDeletedRun(ctx context.Context, deleted DeletedRun, namespace string) {
-	if deleted.DelegationJTI != nil && *deleted.DelegationJTI != "" && s.delegation != nil {
-		s.delegation.RevokeBestEffort(ctx, *deleted.DelegationJTI, deleted.ID)
+// cleanupCancelledRun records and publishes the run's terminal state, revokes its delegation and deletes its
+// sandbox pod. All of it is best-effort. Agent deletion must not wedge on it.
+func (s *AgentTypeService) cleanupCancelledRun(ctx context.Context, run CancelledRun, namespace string) {
+	payload := []byte(`{"state":"` + string(run.State) + `"}`)
+	at := eventTime()
+	seqNo, err := s.runRepo.AppendRunEvent(ctx, RunEvent{RunID: run.ID, EventType: "run_state", Payload: payload, CreatedAt: at})
+	if err != nil {
+		s.logger.Warn(ctx, "failed to record state of cancelled run",
+			logging.Field{Key: "run_id", Value: run.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
 	}
-	if delErr := s.k8s.DeleteSandbox(ctx, deleted.ID, namespace); delErr != nil {
-		s.logger.Warn(ctx, "failed to delete sandbox for deleted run",
-			logging.Field{Key: "run_id", Value: deleted.ID},
+	if s.pubsub != nil {
+		s.pubsub.Publish(run.ID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo, At: at})
+	}
+	if run.DelegationJTI != nil && *run.DelegationJTI != "" && s.delegation != nil {
+		s.delegation.RevokeBestEffort(ctx, *run.DelegationJTI, run.ID)
+	}
+	if delErr := s.k8s.DeleteSandbox(ctx, run.ID, namespace); delErr != nil {
+		s.logger.Warn(ctx, "failed to delete sandbox for cancelled run",
+			logging.Field{Key: "run_id", Value: run.ID},
 			logging.Field{Key: "error", Value: delErr.Error()},
 		)
 	}

@@ -317,7 +317,12 @@ func (s *RunService) loadRunForAction(ctx context.Context, runID, action string)
 	if run.TenantID != tenantFromContext(ctx) {
 		return nil, nil, ErrNotFound
 	}
-	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
+	// A read shows the runs of a deleted agent. Any other action needs a live agent.
+	getAgentType := s.atRepo.GetAgentType
+	if action == "read" {
+		getAgentType = s.atRepo.GetAgentTypeWithDeleted
+	}
+	at, err := getAgentType(ctx, run.AgentTypeID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get agent type")
@@ -434,7 +439,8 @@ func (s *RunService) listRuns(ctx context.Context, tenantID string, agentTypeIDs
 // readableRunScope is every agent type in the tenant whose runs the caller may
 // read, plus the caller's own runs (readsOwnRuns), under the caller's delegated-run visibility.
 func (s *RunService) readableRunScope(ctx context.Context, tenantID string) (RunScope, error) {
-	ats, err := s.atRepo.ListAgentTypes(ctx, tenantID)
+	// Deleted agents stay in scope so their runs remain readable.
+	ats, err := s.atRepo.ListAgentTypesWithDeleted(ctx, tenantID)
 	if err != nil {
 		return RunScope{}, fmt.Errorf("list agent types: %w", err)
 	}
