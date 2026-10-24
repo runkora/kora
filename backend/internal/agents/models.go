@@ -21,6 +21,8 @@ const (
 	AgentTypeStateProvisioning AgentTypeState = "provisioning"
 	AgentTypeStateActive       AgentTypeState = "active"
 	AgentTypeStateDeleting     AgentTypeState = "deleting"
+	// AgentTypeStateDeleted is terminal. The row stays so the agent's runs keep their history.
+	AgentTypeStateDeleted AgentTypeState = "deleted"
 )
 
 // AgentFramework identifies the CLI framework running inside agent pods.
@@ -555,6 +557,9 @@ type Run struct {
 	// the governance posture — and attribute created_by accordingly — without a
 	// second lookup. Not a runs column.
 	IdentityMode IdentityMode `json:"identity_mode,omitempty"`
+	// AgentSlug and AgentName come from the agent type like IdentityMode. They name the agent of a run whose agent was deleted.
+	AgentSlug string `json:"agent_slug,omitempty"`
+	AgentName string `json:"agent_name,omitempty"`
 	// StartedBy names the trigger that started this run, when one did. Nil for a
 	// run a person started, which is what its absence means on the wire.
 	//
@@ -597,11 +602,11 @@ type StartedByTrigger struct {
 	DeliveryID  string `json:"delivery_id,omitempty"`
 }
 
-// DeletedRun is one force-deleted run returned by DeleteRunsByAgentType: the
-// ID (for sandbox pod cleanup) and the delegation JTI, when the run was
-// delegated (for issuance revocation — the delegation ends with the run).
-type DeletedRun struct {
+// CancelledRun is one run ended by agent deletion. The ID names its sandbox pod. The delegation JTI,
+// set for a delegated run, is revoked because the delegation ends with the run.
+type CancelledRun struct {
 	ID            string
+	State         RunState
 	DelegationJTI *string
 }
 

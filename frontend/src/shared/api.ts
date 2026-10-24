@@ -458,6 +458,10 @@ export interface Run {
     trigger_name?: string;
     delivery_id?: string;
   };
+  /** The agent's identity model, slug and name, also set for a run whose agent was deleted. */
+  identity_mode?: AgentIdentityMode;
+  agent_slug?: string;
+  agent_name?: string;
 }
 
 /**
