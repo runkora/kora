@@ -25,6 +25,9 @@ const (
 	AgentTypeStateDeleted AgentTypeState = "deleted"
 )
 
+// IsDeleted reports whether the agent type was deleted. Its slug may belong to a newer agent.
+func (at AgentType) IsDeleted() bool { return at.State == AgentTypeStateDeleted }
+
 // AgentFramework identifies the CLI framework running inside agent pods.
 type AgentFramework string
 

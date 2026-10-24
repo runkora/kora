@@ -165,7 +165,11 @@ func TestStartClaimed(t *testing.T) {
 			},
 			wantState: RunStateFailed, wantErr: "The agent did not finish provisioning within 1m0s."},
 		{name: "a deleted agent fails the run",
-			setup:     func(e *startClaimedEnv) { delete(e.repo.agentTypes, "at-1") },
+			setup: func(e *startClaimedEnv) {
+				if err := e.repo.SoftDeleteAgentType(context.Background(), "at-1"); err != nil {
+					t.Fatal(err)
+				}
+			},
 			wantState: RunStateFailed, wantErr: "The agent no longer exists."},
 		{name: "a deleting agent fails the run",
 			setup:     func(e *startClaimedEnv) { e.repo.agentTypes["at-1"].State = AgentTypeStateDeleting },

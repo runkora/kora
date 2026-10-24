@@ -455,7 +455,6 @@ func (r *PostgresRepository) ClaimPendingRuns(ctx context.Context, limit int, no
 		    WHERE id IN (
 		        SELECT id FROM runs
 		        WHERE  state = 'pending' AND claimed_at IS NULL AND not_before <= $2
-		        AND    agent_type_id IN (SELECT id FROM agent_types WHERE deleted_at IS NULL)
 		        ORDER  BY created_at
 		        LIMIT  $1
 		        FOR UPDATE SKIP LOCKED)
