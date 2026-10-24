@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/google/uuid"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -80,12 +81,9 @@ type AgentTypeService struct {
 	delegation *DelegationBroker
 	// pubsub tells live viewers of a cancelled run that it ended; nil = skip.
 	pubsub *PubSub
-	// authoring is the tenant's API authoring switch; nil leaves API writes on.
+	// authoring can lock a tenant to its declarative resources.
 	authoring authoringSwitch
 }
-
-// SetAuthoringSwitch installs the tenant registry that can lock a tenant to its resources.
-func (s *AgentTypeService) SetAuthoringSwitch(a authoringSwitch) { s.authoring = a }
 
 // SetDelegationBroker installs the broker used to revoke delegation issuances
 // of runs cancelled by agent-type deletion
@@ -99,17 +97,19 @@ func NewAgentTypeService(
 	k8s k8sProvisioner,
 	authz *Authz,
 	pubsub *PubSub,
+	authoring authoringSwitch,
 	cfg AgentTypeServiceConfig,
 	logger logging.Logger,
 ) *AgentTypeService {
 	return &AgentTypeService{
-		repo:    repo,
-		runRepo: runRepo,
-		k8s:     k8s,
-		authz:   authz,
-		pubsub:  pubsub,
-		cfg:     cfg,
-		logger:  logger,
+		repo:      repo,
+		runRepo:   runRepo,
+		k8s:       k8s,
+		authz:     authz,
+		pubsub:    pubsub,
+		authoring: authoring,
+		cfg:       cfg,
+		logger:    logger,
 	}
 }
 
@@ -364,7 +364,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	if err := s.authz.checkAgentTypeModeWrite(ctx, validated.identityMode); err != nil {
 		return nil, err
 	}
-	if err := refuseAPIWrite(ctx, s.authoring, req.TenantID, ""); err != nil {
+	if err := refuseAPIWrite(ctx, s.authoring, req.TenantID, declarative.SourceAPI); err != nil {
 		return nil, err
 	}
 

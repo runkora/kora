@@ -15,13 +15,10 @@ import (
 // The operator projects Environment and Agent resources through these Appliers, which write
 // through the services' declared write path (docs/adr/2026-10-24-declarative-resources.md).
 
-// envRefPrefix keys an Agent item's Refs: "environment/<name>" maps to the environment's id.
-const envRefPrefix = "environment/"
-
 // declaredEnvironmentStore reads the rows the Environment applier projects into.
 type declaredEnvironmentStore interface {
 	GetEnvironmentBySlug(ctx context.Context, tenantID, slug string) (*Environment, error)
-	ListDeclaredEnvironments(ctx context.Context, tenantID string) ([]Environment, error)
+	ListDeclaredEnvironments(ctx context.Context, tenantID string) ([]declarative.Declared, error)
 }
 
 // environmentWriter is the environment service's write path.
@@ -34,7 +31,7 @@ type environmentWriter interface {
 // declaredAgentStore reads the rows the Agent applier projects into and the environments it attaches.
 type declaredAgentStore interface {
 	GetAgentTypeBySlug(ctx context.Context, tenantID, slug string) (*AgentType, error)
-	ListDeclaredAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error)
+	ListDeclaredAgentTypes(ctx context.Context, tenantID string) ([]declarative.Declared, error)
 	GetEnvironment(ctx context.Context, tenantID, id string) (*Environment, error)
 }
 
@@ -70,7 +67,7 @@ func (a *EnvironmentApplier) Apply(ctx context.Context, item declarative.Item) (
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return declarative.Result{}, fmt.Errorf("get environment %q: %w", item.Name, err)
 	}
-	if row != nil && row.Source != SourceCRD {
+	if row != nil && row.Source != declarative.SourceCRD {
 		return nameConflictResult("environment", item.Name), nil
 	}
 	if row != nil && row.ResourceUID == item.UID && row.ResourceGeneration == item.Generation {
@@ -107,7 +104,7 @@ func (a *EnvironmentApplier) Delete(ctx context.Context, tenantID, name string) 
 	if err != nil {
 		return fmt.Errorf("get environment %q: %w", name, err)
 	}
-	if row.Source != SourceCRD {
+	if row.Source != declarative.SourceCRD {
 		return nil
 	}
 	err = a.writer.DeleteEnvironment(withDeclaredWrite(ctx, tenantID, a.namespace(tenantID), name, "", 0), row.ID)
@@ -119,15 +116,7 @@ func (a *EnvironmentApplier) Delete(ctx context.Context, tenantID, name string) 
 
 // List returns the tenant's declared environments.
 func (a *EnvironmentApplier) List(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
-	rows, err := a.store.ListDeclaredEnvironments(ctx, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("list declared environments: %w", err)
-	}
-	out := make([]declarative.Declared, len(rows))
-	for i, e := range rows {
-		out[i] = declarative.Declared{Name: e.Slug, UID: e.ResourceUID}
-	}
-	return out, nil
+	return a.store.ListDeclaredEnvironments(ctx, tenantID)
 }
 
 func environmentRequest(name string, spec v1alpha1.EnvironmentSpec) EnvironmentRequest {
@@ -157,7 +146,7 @@ func NewAgentApplier(store declaredAgentStore, writer agentWriter, namespace fun
 }
 
 // Apply creates or updates the agent named item.Name. A recreated resource is a new agent with a
-// new id. The result is Pending until the agent's row is active.
+// new id. Ready is false until the agent's row is active.
 func (a *AgentApplier) Apply(ctx context.Context, item declarative.Item) (declarative.Result, error) {
 	var spec v1alpha1.AgentSpec
 	if err := json.Unmarshal(item.Spec, &spec); err != nil {
@@ -213,7 +202,7 @@ func (a *AgentApplier) currentRow(ctx context.Context, item declarative.Item) (r
 		return nil, false, nil
 	case err != nil:
 		return nil, false, fmt.Errorf("get agent type %q: %w", item.Name, err)
-	case row.Source != SourceCRD:
+	case row.Source != declarative.SourceCRD:
 		return nil, true, nil
 	case row.ResourceUID != item.UID:
 		if err = a.writer.DeleteAgentType(ctx, row.ID); err != nil {
@@ -233,7 +222,7 @@ func (a *AgentApplier) Delete(ctx context.Context, tenantID, name string) error 
 	if err != nil {
 		return fmt.Errorf("get agent type %q: %w", name, err)
 	}
-	if row.Source != SourceCRD {
+	if row.Source != declarative.SourceCRD {
 		return nil
 	}
 	err = a.writer.DeleteAgentType(withDeclaredWrite(ctx, tenantID, a.namespace(tenantID), name, "", 0), row.ID)
@@ -245,22 +234,12 @@ func (a *AgentApplier) Delete(ctx context.Context, tenantID, name string) error 
 
 // List returns the tenant's live declared agents.
 func (a *AgentApplier) List(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
-	rows, err := a.store.ListDeclaredAgentTypes(ctx, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("list declared agent types: %w", err)
-	}
-	out := make([]declarative.Declared, len(rows))
-	for i, at := range rows {
-		out[i] = declarative.Declared{Name: at.Slug, UID: at.ResourceUID}
-	}
-	return out, nil
+	return a.store.ListDeclaredAgentTypes(ctx, tenantID)
 }
 
+// agentResult is Projected once the spec is applied. Ready waits for provisioning to finish.
 func agentResult(at *AgentType) declarative.Result {
-	if at.State != AgentTypeStateActive {
-		return declarative.Result{Outcome: declarative.OutcomePending, Message: "the agent is " + string(at.State), ID: at.ID}
-	}
-	return declarative.Result{Outcome: declarative.OutcomeProjected, ID: at.ID, Ready: true}
+	return declarative.Result{Outcome: declarative.OutcomeProjected, ID: at.ID, Ready: at.State == AgentTypeStateActive}
 }
 
 // errEnvironmentUnresolved marks an Agent environment the applier cannot attach yet.
@@ -271,7 +250,7 @@ var errEnvironmentUnresolved = errors.New("environment not resolved")
 func (a *AgentApplier) checkDeclaredEnvironments(ctx context.Context, tenantID string, envs []AgentEnvironment) error {
 	for _, e := range envs {
 		env, err := a.store.GetEnvironment(ctx, tenantID, e.EnvironmentID)
-		if errors.Is(err, ErrNotFound) || (err == nil && env.Source != SourceCRD) {
+		if errors.Is(err, ErrNotFound) || (err == nil && env.Source != declarative.SourceCRD) {
 			return fmt.Errorf("%w: %q is not a declared environment of this tenant", errEnvironmentUnresolved, e.EnvironmentID)
 		}
 		if err != nil {
@@ -286,7 +265,7 @@ func (a *AgentApplier) checkDeclaredEnvironments(ctx context.Context, tenantID s
 func agentEnvironments(spec v1alpha1.AgentSpec, refs map[string]string) ([]AgentEnvironment, error) {
 	envs := []AgentEnvironment{}
 	for _, e := range spec.Environments {
-		id := refs[envRefPrefix+e.Name]
+		id := refs[declarative.RefEnvironment(e.Name)]
 		if id == "" {
 			return nil, fmt.Errorf("%w: %q", errEnvironmentUnresolved, e.Name)
 		}

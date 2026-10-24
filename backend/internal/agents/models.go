@@ -230,8 +230,8 @@ type AgentType struct {
 	// CreatedBy is the token subject that created the type; the owner check in Authz reads it.
 	// A declared agent has resource:<namespace>/<name>.
 	CreatedBy string `json:"created_by,omitempty"`
-	// Source is SourceAPI or SourceCRD. A crd row is read-only through the API.
-	Source Source `json:"source"`
+	// Source is declarative.SourceAPI or SourceCRD. A crd row is read-only through the API.
+	Source string `json:"source"`
 	// ResourceUID is the UID of the Agent resource a crd row projects.
 	ResourceUID string `json:"-"`
 	// ResourceGeneration is the resource generation the crd row last applied.

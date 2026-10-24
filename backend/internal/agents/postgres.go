@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
@@ -81,7 +82,7 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,$18::jsonb,$19,$20,NULLIF($21, ''),$22)`,
 			at.ID, at.TenantID, at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework),
 			at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now, string(connectivityJSON), string(connectorsJSON), at.MCPTools, string(at.IdentityMode.OrDefault()),
-			guardrailsColumn(at.Guardrails), at.CreatedBy, string(sourceOrAPI(at.Source)), at.ResourceUID, at.ResourceGeneration,
+			guardrailsColumn(at.Guardrails), at.CreatedBy, sourceOrAPI(at.Source), at.ResourceUID, at.ResourceGeneration,
 		)
 		if err != nil {
 			if isUniqueViolation(err) {
@@ -131,11 +132,9 @@ func (r *PostgresRepository) GetAgentTypeBySlug(ctx context.Context, tenantID, s
 	return scanAgentType(row)
 }
 
-// ListDeclaredAgentTypes returns a tenant's live agent types projected from resources.
-func (r *PostgresRepository) ListDeclaredAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error) {
-	return r.listAgentTypes(ctx, `
-		SELECT `+agentTypeColumns+`
-		FROM agent_types WHERE tenant_id = $1 AND source = 'crd' AND deleted_at IS NULL ORDER BY slug`, tenantID)
+// ListDeclaredAgentTypes returns the slug and resource UID of a tenant's live agent types projected from resources.
+func (r *PostgresRepository) ListDeclaredAgentTypes(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
+	return r.listDeclared(ctx, `SELECT slug, resource_uid FROM agent_types WHERE tenant_id = $1 AND source = 'crd' AND deleted_at IS NULL ORDER BY slug`, tenantID)
 }
 
 func (r *PostgresRepository) ListAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error) {

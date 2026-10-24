@@ -16,6 +16,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -189,7 +190,7 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 
 	at, err := c.agentTypes.CreateAgentType(withCallerBearerFrom(ctx, r), req)
 	if err != nil {
-		if c.writeAPIWriteRefusal(ctx, w, err) {
+		if declarative.WriteRefusal(ctx, w, c.logger, err) {
 			return
 		}
 		if errors.Is(err, ErrSlugTaken) {
@@ -345,7 +346,7 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 
 	at, err := c.agentTypes.UpdateAgentType(withCallerBearerFrom(ctx, r), req)
 	if err != nil {
-		if c.writeAPIWriteRefusal(ctx, w, err) {
+		if declarative.WriteRefusal(ctx, w, c.logger, err) {
 			return
 		}
 		if errors.Is(err, ErrNotFound) {
@@ -376,7 +377,7 @@ func (c *Controller) handleDeleteAgentType(w http.ResponseWriter, r *http.Reques
 	id := r.PathValue("id")
 
 	if err := c.agentTypes.DeleteAgentType(ctx, id); err != nil {
-		if c.writeAPIWriteRefusal(ctx, w, err) {
+		if declarative.WriteRefusal(ctx, w, c.logger, err) {
 			return
 		}
 		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) {
@@ -395,19 +396,6 @@ func (c *Controller) handleDeleteAgentType(w http.ResponseWriter, r *http.Reques
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
-}
-
-// writeAPIWriteRefusal answers a write to a declared item or in a locked tenant. It reports whether err was one.
-func (c *Controller) writeAPIWriteRefusal(ctx context.Context, w http.ResponseWriter, err error) bool {
-	switch {
-	case errors.Is(err, ErrManagedByResource):
-		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeManagedByResource, ErrManagedByResource.Error(), nil), nil)
-	case errors.Is(err, ErrAPIAuthoringDisabled):
-		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeAPIAuthoringDisabled, ErrAPIAuthoringDisabled.Error(), nil), nil)
-	default:
-		return false
-	}
-	return true
 }
 
 // ── Runs ──────────────────────────────────────────────────────────────────────

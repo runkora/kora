@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 )
 
 // ── Environments ────────────────────────────────────────────────────────────
@@ -29,7 +31,7 @@ func (r *PostgresRepository) CreateEnvironment(ctx context.Context, env Environm
 		INSERT INTO environments (id, tenant_id, name, display_name, description, sandbox_image, cpu, memory, disk, egress_hosts, connectors, source, resource_uid, resource_generation, created_at, updated_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,NULLIF($13, ''),$14,$15,$16)`,
 		env.ID, env.TenantID, env.Slug, env.Name, env.Description, env.SandboxImage,
-		env.Size.CPU, env.Size.Memory, env.Size.Disk, env.EgressHosts, connectorsJSON, string(sourceOrAPI(env.Source)), env.ResourceUID, env.ResourceGeneration, now, now,
+		env.Size.CPU, env.Size.Memory, env.Size.Disk, env.EgressHosts, connectorsJSON, sourceOrAPI(env.Source), env.ResourceUID, env.ResourceGeneration, now, now,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -51,9 +53,22 @@ func (r *PostgresRepository) GetEnvironmentBySlug(ctx context.Context, tenantID,
 	return scanEnvironment(row)
 }
 
-// ListDeclaredEnvironments returns a tenant's environments projected from resources.
-func (r *PostgresRepository) ListDeclaredEnvironments(ctx context.Context, tenantID string) ([]Environment, error) {
-	return r.listEnvironments(ctx, `SELECT `+environmentColumns+` FROM environments WHERE tenant_id = $1 AND source = 'crd' ORDER BY name`, tenantID)
+// ListDeclaredEnvironments returns the slug and resource UID of a tenant's environments projected from resources.
+func (r *PostgresRepository) ListDeclaredEnvironments(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
+	return r.listDeclared(ctx, `SELECT name, resource_uid FROM environments WHERE tenant_id = $1 AND source = 'crd' ORDER BY name`, tenantID)
+}
+
+// listDeclared runs a query selecting a name and a resource UID.
+func (r *PostgresRepository) listDeclared(ctx context.Context, query, tenantID string) ([]declarative.Declared, error) {
+	rows, err := r.pool.Query(ctx, query, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("query declared rows: %w", err)
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (declarative.Declared, error) {
+		var d declarative.Declared
+		err := row.Scan(&d.Name, &d.UID)
+		return d, err
+	})
 }
 
 func (r *PostgresRepository) ListEnvironments(ctx context.Context, tenantID string) ([]Environment, error) {

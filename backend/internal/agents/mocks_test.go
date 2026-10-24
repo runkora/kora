@@ -915,7 +915,7 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 	authz := NewAuthz(eval)
 	pubsub := NewPubSub()
 	atSvc := NewAgentTypeService(
-		repo, repo, k8s, authz, pubsub,
+		repo, repo, k8s, authz, pubsub, lockedTenants{},
 		AgentTypeServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },

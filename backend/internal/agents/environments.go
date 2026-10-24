@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/google/uuid"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
@@ -77,8 +78,8 @@ type Environment struct {
 	Size         EnvironmentSize `json:"size"`
 	EgressHosts  []string        `json:"egress_hosts"`
 	Connectors   []Connector     `json:"connectors"`
-	// Source is SourceAPI or SourceCRD. A crd row is read-only through the API.
-	Source Source `json:"source"`
+	// Source is declarative.SourceAPI or SourceCRD. A crd row is read-only through the API.
+	Source string `json:"source"`
 	// ResourceUID is the UID of the Environment resource a crd row projects.
 	ResourceUID string `json:"-"`
 	// ResourceGeneration is the resource generation the crd row last applied.
@@ -241,12 +242,9 @@ type EnvironmentService struct {
 	writes agentWriteChecker
 	cfg    EnvironmentServiceConfig
 	logger logging.Logger
-	// authoring is the tenant's API authoring switch; nil leaves API writes on.
+	// authoring can lock a tenant to its declarative resources.
 	authoring authoringSwitch
 }
-
-// SetAuthoringSwitch installs the tenant registry that can lock a tenant to its resources.
-func (s *EnvironmentService) SetAuthoringSwitch(a authoringSwitch) { s.authoring = a }
 
 // NewEnvironmentService constructs an EnvironmentService.
 func NewEnvironmentService(
@@ -255,10 +253,11 @@ func NewEnvironmentService(
 	images sandboxImageReader,
 	grants grantReconciler,
 	writes agentWriteChecker,
+	authoring authoringSwitch,
 	cfg EnvironmentServiceConfig,
 	logger logging.Logger,
 ) *EnvironmentService {
-	return &EnvironmentService{repo: repo, agents: agents, images: images, grants: grants, writes: writes, cfg: cfg, logger: logger}
+	return &EnvironmentService{repo: repo, agents: agents, images: images, grants: grants, writes: writes, authoring: authoring, cfg: cfg, logger: logger}
 }
 
 // CreateEnvironment registers a new environment for the caller's tenant.
@@ -267,7 +266,7 @@ func (s *EnvironmentService) CreateEnvironment(ctx context.Context, req Environm
 	defer span.End()
 
 	env := s.fromRequest(tenantFromContext(ctx), uuid.NewString(), req)
-	if err := refuseAPIWrite(ctx, s.authoring, env.TenantID, ""); err != nil {
+	if err := refuseAPIWrite(ctx, s.authoring, env.TenantID, declarative.SourceAPI); err != nil {
 		return nil, err
 	}
 	env.Source, env.ResourceUID, env.ResourceGeneration = sourceFor(ctx)
