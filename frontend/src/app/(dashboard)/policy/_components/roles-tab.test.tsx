@@ -51,6 +51,34 @@ describe('RolesTab permissions', () => {
   });
 });
 
+describe('RolesTab managed in git', () => {
+  const WRITER = ['platform:roles:read', 'platform:roles:write'];
+
+  it('marks a declared role and offers it no edit or delete', () => {
+    renderWithProviders(
+      <RolesTab
+        initialRoles={[...ROLES, { ...ROLES[1]!, id: 'r3', role: 'ops', source: 'crd' }]}
+        availableScopes={[]}
+        initialError={null}
+      />,
+      { scopes: WRITER },
+    );
+    expect(screen.getByText('Managed in git')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Edit role' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Delete role' })).toHaveLength(1);
+  });
+
+  it('hides create, edit and delete in a locked tenant and says why', () => {
+    renderWithProviders(
+      <RolesTab initialRoles={ROLES} availableScopes={[]} initialError={null} />,
+      { scopes: WRITER, apiAuthoring: false },
+    );
+    expect(screen.queryByRole('button', { name: /create role/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit role' })).toBeNull();
+    expect(screen.getByText(/Roles in this tenant are managed in git/)).toBeTruthy();
+  });
+});
+
 describe('RolesTab without the scope vocabulary', () => {
   const vocabError = 'You do not have access to the scope vocabulary.';
 

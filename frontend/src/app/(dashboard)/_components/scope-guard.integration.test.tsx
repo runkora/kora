@@ -18,7 +18,9 @@ import { ScopeGuard } from './scope-guard';
 
 vi.mock('./permissions-provider', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./permissions-provider')>()),
-  useSession: vi.fn().mockReturnValue({ scopes: [], user: null, loaded: false }),
+  useSession: vi
+    .fn()
+    .mockReturnValue({ scopes: [], user: null, loaded: false, apiAuthoring: true }),
 }));
 
 import { useSession } from './permissions-provider';
@@ -37,7 +39,12 @@ function renderGuard(scope: string) {
 
 describe('ScopeGuard', () => {
   it('renders children optimistically while the session is not yet loaded', () => {
-    vi.mocked(useSession).mockReturnValue({ scopes: [], user: null, loaded: false });
+    vi.mocked(useSession).mockReturnValue({
+      scopes: [],
+      user: null,
+      loaded: false,
+      apiAuthoring: true,
+    });
     renderGuard('platform:grants:read');
     expect(screen.getByText('Protected content')).toBeInTheDocument();
   });
@@ -47,20 +54,31 @@ describe('ScopeGuard', () => {
       scopes: ['platform:grants:read'],
       user: null,
       loaded: true,
+      apiAuthoring: true,
     });
     renderGuard('platform:grants:read');
     expect(screen.getByText('Protected content')).toBeInTheDocument();
   });
 
   it('renders the Forbidden message when the required scope is absent', () => {
-    vi.mocked(useSession).mockReturnValue({ scopes: [], user: null, loaded: true });
+    vi.mocked(useSession).mockReturnValue({
+      scopes: [],
+      user: null,
+      loaded: true,
+      apiAuthoring: true,
+    });
     renderGuard('platform:grants:read');
     expect(screen.getByText('Forbidden')).toBeInTheDocument();
     expect(screen.getByText('You do not have permission to view this page.')).toBeInTheDocument();
   });
 
   it('does not render children when the scope is absent', () => {
-    vi.mocked(useSession).mockReturnValue({ scopes: [], user: null, loaded: true });
+    vi.mocked(useSession).mockReturnValue({
+      scopes: [],
+      user: null,
+      loaded: true,
+      apiAuthoring: true,
+    });
     renderGuard('platform:grants:read');
     expect(screen.queryByText('Protected content')).not.toBeInTheDocument();
   });
@@ -70,6 +88,7 @@ describe('ScopeGuard', () => {
       scopes: ['platform:grants:read'],
       user: null,
       loaded: true,
+      apiAuthoring: true,
     });
     renderGuard('platform:grants:write');
     expect(screen.getByText('Forbidden')).toBeInTheDocument();
@@ -81,6 +100,7 @@ describe('ScopeGuard', () => {
       scopes: ['platform:read'],
       user: null,
       loaded: true,
+      apiAuthoring: true,
     });
     renderGuard('platform:grants:read');
     expect(screen.getByText('Protected content')).toBeInTheDocument();

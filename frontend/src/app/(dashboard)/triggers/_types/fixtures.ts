@@ -11,6 +11,7 @@ export function makeTrigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
     id: 't1',
     kind: 'webhook',
     sourceId: 'src-1',
+    declared: false,
     name: 'gh-push',
     targetKind: 'agent',
     agentTypeId: 'at-1',

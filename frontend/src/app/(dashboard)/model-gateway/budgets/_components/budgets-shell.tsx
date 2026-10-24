@@ -27,6 +27,8 @@ interface BudgetsShellProps {
   /** Why the roles or grants could not be read; shown in that tab instead of an empty table. */
   rolesError?: string | null;
   grantsError?: string | null;
+  /** The tenant budget is declared on the tenant's resource. */
+  capDeclared?: boolean;
 }
 
 export function BudgetsShell({
@@ -37,6 +39,7 @@ export function BudgetsShell({
   initialError,
   rolesError = null,
   grantsError = null,
+  capDeclared = false,
 }: BudgetsShellProps) {
   return (
     <Stack gap="comfortable">
@@ -57,7 +60,7 @@ export function BudgetsShell({
         </TabsList>
 
         <TabsContent value="principals">
-          <BudgetPrincipalsTab principals={principals} />
+          <BudgetPrincipalsTab principals={principals} capDeclared={capDeclared} />
         </TabsContent>
 
         <TabsContent value="roles">

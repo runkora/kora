@@ -15,6 +15,7 @@ const SOURCE: Omit<SourceRow, 'id' | 'name' | 'provider' | 'category'> = {
   rejectionCount: 0,
   lastRejectionAt: null,
   lastRejectionReason: null,
+  declared: false,
 };
 const SOURCES: SourceRow[] = [
   { ...SOURCE, id: 'gh', name: 'acme/widgets', provider: 'github', category: 'webhook' },

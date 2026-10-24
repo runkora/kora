@@ -33,6 +33,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/platform/api"
 	clientpolicy "github.com/runkora/kora/backend/internal/platform/clients/policy"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -98,6 +99,10 @@ type Service struct {
 	// live by watchTenantRegistry whenever the tenant registry file changes.
 	// Access only while holding mu (read or write as appropriate).
 	oidcTenants map[string]*tenantOIDCState
+
+	// authoring reads the tenant's API authoring switch from the registry for
+	// the session response.
+	authoring *declarative.Registry
 
 	// clientSecrets holds the latest resolved OIDC client secrets, keyed by
 	// tenant ID. Populated at startup by initClientSecrets and refreshed live
@@ -172,6 +177,7 @@ func NewService(
 		tracer:        otel.Tracer("kora.identity"),
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		oidcTenants:   make(map[string]*tenantOIDCState),
+		authoring:     declarative.NewRegistry(cfg.Registry.TenantsPath),
 		clientSecrets: make(map[string]string),
 	}
 
@@ -937,6 +943,7 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 		RefreshToken:          rawRefresh,
 		IssuedAt:              now.Unix(),
 		RefreshTokenExpiresIn: int(refreshTTL.Seconds()),
+		APIAuthoring:          s.authoring.APIAuthoringEnabled(principal.TenantID),
 	}, nil
 }
 
@@ -960,10 +967,11 @@ func (s *Service) createAgentSession(ctx context.Context, principal *Principal) 
 	span.SetStatus(codes.Ok, "agent session created (no refresh token)")
 
 	return &SessionResponse{
-		AccessToken: accessToken,
-		TokenType:   "Bearer",
-		ExpiresIn:   int(ttl.Seconds()),
-		IssuedAt:    now.Unix(),
+		AccessToken:  accessToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    int(ttl.Seconds()),
+		IssuedAt:     now.Unix(),
+		APIAuthoring: s.authoring.APIAuthoringEnabled(principal.TenantID),
 	}, nil
 }
 

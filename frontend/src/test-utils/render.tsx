@@ -30,13 +30,13 @@ export const ALL_TEST_SCOPES = [
 
 export function renderWithProviders(
   ui: React.ReactElement,
-  options?: Omit<RenderOptions, 'wrapper'> & { scopes?: string[] },
+  options?: Omit<RenderOptions, 'wrapper'> & { scopes?: string[]; apiAuthoring?: boolean },
 ): RenderResult {
-  const { scopes = ALL_TEST_SCOPES, ...rest } = options ?? {};
+  const { scopes = ALL_TEST_SCOPES, apiAuthoring = true, ...rest } = options ?? {};
   function Providers({ children }: { children: React.ReactNode }): React.JSX.Element {
     return (
       <PreferencesProvider initialPreferences={PREFERENCE_DEFAULTS}>
-        <StaticPermissionsProvider scopes={scopes}>
+        <StaticPermissionsProvider scopes={scopes} apiAuthoring={apiAuthoring}>
           <TooltipProvider>{children}</TooltipProvider>
         </StaticPermissionsProvider>
       </PreferencesProvider>

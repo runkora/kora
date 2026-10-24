@@ -43,6 +43,7 @@ const ROW: EnvironmentRow = {
   connectors: [],
   createdAt: '',
   updatedAt: '',
+  declared: false,
 };
 
 const REVIEW_ROW: EnvironmentRow = {
@@ -56,6 +57,7 @@ const REVIEW_ROW: EnvironmentRow = {
   connectors: [{ connection: 'github', actions: ['repo:read'] }],
   createdAt: '',
   updatedAt: '',
+  declared: false,
 };
 
 const SIZES: EnvironmentSizes = {

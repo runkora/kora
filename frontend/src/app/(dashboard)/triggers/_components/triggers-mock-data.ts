@@ -80,6 +80,7 @@ export const SOURCES: SourceRow[] = [
     rejectionCount: 0,
     lastRejectionAt: null,
     lastRejectionReason: null,
+    declared: false,
   },
   {
     id: 'src_b82e3016',
@@ -92,6 +93,7 @@ export const SOURCES: SourceRow[] = [
     rejectionCount: 3,
     lastRejectionAt: ago(2 * HOUR),
     lastRejectionReason: 'signature mismatch',
+    declared: false,
   },
   {
     id: 'src_0a6c57de',
@@ -104,6 +106,7 @@ export const SOURCES: SourceRow[] = [
     rejectionCount: 0,
     lastRejectionAt: null,
     lastRejectionReason: null,
+    declared: false,
   },
   {
     id: 'src_7c3e51b9',
@@ -116,6 +119,7 @@ export const SOURCES: SourceRow[] = [
     rejectionCount: 0,
     lastRejectionAt: null,
     lastRejectionReason: null,
+    declared: false,
   },
 ];
 
@@ -128,6 +132,7 @@ function trigger(
   const owner = agent(overrides.agentSlug);
   return {
     sourceId: '',
+    declared: false,
     targetKind: 'agent',
     agentTypeId: owner.id,
     routing: null,
