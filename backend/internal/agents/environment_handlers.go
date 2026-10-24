@@ -85,6 +85,9 @@ func (c *Controller) handleDeleteEnvironment(w http.ResponseWriter, r *http.Requ
 
 // writeEnvironmentError maps environment service errors to HTTP responses.
 func (c *Controller) writeEnvironmentError(ctx context.Context, w http.ResponseWriter, err error) {
+	if c.writeAPIWriteRefusal(ctx, w, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, ErrNotFound):
 		api.ErrorResponse(ctx, w, c.logger,

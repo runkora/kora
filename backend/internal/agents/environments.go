@@ -77,8 +77,14 @@ type Environment struct {
 	Size         EnvironmentSize `json:"size"`
 	EgressHosts  []string        `json:"egress_hosts"`
 	Connectors   []Connector     `json:"connectors"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
+	// Source is SourceAPI or SourceCRD. A crd row is read-only through the API.
+	Source Source `json:"source"`
+	// ResourceUID is the UID of the Environment resource a crd row projects.
+	ResourceUID string `json:"-"`
+	// ResourceGeneration is the resource generation the crd row last applied.
+	ResourceGeneration int64     `json:"-"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // DefaultEnvironment is the environment of an agent with none attached. It runs
@@ -235,7 +241,12 @@ type EnvironmentService struct {
 	writes agentWriteChecker
 	cfg    EnvironmentServiceConfig
 	logger logging.Logger
+	// authoring is the tenant's API authoring switch; nil leaves API writes on.
+	authoring authoringSwitch
 }
+
+// SetAuthoringSwitch installs the tenant registry that can lock a tenant to its resources.
+func (s *EnvironmentService) SetAuthoringSwitch(a authoringSwitch) { s.authoring = a }
 
 // NewEnvironmentService constructs an EnvironmentService.
 func NewEnvironmentService(
@@ -256,6 +267,10 @@ func (s *EnvironmentService) CreateEnvironment(ctx context.Context, req Environm
 	defer span.End()
 
 	env := s.fromRequest(tenantFromContext(ctx), uuid.NewString(), req)
+	if err := refuseAPIWrite(ctx, s.authoring, env.TenantID, ""); err != nil {
+		return nil, err
+	}
+	env.Source, env.ResourceUID, env.ResourceGeneration = sourceFor(ctx)
 	if env.Slug == "" {
 		env.Slug = deriveSlug(env.Name)
 	}
@@ -304,7 +319,15 @@ func (s *EnvironmentService) UpdateEnvironment(ctx context.Context, req Environm
 	if err != nil {
 		return nil, err
 	}
+	if err = refuseAPIWrite(ctx, s.authoring, tenantID, existing.Source); err != nil {
+		return nil, err
+	}
 	env := s.fromRequest(tenantID, existing.ID, req)
+	env.Source, env.ResourceUID, env.ResourceGeneration = existing.Source, existing.ResourceUID, existing.ResourceGeneration
+	// A recreated resource takes over the row of the one it replaces.
+	if d, ok := declaredFromContext(ctx); ok {
+		env.ResourceUID, env.ResourceGeneration = d.resourceUID, d.generation
+	}
 	if env.Slug == "" {
 		env.Slug = existing.Slug
 	}
@@ -340,7 +363,15 @@ func (s *EnvironmentService) DeleteEnvironment(ctx context.Context, id string) e
 		trace.WithAttributes(attribute.String("environment_id", id)))
 	defer span.End()
 
-	err := s.repo.DeleteEnvironment(ctx, tenantFromContext(ctx), id)
+	tenantID := tenantFromContext(ctx)
+	existing, err := s.repo.GetEnvironment(ctx, tenantID, id)
+	if err != nil {
+		return err
+	}
+	if err = refuseAPIWrite(ctx, s.authoring, tenantID, existing.Source); err != nil {
+		return err
+	}
+	err = s.repo.DeleteEnvironment(ctx, tenantID, id)
 	switch {
 	case err == nil:
 		return nil

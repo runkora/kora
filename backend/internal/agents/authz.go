@@ -126,6 +126,10 @@ func (a *Authz) filterAgentTypes(ctx context.Context, ats []AgentType) ([]AgentT
 // an autonomous agent's grants is the same act as creating it with them
 // (delegated-agent-identity ADR, Decision 1).
 func (a *Authz) checkAgentTypeModeWrite(ctx context.Context, mode IdentityMode) error {
+	// A declared write has no caller. The resource's repository is the authority.
+	if _, ok := declaredFromContext(ctx); ok {
+		return nil
+	}
 	r, err := a.eval.Check(ctx, policy.CheckInput{
 		Claims:       claimsFromContext(ctx),
 		Delegation:   policy.DelegationFromContext(ctx),
@@ -307,8 +311,12 @@ func claimsFromContext(ctx context.Context) *token.PlatformClaims {
 // tenantFromContext returns the tenant ID from the verified platform claims,
 // or "" if the context carries no claims. Used by services that still need a
 // tenant value to scope repository queries (e.g. ListAgentTypes) — the value
-// comes from claims, never from request body or query string.
+// comes from claims, never from request body or query string. A declared write
+// carries the tenant the registry maps the resource's namespace to.
 func tenantFromContext(ctx context.Context) string {
+	if d, ok := declaredFromContext(ctx); ok {
+		return d.tenantID
+	}
 	c, ok := token.ClaimsFromContext(ctx)
 	if !ok {
 		return ""
