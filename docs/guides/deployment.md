@@ -527,6 +527,25 @@ cosign verify ghcr.io/runkora/charts/kora:<version> \
 
 The kora images verify the same way, with their own image reference.
 
+Every file attached to the GitHub release, such as the chart packages and `images.txt`, has its Sigstore bundle next to it as `<file>.sigstore.json`. Verify a downloaded file against its bundle:
+
+```bash
+gh release download v<version> --repo runkora/kora --pattern 'kora-<version>.tgz*'
+cosign verify-blob kora-<version>.tgz \
+  --bundle kora-<version>.tgz.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/runkora/kora/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+The release also attaches SLSA build provenance for its files as `kora-<version>.intoto.jsonl`. Check a file with [slsa-verifier](https://github.com/slsa-framework/slsa-verifier):
+
+```bash
+slsa-verifier verify-artifact kora-<version>.tgz \
+  --provenance-path kora-<version>.intoto.jsonl \
+  --source-uri github.com/runkora/kora \
+  --source-tag v<version>
+```
+
 ### Argo CD (GitOps)
 
 `deploy/reference/argocd/app-of-apps.yaml` is an app-of-apps example: one `Application` per release which is ordered by `argocd.argoproj.io/sync-wave`. Copy it into your own GitOps repository and edit the values:

@@ -131,6 +131,9 @@ jobs:
       contents: write
       packages: write
       id-token: write
+    outputs:
+      hashes: ${{ steps.assets.outputs.hashes }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/k8s-toolchain
@@ -188,6 +191,16 @@ jobs:
           name: hades-tarball
           path: ${{ runner.temp }}/hades-pack
 
+      - name: Gather and sign the release assets
+        id: assets
+        run: |
+          set -euo pipefail
+          hades_dir=frontend/src/packages/hades
+          mkdir release
+          cp dist/*.tgz images.txt compatibility.yaml "$RUNNER_TEMP"/hades-pack/runkora-hades-*.tgz \
+            "$hades_dir/manifest.json" "$hades_dir/theme.schema.json" "$hades_dir/defaults.json" release/
+          echo "hashes=$(.github/scripts/sign-release-assets.sh release)" >> "$GITHUB_OUTPUT"
+
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -197,7 +210,6 @@ jobs:
           # Every release attaches the tarball, manifest, theme schema and colour defaults; only final releases publish.
           tarball=$(ls "$RUNNER_TEMP"/hades-pack/runkora-hades-*.tgz)
           checksum=$(sha256sum "$tarball" | cut -d' ' -f1)
-          hades_dir=frontend/src/packages/hades
           hades_note="Hades \`@runkora/hades@${TAG#v}\`, SHA-256 \`${checksum}\`"
           if [[ "${TAG}" == *-* ]]; then
             hades_note="${hades_note}. Release candidate: the package is not published."
@@ -218,8 +230,25 @@ jobs:
               flags+=(--notes-start-tag "${previous}")
             fi
           fi
-          gh release create "${TAG}" "${flags[@]}" dist/*.tgz images.txt compatibility.yaml \
-            "$tarball" "$hades_dir/manifest.json" "$hades_dir/theme.schema.json" "$hades_dir/defaults.json"
+          # Each asset goes up with its Sigstore bundle.
+          gh release create "${TAG}" "${flags[@]}" release/*
+
+  # SLSA build provenance for the release assets, attached to the release as
+  # kora-<version>.intoto.jsonl. The generator is referenced by its release
+  # tag, not a commit SHA: it checks its own ref before it signs.
+  provenance:
+    name: Release provenance
+    needs: [publish]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: ${{ needs.publish.outputs.hashes }}
+      provenance-name: kora-${{ needs.publish.outputs.version }}.intoto.jsonl
+      upload-assets: true
+      upload-tag-name: ${{ github.ref_name }}
 
   # Runs last: a published version cannot be removed or republished.
   # Final releases only; a failure here publishes nothing and can be re-run.
