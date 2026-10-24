@@ -263,6 +263,7 @@ Kubernetes: `>=1.34.0-0`
 | identityProxy.resources.requests.cpu | string | `"50m"` |  |
 | identityProxy.resources.requests.memory | string | `"32Mi"` |  |
 | inferenceGateway.affinity | object | `{}` |  |
+| inferenceGateway.catalog.apiAuthoring | bool | `true` | Allow virtual model writes through the API, dashboard and MCP. With false, virtual models come only from VirtualModel resources. |
 | inferenceGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | inferenceGateway.extraEnv | list | `[]` |  |
 | inferenceGateway.extraVolumeMounts | list | `[]` |  |

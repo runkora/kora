@@ -17,6 +17,7 @@ import (
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
@@ -200,7 +201,12 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	controllers := []api.Controller{
 		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist,
 			agentsclient.NewClient(igc.Current.Agents.InternalURL, logger), logger),
-		inferencegw.NewCatalogController(catalog, router, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
+		inferencegw.NewCatalogController(catalog, router, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath,
+			igc.Current.Catalog.APIAuthoring, logger),
+		// The operator projects VirtualModel resources through these endpoints.
+		declarative.NewController(verifier, logger, map[string]declarative.Applier{
+			declarative.KindVirtualModels: inferencegw.NewVirtualModelApplier(catalog),
+		}),
 	}
 	return controllers, register, nil
 }

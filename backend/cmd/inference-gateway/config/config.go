@@ -21,6 +21,7 @@ type Config struct {
 	Pricing   PricingConfig          `yaml:"pricing"`
 	Policy    PolicyConfig           `yaml:"policy"`
 	Providers ProvidersConfig        `yaml:"providers"`
+	Catalog   CatalogConfig          `yaml:"catalog"`
 	Identity  struct {
 		// InternalURL is the in-cluster base URL for identity. The gateway
 		// exchanges its SVID there for the platform token it registers routes with.
@@ -36,6 +37,13 @@ type Config struct {
 // ProvidersConfig is where the gateway watches InferenceProvider resources.
 type ProvidersConfig struct {
 	Namespace string `yaml:"namespace"`
+}
+
+// CatalogConfig holds the platform switches for the virtual model catalog.
+type CatalogConfig struct {
+	// APIAuthoring false makes every virtual model read-only through the API.
+	// VirtualModel resources still project.
+	APIAuthoring bool `yaml:"apiAuthoring"`
 }
 
 // PolicyConfig configures the in-process OPA policy evaluator.
