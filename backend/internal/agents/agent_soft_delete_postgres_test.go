@@ -113,16 +113,16 @@ func TestPostgres_SoftDeleteAgentType(t *testing.T) {
 	}
 }
 
-// The scheduler never claims a pending run of a deleted agent.
-func TestPostgres_ClaimPendingRunsSkipsDeletedAgents(t *testing.T) {
+// A run created while its agent is deleted is still claimed. The scheduler then fails it at once.
+func TestPostgres_ClaimPendingRunsClaimsDeletedAgentsRuns(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
 	past := time.Now().UTC().Add(-time.Hour)
-	queueRun(t, r, tenant, at.ID, past, &past)
+	id := queueRun(t, r, tenant, at.ID, past, &past)
 	if err := r.SoftDeleteAgentType(context.Background(), at.ID); err != nil {
 		t.Fatalf("SoftDeleteAgentType: %v", err)
 	}
-	if got := claimOwn(t, r, tenant, time.Now()); len(got) != 0 {
-		t.Errorf("claimed %v, want no run of a deleted agent", runIDs(got))
+	if got := claimOwn(t, r, tenant, time.Now()); !slices.Equal(runIDs(got), []string{id}) {
+		t.Errorf("claimed %v, want the deleted agent's run %s", runIDs(got), id)
 	}
 }
