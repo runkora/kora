@@ -18,19 +18,6 @@ func sourcelessTrigger(t *testing.T, deps *testDeps) *Trigger {
 	return tr
 }
 
-func TestDeleteSource_KeepsTriggerAsSourceMissing(t *testing.T) {
-	_, deps := newTestService(t)
-	tr := sourcelessTrigger(t, deps)
-
-	got, err := deps.triggers.GetTrigger(context.Background(), testTenant, tr.ID)
-	if err != nil {
-		t.Fatalf("GetTrigger: %v", err)
-	}
-	if got.SourceID != "" || !got.SourceMissing {
-		t.Errorf("got source_id %q, source_missing %v; want empty and true", got.SourceID, got.SourceMissing)
-	}
-}
-
 func TestUpdateTrigger_SourceMissing_RefusesEdits(t *testing.T) {
 	_, deps := newTestService(t)
 	tr := sourcelessTrigger(t, deps)

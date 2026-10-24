@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -222,6 +223,90 @@ func (m *mockRepository) DeleteSource(_ context.Context, tenantID, id string) er
 			t.SourceMissing = true
 		}
 	}
+	return nil
+}
+
+// openTenants accepts API writes in every tenant except the locked ones.
+type openTenants struct{ locked map[string]bool }
+
+func (o openTenants) APIAuthoringEnabled(tenantID string) bool { return !o.locked[tenantID] }
+
+func (m *mockRepository) GetSourceByName(_ context.Context, tenantID, name string) (*WebhookSource, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range m.sources {
+		if s.TenantID == tenantID && s.Name == name {
+			cp := *s
+			return &cp, nil
+		}
+	}
+	return nil, ErrSourceNotFound
+}
+
+func (m *mockRepository) ListDeclaredSources(_ context.Context, tenantID string) ([]declarative.Declared, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []declarative.Declared
+	for _, s := range m.sources {
+		if s.TenantID == tenantID && s.Source == declarative.SourceCRD {
+			out = append(out, declarative.Declared{Name: s.Name, UID: s.ResourceUID})
+		}
+	}
+	return out, nil
+}
+
+func (m *mockRepository) GetDeclaredTrigger(_ context.Context, tenantID, name string) (*Trigger, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, t := range m.triggers {
+		if t.TenantID == tenantID && t.Name == name && t.Source == declarative.SourceCRD {
+			cp := *t
+			return &cp, nil
+		}
+	}
+	return nil, ErrTriggerNotFound
+}
+
+func (m *mockRepository) TriggerNameTaken(_ context.Context, tenantID, name, source string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, t := range m.triggers {
+		if t.TenantID == tenantID && t.Name == name && rowSource(t.Source) == source {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *mockRepository) ListDeclaredTriggers(_ context.Context, tenantID string) ([]declarative.Declared, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []declarative.Declared
+	for _, t := range m.triggers {
+		if t.TenantID == tenantID && t.Source == declarative.SourceCRD {
+			out = append(out, declarative.Declared{Name: t.Name, UID: t.ResourceUID})
+		}
+	}
+	return out, nil
+}
+
+// UpdateDeclaredTrigger mirrors the SQL: enabled is kept while the trigger is
+// auto-paused, and the runtime counters are never written.
+func (m *mockRepository) UpdateDeclaredTrigger(_ context.Context, t *Trigger) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	stored, ok := m.triggers[t.ID]
+	if !ok || stored.TenantID != t.TenantID {
+		return ErrTriggerNotFound
+	}
+	cp := *t
+	cp.CreatedAt, cp.UpdatedAt = stored.CreatedAt, time.Now()
+	cp.ConsecutiveFailures, cp.AutoPausedAt = stored.ConsecutiveFailures, stored.AutoPausedAt
+	cp.SourceMissing = cp.Kind == KindWebhook && cp.SourceID == ""
+	if stored.AutoPausedAt != nil {
+		cp.Enabled = stored.Enabled
+	}
+	m.triggers[t.ID] = &cp
 	return nil
 }
 
@@ -974,7 +1059,7 @@ func newTestSourceService(t *testing.T, repo sourceStore, policy *policyclient.C
 	if err != nil {
 		t.Fatalf("newSecretCipher: %v", err)
 	}
-	return NewSourceService(repo, mustRegistry(), cipher, policy, agents, "/api/v1/webhooks/", silentLogger())
+	return NewSourceService(repo, mustRegistry(), cipher, policy, agents, openTenants{}, "/api/v1/webhooks/", silentLogger())
 }
 
 func newTestService(t *testing.T) (*Service, *testDeps) {
@@ -1000,7 +1085,7 @@ func newTestService(t *testing.T) (*Service, *testDeps) {
 	deps := &testDeps{repo: repo, policy: ps, agents: as, minter: minter, policyClnt: pc}
 	deps.sources = newTestSourceService(t, repo, pc, ac)
 	deps.eval = &mockEvaluator{allow: true}
-	deps.triggers = NewTriggerService(repo, mustRegistry(), pc, ac, deps.eval, admission, silentLogger())
+	deps.triggers = NewTriggerService(repo, mustRegistry(), pc, ac, deps.eval, admission, openTenants{}, silentLogger())
 	return svc, deps
 }
 

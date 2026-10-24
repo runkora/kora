@@ -13,6 +13,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/api"
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -553,6 +554,9 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	var ive *InputValidationError
 	var mse *MissingScopesError
 	var gre *GrantRevokeError
+	if declarative.WriteRefusal(ctx, w, c.logger, err) {
+		return
+	}
 	switch {
 	case errors.As(err, &mse):
 		// 403 with the scopes, so the caller knows what to ask for.
@@ -579,7 +583,7 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 		// 'resource_already_exists' — nothing was being created, and a client
 		// branching on the code was being told the opposite of what happened.
 		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
-	case errors.Is(err, ErrSourceNameTaken):
+	case errors.Is(err, ErrSourceNameTaken), errors.Is(err, ErrDeclaredNameTaken):
 		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeResourceExists, err.Error(), nil), nil)
 	case errors.Is(err, ErrNotRedeliverable):
 		// 400: the delivery exists and the caller may see it, but replaying this

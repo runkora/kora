@@ -41,6 +41,7 @@ import (
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
@@ -93,7 +94,7 @@ func realMain() error {
 	defer db.Close()
 	defer redis.Close()
 
-	controller, scopeClient, err := initController(ctx, logger, db, redis, metricsBootstrap.Meter())
+	controllers, scopeClient, err := initController(ctx, logger, db, redis, metricsBootstrap.Meter())
 	if err != nil {
 		return fmt.Errorf("init controller: %w", err)
 	}
@@ -106,21 +107,21 @@ func realMain() error {
 			return scopeClient.Register(ctx, "kora-triggers", routeScopes(), scopeDeclarations())
 		})
 
-	server := initServer(ctx, logger, controller, metricsBootstrap)
+	server := initServer(ctx, logger, controllers, metricsBootstrap)
 
 	run(ctx, logger, server, metricsBootstrap)
 	return nil
 }
 
 // initController wires the Triggers feature: the Postgres repository, the
-// service and its dependencies, the cron scheduler, and the HTTP controller.
+// service and its dependencies, the cron scheduler, and the HTTP controllers.
 func initController(
 	ctx context.Context,
 	logger logging.Logger,
 	db *storage.DB,
 	redis *storage.RedisClient,
 	meter metric.Meter,
-) (platformapi.Controller, *routescopes.Client, error) {
+) ([]platformapi.Controller, *routescopes.Client, error) {
 	cipherKey, err := triggers.LoadCipherKey()
 	if err != nil {
 		return nil, nil, fmt.Errorf("load triggers encryption key: %w", err)
@@ -177,6 +178,9 @@ func initController(
 	// instances deciding the same trigger's ceiling would be two answers.
 	admission := triggers.NewAdmission(repo, logger)
 
+	// The operator-written tenant registry carries each tenant's API authoring switch.
+	tenants := declarative.NewRegistry(tc.Current.Kubernetes.TenantsPath)
+
 	svc := triggers.NewService(
 		repo,
 		registry,
@@ -203,6 +207,7 @@ func initController(
 		agentsClient,
 		policyEval,
 		admission,
+		tenants,
 		logger,
 	)
 
@@ -214,6 +219,7 @@ func initController(
 		cipher,
 		policyClient,
 		agentsClient,
+		tenants,
 		tc.Current.Server.BasePath+"/webhooks/",
 		logger,
 	)
@@ -250,7 +256,15 @@ func initController(
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 	auth := authMiddleware(verifier, storage.NewJTIBlocklist(redis), logger)
 
-	return triggers.NewController(svc, sources, lifecycle, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger), scopeClient, nil
+	// The operator applies TriggerSource and Trigger resources through the declared-item endpoints.
+	declared := declarative.NewController(verifier, logger, map[string]declarative.Applier{
+		declarative.KindTriggerSources: sources,
+		declarative.KindTriggers:       lifecycle,
+	})
+	return []platformapi.Controller{
+		triggers.NewController(svc, sources, lifecycle, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger),
+		declared,
+	}, scopeClient, nil
 }
 
 // routeScopes binds each management route to the scope it requires.
@@ -355,7 +369,7 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 	return db, rc, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, controller platformapi.Controller, metrics *platformmetrics.Bootstrap) *http.Server {
+func initServer(ctx context.Context, logger logging.Logger, controllers []platformapi.Controller, metrics *platformmetrics.Bootstrap) *http.Server {
 	apiServer := platformapi.NewAPI(ctx, logger)
 
 	// Per-route, not in the global chain below: it must run after RoutePattern
@@ -370,7 +384,7 @@ func initServer(ctx context.Context, logger logging.Logger, controller platforma
 			mw.TracingMiddleware(tc.Current.Observability.ServiceName),
 			mw.LoggingMiddleware(logger),
 		),
-		controller,
+		controllers...,
 	)
 }
 
