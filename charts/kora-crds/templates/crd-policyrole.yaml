@@ -60,6 +60,10 @@ spec:
               required:
                 - scopes
               properties:
+                tenant:
+                  type: string
+                  minLength: 1
+                  description: The tenant the role belongs to. Set it only on a PolicyRole in the system namespace. Such a role may hold platform scopes.
                 role:
                   type: string
                   minLength: 1
@@ -92,6 +96,9 @@ spec:
             status:
               type: object
               properties:
+                id:
+                  type: string
+                  description: The id of the item the resource is projected to.
                 observedGeneration:
                   type: integer
                   format: int64
