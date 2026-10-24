@@ -8,13 +8,13 @@ import {
   Alert,
   Button,
   FormField,
-  Heading,
   Icon,
   Input,
   SectionHeading,
   Stack,
   Text,
   Wizard,
+  useWizardSteps,
 } from '@runkora/hades';
 import {
   BudgetLimitFields,
@@ -26,7 +26,7 @@ import {
   budgetLimitsAnyOn,
 } from '@runkora/components';
 import type { BudgetLimitValues, ScopeOption } from '@runkora/components';
-import { fmtUsd } from '@runkora/utils';
+import { fmtUsd, plural } from '@runkora/utils';
 import { createRoleAction } from '../_actions/roles';
 
 interface CreateRoleWizardProps {
@@ -55,8 +55,6 @@ const SCOPES = 1;
 const BUDGET = 2;
 const REVIEW = 3;
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
 export function CreateRoleWizard({
   availableScopes,
   scopeOptions,
@@ -65,8 +63,6 @@ export function CreateRoleWizard({
   onClose,
   onCreated,
 }: CreateRoleWizardProps) {
-  const [step, setStep] = useState(NAME);
-  const [maxVisited, setMaxVisited] = useState(NAME);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [created, setCreated] = useState(false);
@@ -106,18 +102,13 @@ export function CreateRoleWizard({
     budgetProblem ?? undefined,
     undefined,
   ];
-  // Review stands for every step before it, so it cannot be reached with one of them invalid.
-  const hint = step === REVIEW ? (hints.find((h) => h !== undefined) ?? undefined) : hints[step];
-
-  const goTo = useCallback(
-    (target: number) => {
-      if (submitting) return;
-      setStep(target);
-      setMaxVisited((m) => Math.max(m, target));
-      setSubmitError(null);
-    },
-    [submitting],
-  );
+  const steps = useWizardSteps({
+    stepCount: STEPS.length,
+    hints,
+    locked: submitting,
+    reviewStep: REVIEW,
+    onNavigate: () => setSubmitError(null),
+  });
 
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
@@ -139,8 +130,7 @@ export function CreateRoleWizard({
   }, [name, scopes, budget, onCreated]);
 
   const createAnother = () => {
-    setStep(NAME);
-    setMaxVisited(NAME);
+    steps.reset();
     setRoleName('');
     setScopes([]);
     setLimits(EMPTY_BUDGET_LIMIT_VALUES);
@@ -149,7 +139,7 @@ export function CreateRoleWizard({
   };
 
   const body = (() => {
-    switch (step) {
+    switch (steps.step) {
       case NAME:
         return (
           <SectionHeading
@@ -213,13 +203,13 @@ export function CreateRoleWizard({
               <Wizard.ReviewCard
                 icon="user-check"
                 title="Name"
-                onEdit={() => goTo(NAME)}
+                onEdit={() => steps.goTo(NAME)}
                 rows={[{ label: 'Role', value: name || 'Not set', mono: name.length > 0 }]}
               />
               <Wizard.ReviewCard
                 icon="shield-check"
                 title="Scopes"
-                onEdit={() => goTo(SCOPES)}
+                onEdit={() => steps.goTo(SCOPES)}
                 rows={[{ label: 'Selected', value: plural(scopes.length, 'scope', 'scopes') }]}
               >
                 <Stack paddingBlock="snug">
@@ -229,7 +219,7 @@ export function CreateRoleWizard({
               <Wizard.ReviewCard
                 icon="dollar-sign"
                 title="Budget"
-                onEdit={() => goTo(BUDGET)}
+                onEdit={() => steps.goTo(BUDGET)}
                 rows={budgetRows}
               />
             </Wizard.ReviewStep>
@@ -244,58 +234,42 @@ export function CreateRoleWizard({
       onClose={submitting ? () => undefined : onClose}
       icon="user-check"
       title="Create role"
-      hint={created ? undefined : hint}
+      hint={created ? undefined : steps.hint}
       rail={
         <Wizard.Rail
           label="Create role"
           steps={STEPS}
-          current={step}
-          maxVisited={maxVisited}
-          onGoTo={goTo}
+          current={steps.step}
+          maxVisited={steps.maxVisited}
+          onGoTo={steps.goTo}
         />
       }
       footer={
         <Wizard.Footer
-          step={step}
+          step={steps.step}
           totalSteps={STEPS.length}
-          onBack={step > NAME ? () => goTo(step - 1) : undefined}
-          onNext={() => goTo(step + 1)}
-          nextDisabled={hint !== undefined}
-          onSubmit={step === REVIEW ? () => void handleSubmit() : undefined}
+          onBack={steps.isFirst ? undefined : steps.back}
+          onNext={steps.next}
+          nextDisabled={steps.nextDisabled}
+          onSubmit={steps.isLast ? () => void handleSubmit() : undefined}
           submitLabel="Create role"
           pending={submitting}
         />
       }
     >
       {created ? (
-        <Wizard.Step fullPage>
-          <Stack
-            grow
-            align="center"
-            justify="center"
-            gap="comfortable"
-            padding="loose"
-            overflowY="auto"
-          >
-            <Stack align="center" gap="snug">
-              <Icon
-                name="check-circle"
-                size="xl"
-                color="accent"
-                container
-                containerVariant="accent"
-                circle
-                label=""
-              />
-              <Heading variant="subsection">Role created</Heading>
-              <Text size="supporting" color="muted" align="center">
-                <Text as="span" size="supporting" weight="heavy" mono>
-                  {name}
-                </Text>{' '}
-                now grants {plural(scopes.length, 'scope', 'scopes')}.
-              </Text>
-            </Stack>
-            <Stack direction="horizontal" gap="cozy">
+        <Wizard.Success
+          title="Role created"
+          description={
+            <>
+              <Text as="span" size="supporting" weight="heavy" mono>
+                {name}
+              </Text>{' '}
+              now grants {plural(scopes.length, 'scope', 'scopes')}.
+            </>
+          }
+          actions={
+            <>
               <Button variant="secondary" onClick={onClose}>
                 Done
               </Button>
@@ -303,9 +277,9 @@ export function CreateRoleWizard({
                 Create another
                 <Icon name="plus" />
               </Button>
-            </Stack>
-          </Stack>
-        </Wizard.Step>
+            </>
+          }
+        />
       ) : (
         <Stack grow overflowY="auto" padding="loose" gap="relaxed">
           {body}
