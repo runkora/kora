@@ -1,26 +1,24 @@
-package operator
+package logging
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/go-logr/logr"
-
-	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-// logSink adapts logging.Logger to controller-runtime's logr interface, so the
-// errors controller-runtime logs on the operator's behalf (a Reconcile
-// returning an error, webhook server TLS failures) land in the same structured
-// log stream as everything else. Without it they are dropped.
+// logSink adapts Logger to controller-runtime's logr interface. The errors
+// controller-runtime logs for a binary (a Reconcile returning an error, webhook
+// server TLS failures) then land in the same structured log stream as
+// everything else. Without it they are dropped.
 type logSink struct {
-	log    logging.Logger
+	log    Logger
 	name   string
-	fields []logging.Field
+	fields []Field
 }
 
-// NewLogSink wraps logger for ctrl.SetLogger.
-func NewLogSink(logger logging.Logger) logr.LogSink {
+// NewLogrSink wraps logger for ctrl.SetLogger and controller-runtime managers.
+func NewLogrSink(logger Logger) logr.LogSink {
 	return &logSink{log: logger}
 }
 
@@ -42,7 +40,7 @@ func (s *logSink) Info(level int, msg string, kv ...any) {
 func (s *logSink) Error(err error, msg string, kv ...any) {
 	fields := s.with(kv)
 	if err != nil {
-		fields = append(fields, logging.Field{Key: "error", Value: err.Error()})
+		fields = append(fields, Field{Key: "error", Value: err.Error()})
 	}
 	s.log.Error(context.Background(), s.prefixed(msg), fields...)
 }
@@ -67,8 +65,8 @@ func (s *logSink) prefixed(msg string) string {
 
 // with returns the sink's fields plus kv folded into key/value pairs; a
 // trailing key with no value is kept with an empty value rather than dropped.
-func (s *logSink) with(kv []any) []logging.Field {
-	fields := make([]logging.Field, 0, len(s.fields)+len(kv)/2+1)
+func (s *logSink) with(kv []any) []Field {
+	fields := make([]Field, 0, len(s.fields)+len(kv)/2+1)
 	fields = append(fields, s.fields...)
 	for i := 0; i < len(kv); i += 2 {
 		key := fmt.Sprint(kv[i])
@@ -76,7 +74,7 @@ func (s *logSink) with(kv []any) []logging.Field {
 		if i+1 < len(kv) {
 			val = kv[i+1]
 		}
-		fields = append(fields, logging.Field{Key: key, Value: val})
+		fields = append(fields, Field{Key: key, Value: val})
 	}
 	return fields
 }

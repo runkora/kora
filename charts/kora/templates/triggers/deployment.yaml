@@ -32,6 +32,13 @@ spec:
       volumes:
         {{- include "kora.spireVolumes" . | nindent 8 }}
         {{- include "kora.configVolume" (dict "root" $ "name" "triggers" "configMap" "kora-triggers-config" "modules" (include "kora.triggers.configModules" . | fromYaml)) | nindent 8 }}
+        # Operator-owned tenant registry: each tenant's authoring switch.
+        # Optional so the pod starts before any tenant exists; read again when
+        # it changes.
+        - name: tenants-config
+          configMap:
+            name: {{ .Values.triggers.tenantsConfigMap }}
+            optional: true
         {{- include "kora.redisCAVolume" . | nindent 8 }}
         {{- include "kora.extraVolumes" (dict "root" $ "name" "triggers") | nindent 8 }}
       containers:
@@ -73,4 +80,7 @@ spec:
             {{- include "kora.spireVolumeMount" . | nindent 12 }}
             {{- include "kora.configVolumeMount" . | nindent 12 }}
             {{- include "kora.redisCAVolumeMount" . | nindent 12 }}
+            - name: tenants-config
+              mountPath: /etc/kora
+              readOnly: true
             {{- include "kora.extraVolumeMounts" (dict "root" $ "name" "triggers") | nindent 12 }}

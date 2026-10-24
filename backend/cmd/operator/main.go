@@ -95,7 +95,7 @@ func run(ctx context.Context, restCfg *rest.Config, logger logging.Logger) error
 
 	// controller-runtime logs Reconcile errors and webhook TLS failures itself;
 	// route them through the injected logger instead of discarding them.
-	ctrl.SetLogger(logr.New(operator.NewLogSink(logger)))
+	ctrl.SetLogger(logr.New(logging.NewLogrSink(logger)))
 
 	mgr, err := initManager(restCfg)
 	if err != nil {

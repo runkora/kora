@@ -22,10 +22,12 @@ type registryFile struct {
 }
 
 type registryEntry struct {
-	ID          string       `json:"id"`
-	DisplayName string       `json:"displayName"`
-	State       string       `json:"state"`
-	OIDC        registryOIDC `json:"oidc"`
+	ID           string        `json:"id"`
+	DisplayName  string        `json:"displayName"`
+	State        string        `json:"state"`
+	OIDC         registryOIDC  `json:"oidc"`
+	APIAuthoring string        `json:"apiAuthoring"`
+	Budget       *TenantBudget `json:"budget,omitempty"`
 }
 
 type registryOIDC struct {
@@ -64,10 +66,11 @@ func NewTenantRegistry(c client.Client, logger logging.Logger) *TenantRegistry {
 // KoraTenant CRs. It creates the ConfigMap if absent and patches it if
 // the content has changed.
 func (r *TenantRegistry) Sync(ctx context.Context) error {
-	tenants, err := r.listActiveTenants(ctx)
-	if err != nil {
-		return fmt.Errorf("list tenants: %w", err)
+	list := &KoraTenantList{}
+	if err := r.client.List(ctx, list); err != nil {
+		return fmt.Errorf("list KoraTenants: %w", err)
 	}
+	tenants := list.Items
 
 	yaml, err := r.buildRegistryYAML(tenants)
 	if err != nil {
@@ -98,30 +101,22 @@ func (r *TenantRegistry) Sync(ctx context.Context) error {
 // private helpers
 // -----------------------------------------------------------------------------
 
-func (r *TenantRegistry) listActiveTenants(ctx context.Context) ([]KoraTenant, error) {
-	list := &KoraTenantList{}
-	if err := r.client.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("list KoraTenants: %w", err)
-	}
-
-	active := make([]KoraTenant, 0, len(list.Items))
-	for _, t := range list.Items {
-		if t.Spec.Active {
-			active = append(active, t)
-		}
-	}
-	return active, nil
-}
-
 // buildRegistryYAML produces the docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md tenant registry YAML that the
 // identity service parses. The format must remain stable: the identity
 // service owns the schema; the operator only writes it.
 //
-// All tenants passed in are assumed active: listActiveTenants already
-// filters the list before this function is called.
+// Only active tenants are listed.
 func (r *TenantRegistry) buildRegistryYAML(tenants []KoraTenant) (string, error) {
 	entries := make([]registryEntry, 0, len(tenants))
-	for _, t := range tenants {
+	for i := range tenants {
+		t := &tenants[i]
+		if !t.Spec.Active {
+			continue
+		}
+		apiAuthoring := t.Spec.APIAuthoring
+		if apiAuthoring == "" {
+			apiAuthoring = APIAuthoringEnabled
+		}
 		scopes := t.Spec.OIDC.Scopes
 		if len(scopes) == 0 {
 			scopes = []string{"openid", "profile", "email"}
@@ -136,6 +131,8 @@ func (r *TenantRegistry) buildRegistryYAML(tenants []KoraTenant) (string, error)
 				Scopes:       scopes,
 				EmailDomains: t.Spec.OIDC.EmailDomains,
 			},
+			APIAuthoring: apiAuthoring,
+			Budget:       t.Spec.Budget,
 		})
 	}
 

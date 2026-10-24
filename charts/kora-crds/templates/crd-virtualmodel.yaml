@@ -1,0 +1,119 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: virtualmodels.runkora.io
+  labels:
+    {{- include "kora-crds.labels" . | nindent 4 }}
+  annotations:
+    # helm uninstall keeps this CRD. Catalog definitions outlive the product install.
+    helm.sh/resource-policy: keep
+spec:
+  group: runkora.io
+  names:
+    kind: VirtualModel
+    listKind: VirtualModelList
+    plural: virtualmodels
+    singular: virtualmodel
+    shortNames:
+      - kvm
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Family
+          type: string
+          jsonPath: .spec.family
+        - name: Model
+          type: string
+          jsonPath: .spec.name
+        {{- include "kora-crds.declaredColumns" . | nindent 8 }}
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          description: >
+            VirtualModel defines one platform-wide catalog model. Apply it in the
+            kora system namespace. The operator projects it into the inference
+            gateway, which serves it as <family>/<name>. Its routes send
+            requests to provider models.
+          type: object
+          required:
+            - spec
+          x-kubernetes-validations:
+            {{- include "kora-crds.dnsLabelName" . | nindent 12 }}
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - family
+                - name
+                - displayName
+              properties:
+                family:
+                  type: string
+                  pattern: "^[a-z0-9_-]{1,255}$"
+                  description: The model family. It is the first segment of the model's scope.
+                name:
+                  type: string
+                  pattern: "^[a-z0-9_-]{1,255}$"
+                  description: The model name within its family.
+                displayName:
+                  type: string
+                  minLength: 1
+                description:
+                  type: string
+                strategy:
+                  type: string
+                  enum:
+                    - priority
+                    - weighted
+                    - lowest_cost
+                  default: priority
+                  description: How a request picks among enabled routes. Weighted routes must sum to 100.
+                enabled:
+                  type: boolean
+                  default: true
+                routes:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - provider
+                      - modelID
+                    properties:
+                      provider:
+                        type: string
+                        pattern: "^[a-z]+:[a-z0-9][-a-z0-9_]*$"
+                        description: A provider name, <type>:<InferenceProvider name>.
+                      modelID:
+                        type: string
+                        minLength: 1
+                        description: The provider's model id.
+                      priority:
+                        type: integer
+                        format: int32
+                        minimum: 1
+                        default: 1
+                      weight:
+                        type: integer
+                        format: int32
+                        minimum: 0
+                        maximum: 100
+                      enabled:
+                        type: boolean
+                        default: true
+            status:
+              type: object
+              properties:
+                {{- include "kora-crds.declaredStatus" . | nindent 16 }}
