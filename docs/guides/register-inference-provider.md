@@ -273,6 +273,8 @@ Provider health shows the model count, the last discovery and any upstream error
 2. Create a virtual model routed to it, on the Catalog page or with `models.virtual.create`.
 3. Grant `inference:<family>:<name>:use`.
 
+To define virtual models in Git, use `VirtualModel` resources as described in [Declarative resources](declarative-resources.md#virtualmodel).
+
 ## List models by capability
 
 `GET /v1/models` accepts an optional `capability` parameter. It keeps models whose capabilities include any requested value. Repeat the parameter or separate values with commas. Valid values are `chat`, `embedding`, `image`, `video`, `rerank`, `audio` and `decision`. An unknown value returns `400` with code `invalid_request`. Without the parameter the list is unchanged.

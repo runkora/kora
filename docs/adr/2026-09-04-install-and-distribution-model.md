@@ -1,6 +1,6 @@
 # Install and Distribution Model: Published Charts and a Tenant-Only Operator
 
-**Status:** Proposed (amended 2026-09-10: schema application moved into the `kora` chart, see [Database Migrations](2026-09-10-database-migrations.md). Amended 2026-10-24: the operator projects declared resources, see Amendment 1)
+**Status:** Proposed (amended 2026-09-10: schema application moved into the `kora` chart, see [Database Migrations](2026-09-10-database-migrations.md). Amended 2026-10-24: Amendment 1 Accepted, the operator projects declared resources)
 **Date:** 2026-09-04
 **Deciders:** Justin Wilkin
 **Technical Story:** Implements the [Install and Distribution PRD](../prd/install-and-distribution.md). Supersedes [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) and amends [Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md). The companion decision on how kora's sidecars reach pods in a mesh kora did not install is [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md).
@@ -506,7 +506,7 @@ Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouche
 
 ## Amendment 1 (2026-10-24): The operator projects declared resources
 
-**Status:** Proposed
+**Status:** Accepted
 
 [Declarative Resources](2026-10-24-declarative-resources.md) makes the operator the single projector for `VirtualModel`, `Environment`, `Agent`, `TriggerSource`, `Trigger` and `PolicyRole` resources. This touches *What can it access?* The four owning services gain no Kubernetes access. *Who is this agent?* and *How does it connect?* are unchanged.
 

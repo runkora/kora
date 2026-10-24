@@ -1,0 +1,30 @@
+# An environment on the kora-base image and an autonomous agent that runs in it.
+apiVersion: runkora.io/v1alpha1
+kind: Environment
+metadata:
+  name: gitops-base
+  namespace: kora-tenant-example
+spec:
+  displayName: GitOps base
+  description: Declared in deploy/local/declarative.
+  sandboxImage: kora-base
+  size: {cpu: "1", memory: 2Gi, disk: 5Gi}
+  egressHosts: [github.com, api.github.com]
+---
+apiVersion: runkora.io/v1alpha1
+kind: Agent
+metadata:
+  name: gitops-reviewer
+  namespace: kora-tenant-example
+spec:
+  displayName: GitOps reviewer
+  description: Reviews pull requests and summarises the changes they make. Declared in deploy/local/declarative.
+  framework: claude-code
+  identityMode: autonomous
+  model: {family: gitops, name: sonnet}
+  systemPrompt: |
+    Review the pull request you are given. Report correctness problems first, then style.
+  environments:
+    - name: gitops-base
+      default: true
+  budget: {limitUSD: 5, resetCadence: monthly}

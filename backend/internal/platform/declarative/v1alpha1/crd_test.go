@@ -1,7 +1,10 @@
 package v1alpha1
 
 import (
+	"fmt"
+	"os"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -24,7 +27,58 @@ var kinds = []struct {
 	{"crd-policyrole.yaml", &PolicyRole{}},
 }
 
-// The examples from docs/adr/2026-10-24-declarative-resources.md.
+// TestExampleManifestsValidate checks the local examples in
+// deploy/local/declarative and the complete examples in the guide against the
+// schemas and the Go types. Snippets without apiVersion are skipped.
+func TestExampleManifestsValidate(t *testing.T) {
+	sources := map[string]string{}
+	for _, f := range []string{"agent.yaml", "policy-role.yaml", "triggers.yaml", "virtual-model.yaml"} {
+		raw, err := os.ReadFile("../../../../../deploy/local/declarative/" + f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sources[f] = string(raw)
+	}
+	guide, err := os.ReadFile("../../../../../docs/guides/declarative-resources.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, block := range regexp.MustCompile("(?s)```yaml\n(.*?)```").FindAllStringSubmatch(string(guide), -1) {
+		sources[fmt.Sprintf("guide block %d", i)] = block[1]
+	}
+	byKind := map[string]int{}
+	for i, k := range kinds {
+		byKind[reflect.TypeOf(k.obj).Elem().Name()] = i
+	}
+	checked := 0
+	for src, text := range sources {
+		for doc := range strings.SplitSeq(text, "\n---\n") {
+			var head struct{ APIVersion, Kind string }
+			if err := yaml.Unmarshal([]byte(doc), &head); err != nil {
+				t.Fatalf("%s: %v", src, err)
+			}
+			i, ok := byKind[head.Kind]
+			if !ok || head.APIVersion != GroupVersion.String() {
+				continue
+			}
+			var obj map[string]any
+			if err := yaml.Unmarshal([]byte(doc), &obj); err != nil {
+				t.Fatalf("%s: %v", src, err)
+			}
+			if errs := crdtest.Validate(crdtest.Schema(t, kinds[i].file), obj, ""); len(errs) > 0 {
+				t.Errorf("%s %s: schema errors: %v", src, head.Kind, errs)
+			}
+			if err := yaml.UnmarshalStrict([]byte(doc), kinds[i].obj.DeepCopyObject()); err != nil {
+				t.Errorf("%s %s: decode: %v", src, head.Kind, err)
+			}
+			checked++
+		}
+	}
+	if checked < 7 {
+		t.Errorf("checked %d manifests, want the 7 local examples at least", checked)
+	}
+}
+
 // TestCRDShape checks each CRD is namespaced with one served version and a
 // status subresource.
 func TestCRDShape(t *testing.T) {
