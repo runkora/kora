@@ -97,6 +97,7 @@ None at this time.
 - [ ] Each role is one declarative resource in the tenant's namespace with its scopes and an optional budget.
 - [ ] The tenant's overall budget is set on the tenant resource.
 - [ ] Users receive a declared role through their identity provider as they do today.
+- [ ] A role in a tenant's namespace cannot hold platform-wide scopes. The platform team declares those roles in the platform's namespace for a named tenant.
 
 ---
 
