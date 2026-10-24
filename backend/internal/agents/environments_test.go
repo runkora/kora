@@ -88,7 +88,7 @@ func (f *fakeEnvStore) UpdateEnvironment(_ context.Context, env Environment) err
 func (f *fakeEnvStore) DeleteEnvironment(context.Context, string, string) error { return f.deleteErr }
 
 func newEnvironmentService(store *fakeEnvStore, k8s *mockK8s) *EnvironmentService {
-	return NewEnvironmentService(store, newMockRepository(), k8s, k8s, fakeWriteChecker{}, EnvironmentServiceConfig{
+	return NewEnvironmentService(store, newMockRepository(), k8s, k8s, fakeWriteChecker{}, lockedTenants{}, EnvironmentServiceConfig{
 		TenantNamespaceFn: func(id string) string { return "kora-tenant-" + id },
 		EnvironmentSizes:  testSizes,
 	}, logging.NewLoggerWithOutput(io.Discard))
@@ -292,7 +292,8 @@ func TestHandleEnvironment_NameRequired(t *testing.T) {
 
 // Deleting an attached environment is a 409. The frontend tells the user to detach it first.
 func TestHandleDeleteEnvironment_InUse(t *testing.T) {
-	svc := newEnvironmentService(&fakeEnvStore{deleteErr: ErrEnvironmentInUse}, &mockK8s{})
+	store := &fakeEnvStore{envs: map[string]Environment{"env-1": {ID: "env-1", TenantID: "t-1"}}, deleteErr: ErrEnvironmentInUse}
+	svc := newEnvironmentService(store, &mockK8s{})
 	c := NewController(nil, nil, svc, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	req := withTenantRequest(httptest.NewRequest(http.MethodDelete, "/api/v1/environments/env-1", http.NoBody), "t-1")
 	req.SetPathValue("id", "env-1")

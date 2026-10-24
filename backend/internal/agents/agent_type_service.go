@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/google/uuid"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -44,6 +45,9 @@ func validateAgentSlug(slug string) error {
 // creatorSubject is the person behind the create (D37). Under delegation it is
 // the delegator, so owner access goes to the person and never to the acting agent.
 func creatorSubject(ctx context.Context) string {
+	if d, ok := declaredFromContext(ctx); ok {
+		return d.createdBy
+	}
 	if d := policy.DelegationFromContext(ctx); d != nil && d.Sub != "" {
 		return d.Sub
 	}
@@ -77,6 +81,8 @@ type AgentTypeService struct {
 	delegation *DelegationBroker
 	// pubsub tells live viewers of a cancelled run that it ended; nil = skip.
 	pubsub *PubSub
+	// authoring can lock a tenant to its declarative resources.
+	authoring authoringSwitch
 }
 
 // SetDelegationBroker installs the broker used to revoke delegation issuances
@@ -91,17 +97,19 @@ func NewAgentTypeService(
 	k8s k8sProvisioner,
 	authz *Authz,
 	pubsub *PubSub,
+	authoring authoringSwitch,
 	cfg AgentTypeServiceConfig,
 	logger logging.Logger,
 ) *AgentTypeService {
 	return &AgentTypeService{
-		repo:    repo,
-		runRepo: runRepo,
-		k8s:     k8s,
-		authz:   authz,
-		pubsub:  pubsub,
-		cfg:     cfg,
-		logger:  logger,
+		repo:      repo,
+		runRepo:   runRepo,
+		k8s:       k8s,
+		authz:     authz,
+		pubsub:    pubsub,
+		authoring: authoring,
+		cfg:       cfg,
+		logger:    logger,
 	}
 }
 
@@ -356,6 +364,9 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	if err := s.authz.checkAgentTypeModeWrite(ctx, validated.identityMode); err != nil {
 		return nil, err
 	}
+	if err := refuseAPIWrite(ctx, s.authoring, req.TenantID, declarative.SourceAPI); err != nil {
+		return nil, err
+	}
 
 	// grant_scopes is NOT NULL in the database; default a missing slice to an
 	// empty one so a request that omits the field still creates cleanly.
@@ -398,6 +409,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		State:                   AgentTypeStateProvisioning,
 		CreatedBy:               creatorSubject(ctx),
 	}
+	at.Source, at.ResourceUID, at.ResourceGeneration = sourceFor(ctx)
 	if err := s.checkCeiling(ctx, at, s.scopeResolver()); err != nil {
 		return nil, err
 	}
@@ -665,9 +677,11 @@ func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType)
 				logging.Field{Key: "error", Value: runErr.Error()})
 		}
 		run := runErr == nil
-		editThis := edit && s.withinCeiling(ctx, ats[i], callers)
+		// A declared agent, or any agent in a locked tenant, refuses API writes.
+		writable := edit && refuseAPIWrite(ctx, s.authoring, ats[i].TenantID, ats[i].Source) == nil
+		editThis := writable && s.withinCeiling(ctx, ats[i], callers)
 		// Delete runs the same refusal of delegated callers on autonomous agents (D36).
-		deleteThis := edit && refuseDelegatedAutonomousWrite(ctx, ats[i]) == nil
+		deleteThis := writable && refuseDelegatedAutonomousWrite(ctx, ats[i]) == nil
 		ats[i].CanEdit, ats[i].CanRun, ats[i].CanDelete = &editThis, &run, &deleteThis
 	}
 }
@@ -701,6 +715,9 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	if err != nil {
 		return nil, err
 	}
+	if err = refuseAPIWrite(ctx, s.authoring, at.TenantID, at.Source); err != nil {
+		return nil, err
+	}
 	if vErr := s.validateAgentTypeUpdate(ctx, at, req); vErr != nil {
 		return nil, vErr
 	}
@@ -711,6 +728,9 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	oldModelID := at.ModelID
 
 	applyAgentTypeUpdates(at, req)
+	if d, ok := declaredFromContext(ctx); ok {
+		at.ResourceGeneration = d.generation
+	}
 
 	// Keep the inference grant aligned with the model: when the model changes and
 	// the caller didn't supply explicit inference scopes in this update, re-derive
@@ -871,6 +891,9 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 		return ErrNotFound
 	}
 	if err = s.authz.checkAgentTypeModeWrite(ctx, at.IdentityMode.OrDefault()); err != nil {
+		return err
+	}
+	if err = refuseAPIWrite(ctx, s.authoring, at.TenantID, at.Source); err != nil {
 		return err
 	}
 	if err = refuseDelegatedAutonomousWrite(ctx, *at); err != nil {

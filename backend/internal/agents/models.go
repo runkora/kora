@@ -228,8 +228,15 @@ type AgentType struct {
 	// Guardrails are the loop-guard thresholds; unset fields take the platform defaults.
 	Guardrails Guardrails `json:"guardrails"`
 	// CreatedBy is the token subject that created the type; the owner check in Authz reads it.
-	CreatedBy string         `json:"created_by,omitempty"`
-	State     AgentTypeState `json:"state"`
+	// A declared agent has resource:<namespace>/<name>.
+	CreatedBy string `json:"created_by,omitempty"`
+	// Source is declarative.SourceAPI or SourceCRD. A crd row is read-only through the API.
+	Source string `json:"source"`
+	// ResourceUID is the UID of the Agent resource a crd row projects.
+	ResourceUID string `json:"-"`
+	// ResourceGeneration is the resource generation the crd row last applied.
+	ResourceGeneration int64          `json:"-"`
+	State              AgentTypeState `json:"state"`
 	// ActivatedAt is when the type last became active; zero if it never has. The run start budget runs from it.
 	ActivatedAt time.Time `json:"activated_at"`
 	CreatedAt   time.Time `json:"created_at"`
