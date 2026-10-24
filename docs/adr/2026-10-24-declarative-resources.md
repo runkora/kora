@@ -422,7 +422,7 @@ CREATE UNIQUE INDEX agent_types_tenant_slug_live ON agent_types (tenant_id, slug
 *   The six new CRDs carry `helm.sh/resource-policy: keep`.
 *   The operator ClusterRole gains `get/list/watch` on the six kinds and `patch` on their status.
 *   The operator gets an Istio sidecar. Its webhook port is excluded from inbound interception with `traffic.sidecar.istio.io/excludeInboundPorts`. It mounts the SPIRE workload socket and gets a platform token as `/system/operator`.
-*   A mesh AuthorizationPolicy on each service denies `/internal/declared/` under its base path to every principal except the operator. The edge returns 404 for these paths.
+*   A mesh AuthorizationPolicy on each service denies `/internal/declared/` under its base path to every principal except the operator. The edge refuses these paths.
 *   `inference-gateway`, `kora-agents`, `kora-triggers` and `policy-service` gain no Kubernetes access.
 
 ### Rationale
@@ -477,7 +477,7 @@ On the local cluster:
 *   Declared changes wait while the operator is down. Projected items keep running from Postgres.
 *   The operator's start depends on the mesh issuing it a certificate.
 *   The operator depends on an internal endpoint in four services.
-*   The authoring switch reaches each service when its registry mount refreshes. Services can disagree for up to about two minutes.
+*   The authoring switch reaches each service when its registry mount refreshes. Services can disagree for a few minutes.
 *   `kora-crds` must be applied before `kora`.
 *   Changing a tenant's namespace requires deleting and recreating the `KoraTenant`.
 *   A rotated trigger source Secret takes effect on the next resync, up to 5 minutes later.
