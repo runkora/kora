@@ -222,7 +222,6 @@ Installation moves where enforcement is delivered. Workload identity, policy eva
 - Release validation against every declared Kubernetes and Istio version.
 - A documented list of every network flow kora's workloads need, inbound and outbound, and the destination registrations for registry-only mesh egress.
 - A migration path for deployments running from copied install material.
-- A single registry-authentication step in the quickstart while release artefacts remain private.
 
 ### Out of Scope
 
@@ -233,7 +232,6 @@ Installation moves where enforcement is delivered. Workload identity, policy eva
 
 ### Future Considerations
 
-- Public artefact distribution after the repository opens. The private-preview registry authentication step is removed at that point; nothing else changes.
 - Naming managed Istio offerings as supported after each passes release validation.
 - An Argo CD install exercised in release validation.
 - Flux support, if a customer need for it appears.
@@ -334,7 +332,6 @@ Rejected: two install paths maintained by one team, with the secondary path deca
 | Reference and production paths diverge. | High | Medium | Make the reference path consume released artefacts and values; exercise it in release validation. |
 | Enforcement attachment becomes a single point of failure for tenant workloads. | High | Low | Two replicas and a disruption budget by default; effect limited to tenant namespaces; documented operator view. |
 | Removing platform lifecycle from the controller leaves an unclear upgrade path. | Medium | Medium | Publish ownership boundaries, compatibility, ordering, rollback, and migration guidance with every release. |
-| Private-preview artefacts slow evaluation. | Low | High | Document one registry-authentication step outside the long-term installation contract. |
 
 ---
 
