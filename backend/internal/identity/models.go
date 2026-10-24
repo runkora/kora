@@ -129,6 +129,10 @@ type SessionResponse struct {
 	// token lifetime, so the cookie never outlives the refresh token.
 	// Omitted for agent sessions (no refresh token issued).
 	RefreshTokenExpiresIn int `json:"refresh_token_expires_in,omitempty"`
+	// APIAuthoring is false when the principal's tenant authors its items
+	// only in its configuration repository. The dashboard then shows them
+	// read-only.
+	APIAuthoring bool `json:"api_authoring"`
 }
 
 // TenantDiscovery is the response body for GET /identity/tenants/discover.
