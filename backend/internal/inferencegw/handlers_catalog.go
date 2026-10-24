@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -204,16 +205,19 @@ func (c *CatalogController) handleListVirtualModels(w http.ResponseWriter, r *ht
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": items, "api_authoring": c.apiAuthoring})
 }
 
-// refuseWrite answers a virtual model write the platform switch or a
-// resource forbids and reports whether it did.
-func (c *CatalogController) refuseWrite(ctx context.Context, w http.ResponseWriter, err error) bool {
+// refuseLocked answers 403 when the platform switch turns off virtual model
+// writes through the API and reports whether it did.
+func (c *CatalogController) refuseLocked(ctx context.Context, w http.ResponseWriter) bool {
+	return !c.apiAuthoring && declarative.WriteRefusal(ctx, w, c.logger, declarative.ErrAPIAuthoringDisabled)
+}
+
+// writeStoreError answers the 409s a virtual model write can meet and
+// reports whether it did.
+func (c *CatalogController) writeStoreError(ctx context.Context, w http.ResponseWriter, err error) bool {
+	if declarative.WriteRefusal(ctx, w, c.logger, err) {
+		return true
+	}
 	switch {
-	case err == nil && !c.apiAuthoring:
-		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeAPIAuthoringDisabled,
-			"virtual model authoring through the API is disabled on this platform", nil), nil)
-	case errors.Is(err, ErrVirtualModelManaged):
-		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeManagedByResource,
-			"virtual model is managed by a VirtualModel resource; change the resource instead", nil), nil)
 	case errors.Is(err, ErrVirtualModelRouteTaken):
 		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
 	case errors.Is(err, ErrVirtualModelExists):
@@ -233,7 +237,7 @@ func (c *CatalogController) refuseWrite(ctx context.Context, w http.ResponseWrit
 // offending character(s).
 func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if c.refuseWrite(ctx, w, nil) {
+	if c.refuseLocked(ctx, w) {
 		return
 	}
 
@@ -256,7 +260,7 @@ func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *h
 		Description: req.Description,
 		Strategy:    VirtualModelStrategy(req.Strategy),
 		Enabled:     req.Enabled,
-		Source:      SourceAPI,
+		Source:      declarative.SourceAPI,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		Routes:      toVirtualModelRoutes(vmID, req.Routes),
@@ -267,7 +271,7 @@ func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *h
 	}
 
 	if err := c.store.CreateVirtualModel(ctx, vm); err != nil {
-		if c.refuseWrite(ctx, w, err) {
+		if c.writeStoreError(ctx, w, err) {
 			return
 		}
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to create virtual model", nil), err)
@@ -316,7 +320,7 @@ func (c *CatalogController) handleGetVirtualModel(w http.ResponseWriter, r *http
 // offending character(s).
 func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if c.refuseWrite(ctx, w, nil) {
+	if c.refuseLocked(ctx, w) {
 		return
 	}
 	id := r.PathValue("id")
@@ -350,7 +354,7 @@ func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *h
 
 	updated, err := c.store.UpdateVirtualModel(ctx, vm)
 	if err != nil {
-		if c.refuseWrite(ctx, w, err) {
+		if c.writeStoreError(ctx, w, err) {
 			return
 		}
 		if errors.Is(err, ErrVirtualModelNotFound) {
@@ -373,13 +377,13 @@ func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *h
 
 func (c *CatalogController) handleDeleteVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if c.refuseWrite(ctx, w, nil) {
+	if c.refuseLocked(ctx, w) {
 		return
 	}
 	id := r.PathValue("id")
 
 	if err := c.store.DeleteVirtualModel(ctx, id); err != nil {
-		if c.refuseWrite(ctx, w, err) {
+		if c.writeStoreError(ctx, w, err) {
 			return
 		}
 		if errors.Is(err, ErrVirtualModelNotFound) {
@@ -657,9 +661,9 @@ func toVirtualModelRoutes(vmID string, inputs []routeInput) []VirtualModelRoute 
 	return routes
 }
 
-// ValidateVirtualModel runs the API's create and update validation on a
+// validateVirtualModel runs the API's create and update validation on a
 // virtual model built from a VirtualModel resource.
-func ValidateVirtualModel(vm VirtualModel) error {
+func validateVirtualModel(vm VirtualModel) error {
 	req := virtualModelRequest{
 		Family:      vm.Family,
 		Name:        vm.Name,

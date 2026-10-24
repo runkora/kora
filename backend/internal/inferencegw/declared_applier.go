@@ -40,7 +40,7 @@ func (a *VirtualModelApplier) Apply(ctx context.Context, item declarative.Item) 
 		return declarative.Result{Outcome: declarative.OutcomeInvalid, Message: "spec is not a VirtualModel spec: " + err.Error()}, nil
 	}
 	vm := declaredVirtualModel(item, spec)
-	if err := ValidateVirtualModel(vm); err != nil {
+	if err := validateVirtualModel(vm); err != nil {
 		return declarative.Result{Outcome: declarative.OutcomeInvalid, Message: err.Error()}, nil
 	}
 	id, err := a.catalog.UpsertDeclaredVirtualModel(ctx, vm)
@@ -76,7 +76,7 @@ func declaredVirtualModel(item declarative.Item, spec v1alpha1.VirtualModelSpec)
 		Description:  spec.Description,
 		Strategy:     VirtualModelStrategy(spec.Strategy),
 		Enabled:      spec.Enabled,
-		Source:       SourceCRD,
+		Source:       declarative.SourceCRD,
 		ResourceName: item.Name,
 		ResourceUID:  item.UID,
 		Routes:       make([]VirtualModelRoute, len(spec.Routes)),

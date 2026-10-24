@@ -370,8 +370,6 @@ var (
 	ErrTokenParseFailed      = errors.New("failed to parse platform token")
 	ErrUsageRecordNotFound   = errors.New("inference usage record not found")
 	ErrVirtualModelNotFound  = errors.New("virtual model not found")
-	// ErrVirtualModelManaged is an API write to a row a VirtualModel resource owns.
-	ErrVirtualModelManaged = errors.New("virtual model is managed by a resource")
 	// ErrVirtualModelExists is an API write to a family and name another API row holds.
 	ErrVirtualModelExists = errors.New("virtual model family and name already exist")
 	// ErrVirtualModelNameConflict is a declared write to a family and name an API row or another resource holds.

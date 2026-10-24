@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -97,7 +98,7 @@ func TestVirtualModelWritesRefusedWhenAuthoringDisabled(t *testing.T) {
 }
 
 func TestVirtualModelWritesToDeclaredRowsConflict(t *testing.T) {
-	repo := &fakeCatalogRepo{err: fmt.Errorf("write: %w", ErrVirtualModelManaged)}
+	repo := &fakeCatalogRepo{err: fmt.Errorf("write: %w", declarative.ErrManagedByResource)}
 	for name, do := range virtualModelWrites(newAuthoringController(repo, true)) {
 		w := do()
 		if w.Code != http.StatusConflict || errorCode(t, w) != api.ErrCodeManagedByResource {
@@ -116,8 +117,8 @@ func TestCreateVirtualModelOnTakenKeyConflicts(t *testing.T) {
 
 func TestListVirtualModelsCarriesSourceAndSwitch(t *testing.T) {
 	repo := &fakeCatalogRepo{vms: []VirtualModel{
-		{ID: "a", Family: "f", Name: "a", Source: SourceAPI},
-		{ID: "b", Family: "f", Name: "b", Source: SourceCRD, ResourceUID: "uid"},
+		{ID: "a", Family: "f", Name: "a", Source: declarative.SourceAPI},
+		{ID: "b", Family: "f", Name: "b", Source: declarative.SourceCRD, ResourceUID: "uid"},
 	}}
 	for _, enabled := range []bool{true, false} {
 		w := httptest.NewRecorder()
@@ -144,11 +145,11 @@ func TestListVirtualModelsCarriesSourceAndSwitch(t *testing.T) {
 func TestValidateVirtualModelRejectsRepeatedRoute(t *testing.T) {
 	route := VirtualModelRoute{Provider: "bedrock:prod", ModelID: "m", Priority: 1, Enabled: true}
 	vm := VirtualModel{Family: "f", Name: "n", DisplayName: "N", Strategy: VirtualStrategyPriority, Routes: []VirtualModelRoute{route, route}}
-	if err := ValidateVirtualModel(vm); err == nil || !strings.Contains(err.Error(), "repeats bedrock:prod/m") {
+	if err := validateVirtualModel(vm); err == nil || !strings.Contains(err.Error(), "repeats bedrock:prod/m") {
 		t.Errorf("err = %v, want a repeated route error", err)
 	}
 	vm.Routes = vm.Routes[:1]
-	if err := ValidateVirtualModel(vm); err != nil {
+	if err := validateVirtualModel(vm); err != nil {
 		t.Errorf("err = %v, want valid", err)
 	}
 }

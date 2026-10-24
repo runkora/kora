@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 )
 
 // Postgres tests for the virtual model source column and the declared write
@@ -82,7 +84,7 @@ func TestPostgres_VirtualModelSourceDefaultsToAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Source != SourceAPI || got.ResourceUID != "" || got.ResourceName != "" {
+	if got.Source != declarative.SourceAPI || got.ResourceUID != "" || got.ResourceName != "" {
 		t.Errorf("row = %+v, want an API row with no resource", got)
 	}
 	_, err = pool.Exec(ctx, `INSERT INTO virtual_models (id, family, name, display_name, strategy, source, resource_uid)
@@ -102,7 +104,7 @@ func TestPostgres_DeclaredUpsert(t *testing.T) {
 		t.Fatalf("first upsert: changed=%v err=%v", changed, err)
 	}
 	first := rowsOf(t, repo, family)["a"]
-	if first.ID != id || first.Source != SourceCRD || first.ResourceUID != uid || first.ResourceName != family+"-res" || len(first.Routes) != 1 {
+	if first.ID != id || first.Source != declarative.SourceCRD || first.ResourceUID != uid || first.ResourceName != family+"-res" || len(first.Routes) != 1 {
 		t.Fatalf("row = %+v, id %s", first, id)
 	}
 
@@ -170,14 +172,14 @@ func TestPostgres_APIWritesRefuseDeclaredRows(t *testing.T) {
 
 	update := testVM(family, "a", "", "")
 	update.ID = declared.ID
-	if _, err := repo.UpdateVirtualModel(ctx, update); !errors.Is(err, ErrVirtualModelManaged) {
-		t.Errorf("update: err = %v, want ErrVirtualModelManaged", err)
+	if _, err := repo.UpdateVirtualModel(ctx, update); !errors.Is(err, declarative.ErrManagedByResource) {
+		t.Errorf("update: err = %v, want ErrManagedByResource", err)
 	}
-	if err := repo.DeleteVirtualModel(ctx, declared.ID); !errors.Is(err, ErrVirtualModelManaged) {
-		t.Errorf("delete: err = %v, want ErrVirtualModelManaged", err)
+	if err := repo.DeleteVirtualModel(ctx, declared.ID); !errors.Is(err, declarative.ErrManagedByResource) {
+		t.Errorf("delete: err = %v, want ErrManagedByResource", err)
 	}
-	if err := repo.CreateVirtualModel(ctx, testVM(family, "a", "", "")); !errors.Is(err, ErrVirtualModelManaged) {
-		t.Errorf("create on a declared key: err = %v, want ErrVirtualModelManaged", err)
+	if err := repo.CreateVirtualModel(ctx, testVM(family, "a", "", "")); !errors.Is(err, ErrVirtualModelExists) {
+		t.Errorf("create on a declared key: err = %v, want ErrVirtualModelExists", err)
 	}
 	if err := repo.CreateVirtualModel(ctx, testVM(family, "b", "", "")); err != nil {
 		t.Fatalf("create: %v", err)

@@ -121,13 +121,10 @@ func (r *PostgresCatalogRepository) UpdateVirtualModel(ctx context.Context, vm V
 			return fmt.Errorf("update virtual model %s: %w", vm.ID, ErrVirtualModelNotFound)
 		case err != nil:
 			return fmt.Errorf("lock virtual model: %w", err)
-		case source != SourceAPI:
-			return fmt.Errorf("update virtual model %s: %w", vm.ID, ErrVirtualModelManaged)
+		case source != declarative.SourceAPI:
+			return fmt.Errorf("update virtual model %s: %w", vm.ID, declarative.ErrManagedByResource)
 		}
-		// Renaming onto a declared key collides with that row; the edited row is not managed.
-		if err := keyHeld(ctx, tx, vm); errors.Is(err, ErrVirtualModelManaged) {
-			return fmt.Errorf("update virtual model %s: %w", vm.FullID(), ErrVirtualModelExists)
-		} else if err != nil {
+		if err := keyHeld(ctx, tx, vm); err != nil {
 			return err
 		}
 		if err := routeTaken(ctx, tx, vm.ID, vm.Routes); err != nil {
@@ -181,7 +178,7 @@ func (r *PostgresCatalogRepository) DeleteVirtualModel(ctx context.Context, id s
 		return fmt.Errorf("delete virtual model %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete virtual model %s: %w", id, missingAPIRow(ctx, r.pool, id))
+		return fmt.Errorf("delete virtual model %s: %w", id, r.missingAPIRow(ctx, id))
 	}
 	return nil
 }
@@ -237,7 +234,7 @@ func (r *PostgresCatalogRepository) declaredRowID(ctx context.Context, tx pgx.Tx
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", false, fmt.Errorf("lock virtual model key: %w", err)
 	}
-	if keyID != "" && (keySource == SourceAPI || keyResource != vm.ResourceName) {
+	if keyID != "" && (keySource == declarative.SourceAPI || keyResource != vm.ResourceName) {
 		return "", false, fmt.Errorf("upsert declared virtual model %s: %w", vm.FullID(), ErrVirtualModelNameConflict)
 	}
 
@@ -410,11 +407,6 @@ func (r *PostgresCatalogRepository) LoadSnapshot(ctx context.Context) (*virtualC
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-// rowGetter abstracts *pgxpool.Pool and pgx.Tx for single-row reads.
-type rowGetter interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
 func isUniqueViolation(err error) bool {
 	var pe interface{ SQLState() string }
 	return errors.As(err, &pe) && pe.SQLState() == "23505"
@@ -422,33 +414,31 @@ func isUniqueViolation(err error) bool {
 
 // missingAPIRow explains why an API write matched no row: the id is unknown
 // or a resource owns the row.
-func missingAPIRow(ctx context.Context, q rowGetter, id string) error {
+func (r *PostgresCatalogRepository) missingAPIRow(ctx context.Context, id string) error {
 	var source string
-	err := q.QueryRow(ctx, `SELECT source FROM virtual_models WHERE id=$1`, id).Scan(&source)
+	err := r.pool.QueryRow(ctx, `SELECT source FROM virtual_models WHERE id=$1`, id).Scan(&source)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return ErrVirtualModelNotFound
 	case err != nil:
 		return fmt.Errorf("read virtual model source: %w", err)
 	}
-	return ErrVirtualModelManaged
+	return declarative.ErrManagedByResource
 }
 
-// keyHeld refuses an API write to a family and name another row holds.
+// keyHeld refuses an API write to a family and name another row holds,
+// whether built through the API or declared.
 func keyHeld(ctx context.Context, tx pgx.Tx, vm VirtualModel) error {
-	var source string
-	err := tx.QueryRow(ctx, `SELECT source FROM virtual_models WHERE family=$1 AND name=$2 AND id<>$3`,
-		vm.Family, vm.Name, vm.ID).Scan(&source)
+	var id string
+	err := tx.QueryRow(ctx, `SELECT id FROM virtual_models WHERE family=$1 AND name=$2 AND id<>$3`,
+		vm.Family, vm.Name, vm.ID).Scan(&id)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return nil
 	case err != nil:
 		return fmt.Errorf("check virtual model key: %w", err)
-	case source == SourceCRD:
-		return fmt.Errorf("virtual model %s: %w", vm.FullID(), ErrVirtualModelManaged)
-	default:
-		return fmt.Errorf("virtual model %s: %w", vm.FullID(), ErrVirtualModelExists)
 	}
+	return fmt.Errorf("virtual model %s: %w", vm.FullID(), ErrVirtualModelExists)
 }
 
 // routeTaken refuses a route another virtual model already serves.
@@ -468,7 +458,7 @@ func routeTaken(ctx context.Context, tx pgx.Tx, id string, routes []VirtualModel
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("check declared routes: %w", err)
+		return fmt.Errorf("check routes: %w", err)
 	}
 	return fmt.Errorf("route %s is served by %s: %w", key, holder, ErrVirtualModelRouteTaken)
 }
