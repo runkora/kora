@@ -183,7 +183,7 @@ spec:
 
 - Set exactly one of `agent` and `routing`.
 - A webhook trigger needs `source` and `eventType`. `match`, `matchContains`, `senderRestriction`, `coalesce` and `routing` apply to webhook triggers only.
-- `schedule` takes a five-field `cronExpression`, a `timezone` and `catchUp`. Set `timezone` explicitly. A scheduled trigger without one reports `Accepted=False` with reason `Invalid`.
+- `schedule` takes a five-field `cronExpression`, a `timezone` and `catchUp`. `timezone` is an IANA name and defaults to `UTC`.
 - `manual.inputs` lists the fields a manual trigger accepts. Each input has a `name` and a `type` of `text`, `number`, `boolean` or `choice`.
 - `routing.candidates` and `routing.fallback` are `Agent` names, and the fallback must be one of the candidates. `routing.model` is a `VirtualModel` in the system namespace.
 - `maxParallel`, `overflow`, `maxQueueDepth`, `timeoutSeconds`, `dedupeEnabled` and `autopauseEnabled` take the platform defaults when unset.
