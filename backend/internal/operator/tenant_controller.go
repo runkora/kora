@@ -640,8 +640,8 @@ allow if input.path == ["health"]
 
 // refuseNamespaceConflict holds a tenant at Degraded while its namespace is
 // the system namespace or another tenant's. Declarative resources map to a
-// tenant by namespace, so a shared namespace would hand one tenant's resources
-// to the other.
+// tenant by namespace. A shared namespace would hand one tenant's resources to
+// the other.
 func (r *TenantReconciler) refuseNamespaceConflict(ctx context.Context, tenant *KoraTenant) (ctrl.Result, bool, error) {
 	list := &KoraTenantList{}
 	if err := r.List(ctx, list); err != nil {
@@ -657,7 +657,7 @@ func (r *TenantReconciler) refuseNamespaceConflict(ctx context.Context, tenant *
 	)
 	_ = r.setTenantCondition(ctx, tenant, ConditionNamespaceReady, metav1.ConditionFalse, "NamespaceConflict", conflict)
 	_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
-	// The registry lists the tenant without a namespace.
+	// Login and the authoring switch keep working for the refused tenant.
 	if err := r.Registry.Sync(ctx); err != nil {
 		return ctrl.Result{}, true, fmt.Errorf("sync tenant registry: %w", err)
 	}

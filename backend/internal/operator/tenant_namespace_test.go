@@ -80,14 +80,11 @@ func TestBuildRegistryYAMLDeclarativeFields(t *testing.T) {
 		t.Fatalf("want 2 active tenants, got %+v", reg.Tenants)
 	}
 	acme, beta := reg.Tenants[0], reg.Tenants[1]
-	if acme.Namespace != "kora-tenant-acme" || acme.APIAuthoring != APIAuthoringDisabled {
+	if acme.APIAuthoring != APIAuthoringDisabled {
 		t.Errorf("acme = %+v", acme)
 	}
 	if acme.Budget == nil || acme.Budget.LimitUSD != 1000 || acme.Budget.ResetCadence != "monthly" {
 		t.Errorf("acme budget = %+v", acme.Budget)
-	}
-	if beta.Namespace != "" {
-		t.Errorf("a refused tenant must have no namespace, got %q", beta.Namespace)
 	}
 	if beta.APIAuthoring != APIAuthoringEnabled || beta.Budget != nil {
 		t.Errorf("beta defaults = %+v", beta)
@@ -135,16 +132,19 @@ func TestReconcileRefusesNamespaceConflict(t *testing.T) {
 
 	cm := &corev1.ConfigMap{}
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: systemNamespace, Name: tenantsConfigMapName}, cm); err != nil {
-		t.Fatalf("registry not written: %v", err)
+		t.Fatalf("a refused tenant still syncs the registry: %v", err)
 	}
 	var reg registryFile
 	if err := sigsyaml.Unmarshal([]byte(cm.Data[tenantsConfigMapKey]), &reg); err != nil {
 		t.Fatal(err)
 	}
+	listed := map[string]string{}
 	for _, e := range reg.Tenants {
-		want := map[string]string{"acme": "shared", "beta": "", "sys": ""}[e.ID]
-		if e.Namespace != want {
-			t.Errorf("registry namespace for %s = %q, want %q", e.ID, e.Namespace, want)
+		listed[e.ID] = e.APIAuthoring
+	}
+	for _, id := range []string{"acme", "beta", "sys"} {
+		if listed[id] != APIAuthoringEnabled {
+			t.Errorf("registry entry for %s = %q, want listed with apiAuthoring Enabled", id, listed[id])
 		}
 	}
 }
