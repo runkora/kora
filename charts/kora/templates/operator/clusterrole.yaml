@@ -49,6 +49,14 @@ rules:
   - apiGroups: ["runkora.io"]
     resources: ["koratenants", "connections", "oauthclients", "mcpservers"]
     verbs: ["get", "list", "watch"]
+  # Declared resources the operator projects into their owning services
+  # (docs/adr/2026-10-24-declarative-resources.md).
+  - apiGroups: ["runkora.io"]
+    resources: ["virtualmodels", "environments", "agents", "triggersources", "triggers", "policyroles"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["runkora.io"]
+    resources: ["virtualmodels/status", "environments/status", "agents/status", "triggersources/status", "triggers/status", "policyroles/status"]
+    verbs: ["get", "patch"]
   # Status conditions. Connection and OAuthClient have none.
   - apiGroups: ["runkora.io"]
     resources: ["koratenants/status", "mcpservers/status", "sandboximages/status"]

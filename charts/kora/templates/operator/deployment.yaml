@@ -19,9 +19,19 @@ spec:
         spiffe.io/component: operator
         {{- include "kora.podLabels" (dict "root" $ "name" "operator") | nindent 8 }}
       annotations:
-        # kube-apiserver cannot present a mesh certificate; the webhook port stays
-        # outside strict mTLS.
-        sidecar.istio.io/inject: "false"
+        # The operator joins the mesh to call the services it projects declared
+        # resources into, with its SPIFFE identity /system/operator.
+        {{- include "kora.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
+        # Nothing reaches the operator through the mesh. The kube-apiserver calls
+        # the webhook (9443), the kubelet probes 8081 and the scraper reads 8080,
+        # none with a mesh certificate.
+        traffic.sidecar.istio.io/excludeInboundPorts: "9443,8081,8080"
+        # Only the calls to kora services go through the mesh. The kube-apiserver
+        # and the image registries the operator reads stay direct. The mesh's
+        # outbound policy may not list them.
+        traffic.sidecar.istio.io/excludeOutboundPorts: {{ $ports := list "443" "6443" }}{{ range .Values.agents.sandboxImages.registryPorts }}{{ $ports = append $ports (toString .) }}{{ end }}{{ $ports | uniq | join "," | quote }}
+        # Keeps the scrape on 8080 instead of Istio's merged metrics port.
+        prometheus.istio.io/merge-metrics: "false"
         checksum/config: {{ include (print $.Template.BasePath "/operator/config.yaml") . | sha256sum }}
         # controller-runtime's own built-in Prometheus metrics (reconcile queue
         # depth/errors/duration), not the internal/platform/metrics package —
@@ -79,6 +89,7 @@ spec:
               mountPath: /tmp
             {{- include "kora.configVolumeMount" . | nindent 12 }}
             # Preflight fetches its own SVID as proof SPIRE issues identities.
+            # The Envoy sidecar reads its certificate from the same socket.
             {{- include "kora.spireVolumeMount" . | nindent 12 }}
       volumes:
         - name: tmp
