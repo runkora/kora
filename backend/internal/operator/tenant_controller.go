@@ -96,22 +96,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	tenant := &KoraTenant{}
 	if err := r.Get(ctx, req.NamespacedName, tenant); err != nil {
 		if apierrors.IsNotFound(err) {
-			// CR deleted: re-run every aggregator so the removed tenant is no
-			// longer served (registry, OIDC secrets, CAs, connections, MCP
-			// servers, OAuth clients).
-			for _, sync := range []func(context.Context) error{
-				r.Registry.Sync,
-				r.Aggregator.Sync,
-				r.CAAggregator.Sync,
-				r.ConnAggregator.Sync,
-				r.MCPAggregator.Sync,
-				r.OAuthAggregator.Sync,
-			} {
-				if syncErr := sync(ctx); syncErr != nil {
-					return ctrl.Result{}, syncErr
-				}
-			}
-			return ctrl.Result{}, nil
+			return ctrl.Result{}, r.syncDeleted(ctx)
 		}
 		return ctrl.Result{}, fmt.Errorf("get KoraTenant %q: %w", req.Name, err)
 	}
@@ -127,6 +112,10 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Handle suspended tenants: update registry and status, no namespace work.
 	if !tenant.Spec.Active {
 		return r.reconcileSuspended(ctx, tenant)
+	}
+
+	if result, refused, err := r.refuseNamespaceConflict(ctx, tenant); refused || err != nil {
+		return result, err
 	}
 
 	// Only transition to Provisioning from an initial/unset state. Once the
@@ -296,6 +285,25 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Periodic re-check every 5 minutes: catches namespace label drift.
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+}
+
+// syncDeleted re-runs every aggregator after a tenant's CR is deleted. The
+// removed tenant is then no longer served (registry, OIDC secrets, CAs,
+// connections, MCP servers, OAuth clients).
+func (r *TenantReconciler) syncDeleted(ctx context.Context) error {
+	for _, sync := range []func(context.Context) error{
+		r.Registry.Sync,
+		r.Aggregator.Sync,
+		r.CAAggregator.Sync,
+		r.ConnAggregator.Sync,
+		r.MCPAggregator.Sync,
+		r.OAuthAggregator.Sync,
+	} {
+		if err := sync(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // markReady patches Namespace, LastReconciledAt and Phase in one call.
@@ -628,6 +636,33 @@ allow if input.path == ["health"]
 		)
 	}
 	return nil
+}
+
+// refuseNamespaceConflict holds a tenant at Degraded while its namespace is
+// the system namespace or another tenant's. Declarative resources map to a
+// tenant by namespace, so a shared namespace would hand one tenant's resources
+// to the other.
+func (r *TenantReconciler) refuseNamespaceConflict(ctx context.Context, tenant *KoraTenant) (ctrl.Result, bool, error) {
+	list := &KoraTenantList{}
+	if err := r.List(ctx, list); err != nil {
+		return ctrl.Result{}, false, fmt.Errorf("list KoraTenants: %w", err)
+	}
+	conflict := namespaceConflict(tenant, list.Items)
+	if conflict == "" {
+		return ctrl.Result{}, false, nil
+	}
+	r.Logger.Warn(ctx, "refusing tenant namespace",
+		logging.Field{Key: "tenant", Value: tenant.Name},
+		logging.Field{Key: "reason", Value: conflict},
+	)
+	_ = r.setTenantCondition(ctx, tenant, ConditionNamespaceReady, metav1.ConditionFalse, "NamespaceConflict", conflict)
+	_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
+	// The registry lists the tenant without a namespace.
+	if err := r.Registry.Sync(ctx); err != nil {
+		return ctrl.Result{}, true, fmt.Errorf("sync tenant registry: %w", err)
+	}
+	// The other tenant's deletion does not enqueue this one.
+	return ctrl.Result{RequeueAfter: time.Minute}, true, nil
 }
 
 // applyPreflightGate marks the tenant Degraded until prerequisites pass.

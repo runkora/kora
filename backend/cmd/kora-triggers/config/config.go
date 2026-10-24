@@ -73,6 +73,11 @@ type Config struct {
 	} `yaml:"observability"`
 
 	Metrics platformmetrics.Config `yaml:"metrics"`
+
+	Kubernetes struct {
+		// TenantsPath is where the chart mounts the kora-tenants registry.
+		TenantsPath string `yaml:"tenantsPath"`
+	} `yaml:"kubernetes"`
 }
 
 // ShutdownTimeout returns the configured graceful-shutdown timeout.

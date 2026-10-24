@@ -1,0 +1,129 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: triggersources.runkora.io
+  labels:
+    {{- include "kora-crds.labels" . | nindent 4 }}
+  annotations:
+    # helm uninstall keeps this CRD. Tenant definitions outlive the product install.
+    helm.sh/resource-policy: keep
+spec:
+  group: runkora.io
+  names:
+    kind: TriggerSource
+    listKind: TriggerSourceList
+    plural: triggersources
+    singular: triggersource
+    shortNames:
+      - ktsrc
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Provider
+          type: string
+          jsonPath: .spec.provider
+        - name: Accepted
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Accepted")].status
+        - name: Ready
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Ready")].status
+        - name: Path
+          type: string
+          priority: 1
+          jsonPath: .status.webhookPath
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          description: >
+            TriggerSource defines a webhook source for the tenant whose
+            namespace holds it. kora-triggers watches it, reads the signing
+            secret from the referenced Secret and reports the ingest path in
+            status.webhookPath.
+          type: object
+          required:
+            - spec
+          x-kubernetes-validations:
+            - rule: "self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name) <= 63"
+              message: metadata.name must be a DNS label.
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - provider
+                - signingSecretRef
+              properties:
+                provider:
+                  type: string
+                  minLength: 1
+                  description: The webhook provider, such as github or slack.
+                config:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  description: Provider-specific configuration, as the API accepts it.
+                signingSecretRef:
+                  type: object
+                  description: The Secret key in this namespace that holds the signing secret.
+                  required:
+                    - name
+                    - key
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                    key:
+                      type: string
+                      minLength: 1
+                enabled:
+                  type: boolean
+                  default: true
+            status:
+              type: object
+              properties:
+                webhookPath:
+                  type: string
+                  description: The ingest path to configure in the provider. It includes the source id.
+                observedGeneration:
+                  type: integer
+                  format: int64
+                conditions:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys:
+                    - type
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

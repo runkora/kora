@@ -96,20 +96,14 @@ func (a *OAuthClientAggregator) Sync(ctx context.Context) error {
 	return a.upsertConfigMap(ctx, string(registryJSON), len(entries))
 }
 
-// listActiveTenants returns all KoraTenant resources whose Spec.Active is true,
+// listActiveTenants returns the active tenants that hold their namespace,
 // mirroring the connection aggregator: suspended tenants' clients are not served.
 func (a *OAuthClientAggregator) listActiveTenants(ctx context.Context) ([]KoraTenant, error) {
 	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
 		return nil, fmt.Errorf("list KoraTenants: %w", err)
 	}
-	out := make([]KoraTenant, 0, len(list.Items))
-	for _, t := range list.Items {
-		if t.Spec.Active {
-			out = append(out, t)
-		}
-	}
-	return out, nil
+	return servedTenants(list.Items), nil
 }
 
 // collect walks every active tenant's OAuthClient CRs and returns the registry

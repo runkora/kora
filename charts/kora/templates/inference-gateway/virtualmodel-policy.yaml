@@ -1,0 +1,29 @@
+# VirtualModels are platform-wide and live in the system namespace, the only
+# namespace the gateway watches. Admission rejects one anywhere else.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: kora-virtualmodel-namespace
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["runkora.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["virtualmodels"]
+  validations:
+    - expression: request.namespace == {{ include "kora.systemNamespace" . | quote }}
+      message: VirtualModel must be in the {{ include "kora.systemNamespace" . }} namespace.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: kora-virtualmodel-namespace
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  policyName: kora-virtualmodel-namespace
+  validationActions: ["Deny"]

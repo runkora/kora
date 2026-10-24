@@ -193,7 +193,7 @@ func (a *MCPServerAggregator) aggregatedCredentials(ctx context.Context) map[str
 }
 
 // activeTenantNamespaces builds a namespace -> tenant_id map for active tenants
-// only. Suspended tenants are excluded so the gateway will not introspect their
+// that hold their namespace. Suspended tenants are excluded so the gateway will not introspect their
 // servers — matching the connection aggregator's behavior. The kora-system
 // namespace is handled separately (global, tenant_id "").
 func (a *MCPServerAggregator) activeTenantNamespaces(ctx context.Context) (map[string]string, error) {
@@ -202,11 +202,8 @@ func (a *MCPServerAggregator) activeTenantNamespaces(ctx context.Context) (map[s
 		return nil, fmt.Errorf("list KoraTenants: %w", err)
 	}
 	out := make(map[string]string, len(list.Items))
-	for i := range list.Items {
-		t := &list.Items[i]
-		if t.Spec.Active {
-			out[tenantNamespace(t)] = t.Name
-		}
+	for _, t := range servedTenants(list.Items) {
+		out[tenantNamespace(&t)] = t.Name
 	}
 	return out, nil
 }
