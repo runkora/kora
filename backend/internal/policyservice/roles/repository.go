@@ -17,6 +17,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 )
 
 // BudgetAssignment is the inline budget configuration on a role.
@@ -38,7 +40,7 @@ type RoleEntry struct {
 	Scopes    []string          `json:"scopes"`
 	Budget    *BudgetAssignment `json:"budget,omitempty"`
 	CreatedAt time.Time         `json:"created_at"`
-	// Source is SourceAPI or SourceCRD. Derived reserved roles have none.
+	// Source is declarative.SourceAPI or declarative.SourceCRD. Derived reserved roles have none.
 	Source string `json:"source,omitempty"`
 	// ResourceName and ResourceUID name the PolicyRole a crd row is projected from.
 	ResourceName string `json:"-"`
@@ -51,17 +53,8 @@ type RoleEntry struct {
 	UnregisteredScopes []string `json:"unregistered_scopes,omitempty"`
 }
 
-// Row sources. A crd row is projected from a PolicyRole resource.
-const (
-	SourceAPI = "api"
-	SourceCRD = "crd"
-)
-
 // ErrRoleNotFound is returned when no mapping exists for the given role.
 var ErrRoleNotFound = errors.New("role not found")
-
-// ErrManagedByResource is returned when an API write targets a crd row.
-var ErrManagedByResource = errors.New("role is managed by a resource")
 
 // ErrRoleTaken is returned when a declared write targets a role held by an api
 // row or by another resource.
@@ -99,8 +92,8 @@ type Repository interface {
 	// when an api row or another resource's row holds the role.
 	UpsertDeclared(ctx context.Context, entry *RoleEntry) error
 
-	// ListDeclared returns the tenant's crd rows.
-	ListDeclared(ctx context.Context, tenantID string) ([]*RoleEntry, error)
+	// ListDeclared returns the resource behind each of the tenant's crd rows.
+	ListDeclared(ctx context.Context, tenantID string) ([]declarative.Declared, error)
 
 	// DeleteDeclared removes the tenant's crd row projected from the named
 	// resource. It reports whether a row was deleted.
@@ -148,12 +141,12 @@ func (r *postgresRepository) Upsert(ctx context.Context, entry *RoleEntry) error
 
 	err = row.Scan(&entry.ID, &entry.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrManagedByResource
+		return declarative.ErrManagedByResource
 	}
 	if err != nil {
 		return fmt.Errorf("upsert role: %w", err)
 	}
-	entry.Source = SourceAPI
+	entry.Source = declarative.SourceAPI
 	return nil
 }
 
@@ -206,26 +199,21 @@ func (r *postgresRepository) UpsertDeclared(ctx context.Context, entry *RoleEntr
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit declared role upsert: %w", err)
 	}
-	entry.Source = SourceCRD
+	entry.Source = declarative.SourceCRD
 	return nil
 }
 
-func (r *postgresRepository) ListDeclared(ctx context.Context, tenantID string) ([]*RoleEntry, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+entryColumns+`
-		FROM policy_role_scopes WHERE tenant_id = $1 AND source = 'crd' ORDER BY role`, tenantID)
+func (r *postgresRepository) ListDeclared(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
+	rows, err := r.pool.Query(ctx, `SELECT resource_name, resource_uid
+		FROM policy_role_scopes WHERE tenant_id = $1 AND source = 'crd' ORDER BY resource_name`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list declared roles: %w", err)
 	}
-	defer rows.Close()
-	var entries []*RoleEntry
-	for rows.Next() {
-		e, err := r.scanEntry(rows)
-		if err != nil {
-			return nil, err
-		}
-		entries = append(entries, e)
+	declared, err := pgx.CollectRows(rows, pgx.RowToStructByPos[declarative.Declared])
+	if err != nil {
+		return nil, fmt.Errorf("list declared roles: %w", err)
 	}
-	return entries, rows.Err()
+	return declared, nil
 }
 
 func (r *postgresRepository) DeleteDeclared(ctx context.Context, tenantID, resourceName string) (bool, error) {

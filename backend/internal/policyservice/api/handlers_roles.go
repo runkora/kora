@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 	"github.com/runkora/kora/backend/internal/policyservice/roles"
@@ -63,6 +64,9 @@ func (c *Controller) handleUpsertRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	entry, err := c.svc.UpsertRole(ctx, tenantID, req.Role, req.Scopes, budget)
+	if declarative.WriteRefusal(ctx, w, c.logger, err) {
+		return
+	}
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, roleErrorResponse(err), err)
 		return
@@ -116,20 +120,14 @@ func validRoleBudget(b *roles.BudgetAssignment) (*roles.BudgetAssignment, *platf
 // only, and 409 when the role is projected from a resource.
 func (c *Controller) refuseRoleWrite(ctx context.Context, w http.ResponseWriter, tenantID, role string) bool {
 	if !c.registry.APIAuthoringEnabled(tenantID) {
-		platformapi.ErrorResponse(ctx, w, c.logger, platformapi.ForbiddenError(platformapi.ErrCodeAPIAuthoringDisabled,
-			"this tenant's roles are managed through resources only", nil), nil)
+		return declarative.WriteRefusal(ctx, w, c.logger, declarative.ErrAPIAuthoringDisabled)
+	}
+	declared, err := c.svc.isDeclaredRole(ctx, tenantID, role)
+	if err != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger, roleErrorResponse(err), err)
 		return true
 	}
-	if c.svc.isDeclaredRole(ctx, tenantID, role) {
-		platformapi.ErrorResponse(ctx, w, c.logger, managedRoleError(), nil)
-		return true
-	}
-	return false
-}
-
-func managedRoleError() *platformapi.APIError {
-	return platformapi.ConflictError(platformapi.ErrCodeManagedByResource,
-		"this role is managed by a PolicyRole resource", nil)
+	return declared && declarative.WriteRefusal(ctx, w, c.logger, declarative.ErrManagedByResource)
 }
 
 // roleBudgetChangeAllowed lets a role write change the role's budget only when
@@ -310,8 +308,6 @@ func roleErrorResponse(err error) *platformapi.APIError {
 	case isReservedRoleError(err):
 		return platformapi.ValidationError(platformapi.ErrCodeInvalidField,
 			err.Error(), nil)
-	case errors.Is(err, roles.ErrManagedByResource):
-		return managedRoleError()
 	case isRoleNotFound(err):
 		return platformapi.NotFoundError(platformapi.ErrCodeResourceNotFound, "role not found", nil)
 	default:

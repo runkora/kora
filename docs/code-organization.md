@@ -43,7 +43,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `identity` | Sessions, refresh tokens, PATs, user profiles, JTI blocklist, tenant registry, principal extraction |
 | `inferencegw` | Inference router, providers, catalog, usage, analytics, virtual models; OpenAI/Anthropic/embeddings/responses handlers |
 | `agents` | Agent control plane: types, runs, sessions, pubsub, k8s, authz; sub-packages `sandbox/`, `sessionmanager/` |
-| `policyservice` | Authz data plane; sub-packages `api/`, `bundle/`, `declared/`, `grants/`, `principalroles/`, `roles/`, `routes/`, `tenantbudget/`, `vocabulary/` |
+| `policyservice` | Authz data plane; sub-packages `api/`, `bundle/`, `grants/`, `principalroles/`, `roles/`, `routes/`, `tenantbudget/`, `vocabulary/` |
 | `policygw` | Policy-gateway HTTP transport (delegates evaluation to policy-service) |
 | `operator` | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook |
 | `identityproxy` | `ext_proc` server, token cache, refresh loop |

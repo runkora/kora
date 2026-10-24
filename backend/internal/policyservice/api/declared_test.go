@@ -38,7 +38,7 @@ type declaredRoles struct {
 	roles.Repository
 	stored   *roles.RoleEntry
 	upserted *roles.RoleEntry
-	declared []*roles.RoleEntry
+	declared []declarative.Declared
 	deleted  []string
 }
 
@@ -58,7 +58,7 @@ func (r *declaredRoles) UpsertDeclared(_ context.Context, e *roles.RoleEntry) er
 	return nil
 }
 
-func (r *declaredRoles) ListDeclared(context.Context, string) ([]*roles.RoleEntry, error) {
+func (r *declaredRoles) ListDeclared(context.Context, string) ([]declarative.Declared, error) {
 	return r.declared, nil
 }
 
@@ -104,58 +104,110 @@ func newDeclaredTestService(t *testing.T, repo roles.Repository) *Service {
 	return svc
 }
 
-func TestUpsertDeclaredRole(t *testing.T) {
+func roleItem(t *testing.T, name string, spec map[string]any) declarative.Item {
+	t.Helper()
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return declarative.Item{TenantID: "t1", Name: name, UID: "uid-" + name, Generation: 1, Spec: raw}
+}
+
+func TestRoleApplier_Refusals(t *testing.T) {
 	cases := []struct {
 		name    string
-		role    string
-		scopes  []string
-		budget  *roles.BudgetAssignment
-		invalid bool
-		missing []string
+		spec    map[string]any
+		outcome string
+		message string
 	}{
-		{name: "reserved role", role: "platform-admin", scopes: []string{"agents:runs:read"}, invalid: true},
-		{name: "no scopes", role: "reviewers", invalid: true},
-		{name: "zero budget", role: "reviewers", scopes: []string{"agents:runs:read"}, budget: &roles.BudgetAssignment{ResetCadence: "monthly"}, invalid: true},
-		{name: "daily budget", role: "reviewers", scopes: []string{"agents:runs:read"}, budget: &roles.BudgetAssignment{LimitUSD: 5, ResetCadence: "daily"}, invalid: true},
-		{name: "scopes missing from the vocabulary", role: "reviewers", scopes: []string{"a:write", "agents:runs:read", "b:write"}, missing: []string{"a:write", "b:write"}},
+		{"reserved role", map[string]any{"role": "platform-admin", "scopes": []string{"agents:runs:read"}}, declarative.OutcomeInvalid, ""},
+		{"no scopes", map[string]any{"scopes": []string{}}, declarative.OutcomeInvalid, ""},
+		{"zero budget", map[string]any{"scopes": []string{"agents:runs:read"}, "budget": map[string]any{"limitUSD": 0}}, declarative.OutcomeInvalid, ""},
+		{"daily budget", map[string]any{"scopes": []string{"agents:runs:read"}, "budget": map[string]any{"limitUSD": 5, "resetCadence": "daily"}}, declarative.OutcomeInvalid, ""},
+		{"malformed spec", map[string]any{"scopes": "agents:runs:read"}, declarative.OutcomeInvalid, ""},
+		{"scopes missing from the vocabulary", map[string]any{"scopes": []string{"a:write", "agents:runs:read", "b:write"}},
+			declarative.OutcomePending, "scopes not in the scope vocabulary: a:write, b:write"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &declaredRoles{}
-			in := &roles.RoleEntry{TenantID: "t1", Role: tc.role, Scopes: tc.scopes, Budget: tc.budget, ResourceName: "r", ResourceUID: "uid-1"}
-			_, err := newDeclaredTestService(t, repo).UpsertDeclaredRole(context.Background(), in)
-			if tc.invalid != errors.Is(err, ErrInvalidDeclaredRole) {
-				t.Errorf("err = %v, invalid = %v", err, tc.invalid)
+			res, err := NewRoleApplier(newDeclaredTestService(t, repo)).Apply(context.Background(), roleItem(t, "reviewers", tc.spec))
+			if err != nil {
+				t.Fatal(err)
 			}
-			var missing *MissingScopesError
-			if tc.missing != nil && (!errors.As(err, &missing) || !slices.Equal(missing.Scopes, tc.missing)) {
-				t.Errorf("err = %v, want missing %v", err, tc.missing)
+			if res.Outcome != tc.outcome || res.Ready || res.Message == "" || (tc.message != "" && res.Message != tc.message) {
+				t.Errorf("result = %+v, want %s %q", res, tc.outcome, tc.message)
 			}
 			if repo.upserted != nil {
 				t.Errorf("a refused role was written: %+v", repo.upserted)
 			}
 		})
 	}
+}
 
+func TestRoleApplier_Projects(t *testing.T) {
 	repo := &declaredRoles{}
-	in := &roles.RoleEntry{TenantID: "t1", Role: "reviewers", Scopes: []string{"agents:runs:read"}, Budget: &roles.BudgetAssignment{LimitUSD: 200, Pooled: true}, ResourceName: "reviewers", ResourceUID: "uid-1"}
-	if _, err := newDeclaredTestService(t, repo).UpsertDeclaredRole(context.Background(), in); err != nil {
+	svc := newDeclaredTestService(t, repo)
+	res, err := NewRoleApplier(svc).Apply(context.Background(), roleItem(t, "reviewers", map[string]any{
+		"role": "Reviewers", "scopes": []string{"agents:runs:read"}, "budget": map[string]any{"limitUSD": 200, "pooled": true},
+	}))
+	if err != nil {
 		t.Fatal(err)
 	}
+	if res.Outcome != declarative.OutcomeProjected || !res.Ready {
+		t.Errorf("result = %+v", res)
+	}
 	got := repo.upserted
-	if got == nil || got.ResourceUID != "uid-1" || got.ResourceName != "reviewers" || got.Budget.ResetCadence != "monthly" || !got.Budget.Pooled {
+	if got == nil || got.Role != "Reviewers" || got.ResourceName != "reviewers" || got.ResourceUID != "uid-reviewers" ||
+		got.Budget.ResetCadence != "monthly" || !got.Budget.Pooled {
 		t.Errorf("upserted = %+v", got)
+	}
+	if len(svc.recompileTimers) != 1 {
+		t.Errorf("recompiles = %d, want 1", len(svc.recompileTimers))
 	}
 }
 
-func TestDeleteDeclaredRole(t *testing.T) {
-	repo := &declaredRoles{}
+// takenRoles refuses every declared write as a role held by another item.
+type takenRoles struct{ declaredRoles }
+
+func (*takenRoles) UpsertDeclared(context.Context, *roles.RoleEntry) error { return roles.ErrRoleTaken }
+
+func TestRoleApplier_NameConflict(t *testing.T) {
+	res, err := NewRoleApplier(newDeclaredTestService(t, &takenRoles{})).Apply(context.Background(), roleItem(t, "reviewers", map[string]any{"scopes": []string{"agents:runs:read"}}))
+	if err != nil || res.Outcome != declarative.OutcomeNameConflict || res.Message == "" {
+		t.Errorf("result = %+v, %v", res, err)
+	}
+}
+
+func TestRoleApplier_UnchangedWritesNothing(t *testing.T) {
+	stored := &roles.RoleEntry{ID: "row-1", TenantID: "t1", Role: "reviewers", Scopes: []string{"agents:runs:read"}, Source: declarative.SourceCRD,
+		ResourceName: "reviewers", ResourceUID: "uid-reviewers", Budget: &roles.BudgetAssignment{LimitUSD: 5, ResetCadence: "monthly"}}
+	repo := &declaredRoles{stored: stored}
 	svc := newDeclaredTestService(t, repo)
-	if err := svc.DeleteDeclaredRole(context.Background(), "t1", "absent"); err != nil || len(svc.recompileTimers) != 0 {
+	res, err := NewRoleApplier(svc).Apply(context.Background(), roleItem(t, "reviewers", map[string]any{
+		"scopes": []string{"agents:runs:read"}, "budget": map[string]any{"limitUSD": 5},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ID != "row-1" || !res.Ready || repo.upserted != nil || len(svc.recompileTimers) != 0 {
+		t.Errorf("an unchanged resource was written: %+v, upserted %+v", res, repo.upserted)
+	}
+}
+
+func TestRoleApplier_DeleteAndList(t *testing.T) {
+	repo := &declaredRoles{declared: []declarative.Declared{{Name: "reviewers", UID: "uid-1"}}}
+	svc := newDeclaredTestService(t, repo)
+	a := NewRoleApplier(svc)
+	if err := a.Delete(context.Background(), "t1", "absent"); err != nil || len(svc.recompileTimers) != 0 {
 		t.Errorf("deleting nothing: err = %v, recompiles = %d", err, len(svc.recompileTimers))
 	}
-	if err := svc.DeleteDeclaredRole(context.Background(), "t1", "present"); err != nil || len(svc.recompileTimers) != 1 {
+	if err := a.Delete(context.Background(), "t1", "present"); err != nil || len(svc.recompileTimers) != 1 {
 		t.Errorf("deleting a row: err = %v, recompiles = %d", err, len(svc.recompileTimers))
+	}
+	got, err := a.List(context.Background(), "t1")
+	if err != nil || !slices.Equal(got, repo.declared) {
+		t.Errorf("list = %+v, %v", got, err)
 	}
 }
 
@@ -186,7 +238,7 @@ func TestRoleWrites_DeclaredAndLocked(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			repo := &declaredRoles{stored: &roles.RoleEntry{TenantID: "t1", Role: "declared", Source: roles.SourceCRD}}
+			repo := &declaredRoles{stored: &roles.RoleEntry{TenantID: "t1", Role: "declared", Source: declarative.SourceCRD}}
 			c := &Controller{
 				svc:      newDeclaredTestService(t, repo),
 				logger:   logging.NewLoggerWithOutput(io.Discard),
@@ -216,7 +268,7 @@ func TestRoleWrites_DeclaredAndLocked(t *testing.T) {
 }
 
 func TestListRoles_CarriesSource(t *testing.T) {
-	repo := &declaredRoles{stored: &roles.RoleEntry{TenantID: "t1", Role: "declared", Scopes: []string{"agents:runs:read"}, Source: roles.SourceCRD, ResourceUID: "uid-1"}}
+	repo := &declaredRoles{stored: &roles.RoleEntry{TenantID: "t1", Role: "declared", Scopes: []string{"agents:runs:read"}, Source: declarative.SourceCRD, ResourceUID: "uid-1"}}
 	c := &Controller{svc: newDeclaredTestService(t, repo), logger: logging.NewLoggerWithOutput(io.Discard)}
 	req := httptest.NewRequest(http.MethodGet, "/roles", nil)
 	req = req.WithContext(token.WithClaims(req.Context(), &token.PlatformClaims{Kora: token.KoraClaims{PrincipalType: token.PrincipalTypeHuman, TenantID: "t1"}}))
@@ -299,18 +351,115 @@ func TestTenantBudgetWrites_Declared(t *testing.T) {
 	}
 }
 
-func TestUpsertDeclaredRole_UnchangedWritesNothing(t *testing.T) {
-	stored := &roles.RoleEntry{ID: "row-1", TenantID: "t1", Role: "reviewers", Scopes: []string{"agents:runs:read"}, Source: roles.SourceCRD,
-		ResourceName: "reviewers", ResourceUID: "uid-1", Budget: &roles.BudgetAssignment{LimitUSD: 5, ResetCadence: "monthly"}}
-	repo := &declaredRoles{stored: stored}
-	svc := newDeclaredTestService(t, repo)
-	in := &roles.RoleEntry{TenantID: "t1", Role: "reviewers", Scopes: []string{"agents:runs:read"}, Budget: &roles.BudgetAssignment{LimitUSD: 5},
-		ResourceName: "reviewers", ResourceUID: "uid-1"}
-	got, err := svc.UpsertDeclaredRole(context.Background(), in)
-	if err != nil {
+// budgetRegistryFake declares the budgets in budgets for the tenants in ids.
+type budgetRegistryFake struct {
+	ids     []string
+	budgets map[string]declarative.Budget
+	err     error
+}
+
+func (f budgetRegistryFake) TenantIDs() []string { return f.ids }
+func (f budgetRegistryFake) TenantBudget(tenantID string) (declarative.Budget, bool) {
+	b, ok := f.budgets[tenantID]
+	return b, ok
+}
+func (f budgetRegistryFake) Err() error { return f.err }
+
+// declaredBudgets records projected tenant budget writes.
+type declaredBudgets struct {
+	tenantbudget.Repository
+	rows    []*tenantbudget.TenantBudget
+	set     map[string]*tenantbudget.TenantBudget
+	removed []string
+	lists   int
+}
+
+func (f *declaredBudgets) ListDeclared(context.Context) ([]*tenantbudget.TenantBudget, error) {
+	f.lists++
+	return f.rows, nil
+}
+
+func (f *declaredBudgets) UpsertDeclared(_ context.Context, tb *tenantbudget.TenantBudget) error {
+	if f.set == nil {
+		f.set = map[string]*tenantbudget.TenantBudget{}
+	}
+	f.set[tb.TenantID] = tb
+	return nil
+}
+
+func (f *declaredBudgets) DeleteDeclared(_ context.Context, tenantID string) error {
+	f.removed = append(f.removed, tenantID)
+	return nil
+}
+
+func newBudgetTestService(t *testing.T, repo tenantbudget.Repository) *Service {
+	t.Helper()
+	svc := newDeclaredTestService(t, &declaredRoles{})
+	svc.tenantBudgetRepo = repo
+	return svc
+}
+
+func TestSyncTenantBudgets(t *testing.T) {
+	repo := &declaredBudgets{rows: []*tenantbudget.TenantBudget{
+		{TenantID: "acme", LimitUSD: 1000, ResetCadence: "monthly"},
+		{TenantID: "beta", LimitUSD: 50, ResetCadence: "weekly"},
+		{TenantID: "removed", LimitUSD: 5, ResetCadence: "weekly"},
+		{TenantID: "invalid", LimitUSD: 5, ResetCadence: "weekly"},
+	}}
+	registry := budgetRegistryFake{ids: []string{"acme", "beta", "gamma", "invalid", "plain"}, budgets: map[string]declarative.Budget{
+		"acme":    {LimitUSD: 1000, ResetCadence: "monthly"},
+		"beta":    {LimitUSD: 75, ResetCadence: "weekly"},
+		"gamma":   {LimitUSD: 10},
+		"invalid": {LimitUSD: 10, ResetCadence: "daily"},
+	}}
+	if err := newBudgetTestService(t, repo).syncTenantBudgets(context.Background(), registry); err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != "row-1" || repo.upserted != nil || len(svc.recompileTimers) != 0 {
-		t.Errorf("an unchanged resource was written: id %s, upserted %+v", got.ID, repo.upserted)
+	if len(repo.set) != 2 || repo.set["beta"].LimitUSD != 75 || repo.set["gamma"].ResetCadence != "monthly" {
+		t.Errorf("set = %+v, want beta at 75 and gamma with the monthly default", repo.set)
+	}
+	if len(repo.removed) != 1 || repo.removed[0] != "removed" {
+		t.Errorf("removed = %v, want [removed]: an invalid budget keeps its last applied row", repo.removed)
+	}
+}
+
+func TestSyncTenantBudgets_KeepsBudgetsWhenRegistryIsUnusable(t *testing.T) {
+	rows := []*tenantbudget.TenantBudget{{TenantID: "acme", LimitUSD: 1, ResetCadence: "weekly"}}
+	for name, registry := range map[string]budgetRegistryFake{
+		"unreadable": {ids: []string{"acme"}, err: errors.New("parse error")},
+		"empty":      {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			repo := &declaredBudgets{rows: rows}
+			_ = newBudgetTestService(t, repo).syncTenantBudgets(context.Background(), registry)
+			if len(repo.removed) != 0 || len(repo.set) != 0 {
+				t.Errorf("set = %v, removed = %v", repo.set, repo.removed)
+			}
+		})
+	}
+}
+
+func TestRunTenantBudgets_SyncsAtStartAndStops(t *testing.T) {
+	repo := &declaredBudgets{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	newBudgetTestService(t, repo).RunTenantBudgets(ctx, budgetRegistryFake{ids: []string{"acme"}})
+	if repo.lists != 1 {
+		t.Errorf("syncs = %d, want one at start before stopping", repo.lists)
+	}
+}
+
+// failingRoles fails every role read.
+type failingRoles struct{ declaredRoles }
+
+func (*failingRoles) GetByRole(context.Context, string, string) (*roles.RoleEntry, error) {
+	return nil, errors.New("db down")
+}
+
+func TestRefuseRoleWrite_ReadErrorIsNotAnAPIRole(t *testing.T) {
+	c := &Controller{svc: newDeclaredTestService(t, &failingRoles{}), logger: logging.NewLoggerWithOutput(io.Discard), registry: fakeRegistry{}}
+	w := httptest.NewRecorder()
+	if !c.refuseRoleWrite(context.Background(), w, "t1", "reviewers") || w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500 when the role cannot be read", w.Code)
 	}
 }

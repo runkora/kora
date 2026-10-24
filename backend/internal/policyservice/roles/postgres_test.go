@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 )
 
 // Postgres integration tests for the roles Repository. They run only when
@@ -184,14 +186,14 @@ func TestPostgres_DeclaredRoles(t *testing.T) {
 		t.Fatalf("UpsertDeclared: %v", err)
 	}
 	got, err := repo.GetByRole(ctx, tenant, "declared")
-	if err != nil || got.Source != SourceCRD || got.ResourceUID != "uid-1" || got.ResourceName != "res" || got.Budget == nil {
+	if err != nil || got.Source != declarative.SourceCRD || got.ResourceUID != "uid-1" || got.ResourceName != "res" || got.Budget == nil {
 		t.Fatalf("GetByRole = %+v, %v", got, err)
 	}
-	if got, _ := repo.GetByRole(ctx, tenant, "api-role"); got.Source != SourceAPI || got.ResourceUID != "" || got.ResourceName != "" {
+	if got, _ := repo.GetByRole(ctx, tenant, "api-role"); got.Source != declarative.SourceAPI || got.ResourceUID != "" || got.ResourceName != "" {
 		t.Errorf("api row = %+v", got)
 	}
 
-	if err := repo.Upsert(ctx, &RoleEntry{TenantID: tenant, Role: "declared", Scopes: []string{"c:read"}}); !errors.Is(err, ErrManagedByResource) {
+	if err := repo.Upsert(ctx, &RoleEntry{TenantID: tenant, Role: "declared", Scopes: []string{"c:read"}}); !errors.Is(err, declarative.ErrManagedByResource) {
 		t.Errorf("api upsert over a crd row: err = %v", err)
 	}
 	if _, err := repo.UpdateBudget(ctx, tenant, "declared", nil); !errors.Is(err, ErrRoleNotFound) {
@@ -222,7 +224,7 @@ func TestPostgres_DeclaredRoles(t *testing.T) {
 		t.Errorf("old role name survived a rename: %v", err)
 	}
 	list, err := repo.ListDeclared(ctx, tenant)
-	if err != nil || len(list) != 1 || list[0].Role != "renamed" || list[0].ResourceName != "res" || list[0].ResourceUID != "uid-3" {
+	if err != nil || len(list) != 1 || list[0] != (declarative.Declared{Name: "res", UID: "uid-3"}) {
 		t.Fatalf("ListDeclared = %+v, %v", list, err)
 	}
 
