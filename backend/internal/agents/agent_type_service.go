@@ -84,15 +84,13 @@ type AgentTypeService struct {
 // (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3).
 func (s *AgentTypeService) SetDelegationBroker(b *DelegationBroker) { s.delegation = b }
 
-// SetPubSub installs the run event fan-out shared with RunService.
-func (s *AgentTypeService) SetPubSub(p *PubSub) { s.pubsub = p }
-
 // NewAgentTypeService creates an AgentTypeService with the given dependencies.
 func NewAgentTypeService(
 	repo AgentTypeRepository,
 	runRepo RunRepository,
 	k8s k8sProvisioner,
 	authz *Authz,
+	pubsub *PubSub,
 	cfg AgentTypeServiceConfig,
 	logger logging.Logger,
 ) *AgentTypeService {
@@ -101,6 +99,7 @@ func NewAgentTypeService(
 		runRepo: runRepo,
 		k8s:     k8s,
 		authz:   authz,
+		pubsub:  pubsub,
 		cfg:     cfg,
 		logger:  logger,
 	}
@@ -925,17 +924,11 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 // cleanupCancelledRun records and publishes the run's terminal state, revokes its delegation and deletes its
 // sandbox pod. All of it is best-effort. Agent deletion must not wedge on it.
 func (s *AgentTypeService) cleanupCancelledRun(ctx context.Context, run CancelledRun, namespace string) {
-	payload := []byte(`{"state":"` + string(run.State) + `"}`)
-	at := eventTime()
-	seqNo, err := s.runRepo.AppendRunEvent(ctx, RunEvent{RunID: run.ID, EventType: "run_state", Payload: payload, CreatedAt: at})
-	if err != nil {
+	if err := recordRunState(ctx, s.runRepo, s.pubsub, run.ID, run.State); err != nil {
 		s.logger.Warn(ctx, "failed to record state of cancelled run",
 			logging.Field{Key: "run_id", Value: run.ID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-	}
-	if s.pubsub != nil {
-		s.pubsub.Publish(run.ID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo, At: at})
 	}
 	if run.DelegationJTI != nil && *run.DelegationJTI != "" && s.delegation != nil {
 		s.delegation.RevokeBestEffort(ctx, *run.DelegationJTI, run.ID)
