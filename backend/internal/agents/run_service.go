@@ -317,7 +317,12 @@ func (s *RunService) loadRunForAction(ctx context.Context, runID, action string)
 	if run.TenantID != tenantFromContext(ctx) {
 		return nil, nil, ErrNotFound
 	}
-	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
+	// A read shows the runs of a deleted agent. Any other action needs a live agent.
+	getAgentType := s.atRepo.GetAgentType
+	if action == "read" {
+		getAgentType = s.atRepo.GetAgentTypeWithDeleted
+	}
+	at, err := getAgentType(ctx, run.AgentTypeID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get agent type")
@@ -434,7 +439,8 @@ func (s *RunService) listRuns(ctx context.Context, tenantID string, agentTypeIDs
 // readableRunScope is every agent type in the tenant whose runs the caller may
 // read, plus the caller's own runs (readsOwnRuns), under the caller's delegated-run visibility.
 func (s *RunService) readableRunScope(ctx context.Context, tenantID string) (RunScope, error) {
-	ats, err := s.atRepo.ListAgentTypes(ctx, tenantID)
+	// Deleted agents stay in scope so their runs remain readable.
+	ats, err := s.atRepo.ListAgentTypesWithDeleted(ctx, tenantID)
 	if err != nil {
 		return RunScope{}, fmt.Errorf("list agent types: %w", err)
 	}
@@ -532,12 +538,9 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		logging.Field{Key: "from", Value: string(from)},
 		logging.Field{Key: "to", Value: string(to)},
 	)
-	payload := []byte(`{"state":"` + string(to) + `"}`)
-	at := eventTime()
-	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload, CreatedAt: at})
-	if err != nil {
-		// Log and continue — publishing as an ephemeral (seqNo=0) event so live
-		// subscribers still see the transition. The DB write failure is durable
+	if err := recordRunState(ctx, s.repo, s.pubsub, runID, to); err != nil {
+		// Log and continue. The event was still published unsequenced, and live
+		// subscribers see the transition. The DB write failure is durable
 		// state loss that we surface in traces; if we returned early here the
 		// caller would believe the transition didn't happen, even though
 		// SetRunState above already committed it.
@@ -548,9 +551,7 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 			logging.Field{Key: "to", Value: string(to)},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		seqNo = 0
 	}
-	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo, At: at})
 
 	if to == RunStateCompleted || to == RunStateFailed || to == RunStateBudgetExhausted {
 		run, err := s.repo.GetRun(ctx, runID)
@@ -1105,18 +1106,33 @@ func (s *RunService) StartReaper(ctx context.Context) {
 // terminal transition. ReapStaleRuns already committed the runs.state column, so
 // this only records the event (for SSE replay) and notifies live subscribers.
 func (s *RunService) publishReapedState(ctx context.Context, runID string, state RunState) {
-	payload := []byte(`{"state":"` + string(state) + `"}`)
-	at := eventTime()
-	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload, CreatedAt: at})
-	if err != nil {
+	if err := recordRunState(ctx, s.repo, s.pubsub, runID, state); err != nil {
 		s.logger.Error(ctx, "reaper: failed to persist run_state event",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "state", Value: string(state)},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
+	}
+}
+
+// runEventAppender is the one repository method recordRunState needs.
+type runEventAppender interface {
+	AppendRunEvent(ctx context.Context, e RunEvent) (int64, error)
+}
+
+// recordRunState persists a run_state event and publishes it to live subscribers.
+// A failed write still publishes the event unsequenced, and the error goes back for the caller to log.
+func recordRunState(ctx context.Context, events runEventAppender, pubsub *PubSub, runID string, state RunState) error {
+	payload := []byte(`{"state":"` + string(state) + `"}`)
+	at := eventTime()
+	seqNo, err := events.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload, CreatedAt: at})
+	if err != nil {
 		seqNo = 0
 	}
-	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo, At: at})
+	if pubsub != nil {
+		pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo, At: at})
+	}
+	return err
 }
 
 // SetRunSummary persists the LLM-generated task summary reported by a

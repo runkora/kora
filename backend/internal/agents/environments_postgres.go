@@ -130,7 +130,8 @@ func (r *PostgresRepository) ListAgentTypesByEnvironment(ctx context.Context, te
 	rows, err := r.pool.Query(ctx, `
 		SELECT `+agentTypeColumns+`
 		FROM agent_types
-		WHERE tenant_id = $1 AND id IN (SELECT agent_type_id FROM agent_environments WHERE environment_id = $2)
+		WHERE tenant_id = $1 AND deleted_at IS NULL
+		  AND id IN (SELECT agent_type_id FROM agent_environments WHERE environment_id = $2)
 		ORDER BY created_at DESC`, tenantID, environmentID)
 	if err != nil {
 		return nil, fmt.Errorf("query agent_types by environment: %w", err)

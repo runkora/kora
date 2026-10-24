@@ -31,7 +31,9 @@ type mockRepository struct {
 	mu         sync.Mutex
 	agentTypes map[string]*AgentType
 	slugIndex  map[string]*AgentType // tenantID+":"+slug → AgentType
-	runs       map[string]*Run
+	// deleted holds soft-deleted agent types. They leave agentTypes and slugIndex.
+	deleted map[string]*AgentType
+	runs    map[string]*Run
 	// usage holds seeded run totals by run id and usageCalls counts RunUsageTotals calls.
 	usage      map[string]RunUsage
 	usageCalls int
@@ -74,6 +76,7 @@ func newMockRepository() *mockRepository {
 	return &mockRepository{
 		agentTypes: make(map[string]*AgentType),
 		slugIndex:  make(map[string]*AgentType),
+		deleted:    make(map[string]*AgentType),
 		runs:       make(map[string]*Run),
 		envs:       make(map[string]*Environment),
 		events:     make(map[string][]RunEvent),
@@ -108,6 +111,32 @@ func (m *mockRepository) GetAgentType(_ context.Context, id string) (*AgentType,
 	}
 	cp := *at
 	return &cp, nil
+}
+
+func (m *mockRepository) GetAgentTypeWithDeleted(ctx context.Context, id string) (*AgentType, error) {
+	m.mu.Lock()
+	at, ok := m.deleted[id]
+	m.mu.Unlock()
+	if ok {
+		cp := *at
+		return &cp, nil
+	}
+	return m.GetAgentType(ctx, id)
+}
+
+func (m *mockRepository) ListAgentTypesWithDeleted(ctx context.Context, tenantID string) ([]AgentType, error) {
+	out, err := m.ListAgentTypes(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, at := range m.deleted {
+		if at.TenantID == tenantID {
+			out = append(out, *at)
+		}
+	}
+	return out, nil
 }
 
 func (m *mockRepository) GetAgentTypeBySlug(_ context.Context, tenantID, slug string) (*AgentType, error) {
@@ -225,6 +254,25 @@ func (m *mockRepository) DeleteAgentType(_ context.Context, id string) error {
 	}
 	delete(m.slugIndex, at.TenantID+":"+at.Slug)
 	delete(m.agentTypes, id)
+	return nil
+}
+
+func (m *mockRepository) SoftDeleteAgentType(_ context.Context, id string) error {
+	if m.deleteAgentTypeErr != nil {
+		return m.deleteAgentTypeErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	at, ok := m.agentTypes[id]
+	if !ok {
+		return ErrNotFound
+	}
+	delete(m.slugIndex, at.TenantID+":"+at.Slug)
+	delete(m.agentTypes, id)
+	cp := *at
+	cp.State = AgentTypeStateDeleted
+	cp.Environments = nil
+	m.deleted[id] = &cp
 	return nil
 }
 
@@ -498,17 +546,25 @@ func (m *mockRepository) DeleteRun(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *mockRepository) DeleteRunsByAgentType(_ context.Context, agentTypeID string) ([]DeletedRun, error) {
+func (m *mockRepository) CancelRunsByAgentType(_ context.Context, agentTypeID string) ([]CancelledRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var deleted []DeletedRun
+	var cancelled []CancelledRun
 	for id, r := range m.runs {
-		if r.AgentTypeID == agentTypeID {
-			deleted = append(deleted, DeletedRun{ID: id, DelegationJTI: r.DelegationJTI})
-			delete(m.runs, id)
+		if r.AgentTypeID != agentTypeID {
+			continue
 		}
+		switch r.State {
+		case RunStateIdle, RunStateCompleting:
+			r.State = RunStateCompleted
+		case RunStatePending, RunStateStarting, RunStateActive:
+			r.State = RunStateFailed
+		default:
+			continue
+		}
+		cancelled = append(cancelled, CancelledRun{ID: id, State: r.State, DelegationJTI: r.DelegationJTI})
 	}
-	return deleted, nil
+	return cancelled, nil
 }
 
 func (m *mockRepository) ActiveRunsPerPod(_ context.Context, agentTypeID string) (map[int]int, error) {
@@ -857,8 +913,9 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 	sm := &mockSMClient{}
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	authz := NewAuthz(eval)
+	pubsub := NewPubSub()
 	atSvc := NewAgentTypeService(
-		repo, repo, k8s, authz,
+		repo, repo, k8s, authz, pubsub,
 		AgentTypeServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
@@ -866,7 +923,7 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 		logger,
 	)
 	runSvc, err := NewRunService(
-		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s, repo,
+		repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo,
 		RunServiceConfig{
 			DefaultEnvironmentSize:  testSizes.Default,
 			MaxConcurrentRunsPerPod: 5,

@@ -283,7 +283,10 @@ func TestDeleteAgentType_HappyPath(t *testing.T) {
 		t.Errorf("expected 1 k8s deprovision call, got %d", len(k8s.deprovisionedAgentTypes))
 	}
 	if _, err := repo.GetAgentType(context.Background(), at.ID); !errors.Is(err, ErrNotFound) {
-		t.Errorf("agent type should be gone, got err=%v", err)
+		t.Errorf("deleted agent type should 404, got err=%v", err)
+	}
+	if got, err := repo.GetAgentTypeWithDeleted(context.Background(), at.ID); err != nil || got.State != AgentTypeStateDeleted {
+		t.Errorf("deleted agent type = %+v, %v; want the row kept in state deleted", got, err)
 	}
 	if called != 1 {
 		t.Errorf("hook called %d times, want 1", called)
@@ -312,6 +315,92 @@ func TestDeleteAgentType_NotFound(t *testing.T) {
 	err := svc.DeleteAgentType(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for missing agent type")
+	}
+}
+
+func TestDeleteAgentType_KeepsRunsAndEndsUnfinishedOnes(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	for id, state := range map[string]RunState{
+		"run-pending": RunStatePending, "run-active": RunStateActive,
+		"run-idle": RunStateIdle, "run-done": RunStateCompleted,
+	} {
+		seedRun(t, repo, Run{ID: id, TenantID: "t-1", AgentTypeID: at.ID, State: state})
+	}
+
+	if err := svc.DeleteAgentType(context.Background(), at.ID); err != nil {
+		t.Fatalf("DeleteAgentType: %v", err)
+	}
+
+	want := map[string]RunState{
+		"run-pending": RunStateFailed, "run-active": RunStateFailed,
+		"run-idle": RunStateCompleted, "run-done": RunStateCompleted,
+	}
+	for id, state := range want {
+		run, ok := repo.runs[id]
+		if !ok {
+			t.Errorf("%s was deleted, want it kept", id)
+			continue
+		}
+		if run.State != state {
+			t.Errorf("%s state = %s, want %s", id, run.State, state)
+		}
+	}
+	slices.Sort(k8s.deletedSandboxes)
+	if !slices.Equal(k8s.deletedSandboxes, []string{"run-active", "run-idle", "run-pending"}) {
+		t.Errorf("deleted sandboxes = %v, want the three unfinished runs", k8s.deletedSandboxes)
+	}
+	if ev := repo.events["run-idle"]; len(ev) != 1 || ev[0].EventType != "run_state" || string(ev[0].Payload) != `{"state":"completed"}` {
+		t.Errorf("run-idle events = %+v, want one run_state completed", ev)
+	}
+	if ev := repo.events["run-done"]; len(ev) != 0 {
+		t.Errorf("run-done events = %+v, want none", ev)
+	}
+}
+
+func TestDeleteAgentType_PublishesEndOfCancelledRun(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+	events, cancel := svc.SubscribeRun("run-1")
+	defer cancel()
+
+	if err := svc.DeleteAgentType(context.Background(), at.ID); err != nil {
+		t.Fatalf("DeleteAgentType: %v", err)
+	}
+	select {
+	case ev := <-events:
+		if ev.Type != "run_state" || string(ev.Payload) != `{"state":"failed"}` || ev.SequenceNo == 0 {
+			t.Errorf("event = %+v, want a sequenced run_state failed", ev)
+		}
+	default:
+		t.Error("live subscriber got no event for the cancelled run")
+	}
+}
+
+func TestDeletedAgentType_RunsStayReadable(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateCompleted})
+	if err := svc.DeleteAgentType(context.Background(), at.ID); err != nil {
+		t.Fatalf("DeleteAgentType: %v", err)
+	}
+
+	if _, err := svc.GetRun(context.Background(), "run-1"); err != nil {
+		t.Errorf("GetRun of a deleted agent's run: %v", err)
+	}
+	runs, err := svc.ListRuns(context.Background(), "t-1", "")
+	if err != nil || len(runs) != 1 {
+		t.Errorf("ListRuns = %+v, %v; want the deleted agent's run", runs, err)
+	}
+	if err := svc.TerminateRun(context.Background(), "run-1"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("TerminateRun = %v, want ErrNotFound for a deleted agent", err)
+	}
+	if _, err := svc.StartAndSchedule(context.Background(), StartRunRequest{TenantID: "t-1", AgentTypeID: at.ID}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("StartRun = %v, want ErrNotFound for a deleted agent", err)
+	}
+	if types, err := svc.ListAgentTypes(context.Background(), "t-1"); err != nil || len(types) != 0 {
+		t.Errorf("ListAgentTypes = %+v, %v; want the deleted agent left out", types, err)
 	}
 }
 
@@ -1083,7 +1172,7 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	authz := NewAuthz(&allowAllEvaluator{})
 	atSvc := NewAgentTypeService(
-		repo, repo, k8s, authz,
+		repo, repo, k8s, authz, nil,
 		AgentTypeServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },

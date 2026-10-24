@@ -9,10 +9,14 @@ import (
 // AgentTypeRepository is the persistence interface for agent type operations.
 type AgentTypeRepository interface {
 	CreateAgentType(ctx context.Context, at AgentType) error
+	// GetAgentType, GetAgentTypeBySlug, ListAgentTypes and ListAgentTypesByEnvironment leave out deleted agent types.
 	GetAgentType(ctx context.Context, id string) (*AgentType, error)
+	// GetAgentTypeWithDeleted and ListAgentTypesWithDeleted include deleted agent types. Run reads use them.
+	GetAgentTypeWithDeleted(ctx context.Context, id string) (*AgentType, error)
+	ListAgentTypesWithDeleted(ctx context.Context, tenantID string) ([]AgentType, error)
 	GetAgentTypeBySlug(ctx context.Context, tenantID, slug string) (*AgentType, error)
 	ListAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error)
-	// ListAllAgentTypeSlugs returns the distinct set of agent type slugs across all tenants.
+	// ListAllAgentTypeSlugs returns the distinct set of live agent type slugs across all tenants.
 	// Used by scope registration to build the per-agent-type vocabulary.
 	ListAllAgentTypeSlugs(ctx context.Context) ([]string, error)
 	// ListAgentTypesByEnvironment returns the agent types in a tenant that an
@@ -21,7 +25,10 @@ type AgentTypeRepository interface {
 	UpdateAgentType(ctx context.Context, at AgentType) error
 	// SetAgentTypeState does a compare-and-swap: only updates if current state matches from.
 	SetAgentTypeState(ctx context.Context, id string, from, to AgentTypeState) error
+	// DeleteAgentType removes the row of an agent type whose first provisioning failed.
 	DeleteAgentType(ctx context.Context, id string) error
+	// SoftDeleteAgentType removes the agent's environment links and marks it deleted.
+	SoftDeleteAgentType(ctx context.Context, id string) error
 }
 
 // RunRepository is the persistence interface for run operations, events, and messages.
@@ -55,13 +62,9 @@ type RunRepository interface {
 	// so terminal-state transitions can revoke it.
 	SetRunDelegationJTI(ctx context.Context, runID, jti string) error
 	DeleteRun(ctx context.Context, id string) error
-	// DeleteRunsByAgentType force-deletes all runs for the given agent type and
-	// returns them as (id, delegation JTI) pairs. Used during agent type deletion
-	// to clear the FK reference before the agent type row is removed; the returned
-	// IDs let the caller clean up each run's sandbox pod (named sandbox-{runID}),
-	// which is not covered by DeprovisionAgentType, and the JTIs let it revoke
-	// each run's delegation issuance.
-	DeleteRunsByAgentType(ctx context.Context, agentTypeID string) ([]DeletedRun, error)
+	// CancelRunsByAgentType moves every unfinished run of an agent type to a terminal state and
+	// returns them. Agent deletion uses the IDs to delete sandbox pods and the JTIs to revoke delegations.
+	CancelRunsByAgentType(ctx context.Context, agentTypeID string) ([]CancelledRun, error)
 	// ActiveRunsPerPod returns active run counts keyed by pod ordinal for an agent type.
 	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
 	// ReapStaleRuns marks runs stuck in transient states for longer than
