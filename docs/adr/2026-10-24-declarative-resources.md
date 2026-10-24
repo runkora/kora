@@ -363,8 +363,9 @@ CREATE UNIQUE INDEX agent_types_tenant_slug_live ON agent_types (tenant_id, slug
 
 *   Delete deprovisions Kubernetes resources, removes the agent grant, cancels pending and active runs, deletes their sandboxes and their `agent_environments` rows, and sets `state = 'deleted'` and `deleted_at`.
 *   Runs, sessions, events and messages stay.
-*   Agent lists, slug lookups, `GetAgentType`, `ListAgentTypesByEnvironment` and run claiming exclude deleted agents. A deleted agent returns 404.
-*   Run reads still show a deleted agent's runs.
+*   Agent lists, slug lookups, `GetAgentType` and `ListAgentTypesByEnvironment` exclude deleted agents. A deleted agent returns 404.
+*   A pending run claimed after its agent is deleted fails with the existing missing-agent error.
+*   A deleted agent's runs stay readable by the run's initiator and by platform admins. Per-agent run scopes do not cover them. A new agent with the same slug does not expose them.
 *   A trigger whose agent is deleted auto-pauses on the 404 as it does today.
 *   A new agent with a deleted agent's slug gets a new row and no runs.
 
