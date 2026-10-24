@@ -33,6 +33,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/platform/api"
 	clientpolicy "github.com/runkora/kora/backend/internal/platform/clients/policy"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -89,8 +90,8 @@ type Service struct {
 	// sensible default in NewService and can be replaced in tests.
 	httpClient *http.Client
 
-	// mu protects oidcTenants and apiAuthoringDisabled. Readers acquire RLock;
-	// the file-watcher goroutine acquires Lock when it swaps in freshly loaded maps.
+	// mu protects oidcTenants — readers acquire RLock, the file-watcher
+	// goroutine acquires Lock when it swaps in a freshly loaded map.
 	mu sync.RWMutex
 
 	// oidcTenants holds one resolved OIDC state per active tenant, keyed by
@@ -99,9 +100,9 @@ type Service struct {
 	// Access only while holding mu (read or write as appropriate).
 	oidcTenants map[string]*tenantOIDCState
 
-	// apiAuthoringDisabled holds the active tenants whose items are authored
-	// only in their configuration repository. Refreshed with oidcTenants.
-	apiAuthoringDisabled map[string]bool
+	// authoring reads the tenant's API authoring switch from the registry for
+	// the session response.
+	authoring *declarative.Registry
 
 	// clientSecrets holds the latest resolved OIDC client secrets, keyed by
 	// tenant ID. Populated at startup by initClientSecrets and refreshed live
@@ -176,6 +177,7 @@ func NewService(
 		tracer:        otel.Tracer("kora.identity"),
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		oidcTenants:   make(map[string]*tenantOIDCState),
+		authoring:     declarative.NewRegistry(cfg.Registry.TenantsPath),
 		clientSecrets: make(map[string]string),
 	}
 
@@ -941,16 +943,8 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 		RefreshToken:          rawRefresh,
 		IssuedAt:              now.Unix(),
 		RefreshTokenExpiresIn: int(refreshTTL.Seconds()),
-		APIAuthoring:          s.apiAuthoringEnabled(principal.TenantID),
+		APIAuthoring:          s.authoring.APIAuthoringEnabled(principal.TenantID),
 	}, nil
-}
-
-// apiAuthoringEnabled reports whether the tenant's items can be written
-// through the API. A tenant missing from the registry is enabled.
-func (s *Service) apiAuthoringEnabled(tenantID string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return !s.apiAuthoringDisabled[tenantID]
 }
 
 // createAgentSession creates an agent session with no refresh token.
@@ -977,7 +971,7 @@ func (s *Service) createAgentSession(ctx context.Context, principal *Principal) 
 		TokenType:    "Bearer",
 		ExpiresIn:    int(ttl.Seconds()),
 		IssuedAt:     now.Unix(),
-		APIAuthoring: s.apiAuthoringEnabled(principal.TenantID),
+		APIAuthoring: s.authoring.APIAuthoringEnabled(principal.TenantID),
 	}, nil
 }
 
@@ -1346,12 +1340,10 @@ func (s *Service) discoverTenantOIDC(ctx context.Context, tenantID string, cfg T
 // tenant). A discovery failure for any tenant is fatal — misconfigured
 // providers should be caught at startup, not at first login.
 func (s *Service) initTenantOIDCProviders(ctx context.Context) error {
-	registry, err := loadTenantRegistry(s.cfg.Registry.TenantsPath, s.clientSecrets)
+	tenants, err := loadTenantRegistry(s.cfg.Registry.TenantsPath, s.clientSecrets)
 	if err != nil {
 		return fmt.Errorf("load tenant registry: %w", err)
 	}
-	s.apiAuthoringDisabled = registry.APIAuthoringDisabled
-	tenants := registry.OIDC
 	if len(tenants) == 0 {
 		s.logger.Info(ctx, "no tenants in registry — federated authentication disabled")
 		return nil
@@ -1392,14 +1384,13 @@ func (s *Service) reloadTenantOIDCProviders(ctx context.Context) {
 	clientSecrets := s.clientSecrets
 	s.mu.RUnlock()
 
-	registry, err := loadTenantRegistry(s.cfg.Registry.TenantsPath, clientSecrets)
+	tenants, err := loadTenantRegistry(s.cfg.Registry.TenantsPath, clientSecrets)
 	if err != nil {
 		s.logger.Error(ctx, "tenant registry reload failed — keeping current config",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 		return
 	}
-	tenants := registry.OIDC
 
 	// Build the new map, reusing existing providers where the issuer URL is
 	// unchanged. Always take the freshly resolved cfg so that rotated client
@@ -1436,7 +1427,6 @@ func (s *Service) reloadTenantOIDCProviders(ctx context.Context) {
 
 	s.mu.Lock()
 	s.oidcTenants = next
-	s.apiAuthoringDisabled = registry.APIAuthoringDisabled
 	s.mu.Unlock()
 
 	s.logger.Info(ctx, "tenant registry reloaded",
