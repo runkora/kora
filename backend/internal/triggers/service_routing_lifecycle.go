@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -214,10 +215,10 @@ func scopeCheckInput(scope string) policy.CheckInput {
 }
 
 // grantCreateError turns a scope the policy service does not know into a
-// validation error. On a routed trigger that scope is the decision model's use
-// scope, which is the one value the caller names freely. On an agent trigger
-// the run scopes of agentSlug are registered once the agent's pods are ready,
-// so an unknown scope there means the agent is still provisioning.
+// validation error. On a routed trigger it can be the decision model's use
+// scope, which is the one value the caller names freely. An agent's run scopes
+// are registered once its pods are ready. An unknown run scope of the bound
+// agent or of a candidate means that agent is still provisioning.
 func grantCreateError(err error, r *RoutingConfig, agentSlug string) error {
 	var vocab *policyclient.ScopeNotInVocabularyError
 	if !errors.As(err, &vocab) {
@@ -228,8 +229,14 @@ func grantCreateError(err error, r *RoutingConfig, agentSlug string) error {
 			return fmt.Errorf("%w: routing.model %q is not a model in this tenant's catalog", ErrValidation, r.Model)
 		}
 	}
-	if agentSlug != "" && slices.Contains(triggerRunScopes(agentSlug), vocab.Scope) {
-		return fmt.Errorf("%w: agent %q is still provisioning; retry once its pods are ready", ErrValidation, agentSlug)
+	slugs := []string{agentSlug}
+	if r != nil {
+		slugs = slices.Collect(maps.Values(r.candidateSlugs))
+	}
+	for _, slug := range slugs {
+		if slug != "" && slices.Contains(triggerRunScopes(slug), vocab.Scope) {
+			return fmt.Errorf("%w: agent %q is still provisioning; retry once its pods are ready", ErrAgentProvisioning, slug)
+		}
 	}
 	return fmt.Errorf("%w: %w", ErrValidation, err)
 }

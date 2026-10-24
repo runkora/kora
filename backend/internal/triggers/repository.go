@@ -52,6 +52,11 @@ type SourceStore interface {
 	// must use GetSource.
 	GetSourceByID(ctx context.Context, id string) (*WebhookSource, error)
 	ListSources(ctx context.Context, tenantID string) ([]WebhookSource, error)
+	// GetSourceByName returns the tenant's source with the name. Names are
+	// unique per tenant across API and declared sources.
+	GetSourceByName(ctx context.Context, tenantID, name string) (*WebhookSource, error)
+	// ListDeclaredSources returns the tenant's sources projected from a resource.
+	ListDeclaredSources(ctx context.Context, tenantID string) ([]WebhookSource, error)
 	UpdateSource(ctx context.Context, s *WebhookSource) error
 	DeleteSource(ctx context.Context, tenantID, id string) error
 
@@ -112,6 +117,17 @@ type TriggerStore interface {
 	// replaced by a routing change, so it always writes the routing rows.
 	UpdateTriggerGrant(ctx context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error
 	DeleteTrigger(ctx context.Context, tenantID, id string) error
+
+	// GetDeclaredTrigger returns the trigger projected from the tenant's
+	// Trigger resource with the name.
+	GetDeclaredTrigger(ctx context.Context, tenantID, name string) (*Trigger, error)
+	// TriggerNameTaken reports whether a trigger with the name and source exists in the tenant.
+	TriggerNameTaken(ctx context.Context, tenantID, name, source string) (bool, error)
+	// ListDeclaredTriggers returns the tenant's triggers projected from a resource.
+	ListDeclaredTriggers(ctx context.Context, tenantID string) ([]Trigger, error)
+	// UpdateDeclaredTrigger writes every field a Trigger resource owns. It
+	// never writes auto_paused_at or consecutive_failures.
+	UpdateDeclaredTrigger(ctx context.Context, t *Trigger) error
 }
 
 // DeliveryStore is the audit spine: what arrived, what each trigger did with it,
