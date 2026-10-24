@@ -5,10 +5,11 @@
 // requires platform:roles:write. The role and grant tabs load on their own.
 
 import { getSession, isSessionValid } from '@runkora/server/session';
+import { isDeclared } from '@runkora/lib/declarative';
 import { loadErrorMessage } from '@runkora/lib/load-error';
 import { fetchBudgetPrincipalsFromGateway } from '../_services/budgets-server';
 import { fetchAllTenantUsers } from '../_services/tokens-server';
-import { fetchRoles, fetchGrants } from '../../policy/_services/policy-server';
+import { fetchRoles, fetchGrants, fetchTenantBudget } from '../../policy/_services/policy-server';
 import type { BudgetPrincipalsView, PrincipalIdentity } from '../_types';
 import { BudgetsShell } from './_components/budgets-shell';
 
@@ -27,12 +28,14 @@ export default async function BudgetsPage() {
     );
   }
 
-  const [principalsResult, rolesResult, grantsResult, usersResult] = await Promise.all([
-    fetchBudgetPrincipalsFromGateway(session.accessToken),
-    fetchRoles(session.accessToken, session.tenantId),
-    fetchGrants(session.accessToken, session.tenantId, 1, 500),
-    fetchAllTenantUsers(session.accessToken),
-  ]);
+  const [principalsResult, rolesResult, grantsResult, usersResult, tenantBudgetResult] =
+    await Promise.all([
+      fetchBudgetPrincipalsFromGateway(session.accessToken),
+      fetchRoles(session.accessToken, session.tenantId),
+      fetchGrants(session.accessToken, session.tenantId, 1, 500),
+      fetchAllTenantUsers(session.accessToken),
+      fetchTenantBudget(session.accessToken, session.tenantId),
+    ]);
 
   // Identity attribution: principal_id → {email, display_name}, same pattern
   // as the analytics principals BFF route. Best-effort — name resolution
@@ -65,6 +68,7 @@ export default async function BudgetsPage() {
       initialError={principalsResult.ok ? null : principalsResult.message}
       rolesError={rolesResult.ok ? null : loadErrorMessage(rolesResult.status, 'roles')}
       grantsError={grantsResult.ok ? null : loadErrorMessage(grantsResult.status, 'grants')}
+      capDeclared={tenantBudgetResult.ok && isDeclared(tenantBudgetResult.data)}
     />
   );
 }

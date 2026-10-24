@@ -30,7 +30,6 @@ import type {
 } from '@runkora/shared/api';
 
 interface ErrorBody {
-  code?: string;
   message?: string;
   details?: { missing_scopes?: unknown };
 }

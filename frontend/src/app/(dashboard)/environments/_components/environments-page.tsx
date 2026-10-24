@@ -25,6 +25,7 @@ import { deleteEnvironment } from '../_services/environments-api';
 import { EnvironmentWizard } from './environment-wizard';
 import { imageProblem, sizeLabel } from '@runkora/lib/environments';
 import type { EnvironmentRow } from '../_types';
+import { managedInGit } from '@runkora/lib/declarative';
 import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
 import { ManagedInGitBadge, ManagedInGitCallout, PermissionHint } from '@runkora/components';
 
@@ -223,7 +224,7 @@ export function EnvironmentsPage({
         locked: true,
         gridWidth: '5rem',
         cell: (row) =>
-          row.declared || locked ? null : (
+          managedInGit(row.declared, locked) ? null : (
             <Stack direction="horizontal" gap="tight" justify="end">
               <PermissionHint allowed={canWrite} action="edit environments">
                 <Button

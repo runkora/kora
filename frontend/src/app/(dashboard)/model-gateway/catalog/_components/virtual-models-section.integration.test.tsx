@@ -20,6 +20,7 @@ function vm(overrides: Partial<VirtualModel> = {}): VirtualModel {
     strategy: 'priority',
     routes: [],
     enabled: true,
+    declared: false,
     ...overrides,
   };
 }

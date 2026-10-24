@@ -1,5 +1,7 @@
 /** @tier 2 — kora-domain-aware: marks items declared in a tenant's configuration repository. Used by: agents, environments, triggers, policy roles, model gateway catalog. */
-import { Badge, Callout, Text } from '@runkora/hades';
+import type { ReactNode } from 'react';
+import { Alert, Badge, Callout, Text } from '@runkora/hades';
+import { declarativeRefusal, PLATFORM_LOCKED_MESSAGE } from '@runkora/lib/declarative';
 
 /** Marks an item declared in the configuration repository. Show it wherever the item is listed or opened. */
 export function ManagedInGitBadge() {
@@ -23,5 +25,35 @@ export function ManagedInGitCallout({ subject }: ManagedInGitCalloutProps) {
         {subject} are managed in git. Make changes in the configuration repository.
       </Text>
     </Callout>
+  );
+}
+
+export interface ManagedInGitNoticeProps {
+  /** The item is declared in the configuration repository, rather than locked by a switch. */
+  declared: boolean;
+  /** The lock is the platform's virtual model switch rather than the tenant's. */
+  platform?: boolean;
+  /** A sentence added after the explanation. */
+  children?: ReactNode;
+}
+
+/** Heads a read-only detail view: why the item cannot change here. */
+export function ManagedInGitNotice({
+  declared,
+  platform = false,
+  children,
+}: ManagedInGitNoticeProps) {
+  const message = declared
+    ? declarativeRefusal('managed_by_resource')
+    : platform
+      ? PLATFORM_LOCKED_MESSAGE
+      : declarativeRefusal('api_authoring_disabled');
+  return (
+    <Alert variant="info">
+      <Text size="caption">
+        {message}
+        {children}
+      </Text>
+    </Alert>
   );
 }

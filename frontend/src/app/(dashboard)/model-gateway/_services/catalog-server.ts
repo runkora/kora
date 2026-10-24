@@ -17,7 +17,7 @@ import 'server-only';
  * move the fetch calls into a loader function co-located with the page.
  */
 
-import type { ResourceSource } from '@runkora/lib/declarative';
+import type { ResourceSource } from '@runkora/shared/api';
 import { config } from '@runkora/server/config';
 
 // ── Result types ─────────────────────────────────────────────────────────────

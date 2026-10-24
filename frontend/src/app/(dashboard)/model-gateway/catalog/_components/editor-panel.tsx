@@ -27,8 +27,12 @@ import type { VirtualModel as ApiVirtualModel } from '../../_services/catalog-se
 import { vmFullId, vmPolicyScope, vmToApiPayload, toVirtualModel } from '../_utils/catalog-api';
 import { RoutesTab } from './routes-tab';
 import { useHasScope } from '../../../_components/permissions-provider';
-import { declarativeRefusal, writeErrorMessage } from '@runkora/lib/declarative';
-import { ManagedInGitBadge, PermissionHint } from '@runkora/components';
+import {
+  managedInGit as isManagedInGit,
+  PLATFORM_LOCKED_MESSAGE,
+  writeErrorMessage,
+} from '@runkora/lib/declarative';
+import { ManagedInGitBadge, ManagedInGitNotice, PermissionHint } from '@runkora/components';
 
 interface EditorPanelProps {
   model: VirtualModel | null;
@@ -42,9 +46,6 @@ interface EditorPanelProps {
 }
 
 /** The virtual model switch is platform-wide, so its refusal names the platform, not the tenant. */
-const PLATFORM_LOCKED_MESSAGE =
-  'Virtual models on this platform are managed in git. Make changes in the configuration repository.';
-
 function vmWriteError(status: number, body: unknown): string {
   return (body as { code?: unknown } | null)?.code === 'api_authoring_disabled'
     ? PLATFORM_LOCKED_MESSAGE
@@ -83,7 +84,7 @@ export function EditorPanel({
 
   const isNew = draft.id === '__new__';
   // A declared model, or any model with the platform switch off, changes only in the configuration repository.
-  const managedInGit = draft.declared === true || !apiAuthoring;
+  const managedInGit = isManagedInGit(draft.declared, !apiAuthoring);
   const fullId = draft.family && draft.name ? vmFullId(draft) : null;
 
   async function handleSave() {
@@ -169,15 +170,7 @@ export function EditorPanel({
 
       <SidePanelBody>
         <Stack gap="comfortable">
-          {managedInGit && (
-            <Alert variant="info">
-              <Text size="caption">
-                {draft.declared
-                  ? declarativeRefusal('managed_by_resource')
-                  : PLATFORM_LOCKED_MESSAGE}
-              </Text>
-            </Alert>
-          )}
+          {managedInGit && <ManagedInGitNotice declared={draft.declared} platform />}
           {/* Identity fields */}
           <Stack paddingBottom="comfortable">
             <Grid cols={2} gap="snug">
@@ -185,6 +178,7 @@ export function EditorPanel({
                 <Label>Family</Label>
                 {knownFamilies.length > 0 ? (
                   <NativeSelect
+                    disabled={managedInGit}
                     value={draft.family}
                     onChange={(e) => setDraft({ ...draft, family: e.target.value })}
                     mono
@@ -199,6 +193,7 @@ export function EditorPanel({
                 ) : (
                   <Input
                     mono
+                    disabled={managedInGit}
                     value={draft.family}
                     onChange={(e) => setDraft({ ...draft, family: e.target.value })}
                     placeholder="e.g. anthropic"
@@ -210,6 +205,7 @@ export function EditorPanel({
                 <Label>Model name</Label>
                 <Input
                   mono
+                  disabled={managedInGit}
                   value={draft.name}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                   placeholder="e.g. claude-sonnet-4-6"
@@ -219,6 +215,7 @@ export function EditorPanel({
               <Field>
                 <Label>Display name</Label>
                 <Input
+                  disabled={managedInGit}
                   value={draft.displayName}
                   onChange={(e) => setDraft({ ...draft, displayName: e.target.value })}
                   placeholder="e.g. Claude Sonnet 4.6"
@@ -239,6 +236,7 @@ export function EditorPanel({
             <Field>
               <Label>Description</Label>
               <Input
+                disabled={managedInGit}
                 value={draft.description}
                 onChange={(e) => setDraft({ ...draft, description: e.target.value })}
                 placeholder="Optional description"
@@ -253,6 +251,7 @@ export function EditorPanel({
             onChange={setDraft}
             providerModels={providerModels}
             providers={providers}
+            disabled={managedInGit}
           />
         </Stack>
       </SidePanelBody>

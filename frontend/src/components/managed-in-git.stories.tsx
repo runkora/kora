@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { ManagedInGitBadge, ManagedInGitCallout } from './managed-in-git';
+import { ManagedInGitBadge, ManagedInGitCallout, ManagedInGitNotice } from './managed-in-git';
 
 /**
  * ManagedInGit
@@ -22,4 +22,8 @@ export const Callout: Story = {
 
 export const Badge: Story = {
   render: () => <ManagedInGitBadge />,
+};
+
+export const Notice: Story = {
+  render: () => <ManagedInGitNotice declared />,
 };
