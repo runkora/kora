@@ -1,0 +1,48 @@
+# A GitHub webhook source with its labeled signing Secret, a webhook trigger and a scheduled trigger.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitops-github-webhook
+  namespace: kora-tenant-example
+  labels:
+    runkora.io/trigger-source: "true"
+stringData:
+  secret: local-only-webhook-secret
+---
+apiVersion: runkora.io/v1alpha1
+kind: TriggerSource
+metadata:
+  name: gitops-github
+  namespace: kora-tenant-example
+spec:
+  provider: github
+  signingSecretRef: {name: gitops-github-webhook, key: secret}
+---
+apiVersion: runkora.io/v1alpha1
+kind: Trigger
+metadata:
+  name: gitops-review-pr
+  namespace: kora-tenant-example
+spec:
+  kind: webhook
+  source: gitops-github
+  eventType: pull_request
+  match:
+    action: [opened]
+  agent: gitops-reviewer
+  promptTemplate: "Review {{ pull_request.html_url }}"
+---
+# Disabled to keep the local cluster from starting a run every Monday. Set enabled to true to try it.
+apiVersion: runkora.io/v1alpha1
+kind: Trigger
+metadata:
+  name: gitops-weekly-summary
+  namespace: kora-tenant-example
+spec:
+  kind: scheduled
+  agent: gitops-reviewer
+  schedule:
+    cronExpression: "0 9 * * 1"
+    timezone: UTC
+  promptTemplate: "Summarise the pull requests merged in the week before {{ var.date }}."
+  enabled: false

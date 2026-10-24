@@ -135,6 +135,8 @@ These scopes administer the tenant or confer authority beyond the holder. Keep t
 
 Role management needs `platform:roles:write`. A caller can only put scopes it holds into a role.
 
+Roles can also be defined as `PolicyRole` resources. See [Declarative resources](declarative-resources.md#policyrole).
+
 **Create or Replace a Role:**
 
 ```
