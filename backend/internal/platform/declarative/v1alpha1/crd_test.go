@@ -51,7 +51,7 @@ func TestExampleManifestsValidate(t *testing.T) {
 	}
 	checked := 0
 	for src, text := range sources {
-		for _, doc := range strings.Split(text, "\n---\n") {
+		for doc := range strings.SplitSeq(text, "\n---\n") {
 			var head struct{ APIVersion, Kind string }
 			if err := yaml.Unmarshal([]byte(doc), &head); err != nil {
 				t.Fatalf("%s: %v", src, err)
