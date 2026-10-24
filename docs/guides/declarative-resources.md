@@ -248,7 +248,7 @@ Each resource reports three conditions:
 - `ResolvedRefs`: every reference to another declared kind is `Ready`, and every other reference exists. Reasons are `Resolved`, `RefNotFound` and `Pending`. The message lists what is missing or what the service waits for.
 - `Ready`: the current spec is projected and live. Reasons are `Projected` and `Pending`, and a trigger without a source is never `Ready`.
 
-`status.id` is the id of the projected item. While an `Agent` provisions, it reports `ResolvedRefs=False` with reason `Pending`, and its `status.id` is set once it is active.
+`status.id` is the id of the projected item. While an `Agent` provisions, it already carries its `status.id` and reports `Ready=False` with reason `Pending` until the agent is active.
 
 ```bash
 kubectl get virtualmodels -n kora-system
