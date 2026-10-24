@@ -1,35 +1,22 @@
 package config_test
 
 import (
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"sigs.k8s.io/yaml"
 )
 
-// renderChartDocs renders templates of the kora chart with the CI values, one
-// decoded document per resource. It skips without helm or chart dependencies.
-func renderChartDocs(t *testing.T, templates ...string) []map[string]any {
+// renderDocs renders templates of the kora chart with the CI values, one
+// decoded document per resource.
+func renderDocs(t *testing.T, templates ...string) []map[string]any {
 	t.Helper()
-	chart := filepath.Join("..", "..", "..", "..", "charts", "kora")
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm not installed")
-	}
-	if deps, _ := filepath.Glob(filepath.Join(chart, "charts", "*.tgz")); len(deps) == 0 {
-		t.Skip("chart dependencies not built")
-	}
-	args := []string{"template", "kora", chart, "-n", "kora-system", "-f", filepath.Join(chart, "ci", "default-values.yaml")}
+	var args []string
 	for _, tpl := range templates {
 		args = append(args, "-s", tpl)
 	}
-	out, err := exec.Command("helm", args...).CombinedOutput()
-	if err != nil {
-		t.Fatalf("helm template: %v\n%s", err, out)
-	}
 	var docs []map[string]any
-	for doc := range strings.SplitSeq(string(out), "\n---\n") {
+	for doc := range strings.SplitSeq(renderChart(t, "", args...), "\n---\n") {
 		var m map[string]any
 		if err := yaml.Unmarshal([]byte(doc), &m); err != nil {
 			t.Fatalf("parse rendered document: %v\n%s", err, doc)
@@ -80,7 +67,7 @@ func firstRoute(t *testing.T, vs map[string]any, path string) map[string]any {
 // TestDeclaredEndpointsAreNotRoutedFromTheEdge: every service's declared-item
 // path, under its base path, gets a 404 at the gateway instead of a route.
 func TestDeclaredEndpointsAreNotRoutedFromTheEdge(t *testing.T) {
-	docs := renderChartDocs(t, "templates/api/virtualservice.yaml")
+	docs := renderDocs(t, "templates/api/virtualservice.yaml")
 	if len(docs) != 1 {
 		t.Fatalf("want one VirtualService, got %d", len(docs))
 	}
@@ -104,7 +91,7 @@ func TestDeclaredEndpointsAreNotRoutedFromTheEdge(t *testing.T) {
 // probe and metrics ports out of the mesh and its non-mesh egress direct, and
 // that each service denies its declared-item paths to every other principal.
 func TestOperatorJoinsTheMesh(t *testing.T) {
-	docs := renderChartDocs(t, "templates/operator/deployment.yaml", "templates/authorizationpolicy-declared.yaml")
+	docs := renderDocs(t, "templates/operator/deployment.yaml", "templates/authorizationpolicy-declared.yaml")
 	denied := map[string]string{}
 	for _, d := range docs {
 		switch d["kind"] {
@@ -148,7 +135,7 @@ func TestOperatorJoinsTheMesh(t *testing.T) {
 // TestOperatorAccess checks the operator may read the six kinds and patch
 // their status, and that kora-triggers admits it only on the declared paths.
 func TestOperatorAccess(t *testing.T) {
-	docs := renderChartDocs(t, "templates/operator/clusterrole.yaml", "templates/triggers/authorizationpolicy.yaml")
+	docs := renderDocs(t, "templates/operator/clusterrole.yaml", "templates/triggers/authorizationpolicy.yaml")
 	kinds := []string{"virtualmodels", "environments", "agents", "triggersources", "triggers", "policyroles"}
 	granted := map[string][]any{}
 	operatorRule := false

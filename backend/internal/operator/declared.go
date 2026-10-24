@@ -101,14 +101,14 @@ func (r *DeclaredReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	before := obj.DeepCopyObject().(client.Object)
 	status := declaredStatus(obj)
 	gen := obj.GetGeneration()
-	notProjected := declarative.False(declarative.ReasonPending, "The resource is not projected.")
+	notProjected := condFalse(reasonPending, "The resource is not projected.")
 	ready := false
 	switch {
 	case p.refusal != nil:
-		declarative.SetConditions(status, gen, *p.refusal, declarative.False(declarative.ReasonPending, "References are not checked."), notProjected)
+		setConditions(status, gen, *p.refusal, condFalse(reasonPending, "References are not checked."), notProjected)
 	case len(p.missing) > 0:
-		declarative.SetConditions(status, gen, declarative.True(declarative.ReasonAccepted, ""),
-			declarative.False(declarative.ReasonRefNotFound, strings.Join(p.missing, ", ")+" not found or not Ready."), notProjected)
+		setConditions(status, gen, condTrue(reasonAccepted, ""),
+			condFalse(reasonRefNotFound, strings.Join(p.missing, ", ")+" not found or not Ready."), notProjected)
 	default:
 		res, err := r.apply(ctx, obj, p)
 		if err != nil {
@@ -176,24 +176,24 @@ func (r *DeclaredReconciler) apply(ctx context.Context, obj client.Object, p pre
 // setResult writes the service's outcome as conditions and reports whether
 // the item is ready.
 func setResult(status *dv1.Status, gen int64, res declarative.Result) bool {
-	accepted := declarative.True(declarative.ReasonAccepted, "")
-	resolved := declarative.True(declarative.ReasonResolved, "")
-	notProjected := declarative.False(declarative.ReasonPending, "The resource is not projected.")
+	accepted := condTrue(reasonAccepted, "")
+	resolved := condTrue(reasonResolved, "")
+	notProjected := condFalse(reasonPending, "The resource is not projected.")
 	switch res.Outcome {
 	case declarative.OutcomeProjected:
 		status.ID = res.ID
-		ready := declarative.True(declarative.ReasonProjected, res.Message)
+		ready := condTrue(reasonProjected, res.Message)
 		if !res.Ready {
-			ready = declarative.False(declarative.ReasonPending, nonEmpty(res.Message, "The item is not live yet."))
+			ready = condFalse(reasonPending, nonEmpty(res.Message, "The item is not live yet."))
 		}
-		declarative.SetConditions(status, gen, accepted, resolved, ready)
+		setConditions(status, gen, accepted, resolved, ready)
 		return res.Ready
 	case declarative.OutcomeNameConflict:
-		declarative.SetConditions(status, gen, declarative.False(declarative.ReasonNameConflict, res.Message), resolved, notProjected)
+		setConditions(status, gen, condFalse(reasonNameConflict, res.Message), resolved, notProjected)
 	case declarative.OutcomePending:
-		declarative.SetConditions(status, gen, accepted, declarative.False(declarative.ReasonPending, res.Message), notProjected)
+		setConditions(status, gen, accepted, condFalse(reasonPending, res.Message), notProjected)
 	default:
-		declarative.SetConditions(status, gen, declarative.False(declarative.ReasonInvalid, res.Message), resolved, notProjected)
+		setConditions(status, gen, condFalse(reasonInvalid, res.Message), resolved, notProjected)
 	}
 	return false
 }
@@ -329,16 +329,12 @@ func (r *DeclaredReconciler) heldItems(ctx context.Context) (heldItems, error) {
 	if err := r.Reader.List(ctx, list); err != nil {
 		return nil, fmt.Errorf("list %s: %w", r.kind.kind, err)
 	}
-	tenants := &KoraTenantList{}
-	if err := r.List(ctx, tenants); err != nil {
-		return nil, fmt.Errorf("list KoraTenants: %w", err)
-	}
-	byNamespace := map[string]string{}
-	for _, t := range servedTenants(tenants.Items) {
-		byNamespace[tenantNamespace(&t)] = t.Name
+	byNamespace, err := r.servedNamespaces(ctx)
+	if err != nil {
+		return nil, err
 	}
 	held := heldItems{}
-	err := meta.EachListItem(list, func(o runtime.Object) error {
+	err = meta.EachListItem(list, func(o runtime.Object) error {
 		obj := o.(client.Object)
 		tenantID := byNamespace[obj.GetNamespace()]
 		switch v := obj.(type) {
@@ -364,20 +360,19 @@ type tenantRef struct{ id, namespace string }
 // liveTenants returns the active tenants that hold their namespace and whose
 // namespace exists. A tenant whose namespace is gone is never swept.
 func (r *DeclaredReconciler) liveTenants(ctx context.Context) ([]tenantRef, error) {
-	list := &KoraTenantList{}
-	if err := r.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("list KoraTenants: %w", err)
+	served, err := r.servedNamespaces(ctx)
+	if err != nil {
+		return nil, err
 	}
 	var out []tenantRef
-	for _, t := range servedTenants(list.Items) {
-		ns := tenantNamespace(&t)
+	for ns, id := range served {
 		if err := r.Reader.Get(ctx, client.ObjectKey{Name: ns}, &corev1.Namespace{}); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
 			}
 			return nil, fmt.Errorf("get namespace %q: %w", ns, err)
 		}
-		out = append(out, tenantRef{id: t.Name, namespace: ns})
+		out = append(out, tenantRef{id: id, namespace: ns})
 	}
 	return out, nil
 }
@@ -388,19 +383,8 @@ func (r *DeclaredReconciler) liveTenants(ctx context.Context) ([]tenantRef, erro
 func SweepAll(ctx context.Context, reconcilers []*DeclaredReconciler, interval time.Duration, logger logging.Logger) error {
 	for {
 		for _, r := range reconcilers {
-			tenants := []string{declarative.PlatformTenant}
-			if r.kind.kind != declarative.KindVirtualModels {
-				live, err := r.liveTenants(ctx)
-				if err != nil {
-					logger.Error(ctx, "list tenants for the declared sweep", logging.Field{Key: "error", Value: err.Error()})
-					continue
-				}
-				tenants = tenants[:0]
-				for _, t := range live {
-					tenants = append(tenants, t.id)
-				}
-			}
-			if _, err := r.sweep(ctx, tenants); err != nil {
+			// The system namespace reaches every tenant.
+			if _, err := r.sweepNamespace(ctx, systemNamespace); err != nil {
 				logger.Warn(ctx, "declared sweep failed", logging.Field{Key: "error", Value: err.Error()})
 			}
 		}

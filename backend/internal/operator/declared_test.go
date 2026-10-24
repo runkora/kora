@@ -85,7 +85,7 @@ func meta0(namespace, name string, age int) metav1.ObjectMeta {
 // readyStatus marks a declarative resource Ready with id.
 func readyStatus(id string) dv1.Status {
 	return dv1.Status{ID: id, Conditions: []metav1.Condition{{
-		Type: declarative.ConditionReady, Status: metav1.ConditionTrue, Reason: declarative.ReasonProjected, LastTransitionTime: metav1.NewTime(t0),
+		Type: condReady, Status: metav1.ConditionTrue, Reason: reasonProjected, LastTransitionTime: metav1.NewTime(t0),
 	}}}
 }
 
@@ -156,7 +156,7 @@ func TestProjectEnvironment(t *testing.T) {
 	if err := json.Unmarshal(item.Spec, &spec); err != nil || spec.SandboxImage != "kora-go" {
 		t.Errorf("spec = %s (%v)", item.Spec, err)
 	}
-	if env.Status.ID != "id-go-build" || declaredCondition(t, env, declarative.ConditionReady).Status != metav1.ConditionTrue {
+	if env.Status.ID != "id-go-build" || declaredCondition(t, env, condReady).Status != metav1.ConditionTrue {
 		t.Errorf("status = %+v", env.Status)
 	}
 	if res.RequeueAfter != declaredResync {
@@ -168,7 +168,7 @@ func TestUnknownTenant(t *testing.T) {
 	env := &dv1.Environment{ObjectMeta: meta0("nowhere", "e", 0), Spec: dv1.EnvironmentSpec{DisplayName: "E"}}
 	h := newHarness(t, env)
 	res := h.reconcile(t, declarative.KindEnvironments, env)
-	if c := declaredCondition(t, env, declarative.ConditionAccepted); c.Reason != declarative.ReasonUnknownTenant {
+	if c := declaredCondition(t, env, condAccepted); c.Reason != reasonUnknownTenant {
 		t.Errorf("Accepted = %+v", c)
 	}
 	if len(h.clients["agents"].applied) != 0 || res.RequeueAfter != declaredRetry {
@@ -191,7 +191,7 @@ func TestAgentReferences(t *testing.T) {
 	h := newHarness(t, vm, env, globalMCP, conn, agent)
 
 	h.reconcile(t, declarative.KindAgents, agent)
-	if c := declaredCondition(t, agent, declarative.ConditionResolvedRefs); c.Reason != declarative.ReasonRefNotFound || c.Message != `Environment "go-build" not found or not Ready.` {
+	if c := declaredCondition(t, agent, condResolvedRefs); c.Reason != reasonRefNotFound || c.Message != `Environment "go-build" not found or not Ready.` {
 		t.Errorf("ResolvedRefs = %+v", c)
 	}
 	if len(h.clients["agents"].applied) != 0 {
@@ -233,7 +233,7 @@ func TestTriggerReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.reconcile(t, declarative.KindTriggers, missing)
-	if c := declaredCondition(t, missing, declarative.ConditionResolvedRefs); c.Message != `Agent "ghost" not found or not Ready.` {
+	if c := declaredCondition(t, missing, condResolvedRefs); c.Message != `Agent "ghost" not found or not Ready.` {
 		t.Errorf("ResolvedRefs = %+v", c)
 	}
 }
@@ -249,11 +249,11 @@ func TestVirtualModelRules(t *testing.T) {
 		t.Errorf("item = %+v", item)
 	}
 	h.reconcile(t, declarative.KindVirtualModels, newer)
-	if c := declaredCondition(t, newer, declarative.ConditionAccepted); c.Reason != declarative.ReasonNameConflict {
+	if c := declaredCondition(t, newer, condAccepted); c.Reason != reasonNameConflict {
 		t.Errorf("newer Accepted = %+v", c)
 	}
 	h.reconcile(t, declarative.KindVirtualModels, stray)
-	if c := declaredCondition(t, stray, declarative.ConditionAccepted); c.Reason != declarative.ReasonInvalid {
+	if c := declaredCondition(t, stray, condAccepted); c.Reason != reasonInvalid {
 		t.Errorf("stray Accepted = %+v", c)
 	}
 	if n := len(h.clients["inference"].applied); n != 1 {
@@ -271,16 +271,16 @@ func TestPolicyRoleRules(t *testing.T) {
 		role   *dv1.PolicyRole
 		reason string
 	}{
-		{"platform scope in a tenant namespace", role(ns, "p", 0, dv1.PolicyRoleSpec{Scopes: []string{"platform:catalog:write"}}), declarative.ReasonInvalid},
-		{"tenant in a tenant namespace", role(ns, "t", 0, dv1.PolicyRoleSpec{Tenant: "acme", Scopes: []string{"a"}}), declarative.ReasonInvalid},
-		{"system role without a tenant", role(systemNamespace, "s", 0, dv1.PolicyRoleSpec{Scopes: []string{"a"}}), declarative.ReasonInvalid},
-		{"system role for an unknown tenant", role(systemNamespace, "u", 0, dv1.PolicyRoleSpec{Tenant: "ghost", Scopes: []string{"a"}}), declarative.ReasonUnknownTenant},
+		{"platform scope in a tenant namespace", role(ns, "p", 0, dv1.PolicyRoleSpec{Scopes: []string{"platform:catalog:write"}}), reasonInvalid},
+		{"tenant in a tenant namespace", role(ns, "t", 0, dv1.PolicyRoleSpec{Tenant: "acme", Scopes: []string{"a"}}), reasonInvalid},
+		{"system role without a tenant", role(systemNamespace, "s", 0, dv1.PolicyRoleSpec{Scopes: []string{"a"}}), reasonInvalid},
+		{"system role for an unknown tenant", role(systemNamespace, "u", 0, dv1.PolicyRoleSpec{Tenant: "ghost", Scopes: []string{"a"}}), reasonUnknownTenant},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t, tc.role)
 			h.reconcile(t, declarative.KindPolicyRoles, tc.role)
-			if c := declaredCondition(t, tc.role, declarative.ConditionAccepted); c.Reason != tc.reason {
+			if c := declaredCondition(t, tc.role, condAccepted); c.Reason != tc.reason {
 				t.Errorf("Accepted = %+v, want %s", c, tc.reason)
 			}
 			if len(h.clients["policy"].applied) != 0 {
@@ -300,7 +300,7 @@ func TestPolicyRoleRules(t *testing.T) {
 			t.Errorf("item = %+v", item)
 		}
 		h.reconcile(t, declarative.KindPolicyRoles, dup)
-		if c := declaredCondition(t, dup, declarative.ConditionAccepted); c.Reason != declarative.ReasonNameConflict {
+		if c := declaredCondition(t, dup, condAccepted); c.Reason != reasonNameConflict {
 			t.Errorf("dup Accepted = %+v", c)
 		}
 		h.reconcile(t, declarative.KindPolicyRoles, plain)
@@ -318,7 +318,7 @@ func TestTriggerSourceSecret(t *testing.T) {
 	h := newHarness(t, src, secret)
 
 	h.reconcile(t, declarative.KindTriggerSources, src)
-	if c := declaredCondition(t, src, declarative.ConditionResolvedRefs); c.Reason != declarative.ReasonRefNotFound {
+	if c := declaredCondition(t, src, condResolvedRefs); c.Reason != reasonRefNotFound {
 		t.Errorf("an unlabelled Secret resolves, got %+v", c)
 	}
 	if len(h.clients["triggers"].applied) != 0 {
@@ -347,10 +347,10 @@ func TestServiceOutcomes(t *testing.T) {
 		wantReadyTrue  bool
 		wantStatusIDOK bool
 	}{
-		{declarative.Result{Outcome: declarative.OutcomeNameConflict, Message: "taken"}, declarative.ConditionAccepted, declarative.ReasonNameConflict, declaredRetry, false, false},
-		{declarative.Result{Outcome: declarative.OutcomeInvalid, Message: "bad"}, declarative.ConditionAccepted, declarative.ReasonInvalid, declaredRetry, false, false},
-		{declarative.Result{Outcome: declarative.OutcomePending, Message: "scope x unknown"}, declarative.ConditionResolvedRefs, declarative.ReasonPending, declaredRetry, false, false},
-		{declarative.Result{Outcome: declarative.OutcomeProjected, ID: "x"}, declarative.ConditionReady, declarative.ReasonPending, declaredRetry, false, true},
+		{declarative.Result{Outcome: declarative.OutcomeNameConflict, Message: "taken"}, condAccepted, reasonNameConflict, declaredRetry, false, false},
+		{declarative.Result{Outcome: declarative.OutcomeInvalid, Message: "bad"}, condAccepted, reasonInvalid, declaredRetry, false, false},
+		{declarative.Result{Outcome: declarative.OutcomePending, Message: "scope x unknown"}, condResolvedRefs, reasonPending, declaredRetry, false, false},
+		{declarative.Result{Outcome: declarative.OutcomeProjected, ID: "x"}, condReady, reasonPending, declaredRetry, false, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.res.Outcome, func(t *testing.T) {
@@ -447,7 +447,7 @@ func TestPolicyRoleNameIsUniquePerTenant(t *testing.T) {
 	same := &dv1.PolicyRole{ObjectMeta: meta0("kora-tenant-acme", "admins", 5), Spec: dv1.PolicyRoleSpec{Role: "Other", Scopes: []string{"a"}}}
 	h := newHarness(t, sys, same)
 	h.reconcile(t, declarative.KindPolicyRoles, same)
-	if c := declaredCondition(t, same, declarative.ConditionAccepted); c.Reason != declarative.ReasonNameConflict {
+	if c := declaredCondition(t, same, condAccepted); c.Reason != reasonNameConflict {
 		t.Errorf("Accepted = %+v", c)
 	}
 	if len(h.clients["policy"].applied) != 0 {
@@ -468,7 +468,7 @@ func TestTriggerRefusesDelegatedAgents(t *testing.T) {
 			trig := &dv1.Trigger{ObjectMeta: meta0(ns, "t", 0), Spec: spec}
 			h := newHarness(t, auto.DeepCopy(), del.DeepCopy(), trig)
 			h.reconcile(t, declarative.KindTriggers, trig)
-			if c := declaredCondition(t, trig, declarative.ConditionAccepted); c.Reason != declarative.ReasonInvalid {
+			if c := declaredCondition(t, trig, condAccepted); c.Reason != reasonInvalid {
 				t.Errorf("Accepted = %+v", c)
 			}
 			if len(h.clients["triggers"].applied) != 0 {
@@ -504,7 +504,7 @@ func TestSweepKeepsAnItemRecreatedUnderTheSameName(t *testing.T) {
 
 func TestOlderRefusedModelDoesNotHoldTheKey(t *testing.T) {
 	older := &dv1.VirtualModel{ObjectMeta: meta0(systemNamespace, "a", 0), Spec: dv1.VirtualModelSpec{Family: "f", Name: "n"},
-		Status: dv1.Status{Conditions: []metav1.Condition{{Type: declarative.ConditionAccepted, Status: metav1.ConditionFalse, Reason: declarative.ReasonInvalid, LastTransitionTime: metav1.NewTime(t0)}}}}
+		Status: dv1.Status{Conditions: []metav1.Condition{{Type: condAccepted, Status: metav1.ConditionFalse, Reason: reasonInvalid, LastTransitionTime: metav1.NewTime(t0)}}}}
 	newer := &dv1.VirtualModel{ObjectMeta: meta0(systemNamespace, "b", 5), Spec: dv1.VirtualModelSpec{Family: "f", Name: "n"}}
 	h := newHarness(t, older, newer)
 	h.reconcile(t, declarative.KindVirtualModels, newer)
@@ -525,5 +525,18 @@ func TestSweepContinuesPastATenantError(t *testing.T) {
 	}
 	if got := h.clients["agents"].deleted; !slices.Equal(got, []string{"beta/x"}) {
 		t.Errorf("deleted %v", got)
+	}
+}
+
+func TestAMissingAgentNamedTwiceIsReportedOnce(t *testing.T) {
+	ns := "kora-tenant-acme"
+	src := &dv1.TriggerSource{ObjectMeta: meta0(ns, "s", 0), Status: dv1.TriggerSourceStatus{Status: readyStatus("s1")}}
+	vm := &dv1.VirtualModel{ObjectMeta: meta0(systemNamespace, "d1", 0), Spec: dv1.VirtualModelSpec{Family: "f", Name: "d1"}, Status: readyStatus("vm")}
+	trig := &dv1.Trigger{ObjectMeta: meta0(ns, "t", 0), Spec: dv1.TriggerSpec{Kind: "webhook", Source: "s", EventType: "e", PromptTemplate: "p",
+		Routing: &dv1.Routing{Candidates: []string{"ghost"}, Fallback: "ghost", Model: dv1.ModelRef{Family: "f", Name: "d1"}}}}
+	h := newHarness(t, src, vm, trig)
+	h.reconcile(t, declarative.KindTriggers, trig)
+	if c := declaredCondition(t, trig, condResolvedRefs); c.Message != `Agent "ghost" not found or not Ready.` {
+		t.Errorf("ResolvedRefs = %q", c.Message)
 	}
 }
