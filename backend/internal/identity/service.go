@@ -89,8 +89,8 @@ type Service struct {
 	// sensible default in NewService and can be replaced in tests.
 	httpClient *http.Client
 
-	// mu protects oidcTenants — readers acquire RLock, the file-watcher
-	// goroutine acquires Lock when it swaps in a freshly loaded map.
+	// mu protects oidcTenants and apiAuthoringDisabled. Readers acquire RLock;
+	// the file-watcher goroutine acquires Lock when it swaps in freshly loaded maps.
 	mu sync.RWMutex
 
 	// oidcTenants holds one resolved OIDC state per active tenant, keyed by
@@ -98,6 +98,10 @@ type Service struct {
 	// live by watchTenantRegistry whenever the tenant registry file changes.
 	// Access only while holding mu (read or write as appropriate).
 	oidcTenants map[string]*tenantOIDCState
+
+	// apiAuthoringDisabled holds the active tenants whose items are authored
+	// only in their configuration repository. Refreshed with oidcTenants.
+	apiAuthoringDisabled map[string]bool
 
 	// clientSecrets holds the latest resolved OIDC client secrets, keyed by
 	// tenant ID. Populated at startup by initClientSecrets and refreshed live
@@ -937,7 +941,16 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 		RefreshToken:          rawRefresh,
 		IssuedAt:              now.Unix(),
 		RefreshTokenExpiresIn: int(refreshTTL.Seconds()),
+		APIAuthoring:          s.apiAuthoringEnabled(principal.TenantID),
 	}, nil
+}
+
+// apiAuthoringEnabled reports whether the tenant's items can be written
+// through the API. A tenant missing from the registry is enabled.
+func (s *Service) apiAuthoringEnabled(tenantID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return !s.apiAuthoringDisabled[tenantID]
 }
 
 // createAgentSession creates an agent session with no refresh token.
@@ -960,10 +973,11 @@ func (s *Service) createAgentSession(ctx context.Context, principal *Principal) 
 	span.SetStatus(codes.Ok, "agent session created (no refresh token)")
 
 	return &SessionResponse{
-		AccessToken: accessToken,
-		TokenType:   "Bearer",
-		ExpiresIn:   int(ttl.Seconds()),
-		IssuedAt:    now.Unix(),
+		AccessToken:  accessToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    int(ttl.Seconds()),
+		IssuedAt:     now.Unix(),
+		APIAuthoring: s.apiAuthoringEnabled(principal.TenantID),
 	}, nil
 }
 
@@ -1332,10 +1346,12 @@ func (s *Service) discoverTenantOIDC(ctx context.Context, tenantID string, cfg T
 // tenant). A discovery failure for any tenant is fatal — misconfigured
 // providers should be caught at startup, not at first login.
 func (s *Service) initTenantOIDCProviders(ctx context.Context) error {
-	tenants, err := loadTenantRegistry(s.cfg.Registry.TenantsPath, s.clientSecrets)
+	registry, err := loadTenantRegistry(s.cfg.Registry.TenantsPath, s.clientSecrets)
 	if err != nil {
 		return fmt.Errorf("load tenant registry: %w", err)
 	}
+	s.apiAuthoringDisabled = registry.APIAuthoringDisabled
+	tenants := registry.OIDC
 	if len(tenants) == 0 {
 		s.logger.Info(ctx, "no tenants in registry — federated authentication disabled")
 		return nil
@@ -1376,13 +1392,14 @@ func (s *Service) reloadTenantOIDCProviders(ctx context.Context) {
 	clientSecrets := s.clientSecrets
 	s.mu.RUnlock()
 
-	tenants, err := loadTenantRegistry(s.cfg.Registry.TenantsPath, clientSecrets)
+	registry, err := loadTenantRegistry(s.cfg.Registry.TenantsPath, clientSecrets)
 	if err != nil {
 		s.logger.Error(ctx, "tenant registry reload failed — keeping current config",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 		return
 	}
+	tenants := registry.OIDC
 
 	// Build the new map, reusing existing providers where the issuer URL is
 	// unchanged. Always take the freshly resolved cfg so that rotated client
@@ -1419,6 +1436,7 @@ func (s *Service) reloadTenantOIDCProviders(ctx context.Context) {
 
 	s.mu.Lock()
 	s.oidcTenants = next
+	s.apiAuthoringDisabled = registry.APIAuthoringDisabled
 	s.mu.Unlock()
 
 	s.logger.Info(ctx, "tenant registry reloaded",
