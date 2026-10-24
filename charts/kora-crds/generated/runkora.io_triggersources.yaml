@@ -59,8 +59,8 @@ spec:
           spec:
             description: |-
               TriggerSourceSpec mirrors the source create request. The signing secret
-              comes from a Secret instead of the request body. Enabled defaults to true
-              in the CRD.
+              comes from a Secret instead of the request body. The Secret must carry the
+              label runkora.io/trigger-source=true. Enabled defaults to true in the CRD.
             properties:
               config:
                 description: Config is the provider-specific configuration, as the

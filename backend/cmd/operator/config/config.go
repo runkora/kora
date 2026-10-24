@@ -36,6 +36,20 @@ type Config struct {
 
 	// Install holds the per-install settings the chart renders.
 	Install Install `yaml:"install"`
+
+	// Declared holds the services the operator projects declarative resources
+	// into. With IdentityURL empty the declared controllers do not start.
+	Declared Declared `yaml:"declared"`
+}
+
+// Declared holds service base URLs, each including the service's base path.
+type Declared struct {
+	// IdentityURL is where the operator exchanges its SVID for a platform token.
+	IdentityURL         string `yaml:"identityURL"`
+	AgentsURL           string `yaml:"agentsURL"`
+	TriggersURL         string `yaml:"triggersURL"`
+	PolicyServiceURL    string `yaml:"policyServiceURL"`
+	InferenceGatewayURL string `yaml:"inferenceGatewayURL"`
 }
 
 // Install contains chart-supplied settings.

@@ -6,6 +6,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
+	dv1 "github.com/runkora/kora/backend/internal/platform/declarative/v1alpha1"
 	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
 	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
@@ -41,5 +42,6 @@ func NewScheme() *runtime.Scheme {
 	utilruntime.Must(AddToScheme(s))
 	utilruntime.Must(ip.AddToScheme(s))
 	utilruntime.Must(si.AddToScheme(s))
+	utilruntime.Must(dv1.AddToScheme(s))
 	return s
 }
