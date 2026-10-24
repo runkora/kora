@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 )
 
 // ── Environment handlers ────────────────────────────────────────────────────
@@ -85,7 +86,7 @@ func (c *Controller) handleDeleteEnvironment(w http.ResponseWriter, r *http.Requ
 
 // writeEnvironmentError maps environment service errors to HTTP responses.
 func (c *Controller) writeEnvironmentError(ctx context.Context, w http.ResponseWriter, err error) {
-	if c.writeAPIWriteRefusal(ctx, w, err) {
+	if declarative.WriteRefusal(ctx, w, c.logger, err) {
 		return
 	}
 	switch {

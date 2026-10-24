@@ -237,8 +237,10 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	authz := agents.NewAuthz(eval)
+	// The kora-tenants registry can lock a tenant's agents and environments to its declarative resources.
+	tenants := declarative.NewRegistry(cfg.Kubernetes.TenantsPath)
 
-	atSvc := agents.NewAgentTypeService(repo, repo, k8s, authz, pubsub, agents.AgentTypeServiceConfig{
+	atSvc := agents.NewAgentTypeService(repo, repo, k8s, authz, pubsub, tenants, agents.AgentTypeServiceConfig{
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
 	}, logger)
@@ -267,7 +269,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize run service: %w", err)
 	}
 
-	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, atSvc, agents.EnvironmentServiceConfig{
+	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, atSvc, tenants, agents.EnvironmentServiceConfig{
 		TenantNamespaceFn: cfg.TenantNamespace,
 		EnvironmentSizes:  sizes,
 	}, logger)
@@ -322,13 +324,9 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	return server, repo, atSvc, runSvc, draftSvc, nil
 }
 
-// declaredController serves the operator's declared-item endpoints for environments and agents,
-// and locks API writes in tenants the registry marks Disabled
+// declaredController serves the operator's declared-item endpoints for environments and agents
 // (docs/adr/2026-10-24-declarative-resources.md).
 func declaredController(cfg *agentsConfig.Config, verifier *token.Verifier, logger logging.Logger, repo *agents.PostgresRepository, atSvc *agents.AgentTypeService, envSvc *agents.EnvironmentService) *declarative.Controller {
-	tenants := declarative.NewRegistry(cfg.Kubernetes.TenantsPath)
-	atSvc.SetAuthoringSwitch(tenants)
-	envSvc.SetAuthoringSwitch(tenants)
 	return declarative.NewController(verifier, logger, map[string]declarative.Applier{
 		declarative.KindEnvironments: agents.NewEnvironmentApplier(repo, envSvc, cfg.TenantNamespace),
 		declarative.KindAgents:       agents.NewAgentApplier(repo, atSvc, cfg.TenantNamespace),

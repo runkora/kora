@@ -37,8 +37,8 @@ func emptyRows() *declaredRows {
 // newDeclaredRows holds the declared environments env-go and env-go-2.
 func newDeclaredRows() *declaredRows {
 	return &declaredRows{agents: map[string]*AgentType{}, envs: map[string]*Environment{
-		"go-build":   {ID: "env-go", Slug: "go-build", Source: SourceCRD, ResourceUID: "uid-env"},
-		"go-build-2": {ID: "env-go-2", Slug: "go-build-2", Source: SourceCRD, ResourceUID: "uid-env-2"},
+		"go-build":   {ID: "env-go", Slug: "go-build", Source: declarative.SourceCRD, ResourceUID: "uid-env"},
+		"go-build-2": {ID: "env-go-2", Slug: "go-build-2", Source: declarative.SourceCRD, ResourceUID: "uid-env-2"},
 	}}
 }
 
@@ -74,21 +74,21 @@ func (d *declaredRows) GetEnvironment(_ context.Context, _, id string) (*Environ
 	return nil, ErrNotFound
 }
 
-func (d *declaredRows) ListDeclaredAgentTypes(context.Context, string) ([]AgentType, error) {
-	var out []AgentType
+func (d *declaredRows) ListDeclaredAgentTypes(context.Context, string) ([]declarative.Declared, error) {
+	var out []declarative.Declared
 	for _, at := range d.agents {
-		if at.Source == SourceCRD {
-			out = append(out, *at)
+		if at.Source == declarative.SourceCRD {
+			out = append(out, declarative.Declared{Name: at.Slug, UID: at.ResourceUID})
 		}
 	}
 	return out, nil
 }
 
-func (d *declaredRows) ListDeclaredEnvironments(context.Context, string) ([]Environment, error) {
-	var out []Environment
+func (d *declaredRows) ListDeclaredEnvironments(context.Context, string) ([]declarative.Declared, error) {
+	var out []declarative.Declared
 	for _, e := range d.envs {
-		if e.Source == SourceCRD {
-			out = append(out, *e)
+		if e.Source == declarative.SourceCRD {
+			out = append(out, declarative.Declared{Name: e.Slug, UID: e.ResourceUID})
 		}
 	}
 	return out, nil
@@ -100,7 +100,7 @@ func (d *declaredRows) CreateAgentType(ctx context.Context, req CreateAgentTypeR
 	if d.writeErr != nil {
 		return nil, d.writeErr
 	}
-	at := &AgentType{ID: "agent-" + w.resourceUID, Slug: req.Slug, Source: SourceCRD, ResourceUID: w.resourceUID,
+	at := &AgentType{ID: "agent-" + w.resourceUID, Slug: req.Slug, Source: declarative.SourceCRD, ResourceUID: w.resourceUID,
 		ResourceGeneration: w.generation, State: AgentTypeStateProvisioning, Environments: req.Environments}
 	d.agents[req.Slug] = at
 	return at, nil
@@ -139,7 +139,7 @@ func (d *declaredRows) CreateEnvironment(ctx context.Context, req EnvironmentReq
 	if d.writeErr != nil {
 		return nil, d.writeErr
 	}
-	e := &Environment{ID: "env-" + req.Slug, Slug: req.Slug, Source: SourceCRD, ResourceUID: w.resourceUID, ResourceGeneration: w.generation}
+	e := &Environment{ID: "env-" + req.Slug, Slug: req.Slug, Source: declarative.SourceCRD, ResourceUID: w.resourceUID, ResourceGeneration: w.generation}
 	d.envs[req.Slug] = e
 	return e, nil
 }
@@ -229,7 +229,7 @@ func TestEnvironmentApplier(t *testing.T) {
 func TestEnvironmentApplierRefusals(t *testing.T) {
 	ctx := context.Background()
 	rows := emptyRows()
-	rows.envs["dash"] = &Environment{ID: "e1", Slug: "dash", Source: SourceAPI}
+	rows.envs["dash"] = &Environment{ID: "e1", Slug: "dash", Source: declarative.SourceAPI}
 	a := NewEnvironmentApplier(rows, rows, tenantNamespace)
 
 	if res, _ := a.Apply(ctx, item(t, "dash", "uid-1", 1, envSpec(), nil)); res.Outcome != declarative.OutcomeNameConflict || len(rows.writes) != 0 {
@@ -248,8 +248,8 @@ func TestEnvironmentApplierRefusals(t *testing.T) {
 func TestEnvironmentApplierDelete(t *testing.T) {
 	ctx := context.Background()
 	rows := emptyRows()
-	rows.envs["go-build"] = &Environment{ID: "env-1", Slug: "go-build", Source: SourceCRD}
-	rows.envs["dash"] = &Environment{ID: "env-2", Slug: "dash", Source: SourceAPI}
+	rows.envs["go-build"] = &Environment{ID: "env-1", Slug: "go-build", Source: declarative.SourceCRD}
+	rows.envs["dash"] = &Environment{ID: "env-2", Slug: "dash", Source: declarative.SourceAPI}
 	a := NewEnvironmentApplier(rows, rows, tenantNamespace)
 
 	rows.inUse = true
@@ -284,8 +284,8 @@ func TestAgentApplier(t *testing.T) {
 	a := NewAgentApplier(rows, rows, tenantNamespace)
 
 	res, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs))
-	if err != nil || res.Outcome != declarative.OutcomePending || res.ID != "agent-uid-1" || res.Ready {
-		t.Fatalf("create = %+v, %v; want Pending while provisioning", res, err)
+	if err != nil || res != (declarative.Result{Outcome: declarative.OutcomeProjected, ID: "agent-uid-1"}) {
+		t.Fatalf("create = %+v, %v; want Projected with the id and not ready while provisioning", res, err)
 	}
 	req := rows.created[0]
 	if req.Slug != "code-reviewer" || req.Name != "Code reviewer" || *req.ModelID != "anthropic/sonnet" || req.IdentityMode != IdentityModeAutonomous {
@@ -334,7 +334,7 @@ func TestAgentApplier(t *testing.T) {
 
 func TestAgentApplierRecreatedResourceIsANewAgent(t *testing.T) {
 	rows := newDeclaredRows()
-	rows.agents["code-reviewer"] = &AgentType{ID: "old", Slug: "code-reviewer", Source: SourceCRD, ResourceUID: "uid-old", ResourceGeneration: 1, State: AgentTypeStateActive}
+	rows.agents["code-reviewer"] = &AgentType{ID: "old", Slug: "code-reviewer", Source: declarative.SourceCRD, ResourceUID: "uid-old", ResourceGeneration: 1, State: AgentTypeStateActive}
 	a := NewAgentApplier(rows, rows, tenantNamespace)
 	res, err := a.Apply(context.Background(), item(t, "code-reviewer", "uid-new", 1, agentSpec(), agentRefs))
 	if err != nil || res.ID != "agent-uid-new" {
@@ -349,7 +349,7 @@ func TestAgentApplierRefusals(t *testing.T) {
 	ctx := context.Background()
 	t.Run("name conflict", func(t *testing.T) {
 		rows := newDeclaredRows()
-		rows.agents["code-reviewer"] = &AgentType{ID: "a1", Slug: "code-reviewer", Source: SourceAPI}
+		rows.agents["code-reviewer"] = &AgentType{ID: "a1", Slug: "code-reviewer", Source: declarative.SourceAPI}
 		res, err := NewAgentApplier(rows, rows, tenantNamespace).Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs))
 		if err != nil || res.Outcome != declarative.OutcomeNameConflict || len(rows.writes) != 0 {
 			t.Errorf("conflict = %+v, %v, writes %d", res, err, len(rows.writes))
@@ -357,7 +357,7 @@ func TestAgentApplierRefusals(t *testing.T) {
 	})
 	t.Run("invalid", func(t *testing.T) {
 		rows := newDeclaredRows()
-		rows.agents["code-reviewer"] = &AgentType{ID: "a1", Slug: "code-reviewer", Source: SourceCRD, ResourceUID: "uid-1", ResourceGeneration: 1}
+		rows.agents["code-reviewer"] = &AgentType{ID: "a1", Slug: "code-reviewer", Source: declarative.SourceCRD, ResourceUID: "uid-1", ResourceGeneration: 1}
 		rows.writeErr = ErrIdentityModeImmutable
 		res, err := NewAgentApplier(rows, rows, tenantNamespace).Apply(ctx, item(t, "code-reviewer", "uid-1", 2, agentSpec(), agentRefs))
 		if err != nil || res.Outcome != declarative.OutcomeInvalid || res.Message == "" {
@@ -366,7 +366,7 @@ func TestAgentApplierRefusals(t *testing.T) {
 	})
 	t.Run("dashboard-built environment", func(t *testing.T) {
 		rows := newDeclaredRows()
-		rows.envs["dash"] = &Environment{ID: "env-dash", Slug: "dash", Source: SourceAPI}
+		rows.envs["dash"] = &Environment{ID: "env-dash", Slug: "dash", Source: declarative.SourceAPI}
 		res, err := NewAgentApplier(rows, rows, tenantNamespace).Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), map[string]string{"environment/go-build": "env-dash"}))
 		if err != nil || res.Outcome != declarative.OutcomePending || len(rows.writes) != 0 {
 			t.Errorf("dashboard environment = %+v, %v, writes %d", res, err, len(rows.writes))
@@ -383,8 +383,8 @@ func TestAgentApplierRefusals(t *testing.T) {
 
 func TestAgentApplierDelete(t *testing.T) {
 	rows := newDeclaredRows()
-	rows.agents["code-reviewer"] = &AgentType{ID: "a1", Slug: "code-reviewer", Source: SourceCRD}
-	rows.agents["dash"] = &AgentType{ID: "a2", Slug: "dash", Source: SourceAPI}
+	rows.agents["code-reviewer"] = &AgentType{ID: "a1", Slug: "code-reviewer", Source: declarative.SourceCRD}
+	rows.agents["dash"] = &AgentType{ID: "a2", Slug: "dash", Source: declarative.SourceAPI}
 	a := NewAgentApplier(rows, rows, tenantNamespace)
 	for _, name := range []string{"code-reviewer", "dash", "absent"} {
 		if err := a.Delete(context.Background(), applierTenant, name); err != nil {
@@ -408,7 +408,7 @@ func (s slugStore) GetAgentTypeBySlug(ctx context.Context, tenantID, slug string
 	return s.GetAgentType(ctx, at.ID)
 }
 
-func (slugStore) ListDeclaredAgentTypes(context.Context, string) ([]AgentType, error) {
+func (slugStore) ListDeclaredAgentTypes(context.Context, string) ([]declarative.Declared, error) {
 	return nil, nil
 }
 
@@ -432,8 +432,8 @@ func (c *countingWriter) UpdateAgentType(ctx context.Context, req UpdateAgentTyp
 // same generation writes nothing.
 func TestAgentApplierWithService(t *testing.T) {
 	repo := newMockRepository()
-	repo.envs["env-go"] = &Environment{ID: "env-go", TenantID: applierTenant, Source: SourceCRD}
-	writer := &countingWriter{AgentTypeService: newDenyingAgentTypeService(repo)}
+	repo.envs["env-go"] = &Environment{ID: "env-go", TenantID: applierTenant, Source: declarative.SourceCRD}
+	writer := &countingWriter{AgentTypeService: newDenyingAgentTypeService(repo, lockedTenants{})}
 	a := NewAgentApplier(slugStore{repo}, writer, tenantNamespace)
 	ctx := context.Background()
 	if res, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs)); err != nil || res.ID == "" {
@@ -446,7 +446,7 @@ func TestAgentApplierWithService(t *testing.T) {
 		t.Errorf("writes = %d, want the create only", writer.writes)
 	}
 	at, _ := slugStore{repo}.GetAgentTypeBySlug(ctx, applierTenant, "code-reviewer")
-	if at.Source != SourceCRD || at.CreatedBy != "resource:kora-tenant-acme/code-reviewer" || at.ResourceGeneration != 1 {
+	if at.Source != declarative.SourceCRD || at.CreatedBy != "resource:kora-tenant-acme/code-reviewer" || at.ResourceGeneration != 1 {
 		t.Errorf("row = source %q created_by %q generation %d", at.Source, at.CreatedBy, at.ResourceGeneration)
 	}
 }

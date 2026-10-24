@@ -262,7 +262,7 @@ func TestHandleUpdateEnvironment_RefusedForAttachedAgent(t *testing.T) {
 	agents := newMockRepository()
 	seedAgentType(t, agents, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", Environments: []AgentEnvironment{{EnvironmentID: "e1", IsDefault: true}}})
 	refusal := fmt.Errorf("%w: connection:github:contents:write", ErrScopeCeiling)
-	svc := NewEnvironmentService(store, agents, k8s, k8s, fakeWriteChecker{err: refusal}, EnvironmentServiceConfig{
+	svc := NewEnvironmentService(store, agents, k8s, k8s, fakeWriteChecker{err: refusal}, lockedTenants{}, EnvironmentServiceConfig{
 		TenantNamespaceFn: func(id string) string { return "kora-tenant-" + id },
 		EnvironmentSizes:  testSizes,
 	}, logging.NewLoggerWithOutput(io.Discard))
