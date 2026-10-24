@@ -7,6 +7,7 @@ Local-only tenant resources applied after the platform installation. Platform se
 ```
 deploy/local/
 ├── connections/   # Connection resources for the example tenant (Kubernetes, GitHub)
+├── declarative/   # One of each declarative resource kind for the example tenant
 ├── fixtures/      # Example tenant workload
 └── tenants/       # KoraTenant resources
 ```
@@ -33,6 +34,10 @@ kubectl apply -f deploy/local/tenants/example.yaml
 | `kubernetes.yaml` | A `Secret` named `kora-local-token` in `kora-tenant-example`, holding a bearer token for the target cluster. `scripts/cluster/register-k8s-connection.sh` creates it, along with the ServiceAccount and the connection itself. |
 
 A connection without its credential is skipped, not failed.
+
+## Declarative Resources
+
+`declarative/` holds one example of each declarative resource kind for the example tenant. Nothing applies them automatically. See [declarative/README.md](declarative/README.md).
 
 ## Fixtures
 
