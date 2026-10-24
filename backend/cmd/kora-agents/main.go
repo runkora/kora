@@ -237,11 +237,10 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	authz := agents.NewAuthz(eval)
 
-	atSvc := agents.NewAgentTypeService(repo, repo, k8s, authz, agents.AgentTypeServiceConfig{
+	atSvc := agents.NewAgentTypeService(repo, repo, k8s, authz, pubsub, agents.AgentTypeServiceConfig{
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
 	}, logger)
-	atSvc.SetPubSub(pubsub)
 
 	sizes := environmentSizes(cfg)
 	if validateErr := sizes.Validate(); validateErr != nil {

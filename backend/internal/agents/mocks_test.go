@@ -913,16 +913,15 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 	sm := &mockSMClient{}
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	authz := NewAuthz(eval)
+	pubsub := NewPubSub()
 	atSvc := NewAgentTypeService(
-		repo, repo, k8s, authz,
+		repo, repo, k8s, authz, pubsub,
 		AgentTypeServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
 		},
 		logger,
 	)
-	pubsub := NewPubSub()
-	atSvc.SetPubSub(pubsub)
 	runSvc, err := NewRunService(
 		repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo,
 		RunServiceConfig{
