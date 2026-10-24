@@ -242,7 +242,7 @@ spec:
   source: github-org
   eventType: pull_request
   agent: code-reviewer
-  promptTemplate: "Review {{ .payload.pull_request.html_url }}"
+  promptTemplate: "Review {{ pull_request.html_url }}"
 `,
 	"crd-policyrole.yaml": `
 apiVersion: runkora.io/v1alpha1

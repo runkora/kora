@@ -191,7 +191,8 @@ spec:
                       description: A standard five-field cron expression.
                     timezone:
                       type: string
-                      description: An IANA timezone name. Unset means UTC.
+                      default: UTC
+                      description: An IANA timezone name. Defaults to UTC.
                     catchUp:
                       type: boolean
                       description: Fire once for schedules missed while the platform was down.
