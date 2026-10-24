@@ -41,22 +41,14 @@ type VirtualModel struct {
 	Strategy    VirtualModelStrategy
 	Routes      []VirtualModelRoute // ordered by Priority ascending
 	Enabled     bool
-	// Source is SourceAPI or SourceCRD. ResourceName and ResourceUID name
-	// the projecting resource of a SourceCRD row.
+	// Source is declarative.SourceAPI or SourceCRD. ResourceName and
+	// ResourceUID name the projecting resource of a SourceCRD row.
 	Source       string
 	ResourceName string
 	ResourceUID  string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
-
-// Virtual model sources (docs/adr/2026-10-24-declarative-resources.md).
-const (
-	// SourceAPI marks a virtual model authored through the API.
-	SourceAPI = "api"
-	// SourceCRD marks a virtual model projected from a VirtualModel resource.
-	SourceCRD = "crd"
-)
 
 // FullID returns the consumer-facing model identifier: "{family}/{name}".
 func (v VirtualModel) FullID() string { return v.Family + "/" + v.Name }

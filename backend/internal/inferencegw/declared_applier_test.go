@@ -71,7 +71,7 @@ func TestVirtualModelApplierProjects(t *testing.T) {
 		t.Fatalf("result = %+v, want Projected and ready with an id", res)
 	}
 	row := cat.rows["claude-sonnet"]
-	if row.Source != SourceCRD || row.ResourceUID != "uid-claude-sonnet" || row.FullID() != "anthropic/sonnet" ||
+	if row.Source != declarative.SourceCRD || row.ResourceUID != "uid-claude-sonnet" || row.FullID() != "anthropic/sonnet" ||
 		len(row.Routes) != 1 || row.Routes[0].Provider != "bedrock:prod" || row.Routes[0].ID == "" {
 		t.Errorf("row = %+v", row)
 	}
