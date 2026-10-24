@@ -27,12 +27,7 @@ spec:
         - name: Mode
           type: string
           jsonPath: .spec.identityMode
-        - name: Accepted
-          type: string
-          jsonPath: .status.conditions[?(@.type=="Accepted")].status
-        - name: Ready
-          type: string
-          jsonPath: .status.conditions[?(@.type=="Ready")].status
+        {{- include "kora-crds.declaredColumns" . | nindent 8 }}
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp
@@ -40,8 +35,9 @@ spec:
         openAPIV3Schema:
           description: >
             Agent defines an agent for the tenant whose namespace holds it.
-            kora-agents watches it and provisions it as it does an agent built
-            in the dashboard. metadata.name is the agent slug.
+            The operator projects it into kora-agents, which provisions it as it
+            does an agent built in the dashboard. metadata.name is the agent
+            slug.
           type: object
           required:
             - spec
@@ -232,37 +228,4 @@ spec:
             status:
               type: object
               properties:
-                id:
-                  type: string
-                  description: The id of the item the resource is projected to.
-                observedGeneration:
-                  type: integer
-                  format: int64
-                conditions:
-                  type: array
-                  x-kubernetes-list-type: map
-                  x-kubernetes-list-map-keys:
-                    - type
-                  items:
-                    type: object
-                    required:
-                      - type
-                      - status
-                      - lastTransitionTime
-                      - reason
-                      - message
-                    properties:
-                      type:
-                        type: string
-                      status:
-                        type: string
-                      observedGeneration:
-                        type: integer
-                        format: int64
-                      lastTransitionTime:
-                        type: string
-                        format: date-time
-                      reason:
-                        type: string
-                      message:
-                        type: string
+                {{- include "kora-crds.declaredStatus" . | nindent 16 }}

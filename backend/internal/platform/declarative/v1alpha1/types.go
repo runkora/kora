@@ -29,8 +29,8 @@ func AddToScheme(s *runtime.Scheme) error {
 	return nil
 }
 
-// Status is the status every declarative kind reports. The owning service
-// writes it.
+// Status is the status every declarative kind reports. The operator writes it
+// from the owning service's response.
 type Status struct {
 	// ID is the id of the item the resource is projected to.
 	ID                 string             `json:"id,omitempty"`

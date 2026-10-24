@@ -12,7 +12,8 @@ const (
 	// ConditionAccepted is true when the spec is valid, the tenant is known
 	// and the key is free.
 	ConditionAccepted = "Accepted"
-	// ConditionResolvedRefs is true when every reference exists as a resource.
+	// ConditionResolvedRefs is true when every reference to another declared
+	// kind is Ready and every other reference exists.
 	ConditionResolvedRefs = "ResolvedRefs"
 	// ConditionReady is true when the item is projected and live.
 	ConditionReady = "Ready"

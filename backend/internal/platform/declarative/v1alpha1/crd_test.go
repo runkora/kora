@@ -1,160 +1,17 @@
 package v1alpha1
 
 import (
-	"fmt"
-	"os"
 	"reflect"
-	"regexp"
-	"slices"
 	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/yaml"
+
+	"github.com/runkora/kora/backend/internal/platform/crdtest"
 )
 
-const crdDir = "../../../../../charts/kora-crds/templates/"
-
-// schemaNode is a node of a CRD's openAPIV3Schema, as decoded from YAML.
-type schemaNode = map[string]any
-
-// crdSchema loads the openAPIV3Schema the chart ships for one kind. Lines
-// with Helm template actions carry only labels and are dropped.
-//
-// The schema is walked as plain data. Running the API server's validators
-// and CEL here would pull k8s.io/apiserver and cel-go into this module. The
-// CEL rules are asserted as declared, not executed.
-func crdSchema(t *testing.T, file string) schemaNode {
-	t.Helper()
-	raw, err := os.ReadFile(crdDir + file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var kept []string
-	for line := range strings.SplitSeq(string(raw), "\n") {
-		if !strings.Contains(line, "{{") {
-			kept = append(kept, line)
-		}
-	}
-	var crd schemaNode
-	if err := yaml.Unmarshal([]byte(strings.Join(kept, "\n")), &crd); err != nil {
-		t.Fatal(err)
-	}
-	spec := child(crd, "spec")
-	if spec["scope"] != "Namespaced" {
-		t.Errorf("%s: scope = %v, want Namespaced", file, spec["scope"])
-	}
-	versions, _ := spec["versions"].([]any)
-	if len(versions) != 1 {
-		t.Fatalf("%s: want one version, got %d", file, len(versions))
-	}
-	version := versions[0].(schemaNode)
-	if version["name"] != "v1alpha1" || child(child(version, "subresources"), "status") == nil {
-		t.Errorf("%s: want v1alpha1 with a status subresource", file)
-	}
-	schema := child(child(version, "schema"), "openAPIV3Schema")
-	if schema == nil {
-		t.Fatalf("%s: no openAPIV3Schema", file)
-	}
-	return schema
-}
-
-func child(n schemaNode, key string) schemaNode {
-	c, _ := n[key].(schemaNode)
-	return c
-}
-
-func prop(n schemaNode, name string) schemaNode { return child(child(n, "properties"), name) }
-
-// validate checks value against the OpenAPI keywords these CRDs use. It
-// returns one message per violation.
-func validate(schema schemaNode, value any, path string) []string {
-	var errs []string
-	fail := func(format string, args ...any) { errs = append(errs, path+": "+fmt.Sprintf(format, args...)) }
-	num := func(key string) (float64, bool) { n, ok := schema[key].(float64); return n, ok }
-	switch v := value.(type) {
-	case map[string]any:
-		if schema["type"] != "object" {
-			fail("got an object, want %v", schema["type"])
-		}
-		required, _ := schema["required"].([]any)
-		for _, r := range required {
-			if _, ok := v[r.(string)]; !ok {
-				fail("%s is required", r)
-			}
-		}
-		for k, item := range v {
-			switch {
-			case prop(schema, k) != nil:
-				errs = append(errs, validate(prop(schema, k), item, path+"."+k)...)
-			case child(schema, "additionalProperties") != nil:
-				errs = append(errs, validate(child(schema, "additionalProperties"), item, path+"."+k)...)
-			case schema["x-kubernetes-preserve-unknown-fields"] == true || path == ".metadata":
-			default:
-				fail("unknown field %s", k)
-			}
-		}
-	case []any:
-		if schema["type"] != "array" {
-			fail("got an array, want %v", schema["type"])
-		}
-		if n, ok := num("minItems"); ok && float64(len(v)) < n {
-			fail("needs at least %v items", n)
-		}
-		if n, ok := num("maxItems"); ok && float64(len(v)) > n {
-			fail("allows at most %v items", n)
-		}
-		for i, item := range v {
-			errs = append(errs, validate(child(schema, "items"), item, fmt.Sprintf("%s[%d]", path, i))...)
-		}
-	case string:
-		if schema["type"] != "string" {
-			fail("got a string, want %v", schema["type"])
-		}
-		if enum, ok := schema["enum"].([]any); ok && !slices.Contains(enum, any(v)) {
-			fail("%q is not one of %v", v, enum)
-		}
-		if n, ok := num("minLength"); ok && float64(len(v)) < n {
-			fail("shorter than %v", n)
-		}
-		if n, ok := num("maxLength"); ok && float64(len(v)) > n {
-			fail("longer than %v", n)
-		}
-		if pat, ok := schema["pattern"].(string); ok && !regexp.MustCompile(pat).MatchString(v) {
-			fail("%q does not match %s", v, pat)
-		}
-	case float64:
-		if schema["type"] != "integer" && schema["type"] != "number" {
-			fail("got a number, want %v", schema["type"])
-		}
-		if n, ok := num("minimum"); ok && (v < n || (v == n && schema["exclusiveMinimum"] == true)) {
-			fail("%v is below the minimum %v", v, n)
-		}
-		if n, ok := num("maximum"); ok && v > n {
-			fail("%v is above the maximum %v", v, n)
-		}
-	case bool:
-		if schema["type"] != "boolean" {
-			fail("got a boolean, want %v", schema["type"])
-		}
-	default:
-		fail("unexpected %T, want %v", value, schema["type"])
-	}
-	return errs
-}
-
-// rules returns the CEL rules declared on a schema node.
-func rules(n schemaNode) []string {
-	var out []string
-	list, _ := n["x-kubernetes-validations"].([]any)
-	for _, r := range list {
-		out = append(out, r.(schemaNode)["rule"].(string))
-	}
-	return out
-}
-
-// kinds maps each CRD file to its Go type.
 var kinds = []struct {
 	file string
 	obj  runtime.Object
@@ -168,124 +25,31 @@ var kinds = []struct {
 }
 
 // The examples from docs/adr/2026-10-24-declarative-resources.md.
-var adrExamples = map[string]string{
-	"crd-virtualmodel.yaml": `
-apiVersion: runkora.io/v1alpha1
-kind: VirtualModel
-metadata:
-  name: claude-sonnet
-  namespace: kora-system
-spec:
-  family: anthropic
-  name: sonnet
-  displayName: Claude Sonnet
-  strategy: priority
-  routes:
-    - provider: bedrock:prod
-      modelID: anthropic.claude-sonnet-4-5-20250929-v1:0
-      priority: 1
-`,
-	"crd-environment.yaml": `
-apiVersion: runkora.io/v1alpha1
-kind: Environment
-metadata:
-  name: go-build
-  namespace: kora-tenant-acme
-spec:
-  displayName: Go build
-  sandboxImage: kora-go
-  size: {cpu: "2", memory: 4Gi, disk: 10Gi}
-  egressHosts: [proxy.golang.org]
-`,
-	"crd-agent.yaml": `
-apiVersion: runkora.io/v1alpha1
-kind: Agent
-metadata:
-  name: code-reviewer
-  namespace: kora-tenant-acme
-spec:
-  displayName: Code reviewer
-  framework: claude-code
-  identityMode: autonomous
-  model: {family: anthropic, name: sonnet}
-  systemPrompt: |
-    Review pull requests for correctness.
-  environments:
-    - name: go-build
-      default: true
-  connectors:
-    - connection: github
-      actions: [read, write]
-  mcpTools:
-    - server: github
-      tools: [create_review]
-  budget: {limitUSD: 50, resetCadence: monthly}
-`,
-	"crd-triggersource.yaml": `
-apiVersion: runkora.io/v1alpha1
-kind: TriggerSource
-metadata:
-  name: github-org
-  namespace: kora-tenant-acme
-spec:
-  provider: github
-  signingSecretRef: {name: github-webhook, key: secret}
-`,
-	"crd-trigger.yaml": `
-apiVersion: runkora.io/v1alpha1
-kind: Trigger
-metadata:
-  name: review-on-pr
-  namespace: kora-tenant-acme
-spec:
-  kind: webhook
-  source: github-org
-  eventType: pull_request
-  agent: code-reviewer
-  promptTemplate: "Review {{ pull_request.html_url }}"
-`,
-	"crd-policyrole.yaml": `
-apiVersion: runkora.io/v1alpha1
-kind: PolicyRole
-metadata:
-  name: reviewers
-  namespace: kora-tenant-acme
-spec:
-  role: Reviewers
-  scopes: ["agents:runs:code-reviewer:read", "agents:runs:code-reviewer:write"]
-  budget: {limitUSD: 200, resetCadence: monthly}
-`,
-}
-
-func TestADRExamplesValidate(t *testing.T) {
+// TestCRDShape checks each CRD is namespaced with one served version and a
+// status subresource.
+func TestCRDShape(t *testing.T) {
 	for _, k := range kinds {
-		t.Run(k.file, func(t *testing.T) {
-			var obj map[string]any
-			if err := yaml.Unmarshal([]byte(adrExamples[k.file]), &obj); err != nil {
-				t.Fatal(err)
-			}
-			if errs := validate(crdSchema(t, k.file), obj, ""); len(errs) > 0 {
-				t.Errorf("schema errors: %v", errs)
-			}
-			// Strict decoding fails on a field the Go type does not declare.
-			typed := k.obj.DeepCopyObject()
-			if err := yaml.UnmarshalStrict([]byte(adrExamples[k.file]), typed); err != nil {
-				t.Errorf("decode into %T: %v", typed, err)
-			}
-		})
+		spec := crdtest.Child(crdtest.CRD(t, k.file), "spec")
+		versions, _ := spec["versions"].([]any)
+		if spec["scope"] != "Namespaced" || len(versions) != 1 {
+			t.Errorf("%s: scope %v with %d versions", k.file, spec["scope"], len(versions))
+			continue
+		}
+		v := versions[0].(crdtest.Node)
+		if v["name"] != "v1alpha1" || crdtest.Child(crdtest.Child(v, "subresources"), "status") == nil {
+			t.Errorf("%s: want v1alpha1 with a status subresource", k.file)
+		}
 	}
 }
 
-// TestGoTypesMatchSchema keeps the Go types and the chart's schemas in step:
-// every spec and status field exists on both sides.
 func TestGoTypesMatchSchema(t *testing.T) {
 	for _, k := range kinds {
 		t.Run(k.file, func(t *testing.T) {
-			schema := crdSchema(t, k.file)
+			schema := crdtest.Schema(t, k.file)
 			typ := reflect.TypeOf(k.obj).Elem()
 			for _, f := range []string{"Spec", "Status"} {
 				field, _ := typ.FieldByName(f)
-				compareFields(t, "."+strings.ToLower(f), prop(schema, strings.ToLower(f)), field.Type)
+				compareFields(t, "."+strings.ToLower(f), crdtest.Prop(schema, strings.ToLower(f)), field.Type)
 			}
 		})
 	}
@@ -296,7 +60,7 @@ var (
 	rawType       = reflect.TypeFor[runtime.RawExtension]()
 )
 
-func compareFields(t *testing.T, path string, schema schemaNode, typ reflect.Type) {
+func compareFields(t *testing.T, path string, schema crdtest.Node, typ reflect.Type) {
 	t.Helper()
 	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
@@ -319,17 +83,17 @@ func compareFields(t *testing.T, path string, schema schemaNode, typ reflect.Typ
 		goFields := map[string]reflect.Type{}
 		collectFields(typ, goFields)
 		for name, ft := range goFields {
-			compareFields(t, path+"."+name, prop(schema, name), ft)
+			compareFields(t, path+"."+name, crdtest.Prop(schema, name), ft)
 		}
-		for name := range child(schema, "properties") {
+		for name := range crdtest.Child(schema, "properties") {
 			if _, ok := goFields[name]; !ok {
 				t.Errorf("%s.%s: in the schema but not in Go type %s", path, name, typ)
 			}
 		}
 	case reflect.Slice:
-		compareFields(t, path+"[]", child(schema, "items"), typ.Elem())
+		compareFields(t, path+"[]", crdtest.Child(schema, "items"), typ.Elem())
 	case reflect.Map:
-		compareFields(t, path+"{}", child(schema, "additionalProperties"), typ.Elem())
+		compareFields(t, path+"{}", crdtest.Child(schema, "additionalProperties"), typ.Elem())
 	}
 }
 
@@ -346,59 +110,6 @@ func collectFields(typ reflect.Type, out map[string]reflect.Type) {
 	}
 }
 
-func TestStatusConditionsAreAMapByType(t *testing.T) {
-	for _, k := range kinds {
-		conditions := prop(prop(crdSchema(t, k.file), "status"), "conditions")
-		keys, _ := conditions["x-kubernetes-list-map-keys"].([]any)
-		if conditions["x-kubernetes-list-type"] != "map" || len(keys) != 1 || keys[0] != "type" {
-			t.Errorf("%s: status.conditions must be a list map keyed by type", k.file)
-		}
-	}
-}
-
-func TestMetadataNameRules(t *testing.T) {
-	const dnsLabel = "self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name) <= 63"
-	for _, k := range kinds {
-		got := rules(crdSchema(t, k.file))
-		if k.file == "crd-agent.yaml" {
-			want := []string{
-				"self.metadata.name.matches('^[a-z]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name) <= 52",
-				"!(self.metadata.name in ['delegated', 'autonomous'])",
-			}
-			if !slices.Equal(got, want) {
-				t.Errorf("agent name rules = %q, want %q", got, want)
-			}
-			continue
-		}
-		if !slices.Equal(got, []string{dnsLabel}) {
-			t.Errorf("%s: name rules = %q", k.file, got)
-		}
-	}
-}
-
-func TestAgentIdentityModeIsImmutable(t *testing.T) {
-	mode := prop(prop(crdSchema(t, "crd-agent.yaml"), "spec"), "identityMode")
-	if !slices.Equal(rules(mode), []string{"self == oldSelf"}) {
-		t.Errorf("identityMode rules = %q", rules(mode))
-	}
-}
-
-func TestTriggerRulesAreDeclared(t *testing.T) {
-	want := []string{
-		"has(self.agent) != has(self.routing)",
-		"self.kind != 'webhook' || (has(self.source) && has(self.eventType))",
-		"self.kind != 'scheduled' || has(self.schedule)",
-		"self.kind == 'webhook' || !(has(self.source) || has(self.eventType) || has(self.match) || has(self.matchContains) || has(self.senderRestriction) || has(self.coalesce) || has(self.routing))",
-		"self.kind == 'scheduled' || !has(self.schedule)",
-		"self.kind == 'manual' || !has(self.manual)",
-	}
-	if got := rules(prop(crdSchema(t, "crd-trigger.yaml"), "spec")); !slices.Equal(got, want) {
-		t.Errorf("trigger spec rules =\n%q\nwant\n%q", got, want)
-	}
-}
-
-// TestSchemaRejections covers the OpenAPI validation each kind mirrors from
-// its API.
 func TestSchemaRejections(t *testing.T) {
 	cases := []struct {
 		file, name, spec string
@@ -455,7 +166,7 @@ func TestSchemaRejections(t *testing.T) {
 				t.Fatal(err)
 			}
 			obj := map[string]any{"apiVersion": "runkora.io/v1alpha1", "metadata": map[string]any{"name": "x"}, "spec": spec}
-			errs := validate(crdSchema(t, tc.file), obj, "")
+			errs := crdtest.Validate(crdtest.Schema(t, tc.file), obj, "")
 			if (len(errs) > 0) != tc.wantErr {
 				t.Errorf("errors = %v, want error %v", errs, tc.wantErr)
 			}

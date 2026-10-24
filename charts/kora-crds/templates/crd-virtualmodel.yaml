@@ -30,12 +30,7 @@ spec:
         - name: Model
           type: string
           jsonPath: .spec.name
-        - name: Accepted
-          type: string
-          jsonPath: .status.conditions[?(@.type=="Accepted")].status
-        - name: Ready
-          type: string
-          jsonPath: .status.conditions[?(@.type=="Ready")].status
+        {{- include "kora-crds.declaredColumns" . | nindent 8 }}
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp
@@ -43,14 +38,14 @@ spec:
         openAPIV3Schema:
           description: >
             VirtualModel defines one platform-wide catalog model. Apply it in the
-            kora system namespace. The inference gateway watches it and serves it
-            as <family>/<name>. Its routes send requests to provider models.
+            kora system namespace. The operator projects it into the inference
+            gateway, which serves it as <family>/<name>. Its routes send
+            requests to provider models.
           type: object
           required:
             - spec
           x-kubernetes-validations:
-            - rule: "self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name) <= 63"
-              message: metadata.name must be a DNS label.
+            {{- include "kora-crds.dnsLabelName" . | nindent 12 }}
           properties:
             apiVersion:
               type: string
@@ -121,37 +116,4 @@ spec:
             status:
               type: object
               properties:
-                id:
-                  type: string
-                  description: The id of the item the resource is projected to.
-                observedGeneration:
-                  type: integer
-                  format: int64
-                conditions:
-                  type: array
-                  x-kubernetes-list-type: map
-                  x-kubernetes-list-map-keys:
-                    - type
-                  items:
-                    type: object
-                    required:
-                      - type
-                      - status
-                      - lastTransitionTime
-                      - reason
-                      - message
-                    properties:
-                      type:
-                        type: string
-                      status:
-                        type: string
-                      observedGeneration:
-                        type: integer
-                        format: int64
-                      lastTransitionTime:
-                        type: string
-                        format: date-time
-                      reason:
-                        type: string
-                      message:
-                        type: string
+                {{- include "kora-crds.declaredStatus" . | nindent 16 }}
