@@ -38,6 +38,15 @@ spec:
               {{- range .Values.triggers.authorizationPolicy.meshPrincipals }}
               - "{{ include "kora.trustDomain" $ }}/{{ . }}"
               {{- end }}
+    # The operator applies declared trigger sources and triggers, and reaches
+    # only the declared-item endpoints.
+    - from:
+        - source:
+            principals:
+              - "{{ include "kora.trustDomain" . }}/system/operator"
+      to:
+        - operation:
+            paths: ["/api/v1/internal/declared/*"]
     {{- if .Values.triggers.authorizationPolicy.metricsScraperPrincipals }}
     # Prometheus /metrics scrape traffic, scoped to the metrics port only: the
     # metrics endpoint carries no trigger-management authority, so a
