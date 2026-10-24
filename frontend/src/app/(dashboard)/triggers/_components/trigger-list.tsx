@@ -213,13 +213,7 @@ function makeColumns(
               <Toggle
                 checked={row.enabled}
                 onChange={() => onToggle(row)}
-                // A trigger whose source was deleted can be turned off, never on.
-                disabled={
-                  !canWrite ||
-                  !runs ||
-                  (row.sourceMissing && !row.enabled) ||
-                  !triggerToggleOpen(row, tenantLocked)
-                }
+                disabled={!canWrite || !runs || !triggerToggleOpen(row, tenantLocked)}
                 aria-label={`${row.enabled ? 'Disable' : 'Enable'} ${row.name}`}
               />
             </PermissionHint>

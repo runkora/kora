@@ -36,9 +36,11 @@ const sourceKey = (cat: BudgetCategoryStatus) => `${cat.source}:${cat.id}`;
 
 interface BudgetPrincipalsTabProps {
   principals: BudgetPrincipalsView | null;
+  /** The tenant budget is declared on the tenant's resource. */
+  capDeclared?: boolean;
 }
 
-export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
+export function BudgetPrincipalsTab({ principals, capDeclared = false }: BudgetPrincipalsTabProps) {
   const rows = useMemo(() => principals?.data ?? [], [principals]);
   const [selectedPrincipal, setSelectedPrincipal] = useState<BudgetPrincipalRow | null>(null);
 
@@ -229,7 +231,7 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
         description={`Spend against budget for the current period${principals ? ` (${principals.period})` : ''}.`}
       />
 
-      <TenantCapCard cap={principals?.tenant_cap ?? null} />
+      <TenantCapCard cap={principals?.tenant_cap ?? null} declared={capDeclared} />
 
       <Grid cols={{ base: 1, sm: 2, lg: 4 }} gap="comfortable">
         <StatCard

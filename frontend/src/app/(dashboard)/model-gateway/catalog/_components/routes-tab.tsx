@@ -28,9 +28,17 @@ interface RoutesTabProps {
   providerModels: ProviderModel[];
   // providers are the registered and discovered providers a route may target.
   providers: Provider[];
+  /** Shows the routes read-only, for a model managed in git. */
+  disabled?: boolean;
 }
 
-export function RoutesTab({ model, onChange, providerModels, providers }: RoutesTabProps) {
+export function RoutesTab({
+  model,
+  onChange,
+  providerModels,
+  providers,
+  disabled = false,
+}: RoutesTabProps) {
   // A saved route keeps its provider selectable even after it is unregistered.
   function providerOptions(current: Provider): Provider[] {
     return providers.includes(current) ? providers : [current, ...providers];
@@ -120,6 +128,7 @@ export function RoutesTab({ model, onChange, providerModels, providers }: Routes
                 icon={s.iconName}
                 title={s.label}
                 description={s.desc}
+                disabled={disabled}
               />
             ))}
           </Grid>
@@ -136,7 +145,7 @@ export function RoutesTab({ model, onChange, providerModels, providers }: Routes
           <Button
             variant="ghost"
             size="sm"
-            disabled={providers.length === 0}
+            disabled={disabled || providers.length === 0}
             onClick={() => {
               onChange({
                 ...model,
@@ -183,7 +192,7 @@ export function RoutesTab({ model, onChange, providerModels, providers }: Routes
           {model.routes.map((route, idx) => (
             <DragCard
               key={route.id || idx}
-              draggable
+              draggable={!disabled}
               dragging={draggingIdx === idx}
               dropTarget={overIdx === idx && draggingIdx !== null}
               onDragStart={() => handleDragStart(idx)}
@@ -205,6 +214,7 @@ export function RoutesTab({ model, onChange, providerModels, providers }: Routes
               {/* Center column: all fields stacked */}
               <Stack direction="vertical" grow gap="snug" minWidth="none">
                 <NativeSelect
+                  disabled={disabled}
                   value={route.provider}
                   onChange={(e) => {
                     const updated = model.routes.map((r, i) =>
@@ -222,6 +232,7 @@ export function RoutesTab({ model, onChange, providerModels, providers }: Routes
 
                 {modelsForProvider(route.provider).length > 0 ? (
                   <NativeSelect
+                    disabled={disabled}
                     value={route.modelId}
                     onChange={(e) => {
                       const modelId = e.target.value;
@@ -262,6 +273,7 @@ export function RoutesTab({ model, onChange, providerModels, providers }: Routes
                 ) : (
                   <Input
                     mono
+                    disabled={disabled}
                     value={route.modelId}
                     onChange={(e) => {
                       const updated = model.routes.map((r, i) =>
@@ -315,6 +327,7 @@ export function RoutesTab({ model, onChange, providerModels, providers }: Routes
                     <Stack asChild maxWidth="form-field-sm">
                       <Input
                         type="number"
+                        disabled={disabled}
                         value={route.weight}
                         min={0}
                         max={100}
@@ -334,6 +347,7 @@ export function RoutesTab({ model, onChange, providerModels, providers }: Routes
                 <Stack direction="horizontal" align="center" gap="tight">
                   <Toggle
                     checked={route.enabled}
+                    disabled={disabled}
                     onChange={(v) => {
                       const updated = model.routes.map((r, i) =>
                         i === idx ? { ...r, enabled: v } : r,
@@ -344,6 +358,7 @@ export function RoutesTab({ model, onChange, providerModels, providers }: Routes
                   <Button
                     variant="ghost"
                     size="icon-sm"
+                    disabled={disabled}
                     onClick={() =>
                       onChange({ ...model, routes: model.routes.filter((_, i) => i !== idx) })
                     }

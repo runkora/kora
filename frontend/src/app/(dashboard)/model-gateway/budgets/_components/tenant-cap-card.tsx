@@ -27,21 +27,15 @@ import {
   deleteTenantBudgetAction,
 } from '../../../policy/_actions/tenant-budget';
 import type { TenantCapStatus } from '../../_types';
-import { PermissionHint } from '@runkora/components';
+import { ManagedInGitBadge, PermissionHint } from '@runkora/components';
 
 interface TenantCapCardProps {
   cap: TenantCapStatus | null;
+  /** The budget is declared on the tenant's resource: read-only here. */
+  declared?: boolean;
 }
 
-/** A declared tenant budget refuses API writes with 409. The cap status this card reads does not say it is declared. */
-const MANAGED_CAP_MESSAGE =
-  'The tenant budget is managed in git. Make changes in the configuration repository.';
-
-function capErrorMessage(result: { status: number; message: string }): string {
-  return result.status === 409 ? MANAGED_CAP_MESSAGE : result.message;
-}
-
-export function TenantCapCard({ cap }: TenantCapCardProps) {
+export function TenantCapCard({ cap, declared = false }: TenantCapCardProps) {
   const router = useRouter();
   const canWrite = useHasScope('platform:budgets:write');
   const [editing, setEditing] = useState(false);
@@ -59,11 +53,20 @@ export function TenantCapCard({ cap }: TenantCapCardProps) {
               Tenant Cap
             </Text>
           </Stack>
-          <PermissionHint allowed={canWrite} action="change the tenant cap">
-            <Button variant="ghost" size="sm" disabled={!canWrite} onClick={() => setEditing(true)}>
-              {cap ? 'Edit' : 'Set cap'}
-            </Button>
-          </PermissionHint>
+          {declared ? (
+            <ManagedInGitBadge />
+          ) : (
+            <PermissionHint allowed={canWrite} action="change the tenant cap">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!canWrite}
+                onClick={() => setEditing(true)}
+              >
+                {cap ? 'Edit' : 'Set cap'}
+              </Button>
+            </PermissionHint>
+          )}
         </Stack>
       </CardHeader>
       <CardContent>
@@ -141,7 +144,7 @@ function TenantCapModal({
     if (result.ok) {
       onSaved();
     } else {
-      setSubmitError(capErrorMessage(result));
+      setSubmitError(result.message);
     }
     setSubmitting(false);
   }, [parsed, cadence, onSaved]);
@@ -153,7 +156,7 @@ function TenantCapModal({
     if (result.ok) {
       onSaved();
     } else {
-      setSubmitError(capErrorMessage(result));
+      setSubmitError(result.message);
     }
     setSubmitting(false);
   }, [onSaved]);

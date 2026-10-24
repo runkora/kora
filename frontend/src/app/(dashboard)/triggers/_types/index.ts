@@ -11,7 +11,7 @@
  * (WebhookSource, Trigger, TriggerDelivery) only appear at the service boundary.
  */
 
-import { isDeclared } from '@runkora/lib/declarative';
+import { isDeclared, managedInGit } from '@runkora/lib/declarative';
 import type { IconName } from '@runkora/hades';
 import type {
   InputField,
@@ -148,7 +148,7 @@ export interface SourceRow {
   lastRejectionAt: string | null;
   lastRejectionReason: string | null;
   /** Declared in the configuration repository: read-only here. */
-  declared?: boolean;
+  declared: boolean;
 }
 
 export interface TriggerRow {
@@ -158,7 +158,7 @@ export interface TriggerRow {
   /** A webhook trigger whose source was deleted. It does not fire and can only be disabled or deleted. */
   sourceMissing: boolean;
   /** Declared in the configuration repository: read-only here. */
-  declared?: boolean;
+  declared: boolean;
   name: string;
   /** "routed" triggers have no single agent: both agent fields are empty. */
   targetKind: TriggerTargetKind;
@@ -321,19 +321,13 @@ export function toSourceRow(s: WebhookSource): SourceRow {
 }
 
 /**
- * Whether a trigger's settings are read-only here: it is declared in the
- * configuration repository, or the tenant takes every change from there.
- */
-export function triggerManagedInGit(t: TriggerRow, tenantLocked: boolean): boolean {
-  return t.declared === true || tenantLocked;
-}
-
-/**
- * Whether the on or off control may change. A trigger managed in git can only
- * be re-enabled after an auto-pause, which the API still accepts.
+ * Whether the on or off control may change. A trigger whose source was deleted
+ * can be turned off, never on. A trigger managed in git can only be re-enabled
+ * after an auto-pause, which the API still accepts.
  */
 export function triggerToggleOpen(t: TriggerRow, tenantLocked: boolean): boolean {
-  if (!triggerManagedInGit(t, tenantLocked)) return true;
+  if (t.sourceMissing && !t.enabled) return false;
+  if (!managedInGit(t.declared, tenantLocked)) return true;
   return t.autoPausedAt !== null && !t.enabled;
 }
 

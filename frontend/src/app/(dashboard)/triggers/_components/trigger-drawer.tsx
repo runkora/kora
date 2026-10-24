@@ -43,13 +43,7 @@ import {
   SegmentedControl,
   EmptyState,
 } from '@runkora/hades';
-import {
-  consoleKindOf,
-  KIND_ICON,
-  LIMITS,
-  triggerManagedInGit,
-  triggerToggleOpen,
-} from '../_types';
+import { consoleKindOf, KIND_ICON, LIMITS, triggerToggleOpen } from '../_types';
 import type { DeliveryRow, Senders, SourceRow, TriggerCoalesce, TriggerRow } from '../_types';
 import { isStartedOutcome, recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
@@ -93,8 +87,13 @@ import {
 import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
 import { useEditableSection } from './use-editable-section';
 import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
-import { ManagedInGitBadge, PermissionHint, permissionHintText } from '@runkora/components';
-import { declarativeRefusal } from '@runkora/lib/declarative';
+import {
+  ManagedInGitBadge,
+  ManagedInGitNotice,
+  PermissionHint,
+  permissionHintText,
+} from '@runkora/components';
+import { managedInGit } from '@runkora/lib/declarative';
 
 /**
  * A correction to a stored trigger. Every field is optional: a section saves
@@ -431,11 +430,11 @@ export function TriggerDrawer({
   const sourceMissing = trigger?.sourceMissing ?? false;
   // A trigger managed in git keeps its fire and auto-pause controls and nothing else.
   const tenantLocked = useTenantLocked();
-  const managed = trigger !== null && triggerManagedInGit(trigger, tenantLocked);
+  const managed = trigger !== null && managedInGit(trigger.declared, tenantLocked);
+  // A non-webhook trigger has no source id, so it finds no source.
+  const source = trigger === null ? undefined : sources.find((s) => s.id === trigger.sourceId);
   // Secret rotation stays available on an API source, even in a locked tenant.
-  const sourceDeclared =
-    trigger?.kind === 'webhook' &&
-    sources.some((s) => s.id === trigger.sourceId && s.declared === true);
+  const sourceDeclared = source?.declared === true;
   const onUpdateSafety = canWrite && !sourceMissing && !managed ? updateSafetyAction : undefined;
   const onEdit = canWrite && !sourceMissing && !managed ? editAction : undefined;
   const onRotateSecret = canShapeRuns && !sourceDeclared ? rotateSecretAction : undefined;
@@ -548,8 +547,7 @@ export function TriggerDrawer({
   });
 
   // The catalogue follows the event being edited.
-  const webhookSource =
-    trigger?.kind === 'webhook' ? sources.find((s) => s.id === trigger.sourceId) : undefined;
+  const webhookSource = trigger?.kind === 'webhook' ? source : undefined;
   const sourceCatalog = useSourceCatalog(
     webhookSource?.provider ?? '',
     webhookSource?.id ?? '',
@@ -601,7 +599,6 @@ export function TriggerDrawer({
 
   if (trigger === null) return null;
 
-  const source = sources.find((s) => s.id === trigger.sourceId);
   // A chat command is stored as a webhook trigger; its source's category tells them apart.
   const kind = consoleKindOf(trigger, (id) => sources.find((s) => s.id === id)?.category);
   const eventName =
@@ -653,11 +650,7 @@ export function TriggerDrawer({
           <Toggle
             checked={trigger.enabled}
             onChange={(next) => onToggleEnabled(trigger, next)}
-            disabled={
-              !canShapeRuns ||
-              (sourceMissing && !trigger.enabled) ||
-              !triggerToggleOpen(trigger, tenantLocked)
-            }
+            disabled={!canShapeRuns || !triggerToggleOpen(trigger, tenantLocked)}
             aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} ${trigger.name}`}
           />
         }
@@ -681,13 +674,10 @@ export function TriggerDrawer({
                   <ManagedInGitBadge />
                 </Stack>
               )}
-              <Alert variant="info">
-                {declarativeRefusal(
-                  trigger.declared ? 'managed_by_resource' : 'api_authoring_disabled',
-                )}
+              <ManagedInGitNotice declared={trigger.declared}>
                 {trigger.autoPausedAt !== null &&
                   ' You can still re-enable this trigger after its auto-pause.'}
-              </Alert>
+              </ManagedInGitNotice>
             </Stack>
           ) : !canWrite ? (
             <Alert variant="info">{permissionHintText('edit triggers')}</Alert>

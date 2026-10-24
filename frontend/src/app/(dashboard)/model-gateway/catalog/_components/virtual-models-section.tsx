@@ -88,6 +88,7 @@ const NEW_VIRTUAL_MODEL: VirtualModel = {
   strategy: 'priority',
   routes: [],
   enabled: true,
+  declared: false,
 };
 
 export function VirtualModelsSection({

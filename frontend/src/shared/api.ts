@@ -1,9 +1,10 @@
-import type { ResourceSource } from '@runkora/lib/declarative';
-
 // ── Shared API types ─────────────────────────────────────────────────────────
 //
 // These interfaces mirror Go backend JSON response shapes exactly.
 // Field names match json tags — do not rename without updating the backend.
+
+/** Where an item came from: the API, or a declarative resource (read-only here). */
+export type ResourceSource = 'api' | 'crd';
 
 export interface HealthResponse {
   status: string;

@@ -62,6 +62,7 @@ const SOURCES: SourceRow[] = [
     rejectionCount: 0,
     lastRejectionAt: null,
     lastRejectionReason: null,
+    declared: false,
   },
 ];
 

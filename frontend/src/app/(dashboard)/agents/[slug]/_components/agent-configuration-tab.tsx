@@ -35,8 +35,13 @@ import { EnvironmentsCard } from '../../_components/motif/environments-card';
 import { GuardrailsFields } from '../../_components/motif/guardrail-rows';
 import type { GuardrailValues } from '../../_components/motif/guardrail-rows';
 import { PlannedLimits } from '../../_components/motif/planned-limits';
-import { EffectiveAccessPanel, PermissionHint, permissionHintText } from '@runkora/components';
-import { declarativeRefusal } from '@runkora/lib/declarative';
+import {
+  EffectiveAccessPanel,
+  ManagedInGitNotice,
+  PermissionHint,
+  permissionHintText,
+} from '@runkora/components';
+import { managedInGit as isManagedInGit } from '@runkora/lib/declarative';
 import { useTenantLocked } from '../../../_components/permissions-provider';
 import { ConfigurationRail } from './configuration-rail';
 import { useAgentConfiguration } from '../_hooks/use-agent-configuration';
@@ -73,7 +78,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
   // Without edit access every field is read only; the notice above the form says why.
   const readOnly = !agent.canEdit;
   // A declared agent, or any agent in a locked tenant, changes only in the configuration repository.
-  const managedInGit = agent.declared || locked;
+  const managedInGit = isManagedInGit(agent.declared, locked);
 
   const guardrailValues: GuardrailValues = {
     agentBudgetOn: cfg.budgetLimitUSD !== '',
@@ -131,13 +136,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
 
       <Stack grow gap="relaxed">
         {managedInGit ? (
-          <Alert variant="info">
-            <Text size="caption">
-              {declarativeRefusal(
-                agent.declared ? 'managed_by_resource' : 'api_authoring_disabled',
-              )}
-            </Text>
-          </Alert>
+          <ManagedInGitNotice declared={agent.declared} />
         ) : (
           readOnly && (
             <Alert variant="info">

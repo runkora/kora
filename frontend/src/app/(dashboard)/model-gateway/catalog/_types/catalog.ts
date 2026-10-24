@@ -45,7 +45,7 @@ export interface VirtualModel {
   enabled: boolean;
   pricing?: VirtualModelPricing;
   /** Declared in the configuration repository: read-only here. */
-  declared?: boolean;
+  declared: boolean;
 }
 
 export interface ProviderModel {

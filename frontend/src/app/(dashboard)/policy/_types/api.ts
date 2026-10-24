@@ -3,7 +3,7 @@
 // Mirrors the JSON shapes returned by the policy-service (PAP) and
 // policy-gateway (PDP). Feature-local — NOT in shared/api.ts.
 // Only promote to shared when another feature module needs them.
-import type { ResourceSource } from '@runkora/lib/declarative';
+import type { ResourceSource } from '@runkora/shared/api';
 
 // ── Budget ───────────────────────────────────────────────────────────────────
 
@@ -23,6 +23,8 @@ export interface TenantBudget {
   limit_usd: number;
   reset_cadence: string;
   updated_at?: string;
+  /** "crd" when the budget is declared on the tenant's resource. */
+  source?: ResourceSource;
 }
 
 // ── Grants ───────────────────────────────────────────────────────────────────

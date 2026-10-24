@@ -35,7 +35,7 @@ import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
 import { CreateRoleWizard } from './create-role-wizard';
 import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
-import { isDeclared } from '@runkora/lib/declarative';
+import { isDeclared, managedInGit } from '@runkora/lib/declarative';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { ScopeChipList, scopeColumnFilter } from '@runkora/components';
 import { ScopePicker } from '@runkora/components';
@@ -263,11 +263,6 @@ export function RolesTab({
   );
 }
 
-/** Whether a role changes only in the configuration repository. */
-function roleManagedInGit(role: RoleEntry, locked: boolean): boolean {
-  return locked || isDeclared(role);
-}
-
 // ── Card grid view ──────────────────────────────────────────────────────────
 
 function RoleCardGrid({
@@ -287,7 +282,7 @@ function RoleCardGrid({
     <Grid cols={{ base: 1, sm: 2 }} gap="comfortable">
       {roles.map((role) => {
         const isReserved = role.reserved === true;
-        const editable = !isReserved && !roleManagedInGit(role, locked);
+        const editable = !isReserved && !managedInGit(isDeclared(role), locked);
         const scopes = role.scopes ?? [];
         return (
           <Card key={role.id} column>
@@ -466,7 +461,7 @@ function RoleTable({
         gridWidth: '5rem',
         cell: (r) => {
           // Reserved roles and roles managed in git offer no controls at all.
-          if (r.reserved === true || roleManagedInGit(r, locked)) return null;
+          if (r.reserved === true || managedInGit(isDeclared(r), locked)) return null;
           return (
             <Stack direction="horizontal" gap="tight">
               <PermissionHint allowed={canWrite} action="edit roles">

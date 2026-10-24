@@ -15,7 +15,7 @@ import {
 } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
 import { useHasScope, useTenantLocked } from '../../../_components/permissions-provider';
-import { isDeclared } from '@runkora/lib/declarative';
+import { isDeclared, managedInGit } from '@runkora/lib/declarative';
 import { fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { updateRoleBudgetAction } from '../../../policy/_actions/roles';
 import type { RoleEntry } from '../../../policy/_types/api';
@@ -102,7 +102,7 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
         gridWidth: '4rem',
         cell: (r) => {
           // Reserved roles cannot carry budgets: the bundle compiler skips them.
-          if (r.reserved || locked || isDeclared(r)) return null;
+          if (r.reserved || managedInGit(isDeclared(r), locked)) return null;
           return (
             <PermissionHint allowed={canWrite} action="change role budgets">
               <Button

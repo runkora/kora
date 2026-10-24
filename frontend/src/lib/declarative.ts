@@ -6,13 +6,26 @@
  * API refuses such writes with the codes below.
  */
 
-/** Where an item came from: the API, or a declarative resource. */
-export type ResourceSource = 'api' | 'crd';
+import type { ResourceSource } from '@runkora/shared/api';
+
+export type { ResourceSource };
 
 /** Whether the item is projected from a declarative resource. */
 export function isDeclared(item: { source?: ResourceSource } | null | undefined): boolean {
   return item?.source === 'crd';
 }
+
+/**
+ * Whether an item changes only in the configuration repository: it is
+ * declared there, or authoring through the API is off.
+ */
+export function managedInGit(declared: boolean, authoringLocked: boolean): boolean {
+  return declared || authoringLocked;
+}
+
+/** The refusal for a virtual model write with the platform switch off. */
+export const PLATFORM_LOCKED_MESSAGE =
+  'Virtual models on this platform are managed in git. Make changes in the configuration repository.';
 
 const REFUSALS: Record<string, string> = {
   managed_by_resource: 'This item is managed in git. Make changes in the configuration repository.',

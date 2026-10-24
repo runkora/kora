@@ -13,6 +13,7 @@ const MODEL: VirtualModel = {
   strategy: 'priority',
   routes: [],
   enabled: true,
+  declared: false,
 };
 
 function renderPanel(model: VirtualModel, apiAuthoring = true) {
@@ -42,6 +43,8 @@ describe('EditorPanel managed in git', () => {
     expect(screen.getByText(/item is managed in git/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save Changes' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText('e.g. claude-sonnet-4-6')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /add route/i })).toBeDisabled();
   });
 
   it('shows every model read-only with the platform switch off', () => {
