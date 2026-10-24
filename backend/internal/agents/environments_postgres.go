@@ -14,7 +14,7 @@ import (
 // ── Environments ────────────────────────────────────────────────────────────
 
 // name holds the slug and display_name the name for people.
-const environmentColumns = `id, tenant_id, name, display_name, description, sandbox_image, cpu, memory, disk, egress_hosts, connectors, created_at, updated_at`
+const environmentColumns = `id, tenant_id, name, display_name, description, sandbox_image, cpu, memory, disk, egress_hosts, connectors, source, COALESCE(resource_uid, ''), resource_generation, created_at, updated_at`
 
 func (r *PostgresRepository) CreateEnvironment(ctx context.Context, env Environment) error {
 	if env.ID == "" {
@@ -26,10 +26,10 @@ func (r *PostgresRepository) CreateEnvironment(ctx context.Context, env Environm
 		return err
 	}
 	_, err = r.pool.Exec(ctx, `
-		INSERT INTO environments (`+environmentColumns+`)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13)`,
+		INSERT INTO environments (id, tenant_id, name, display_name, description, sandbox_image, cpu, memory, disk, egress_hosts, connectors, source, resource_uid, resource_generation, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,NULLIF($13, ''),$14,$15,$16)`,
 		env.ID, env.TenantID, env.Slug, env.Name, env.Description, env.SandboxImage,
-		env.Size.CPU, env.Size.Memory, env.Size.Disk, env.EgressHosts, connectorsJSON, now, now,
+		env.Size.CPU, env.Size.Memory, env.Size.Disk, env.EgressHosts, connectorsJSON, string(sourceOrAPI(env.Source)), env.ResourceUID, env.ResourceGeneration, now, now,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -45,8 +45,23 @@ func (r *PostgresRepository) GetEnvironment(ctx context.Context, tenantID, id st
 	return scanEnvironment(row)
 }
 
+// GetEnvironmentBySlug returns a tenant's environment by slug.
+func (r *PostgresRepository) GetEnvironmentBySlug(ctx context.Context, tenantID, slug string) (*Environment, error) {
+	row := r.pool.QueryRow(ctx, `SELECT `+environmentColumns+` FROM environments WHERE tenant_id = $1 AND name = $2`, tenantID, slug)
+	return scanEnvironment(row)
+}
+
+// ListDeclaredEnvironments returns a tenant's environments projected from resources.
+func (r *PostgresRepository) ListDeclaredEnvironments(ctx context.Context, tenantID string) ([]Environment, error) {
+	return r.listEnvironments(ctx, `SELECT `+environmentColumns+` FROM environments WHERE tenant_id = $1 AND source = 'crd' ORDER BY name`, tenantID)
+}
+
 func (r *PostgresRepository) ListEnvironments(ctx context.Context, tenantID string) ([]Environment, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+environmentColumns+` FROM environments WHERE tenant_id = $1 ORDER BY name`, tenantID)
+	return r.listEnvironments(ctx, `SELECT `+environmentColumns+` FROM environments WHERE tenant_id = $1 ORDER BY name`, tenantID)
+}
+
+func (r *PostgresRepository) listEnvironments(ctx context.Context, query string, args ...any) ([]Environment, error) {
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query environments: %w", err)
 	}
@@ -96,10 +111,10 @@ func (r *PostgresRepository) UpdateEnvironment(ctx context.Context, env Environm
 	}
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE environments
-		SET display_name=$1, description=$2, sandbox_image=$3, cpu=$4, memory=$5, disk=$6, egress_hosts=$7, connectors=$8::jsonb, updated_at=$9
+		SET display_name=$1, description=$2, sandbox_image=$3, cpu=$4, memory=$5, disk=$6, egress_hosts=$7, connectors=$8::jsonb, updated_at=$9, resource_uid=NULLIF($12, ''), resource_generation=$13
 		WHERE tenant_id=$10 AND id=$11`,
 		env.Name, env.Description, env.SandboxImage, env.Size.CPU, env.Size.Memory, env.Size.Disk,
-		env.EgressHosts, connectorsJSON, time.Now().UTC(), env.TenantID, env.ID,
+		env.EgressHosts, connectorsJSON, time.Now().UTC(), env.TenantID, env.ID, env.ResourceUID, env.ResourceGeneration,
 	)
 	if err != nil {
 		return fmt.Errorf("update environment: %w", err)
@@ -166,7 +181,7 @@ func scanEnvironment(s scanner) (*Environment, error) {
 	var e Environment
 	var connectorsJSON []byte
 	err := s.Scan(&e.ID, &e.TenantID, &e.Slug, &e.Name, &e.Description, &e.SandboxImage,
-		&e.Size.CPU, &e.Size.Memory, &e.Size.Disk, &e.EgressHosts, &connectorsJSON, &e.CreatedAt, &e.UpdatedAt)
+		&e.Size.CPU, &e.Size.Memory, &e.Size.Disk, &e.EgressHosts, &connectorsJSON, &e.Source, &e.ResourceUID, &e.ResourceGeneration, &e.CreatedAt, &e.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

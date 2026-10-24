@@ -292,7 +292,8 @@ func TestHandleEnvironment_NameRequired(t *testing.T) {
 
 // Deleting an attached environment is a 409. The frontend tells the user to detach it first.
 func TestHandleDeleteEnvironment_InUse(t *testing.T) {
-	svc := newEnvironmentService(&fakeEnvStore{deleteErr: ErrEnvironmentInUse}, &mockK8s{})
+	store := &fakeEnvStore{envs: map[string]Environment{"env-1": {ID: "env-1", TenantID: "t-1"}}, deleteErr: ErrEnvironmentInUse}
+	svc := newEnvironmentService(store, &mockK8s{})
 	c := NewController(nil, nil, svc, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	req := withTenantRequest(httptest.NewRequest(http.MethodDelete, "/api/v1/environments/env-1", http.NoBody), "t-1")
 	req.SetPathValue("id", "env-1")

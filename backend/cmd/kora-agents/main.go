@@ -19,6 +19,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	smclient "github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
@@ -316,8 +317,22 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		),
 		controller,
 		catalogController,
+		declaredController(cfg, verifier, logger, repo, atSvc, envSvc),
 	)
 	return server, repo, atSvc, runSvc, draftSvc, nil
+}
+
+// declaredController serves the operator's declared-item endpoints for environments and agents,
+// and locks API writes in tenants the registry marks Disabled
+// (docs/adr/2026-10-24-declarative-resources.md).
+func declaredController(cfg *agentsConfig.Config, verifier *token.Verifier, logger logging.Logger, repo *agents.PostgresRepository, atSvc *agents.AgentTypeService, envSvc *agents.EnvironmentService) *declarative.Controller {
+	tenants := declarative.NewRegistry(cfg.Kubernetes.TenantsPath)
+	atSvc.SetAuthoringSwitch(tenants)
+	envSvc.SetAuthoringSwitch(tenants)
+	return declarative.NewController(verifier, logger, map[string]declarative.Applier{
+		declarative.KindEnvironments: agents.NewEnvironmentApplier(repo, envSvc, cfg.TenantNamespace),
+		declarative.KindAgents:       agents.NewAgentApplier(repo, atSvc, cfg.TenantNamespace),
+	})
 }
 
 // sandboxGuardrails reads the install's sandbox provisioning settings.

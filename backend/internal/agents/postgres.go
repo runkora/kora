@@ -77,11 +77,11 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO agent_types
-				(id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,$18::jsonb,$19)`,
+				(id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails, created_by, source, resource_uid, resource_generation)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,$18::jsonb,$19,$20,NULLIF($21, ''),$22)`,
 			at.ID, at.TenantID, at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework),
 			at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now, string(connectivityJSON), string(connectorsJSON), at.MCPTools, string(at.IdentityMode.OrDefault()),
-			guardrailsColumn(at.Guardrails), at.CreatedBy,
+			guardrailsColumn(at.Guardrails), at.CreatedBy, string(sourceOrAPI(at.Source)), at.ResourceUID, at.ResourceGeneration,
 		)
 		if err != nil {
 			if isUniqueViolation(err) {
@@ -131,6 +131,13 @@ func (r *PostgresRepository) GetAgentTypeBySlug(ctx context.Context, tenantID, s
 	return scanAgentType(row)
 }
 
+// ListDeclaredAgentTypes returns a tenant's live agent types projected from resources.
+func (r *PostgresRepository) ListDeclaredAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error) {
+	return r.listAgentTypes(ctx, `
+		SELECT `+agentTypeColumns+`
+		FROM agent_types WHERE tenant_id = $1 AND source = 'crd' AND deleted_at IS NULL ORDER BY slug`, tenantID)
+}
+
 func (r *PostgresRepository) ListAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error) {
 	return r.listAgentTypes(ctx, `
 		SELECT `+agentTypeColumns+`
@@ -177,10 +184,10 @@ func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) 
 	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE agent_types
-			SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, grant_scopes=$6, max_concurrent_runs_per_pod=$7, model_id=$8, updated_at=$9, connectivity=$10::jsonb, connectors=$11::jsonb, mcp_tools=$12, guardrails=$13::jsonb
+			SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, grant_scopes=$6, max_concurrent_runs_per_pod=$7, model_id=$8, updated_at=$9, connectivity=$10::jsonb, connectors=$11::jsonb, mcp_tools=$12, guardrails=$13::jsonb, resource_generation=$15
 			WHERE id=$14 AND deleted_at IS NULL`,
 			at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.GrantScopes, at.MaxConcurrentRunsPerPod, at.ModelID, time.Now().UTC(), string(connectivityJSON), string(connectorsJSON), at.MCPTools,
-			guardrailsColumn(at.Guardrails), at.ID,
+			guardrailsColumn(at.Guardrails), at.ID, at.ResourceGeneration,
 		)
 		if err != nil {
 			return fmt.Errorf("update agent_type: %w", err)
@@ -786,7 +793,7 @@ type scanner interface {
 // a query that drifts from the scanner fails on every row at runtime rather
 // than at compile time.
 // The last column aggregates the agent's environment links, default first.
-const agentTypeColumns = `id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails, created_by, activated_at,
+const agentTypeColumns = `id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails, created_by, activated_at, source, COALESCE(resource_uid, ''), resource_generation,
 	COALESCE((SELECT jsonb_agg(jsonb_build_object('environment_id', ae.environment_id, 'is_default', ae.is_default) ORDER BY ae.is_default DESC, ae.environment_id)
 		FROM agent_environments ae WHERE ae.agent_type_id = agent_types.id), '[]'::jsonb)`
 
@@ -797,7 +804,7 @@ func scanAgentType(s scanner) (*AgentType, error) {
 	var activatedAt *time.Time
 	err := s.Scan(
 		&at.ID, &at.TenantID, &at.Name, &at.Slug, &at.Description, &at.SystemPrompt, &framework,
-		&at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.MCPTools, &identityMode, &guardrailsJSON, &at.CreatedBy, &activatedAt, &environmentsJSON,
+		&at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.MCPTools, &identityMode, &guardrailsJSON, &at.CreatedBy, &activatedAt, &at.Source, &at.ResourceUID, &at.ResourceGeneration, &environmentsJSON,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
