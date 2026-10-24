@@ -346,6 +346,7 @@ func (m *ManualConfig) ApplyDefaults(values map[string]string) map[string]string
 
 // Trigger binds a firing condition to (agent, prompt template).
 // For KindWebhook: source_id, event_type, and match_condition drive firing.
+// A webhook trigger whose source was deleted keeps a null source_id.
 // For KindScheduled: kind_config carries the cron schedule; source_id is empty.
 // For KindManual: firing is driven by POST /trigger-fires/{id}; source_id is empty.
 // Scheduled and manual triggers have their own principal_id (not inherited from a source).
@@ -356,8 +357,11 @@ type Trigger struct {
 	// TargetKind is what this trigger starts: "agent" for one agent, "routed"
 	// for a choice among Routing's candidates. A routed trigger has no
 	// AgentTypeID or AgentSlug.
-	TargetKind     string              `json:"target_kind"`
-	SourceID       string              `json:"source_id,omitempty"`
+	TargetKind string `json:"target_kind"`
+	SourceID   string `json:"source_id,omitempty"`
+	// SourceMissing marks a webhook trigger whose source was deleted. It does
+	// not fire and can only be disabled or deleted. Derived per read.
+	SourceMissing  bool                `json:"source_missing,omitempty"`
 	Name           string              `json:"name"`
 	AgentTypeID    string              `json:"agent_type_id"`
 	AgentSlug      string              `json:"agent_slug"`

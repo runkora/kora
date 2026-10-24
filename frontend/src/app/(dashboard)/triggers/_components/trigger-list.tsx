@@ -88,6 +88,11 @@ function makeColumns(
                   Auto-paused
                 </Badge>
               )}
+              {row.sourceMissing && (
+                <Badge variant="error" size="sm" shape="pill">
+                  Source deleted
+                </Badge>
+              )}
               {row.kind === 'webhook' && sourceWaiting(row.sourceId) && (
                 <Badge variant="degraded" size="sm" shape="pill">
                   Waiting for signing secret
@@ -100,11 +105,13 @@ function makeColumns(
               )}
             </Stack>
             <Text size="caption" color="subtle" truncate>
-              {row.kind === 'webhook'
-                ? sourceName(row.sourceId)
-                : row.kind === 'scheduled'
-                  ? (row.scheduleConfig?.timezone ?? 'schedule')
-                  : `POST /api/v1/trigger-fires/${row.id}`}
+              {row.sourceMissing
+                ? 'No source'
+                : row.kind === 'webhook'
+                  ? sourceName(row.sourceId)
+                  : row.kind === 'scheduled'
+                    ? (row.scheduleConfig?.timezone ?? 'schedule')
+                    : `POST /api/v1/trigger-fires/${row.id}`}
             </Text>
           </Stack>
         </Stack>
@@ -204,7 +211,8 @@ function makeColumns(
               <Toggle
                 checked={row.enabled}
                 onChange={() => onToggle(row)}
-                disabled={!canWrite || !runs}
+                // A trigger whose source was deleted can be turned off, never on.
+                disabled={!canWrite || !runs || (row.sourceMissing === true && !row.enabled)}
                 aria-label={`${row.enabled ? 'Disable' : 'Enable'} ${row.name}`}
               />
             </PermissionHint>

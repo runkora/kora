@@ -215,6 +215,13 @@ func (m *mockRepository) DeleteSource(_ context.Context, tenantID, id string) er
 		return ErrSourceNotFound
 	}
 	delete(m.sources, id)
+	// Mirrors ON DELETE SET NULL: the source's triggers stay with no source.
+	for _, t := range m.triggers {
+		if t.SourceID == id {
+			t.SourceID = ""
+			t.SourceMissing = true
+		}
+	}
 	return nil
 }
 

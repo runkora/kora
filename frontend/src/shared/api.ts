@@ -916,6 +916,8 @@ export interface Trigger {
   kind: TriggerKind;
   /** Present for webhook triggers only. */
   source_id?: string;
+  /** Set on a webhook trigger whose source was deleted. It does not fire and can only be deleted. */
+  source_missing?: boolean;
   name: string;
   agent_type_id: string;
   agent_slug: string;

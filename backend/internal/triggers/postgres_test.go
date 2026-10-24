@@ -39,7 +39,8 @@ func testRepo(t *testing.T) (*postgresRepository, string) {
 	}
 	tenant := "test-" + uuid.NewString()
 	t.Cleanup(func() {
-		// FK cascade removes triggers with their source; deliveries have no FK.
+		// Triggers outlive their source; deliveries have no FK.
+		_, _ = pool.Exec(ctx, `DELETE FROM triggers WHERE tenant_id=$1`, tenant)
 		_, _ = pool.Exec(ctx, `DELETE FROM webhook_sources WHERE tenant_id=$1`, tenant)
 		_, _ = pool.Exec(ctx, `DELETE FROM trigger_deliveries WHERE tenant_id=$1`, tenant)
 		pool.Close()
@@ -206,13 +207,59 @@ func TestPostgres_TriggerCRUD(t *testing.T) {
 	if err := r.UpdateTrigger(ctx, tr, true, false); err != nil {
 		t.Fatalf("UpdateTrigger(disable): %v", err)
 	}
+}
 
-	// FK cascade: deleting the source removes its triggers.
+// Deleting a source keeps its triggers with a null source_id, read back as
+// source missing and never matched again.
+func TestPostgres_DeleteSourceKeepsTriggers(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	tr := &Trigger{
+		ID:             uuid.NewString(),
+		TenantID:       tenant,
+		Kind:           KindWebhook,
+		SourceID:       s.ID,
+		Name:           "review",
+		AgentTypeID:    "at-1",
+		AgentSlug:      "code-reviewer",
+		EventType:      "pull_request",
+		PromptTemplate: "review",
+		Enabled:        true,
+	}
+	admissionDefaults(tr)
+	if err := r.CreateTrigger(ctx, tr); err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+	if got, _ := r.GetTrigger(ctx, tenant, tr.ID); got.SourceMissing {
+		t.Fatal("a trigger with its source must not report source missing")
+	}
+
 	if err := r.DeleteSource(ctx, tenant, s.ID); err != nil {
 		t.Fatalf("DeleteSource: %v", err)
 	}
-	if _, err := r.GetTrigger(ctx, tenant, tr.ID); err != ErrTriggerNotFound {
-		t.Errorf("trigger should be cascade-deleted, got %v", err)
+
+	var sourceID *string
+	if err := r.pool.QueryRow(ctx, `SELECT source_id FROM triggers WHERE id=$1`, tr.ID).Scan(&sourceID); err != nil {
+		t.Fatalf("trigger should survive its source: %v", err)
+	}
+	if sourceID != nil {
+		t.Errorf("source_id = %q, want NULL", *sourceID)
+	}
+	got, err := r.GetTrigger(ctx, tenant, tr.ID)
+	if err != nil {
+		t.Fatalf("GetTrigger: %v", err)
+	}
+	if got.SourceID != "" || !got.SourceMissing {
+		t.Errorf("got source_id %q, source_missing %v; want empty and true", got.SourceID, got.SourceMissing)
+	}
+	listed, err := r.ListTriggers(ctx, tenant, "")
+	if err != nil || len(listed) != 1 || !listed[0].SourceMissing {
+		t.Errorf("ListTriggers = %+v, %v; want the one trigger, source missing", listed, err)
+	}
+	if matchable, _ := r.ListMatchableTriggersForSource(ctx, s.ID); len(matchable) != 0 {
+		t.Errorf("a sourceless trigger must not match, got %d", len(matchable))
 	}
 }
 
@@ -220,8 +267,7 @@ func TestPostgres_TriggerCRUD(t *testing.T) {
 // creation path directly against Postgres: no webhook_sources row (source_id
 // is NULL), a trigger-owned principal_id, and — for scheduled — kind_config
 // carrying the cron schedule. This is the path createScheduledTrigger and
-// createManualTrigger exercise in service.go; it has no source to FK-cascade
-// from, so cleanup is explicit.
+// createManualTrigger exercise in service.go.
 func TestPostgres_ScheduledAndManualTriggerCRUD(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
