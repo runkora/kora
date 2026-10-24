@@ -68,8 +68,8 @@ func (a *TenantCAAggregator) Sync(ctx context.Context) error {
 	return a.upsert(ctx, data)
 }
 
-// listActiveTenants returns all KoraTenant resources whose Spec.Active is
-// true. Suspended/inactive tenants are excluded from the aggregated Secret
+// listActiveTenants returns the active tenants that hold their namespace.
+// Suspended/inactive tenants are excluded from the aggregated Secret
 // so the gateway will refuse CONNECTs from their sandboxes — there are
 // none currently running, but this future-proofs the aggregator against
 // a tenant suspension while a sandbox is somehow still alive.
@@ -78,13 +78,7 @@ func (a *TenantCAAggregator) listActiveTenants(ctx context.Context) ([]KoraTenan
 	if err := a.client.List(ctx, list); err != nil {
 		return nil, fmt.Errorf("list KoraTenants: %w", err)
 	}
-	out := make([]KoraTenant, 0, len(list.Items))
-	for _, t := range list.Items {
-		if t.Spec.Active {
-			out = append(out, t)
-		}
-	}
-	return out, nil
+	return servedTenants(list.Items), nil
 }
 
 // collectCAMaterial reads each tenant's kora-tenant-ca Secret from its

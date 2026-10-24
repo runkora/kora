@@ -23,3 +23,7 @@ metrics:
   enabled: true
   port: 9464
   shutdownTimeoutSecs: 5
+
+kubernetes:
+  # Where the chart mounts the kora-tenants ConfigMap.
+  tenantsPath: /etc/kora/tenants.yaml

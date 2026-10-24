@@ -92,6 +92,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.scheduling.workerConcurrency | int | `16` | Runs one kora-agents replica starts at once. |
 | agents.serviceAccount.annotations | object | `{}` |  |
 | agents.tenantConnectionsConfigMapName | string | `"kora-tenant-connections"` |  |
+| agents.tenantsConfigMap | string | `"kora-tenants"` | Operator-owned tenant registry ConfigMap; maps a namespace's declarative resources to its tenant. |
 | agents.tolerations | list | `[]` |  |
 | agents.topologySpreadConstraints | list | `[]` |  |
 | agents.workloads.common.podAnnotations | object | `{}` |  |
@@ -527,6 +528,7 @@ Kubernetes: `>=1.34.0-0`
 | triggers.resources.requests.cpu | string | `"100m"` |  |
 | triggers.resources.requests.memory | string | `"64Mi"` |  |
 | triggers.serviceAccount.annotations | object | `{}` |  |
+| triggers.tenantsConfigMap | string | `"kora-tenants"` | Operator-owned tenant registry ConfigMap; maps a namespace's declarative resources to its tenant. |
 | triggers.tolerations | list | `[]` |  |
 | triggers.topologySpreadConstraints | list | `[]` |  |
 

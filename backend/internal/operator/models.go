@@ -2,6 +2,8 @@
 package operator
 
 import (
+	"slices"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -49,6 +51,30 @@ type KoraTenantSpec struct {
 
 	// OIDC configures the identity provider for this tenant.
 	OIDC TenantOIDCSpec `json:"oidc"`
+
+	// APIAuthoring is Enabled or Disabled. Disabled makes the tenant's
+	// agents, environments, triggers, trigger sources and roles read-only
+	// through the API. See docs/adr/2026-10-24-declarative-resources.md.
+	// +kubebuilder:default=Enabled
+	APIAuthoring string `json:"apiAuthoring,omitempty"`
+
+	// Budget is the tenant's spending limit. It replaces a budget set through the API.
+	// +optional
+	Budget *TenantBudget `json:"budget,omitempty"`
+}
+
+// API authoring values on KoraTenant.
+const (
+	APIAuthoringEnabled  = "Enabled"
+	APIAuthoringDisabled = "Disabled"
+)
+
+// TenantBudget is a tenant's spending limit per reset window.
+type TenantBudget struct {
+	LimitUSD float64 `json:"limitUSD"`
+	// ResetCadence is weekly or monthly.
+	// +kubebuilder:default=monthly
+	ResetCadence string `json:"resetCadence,omitempty"`
 }
 
 // SecretRef is a reference to a Kubernetes Secret.
@@ -183,14 +209,15 @@ func (l *KoraTenantList) DeepCopyInto(out *KoraTenantList) {
 // DeepCopyInto for KoraTenantSpec.
 func (s *KoraTenantSpec) DeepCopyInto(out *KoraTenantSpec) {
 	*out = *s
-	out.OIDC = s.OIDC
 	if s.OIDC.ClientSecretRef != nil {
 		ref := *s.OIDC.ClientSecretRef
 		out.OIDC.ClientSecretRef = &ref
 	}
-	if s.OIDC.Scopes != nil {
-		out.OIDC.Scopes = make([]string, len(s.OIDC.Scopes))
-		copy(out.OIDC.Scopes, s.OIDC.Scopes)
+	out.OIDC.Scopes = slices.Clone(s.OIDC.Scopes)
+	out.OIDC.EmailDomains = slices.Clone(s.OIDC.EmailDomains)
+	if s.Budget != nil {
+		b := *s.Budget
+		out.Budget = &b
 	}
 }
 

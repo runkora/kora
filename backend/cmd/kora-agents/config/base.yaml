@@ -18,6 +18,8 @@ kubernetes:
   inCluster: true
   tenantNamespacePrefix: kora-tenant-
   systemNamespace: kora-system
+  # Where the chart mounts the kora-tenants ConfigMap.
+  tenantsPath: /etc/kora/tenants.yaml
 
 # The chart renders the trust domain and the identity and policy service URLs.
 platform:

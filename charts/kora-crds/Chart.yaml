@@ -2,7 +2,8 @@ apiVersion: v2
 name: kora-crds
 description: >
   Defines the KoraTenant, Connection, OAuthClient, MCPServer,
-  InferenceProvider and SandboxImage resources kora runs on. Apply this chart before kora.
+  InferenceProvider, SandboxImage, VirtualModel, Environment, Agent,
+  TriggerSource, Trigger and PolicyRole resources kora runs on. Apply this chart before kora.
 type: application
 version: 0.0.0
 appVersion: "0.0.0"
