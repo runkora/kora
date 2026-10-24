@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -52,7 +53,15 @@ func (c *Controller) handleUpsertTenantBudget(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	if c.refuseDeclaredTenantBudget(ctx, w, tenantID) {
+		return
+	}
+
 	tb, err := c.svc.UpsertTenantBudget(ctx, tenantID, req.LimitUSD, cadence)
+	if errors.Is(err, tenantbudget.ErrManagedByResource) {
+		platformapi.ErrorResponse(ctx, w, c.logger, managedTenantBudgetError(), nil)
+		return
+	}
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.InternalError(platformapi.ErrCodeDatabaseError, "tenant budget operation failed", nil), err)
@@ -109,6 +118,10 @@ func (c *Controller) handleDeleteTenantBudget(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	if c.refuseDeclaredTenantBudget(ctx, w, tenantID) {
+		return
+	}
+
 	if err := c.svc.DeleteTenantBudget(ctx, tenantID); err != nil {
 		if errors.Is(err, tenantbudget.ErrTenantBudgetNotFound) {
 			platformapi.ErrorResponse(ctx, w, c.logger,
@@ -121,4 +134,18 @@ func (c *Controller) handleDeleteTenantBudget(w http.ResponseWriter, r *http.Req
 	}
 
 	platformapi.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
+}
+
+// refuseDeclaredTenantBudget writes 409 while the tenant's KoraTenant declares its budget.
+func (c *Controller) refuseDeclaredTenantBudget(ctx context.Context, w http.ResponseWriter, tenantID string) bool {
+	if _, declared := c.registry.TenantBudget(tenantID); !declared {
+		return false
+	}
+	platformapi.ErrorResponse(ctx, w, c.logger, managedTenantBudgetError(), nil)
+	return true
+}
+
+func managedTenantBudgetError() *platformapi.APIError {
+	return platformapi.ConflictError(platformapi.ErrCodeManagedByResource,
+		"this tenant's budget is managed by its tenant resource", nil)
 }

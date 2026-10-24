@@ -166,3 +166,76 @@ func TestPostgres_ListAndCountByTenant_Exclude(t *testing.T) {
 		})
 	}
 }
+
+func TestPostgres_DeclaredRoles(t *testing.T) {
+	repo, tenant := testRolesRepo(t)
+	ctx := context.Background()
+
+	if err := repo.Upsert(ctx, &RoleEntry{TenantID: tenant, Role: "api-role", Scopes: []string{"a:read"}}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if err := repo.UpsertDeclared(ctx, &RoleEntry{TenantID: tenant, Role: "api-role", Scopes: []string{"b:read"}, ResourceName: "x", ResourceUID: "uid-x"}); !errors.Is(err, ErrRoleTaken) {
+		t.Fatalf("declared write over an api row: err = %v, want ErrRoleTaken", err)
+	}
+
+	budget := &BudgetAssignment{LimitUSD: 10, ResetCadence: "weekly"}
+	declared := &RoleEntry{TenantID: tenant, Role: "declared", Scopes: []string{"a:read"}, Budget: budget, ResourceName: "res", ResourceUID: "uid-1"}
+	if err := repo.UpsertDeclared(ctx, declared); err != nil {
+		t.Fatalf("UpsertDeclared: %v", err)
+	}
+	got, err := repo.GetByRole(ctx, tenant, "declared")
+	if err != nil || got.Source != SourceCRD || got.ResourceUID != "uid-1" || got.ResourceName != "res" || got.Budget == nil {
+		t.Fatalf("GetByRole = %+v, %v", got, err)
+	}
+	if got, _ := repo.GetByRole(ctx, tenant, "api-role"); got.Source != SourceAPI || got.ResourceUID != "" || got.ResourceName != "" {
+		t.Errorf("api row = %+v", got)
+	}
+
+	if err := repo.Upsert(ctx, &RoleEntry{TenantID: tenant, Role: "declared", Scopes: []string{"c:read"}}); !errors.Is(err, ErrManagedByResource) {
+		t.Errorf("api upsert over a crd row: err = %v", err)
+	}
+	if _, err := repo.UpdateBudget(ctx, tenant, "declared", nil); !errors.Is(err, ErrRoleNotFound) {
+		t.Errorf("api budget change on a crd row: err = %v", err)
+	}
+	if err := repo.Delete(ctx, tenant, "declared"); !errors.Is(err, ErrRoleNotFound) {
+		t.Errorf("api delete of a crd row: err = %v", err)
+	}
+
+	// Another resource cannot take the role.
+	if err := repo.UpsertDeclared(ctx, &RoleEntry{TenantID: tenant, Role: "declared", Scopes: []string{"a:read"}, ResourceName: "other", ResourceUID: "uid-2"}); !errors.Is(err, ErrRoleTaken) {
+		t.Errorf("another resource's write: err = %v, want ErrRoleTaken", err)
+	}
+
+	// A declared write replaces the budget in full. A resource recreated under its name takes its row back.
+	if err := repo.UpsertDeclared(ctx, &RoleEntry{TenantID: tenant, Role: "declared", Scopes: []string{"a:read"}, ResourceName: "res", ResourceUID: "uid-3"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := repo.GetByRole(ctx, tenant, "declared"); got.Budget != nil || got.ResourceUID != "uid-3" {
+		t.Errorf("row = %+v, want no budget and uid-3", got)
+	}
+
+	// Renaming the role moves the resource's row.
+	if err := repo.UpsertDeclared(ctx, &RoleEntry{TenantID: tenant, Role: "renamed", Scopes: []string{"a:read"}, ResourceName: "res", ResourceUID: "uid-3"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.GetByRole(ctx, tenant, "declared"); !errors.Is(err, ErrRoleNotFound) {
+		t.Errorf("old role name survived a rename: %v", err)
+	}
+	list, err := repo.ListDeclared(ctx, tenant)
+	if err != nil || len(list) != 1 || list[0].Role != "renamed" || list[0].ResourceName != "res" || list[0].ResourceUID != "uid-3" {
+		t.Fatalf("ListDeclared = %+v, %v", list, err)
+	}
+
+	if deleted, err := repo.DeleteDeclared(ctx, tenant, "res"); err != nil || !deleted {
+		t.Fatalf("DeleteDeclared = %v, %v", deleted, err)
+	}
+	if deleted, err := repo.DeleteDeclared(ctx, tenant, "res"); err != nil || deleted {
+		t.Errorf("second DeleteDeclared = %v, %v", deleted, err)
+	}
+	if _, err := repo.DeleteDeclared(ctx, tenant, "api-role"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.GetByRole(ctx, tenant, "api-role"); err != nil {
+		t.Errorf("api row lost: %v", err)
+	}
+}

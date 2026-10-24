@@ -11,6 +11,7 @@ import (
 
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -44,6 +45,14 @@ type Controller struct {
 	eval      policy.Evaluator
 	routes    []routescopes.RouteScope
 	basePath  string
+	registry  tenantRegistry
+}
+
+// tenantRegistry reports the declarative facts the operator writes for each
+// tenant: whether the API may author its roles, and its declared budget.
+type tenantRegistry interface {
+	APIAuthoringEnabled(tenantID string) bool
+	TenantBudget(tenantID string) (declarative.Budget, bool)
 }
 
 // NewController creates a ready-to-boot policy Controller.
@@ -53,9 +62,10 @@ type Controller struct {
 // Routes intentionally omitted from the table (e.g. POST /effective-scopes,
 // POST /routes/register) fail-closed at the middleware with 403. basePath
 // must match the server's BasePath so the middleware can reconstruct absolute
-// paths after http.StripPrefix.
-func NewController(svc *Service, logger logging.Logger, verifier *token.Verifier, blocklist mw.JTIBlocklist, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string) *Controller {
-	return &Controller{svc: svc, logger: logger, verifier: verifier, blocklist: blocklist, eval: eval, routes: routes, basePath: basePath}
+// paths after http.StripPrefix. registry locks a tenant's role writes and
+// refuses tenant budget writes while the tenant declares its budget.
+func NewController(svc *Service, logger logging.Logger, verifier *token.Verifier, blocklist mw.JTIBlocklist, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, registry tenantRegistry) *Controller {
+	return &Controller{svc: svc, logger: logger, verifier: verifier, blocklist: blocklist, eval: eval, routes: routes, basePath: basePath, registry: registry}
 }
 
 func (c *Controller) GroupedBy() string { return "/policy" }

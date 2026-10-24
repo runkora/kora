@@ -13,6 +13,7 @@ import (
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
@@ -22,6 +23,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/token"
 	"github.com/runkora/kora/backend/internal/policyservice/api"
 	"github.com/runkora/kora/backend/internal/policyservice/bundle"
+	"github.com/runkora/kora/backend/internal/policyservice/declared"
 	"github.com/runkora/kora/backend/internal/policyservice/grants"
 	"github.com/runkora/kora/backend/internal/policyservice/principalroles"
 	"github.com/runkora/kora/backend/internal/policyservice/roles"
@@ -90,7 +92,8 @@ func realMain() error {
 		TelemetryCollector: observability.CollectorAuthority(),
 	}
 	compiler := bundle.NewCompiler(bundleCfg, routeStore)
-	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, principalRolesRepo, bundle.NewTenantRegistry(psc.Current.Bundle.TenantsPath), logger)
+	tenantRegistry := declarative.NewRegistry(psc.Current.Bundle.TenantsPath)
+	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, principalRolesRepo, tenantRegistry, logger)
 
 	// Pre-compile bundles for every known tenant: registered, with grants, or
 	// with routes.
@@ -139,8 +142,15 @@ func realMain() error {
 	policyEval := policy.NewEvaluator(bundleEndpoint, 30*time.Second, logger)
 	policyEval.Start(ctx)
 
-	controller := api.NewController(svc, logger, verifier, storage.NewJTIBlocklist(redis), policyEval, policyServiceRoutes(), psc.Current.Server.BasePath)
-	server := initServer(ctx, logger, controller, metrics)
+	// Declared tenant budgets follow the tenant registry (docs/adr/2026-10-24-declarative-resources.md).
+	go declared.RunTenantBudgets(ctx, svc, tenantRegistry, declared.BudgetSyncInterval, logger)
+
+	controller := api.NewController(svc, logger, verifier, storage.NewJTIBlocklist(redis), policyEval, policyServiceRoutes(), psc.Current.Server.BasePath, tenantRegistry)
+	// The operator applies PolicyRole resources through /api/v1/internal/declared/policyroles.
+	declaredController := declarative.NewController(verifier, logger, map[string]declarative.Applier{
+		declarative.KindPolicyRoles: declared.NewRoleApplier(svc),
+	})
+	server := initServer(ctx, logger, metrics, controller, declaredController)
 
 	run(ctx, logger, server, metrics)
 	return nil
@@ -245,7 +255,7 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-func initServer(ctx context.Context, logger logging.Logger, controller *api.Controller, metrics *platformmetrics.Bootstrap) *http.Server {
+func initServer(ctx context.Context, logger logging.Logger, metrics *platformmetrics.Bootstrap, controllers ...platformapi.Controller) *http.Server {
 	apiServer := platformapi.NewAPI(ctx, logger)
 
 	// Per-route, not in the global chain below: it must run after RoutePattern
@@ -260,7 +270,7 @@ func initServer(ctx context.Context, logger logging.Logger, controller *api.Cont
 			mw.TracingMiddleware(psc.Current.Observability.ServiceName),
 			mw.LoggingMiddleware(logger),
 		),
-		controller,
+		controllers...,
 	)
 }
 
