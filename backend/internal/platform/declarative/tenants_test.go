@@ -3,6 +3,7 @@ package declarative
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -13,19 +14,16 @@ tenants:
     displayName: Acme
     state: active
     oidc: {issuerURL: https://idp, clientID: c, scopes: [openid]}
-    namespace: kora-tenant-acme
     apiAuthoring: Disabled
     budget: {limitUSD: 1000, resetCadence: monthly}
   - id: beta
     state: active
-    namespace: custom
     apiAuthoring: Enabled
   - id: refused
     state: active
     apiAuthoring: Enabled
   - id: gone
     state: suspended
-    namespace: kora-tenant-gone
 `
 
 func writeRegistry(t *testing.T, path, body string, mod time.Time) {
@@ -43,17 +41,10 @@ func TestRegistry(t *testing.T) {
 	writeRegistry(t, path, registryYAML, time.Unix(1, 0))
 	r := NewRegistry(path)
 
-	for ns, want := range map[string]string{"kora-tenant-acme": "acme", "custom": "beta", "kora-tenant-gone": "", "": "", "other": ""} {
-		got, ok := r.TenantForNamespace(ns)
-		if got != want || ok != (want != "") {
-			t.Errorf("TenantForNamespace(%q) = %q, %v; want %q", ns, got, ok, want)
-		}
-	}
-	if ns, ok := r.NamespaceForTenant("beta"); !ok || ns != "custom" {
-		t.Errorf("NamespaceForTenant(beta) = %q, %v", ns, ok)
-	}
-	if _, ok := r.NamespaceForTenant("refused"); ok {
-		t.Error("a tenant without a namespace has none")
+	ids := r.TenantIDs()
+	slices.Sort(ids)
+	if !slices.Equal(ids, []string{"acme", "beta", "refused"}) {
+		t.Errorf("TenantIDs() = %v, want the active tenants", ids)
 	}
 	for id, want := range map[string]bool{"acme": false, "beta": true, "refused": true, "unknown": true} {
 		if got := r.APIAuthoringEnabled(id); got != want {
@@ -79,11 +70,11 @@ func TestRegistryReloadsAndKeepsLastGood(t *testing.T) {
 		t.Fatal("beta starts enabled")
 	}
 
-	writeRegistry(t, path, "tenants:\n  - {id: beta, state: active, namespace: custom, apiAuthoring: Disabled}\n", time.Unix(2, 0))
+	writeRegistry(t, path, "tenants:\n  - {id: beta, state: active, apiAuthoring: Disabled}\n", time.Unix(2, 0))
 	if r.APIAuthoringEnabled("beta") {
 		t.Error("a changed file is re-read")
 	}
-	if _, ok := r.TenantForNamespace("kora-tenant-acme"); ok {
+	if slices.Contains(r.TenantIDs(), "acme") {
 		t.Error("a tenant removed from the file is gone")
 	}
 
@@ -91,14 +82,14 @@ func TestRegistryReloadsAndKeepsLastGood(t *testing.T) {
 	if r.Err() == nil {
 		t.Error("Err() reports a parse failure")
 	}
-	if id, ok := r.TenantForNamespace("custom"); !ok || id != "beta" {
-		t.Errorf("a parse failure keeps the last good file, got %q, %v", id, ok)
+	if r.APIAuthoringEnabled("beta") {
+		t.Error("a parse failure keeps the last good file")
 	}
 
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := r.TenantForNamespace("custom"); ok {
+	if len(r.TenantIDs()) != 0 {
 		t.Error("a removed file lists no tenants")
 	}
 }
@@ -106,7 +97,7 @@ func TestRegistryReloadsAndKeepsLastGood(t *testing.T) {
 func TestRegistryWithoutFile(t *testing.T) {
 	for _, path := range []string{"", filepath.Join(t.TempDir(), "missing.yaml")} {
 		r := NewRegistry(path)
-		if _, ok := r.TenantForNamespace("kora-tenant-acme"); ok {
+		if len(r.TenantIDs()) != 0 {
 			t.Errorf("%q: no tenants expected", path)
 		}
 		if !r.APIAuthoringEnabled("acme") || r.Err() != nil {
@@ -114,8 +105,6 @@ func TestRegistryWithoutFile(t *testing.T) {
 		}
 	}
 }
-
-var _ Tenants = (*Registry)(nil)
 
 func TestRegistryUnreadableFromStartRefusesAPIWrites(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tenants.yaml")

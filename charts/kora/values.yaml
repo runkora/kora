@@ -554,7 +554,7 @@ agents:
     tag: ""
     digest: ""
     pullPolicy: ""
-  # -- Operator-owned tenant registry ConfigMap; maps a namespace's declarative resources to its tenant.
+  # -- Operator-owned tenant registry ConfigMap; the service reads each tenant's authoring switch and budget from it.
   tenantsConfigMap: kora-tenants
   replicas: 1
   resources:
@@ -915,7 +915,7 @@ triggers:
     tag: ""
     digest: ""
     pullPolicy: ""
-  # -- Operator-owned tenant registry ConfigMap; maps a namespace's declarative resources to its tenant.
+  # -- Operator-owned tenant registry ConfigMap; the service reads each tenant's authoring switch and budget from it.
   tenantsConfigMap: kora-tenants
   replicas: 1
   resources:

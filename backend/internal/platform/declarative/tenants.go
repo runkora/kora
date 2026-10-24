@@ -1,6 +1,7 @@
-// Package declarative holds what every service that projects declarative
-// resources shares: the tenant registry, the standard status conditions and
-// a leader-elected controller-runtime manager.
+// Package declarative holds the contract between the operator and the services
+// that own declarative resources: the items the operator applies, the
+// endpoints a service serves for them, the standard status conditions and the
+// tenant registry services read for the authoring switch and the tenant budget.
 //
 // See docs/adr/2026-10-24-declarative-resources.md.
 package declarative
@@ -16,12 +17,6 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// Tenants resolves a resource's namespace to its tenant from the mounted registry.
-type Tenants interface {
-	TenantForNamespace(namespace string) (tenantID string, ok bool)
-	APIAuthoringEnabled(tenantID string) bool
-}
-
 // APIAuthoringDisabled is the registry value that locks a tenant's API writes.
 const APIAuthoringDisabled = "Disabled"
 
@@ -32,11 +27,10 @@ type Budget struct {
 }
 
 // tenant is one entry of the registry file the operator writes. Only the
-// fields declarative projection reads are decoded.
+// fields services read are decoded.
 type tenant struct {
 	ID           string  `json:"id"`
 	State        string  `json:"state"`
-	Namespace    string  `json:"namespace"`
 	APIAuthoring string  `json:"apiAuthoring"`
 	Budget       *Budget `json:"budget"`
 }
@@ -60,24 +54,14 @@ func NewRegistry(path string) *Registry {
 	return &Registry{path: path}
 }
 
-// TenantForNamespace returns the active tenant whose namespace is namespace.
-func (r *Registry) TenantForNamespace(namespace string) (string, bool) {
-	if namespace == "" {
-		return "", false
+// TenantIDs returns the ids of the active tenants, in no particular order.
+func (r *Registry) TenantIDs() []string {
+	tenants := r.load()
+	ids := make([]string, 0, len(tenants))
+	for id := range tenants {
+		ids = append(ids, id)
 	}
-	for id, t := range r.load() {
-		if t.Namespace == namespace {
-			return id, true
-		}
-	}
-	return "", false
-}
-
-// NamespaceForTenant returns an active tenant's namespace. A tenant missing
-// from the registry, or refused its namespace, has none.
-func (r *Registry) NamespaceForTenant(tenantID string) (string, bool) {
-	t, ok := r.load()[tenantID]
-	return t.Namespace, ok && t.Namespace != ""
+	return ids
 }
 
 // APIAuthoringEnabled reports whether the API may write the tenant's

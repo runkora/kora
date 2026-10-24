@@ -22,13 +22,10 @@ type registryFile struct {
 }
 
 type registryEntry struct {
-	ID          string       `json:"id"`
-	DisplayName string       `json:"displayName"`
-	State       string       `json:"state"`
-	OIDC        registryOIDC `json:"oidc"`
-	// Namespace is empty for a tenant refused its namespace. No service then
-	// maps that namespace's resources to it.
-	Namespace    string        `json:"namespace,omitempty"`
+	ID           string        `json:"id"`
+	DisplayName  string        `json:"displayName"`
+	State        string        `json:"state"`
+	OIDC         registryOIDC  `json:"oidc"`
 	APIAuthoring string        `json:"apiAuthoring"`
 	Budget       *TenantBudget `json:"budget,omitempty"`
 }
@@ -108,18 +105,13 @@ func (r *TenantRegistry) Sync(ctx context.Context) error {
 // identity service parses. The format must remain stable: the identity
 // service owns the schema; the operator only writes it.
 //
-// Only active tenants are listed. Every tenant counts when deciding which
-// one owns a contested namespace.
+// Only active tenants are listed.
 func (r *TenantRegistry) buildRegistryYAML(tenants []KoraTenant) (string, error) {
 	entries := make([]registryEntry, 0, len(tenants))
 	for i := range tenants {
 		t := &tenants[i]
 		if !t.Spec.Active {
 			continue
-		}
-		namespace := tenantNamespace(t)
-		if namespaceConflict(t, tenants) != "" {
-			namespace = ""
 		}
 		apiAuthoring := t.Spec.APIAuthoring
 		if apiAuthoring == "" {
@@ -139,7 +131,6 @@ func (r *TenantRegistry) buildRegistryYAML(tenants []KoraTenant) (string, error)
 				Scopes:       scopes,
 				EmailDomains: t.Spec.OIDC.EmailDomains,
 			},
-			Namespace:    namespace,
 			APIAuthoring: apiAuthoring,
 			Budget:       t.Spec.Budget,
 		})
