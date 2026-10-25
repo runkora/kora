@@ -75,10 +75,10 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
 
   if (!cfg.agent) return null;
   const agent = cfg.agent;
-  // Without edit access every field is read only; the notice above the form says why.
-  const readOnly = !agent.canEdit;
   // A declared agent, or any agent in a locked tenant, changes only in the configuration repository.
   const managedInGit = isManagedInGit(agent.declared, locked);
+  // Without edit access, or managed in git, every field is read only; the notice above the form says why.
+  const readOnly = !agent.canEdit || managedInGit;
 
   const guardrailValues: GuardrailValues = {
     agentBudgetOn: cfg.budgetLimitUSD !== '',
