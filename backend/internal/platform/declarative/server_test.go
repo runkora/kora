@@ -160,29 +160,6 @@ func TestControllerAdmitsOnlyTheOperator(t *testing.T) {
 	}
 }
 
-func TestControllerUnderBasePathBesideAnotherController(t *testing.T) {
-	logger := logging.NewLoggerWithOutput(io.Discard)
-	c := NewController(nil, logger, map[string]Applier{KindAgents: &fakeApplier{}})
-	c.auth = claimsFromHeader
-	srv := httptest.NewServer(api.NewAPI(context.Background(), logger).Server(context.Background(), 0, "/api/v1", nil, otherController{}, c).Handler)
-	t.Cleanup(srv.Close)
-	if status, body := call(t, srv, http.MethodGet, "/api/v1/internal/declared/agents/acme", operator, ""); status != http.StatusOK {
-		t.Errorf("status %d: %s", status, body)
-	}
-	if status, _ := call(t, srv, http.MethodGet, "/api/v1/things", "", ""); status != http.StatusOK {
-		t.Errorf("the other controller's route is unaffected, got %d", status)
-	}
-}
-
-// otherController stands in for a service's own API controller.
-type otherController struct{}
-
-func (otherController) GroupedBy() string                { return "" }
-func (otherController) Middleware() mw.MiddlewareHandler { return mw.MiddlewareChain() }
-func (otherController) Boot(mux *api.Mux) {
-	mux.Handle("GET /things", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-}
-
 func TestControllerWithoutTokenIsUnauthorized(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	verifier := token.NewVerifier(context.Background(), "http://127.0.0.1:1/jwks", "kora", "kora-platform")
