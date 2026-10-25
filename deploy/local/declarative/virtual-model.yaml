@@ -5,6 +5,8 @@ kind: VirtualModel
 metadata:
   name: gitops-sonnet
   namespace: kora-system
+  annotations:
+    runkora.io/repository: github.com/runkora/kora
 spec:
   family: gitops
   name: sonnet

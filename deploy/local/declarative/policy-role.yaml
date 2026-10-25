@@ -4,6 +4,8 @@ kind: PolicyRole
 metadata:
   name: gitops-reviewers
   namespace: kora-tenant-example
+  annotations:
+    runkora.io/repository: github.com/runkora/kora
 spec:
   scopes:
     - agents:runs:gitops-reviewer:read

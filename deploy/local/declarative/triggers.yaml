@@ -14,6 +14,8 @@ kind: TriggerSource
 metadata:
   name: gitops-github
   namespace: kora-tenant-example
+  annotations:
+    runkora.io/repository: github.com/runkora/kora
 spec:
   provider: github
   signingSecretRef: {name: gitops-github-webhook, key: secret}
@@ -23,6 +25,8 @@ kind: Trigger
 metadata:
   name: gitops-review-pr
   namespace: kora-tenant-example
+  annotations:
+    runkora.io/repository: github.com/runkora/kora
 spec:
   kind: webhook
   source: gitops-github
@@ -38,6 +42,8 @@ kind: Trigger
 metadata:
   name: gitops-weekly-summary
   namespace: kora-tenant-example
+  annotations:
+    runkora.io/repository: github.com/runkora/kora
 spec:
   kind: scheduled
   agent: gitops-reviewer

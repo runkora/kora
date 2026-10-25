@@ -4,6 +4,8 @@ kind: Environment
 metadata:
   name: gitops-base
   namespace: kora-tenant-example
+  annotations:
+    runkora.io/repository: github.com/runkora/kora
 spec:
   displayName: GitOps base
   description: Declared in deploy/local/declarative.
@@ -16,6 +18,8 @@ kind: Agent
 metadata:
   name: gitops-reviewer
   namespace: kora-tenant-example
+  annotations:
+    runkora.io/repository: github.com/runkora/kora
 spec:
   displayName: GitOps reviewer
   description: Reviews pull requests and summarises the changes they make. Declared in deploy/local/declarative.
