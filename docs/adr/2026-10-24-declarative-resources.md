@@ -217,7 +217,7 @@ Status also carries `status.id`, the projected row's id. A `TriggerSource` repor
 
 Each `Applier` runs the API's validation and provisioning without a caller:
 
-*   `kora-agents` skips the identity-mode write check, the scope ceiling and `refuseDelegatedAutonomousWrite`. `created_by` is `repo:<repository>` when the resource names a repository, else `resource:<namespace>/<name>`.
+*   `kora-agents` skips the identity-mode write check, the scope ceiling and `refuseDelegatedAutonomousWrite`. `created_by` is set when the agent is created: `repo:<repository>` when the resource names a repository, else `resource:<namespace>/<name>`.
 *   `kora-triggers` takes agent and source ids from `Item.Refs`. The operator reads them from the referenced resources' `status.id`. A recreated agent gets a new id, and its declared triggers, routed candidates and fallbacks follow it.
 *   `kora-triggers` skips `requireRunAuthority` and `authorizeCaller`. The operator refuses a `Trigger` that names a delegated agent before it calls `kora-triggers`.
 *   The declared trigger path sets `agent_type_id`, `source_id` and the routing candidates directly. The API still cannot change them.
