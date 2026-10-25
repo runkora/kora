@@ -223,7 +223,7 @@ func TestAgentApplier(t *testing.T) {
 		t.Fatalf("re-apply once active = %+v, %v, %d writes; want ready with no new write", res, err, writer.writes)
 	}
 
-	// A recreated Environment gives a new id, and the agent follows it at the same generation.
+	// The operator sends a different environment id, and the agent follows it at the same generation.
 	refs := map[string]string{"environment/go-build": "env-go-2"}
 	if _, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), refs)); err != nil {
 		t.Fatal(err)
