@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -82,7 +83,7 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,$18::jsonb,$19,$20,NULLIF($21, ''),$22)`,
 			at.ID, at.TenantID, at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework),
 			at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now, string(connectivityJSON), string(connectorsJSON), at.MCPTools, string(at.IdentityMode.OrDefault()),
-			guardrailsColumn(at.Guardrails), at.CreatedBy, sourceOrAPI(at.Source), at.ResourceUID, at.ResourceGeneration,
+			guardrailsColumn(at.Guardrails), at.CreatedBy, cmp.Or(at.Source, declarative.SourceAPI), at.ResourceUID, at.ResourceGeneration,
 		)
 		if err != nil {
 			if isUniqueViolation(err) {

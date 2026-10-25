@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -31,7 +32,7 @@ func (r *PostgresRepository) CreateEnvironment(ctx context.Context, env Environm
 		INSERT INTO environments (id, tenant_id, name, display_name, description, sandbox_image, cpu, memory, disk, egress_hosts, connectors, source, resource_uid, resource_generation, created_at, updated_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,NULLIF($13, ''),$14,$15,$16)`,
 		env.ID, env.TenantID, env.Slug, env.Name, env.Description, env.SandboxImage,
-		env.Size.CPU, env.Size.Memory, env.Size.Disk, env.EgressHosts, connectorsJSON, sourceOrAPI(env.Source), env.ResourceUID, env.ResourceGeneration, now, now,
+		env.Size.CPU, env.Size.Memory, env.Size.Disk, env.EgressHosts, connectorsJSON, cmp.Or(env.Source, declarative.SourceAPI), env.ResourceUID, env.ResourceGeneration, now, now,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -64,11 +65,7 @@ func (r *PostgresRepository) listDeclared(ctx context.Context, query, tenantID s
 	if err != nil {
 		return nil, fmt.Errorf("query declared rows: %w", err)
 	}
-	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (declarative.Declared, error) {
-		var d declarative.Declared
-		err := row.Scan(&d.Name, &d.UID)
-		return d, err
-	})
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[declarative.Declared])
 }
 
 func (r *PostgresRepository) ListEnvironments(ctx context.Context, tenantID string) ([]Environment, error) {

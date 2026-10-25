@@ -59,11 +59,3 @@ func sourceFor(ctx context.Context) (string, string, int64) {
 	}
 	return declarative.SourceAPI, "", 0
 }
-
-// sourceOrAPI reads an unset source as SourceAPI.
-func sourceOrAPI(s string) string {
-	if s == "" {
-		return declarative.SourceAPI
-	}
-	return s
-}
