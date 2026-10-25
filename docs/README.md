@@ -23,7 +23,6 @@ Tasks for platform teams running kora.
 - [OAuth clients](guides/oauth-clients.md): configure clients that authenticate users against kora.
 - [Policy and roles](guides/policy-and-roles.md): configure roles, grants and route access.
 - [Declarative resources](guides/declarative-resources.md): define virtual models, environments, agents, triggers and roles as Kubernetes resources in Git.
-- [Tenant repository layout](guides/declarative-resources-tenant-layout.md): lay out a tenant repository with several use cases and promote it across tenants.
 - [Advanced customisations](guides/advanced-customisations.md): patch the Kubernetes resources kora provisions for your agents.
 
 ## Architecture
