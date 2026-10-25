@@ -241,7 +241,8 @@ func TestTriggerReferences(t *testing.T) {
 func TestVirtualModelRules(t *testing.T) {
 	older := &dv1.VirtualModel{ObjectMeta: meta0(systemNamespace, "a", 0), Spec: dv1.VirtualModelSpec{Family: "f", Name: "n"}}
 	newer := &dv1.VirtualModel{ObjectMeta: meta0(systemNamespace, "b", 5), Spec: dv1.VirtualModelSpec{Family: "f", Name: "n"}}
-	h := newHarness(t, older, newer)
+	stray := &dv1.VirtualModel{ObjectMeta: meta0("kora-tenant-acme", "c", 0), Spec: dv1.VirtualModelSpec{Family: "g", Name: "n"}}
+	h := newHarness(t, older, newer, stray)
 
 	h.reconcile(t, declarative.KindVirtualModels, older)
 	if item := h.clients["inference"].last(t); item.TenantID != declarative.PlatformTenant || item.Name != "a" {
@@ -250,6 +251,10 @@ func TestVirtualModelRules(t *testing.T) {
 	h.reconcile(t, declarative.KindVirtualModels, newer)
 	if c := declaredCondition(t, newer, condAccepted); c.Reason != reasonNameConflict {
 		t.Errorf("newer Accepted = %+v", c)
+	}
+	h.reconcile(t, declarative.KindVirtualModels, stray)
+	if c := declaredCondition(t, stray, condAccepted); c.Reason != reasonInvalid {
+		t.Errorf("stray Accepted = %+v", c)
 	}
 	if n := len(h.clients["inference"].applied); n != 1 {
 		t.Errorf("applied %d, want only the older model", n)
