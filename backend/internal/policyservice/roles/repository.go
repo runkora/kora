@@ -45,6 +45,8 @@ type RoleEntry struct {
 	// ResourceName and ResourceUID name the PolicyRole a crd row is projected from.
 	ResourceName string `json:"-"`
 	ResourceUID  string `json:"-"`
+	// Repository is the repository that drives a crd row, if its resource names one.
+	Repository string `json:"repository,omitempty"`
 
 	// Reserved and UnregisteredScopes are set only on derived reserved roles
 	// and are never stored. UnregisteredScopes lists a built-in role's declared
@@ -179,17 +181,18 @@ func (r *postgresRepository) UpsertDeclared(ctx context.Context, entry *RoleEntr
 	}
 	// A resource recreated under the same name takes its old row back with its new UID.
 	err = tx.QueryRow(ctx, `
-		INSERT INTO policy_role_scopes (id, tenant_id, role, scopes, budget, created_at, source, resource_uid, resource_name)
-		VALUES ($1, $2, $3, $4, $5, now(), 'crd', $6, $7)
+		INSERT INTO policy_role_scopes (id, tenant_id, role, scopes, budget, created_at, source, resource_uid, resource_name, repository)
+		VALUES ($1, $2, $3, $4, $5, now(), 'crd', $6, $7, NULLIF($8, ''))
 		ON CONFLICT (tenant_id, role)
 		DO UPDATE SET
 			scopes = EXCLUDED.scopes,
 			budget = EXCLUDED.budget,
-			resource_uid = EXCLUDED.resource_uid
+			resource_uid = EXCLUDED.resource_uid,
+			repository = EXCLUDED.repository
 		WHERE policy_role_scopes.source = 'crd'
 		  AND (policy_role_scopes.resource_uid = EXCLUDED.resource_uid OR policy_role_scopes.resource_name = EXCLUDED.resource_name)
 		RETURNING id, created_at
-	`, entry.ID, entry.TenantID, entry.Role, scopesJSON, budgetJSON, entry.ResourceUID, entry.ResourceName).Scan(&entry.ID, &entry.CreatedAt)
+	`, entry.ID, entry.TenantID, entry.Role, scopesJSON, budgetJSON, entry.ResourceUID, entry.ResourceName, entry.Repository).Scan(&entry.ID, &entry.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrRoleTaken
 	}
@@ -321,7 +324,7 @@ func nonNil(s []string) []string {
 }
 
 // entryColumns is the column list scanEntry reads.
-const entryColumns = `id, tenant_id, role, scopes, budget, created_at, source, COALESCE(resource_uid, ''), COALESCE(resource_name, '')`
+const entryColumns = `id, tenant_id, role, scopes, budget, created_at, source, COALESCE(resource_uid, ''), COALESCE(resource_name, ''), COALESCE(repository, '')`
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -331,7 +334,7 @@ func (r *postgresRepository) scanEntry(s scanner) (*RoleEntry, error) {
 	var e RoleEntry
 	var scopesJSON []byte
 	var budgetJSON []byte
-	err := s.Scan(&e.ID, &e.TenantID, &e.Role, &scopesJSON, &budgetJSON, &e.CreatedAt, &e.Source, &e.ResourceUID, &e.ResourceName)
+	err := s.Scan(&e.ID, &e.TenantID, &e.Role, &scopesJSON, &budgetJSON, &e.CreatedAt, &e.Source, &e.ResourceUID, &e.ResourceName, &e.Repository)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrRoleNotFound
 	}

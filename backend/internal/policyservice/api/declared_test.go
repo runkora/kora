@@ -110,7 +110,7 @@ func roleItem(t *testing.T, name string, spec map[string]any) declarative.Item {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return declarative.Item{TenantID: "t1", Name: name, UID: "uid-" + name, Generation: 1, Spec: raw}
+	return declarative.Item{TenantID: "t1", Name: name, UID: "uid-" + name, Generation: 1, Spec: raw, Repository: "github.com/acme/roles"}
 }
 
 func TestRoleApplier_Refusals(t *testing.T) {
@@ -159,7 +159,7 @@ func TestRoleApplier_Projects(t *testing.T) {
 	}
 	got := repo.upserted
 	if got == nil || got.Role != "Reviewers" || got.ResourceName != "reviewers" || got.ResourceUID != "uid-reviewers" ||
-		got.Budget.ResetCadence != "monthly" || !got.Budget.Pooled {
+		got.Repository != "github.com/acme/roles" || got.Budget.ResetCadence != "monthly" || !got.Budget.Pooled {
 		t.Errorf("upserted = %+v", got)
 	}
 	if len(svc.recompileTimers) != 1 {
@@ -181,7 +181,7 @@ func TestRoleApplier_NameConflict(t *testing.T) {
 
 func TestRoleApplier_UnchangedWritesNothing(t *testing.T) {
 	stored := &roles.RoleEntry{ID: "row-1", TenantID: "t1", Role: "reviewers", Scopes: []string{"agents:runs:read"}, Source: declarative.SourceCRD,
-		ResourceName: "reviewers", ResourceUID: "uid-reviewers", Budget: &roles.BudgetAssignment{LimitUSD: 5, ResetCadence: "monthly"}}
+		ResourceName: "reviewers", ResourceUID: "uid-reviewers", Repository: "github.com/acme/roles", Budget: &roles.BudgetAssignment{LimitUSD: 5, ResetCadence: "monthly"}}
 	repo := &declaredRoles{stored: stored}
 	svc := newDeclaredTestService(t, repo)
 	res, err := NewRoleApplier(svc).Apply(context.Background(), roleItem(t, "reviewers", map[string]any{

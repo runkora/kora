@@ -43,7 +43,7 @@ func (a *RoleApplier) Apply(ctx context.Context, item declarative.Item) (declara
 	if err := json.Unmarshal(item.Spec, &spec); err != nil {
 		return invalidRole("spec is not a PolicyRole spec"), nil
 	}
-	entry := roles.RoleEntry{TenantID: item.TenantID, Role: spec.Role, Scopes: spec.Scopes, ResourceName: item.Name, ResourceUID: item.UID}
+	entry := roles.RoleEntry{TenantID: item.TenantID, Role: spec.Role, Scopes: spec.Scopes, ResourceName: item.Name, ResourceUID: item.UID, Repository: item.Repository}
 	if entry.Role == "" {
 		entry.Role = item.Name
 	}
@@ -118,7 +118,7 @@ func (s *Service) missingScopes(ctx context.Context, scopes []string) ([]string,
 
 // sameDeclaredRole reports whether the stored row already holds the declared entry.
 func sameDeclaredRole(stored, entry *roles.RoleEntry) bool {
-	return stored.Source == declarative.SourceCRD && stored.ResourceUID == entry.ResourceUID && stored.ResourceName == entry.ResourceName &&
+	return stored.Source == declarative.SourceCRD && stored.ResourceUID == entry.ResourceUID && stored.ResourceName == entry.ResourceName && stored.Repository == entry.Repository &&
 		slices.Equal(stored.Scopes, entry.Scopes) && reflect.DeepEqual(stored.Budget, entry.Budget)
 }
 

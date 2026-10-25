@@ -181,12 +181,12 @@ func TestPostgres_DeclaredRoles(t *testing.T) {
 	}
 
 	budget := &BudgetAssignment{LimitUSD: 10, ResetCadence: "weekly"}
-	declared := &RoleEntry{TenantID: tenant, Role: "declared", Scopes: []string{"a:read"}, Budget: budget, ResourceName: "res", ResourceUID: "uid-1"}
+	declared := &RoleEntry{TenantID: tenant, Role: "declared", Scopes: []string{"a:read"}, Budget: budget, ResourceName: "res", ResourceUID: "uid-1", Repository: "github.com/acme/roles"}
 	if err := repo.UpsertDeclared(ctx, declared); err != nil {
 		t.Fatalf("UpsertDeclared: %v", err)
 	}
 	got, err := repo.GetByRole(ctx, tenant, "declared")
-	if err != nil || got.Source != declarative.SourceCRD || got.ResourceUID != "uid-1" || got.ResourceName != "res" || got.Budget == nil {
+	if err != nil || got.Source != declarative.SourceCRD || got.ResourceUID != "uid-1" || got.ResourceName != "res" || got.Repository != "github.com/acme/roles" || got.Budget == nil {
 		t.Fatalf("GetByRole = %+v, %v", got, err)
 	}
 	if got, _ := repo.GetByRole(ctx, tenant, "api-role"); got.Source != declarative.SourceAPI || got.ResourceUID != "" || got.ResourceName != "" {
@@ -212,7 +212,7 @@ func TestPostgres_DeclaredRoles(t *testing.T) {
 	if err := repo.UpsertDeclared(ctx, &RoleEntry{TenantID: tenant, Role: "declared", Scopes: []string{"a:read"}, ResourceName: "res", ResourceUID: "uid-3"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := repo.GetByRole(ctx, tenant, "declared"); got.Budget != nil || got.ResourceUID != "uid-3" {
+	if got, _ := repo.GetByRole(ctx, tenant, "declared"); got.Budget != nil || got.ResourceUID != "uid-3" || got.Repository != "" {
 		t.Errorf("row = %+v, want no budget and uid-3", got)
 	}
 
