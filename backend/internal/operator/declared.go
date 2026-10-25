@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -185,7 +186,7 @@ func setResult(status *dv1.Status, gen int64, res declarative.Result) bool {
 		status.ID = res.ID
 		ready := condTrue(reasonProjected, res.Message)
 		if !res.Ready {
-			ready = condFalse(reasonPending, nonEmpty(res.Message, "The item is not live yet."))
+			ready = condFalse(reasonPending, cmp.Or(res.Message, "The item is not live yet."))
 		}
 		setConditions(status, gen, accepted, resolved, ready)
 		return res.Ready
@@ -197,13 +198,6 @@ func setResult(status *dv1.Status, gen int64, res declarative.Result) bool {
 		setConditions(status, gen, condFalse(reasonInvalid, res.Message), resolved, notProjected)
 	}
 	return false
-}
-
-func nonEmpty(s, fallback string) string {
-	if s == "" {
-		return fallback
-	}
-	return s
 }
 
 // SetupWithManager registers one controller for the kind. Spec changes and
