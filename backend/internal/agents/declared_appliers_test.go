@@ -76,6 +76,11 @@ func TestEnvironmentApplier(t *testing.T) {
 	if got, err := a.Apply(ctx, recreated); err != nil || got.ID != res.ID || store.envs[res.ID].ResourceUID != "uid-2" || store.envs[res.ID].Repository != "github.com/acme/agents" {
 		t.Fatalf("takeover = %+v, %v, row %+v", got, err, store.envs[res.ID])
 	}
+	// An annotation change keeps the generation, and still reaches the row.
+	recreated.Repository = ""
+	if _, err := a.Apply(ctx, recreated); err != nil || store.envs[res.ID].Repository != "" {
+		t.Fatalf("after removing the annotation: %v, row %+v", err, store.envs[res.ID])
+	}
 
 	if got, _ := a.List(ctx, applierTenant); !slices.Equal(got, []declarative.Declared{{Name: "go-build", UID: "uid-2"}}) {
 		t.Errorf("list = %+v", got)
@@ -258,6 +263,15 @@ func TestAgentApplierRecordsTheRepository(t *testing.T) {
 		t.Errorf("row = created_by %q repository %q", at.CreatedBy, at.Repository)
 	}
 	waitActive(t, repo, res.ID)
+
+	// An annotation change keeps the generation, and still reaches the row.
+	it.Repository = ""
+	if _, err := a.Apply(ctx, it); err != nil {
+		t.Fatal(err)
+	}
+	if at, _ := repo.GetAgentType(ctx, res.ID); at.Repository != "" || at.CreatedBy != "repo:github.com/acme/agents" {
+		t.Errorf("after removing the annotation: created_by %q repository %q", at.CreatedBy, at.Repository)
+	}
 }
 
 func TestAgentApplierRecreatedResourceIsANewAgent(t *testing.T) {

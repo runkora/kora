@@ -69,7 +69,7 @@ func (a *EnvironmentApplier) Apply(ctx context.Context, item declarative.Item) (
 	if row != nil && row.Source != declarative.SourceCRD {
 		return nameConflictResult("environment", item.Name), nil
 	}
-	if row != nil && row.ResourceUID == item.UID && row.ResourceGeneration == item.Generation {
+	if row != nil && row.ResourceUID == item.UID && row.ResourceGeneration == item.Generation && row.Repository == item.Repository {
 		return declarative.Result{Outcome: declarative.OutcomeProjected, ID: row.ID, Ready: true}, nil
 	}
 
@@ -168,7 +168,7 @@ func (a *AgentApplier) Apply(ctx context.Context, item declarative.Item) (declar
 	if conflict {
 		return nameConflictResult("agent", item.Name), nil
 	}
-	if row != nil && row.ResourceGeneration == item.Generation && slices.Equal(row.Environments, envs) {
+	if row != nil && row.ResourceGeneration == item.Generation && row.Repository == item.Repository && slices.Equal(row.Environments, envs) {
 		return agentResult(row), nil
 	}
 
