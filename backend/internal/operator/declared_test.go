@@ -156,7 +156,7 @@ func TestProjectEnvironment(t *testing.T) {
 	if err := json.Unmarshal(item.Spec, &spec); err != nil || spec.SandboxImage != "kora-go" {
 		t.Errorf("spec = %s (%v)", item.Spec, err)
 	}
-	if env.Status.ID != "id-go-build" || declaredCondition(t, env, condReady).Status != metav1.ConditionTrue {
+	if ready := declaredCondition(t, env, condReady); env.Status.ID != "id-go-build" || env.Status.ObservedGeneration != 1 || ready.Status != metav1.ConditionTrue || ready.ObservedGeneration != 1 {
 		t.Errorf("status = %+v", env.Status)
 	}
 	if res.RequeueAfter != declaredResync {
