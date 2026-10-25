@@ -1,8 +1,8 @@
 // Package crdtest loads the CRDs the kora-crds chart ships and validates
 // objects against their schemas, for tests.
 //
-// CEL rules are not executed. Running them would pull k8s.io/apiserver and
-// cel-go into this module.
+// CEL rules are not executed here. The declarative kinds test them with the
+// apiextensions CEL validator in their own package.
 package crdtest
 
 import (
