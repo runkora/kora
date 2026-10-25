@@ -75,13 +75,10 @@ func NewDeclaredReconcilers(c client.Client, reader client.Reader, clients Decla
 	for i, k := range kinds {
 		out[i] = &DeclaredReconciler{Client: c, Reader: reader, Logger: logger, kind: k}
 	}
-	// Dependents reconcile when a resource they reference changes, including
-	// its status.
-	agents, triggers := out[2], out[4]
-	agents.kind.watches = []declaredWatch{
-		{obj: &dv1.Environment{}, mapper: agents.enqueueNamespace(&dv1.AgentList{})},
-		{obj: &dv1.VirtualModel{}, mapper: agents.enqueueModelUsers},
-	}
+	// Triggers reconcile when a resource they reference changes, including its
+	// status. A recreated Agent or TriggerSource has a new id the trigger must
+	// follow. Agents wait for their references on the 30-second requeue.
+	triggers := out[4]
 	triggers.kind.watches = []declaredWatch{
 		{obj: &dv1.Agent{}, mapper: triggers.enqueueNamespace(&dv1.TriggerList{})},
 		{obj: &dv1.TriggerSource{}, mapper: triggers.enqueueNamespace(&dv1.TriggerList{})},
@@ -487,41 +484,23 @@ func (r *DeclaredReconciler) enqueueNamespace(list client.ObjectList) func(conte
 	}
 }
 
-// enqueueModelUsers maps a VirtualModel change to the Agents or Triggers that
-// reference its family and name.
+// enqueueModelUsers maps a VirtualModel change to the Triggers that route
+// with its family and name.
 func (r *DeclaredReconciler) enqueueModelUsers(ctx context.Context, obj client.Object) []reconcile.Request {
 	vm, ok := obj.(*dv1.VirtualModel)
 	if !ok {
 		return nil
 	}
-	uses := func(m dv1.ModelRef) bool { return m.Family == vm.Spec.Family && m.Name == vm.Spec.Name }
-	var reqs []reconcile.Request
-	add := func(o client.Object) {
-		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(o)})
-	}
-	var err error
-	switch r.kind.kind {
-	case declarative.KindAgents:
-		list := &dv1.AgentList{}
-		if err = r.List(ctx, list); err == nil {
-			for i := range list.Items {
-				if uses(list.Items[i].Spec.Model) {
-					add(&list.Items[i])
-				}
-			}
-		}
-	case declarative.KindTriggers:
-		list := &dv1.TriggerList{}
-		if err = r.List(ctx, list); err == nil {
-			for i := range list.Items {
-				if rt := list.Items[i].Spec.Routing; rt != nil && uses(rt.Model) {
-					add(&list.Items[i])
-				}
-			}
-		}
-	}
-	if err != nil {
+	list := &dv1.TriggerList{}
+	if err := r.List(ctx, list); err != nil {
 		r.Logger.Error(ctx, "list VirtualModel users", logging.Field{Key: "error", Value: err.Error()})
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		if rt := list.Items[i].Spec.Routing; rt != nil && rt.Model.Family == vm.Spec.Family && rt.Model.Name == vm.Spec.Name {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+		}
 	}
 	return reqs
 }

@@ -416,18 +416,18 @@ func TestSweepSkipsATenantWhoseNamespaceIsGone(t *testing.T) {
 
 func TestDependentWatches(t *testing.T) {
 	ns := "kora-tenant-acme"
-	a := &dv1.Agent{ObjectMeta: meta0(ns, "a", 0), Spec: dv1.AgentSpec{Model: dv1.ModelRef{Family: "f", Name: "n"}}}
-	other := &dv1.Agent{ObjectMeta: meta0(ns, "o", 0), Spec: dv1.AgentSpec{Model: dv1.ModelRef{Family: "g", Name: "n"}}}
-	trig := &dv1.Trigger{ObjectMeta: meta0(ns, "t", 0)}
-	h := newHarness(t, a, other, trig)
+	a := &dv1.Agent{ObjectMeta: meta0(ns, "a", 0)}
+	routed := &dv1.Trigger{ObjectMeta: meta0(ns, "t", 0), Spec: dv1.TriggerSpec{Routing: &dv1.Routing{Model: dv1.ModelRef{Family: "f", Name: "n"}}}}
+	other := &dv1.Trigger{ObjectMeta: meta0(ns, "o", 0), Spec: dv1.TriggerSpec{Routing: &dv1.Routing{Model: dv1.ModelRef{Family: "g", Name: "n"}}}}
+	h := newHarness(t, a, routed, other)
 	vm := &dv1.VirtualModel{ObjectMeta: meta0(systemNamespace, "m", 0), Spec: dv1.VirtualModelSpec{Family: "f", Name: "n"}}
 
-	reqs := h.recs[declarative.KindAgents].enqueueModelUsers(context.Background(), vm)
-	if len(reqs) != 1 || reqs[0].Name != "a" {
+	reqs := h.recs[declarative.KindTriggers].enqueueModelUsers(context.Background(), vm)
+	if len(reqs) != 1 || reqs[0].Name != "t" {
 		t.Errorf("model users = %v", reqs)
 	}
 	reqs = h.recs[declarative.KindTriggers].enqueueNamespace(&dv1.TriggerList{})(context.Background(), a)
-	if len(reqs) != 1 || reqs[0].Name != "t" {
+	if len(reqs) != 2 {
 		t.Errorf("namespace dependents = %v", reqs)
 	}
 }
