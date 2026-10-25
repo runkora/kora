@@ -434,7 +434,7 @@ export function TriggerDrawer({
   // A non-webhook trigger has no source id, so it finds no source.
   const source = trigger === null ? undefined : sources.find((s) => s.id === trigger.sourceId);
   // Secret rotation stays available on an API source, even in a locked tenant.
-  const sourceDeclared = source?.declared === true;
+  const sourceDeclared = source?.declared ?? false;
   const onUpdateSafety = canWrite && !sourceMissing && !managed ? updateSafetyAction : undefined;
   const onEdit = canWrite && !sourceMissing && !managed ? editAction : undefined;
   const onRotateSecret = canShapeRuns && !sourceDeclared ? rotateSecretAction : undefined;
