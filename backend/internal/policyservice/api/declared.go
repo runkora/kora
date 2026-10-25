@@ -184,17 +184,24 @@ func (s *Service) syncTenantBudgets(ctx context.Context, registry budgetRegistry
 	if err != nil {
 		return err
 	}
-	stale := make(map[string]*tenantbudget.TenantBudget, len(rows))
+	declaredRows := make(map[string]*tenantbudget.TenantBudget, len(rows))
 	for _, row := range rows {
-		stale[row.TenantID] = row
+		declaredRows[row.TenantID] = row
 	}
+	// The registry lists active tenants only. A suspended tenant keeps its budget.
 	for _, tenantID := range tenantIDs {
 		b, declared := registry.TenantBudget(tenantID)
+		row := declaredRows[tenantID]
 		if !declared {
+			if row != nil {
+				if err := s.tenantBudgetRepo.DeleteDeclared(ctx, tenantID); err != nil {
+					return err
+				}
+				s.recordWrite(tenantID)
+				s.scheduleRecompile(ctx, tenantID)
+			}
 			continue
 		}
-		row := stale[tenantID]
-		delete(stale, tenantID)
 		cadence, apiErr := validTenantBudget(b.LimitUSD, b.ResetCadence)
 		if apiErr != nil {
 			s.logger.Warn(ctx, "tenant budget in the registry is invalid",
@@ -205,13 +212,6 @@ func (s *Service) syncTenantBudgets(ctx context.Context, registry budgetRegistry
 			continue
 		}
 		if err := s.tenantBudgetRepo.UpsertDeclared(ctx, &tenantbudget.TenantBudget{TenantID: tenantID, LimitUSD: b.LimitUSD, ResetCadence: cadence}); err != nil {
-			return err
-		}
-		s.recordWrite(tenantID)
-		s.scheduleRecompile(ctx, tenantID)
-	}
-	for tenantID := range stale {
-		if err := s.tenantBudgetRepo.DeleteDeclared(ctx, tenantID); err != nil {
 			return err
 		}
 		s.recordWrite(tenantID)

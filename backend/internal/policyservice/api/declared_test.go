@@ -403,10 +403,11 @@ func TestSyncTenantBudgets(t *testing.T) {
 	repo := &declaredBudgets{rows: []*tenantbudget.TenantBudget{
 		{TenantID: "acme", LimitUSD: 1000, ResetCadence: "monthly"},
 		{TenantID: "beta", LimitUSD: 50, ResetCadence: "weekly"},
-		{TenantID: "removed", LimitUSD: 5, ResetCadence: "weekly"},
+		{TenantID: "dropped", LimitUSD: 5, ResetCadence: "weekly"},
+		{TenantID: "suspended", LimitUSD: 5, ResetCadence: "weekly"},
 		{TenantID: "invalid", LimitUSD: 5, ResetCadence: "weekly"},
 	}}
-	registry := budgetRegistryFake{ids: []string{"acme", "beta", "gamma", "invalid", "plain"}, budgets: map[string]declarative.Budget{
+	registry := budgetRegistryFake{ids: []string{"acme", "beta", "gamma", "invalid", "plain", "dropped"}, budgets: map[string]declarative.Budget{
 		"acme":    {LimitUSD: 1000, ResetCadence: "monthly"},
 		"beta":    {LimitUSD: 75, ResetCadence: "weekly"},
 		"gamma":   {LimitUSD: 10},
@@ -418,8 +419,8 @@ func TestSyncTenantBudgets(t *testing.T) {
 	if len(repo.set) != 2 || repo.set["beta"].LimitUSD != 75 || repo.set["gamma"].ResetCadence != "monthly" {
 		t.Errorf("set = %+v, want beta at 75 and gamma with the monthly default", repo.set)
 	}
-	if len(repo.removed) != 1 || repo.removed[0] != "removed" {
-		t.Errorf("removed = %v, want [removed]: an invalid budget keeps its last applied row", repo.removed)
+	if len(repo.removed) != 1 || repo.removed[0] != "dropped" {
+		t.Errorf("removed = %v, want [dropped]: a suspended tenant and an invalid budget keep their rows", repo.removed)
 	}
 }
 
