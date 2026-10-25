@@ -22,9 +22,9 @@ Everything else an administrator defines lives in Postgres behind a REST API:
 
 Rows are keyed by UUID with a per-tenant unique slug or name. Agents already refer to `Connection`, `MCPServer` and `SandboxImage` resources by name. Trigger rows refer to agents and sources by UUID.
 
-Every create path reads the caller. Agent create checks the caller's identity-mode write permission and scope ceiling, and records `created_by` (`backend/internal/agents/agent_type_service.go:352`, `:395`, `:397`). Trigger create requires the caller to hold `can_run` on the target agent (`backend/internal/triggers/service_lifecycle.go:129-142`). Role upsert checks the caller's scope ceiling (`backend/internal/policyservice/api/controller_auth.go:58-78`) and budget permission (`backend/internal/policyservice/api/handlers_roles.go:103`). A resource applied from a repository has no kora caller.
+Every create path reads the caller. Agent create checks the caller's identity-mode write permission (`checkAgentTypeModeWrite`) and scope ceiling (`checkCeiling`), and records `created_by` (`creatorSubject`). Trigger create requires the caller to hold `can_run` on the target agent (`requireRunAuthority`). Role upsert checks the caller's scope ceiling (`enforceScopeCeiling`) and budget permission (`roleBudgetChangeAllowed`). A resource applied from a repository has no kora caller.
 
-Deleting an agent hard-deletes its runs before the agent row (`backend/internal/agents/agent_type_service.go:899`). Deleting a trigger source cascades to its triggers through `triggers_source_id_fkey ON DELETE CASCADE` (`backend/cmd/kora-triggers/migrations/20260910000029_create_triggers.sql:34`).
+Deleting an agent hard-deletes its runs before the agent row (`AgentTypeService.DeleteAgentType`). Deleting a trigger source cascades to its triggers through `triggers_source_id_fkey ON DELETE CASCADE` (`backend/cmd/kora-triggers/migrations/20260910000029_create_triggers.sql`).
 
 This touches *What can it access?* A declared agent's grant is derived from its spec as it is today. The repository and the team that runs it are the authority for which declared agents exist and what they can access. Write access to a tenant namespace bounds that authority to the tenant. *Who is this agent?* and *How does it connect?* are unchanged. A declared agent gets the same SPIFFE identity, sidecars and egress as a dashboard-built agent.
 
@@ -191,7 +191,7 @@ The operator runs one controller per kind under its existing leader election:
 *   A reference to a declared kind counts as resolved when the referenced resource is `Ready`. A `Connection`, `MCPServer` or `SandboxImage` reference only needs to exist. A reference to a dashboard-built item counts as missing.
 *   Unresolved resources requeue every 30 seconds, and every resource resyncs every 5 minutes.
 *   Each row stores its resource UID in `resource_uid`. A reconcile that finds the resource gone deletes its declared row.
-*   At startup and every sync period, the operator lists each service's declared items per tenant and deletes those whose UID matches no resource. It skips a tenant whose namespace does not exist.
+*   At startup and every sync period, the operator lists each service's declared items per tenant and deletes those whose UID matches no resource. Deleting a namespace deletes its resources, so a tenant whose namespace is gone loses the items declared there.
 *   Deleting an `Environment` resource while an agent is attached keeps the row and retries every 30 seconds.
 *   Changing a `Trigger`'s `kind`, or switching between `agent` and `routing`, recreates the trigger. Changing a `TriggerSource`'s `provider` recreates the source with a new id and webhook path.
 
@@ -299,7 +299,7 @@ CREATE UNIQUE INDEX agent_types_tenant_slug_live ON agent_types (tenant_id, slug
 ### 10. Access
 
 *   The six new CRDs carry `helm.sh/resource-policy: keep`.
-*   The operator ClusterRole gains `get/list/watch` on the six kinds and `patch` on their status.
+*   The operator ClusterRole gains `get/list/watch` on the six kinds and `get/patch` on their status.
 *   The operator gets an Istio sidecar. Its webhook, health and metrics ports are excluded from inbound interception with `traffic.sidecar.istio.io/excludeInboundPorts`. It mounts the SPIRE workload socket and gets a platform token as `/system/operator`.
 *   A mesh AuthorizationPolicy on each service denies `/internal/declared/` under its base path to every principal except the operator. The edge refuses these paths.
 *   `inference-gateway`, `kora-agents`, `kora-triggers` and `policy-service` gain no Kubernetes access.
