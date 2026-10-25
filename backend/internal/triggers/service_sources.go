@@ -40,6 +40,17 @@ type SourceService struct {
 	agents      agentTypeReader
 	logger      logging.Logger
 	webhookBase string
+	onChange    func() // nil when no Gateway manager runs
+}
+
+// OnChange sets a function called after a source is created, updated or deleted,
+// so this replica's Gateway manager reconciles at once (ADR Decision 3).
+func (s *SourceService) OnChange(f func()) { s.onChange = f }
+
+func (s *SourceService) changed() {
+	if s.onChange != nil {
+		s.onChange()
+	}
 }
 
 // NewSourceService constructs the sources half of Triggers. webhookBase is the
@@ -127,6 +138,7 @@ func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req C
 		logging.Field{Key: "provider", Value: req.Provider},
 	)
 
+	s.changed()
 	return &SourceResponse{
 		WebhookSource: *s.present(s.readBackSource(ctx, src)),
 		WebhookPath:   s.WebhookPath(id),
@@ -196,6 +208,9 @@ func (s *SourceService) present(src *WebhookSource) *WebhookSource {
 	if adapter, ok := s.registry.Get(src.Provider); ok {
 		cp.Category = categoryOf(adapter)
 	}
+	if src.Provider == providerDiscord && src.Enabled {
+		cp.Connection = connectionOf(src)
+	}
 	return &cp
 }
 
@@ -235,6 +250,7 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 	// secret_rotated_at and updated_at are set by the repository's SQL, so they
 	// are not on this struct: returning it reports the PREVIOUS rotation time to
 	// a caller who just rotated, which is the one moment that field is read.
+	s.changed()
 	return &SourceResponse{
 		WebhookSource: *s.present(s.readBackSource(ctx, src)),
 		WebhookPath:   s.WebhookPath(id),
@@ -325,7 +341,11 @@ func (s *SourceService) DeleteSource(ctx context.Context, tenantID, id string) e
 	}
 	deleteGrantsBestEffort(ctx, s.policy, s.logger, "failed to delete source grant",
 		grantIDs, logging.Field{Key: "source_id", Value: id})
-	return s.repo.DeleteSource(ctx, tenantID, id)
+	if err := s.repo.DeleteSource(ctx, tenantID, id); err != nil {
+		return err
+	}
+	s.changed()
+	return nil
 }
 
 // ─── Event catalog ──────────────────────────────────────────────────────────

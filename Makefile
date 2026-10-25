@@ -948,6 +948,8 @@ test-postgres: ## Postgres-backed repository tests against the local Postgres. N
 test: ## Run unit tests with coverage (no cluster required)
 	@echo "$(COLOR_YELLOW)Running tests...$(COLOR_RESET)"
 	@cd $(BACKEND_DIR) && $(GOTEST) -race -timeout=5m -coverprofile=coverage.out -covermode=atomic ./...
+	@# The Gateway session tests skip under -race (disgo #494, a race in the library's Close), so they run here without it.
+	@cd $(BACKEND_DIR) && $(GOTEST) -count=1 -run '^TestGatewayManager_' ./internal/triggers/
 	@echo ""
 	@echo "$(COLOR_BOLD)Total coverage:$(COLOR_RESET)"
 	@cd $(BACKEND_DIR) && $(GOCMD) tool cover -func=coverage.out | tail -n 1

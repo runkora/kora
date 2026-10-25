@@ -238,11 +238,20 @@ func initController(
 	if err := scheduler.Start(ctx); err != nil {
 		return nil, nil, fmt.Errorf("start trigger scheduler: %w", err)
 	}
+
+	// One Gateway session per Discord source on every replica; the delivery
+	// unique index keeps one delivery per message (ADR Decision 2a).
+	gatewayManager := triggers.NewGatewayManager(repo, svc, registry, cipher,
+		triggers.GatewayConfig{URL: tc.Current.Discord.GatewayURL}, logger)
+	gatewayManager.Start(ctx)
+	sources.OnChange(gatewayManager.Reconcile)
+
 	go func(parentCtx context.Context) {
 		<-parentCtx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), 10*time.Second)
 		defer cancel()
 		scheduler.Stop(shutdownCtx)
+		gatewayManager.Stop(shutdownCtx)
 		// Let an in-flight dispatch finish rather than cutting it in half.
 		worker.Wait(shutdownCtx)
 	}(ctx)

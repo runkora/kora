@@ -114,18 +114,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 
 	eventType := adapter.EventType(headers, body)
 
-	delivery := &Delivery{
-		ID:                 uuid.NewString(),
-		TenantID:           src.TenantID,
-		SourceID:           src.ID,
-		Kind:               KindWebhook,
-		ProviderDeliveryID: deliveryID,
-		EventType:          eventType,
-		Status:             StatusVerified,
-		PayloadExcerpt:     truncate(body, payloadExcerptBytes),
-		Payload:            capturePayload(body),
-		PayloadBytes:       len(body),
-	}
+	delivery := newVerifiedDelivery(src, deliveryID, eventType, body)
 	inserted, err := s.repo.InsertDelivery(ctx, delivery)
 	if err != nil {
 		return IngestResult{}, err
@@ -154,6 +143,59 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 	})
 
 	return IngestResult{Outcome: IngestAccepted}, nil
+}
+
+// IngestGateway records and dispatches a message a Gateway session received.
+// The authenticated session is the proof, so it skips Verify, the handshake and
+// the replay window (ADR Decision 5). A second session's copy of a message is
+// not a provider retry: on a unique conflict it returns with no row written and
+// nothing dispatched.
+func (s *Service) IngestGateway(ctx context.Context, sourceID string, body []byte) (IngestResult, error) {
+	src, err := s.repo.GetSourceByID(ctx, sourceID)
+	if err != nil {
+		return IngestResult{}, err
+	}
+	if !src.Enabled {
+		return IngestResult{}, ErrSourceDisabled
+	}
+	adapter, ok := s.registry.Get(src.Provider)
+	if !ok {
+		return IngestResult{}, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
+	}
+	deliveryID := adapter.DeliveryID(nil, body)
+	if deliveryID == "" {
+		return IngestResult{}, ErrMissingDeliveryID
+	}
+	eventType := adapter.EventType(nil, body)
+	delivery := newVerifiedDelivery(src, deliveryID, eventType, body)
+	inserted, err := s.repo.InsertDelivery(ctx, delivery)
+	if err != nil {
+		return IngestResult{}, err
+	}
+	if !inserted {
+		return IngestResult{Outcome: IngestDuplicate}, nil
+	}
+	s.recordAccepted(ctx, src.ID)
+	s.dispatch(context.WithoutCancel(ctx), *src, adapter, arrival{
+		deliveryID: delivery.ID, providerDeliveryID: deliveryID, eventType: eventType, body: body,
+	})
+	return IngestResult{Outcome: IngestAccepted}, nil
+}
+
+// newVerifiedDelivery is the row for a delivery that passed authentication.
+func newVerifiedDelivery(src *WebhookSource, deliveryID, eventType string, body []byte) *Delivery {
+	return &Delivery{
+		ID:                 uuid.NewString(),
+		TenantID:           src.TenantID,
+		SourceID:           src.ID,
+		Kind:               KindWebhook,
+		ProviderDeliveryID: deliveryID,
+		EventType:          eventType,
+		Status:             StatusVerified,
+		PayloadExcerpt:     truncate(body, payloadExcerptBytes),
+		Payload:            capturePayload(body),
+		PayloadBytes:       len(body),
+	}
 }
 
 // replayWindow is how long a source remembers the bodies it has handled.

@@ -217,6 +217,27 @@ type WebhookSource struct {
 	// arrived under an older secret is refused: rotation is what an operator
 	// does when the previous secret may be in someone else's hands.
 	SecretRotatedAt *time.Time `json:"secret_rotated_at,omitempty"`
+
+	// The state of the source's Gateway session (ADR Decision 3). Nil/empty
+	// before a first connection. Connection is the read-only view of them.
+	GatewayStatus   string            `json:"-"`
+	GatewayReason   string            `json:"-"`
+	GatewayStatusAt *time.Time        `json:"-"`
+	Connection      *SourceConnection `json:"connection,omitempty"`
+}
+
+// Connection states of a Gateway source.
+const (
+	connWaiting    = "waiting"
+	connConnecting = "connecting"
+	connConnected  = "connected"
+	connRejected   = "rejected"
+)
+
+// SourceConnection is the state of a Gateway source's session.
+type SourceConnection struct {
+	State  string `json:"state"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // ScheduleConfig holds the cron schedule for a KindScheduled trigger.

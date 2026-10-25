@@ -68,6 +68,11 @@ type Config struct {
 		BundlePollIntervalSecs int `yaml:"bundlePollIntervalSecs"`
 	} `yaml:"policy"`
 
+	Discord struct {
+		// GatewayURL is the Discord Gateway the bot sessions connect to.
+		GatewayURL string `yaml:"gatewayURL"`
+	} `yaml:"discord"`
+
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`

@@ -69,6 +69,14 @@ type SourceStore interface {
 	// only readable next to the number of requests that got through.
 	RecordAccepted(ctx context.Context, sourceID string) error
 
+	// ListGatewaySources returns the enabled sources of a provider that hold a
+	// secret, across all tenants.
+	ListGatewaySources(ctx context.Context, provider string) ([]WebhookSource, error)
+
+	// SetGatewayStatus records a Gateway session's state on the source, and
+	// writes nothing once the source's secret is no longer the one dated rotatedAt.
+	SetGatewayStatus(ctx context.Context, sourceID string, rotatedAt *time.Time, status, reason string) error
+
 	// ObservedEventTypes returns the distinct event types this source has
 	// actually delivered. It is the half of the event catalog no adapter can
 	// know: what a provider really sends, including events the adapter has not
