@@ -275,9 +275,26 @@ A resource whose key belongs to a live item created through the API reports `Acc
 
 When two `VirtualModel` or two `PolicyRole` resources claim the same key, the older resource keeps it and the newer one reports `NameConflict`. A refused resource does not hold its key.
 
+## Repository
+
+The annotation `runkora.io/repository` names the repository that drives a resource, such as `github.com/acme/payments-agents`. The service stores it on the item, and the API returns it as `repository`. The dashboard shows "Managed by" the repository instead of "Managed in git". A declared agent's `created_by` is `repo:<repository>`, or `resource:<namespace>/<name>` when the annotation is unset.
+
+The annotation is for display only. It grants nothing, and kora does not check it.
+
+Each repository stamps its own value. Several repositories can drive one tenant, and each item shows the repository it came from. Kustomize sets the annotation on every resource of a repository with `commonAnnotations`:
+
+```yaml
+# kustomization.yaml
+commonAnnotations:
+  runkora.io/repository: github.com/acme/payments-agents
+resources:
+  - agents.yaml
+  - triggers.yaml
+```
+
 ## Edits through the API
 
-The API returns `source: "api"` or `source: "crd"` on each item of these kinds. The dashboard shows declared items with a "Managed in git" badge and no edit or delete controls. The API refuses writes to them:
+The API returns `source: "api"` or `source: "crd"` on each item of these kinds. The dashboard marks declared items as described in [Repository](#repository) and shows no edit or delete controls. The API refuses writes to them:
 
 - An update or delete of a declared item returns HTTP 409 with code `managed_by_resource`. Change the resource instead.
 - A create, or a rename, that takes a declared item's key returns HTTP 409 with code `resource_already_exists`.
