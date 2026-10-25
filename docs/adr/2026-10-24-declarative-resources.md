@@ -71,12 +71,12 @@ This touches *What can it access?* A declared agent's grant is derived from its 
 
 ### Decision 3: Operator Transport
 
-*   **Option A (chosen):** The operator joins the mesh with its webhook port excluded from inbound interception. It calls services with a platform token from its SPIFFE identity.
+*   **Option A (chosen):** The operator joins the mesh with its webhook, health and metrics ports excluded from inbound interception. It calls services with a platform token from its SPIFFE identity.
 *   **Option B (rejected):** The operator calls services from outside the mesh. Strict mTLS refuses a caller with no mesh certificate.
 
 ### Decision 4: Deletion Detection
 
-*   **Option A (chosen):** The operator deletes a declared item when its resource is gone, and at startup when a declared item's UID matches no resource.
+*   **Option A (chosen):** The operator deletes a declared item when its resource is gone, and at startup and every sync period when a declared item's UID matches no resource.
 *   **Option B (rejected):** Each resource carries a finalizer. A stopped operator would block every namespace deletion in the cluster.
 
 ### Decision 5: Trigger Source Signing Secrets
@@ -137,7 +137,7 @@ This touches *What can it access?* A declared agent's grant is derived from its 
 
 ### 1. Resource Kinds
 
-All kinds are `runkora.io/v1alpha1`, namespaced, with a status subresource. They ship in `charts/kora-crds`. Go types for all six kinds live in `backend/internal/platform/declarative/v1alpha1/` and follow the hand-written pattern of `backend/internal/platform/inferenceproviders/v1alpha1/`.
+All kinds are `runkora.io/v1alpha1`, namespaced, with a status subresource. They ship in `charts/kora-crds`. Go types for all six kinds live in `backend/internal/platform/declarative/v1alpha1/`. controller-gen generates their deepcopy functions and CRDs from markers on the types.
 
 | Kind | Namespace | Owner | Table |
 |---|---|---|---|
@@ -153,111 +153,14 @@ All kinds are `runkora.io/v1alpha1`, namespaced, with a status subresource. They
 *   Spec fields mirror the API request fields in camelCase. Server-derived fields are absent.
 *   A reference to another resource is a name in the same namespace. An `MCPServer` reference also matches a global server in the system namespace. `VirtualModel` references from tenant kinds use `family` and `name`.
 *   Secrets are referenced by `{name, key}` in the same namespace. A `TriggerSource` Secret must carry the label `runkora.io/trigger-source=true`.
-
-A `VirtualModel`:
-
-```yaml
-apiVersion: runkora.io/v1alpha1
-kind: VirtualModel
-metadata:
-  name: claude-sonnet
-  namespace: kora-system
-spec:
-  family: anthropic
-  name: sonnet
-  displayName: Claude Sonnet
-  strategy: priority
-  routes:
-    - provider: bedrock:prod
-      modelID: anthropic.claude-sonnet-4-5-20250929-v1:0
-      priority: 1
-```
-
-An `Environment` and an `Agent`:
-
-```yaml
-apiVersion: runkora.io/v1alpha1
-kind: Environment
-metadata:
-  name: go-build
-  namespace: kora-tenant-acme
-spec:
-  displayName: Go build
-  sandboxImage: kora-go
-  size: {cpu: "2", memory: 4Gi, disk: 10Gi}
-  egressHosts: [proxy.golang.org]
----
-apiVersion: runkora.io/v1alpha1
-kind: Agent
-metadata:
-  name: code-reviewer
-  namespace: kora-tenant-acme
-spec:
-  displayName: Code reviewer
-  framework: claude-code
-  identityMode: autonomous
-  model: {family: anthropic, name: sonnet}
-  systemPrompt: |
-    Review pull requests for correctness.
-  environments:
-    - name: go-build
-      default: true
-  connectors:
-    - connection: github
-      actions: [read, write]
-  mcpTools:
-    - server: github
-      tools: [create_review]
-  budget: {limitUSD: 50, resetCadence: monthly}
-```
-
 *   `identityMode` is immutable through a CEL `self == oldSelf` rule.
 *   `mcpTools` expands to the existing `mcp:<server>:<tool>:use` scopes.
-
-A `TriggerSource` and a `Trigger`:
-
-```yaml
-apiVersion: runkora.io/v1alpha1
-kind: TriggerSource
-metadata:
-  name: github-org
-  namespace: kora-tenant-acme
-spec:
-  provider: github
-  signingSecretRef: {name: github-webhook, key: secret}
----
-apiVersion: runkora.io/v1alpha1
-kind: Trigger
-metadata:
-  name: review-on-pr
-  namespace: kora-tenant-acme
-spec:
-  kind: webhook
-  source: github-org
-  eventType: pull_request
-  agent: code-reviewer
-  promptTemplate: "Review {{ pull_request.html_url }}"
-```
-
 *   `spec.agent` and `spec.routing` are mutually exclusive through CEL. `spec.routing.candidates` and `spec.routing.fallback` are `Agent` names.
 *   `spec.schedule` and `spec.manual` carry the existing scheduled and manual configuration.
-
-A `PolicyRole`:
-
-```yaml
-apiVersion: runkora.io/v1alpha1
-kind: PolicyRole
-metadata:
-  name: reviewers
-  namespace: kora-tenant-acme
-spec:
-  role: Reviewers
-  scopes: ["agents:runs:code-reviewer:read", "agents:runs:code-reviewer:write"]
-  budget: {limitUSD: 200, resetCadence: monthly}
-```
-
 *   `spec.role` is the identity provider's role claim. It defaults to `metadata.name`.
 *   A `PolicyRole` in the system namespace sets `spec.tenant` and can hold any scope. `spec.tenant` is refused in a tenant namespace.
+
+Examples per kind are in `docs/guides/declarative-resources.md` and are validated against the schemas.
 
 ### 2. KoraTenant Additions
 
@@ -284,7 +187,7 @@ The operator runs one controller per kind under its existing leader election:
 *   When two resources claim the same key, the older resource keeps it and the newer one reports `NameConflict`.
 *   A resource in a namespace with no tenant gets `Accepted=False` and reason `UnknownTenant`.
 *   A missing reference gives `ResolvedRefs=False` with reason `RefNotFound` and the missing name in the message. A new resource with a missing reference is not projected. A projected resource keeps its last applied row and reports `Ready=False` until its current spec is applied.
-*   A reference counts as resolved when the referenced resource is `Ready`. A reference to a dashboard-built item counts as missing.
+*   A reference to a declared kind counts as resolved when the referenced resource is `Ready`. A `Connection`, `MCPServer` or `SandboxImage` reference only needs to exist. A reference to a dashboard-built item counts as missing.
 *   Unresolved resources requeue every 30 seconds, and every resource resyncs every 5 minutes.
 *   Each row stores its resource UID in `resource_uid`. A reconcile that finds the resource gone deletes its declared row.
 *   At startup and every sync period, the operator lists each service's declared items per tenant and deletes those whose UID matches no resource. It skips a tenant whose namespace does not exist.
@@ -294,43 +197,18 @@ The operator runs one controller per kind under its existing leader election:
 Each resource reports three conditions:
 
 *   `Accepted`: the spec is valid, the tenant is known and the key is free.
-*   `ResolvedRefs`: every reference is a `Ready` resource.
+*   `ResolvedRefs`: every reference to another declared kind is `Ready`, and every other reference exists.
 *   `Ready`: the current spec is projected and live. An `Agent` is `Ready` when its row reaches `state = 'active'`, and a trigger without a source is never `Ready`.
 
 Status also carries `status.id`, the projected row's id. A `TriggerSource` reports `status.webhookPath`, the ingest path that includes its id.
 
 ### 4. Service Endpoints
 
-`backend/internal/platform/declarative` holds the contract and a server helper. The client is `backend/internal/platform/clients/declared`:
+`backend/internal/platform/declarative` holds the contract and a server helper. The client is `backend/internal/platform/clients/declared`.
 
-```go
-// Item is one declared resource the operator asks a service to apply.
-type Item struct {
-	TenantID   string
-	Name       string
-	UID        string
-	Generation int64
-	Spec       json.RawMessage
-	Refs       map[string]string // resolved ids, such as agent name to agent id
-	Secret     []byte            // TriggerSource signing secret only
-}
-
-// Result is the service's outcome. The operator writes it to the resource's status.
-type Result struct {
-	Outcome string // Projected, NameConflict, Invalid, Pending
-	Message string
-	ID      string
-	Ready   bool
-}
-
-// Applier is implemented by each owning service once per kind.
-type Applier interface {
-	Apply(ctx context.Context, item Item) (Result, error)
-	Delete(ctx context.Context, tenantID, name string) error
-	List(ctx context.Context, tenantID string) ([]Declared, error)
-}
-```
-
+*   The operator sends an item: tenant, namespace, name, UID, generation, spec, resolved reference ids and, for a `TriggerSource`, the Secret value.
+*   The service returns an outcome (`Projected`, `NameConflict`, `Invalid` or `Pending`) with a message, the item's id and its readiness.
+*   Each service implements apply, delete and list once per kind.
 *   Each service mounts `POST /internal/declared/{kind}`, `DELETE /internal/declared/{kind}/{tenant}/{name}` and `GET /internal/declared/{kind}/{tenant}` under its base path (`/` for kora-agents, `/api/v1` for kora-triggers and policy-service, `/v1` for inference-gateway).
 *   The helper accepts only the operator's system principal.
 *   The operator calls every service through one client that embeds `httpclient.Base`.
@@ -421,7 +299,7 @@ CREATE UNIQUE INDEX agent_types_tenant_slug_live ON agent_types (tenant_id, slug
 
 *   The six new CRDs carry `helm.sh/resource-policy: keep`.
 *   The operator ClusterRole gains `get/list/watch` on the six kinds and `patch` on their status.
-*   The operator gets an Istio sidecar. Its webhook port is excluded from inbound interception with `traffic.sidecar.istio.io/excludeInboundPorts`. It mounts the SPIRE workload socket and gets a platform token as `/system/operator`.
+*   The operator gets an Istio sidecar. Its webhook, health and metrics ports are excluded from inbound interception with `traffic.sidecar.istio.io/excludeInboundPorts`. It mounts the SPIRE workload socket and gets a platform token as `/system/operator`.
 *   A mesh AuthorizationPolicy on each service denies `/internal/declared/` under its base path to every principal except the operator. The edge refuses these paths.
 *   `inference-gateway`, `kora-agents`, `kora-triggers` and `policy-service` gain no Kubernetes access.
 
@@ -471,7 +349,7 @@ On the local cluster:
 
 ### Negative
 
-*   Anyone who can write the tenant namespace can define agents and `PolicyRole`s with any tenant scope. Only the system namespace can hold `platform:*` scopes.
+*   Anyone who can write the tenant namespace can define agents with any scope, including `platform:*`, and `PolicyRole`s with any scope outside `platform:*`.
 *   An API agent can attach a declared `Environment`. A later change to that `Environment` widens the agent's egress and connectors without a scope ceiling check.
 *   Inference gateway replicas other than the one that served the operator's call load declared virtual model changes on restart. API writes have the same per-replica gap today.
 *   Declared changes wait while the operator is down. Projected items keep running from Postgres.
@@ -499,7 +377,7 @@ On the local cluster:
 *   [Sandbox Environments](2026-10-03-sandbox-environments.md): environments gain a resource form.
 *   [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md): trigger source deletion no longer cascades.
 *   [Tenant Registration and OIDC Provider Binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md): the registry gains fields.
-*   [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md): the operator now joins the mesh with its webhook port excluded.
+*   [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md): the operator now joins the mesh with its webhook, health and metrics ports excluded.
 *   [Install and Distribution Model](2026-09-04-install-and-distribution-model.md): CRD packaging and upgrade rules. The operator's role widens from tenants to declared resources (Amendment 1 there).
 *   [Database Migrations](2026-09-10-database-migrations.md): expand migrations for the new columns.
 

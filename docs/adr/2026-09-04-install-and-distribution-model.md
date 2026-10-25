@@ -508,19 +508,11 @@ Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouche
 
 **Status:** Proposed
 
-[Declarative Resources](2026-10-24-declarative-resources.md) makes the operator the single projector for `VirtualModel`, `Environment`, `Agent`, `TriggerSource`, `Trigger` and `PolicyRole` resources. This touches *What can it access?* The four owning services gain no Kubernetes access. *Who is this agent?* and *How does it connect?* are unchanged.
-
-**Decision.**
-
-*   The operator's role widens from tenant reconciliation to tenants and declared resources.
-*   The operator joins the mesh for outbound calls. Its webhook port is excluded from inbound interception, so the kube-apiserver still reaches it without a mesh certificate.
-*   The operator calls each owning service's `/internal/declared/` endpoints, under the service's base path, with a platform token from its SPIFFE identity.
-*   The operator ClusterRole gains get/list/watch on the six kinds and get/patch on their status.
+The operator's role widens from tenant reconciliation to projecting declared resources. It joins the mesh and gains read access to the six kinds. See [Declarative Resources](2026-10-24-declarative-resources.md), section 10.
 
 **Consequences.**
 
-*   The operator's start depends on the mesh issuing it a certificate.
-*   Declared changes wait while the operator is down. Tenant reconciliation and the webhook are unaffected by an owning service being down.
+*   Tenant reconciliation and the webhook are unaffected by an owning service being down.
 
 ---
 
