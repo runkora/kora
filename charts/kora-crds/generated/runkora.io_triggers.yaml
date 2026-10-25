@@ -1,0 +1,366 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.23.0
+  name: triggers.runkora.io
+spec:
+  group: runkora.io
+  names:
+    kind: Trigger
+    listKind: TriggerList
+    plural: triggers
+    shortNames:
+    - ktrig
+    singular: trigger
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.kind
+      name: Kind
+      type: string
+    - jsonPath: .spec.agent
+      name: Agent
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Accepted")].status
+      name: Accepted
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Trigger starts runs of an Agent, or of a routed choice of Agents, for the
+          tenant whose namespace holds it.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              TriggerSpec mirrors the trigger create request. Source, Agent and the
+              routing names are resource names in the same namespace. A nil admission
+              field takes the platform default. Kind defaults to webhook and Enabled to
+              true in the CRD.
+            properties:
+              agent:
+                description: Agent is the Agent name in this namespace whose runs
+                  the trigger starts.
+                minLength: 1
+                type: string
+              autopauseEnabled:
+                type: boolean
+              coalesce:
+                description: Coalesce folds deliveries with the same key inside the
+                  window into one.
+                properties:
+                  key:
+                    minLength: 1
+                    type: string
+                  windowSeconds:
+                    format: int32
+                    maximum: 300
+                    minimum: 1
+                    type: integer
+                required:
+                - key
+                - windowSeconds
+                type: object
+              dedupeEnabled:
+                type: boolean
+              enabled:
+                default: true
+                type: boolean
+              eventType:
+                minLength: 1
+                type: string
+              kind:
+                default: webhook
+                enum:
+                - webhook
+                - scheduled
+                - manual
+                type: string
+              manual:
+                description: Manual is a manual trigger's input form.
+                properties:
+                  inputs:
+                    items:
+                      description: ManualInput is one field a manual trigger accepts.
+                      properties:
+                        choices:
+                          items:
+                            type: string
+                          type: array
+                        default:
+                          type: string
+                        description:
+                          type: string
+                        label:
+                          type: string
+                        name:
+                          minLength: 1
+                          type: string
+                        required:
+                          type: boolean
+                        type:
+                          enum:
+                          - text
+                          - number
+                          - boolean
+                          - choice
+                          type: string
+                      required:
+                      - name
+                      - type
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                type: object
+              match:
+                additionalProperties:
+                  items:
+                    type: string
+                  type: array
+                description: Match maps payload paths to the values each must equal,
+                  one of.
+                type: object
+              matchContains:
+                additionalProperties:
+                  items:
+                    type: string
+                  type: array
+                description: MatchContains maps payload paths to the values each must
+                  contain, one of.
+                type: object
+              maxParallel:
+                maximum: 16
+                minimum: 1
+                type: integer
+              maxQueueDepth:
+                maximum: 500
+                minimum: 1
+                type: integer
+              overflow:
+                enum:
+                - wait
+                - replace
+                - refuse
+                type: string
+              promptTemplate:
+                minLength: 1
+                type: string
+              routing:
+                description: |-
+                  Routing lets a decision model pick among Agents. Candidates and Fallback
+                  are Agent names. A nil JoinRuns means on.
+                properties:
+                  candidates:
+                    description: Candidates are Agent names in this namespace.
+                    items:
+                      minLength: 1
+                      type: string
+                    maxItems: 20
+                    minItems: 1
+                    type: array
+                  confidence:
+                    description: |-
+                      Confidence is the probability the chosen Agent must reach. Unset means
+                      balanced.
+                    enum:
+                    - strict
+                    - balanced
+                    - loose
+                    type: string
+                  fallback:
+                    description: |-
+                      Fallback is the candidate Agent that takes an event the model is unsure
+                      about. Unset starts no run.
+                    minLength: 1
+                    type: string
+                  joinKey:
+                    maxLength: 256
+                    type: string
+                  joinRuns:
+                    description: JoinRuns lets an event join an open run. Unset means
+                      true.
+                    type: boolean
+                  model:
+                    description: Model is the VirtualModel that decides.
+                    properties:
+                      family:
+                        pattern: ^[a-z0-9_-]{1,255}$
+                        type: string
+                      name:
+                        pattern: ^[a-z0-9_-]{1,255}$
+                        type: string
+                    required:
+                    - family
+                    - name
+                    type: object
+                required:
+                - candidates
+                - model
+                type: object
+              schedule:
+                description: Schedule is a scheduled trigger's cron configuration.
+                properties:
+                  catchUp:
+                    description: CatchUp fires once for schedules missed while the
+                      platform was down.
+                    type: boolean
+                  cronExpression:
+                    description: CronExpression is a standard five-field cron expression.
+                    minLength: 1
+                    type: string
+                  timezone:
+                    default: UTC
+                    description: Timezone is an IANA timezone name.
+                    type: string
+                required:
+                - cronExpression
+                type: object
+              senderRestriction:
+                description: SenderRestriction limits a webhook trigger to listed
+                  sender ids or roles.
+                properties:
+                  ids:
+                    items:
+                      type: string
+                    type: array
+                  roles:
+                    items:
+                      type: string
+                    type: array
+                type: object
+              source:
+                description: Source is a TriggerSource name in this namespace.
+                minLength: 1
+                type: string
+              timeoutSeconds:
+                maximum: 600
+                minimum: 5
+                type: integer
+            required:
+            - promptTemplate
+            type: object
+            x-kubernetes-validations:
+            - message: set exactly one of agent and routing.
+              rule: has(self.agent) != has(self.routing)
+            - message: a webhook trigger needs source and eventType.
+              rule: self.kind != 'webhook' || (has(self.source) && has(self.eventType))
+            - message: a scheduled trigger needs schedule.
+              rule: self.kind != 'scheduled' || has(self.schedule)
+            - message: source, eventType, match, matchContains, senderRestriction,
+                coalesce and routing apply to webhook triggers only.
+              rule: self.kind == 'webhook' || !(has(self.source) || has(self.eventType)
+                || has(self.match) || has(self.matchContains) || has(self.senderRestriction)
+                || has(self.coalesce) || has(self.routing))
+            - message: schedule applies to scheduled triggers only.
+              rule: self.kind == 'scheduled' || !has(self.schedule)
+            - message: manual applies to manual triggers only.
+              rule: self.kind == 'manual' || !has(self.manual)
+          status:
+            description: |-
+              Status is the status every declarative kind reports. The operator writes it
+              from the owning service's response.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              id:
+                description: ID is the id of the item the resource is projected to.
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: metadata.name must be a DNS label.
+          rule: self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name)
+            <= 63
+    served: true
+    storage: true
+    subresources:
+      status: {}

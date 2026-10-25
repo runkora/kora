@@ -1297,6 +1297,20 @@ deadcode: ## Report Go functions no main package can reach
 	@DEADCODE_VERSION=$(DEADCODE_VERSION) ./scripts/check-deadcode.sh
 
 HELM_DOCS_VERSION := v1.14.2
+CONTROLLER_GEN_VERSION := v0.23.0
+DECLARATIVE_API := backend/internal/platform/declarative/v1alpha1
+
+.PHONY: generate
+generate: ## Regenerate the declarative kinds' deepcopy functions and CRDs with controller-gen
+	@cd backend && go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION) \
+	  object crd:allowDangerousTypes=true paths=./internal/platform/declarative/v1alpha1/... \
+	  output:crd:artifacts:config=../charts/kora-crds/generated
+
+.PHONY: generate-check
+generate-check: generate ## Fail if the generated deepcopy functions or CRDs are out of date
+	@git diff --exit-code -- $(DECLARATIVE_API) charts/kora-crds/generated \
+	  && test -z "$$(git ls-files --others --exclude-standard -- $(DECLARATIVE_API) charts/kora-crds/generated)" \
+	  || { echo "$(COLOR_RED)✗ generated code out of date, run: make generate$(COLOR_RESET)"; exit 1; }
 
 .PHONY: chart-lint
 chart-lint: ## Lint the Helm charts (helm lint with ci/ values)
@@ -1323,7 +1337,7 @@ chart-deps: ## Update charts/kora/Chart.lock from its Chart.yaml dependencies
 	@helm dependency update charts/kora
 
 .PHONY: check
-check: check-versions tidy fmt vet fix lint brand-tags-check deadcode secrets docs-check hades-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, fmt, vet, lint, brand-tags-check, deadcode, secrets, docs-check, hades-check, migrate-lint, test, frontend-check)
+check: check-versions tidy generate-check fmt vet fix lint brand-tags-check deadcode secrets docs-check hades-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, generate-check, fmt, vet, lint, brand-tags-check, deadcode, secrets, docs-check, hades-check, migrate-lint, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: brand-tags-check

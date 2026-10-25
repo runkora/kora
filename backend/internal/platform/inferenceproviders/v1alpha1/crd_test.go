@@ -6,7 +6,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/crdtest"
 )
 
-const crdFile = "crd-inferenceprovider.yaml"
+const crdFile = "templates/crd-inferenceprovider.yaml"
 
 func provider(apis ...any) map[string]any {
 	return map[string]any{
@@ -37,9 +37,9 @@ func TestCRDValidatesDeclaredAPIs(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			errs := crdtest.Validate(schema, provider(tc.apis...), "")
-			if (len(errs) > 0) != tc.wantErr {
-				t.Errorf("errors = %v, want error %v", errs, tc.wantErr)
+			err := crdtest.Validate(t, schema, provider(tc.apis...))
+			if (err != nil) != tc.wantErr {
+				t.Errorf("error = %v, want error %v", err, tc.wantErr)
 			}
 		})
 	}
@@ -102,9 +102,9 @@ func TestCRDDecisionModelsShape(t *testing.T) {
 			if tc.decisionModels != nil {
 				p["spec"].(map[string]any)["compatible"].(map[string]any)["decisionModels"] = tc.decisionModels
 			}
-			errs := crdtest.Validate(schema, p, "")
-			if (len(errs) > 0) != tc.wantErr {
-				t.Errorf("errors = %v, want error %v", errs, tc.wantErr)
+			err := crdtest.Validate(t, schema, p)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("error = %v, want error %v", err, tc.wantErr)
 			}
 		})
 	}
