@@ -50,7 +50,7 @@ func virtualModelItem(t *testing.T, name string, spec v1alpha1.VirtualModelSpec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return declarative.Item{TenantID: declarative.PlatformTenant, Name: name, UID: "uid-" + name, Generation: 1, Spec: raw}
+	return declarative.Item{TenantID: declarative.PlatformTenant, Name: name, UID: "uid-" + name, Generation: 1, Spec: raw, Repository: "github.com/acme/catalog"}
 }
 
 func sonnetSpec() v1alpha1.VirtualModelSpec {
@@ -71,7 +71,7 @@ func TestVirtualModelApplierProjects(t *testing.T) {
 		t.Fatalf("result = %+v, want Projected and ready with an id", res)
 	}
 	row := cat.rows["claude-sonnet"]
-	if row.Source != declarative.SourceCRD || row.ResourceUID != "uid-claude-sonnet" || row.FullID() != "anthropic/sonnet" ||
+	if row.Source != declarative.SourceCRD || row.ResourceUID != "uid-claude-sonnet" || row.Repository != "github.com/acme/catalog" || row.FullID() != "anthropic/sonnet" ||
 		len(row.Routes) != 1 || row.Routes[0].Provider != "bedrock:prod" || row.Routes[0].ID == "" {
 		t.Errorf("row = %+v", row)
 	}

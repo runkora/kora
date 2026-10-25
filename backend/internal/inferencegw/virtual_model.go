@@ -46,8 +46,10 @@ type VirtualModel struct {
 	Source       string
 	ResourceName string
 	ResourceUID  string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// Repository is the repository that drives a SourceCRD row, if it names one.
+	Repository string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // FullID returns the consumer-facing model identifier: "{family}/{name}".

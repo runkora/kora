@@ -56,6 +56,7 @@ func (a *VirtualModelApplier) Apply(ctx context.Context, item declarative.Item) 
 		Source:       declarative.SourceCRD,
 		ResourceName: item.Name,
 		ResourceUID:  item.UID,
+		Repository:   item.Repository,
 		Routes:       toVirtualModelRoutes(vmID, req.Routes),
 	}
 	id, err := a.catalog.UpsertDeclaredVirtualModel(ctx, vm)

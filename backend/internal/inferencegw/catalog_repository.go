@@ -201,14 +201,14 @@ func (r *PostgresCatalogRepository) UpsertDeclaredVirtualModel(ctx context.Conte
 			return err
 		}
 		const q = `
-			INSERT INTO virtual_models (id, family, name, display_name, description, strategy, enabled, source, resource_name, resource_uid)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, 'crd', $8, $9)
+			INSERT INTO virtual_models (id, family, name, display_name, description, strategy, enabled, source, resource_name, resource_uid, repository)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, 'crd', $8, $9, NULLIF($10, ''))
 			ON CONFLICT (id) DO UPDATE SET
 				family=EXCLUDED.family, name=EXCLUDED.name, display_name=EXCLUDED.display_name,
 				description=EXCLUDED.description, strategy=EXCLUDED.strategy, enabled=EXCLUDED.enabled,
-				resource_uid=EXCLUDED.resource_uid, updated_at=now()`
+				resource_uid=EXCLUDED.resource_uid, repository=EXCLUDED.repository, updated_at=now()`
 		if _, err := tx.Exec(ctx, q,
-			id, vm.Family, vm.Name, vm.DisplayName, vm.Description, string(vm.Strategy), vm.Enabled, vm.ResourceName, vm.ResourceUID,
+			id, vm.Family, vm.Name, vm.DisplayName, vm.Description, string(vm.Strategy), vm.Enabled, vm.ResourceName, vm.ResourceUID, vm.Repository,
 		); err != nil {
 			return fmt.Errorf("upsert declared virtual model: %w", err)
 		}
@@ -256,7 +256,7 @@ func (r *PostgresCatalogRepository) declaredRowID(ctx context.Context, tx pgx.Tx
 // sameDeclared reports whether a stored row already carries a declared
 // spec. Route IDs and order do not count.
 func sameDeclared(row, vm VirtualModel) bool {
-	if row.ResourceUID != vm.ResourceUID || row.ResourceName != vm.ResourceName || row.Family != vm.Family || row.Name != vm.Name ||
+	if row.ResourceUID != vm.ResourceUID || row.ResourceName != vm.ResourceName || row.Repository != vm.Repository || row.Family != vm.Family || row.Name != vm.Name ||
 		row.DisplayName != vm.DisplayName || row.Description != vm.Description ||
 		row.Strategy != vm.Strategy || row.Enabled != vm.Enabled || len(row.Routes) != len(vm.Routes) {
 		return false
@@ -493,7 +493,7 @@ func (r *PostgresCatalogRepository) getByID(ctx context.Context, q rowQuerier, i
 	const sql = `
 		SELECT
 			vm.id, vm.family, vm.name, vm.display_name, vm.description,
-			vm.strategy, vm.enabled, vm.source, COALESCE(vm.resource_name, ''), COALESCE(vm.resource_uid, ''), vm.created_at, vm.updated_at,
+			vm.strategy, vm.enabled, vm.source, COALESCE(vm.resource_name, ''), COALESCE(vm.resource_uid, ''), COALESCE(vm.repository, ''), vm.created_at, vm.updated_at,
 			rt.id, rt.provider, rt.model_id, rt.priority, rt.weight,
 			rt.enabled
 		FROM virtual_models vm
@@ -509,7 +509,7 @@ func (r *PostgresCatalogRepository) listAll(ctx context.Context, q rowQuerier) (
 	const sql = `
 		SELECT
 			vm.id, vm.family, vm.name, vm.display_name, vm.description,
-			vm.strategy, vm.enabled, vm.source, COALESCE(vm.resource_name, ''), COALESCE(vm.resource_uid, ''), vm.created_at, vm.updated_at,
+			vm.strategy, vm.enabled, vm.source, COALESCE(vm.resource_name, ''), COALESCE(vm.resource_uid, ''), COALESCE(vm.repository, ''), vm.created_at, vm.updated_at,
 			rt.id, rt.provider, rt.model_id, rt.priority, rt.weight,
 			rt.enabled
 		FROM virtual_models vm
@@ -568,7 +568,7 @@ func (r *PostgresCatalogRepository) scanVirtualModelRows(ctx context.Context, q 
 		)
 		if err := rows.Scan(
 			&vm.ID, &vm.Family, &vm.Name, &vm.DisplayName, &vm.Description,
-			&strategy, &vm.Enabled, &vm.Source, &vm.ResourceName, &vm.ResourceUID, &vm.CreatedAt, &vm.UpdatedAt,
+			&strategy, &vm.Enabled, &vm.Source, &vm.ResourceName, &vm.ResourceUID, &vm.Repository, &vm.CreatedAt, &vm.UpdatedAt,
 			&rtID, &rtProvider, &rtModelID, &rtPriority, &rtWeight,
 			&rtEnabled,
 		); err != nil {

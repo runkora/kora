@@ -113,7 +113,9 @@ func TestPostgres_DeclaredUpsert(t *testing.T) {
 		t.Fatalf("same spec: id=%s changed=%v err=%v, want %s and no write", again, changed, err, id)
 	}
 
-	if _, changed, err = repo.UpsertDeclaredVirtualModel(ctx, testVM(family, "b", "res", uid, "m2", "m3")); err != nil || !changed {
+	withRepo := testVM(family, "b", "res", uid, "m2", "m3")
+	withRepo.Repository = "github.com/acme/agents"
+	if _, changed, err = repo.UpsertDeclaredVirtualModel(ctx, withRepo); err != nil || !changed {
 		t.Fatalf("new spec: changed=%v err=%v", changed, err)
 	}
 	rows := rowsOf(t, repo, family)
@@ -121,7 +123,7 @@ func TestPostgres_DeclaredUpsert(t *testing.T) {
 	if _, stale := rows["a"]; stale || !ok {
 		t.Fatalf("rows after rename = %v", rows)
 	}
-	if renamed.ID != id || len(renamed.Routes) != 2 || renamed.Routes[0].ModelID != family+"-m2" {
+	if renamed.ID != id || renamed.Repository != "github.com/acme/agents" || len(renamed.Routes) != 2 || renamed.Routes[0].ModelID != family+"-m2" {
 		t.Errorf("renamed row = %+v, want id %s with the two new routes", renamed, id)
 	}
 

@@ -123,6 +123,7 @@ type virtualModelJSON struct {
 	Strategy    string                   `json:"strategy"`
 	Enabled     bool                     `json:"enabled"`
 	Source      string                   `json:"source"`
+	Repository  string                   `json:"repository,omitempty"`
 	CreatedAt   time.Time                `json:"created_at"`
 	UpdatedAt   time.Time                `json:"updated_at"`
 	Routes      []routeJSON              `json:"routes"`
@@ -638,6 +639,7 @@ func toVirtualModelJSON(vm VirtualModel, pricingIdx *pricingIndex[*pricingEntryJ
 		Strategy:    string(vm.Strategy),
 		Enabled:     vm.Enabled,
 		Source:      vm.Source,
+		Repository:  vm.Repository,
 		CreatedAt:   vm.CreatedAt,
 		UpdatedAt:   vm.UpdatedAt,
 		Routes:      routes,
