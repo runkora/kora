@@ -153,6 +153,7 @@ All kinds are `runkora.io/v1alpha1`, namespaced, with a status subresource. They
 *   Spec fields mirror the API request fields in camelCase. Server-derived fields are absent.
 *   A reference to another resource is a name in the same namespace. An `MCPServer` reference also matches a global server in the system namespace. `VirtualModel` references from tenant kinds use `family` and `name`.
 *   Secrets are referenced by `{name, key}` in the same namespace. A `TriggerSource` Secret must carry the label `runkora.io/trigger-source=true`.
+*   The optional annotation `runkora.io/repository` names the repository that drives a resource. It is display only and grants nothing.
 *   `identityMode` is immutable through a CEL `self == oldSelf` rule.
 *   `mcpTools` expands to the existing `mcp:<server>:<tool>:use` scopes.
 *   `spec.agent` and `spec.routing` are mutually exclusive through CEL. `spec.routing.candidates` and `spec.routing.fallback` are `Agent` names.
@@ -206,7 +207,7 @@ Status also carries `status.id`, the projected row's id. A `TriggerSource` repor
 
 `backend/internal/platform/declarative` holds the contract and a server helper. The client is `backend/internal/platform/clients/declared`.
 
-*   The operator sends an item: tenant, namespace, name, UID, generation, spec, resolved reference ids and, for a `TriggerSource`, the Secret value.
+*   The operator sends an item: tenant, namespace, name, UID, generation, spec, repository annotation, resolved reference ids and, for a `TriggerSource`, the Secret value.
 *   The service returns an outcome (`Projected`, `NameConflict`, `Invalid` or `Pending`) with a message, the item's id and its readiness.
 *   Each service implements apply, delete and list once per kind.
 *   Each service mounts `POST /internal/declared/{kind}`, `DELETE /internal/declared/{kind}/{tenant}/{name}` and `GET /internal/declared/{kind}/{tenant}` under its base path (`/` for kora-agents, `/api/v1` for kora-triggers and policy-service, `/v1` for inference-gateway).
@@ -216,7 +217,7 @@ Status also carries `status.id`, the projected row's id. A `TriggerSource` repor
 
 Each `Applier` runs the API's validation and provisioning without a caller:
 
-*   `kora-agents` skips the identity-mode write check, the scope ceiling and `refuseDelegatedAutonomousWrite`. `created_by` is `resource:<namespace>/<name>`.
+*   `kora-agents` skips the identity-mode write check, the scope ceiling and `refuseDelegatedAutonomousWrite`. `created_by` is `repo:<repository>` when the resource names a repository, else `resource:<namespace>/<name>`.
 *   `kora-triggers` takes agent and source ids from `Item.Refs`. The operator reads them from the referenced resources' `status.id`. A recreated agent gets a new id, and its declared triggers, routed candidates and fallbacks follow it.
 *   `kora-triggers` skips `requireRunAuthority` and `authorizeCaller`. The operator refuses a `Trigger` that names a delegated agent before it calls `kora-triggers`.
 *   The declared trigger path sets `agent_type_id`, `source_id` and the routing candidates directly. The API still cannot change them.
@@ -239,16 +240,16 @@ ALTER TABLE agent_types
 
 | Table | Columns added |
 |---|---|
-| `agent_types`, `environments` | `source`, `resource_uid`, `resource_generation` |
-| `webhook_sources`, `triggers` | `source`, `resource_uid` |
-| `virtual_models`, `policy_role_scopes` | `source`, `resource_uid`, `resource_name` |
+| `agent_types`, `environments` | `source`, `resource_uid`, `resource_generation`, `repository` |
+| `webhook_sources`, `triggers` | `source`, `resource_uid`, `repository` |
+| `virtual_models`, `policy_role_scopes` | `source`, `resource_uid`, `resource_name`, `repository` |
 | `policy_tenant_budgets` | `source` |
 
 *   Child tables (`virtual_model_routes`, `agent_environments`, `trigger_routes`, `trigger_route_candidates`) follow their parent.
 
 ### 6. API Behavior
 
-*   Every list and get response for the projected kinds carries `source: "api" | "crd"`.
+*   Every list and get response for the projected kinds carries `source: "api" | "crd"`, and `repository` when the resource names one.
 *   An update or delete of a `source = 'crd'` row returns HTTP 409 with code `managed_by_resource`. A role `PUT` on a declared role counts as an update.
 *   With `apiAuthoring: Disabled`, these writes in the tenant return HTTP 403 with code `api_authoring_disabled`:
     *   Create, update and delete of agents, environments, triggers, trigger sources and roles.
@@ -264,7 +265,7 @@ ALTER TABLE agent_types
 
 ### 7. Dashboard
 
-*   Declared items show a "Managed in git" badge and no edit or delete controls.
+*   Declared items show a "Managed by <repository>" badge, or "Managed in git" when the resource names no repository, and no edit or delete controls.
 *   A locked tenant shows agents, environments, triggers, trigger sources and roles read-only with no create controls.
 *   With the platform switch off, virtual models are read-only.
 
