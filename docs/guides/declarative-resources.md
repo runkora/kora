@@ -277,7 +277,7 @@ When two `VirtualModel` or two `PolicyRole` resources claim the same key, the ol
 
 ## Repository
 
-The annotation `runkora.io/repository` names the repository that drives a resource, such as `github.com/acme/payments-agents`. The service stores it on the item, and the API returns it as `repository`. The dashboard shows "Managed by" the repository instead of "Managed in git". A declared agent's `created_by` is `repo:<repository>`, or `resource:<namespace>/<name>` when the annotation is unset.
+The annotation `runkora.io/repository` names the repository that drives a resource, such as `github.com/acme/payments-agents`. The service stores it on the item, and the API returns it as `repository`. The dashboard shows "Managed by" the repository instead of "Managed in git". A declared agent's `created_by` is set when the agent is created: `repo:<repository>`, or `resource:<namespace>/<name>` when the annotation is unset.
 
 The annotation is for display only. It grants nothing, and kora does not check it.
 
