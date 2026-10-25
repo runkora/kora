@@ -671,7 +671,7 @@ export function TriggerDrawer({
             <Stack gap="snug">
               {trigger.declared && (
                 <Stack direction="horizontal">
-                  <ManagedInGitBadge />
+                  <ManagedInGitBadge repository={trigger.repository} />
                 </Stack>
               )}
               <ManagedInGitNotice declared={trigger.declared} repository={trigger.repository}>
