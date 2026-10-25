@@ -145,7 +145,7 @@ spec:
 - `config`: provider-specific configuration, as the API accepts it.
 - `enabled` defaults to `true`.
 
-`status.webhookPath` is the ingest path to configure in the provider, `/api/v1/webhooks/<status.id>` on the API host. It appears in `kubectl get triggersources -o wide`. A changed Secret takes effect on the next resync, up to 5 minutes later.
+`status.webhookPath` is the ingest path to configure in the provider, `/api/v1/webhooks/<status.id>` on the API host. It appears in `kubectl get triggersources -o wide`. A changed or deleted Secret reconciles the source at once.
 
 A recreated `TriggerSource`, or a change of `provider`, creates a new source with a new id and webhook path. Update the provider's webhook configuration to the new path.
 
@@ -311,7 +311,7 @@ Deleting a resource deletes its item:
 - **TriggerSource:** the source and its grants are deleted. Its triggers stay without a source and do not fire. A declared trigger reports `ResolvedRefs=False` and is re-linked when the source resource is `Ready` again. An API trigger without a source can only be disabled or deleted.
 - **Trigger**, **PolicyRole** and **VirtualModel:** the item is deleted.
 
-The operator also deletes items whose resource is gone when it starts and every sync period (`syncPeriodSecs`, 5 minutes by default). This catches a resource deleted while the operator or a service was down. A tenant that is inactive, or whose namespace does not exist, is skipped.
+The operator also deletes items whose resource is gone when it starts and every sync period (`syncPeriodSecs`, 5 minutes by default). This catches a resource deleted while the operator or a service was down. A tenant that is inactive is skipped. A tenant whose namespace is gone loses the items declared there, as deleting a namespace deletes its resources.
 
 ## Access
 
