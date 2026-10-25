@@ -22,7 +22,7 @@ Working examples for the local example tenant are in `deploy/local/declarative/`
 A tenant's repository holds the tenant's resources and sets their namespace and repository once, with Kustomize:
 
 ```
-acme-agents/
+example-agents/
 ├── kustomization.yaml
 ├── environment.yaml
 ├── agent.yaml
@@ -35,9 +35,9 @@ acme-agents/
 # kustomization.yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: kora-tenant-acme
+namespace: kora-tenant-example
 commonAnnotations:
-  runkora.io/repository: github.com/acme/acme-agents
+  runkora.io/repository: github.com/example-org/example-agents
 resources:
   - environment.yaml
   - agent.yaml
@@ -47,6 +47,8 @@ resources:
 ```
 
 VirtualModels, system-namespace PolicyRoles and KoraTenant settings live in the platform team's repository. The tenant examples below leave out `metadata.namespace`, which the kustomization sets.
+
+A repository with several use cases and a dev and prod tenant is laid out in [Tenant repository layout](declarative-resources-tenant-layout.md).
 
 ## VirtualModel
 
@@ -113,7 +115,7 @@ metadata:
   name: code-reviewer
 spec:
   displayName: Code reviewer
-  description: Reviews pull requests in the acme repositories for correctness.
+  description: Reviews pull requests in the example-org repositories for correctness.
   framework: claude-code
   identityMode: autonomous
   model: {family: anthropic, name: sonnet}
@@ -168,7 +170,7 @@ spec:
   data:
     - secretKey: secret
       remoteRef:
-        key: acme/kora/github-webhook
+        key: example/kora/github-webhook
 ---
 apiVersion: runkora.io/v1alpha1
 kind: TriggerSource
@@ -268,7 +270,7 @@ The scopes are not checked against a caller's ceiling. See [Policy and roles](po
 apiVersion: runkora.io/v1alpha1
 kind: KoraTenant
 metadata:
-  name: acme
+  name: example
 spec:
   # displayName, oidc and the other tenant fields as in the Tenants guide.
   apiAuthoring: Disabled
@@ -294,8 +296,8 @@ Each resource reports three conditions:
 
 ```bash
 kubectl get virtualmodels -n kora-system
-kubectl get environments,agents.runkora.io,triggersources,triggers.runkora.io,policyroles -n kora-tenant-acme
-kubectl describe agents.runkora.io code-reviewer -n kora-tenant-acme
+kubectl get environments,agents.runkora.io,triggersources,triggers.runkora.io,policyroles -n kora-tenant-example
+kubectl describe agents.runkora.io code-reviewer -n kora-tenant-example
 ```
 
 Resources can be applied in any order. The operator retries a resource that is not `Ready` every 30 seconds and resyncs every resource every 5 minutes. A new resource with a missing reference is not projected. A projected resource that loses a reference keeps its last applied state and reports `Ready=False` until its current spec is applied.
@@ -319,7 +321,7 @@ When two `VirtualModel` or two `PolicyRole` resources claim the same key, the ol
 
 ## Repository
 
-The annotation `runkora.io/repository` names the repository that drives a resource, such as `github.com/acme/payments-agents`. The service stores it on the item, and the API returns it as `repository`. The dashboard shows "Managed by" the repository instead of "Managed in git". A declared agent's `created_by` stays `resource:<namespace>/<name>`.
+The annotation `runkora.io/repository` names the repository that drives a resource, such as `github.com/example-org/payments-agents`. The service stores it on the item, and the API returns it as `repository`. The dashboard shows "Managed by" the repository instead of "Managed in git". A declared agent's `created_by` stays `resource:<namespace>/<name>`.
 
 The annotation is for display only. It grants nothing, and kora does not check it.
 
