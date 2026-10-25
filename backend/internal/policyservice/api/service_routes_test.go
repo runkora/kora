@@ -12,7 +12,7 @@ import (
 // permissiveVocab claims every scope exists, so only validation can refuse.
 type permissiveVocab struct{ vocabulary.Repository }
 
-func (permissiveVocab) Exists(context.Context, string) (bool, error) { return true, nil }
+func (permissiveVocab) Exists(context.Context, string, string) (bool, error) { return true, nil }
 
 func (permissiveVocab) Upsert(context.Context, *vocabulary.ScopeEntry) (bool, error) {
 	return false, nil

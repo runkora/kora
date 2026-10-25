@@ -141,6 +141,14 @@ func validateScopes(ctx context.Context, exists func(context.Context, string) (b
 	return nil
 }
 
+// existsIn binds the vocabulary existence check to a tenant: the tenant's own
+// scopes plus the global ones.
+func (s *Service) existsIn(tenantID string) func(context.Context, string) (bool, error) {
+	return func(ctx context.Context, scope string) (bool, error) {
+		return s.vocabRepo.Exists(ctx, tenantID, scope)
+	}
+}
+
 // recompileDebounce is the delay before a bundle recompilation fires. Multiple
 // writes within this window are coalesced into a single recompilation.
 const recompileDebounce = 500 * time.Millisecond
@@ -240,7 +248,7 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 		return nil, ErrInvalidPrincipalType
 	}
 
-	if err := validateScopes(ctx, s.vocabRepo.Exists, scopes, true); err != nil {
+	if err := validateScopes(ctx, s.existsIn(tenantID), scopes, true); err != nil {
 		return nil, err
 	}
 
@@ -326,8 +334,8 @@ func (s *Service) ListGrants(ctx context.Context, tenantID string, principalType
 	return s.grantRepo.List(ctx, tenantID, principalType, principalID, limit, offset)
 }
 
-func (s *Service) ListVocabulary(ctx context.Context, resourceType string) ([]*vocabulary.ScopeEntry, error) {
-	return s.vocabRepo.List(ctx, resourceType)
+func (s *Service) ListVocabulary(ctx context.Context, tenantID, resourceType string) ([]*vocabulary.ScopeEntry, error) {
+	return s.vocabRepo.List(ctx, tenantID, resourceType)
 }
 
 // ListVocabularyWithUsage returns all scopes with grant and role usage counts
@@ -338,7 +346,7 @@ func (s *Service) ListVocabularyWithUsage(ctx context.Context, resourceType, ten
 	if err != nil {
 		return nil, err
 	}
-	reserved, err := s.reservedRoles(ctx)
+	reserved, err := s.reservedRoles(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -352,9 +360,10 @@ func (s *Service) ListVocabularyWithUsage(ctx context.Context, resourceType, ten
 	return entries, nil
 }
 
-// reservedRoles derives the reserved roles' scopes from the current vocabulary.
-func (s *Service) reservedRoles(ctx context.Context) (map[string][]string, error) {
-	vocab, err := s.vocabRepo.List(ctx, "")
+// reservedRoles derives the reserved roles' scopes from the vocabulary visible
+// to the tenant (its own entries plus global ones).
+func (s *Service) reservedRoles(ctx context.Context, tenantID string) (map[string][]string, error) {
+	vocab, err := s.vocabRepo.List(ctx, tenantID, "")
 	if err != nil {
 		return nil, fmt.Errorf("list vocabulary: %w", err)
 	}
@@ -430,8 +439,8 @@ func (s *Service) Stats(ctx context.Context, tenantID string) (*statsResponse, e
 	}, nil
 }
 
-func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.ScopeEntry, error) {
-	return s.vocabRepo.GetByScope(ctx, scope)
+func (s *Service) GetScope(ctx context.Context, tenantID, scope string) (*vocabulary.ScopeEntry, error) {
+	return s.vocabRepo.GetByScope(ctx, tenantID, scope)
 }
 
 // EffectiveScopes returns the union of all scopes a principal holds, derived from
@@ -477,7 +486,7 @@ func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, 
 	// This lets users create PATs with finer-grained scopes when they hold a
 	// parent scope that implies access to all children. Requires are expanded
 	// too, so the ceiling matches what the bundle grants.
-	allVocab, err := s.vocabRepo.List(ctx, "")
+	allVocab, err := s.vocabRepo.List(ctx, tenantID, "")
 	if err != nil {
 		return nil, fmt.Errorf("list vocabulary for scope expansion: %w", err)
 	}
@@ -506,7 +515,7 @@ func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalR
 		if bundle.IsReservedRole(role) {
 			if reserved == nil {
 				var err error
-				if reserved, err = s.reservedRoles(ctx); err != nil {
+				if reserved, err = s.reservedRoles(ctx, tenantID); err != nil {
 					return err
 				}
 			}
@@ -586,7 +595,7 @@ func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes 
 	if bundle.IsReservedRole(role) {
 		return nil, &ReservedRoleError{Role: role}
 	}
-	if err := validateScopes(ctx, s.vocabRepo.Exists, scopes, false); err != nil {
+	if err := validateScopes(ctx, s.existsIn(tenantID), scopes, false); err != nil {
 		return nil, err
 	}
 	entry := &roles.RoleEntry{TenantID: tenantID, Role: role, Scopes: scopes, Budget: budget}
@@ -621,7 +630,7 @@ func (s *Service) GetRole(ctx context.Context, tenantID, role string) (*roles.Ro
 	if !bundle.IsReservedRole(role) {
 		return s.roleRepo.GetByRole(ctx, tenantID, role)
 	}
-	vocab, err := s.vocabRepo.List(ctx, "")
+	vocab, err := s.vocabRepo.List(ctx, tenantID, "")
 	if err != nil {
 		return nil, fmt.Errorf("list vocabulary: %w", err)
 	}
@@ -642,7 +651,7 @@ func (s *Service) ListRoles(ctx context.Context, tenantID string, limit, offset 
 		return custom, nil
 	}
 
-	vocab, err := s.vocabRepo.List(ctx, "")
+	vocab, err := s.vocabRepo.List(ctx, tenantID, "")
 	if err != nil {
 		return nil, fmt.Errorf("list vocabulary: %w", err)
 	}
@@ -707,7 +716,7 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 		return err
 	}
 	if tenantID != "" {
-		if err := s.checkTenantRegistration(ctx, routeScopes, scopeDecls); err != nil {
+		if err := s.checkTenantRegistration(ctx, tenantID, routeScopes, scopeDecls); err != nil {
 			return err
 		}
 	}
@@ -715,14 +724,14 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 	// changed tracks whether this registration moved anything a bundle is
 	// compiled from: services re-register on a timer, and recompiling every
 	// tenant for a registration that changed nothing is pure load.
-	incomingScopes, changed, err := s.upsertDeclaredScopes(ctx, service, scopeDecls)
+	incomingScopes, changed, err := s.upsertDeclaredScopes(ctx, service, tenantID, scopeDecls)
 	if err != nil {
 		return err
 	}
 
 	if tenantID == "" {
 		if prune {
-			pruned, pErr := s.pruneOwnedScopes(ctx, service, incomingScopes)
+			pruned, pErr := s.pruneOwnedScopes(ctx, service, tenantID, incomingScopes)
 			if pErr != nil {
 				return pErr
 			}
@@ -765,15 +774,20 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 	return nil
 }
 
-// checkTenantRegistration enforces the rules for a tenant-scoped registration.
-// The vocabulary is shared by every tenant's bundle, so a tenant principal may
-// not write to it, and every route must name a scope that already exists.
-func (s *Service) checkTenantRegistration(ctx context.Context, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration) error {
-	if len(scopeDecls) > 0 {
-		return ErrTenantScopeDeclaration
+// checkTenantRegistration enforces the rules for a tenant-scoped registration:
+// every route must name a scope the tenant can see (its own, global, or one
+// this registration declares). Whether the caller may declare scopes is decided
+// at the handler, where the principal type is known.
+func (s *Service) checkTenantRegistration(ctx context.Context, tenantID string, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration) error {
+	declared := make(map[string]struct{}, len(scopeDecls))
+	for _, d := range scopeDecls {
+		declared[d.Scope] = struct{}{}
 	}
 	for _, r := range routeScopes {
-		exists, err := s.vocabRepo.Exists(ctx, r.RequiredScope)
+		if _, ok := declared[r.RequiredScope]; ok {
+			continue
+		}
+		exists, err := s.vocabRepo.Exists(ctx, tenantID, r.RequiredScope)
 		if err != nil {
 			return fmt.Errorf("vocabulary check: %w", err)
 		}
@@ -821,7 +835,7 @@ func markAuthenticatedOnly(tenantID string, rs []routes.RouteScope) []routes.Rou
 // upsertDeclaredScopes writes the service's declared scopes into the
 // vocabulary and reports the scope strings it declared plus whether any row
 // actually changed.
-func (s *Service) upsertDeclaredScopes(ctx context.Context, service string, scopeDecls []routes.ScopeDeclaration) (incomingScopes []string, changed bool, err error) {
+func (s *Service) upsertDeclaredScopes(ctx context.Context, service, tenantID string, scopeDecls []routes.ScopeDeclaration) (incomingScopes []string, changed bool, err error) {
 	incomingScopes = make([]string, len(scopeDecls))
 	for i := range scopeDecls {
 		incomingScopes[i] = scopeDecls[i].Scope
@@ -832,6 +846,7 @@ func (s *Service) upsertDeclaredScopes(ctx context.Context, service string, scop
 			Action:       scopeDecls[i].Action,
 			Description:  scopeDecls[i].Description,
 			RegisteredBy: service,
+			TenantID:     tenantID,
 			Requires:     scopeDecls[i].Requires,
 		})
 		// Skipping keeps a service that shares a scope name registering its routes.
@@ -854,8 +869,8 @@ func (s *Service) upsertDeclaredScopes(ctx context.Context, service string, scop
 // are no longer in its catalog, cascading each deletion into the grants and
 // roles that referenced it, and reports whether anything was removed. A
 // virtual model that was deleted is the usual reason one disappears.
-func (s *Service) pruneOwnedScopes(ctx context.Context, service string, incomingScopes []string) (bool, error) {
-	deleted, err := s.vocabRepo.DeleteOrphans(ctx, service, incomingScopes)
+func (s *Service) pruneOwnedScopes(ctx context.Context, service, tenantID string, incomingScopes []string) (bool, error) {
+	deleted, err := s.vocabRepo.DeleteOrphans(ctx, service, tenantID, incomingScopes)
 	if err != nil {
 		return false, fmt.Errorf("prune orphan scopes for %q: %w", service, err)
 	}
@@ -998,16 +1013,18 @@ func (s *Service) scheduleRecompileAll(ctx context.Context) {
 		s.markRecompileAllHealth(false)
 		return
 	}
-	vocab, err := s.vocabRepo.List(ctx, "")
-	if err != nil {
-		s.logger.Error(ctx, "recompile all: failed to list vocabulary",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		s.markRecompileAllHealth(false)
-		return
-	}
 	ok := true
 	for _, tenantID := range tenantIDs {
+		// Each tenant's bundle compiles from its own vocabulary plus the global one.
+		vocab, err := s.vocabRepo.List(ctx, tenantID, "")
+		if err != nil {
+			ok = false
+			s.logger.Error(ctx, "recompile all: failed to list vocabulary",
+				logging.Field{Key: "tenant_id", Value: tenantID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			continue
+		}
 		if err := s.bundleSrv.Recompile(ctx, tenantID, vocab); err != nil {
 			ok = false
 			s.logger.Error(ctx, "recompile all: bundle recompile failed",

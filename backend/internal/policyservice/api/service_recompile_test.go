@@ -172,10 +172,10 @@ func (foreignVocab) Upsert(context.Context, *vocabulary.ScopeEntry) (bool, error
 	return false, fmt.Errorf("%w: other-service", vocabulary.ErrScopeOwnedByAnother)
 }
 
-func (foreignVocab) Exists(context.Context, string) (bool, error) { return true, nil }
+func (foreignVocab) Exists(context.Context, string, string) (bool, error) { return true, nil }
 
-// The vocabulary is shared by every tenant. A tenant registration may not
-// write to it, and a service that declares another's scope is skipped.
+// A service that declares another service's scope is skipped. Whether a tenant
+// principal may declare scopes is decided at the handler.
 func TestRegisterRoutes_ScopeDeclarations(t *testing.T) {
 	declared := []routes.ScopeDeclaration{{Scope: "thing:read", ResourceType: "thing", Action: "read"}}
 	declaredRoutes := []routes.RouteScope{{PathPrefix: "/v1/thing", Method: "GET", RequiredScope: "thing:read"}}
@@ -188,7 +188,6 @@ func TestRegisterRoutes_ScopeDeclarations(t *testing.T) {
 	}{
 		{name: "global owner", vocab: idempotentVocab{}},
 		{name: "global declaration of a foreign scope is skipped", vocab: foreignVocab{}},
-		{name: "tenant declaration is rejected", vocab: foreignVocab{}, tenantID: "tenant-1", wantErr: ErrTenantScopeDeclaration},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

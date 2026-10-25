@@ -70,8 +70,8 @@ func (r *writeRecordingGrants) List(context.Context, string, grants.PrincipalTyp
 // anyScopeVocab accepts every scope.
 type anyScopeVocab struct{ vocabulary.Repository }
 
-func (anyScopeVocab) Exists(context.Context, string) (bool, error) { return true, nil }
-func (anyScopeVocab) List(context.Context, string) ([]*vocabulary.ScopeEntry, error) {
+func (anyScopeVocab) Exists(context.Context, string, string) (bool, error) { return true, nil }
+func (anyScopeVocab) List(context.Context, string, string) ([]*vocabulary.ScopeEntry, error) {
 	return nil, nil
 }
 

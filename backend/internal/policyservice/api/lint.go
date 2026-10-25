@@ -96,8 +96,8 @@ func coherenceWarnings(scopes []string, vocab []*vocabulary.ScopeEntry) []string
 
 // LintScopes returns coherence warnings for a grant or role write. A
 // vocabulary read failure yields no warnings: the lint never blocks a write.
-func (s *Service) LintScopes(ctx context.Context, scopes []string) []string {
-	vocab, err := s.vocabRepo.List(ctx, "")
+func (s *Service) LintScopes(ctx context.Context, tenantID string, scopes []string) []string {
+	vocab, err := s.vocabRepo.List(ctx, tenantID, "")
 	if err != nil {
 		s.logger.Warn(ctx, "scope coherence lint skipped", logging.Field{Key: "error", Value: err.Error()})
 		return nil

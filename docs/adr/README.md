@@ -146,6 +146,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [kora MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) — `Accepted` · 2026-06-30
 - [Tenant MCP Servers as a Recognised Workload Class](2026-09-17-mcp-workload-class.md) — `Proposed` · 2026-09-17
 - [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md) — `Accepted` · 2026-10-22
+- [Tenant-Scoped MCP Scope Vocabulary](2026-10-14-tenant-scoped-mcp-scope-vocabulary.md) — `Proposed` · 2026-10-14
 
 ### Service Mesh, Operator & Deployment
 
@@ -320,4 +321,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-19 | [Repository Id Owner Selection in the Egress Gateway](2026-10-19-repository-id-owner-selection.md) | Accepted | — |
 | 2026-10-20 | [Actions Results Receiver Classification](2026-10-20-actions-results-receiver-classification.md) | Accepted | — |
 | 2026-10-22 | [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md) | Accepted | — |
+| 2026-10-14 | [Tenant-Scoped MCP Scope Vocabulary](2026-10-14-tenant-scoped-mcp-scope-vocabulary.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

@@ -33,7 +33,10 @@ type ScopeEntry struct {
 	// Requires lists scopes this scope depends on: a grant holding this scope
 	// confers the required scopes in the compiled effective set. On Upsert, nil
 	// means unknown and keeps the stored set; a non-nil empty slice clears it.
-	Requires  []string  `json:"requires,omitempty"`
+	Requires []string `json:"requires,omitempty"`
+	// TenantID is the tenant that owns this entry; empty means global, visible
+	// to every tenant.
+	TenantID  string    `json:"tenant_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -53,14 +56,16 @@ var ErrScopeOwnedByAnother = errors.New("scope is registered by another service"
 
 // Repository defines the scope vocabulary storage contract.
 type Repository interface {
-	// GetByScope retrieves a scope entry by its full scope string.
-	GetByScope(ctx context.Context, scope string) (*ScopeEntry, error)
+	// GetByScope retrieves a scope entry by its full scope string, from the
+	// tenant's own entries or the global ones. A tenant entry shadows a global one.
+	GetByScope(ctx context.Context, tenantID, scope string) (*ScopeEntry, error)
 
-	// Exists checks whether a scope is registered.
-	Exists(ctx context.Context, scope string) (bool, error)
+	// Exists checks whether a scope is registered for the tenant or globally.
+	Exists(ctx context.Context, tenantID, scope string) (bool, error)
 
-	// List returns all registered scopes, optionally filtered by resource type.
-	List(ctx context.Context, resourceType string) ([]*ScopeEntry, error)
+	// List returns the scopes visible to the tenant (its own plus global),
+	// optionally filtered by resource type. A tenant entry shadows a global one.
+	List(ctx context.Context, tenantID, resourceType string) ([]*ScopeEntry, error)
 
 	// Upsert inserts a scope entry or updates its metadata if it already exists,
 	// and reports whether the catalog actually changed. Used by route
@@ -70,10 +75,11 @@ type Repository interface {
 	// entry; any other caller gets ErrScopeOwnedByAnother.
 	Upsert(ctx context.Context, e *ScopeEntry) (bool, error)
 
-	// DeleteOrphans deletes all scopes owned by registeredBy whose scope strings
-	// are not in keepScopes, and returns the deleted scope strings. Called on
+	// DeleteOrphans deletes the scopes owned by registeredBy in the given tenant
+	// ("" for global) whose scope strings are not in keepScopes, and returns the
+	// deleted scope strings. Entries in other tenants are never touched. Called on
 	// re-registration to prune scopes for virtual models that have been deleted.
-	DeleteOrphans(ctx context.Context, registeredBy string, keepScopes []string) ([]string, error)
+	DeleteOrphans(ctx context.Context, registeredBy, tenantID string, keepScopes []string) ([]string, error)
 
 	// ListWithUsage returns all scopes with grant and role usage counts for a tenant.
 	ListWithUsage(ctx context.Context, resourceType, tenantID string) ([]*ScopeEntryWithUsage, error)
@@ -118,11 +124,11 @@ func (r *postgresRepository) Upsert(ctx context.Context, e *ScopeEntry) (bool, e
 	// before the insert.
 	row := r.pool.QueryRow(ctx, `
 		WITH prior AS (
-			SELECT registered_by FROM policy_scope_vocabulary WHERE scope = $1
+			SELECT registered_by FROM policy_scope_vocabulary WHERE scope = $1 AND tenant_id = $9
 		), upserted AS (
-			INSERT INTO policy_scope_vocabulary (scope, resource_type, path_segments, action, description, registered_by, requires, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-			ON CONFLICT (scope) DO UPDATE SET
+			INSERT INTO policy_scope_vocabulary (scope, resource_type, path_segments, action, description, registered_by, requires, created_at, tenant_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $9)
+			ON CONFLICT (tenant_id, scope) DO UPDATE SET
 				resource_type  = EXCLUDED.resource_type,
 				path_segments  = EXCLUDED.path_segments,
 				action         = EXCLUDED.action,
@@ -140,7 +146,7 @@ func (r *postgresRepository) Upsert(ctx context.Context, e *ScopeEntry) (bool, e
 			RETURNING scope
 		)
 		SELECT EXISTS (SELECT 1 FROM upserted), (SELECT registered_by FROM prior)
-	`, e.Scope, e.ResourceType, pathJSON, e.Action, e.Description, registeredBy, requires, requiresKnown)
+	`, e.Scope, e.ResourceType, pathJSON, e.Action, e.Description, registeredBy, requires, requiresKnown, e.TenantID)
 
 	var changed bool
 	var owner *string
@@ -153,17 +159,17 @@ func (r *postgresRepository) Upsert(ctx context.Context, e *ScopeEntry) (bool, e
 	return changed, nil
 }
 
-func (r *postgresRepository) DeleteOrphans(ctx context.Context, registeredBy string, keepScopes []string) ([]string, error) {
+func (r *postgresRepository) DeleteOrphans(ctx context.Context, registeredBy, tenantID string, keepScopes []string) ([]string, error) {
 	var rows pgx.Rows
 	var err error
 	if len(keepScopes) == 0 {
 		rows, err = r.pool.Query(ctx,
-			`DELETE FROM policy_scope_vocabulary WHERE registered_by = $1 RETURNING scope`,
-			registeredBy)
+			`DELETE FROM policy_scope_vocabulary WHERE registered_by = $1 AND tenant_id = $2 RETURNING scope`,
+			registeredBy, tenantID)
 	} else {
 		rows, err = r.pool.Query(ctx,
-			`DELETE FROM policy_scope_vocabulary WHERE registered_by = $1 AND scope != ALL($2) RETURNING scope`,
-			registeredBy, keepScopes)
+			`DELETE FROM policy_scope_vocabulary WHERE registered_by = $1 AND tenant_id = $2 AND scope != ALL($3) RETURNING scope`,
+			registeredBy, tenantID, keepScopes)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("delete orphan scopes: %w", err)
@@ -181,36 +187,43 @@ func (r *postgresRepository) DeleteOrphans(ctx context.Context, registeredBy str
 	return deleted, rows.Err()
 }
 
-func (r *postgresRepository) GetByScope(ctx context.Context, scope string) (*ScopeEntry, error) {
+func (r *postgresRepository) GetByScope(ctx context.Context, tenantID, scope string) (*ScopeEntry, error) {
+	// ORDER BY tenant_id DESC puts the tenant's own row ahead of the global ('') one.
 	row := r.pool.QueryRow(ctx, `
-		SELECT scope, resource_type, path_segments, action, description, requires, created_at
-		FROM policy_scope_vocabulary WHERE scope = $1
-	`, scope)
+		SELECT scope, resource_type, path_segments, action, description, requires, created_at, tenant_id
+		FROM policy_scope_vocabulary WHERE scope = $1 AND tenant_id IN ($2, '')
+		ORDER BY tenant_id DESC LIMIT 1
+	`, scope, tenantID)
 	return r.scanEntry(row)
 }
 
-func (r *postgresRepository) Exists(ctx context.Context, scope string) (bool, error) {
+func (r *postgresRepository) Exists(ctx context.Context, tenantID, scope string) (bool, error) {
 	var count int
-	err := r.pool.QueryRow(ctx, `SELECT COUNT(1) FROM policy_scope_vocabulary WHERE scope = $1`, scope).Scan(&count)
+	err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(1) FROM policy_scope_vocabulary WHERE scope = $1 AND tenant_id IN ($2, '')`,
+		scope, tenantID).Scan(&count)
 	if err != nil {
 		return false, fmt.Errorf("check scope exists: %w", err)
 	}
 	return count > 0, nil
 }
 
-func (r *postgresRepository) List(ctx context.Context, resourceType string) ([]*ScopeEntry, error) {
+func (r *postgresRepository) List(ctx context.Context, tenantID, resourceType string) ([]*ScopeEntry, error) {
+	// DISTINCT ON (scope) with tenant_id DESC keeps the tenant's row over a global one.
 	var rows pgx.Rows
 	var err error
 	if resourceType != "" {
 		rows, err = r.pool.Query(ctx, `
-			SELECT scope, resource_type, path_segments, action, description, requires, created_at
-			FROM policy_scope_vocabulary WHERE resource_type = $1 ORDER BY scope
-		`, resourceType)
+			SELECT DISTINCT ON (scope) scope, resource_type, path_segments, action, description, requires, created_at, tenant_id
+			FROM policy_scope_vocabulary WHERE tenant_id IN ($1, '') AND resource_type = $2
+			ORDER BY scope, tenant_id DESC
+		`, tenantID, resourceType)
 	} else {
 		rows, err = r.pool.Query(ctx, `
-			SELECT scope, resource_type, path_segments, action, description, requires, created_at
-			FROM policy_scope_vocabulary ORDER BY scope
-		`)
+			SELECT DISTINCT ON (scope) scope, resource_type, path_segments, action, description, requires, created_at, tenant_id
+			FROM policy_scope_vocabulary WHERE tenant_id IN ($1, '')
+			ORDER BY scope, tenant_id DESC
+		`, tenantID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("list vocabulary: %w", err)
@@ -246,18 +259,19 @@ func (r *postgresRepository) ListWithUsage(ctx context.Context, resourceType, te
 			WHERE r.tenant_id = $1
 			GROUP BY scope
 		)
-		SELECT v.scope, v.resource_type, v.path_segments, v.action, v.description, v.created_at,
+		SELECT DISTINCT ON (v.scope) v.scope, v.resource_type, v.path_segments, v.action, v.description, v.created_at, v.tenant_id,
 			COALESCE(gu.grant_count, 0),
 			COALESCE(ru.role_count, 0)
 		FROM policy_scope_vocabulary v
 		LEFT JOIN grant_usage gu ON gu.scope = v.scope
-		LEFT JOIN role_usage ru ON ru.scope = v.scope`
+		LEFT JOIN role_usage ru ON ru.scope = v.scope
+		WHERE v.tenant_id IN ($1, '')`
 	args := []any{tenantID}
 	if resourceType != "" {
-		query += ` WHERE v.resource_type = $2`
+		query += ` AND v.resource_type = $2`
 		args = append(args, resourceType)
 	}
-	query += ` ORDER BY v.scope`
+	query += ` ORDER BY v.scope, v.tenant_id DESC`
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -269,7 +283,7 @@ func (r *postgresRepository) ListWithUsage(ctx context.Context, resourceType, te
 	for rows.Next() {
 		var e ScopeEntryWithUsage
 		var pathJSON []byte
-		if err := rows.Scan(&e.Scope, &e.ResourceType, &pathJSON, &e.Action, &e.Description, &e.CreatedAt, &e.GrantCount, &e.RoleCount); err != nil {
+		if err := rows.Scan(&e.Scope, &e.ResourceType, &pathJSON, &e.Action, &e.Description, &e.CreatedAt, &e.TenantID, &e.GrantCount, &e.RoleCount); err != nil {
 			return nil, fmt.Errorf("scan scope entry with usage: %w", err)
 		}
 		if err := json.Unmarshal(pathJSON, &e.PathSegments); err != nil {
@@ -302,7 +316,7 @@ func (r *postgresRepository) CountByResourceType(ctx context.Context) (map[strin
 func (r *postgresRepository) scanEntry(s scanner) (*ScopeEntry, error) {
 	var e ScopeEntry
 	var pathJSON []byte
-	err := s.Scan(&e.Scope, &e.ResourceType, &pathJSON, &e.Action, &e.Description, &e.Requires, &e.CreatedAt)
+	err := s.Scan(&e.Scope, &e.ResourceType, &pathJSON, &e.Action, &e.Description, &e.Requires, &e.CreatedAt, &e.TenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrScopeNotFound
 	}

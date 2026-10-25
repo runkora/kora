@@ -17,7 +17,7 @@ type listVocab struct {
 	entries []*vocabulary.ScopeEntry
 }
 
-func (v listVocab) List(context.Context, string) ([]*vocabulary.ScopeEntry, error) {
+func (v listVocab) List(context.Context, string, string) ([]*vocabulary.ScopeEntry, error) {
 	return v.entries, nil
 }
 

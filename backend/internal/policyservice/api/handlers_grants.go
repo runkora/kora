@@ -72,7 +72,7 @@ func (c *Controller) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	platformapi.JSON(ctx, w, c.logger, http.StatusCreated, grantWriteResponse{Grant: g, Warnings: c.svc.LintScopes(ctx, req.Scopes)})
+	platformapi.JSON(ctx, w, c.logger, http.StatusCreated, grantWriteResponse{Grant: g, Warnings: c.svc.LintScopes(ctx, tenantID, req.Scopes)})
 }
 
 // grantBudgetFromRequest validates and maps a budget request body onto a grant
