@@ -182,6 +182,7 @@ spec:
 The operator runs one controller per kind under its existing leader election:
 
 *   A reconcile resolves the tenant from the resource's namespace, checks references against the other resources, reads a TriggerSource's Secret and calls the owning service.
+*   The operator watches Secrets labelled `runkora.io/trigger-source=true`. A changed or deleted Secret reconciles the `TriggerSource`s that reference it.
 *   The service validates the item with its API validation code and applies it through its declared write path. Its response sets the resource's status.
 *   The row key is the item's existing unique key: `metadata.name` for `Agent`, `Environment`, `TriggerSource` and `Trigger`, `spec.role` for `PolicyRole`, and `spec.family` with `spec.name` for `VirtualModel`.
 *   A live row with the same key and `source = 'api'` leaves the resource unprojected with `Accepted=False` and reason `NameConflict`. Soft-deleted rows do not conflict.
@@ -359,7 +360,6 @@ On the local cluster:
 *   The authoring switch reaches each service when its registry mount refreshes. Services can disagree for a few minutes.
 *   `kora-crds` must be applied before `kora`.
 *   Changing a tenant's namespace requires deleting and recreating the `KoraTenant`.
-*   A rotated trigger source Secret takes effect on the next resync, up to 5 minutes later.
 *   Inference usage is keyed by `agent_slug`. A new agent with a deleted agent's slug shares its usage history.
 *   API triggers can still share a name with each other.
 *   A recreated trigger source gets a new id and a new webhook path. The provider's webhook configuration needs the new path.
