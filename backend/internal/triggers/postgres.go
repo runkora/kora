@@ -1,6 +1,7 @@
 package triggers
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -92,7 +93,7 @@ func (r *postgresRepository) CreateSource(ctx context.Context, s *WebhookSource)
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10, $11)
 	`, s.ID, s.TenantID, s.Name, s.Provider, s.PrincipalID, s.GrantID, s.SecretCiphertext, configJSON, s.Enabled,
-		rowSource(s.Source), storage.NullIfZero(s.ResourceUID))
+		cmp.Or(s.Source, declarative.SourceAPI), storage.NullIfZero(s.ResourceUID))
 	if err != nil {
 		return sourceWriteError("create webhook source", err)
 	}
@@ -113,15 +114,6 @@ func sourceWriteError(what string, err error) error {
 }
 
 const sourceColumns = `id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, created_at, updated_at, rejection_count, last_rejection_at, last_rejection_reason, accepted_count, secret_rotated_at, source, resource_uid`
-
-// rowSource is the source column a new row is written with. Only the declared
-// write paths set one.
-func rowSource(source string) string {
-	if source == "" {
-		return declarative.SourceAPI
-	}
-	return source
-}
 
 func scanSource(row pgx.Row) (*WebhookSource, error) {
 	var s WebhookSource
@@ -166,16 +158,11 @@ func (r *postgresRepository) GetSourceByName(ctx context.Context, tenantID, name
 }
 
 func (r *postgresRepository) ListDeclaredSources(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
-	return queryList(ctx, r.pool, "declared webhook sources", scanDeclared,
-		`SELECT name, resource_uid FROM webhook_sources WHERE tenant_id = $1 AND source = 'crd'`, tenantID)
-}
-
-func scanDeclared(row pgx.Row) (*declarative.Declared, error) {
-	var d declarative.Declared
-	if err := row.Scan(&d.Name, &d.UID); err != nil {
-		return nil, err
+	rows, err := r.pool.Query(ctx, `SELECT name, resource_uid FROM webhook_sources WHERE tenant_id = $1 AND source = 'crd'`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("list declared webhook sources: %w", err)
 	}
-	return &d, nil
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[declarative.Declared])
 }
 
 func (r *postgresRepository) UpdateSource(ctx context.Context, s *WebhookSource) error {
@@ -332,7 +319,7 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 			storage.NullIfZero(t.AgentTypeID), storage.NullIfZero(t.AgentSlug), t.EventType,
 			condJSON, t.PromptTemplate, kindConfigJSON, storage.NullIfZero(t.PrincipalID), t.GrantID, t.GrantIDSvc, t.Enabled,
 			t.Overflow, t.MaxParallel, t.MaxQueueDepth, t.TimeoutSeconds,
-			t.DedupeEnabled, t.AutopauseEnabled, rowSource(t.Source), storage.NullIfZero(t.ResourceUID)); err != nil {
+			t.DedupeEnabled, t.AutopauseEnabled, cmp.Or(t.Source, declarative.SourceAPI), storage.NullIfZero(t.ResourceUID)); err != nil {
 			return fmt.Errorf("create trigger: %w", err)
 		}
 		return writeRoute(ctx, tx, t)
@@ -485,8 +472,11 @@ func (r *postgresRepository) TriggerNameTaken(ctx context.Context, tenantID, nam
 }
 
 func (r *postgresRepository) ListDeclaredTriggers(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
-	return queryList(ctx, r.pool, "declared triggers", scanDeclared,
-		`SELECT name, resource_uid FROM triggers WHERE tenant_id = $1 AND source = 'crd'`, tenantID)
+	rows, err := r.pool.Query(ctx, `SELECT name, resource_uid FROM triggers WHERE tenant_id = $1 AND source = 'crd'`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("list declared triggers: %w", err)
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[declarative.Declared])
 }
 
 // UpdateDeclaredTrigger writes every field a Trigger resource owns, including

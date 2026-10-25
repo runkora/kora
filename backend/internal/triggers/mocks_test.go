@@ -1,6 +1,7 @@
 package triggers
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -271,7 +272,7 @@ func (m *mockRepository) TriggerNameTaken(_ context.Context, tenantID, name, sou
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, t := range m.triggers {
-		if t.TenantID == tenantID && t.Name == name && rowSource(t.Source) == source {
+		if t.TenantID == tenantID && t.Name == name && cmp.Or(t.Source, declarative.SourceAPI) == source {
 			return true, nil
 		}
 	}

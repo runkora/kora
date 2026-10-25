@@ -1,6 +1,7 @@
 package triggers
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -359,7 +360,7 @@ func (s *TriggerService) provisionTrigger(ctx context.Context, t *Trigger, princ
 		logging.Field{Key: "trigger_id", Value: t.ID},
 		logging.Field{Key: "kind", Value: t.Kind},
 		logging.Field{Key: "target_kind", Value: t.TargetKind},
-		logging.Field{Key: "source", Value: rowSource(t.Source)},
+		logging.Field{Key: "source", Value: cmp.Or(t.Source, declarative.SourceAPI)},
 		logging.Field{Key: "source_id", Value: t.SourceID},
 		logging.Field{Key: "agent_slug", Value: t.AgentSlug},
 	)
