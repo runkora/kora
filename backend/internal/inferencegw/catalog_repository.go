@@ -292,16 +292,11 @@ func (r *PostgresCatalogRepository) ListDeclaredVirtualModels(ctx context.Contex
 	if err != nil {
 		return nil, fmt.Errorf("list declared virtual models: %w", err)
 	}
-	defer rows.Close()
-	var out []declarative.Declared
-	for rows.Next() {
-		var d declarative.Declared
-		if err := rows.Scan(&d.Name, &d.UID); err != nil {
-			return nil, fmt.Errorf("scan declared virtual model: %w", err)
-		}
-		out = append(out, d)
+	declared, err := pgx.CollectRows(rows, pgx.RowToStructByPos[declarative.Declared])
+	if err != nil {
+		return nil, fmt.Errorf("list declared virtual models: %w", err)
 	}
-	return out, rows.Err()
+	return declared, nil
 }
 
 // GetVirtualModel returns a single virtual model with routes.
