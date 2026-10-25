@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
@@ -194,7 +195,10 @@ func (r *postgresRepository) UpsertDeclared(ctx context.Context, entry *RoleEntr
 		  AND (policy_role_scopes.resource_uid = EXCLUDED.resource_uid OR policy_role_scopes.resource_name = EXCLUDED.resource_name)
 		RETURNING id, created_at
 	`, entry.ID, entry.TenantID, entry.Role, scopesJSON, budgetJSON, entry.ResourceUID, entry.ResourceName, entry.Repository).Scan(&entry.ID, &entry.CreatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
+	// No row back means another holder kept the role. A unique violation means a
+	// concurrent write took the role or the resource's row first.
+	var pgErr *pgconn.PgError
+	if errors.Is(err, pgx.ErrNoRows) || (errors.As(err, &pgErr) && pgErr.Code == "23505") {
 		return ErrRoleTaken
 	}
 	if err != nil {
