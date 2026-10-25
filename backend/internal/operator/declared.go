@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -233,14 +232,15 @@ func (r *DeclaredReconciler) sweepTenants(ctx context.Context, namespace string)
 	if r.kind.kind == declarative.KindVirtualModels {
 		return []string{declarative.PlatformTenant}, nil
 	}
-	tenants, err := r.liveTenants(ctx)
+	// A tenant whose namespace is gone is swept too: deleting a namespace deletes its resources.
+	served, err := r.servedNamespaces(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var out []string
-	for _, t := range tenants {
-		if namespace == systemNamespace || t.namespace == namespace {
-			out = append(out, t.id)
+	for ns, id := range served {
+		if namespace == systemNamespace || ns == namespace {
+			out = append(out, id)
 		}
 	}
 	return out, nil
@@ -350,29 +350,6 @@ func (r *DeclaredReconciler) heldItems(ctx context.Context) (heldItems, error) {
 		return nil, fmt.Errorf("walk %s: %w", r.kind.kind, err)
 	}
 	return held, nil
-}
-
-// tenantRef is a served tenant whose namespace exists.
-type tenantRef struct{ id, namespace string }
-
-// liveTenants returns the active tenants that hold their namespace and whose
-// namespace exists. A tenant whose namespace is gone is never swept.
-func (r *DeclaredReconciler) liveTenants(ctx context.Context) ([]tenantRef, error) {
-	served, err := r.servedNamespaces(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var out []tenantRef
-	for ns, id := range served {
-		if err := r.Reader.Get(ctx, client.ObjectKey{Name: ns}, &corev1.Namespace{}); err != nil {
-			if apierrors.IsNotFound(err) {
-				continue
-			}
-			return nil, fmt.Errorf("get namespace %q: %w", ns, err)
-		}
-		out = append(out, tenantRef{id: id, namespace: ns})
-	}
-	return out, nil
 }
 
 // SweepAll runs the deletion sweep for every kind and tenant, once at start

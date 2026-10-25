@@ -400,15 +400,17 @@ func TestDeletingASystemRoleSweepsEveryTenant(t *testing.T) {
 	}
 }
 
-func TestSweepSkipsATenantWhoseNamespaceIsGone(t *testing.T) {
+func TestSweepDeletesItemsOfATenantWhoseNamespaceIsGone(t *testing.T) {
 	beta := tenantAt("beta", "", t0)
 	h := newHarness(t, &beta)
 	h.clients["agents"].declared["beta"] = []declarative.Declared{{Name: "a", UID: "x"}}
 	h.clients["agents"].declared["acme"] = []declarative.Declared{{Name: "b", UID: "y"}}
 
 	sweepOnce(context.Background(), []*DeclaredReconciler{h.recs[declarative.KindAgents]}, logging.NewLoggerWithOutput(io.Discard))
-	if got := h.clients["agents"].deleted; !slices.Equal(got, []string{"acme/b"}) {
-		t.Errorf("deleted %v, want only acme's item", got)
+	got := h.clients["agents"].deleted
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"acme/b", "beta/a"}) {
+		t.Errorf("deleted %v, want both tenants' items: beta's namespace and its resources are gone", got)
 	}
 }
 
