@@ -39,9 +39,24 @@ func (a *VirtualModelApplier) Apply(ctx context.Context, item declarative.Item) 
 	if err := json.Unmarshal(item.Spec, &spec); err != nil {
 		return declarative.Result{Outcome: declarative.OutcomeInvalid, Message: "spec is not a VirtualModel spec: " + err.Error()}, nil
 	}
-	vm := declaredVirtualModel(item, spec)
-	if err := validateVirtualModel(vm); err != nil {
+	req := declaredRequest(spec)
+	if err := validateVirtualModelRequest(req); err != nil {
 		return declarative.Result{Outcome: declarative.OutcomeInvalid, Message: err.Error()}, nil
+	}
+	// The ID is used only when the row is new.
+	vmID := uuid.New().String()
+	vm := VirtualModel{
+		ID:           vmID,
+		Family:       req.Family,
+		Name:         req.Name,
+		DisplayName:  req.DisplayName,
+		Description:  req.Description,
+		Strategy:     VirtualModelStrategy(req.Strategy),
+		Enabled:      req.Enabled,
+		Source:       declarative.SourceCRD,
+		ResourceName: item.Name,
+		ResourceUID:  item.UID,
+		Routes:       toVirtualModelRoutes(vmID, req.Routes),
 	}
 	id, err := a.catalog.UpsertDeclaredVirtualModel(ctx, vm)
 	switch {
@@ -65,31 +80,20 @@ func (a *VirtualModelApplier) List(ctx context.Context, _ string) ([]declarative
 	return a.catalog.ListDeclaredVirtualModels(ctx)
 }
 
-// declaredVirtualModel maps a resource onto a catalog row. The IDs are used
-// only when the row is new.
-func declaredVirtualModel(item declarative.Item, spec v1alpha1.VirtualModelSpec) VirtualModel {
-	vm := VirtualModel{
-		ID:           uuid.New().String(),
-		Family:       spec.Family,
-		Name:         spec.Name,
-		DisplayName:  spec.DisplayName,
-		Description:  spec.Description,
-		Strategy:     VirtualModelStrategy(spec.Strategy),
-		Enabled:      spec.Enabled,
-		Source:       declarative.SourceCRD,
-		ResourceName: item.Name,
-		ResourceUID:  item.UID,
-		Routes:       make([]VirtualModelRoute, len(spec.Routes)),
+// declaredRequest maps a spec onto the API request so it takes the API's
+// validation. Route IDs are used only when a route is new.
+func declaredRequest(spec v1alpha1.VirtualModelSpec) virtualModelRequest {
+	req := virtualModelRequest{
+		Family:      spec.Family,
+		Name:        spec.Name,
+		DisplayName: spec.DisplayName,
+		Description: spec.Description,
+		Strategy:    spec.Strategy,
+		Enabled:     spec.Enabled,
+		Routes:      make([]routeInput, len(spec.Routes)),
 	}
 	for i, rt := range spec.Routes {
-		vm.Routes[i] = VirtualModelRoute{
-			ID:       uuid.New().String(),
-			Provider: ProviderName(rt.Provider),
-			ModelID:  rt.ModelID,
-			Priority: int(rt.Priority),
-			Weight:   int(rt.Weight),
-			Enabled:  rt.Enabled,
-		}
+		req.Routes[i] = routeInput{ID: uuid.New().String(), Provider: rt.Provider, ModelID: rt.ModelID, Priority: int(rt.Priority), Weight: int(rt.Weight), Enabled: rt.Enabled}
 	}
-	return vm
+	return req
 }

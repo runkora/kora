@@ -142,14 +142,14 @@ func TestListVirtualModelsCarriesSourceAndSwitch(t *testing.T) {
 	}
 }
 
-func TestValidateVirtualModelRejectsRepeatedRoute(t *testing.T) {
-	route := VirtualModelRoute{Provider: "bedrock:prod", ModelID: "m", Priority: 1, Enabled: true}
-	vm := VirtualModel{Family: "f", Name: "n", DisplayName: "N", Strategy: VirtualStrategyPriority, Routes: []VirtualModelRoute{route, route}}
-	if err := validateVirtualModel(vm); err == nil || !strings.Contains(err.Error(), "repeats bedrock:prod/m") {
+func TestValidateVirtualModelRequestRejectsRepeatedRoute(t *testing.T) {
+	route := routeInput{Provider: "bedrock:prod", ModelID: "m", Priority: 1, Enabled: true}
+	req := virtualModelRequest{Family: "f", Name: "n", DisplayName: "N", Strategy: string(VirtualStrategyPriority), Routes: []routeInput{route, route}}
+	if err := validateVirtualModelRequest(req); err == nil || !strings.Contains(err.Error(), "repeats bedrock:prod/m") {
 		t.Errorf("err = %v, want a repeated route error", err)
 	}
-	vm.Routes = vm.Routes[:1]
-	if err := validateVirtualModel(vm); err != nil {
+	req.Routes = req.Routes[:1]
+	if err := validateVirtualModelRequest(req); err != nil {
 		t.Errorf("err = %v, want valid", err)
 	}
 }

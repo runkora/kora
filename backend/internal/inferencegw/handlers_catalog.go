@@ -661,24 +661,6 @@ func toVirtualModelRoutes(vmID string, inputs []routeInput) []VirtualModelRoute 
 	return routes
 }
 
-// validateVirtualModel runs the API's create and update validation on a
-// virtual model built from a VirtualModel resource.
-func validateVirtualModel(vm VirtualModel) error {
-	req := virtualModelRequest{
-		Family:      vm.Family,
-		Name:        vm.Name,
-		DisplayName: vm.DisplayName,
-		Description: vm.Description,
-		Strategy:    string(vm.Strategy),
-		Enabled:     vm.Enabled,
-		Routes:      make([]routeInput, len(vm.Routes)),
-	}
-	for i, rt := range vm.Routes {
-		req.Routes[i] = routeInput{Provider: string(rt.Provider), ModelID: rt.ModelID, Priority: rt.Priority, Weight: rt.Weight, Enabled: rt.Enabled}
-	}
-	return validateVirtualModelRequest(req)
-}
-
 // validateVirtualModelRequest validates the fields common to create and update
 // requests, returning a descriptive error for the first failing constraint.
 func validateVirtualModelRequest(req virtualModelRequest) error {
