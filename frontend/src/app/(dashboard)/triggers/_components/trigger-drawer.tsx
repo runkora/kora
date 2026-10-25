@@ -428,7 +428,7 @@ export function TriggerDrawer({
   const canShapeRuns = canWrite && canRunAgent;
   // A trigger whose source was deleted takes no edits; it can only be turned off or deleted.
   const sourceMissing = trigger?.sourceMissing ?? false;
-  // A trigger managed in git keeps its fire and auto-pause controls and nothing else.
+  // A trigger managed in git keeps manual fire and re-enabling after an auto-pause, and nothing else.
   const tenantLocked = useTenantLocked();
   const managed = trigger !== null && managedInGit(trigger.declared, tenantLocked);
   // A non-webhook trigger has no source id, so it finds no source.
