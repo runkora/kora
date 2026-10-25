@@ -89,7 +89,7 @@ func TestControllerApply(t *testing.T) {
 	srv := newTestServer(t, map[string]Applier{KindAgents: agents, KindEnvironments: &fakeApplier{}})
 
 	status, body := call(t, srv, http.MethodPost, "/internal/declared/agents", operator,
-		`{"tenant_id":"acme","namespace":"kora-tenant-acme","name":"reviewer","uid":"u1","generation":2,"spec":{"displayName":"R"},"refs":{"go-build":"e1"},"secret":"c2VjcmV0"}`)
+		`{"tenant_id":"acme","namespace":"kora-tenant-acme","name":"reviewer","uid":"u1","generation":2,"spec":{"displayName":"R"},"repository":"github.com/acme/agents","refs":{"go-build":"e1"},"secret":"c2VjcmV0"}`)
 	if status != http.StatusOK {
 		t.Fatalf("status %d: %s", status, body)
 	}
@@ -98,7 +98,7 @@ func TestControllerApply(t *testing.T) {
 		t.Errorf("result = %+v (%v), want %+v", res, err, agents.result)
 	}
 	got := agents.applied
-	if got.TenantID != "acme" || got.Name != "reviewer" || got.UID != "u1" || got.Generation != 2 ||
+	if got.TenantID != "acme" || got.Name != "reviewer" || got.UID != "u1" || got.Generation != 2 || got.Repository != "github.com/acme/agents" ||
 		string(got.Spec) != `{"displayName":"R"}` || got.Refs["go-build"] != "e1" || string(got.Secret) != "secret" {
 		t.Errorf("applied item = %+v", got)
 	}

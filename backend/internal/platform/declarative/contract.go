@@ -21,6 +21,11 @@ const (
 	SourceCRD = "crd"
 )
 
+// AnnotationRepository names the repository that drives a resource, such as
+// github.com/acme/payments-agents. Services show it on the item. It is display
+// only and grants nothing.
+const AnnotationRepository = "runkora.io/repository"
+
 // PlatformTenant is the tenant the operator sends for platform-wide kinds such
 // as VirtualModel. It is not a valid tenant name, so it cannot collide with one.
 const PlatformTenant = "_platform"
@@ -47,6 +52,8 @@ type Item struct {
 	UID        string          `json:"uid"`
 	Generation int64           `json:"generation"`
 	Spec       json.RawMessage `json:"spec"`
+	// Repository is the resource's AnnotationRepository value, for display.
+	Repository string `json:"repository,omitempty"`
 	// Refs holds resolved ids keyed by RefEnvironment, RefAgent and RefSource.
 	Refs map[string]string `json:"refs,omitempty"`
 	// Secret is the TriggerSource signing secret. Other kinds leave it empty.
