@@ -128,6 +128,7 @@ function trigger(
   const owner = agent(overrides.agentSlug);
   return {
     sourceId: '',
+    sourceMissing: false,
     targetKind: 'agent',
     agentTypeId: owner.id,
     routing: null,

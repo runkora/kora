@@ -421,7 +421,7 @@ export function TriggerDrawer({
   const canWrite = useHasScope('triggers:write');
   const canShapeRuns = canWrite && canRunAgent;
   // A trigger whose source was deleted takes no edits; it can only be turned off or deleted.
-  const sourceMissing = trigger?.sourceMissing === true;
+  const sourceMissing = trigger?.sourceMissing ?? false;
   const onUpdateSafety = canWrite && !sourceMissing ? updateSafetyAction : undefined;
   const onEdit = canWrite && !sourceMissing ? editAction : undefined;
   const onRotateSecret = canShapeRuns ? rotateSecretAction : undefined;
