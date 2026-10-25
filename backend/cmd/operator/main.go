@@ -244,6 +244,8 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 				operator.NewServiceEntry(): {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
 				// The operator caches only the sandbox image warmer DaemonSets.
 				&appsv1.DaemonSet{}: {Label: operator.WarmerSelector()},
+				// The operator caches only the Secrets a TriggerSource may reference.
+				&corev1.Secret{}: {Label: operator.TriggerSourceSecretSelector()},
 			},
 		},
 		// Bypass the cache to avoid a cluster-wide Secret informer.

@@ -11,6 +11,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -23,6 +24,12 @@ import (
 
 // TriggerSourceSecretLabel marks the Secrets a TriggerSource may reference.
 const TriggerSourceSecretLabel = "runkora.io/trigger-source"
+
+// TriggerSourceSecretSelector selects the Secrets the operator caches: only
+// those a TriggerSource may reference.
+func TriggerSourceSecretSelector() labels.Selector {
+	return labels.SelectorFromSet(labels.Set{TriggerSourceSecretLabel: "true"})
+}
 
 // NewDeclaredReconcilers returns one reconciler per declarative kind. reader
 // reads from the API server, bypassing the cache.
@@ -78,7 +85,9 @@ func NewDeclaredReconcilers(c client.Client, reader client.Reader, clients Decla
 	// Triggers reconcile when a resource they reference changes, including its
 	// status. A recreated Agent or TriggerSource has a new id the trigger must
 	// follow. Agents wait for their references on the 30-second requeue.
-	triggers := out[4]
+	sources, triggers := out[3], out[4]
+	// A rotated or deleted signing Secret reaches its TriggerSources at once.
+	sources.kind.watches = []declaredWatch{{obj: &corev1.Secret{}, mapper: sources.enqueueSecretUsers}}
 	triggers.kind.watches = []declaredWatch{
 		{obj: &dv1.Agent{}, mapper: triggers.enqueueNamespace(&dv1.TriggerList{})},
 		{obj: &dv1.TriggerSource{}, mapper: triggers.enqueueNamespace(&dv1.TriggerList{})},
@@ -464,6 +473,23 @@ func (r *DeclaredReconciler) olderRole(ctx context.Context, role *dv1.PolicyRole
 }
 
 // ─── Watches ──────────────────────────────────────────────────────────────────
+
+// enqueueSecretUsers maps a labelled Secret change to the TriggerSources in
+// its namespace that reference it.
+func (r *DeclaredReconciler) enqueueSecretUsers(ctx context.Context, obj client.Object) []reconcile.Request {
+	list := &dv1.TriggerSourceList{}
+	if err := r.List(ctx, list, client.InNamespace(obj.GetNamespace())); err != nil {
+		r.Logger.Error(ctx, "list Secret users", logging.Field{Key: "error", Value: err.Error()})
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		if list.Items[i].Spec.SigningSecretRef.Name == obj.GetName() {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+		}
+	}
+	return reqs
+}
 
 // enqueueNamespace maps a change to every resource of this kind in the same
 // namespace.

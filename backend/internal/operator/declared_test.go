@@ -432,6 +432,18 @@ func TestDependentWatches(t *testing.T) {
 	}
 }
 
+func TestSecretWatchEnqueuesItsTriggerSources(t *testing.T) {
+	ns := "kora-tenant-acme"
+	user := &dv1.TriggerSource{ObjectMeta: meta0(ns, "github", 0), Spec: dv1.TriggerSourceSpec{SigningSecretRef: dv1.SecretKeyRef{Name: "hook", Key: "k"}}}
+	other := &dv1.TriggerSource{ObjectMeta: meta0(ns, "slack", 0), Spec: dv1.TriggerSourceSpec{SigningSecretRef: dv1.SecretKeyRef{Name: "other", Key: "k"}}}
+	h := newHarness(t, user, other)
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "hook"}}
+	reqs := h.recs[declarative.KindTriggerSources].enqueueSecretUsers(context.Background(), secret)
+	if len(reqs) != 1 || reqs[0].Name != "github" {
+		t.Errorf("secret users = %v, want the github source", reqs)
+	}
+}
+
 func TestRefusedDeleteIsRetried(t *testing.T) {
 	h := newHarness(t)
 	h.clients["agents"].declared["acme"] = []declarative.Declared{{Name: "go-build", UID: "gone"}}
