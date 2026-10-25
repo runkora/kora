@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -381,17 +382,15 @@ func (r *DeclaredReconciler) liveTenants(ctx context.Context) ([]tenantRef, erro
 // and then every interval. It catches resources deleted while the operator or
 // a service was down. Errors are logged and retried on the next pass.
 func SweepAll(ctx context.Context, reconcilers []*DeclaredReconciler, interval time.Duration, logger logging.Logger) error {
-	for {
-		for _, r := range reconcilers {
-			// The system namespace reaches every tenant.
-			if _, err := r.sweepNamespace(ctx, systemNamespace); err != nil {
-				logger.Warn(ctx, "declared sweep failed", logging.Field{Key: "error", Value: err.Error()})
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(interval):
+	wait.UntilWithContext(ctx, func(ctx context.Context) { sweepOnce(ctx, reconcilers, logger) }, interval)
+	return nil
+}
+
+func sweepOnce(ctx context.Context, reconcilers []*DeclaredReconciler, logger logging.Logger) {
+	for _, r := range reconcilers {
+		// The system namespace reaches every tenant.
+		if _, err := r.sweepNamespace(ctx, systemNamespace); err != nil {
+			logger.Warn(ctx, "declared sweep failed", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}
 }

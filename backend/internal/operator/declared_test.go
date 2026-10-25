@@ -399,11 +399,7 @@ func TestSweepSkipsATenantWhoseNamespaceIsGone(t *testing.T) {
 	h.clients["agents"].declared["beta"] = []declarative.Declared{{Name: "a", UID: "x"}}
 	h.clients["agents"].declared["acme"] = []declarative.Declared{{Name: "b", UID: "y"}}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := SweepAll(ctx, []*DeclaredReconciler{h.recs[declarative.KindAgents]}, time.Hour, logging.NewLoggerWithOutput(io.Discard)); err != nil {
-		t.Fatal(err)
-	}
+	sweepOnce(context.Background(), []*DeclaredReconciler{h.recs[declarative.KindAgents]}, logging.NewLoggerWithOutput(io.Discard))
 	if got := h.clients["agents"].deleted; !slices.Equal(got, []string{"acme/b"}) {
 		t.Errorf("deleted %v, want only acme's item", got)
 	}
@@ -513,11 +509,7 @@ func TestSweepContinuesPastATenantError(t *testing.T) {
 	h := newHarness(t, &beta, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kora-tenant-beta"}})
 	h.clients["agents"].failList = map[string]bool{"acme": true}
 	h.clients["agents"].declared["beta"] = []declarative.Declared{{Name: "x", UID: "gone"}}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := SweepAll(ctx, []*DeclaredReconciler{h.recs[declarative.KindAgents]}, time.Hour, logging.NewLoggerWithOutput(io.Discard)); err != nil {
-		t.Fatal(err)
-	}
+	sweepOnce(context.Background(), []*DeclaredReconciler{h.recs[declarative.KindAgents]}, logging.NewLoggerWithOutput(io.Discard))
 	if got := h.clients["agents"].deleted; !slices.Equal(got, []string{"beta/x"}) {
 		t.Errorf("deleted %v", got)
 	}
