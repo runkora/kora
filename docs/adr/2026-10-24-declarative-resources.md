@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-24-declarative-resources.md  (decision date + slug; no sequential number) -->
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-10-24  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [Declarative Resources PRD](../prd/declarative-resources.md). Define virtual models, environments, agents, trigger sources, triggers and roles as Kubernetes resources beside the dashboard and API.

@@ -158,7 +158,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) — `Accepted (Amended 2026-10-02, 2026-10-12)` · 2026-09-04
 - [Database Migrations](2026-09-10-database-migrations.md) — `Proposed` · 2026-09-10
 - [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) — `Accepted` · 2026-09-30
-- [Declarative Resources](2026-10-24-declarative-resources.md) — `Proposed` · 2026-10-24
+- [Declarative Resources](2026-10-24-declarative-resources.md) — `Accepted` · 2026-10-24
 
 ### Frontend & Design System
 
@@ -321,5 +321,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-19 | [Repository Id Owner Selection in the Egress Gateway](2026-10-19-repository-id-owner-selection.md) | Accepted | — |
 | 2026-10-20 | [Actions Results Receiver Classification](2026-10-20-actions-results-receiver-classification.md) | Accepted | — |
 | 2026-10-22 | [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md) | Accepted | — |
-| 2026-10-24 | [Declarative Resources](2026-10-24-declarative-resources.md) | Proposed | — |
+| 2026-10-24 | [Declarative Resources](2026-10-24-declarative-resources.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

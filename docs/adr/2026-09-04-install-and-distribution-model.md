@@ -506,7 +506,7 @@ Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouche
 
 ## Amendment 1 (2026-10-24): The operator projects declared resources
 
-**Status:** Proposed
+**Status:** Accepted
 
 The operator's role widens from tenant reconciliation to projecting declared resources. It joins the mesh and gains read access to the six kinds. See [Declarative Resources](2026-10-24-declarative-resources.md), section 10.
 
