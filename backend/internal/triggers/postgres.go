@@ -89,11 +89,11 @@ func (r *postgresRepository) CreateSource(ctx context.Context, s *WebhookSource)
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO webhook_sources
 			(id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, secret_rotated_at,
-			 source, resource_uid)
+			 source, resource_uid, repository)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10, $11)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10, $11, $12)
 	`, s.ID, s.TenantID, s.Name, s.Provider, s.PrincipalID, s.GrantID, s.SecretCiphertext, configJSON, s.Enabled,
-		cmp.Or(s.Source, declarative.SourceAPI), storage.NullIfZero(s.ResourceUID))
+		cmp.Or(s.Source, declarative.SourceAPI), storage.NullIfZero(s.ResourceUID), storage.NullIfZero(s.Repository))
 	if err != nil {
 		return sourceWriteError("create webhook source", err)
 	}
@@ -113,22 +113,22 @@ func sourceWriteError(what string, err error) error {
 	return fmt.Errorf("%s: %w", what, err)
 }
 
-const sourceColumns = `id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, created_at, updated_at, rejection_count, last_rejection_at, last_rejection_reason, accepted_count, secret_rotated_at, source, resource_uid`
+const sourceColumns = `id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, created_at, updated_at, rejection_count, last_rejection_at, last_rejection_reason, accepted_count, secret_rotated_at, source, resource_uid, repository`
 
 func scanSource(row pgx.Row) (*WebhookSource, error) {
 	var s WebhookSource
 	var configJSON []byte
-	var lastRejectionReason, resourceUID *string
+	var lastRejectionReason, resourceUID, repository *string
 	if err := row.Scan(
 		&s.ID, &s.TenantID, &s.Name, &s.Provider, &s.PrincipalID, &s.GrantID,
 		&s.SecretCiphertext, &configJSON, &s.Enabled, &s.CreatedAt, &s.UpdatedAt,
 		&s.RejectionCount, &s.LastRejectionAt, &lastRejectionReason,
-		&s.AcceptedCount, &s.SecretRotatedAt, &s.Source, &resourceUID,
+		&s.AcceptedCount, &s.SecretRotatedAt, &s.Source, &resourceUID, &repository,
 	); err != nil {
 		return nil, err
 	}
 	s.LastRejectionReason = deref(lastRejectionReason)
-	s.ResourceUID = deref(resourceUID)
+	s.ResourceUID, s.Repository = deref(resourceUID), deref(repository)
 	if len(configJSON) > 0 {
 		if err := json.Unmarshal(configJSON, &s.Config); err != nil {
 			return nil, fmt.Errorf("unmarshal source config: %w", err)
@@ -177,12 +177,12 @@ func (r *postgresRepository) UpdateSource(ctx context.Context, s *WebhookSource)
 	// secret forward and invalidate every replay of an older payload.
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE webhook_sources
-		SET    name = $1, secret_ciphertext = $2, grant_id = $3, config = $4, enabled = $5,
+		SET    name = $1, secret_ciphertext = $2, grant_id = $3, config = $4, enabled = $5, repository = $8,
 		       secret_rotated_at = CASE WHEN secret_ciphertext IS DISTINCT FROM $2
 		                                THEN now() ELSE secret_rotated_at END,
 		       updated_at = now()
 		WHERE  id = $6 AND tenant_id = $7
-	`, s.Name, s.SecretCiphertext, s.GrantID, configJSON, s.Enabled, s.ID, s.TenantID)
+	`, s.Name, s.SecretCiphertext, s.GrantID, configJSON, s.Enabled, s.ID, s.TenantID, storage.NullIfZero(s.Repository))
 	if err != nil {
 		return sourceWriteError("update webhook source", err)
 	}
@@ -217,24 +217,24 @@ func (r *postgresRepository) DeleteSource(ctx context.Context, tenantID, id stri
 const triggerColumns = `id, tenant_id, kind, target_kind, source_id, name, agent_type_id, agent_slug, event_type,
 	match_condition, prompt_template, kind_config, principal_id, grant_id, grant_id_svc, enabled, created_at, updated_at,
 	max_parallel, overflow, max_queue_depth, timeout_seconds, dedupe_enabled, autopause_enabled,
-	consecutive_failures, auto_paused_at, source, resource_uid,
+	consecutive_failures, auto_paused_at, source, resource_uid, repository,
 	(SELECT count(*) FROM trigger_pending_deliveries p
 	  WHERE p.trigger_id = triggers.id AND p.claimed_at IS NULL) AS pending_count`
 
 func scanTrigger(row pgx.Row) (*Trigger, error) {
 	var t Trigger
 	var condJSON, kindConfigJSON []byte
-	var sourceID, principalID, agentTypeID, agentSlug, resourceUID *string
+	var sourceID, principalID, agentTypeID, agentSlug, resourceUID, repository *string
 	if err := row.Scan(
 		&t.ID, &t.TenantID, &t.Kind, &t.TargetKind, &sourceID, &t.Name, &agentTypeID, &agentSlug,
 		&t.EventType, &condJSON, &t.PromptTemplate, &kindConfigJSON,
 		&principalID, &t.GrantID, &t.GrantIDSvc, &t.Enabled, &t.CreatedAt, &t.UpdatedAt,
 		&t.MaxParallel, &t.Overflow, &t.MaxQueueDepth, &t.TimeoutSeconds, &t.DedupeEnabled,
-		&t.AutopauseEnabled, &t.ConsecutiveFailures, &t.AutoPausedAt, &t.Source, &resourceUID, &t.PendingCount,
+		&t.AutopauseEnabled, &t.ConsecutiveFailures, &t.AutoPausedAt, &t.Source, &resourceUID, &repository, &t.PendingCount,
 	); err != nil {
 		return nil, err
 	}
-	t.ResourceUID = deref(resourceUID)
+	t.ResourceUID, t.Repository = deref(resourceUID), deref(repository)
 	t.SourceID = deref(sourceID)
 	t.SourceMissing = t.Kind == KindWebhook && sourceID == nil
 	t.PrincipalID = deref(principalID)
@@ -312,14 +312,14 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 				(id, tenant_id, kind, target_kind, source_id, name, agent_type_id, agent_slug, event_type,
 				 match_condition, prompt_template, kind_config, principal_id, grant_id, grant_id_svc, enabled,
 				 overflow, max_parallel, max_queue_depth, timeout_seconds,
-				 dedupe_enabled, autopause_enabled, source, resource_uid)
+				 dedupe_enabled, autopause_enabled, source, resource_uid, repository)
 			VALUES
-				($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+				($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
 		`, t.ID, t.TenantID, t.Kind, defaultTargetKind(t.TargetKind), sourceID, t.Name,
 			storage.NullIfZero(t.AgentTypeID), storage.NullIfZero(t.AgentSlug), t.EventType,
 			condJSON, t.PromptTemplate, kindConfigJSON, storage.NullIfZero(t.PrincipalID), t.GrantID, t.GrantIDSvc, t.Enabled,
 			t.Overflow, t.MaxParallel, t.MaxQueueDepth, t.TimeoutSeconds,
-			t.DedupeEnabled, t.AutopauseEnabled, cmp.Or(t.Source, declarative.SourceAPI), storage.NullIfZero(t.ResourceUID)); err != nil {
+			t.DedupeEnabled, t.AutopauseEnabled, cmp.Or(t.Source, declarative.SourceAPI), storage.NullIfZero(t.ResourceUID), storage.NullIfZero(t.Repository)); err != nil {
 			return fmt.Errorf("create trigger: %w", err)
 		}
 		return writeRoute(ctx, tx, t)
@@ -498,11 +498,12 @@ func (r *postgresRepository) UpdateDeclaredTrigger(ctx context.Context, t *Trigg
 			       prompt_template = $6, kind_config = $7, grant_id = $8, dedupe_enabled = $9, autopause_enabled = $10,
 			       max_parallel = $11, overflow = $12, max_queue_depth = $13, timeout_seconds = $14,
 			       enabled = CASE WHEN auto_paused_at IS NULL THEN $15 ELSE enabled END,
-			       updated_at = now()
+			       repository = $18, updated_at = now()
 			WHERE  id = $16 AND tenant_id = $17
 		`, storage.NullIfZero(t.SourceID), storage.NullIfZero(t.AgentTypeID), storage.NullIfZero(t.AgentSlug),
 			t.EventType, condJSON, t.PromptTemplate, kindConfigJSON, t.GrantID, t.DedupeEnabled, t.AutopauseEnabled,
-			t.MaxParallel, t.Overflow, t.MaxQueueDepth, t.TimeoutSeconds, t.Enabled, t.ID, t.TenantID)
+			t.MaxParallel, t.Overflow, t.MaxQueueDepth, t.TimeoutSeconds, t.Enabled, t.ID, t.TenantID,
+			storage.NullIfZero(t.Repository))
 		if err != nil {
 			return fmt.Errorf("update declared trigger: %w", err)
 		}

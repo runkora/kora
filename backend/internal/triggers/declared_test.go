@@ -29,7 +29,7 @@ func triggerItem(t *testing.T, uid string, spec v1alpha1.TriggerSpec, refs map[s
 	if err != nil {
 		t.Fatal(err)
 	}
-	return declarative.Item{TenantID: testTenant, Name: "review-on-pr", UID: uid, Generation: 1, Spec: raw, Refs: refs}
+	return declarative.Item{TenantID: testTenant, Name: "review-on-pr", UID: uid, Generation: 1, Spec: raw, Refs: refs, Repository: "github.com/acme/triggers"}
 }
 
 func webhookSpec(agent string) v1alpha1.TriggerSpec {
@@ -92,6 +92,14 @@ func TestSourceApply(t *testing.T) {
 		t.Error("an unchanged apply rewrote the source")
 	}
 
+	// A new repository is stored under the same id.
+	moved := sourceItem(t, "uid-1", ProviderGitHub, "s3cret")
+	moved.Repository = "github.com/acme/triggers"
+	mustApply(t, deps.sources, moved, declarative.OutcomeProjected)
+	if got, _ = deps.repo.GetSource(ctx, testTenant, src.ID); got.Repository != "github.com/acme/triggers" {
+		t.Errorf("repository = %q", got.Repository)
+	}
+
 	// A new secret is stored and dated under the same id.
 	mustApply(t, deps.sources, sourceItem(t, "uid-1", ProviderGitHub, "rotated"), declarative.OutcomeProjected)
 	got, _ = deps.repo.GetSource(ctx, testTenant, src.ID)
@@ -100,8 +108,8 @@ func TestSourceApply(t *testing.T) {
 	}
 
 	// A provider change recreates the source.
-	moved := mustApply(t, deps.sources, sourceItem(t, "uid-1", ProviderAlertmanager, "rotated"), declarative.OutcomeProjected)
-	if moved.ID == src.ID {
+	recreated := mustApply(t, deps.sources, sourceItem(t, "uid-1", ProviderAlertmanager, "rotated"), declarative.OutcomeProjected)
+	if recreated.ID == src.ID {
 		t.Error("a provider change kept the id")
 	}
 	if _, err := deps.repo.GetSource(ctx, testTenant, src.ID); !errors.Is(err, ErrSourceNotFound) {
@@ -155,7 +163,7 @@ func TestTriggerApply_Webhook(t *testing.T) {
 
 	created := mustApply(t, deps.triggers, triggerItem(t, "uid-t", webhookSpec("code-reviewer"), refs), declarative.OutcomeProjected)
 	row, _ := deps.repo.GetTrigger(ctx, testTenant, created.ID)
-	if !created.Ready || row.Source != declarative.SourceCRD || row.ResourceUID != "uid-t" ||
+	if !created.Ready || row.Source != declarative.SourceCRD || row.ResourceUID != "uid-t" || row.Repository != "github.com/acme/triggers" ||
 		row.AgentTypeID != "at-1" || row.AgentSlug != "code-reviewer" || row.SourceID != src.ID {
 		t.Fatalf("create = %+v, row = %+v", created, row)
 	}

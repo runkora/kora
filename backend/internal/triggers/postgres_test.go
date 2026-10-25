@@ -2428,13 +2428,13 @@ func TestPostgres_DeclaredColumns(t *testing.T) {
 	src := &WebhookSource{
 		ID: uuid.NewString(), TenantID: tenant, Name: "github-org", Provider: ProviderGitHub,
 		PrincipalID: "trigger-source:y", GrantID: &gid, Enabled: true, SecretCiphertext: "c",
-		Source: declarative.SourceCRD, ResourceUID: "uid-s",
+		Source: declarative.SourceCRD, ResourceUID: "uid-s", Repository: "github.com/acme/triggers",
 	}
 	if err := r.CreateSource(ctx, src); err != nil {
 		t.Fatalf("CreateSource: %v", err)
 	}
 	byName, err := r.GetSourceByName(ctx, tenant, "github-org")
-	if err != nil || byName.ID != src.ID || byName.Source != declarative.SourceCRD || byName.ResourceUID != "uid-s" {
+	if err != nil || byName.ID != src.ID || byName.Source != declarative.SourceCRD || byName.ResourceUID != "uid-s" || byName.Repository != "github.com/acme/triggers" {
 		t.Fatalf("GetSourceByName = %+v, %v", byName, err)
 	}
 	if declared, _ := r.ListDeclaredSources(ctx, tenant); !slices.Equal(declared, []declarative.Declared{{Name: "github-org", UID: "uid-s"}}) {
@@ -2445,6 +2445,7 @@ func TestPostgres_DeclaredColumns(t *testing.T) {
 		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, TargetKind: TargetKindAgent, SourceID: src.ID,
 		Name: "review-on-pr", AgentTypeID: "at-1", AgentSlug: "code-reviewer", EventType: "pull_request",
 		PromptTemplate: "p", GrantID: &gid, Enabled: true, Source: declarative.SourceCRD, ResourceUID: "uid-t",
+		Repository: "github.com/acme/triggers",
 	}
 	admissionDefaults(tr)
 	if err := r.CreateTrigger(ctx, tr); err != nil {
@@ -2476,12 +2477,12 @@ func TestPostgres_DeclaredColumns(t *testing.T) {
 	if err := r.AutoPause(ctx, tr.ID); err != nil {
 		t.Fatalf("AutoPause: %v", err)
 	}
-	tr.AgentTypeID, tr.AgentSlug, tr.SourceID, tr.Enabled = "at-2", "fixer", apiSrc.ID, true
+	tr.AgentTypeID, tr.AgentSlug, tr.SourceID, tr.Enabled, tr.Repository = "at-2", "fixer", apiSrc.ID, true, ""
 	if err := r.UpdateDeclaredTrigger(ctx, tr); err != nil {
 		t.Fatalf("UpdateDeclaredTrigger: %v", err)
 	}
 	got, _ := r.GetTrigger(ctx, tenant, tr.ID)
-	if got.AgentTypeID != "at-2" || got.AgentSlug != "fixer" || got.SourceID != apiSrc.ID {
+	if got.AgentTypeID != "at-2" || got.AgentSlug != "fixer" || got.SourceID != apiSrc.ID || got.Repository != "" {
 		t.Errorf("declared write = %+v", got)
 	}
 	if got.Enabled || got.AutoPausedAt == nil || got.ConsecutiveFailures != 4 {

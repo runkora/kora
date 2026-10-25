@@ -196,8 +196,10 @@ type WebhookSource struct {
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	// Source is declarative.SourceAPI or SourceCRD. ResourceUID is the projected resource's UID.
+	// Repository is the repository that drives a crd row, if its resource names one.
 	Source      string `json:"source"`
 	ResourceUID string `json:"-"`
+	Repository  string `json:"repository,omitempty"`
 
 	// SigningSecretSet is false for a source of an issued-secret provider that is
 	// still waiting for its signing secret. Set from SecretCiphertext on reads.
@@ -400,8 +402,10 @@ type Trigger struct {
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 	// Source is declarative.SourceAPI or SourceCRD. ResourceUID is the projected resource's UID.
+	// Repository is the repository that drives a crd row, if its resource names one.
 	Source      string `json:"source"`
 	ResourceUID string `json:"-"`
+	Repository  string `json:"repository,omitempty"`
 
 	// ─── Admission control ──────────────────────────────────────────────────
 	// MaxParallel caps how many runs from this trigger may be in flight.

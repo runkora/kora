@@ -67,7 +67,7 @@ func (s *SourceService) declaredSource(item declarative.Item) (*WebhookSource, s
 	}
 	want := &WebhookSource{
 		TenantID: item.TenantID, Name: item.Name, Provider: spec.Provider, Enabled: spec.Enabled,
-		Source: declarative.SourceCRD, ResourceUID: item.UID,
+		Source: declarative.SourceCRD, ResourceUID: item.UID, Repository: item.Repository,
 	}
 	if spec.Config != nil && len(spec.Config.Raw) > 0 {
 		if err := json.Unmarshal(spec.Config.Raw, &want.Config); err != nil {
@@ -91,7 +91,7 @@ func (s *SourceService) updateDeclaredSource(ctx context.Context, stored, want *
 			return declarative.Result{}, fmt.Errorf("decrypt signing secret: %w", err)
 		}
 	}
-	if current == secret && stored.Enabled == want.Enabled && reflect.DeepEqual(stored.Config, want.Config) {
+	if current == secret && stored.Enabled == want.Enabled && stored.Repository == want.Repository && reflect.DeepEqual(stored.Config, want.Config) {
 		return projected, nil
 	}
 	// Sealing again only when the secret changed keeps secret_rotated_at on the real rotation.
@@ -100,7 +100,7 @@ func (s *SourceService) updateDeclaredSource(ctx context.Context, stored, want *
 			return declarative.Result{}, err
 		}
 	}
-	stored.Enabled, stored.Config = want.Enabled, want.Config
+	stored.Enabled, stored.Config, stored.Repository = want.Enabled, want.Config, want.Repository
 	return projected, s.repo.UpdateSource(ctx, stored)
 }
 
@@ -171,7 +171,7 @@ func (s *TriggerService) applyDeclared(ctx context.Context, item declarative.Ite
 	if err != nil {
 		return nil, err
 	}
-	t.Enabled, t.Source, t.ResourceUID = enabled, declarative.SourceCRD, item.UID
+	t.Enabled, t.Source, t.ResourceUID, t.Repository = enabled, declarative.SourceCRD, item.UID, item.Repository
 	stored, err := s.repo.GetDeclaredTrigger(ctx, item.TenantID, t.Name)
 	switch {
 	case errors.Is(err, ErrTriggerNotFound):
