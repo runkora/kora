@@ -38,8 +38,9 @@ type tenant struct {
 
 // Registry reads the kora-tenants registry the operator writes. It re-reads
 // the file when its modification time or size changes. A file that fails to
-// parse keeps the last good contents. An unset path or a missing file lists no
-// tenants and leaves API authoring enabled.
+// parse, or disappears, keeps the last good contents and reports the error. An
+// unset path, or a file that was never there, lists no tenants and leaves API
+// authoring enabled.
 type Registry struct {
 	path string
 
@@ -83,6 +84,12 @@ func (r *Registry) TenantBudget(tenantID string) (Budget, bool) {
 		return Budget{}, false
 	}
 	return *b, true
+}
+
+// Loaded reports whether the registry holds contents from a good read.
+func (r *Registry) Loaded() bool {
+	tenants, _ := r.read()
+	return tenants != nil
 }
 
 // Err reports why the registry file cannot be read or parsed, or nil.

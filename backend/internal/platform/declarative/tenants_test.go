@@ -100,9 +100,24 @@ func TestRegistryWithoutFile(t *testing.T) {
 		if len(r.TenantIDs()) != 0 {
 			t.Errorf("%q: no tenants expected", path)
 		}
-		if !r.APIAuthoringEnabled("acme") || r.Err() != nil {
+		if !r.APIAuthoringEnabled("acme") || r.Err() != nil || r.Loaded() {
 			t.Errorf("%q: defaults expected", path)
 		}
+	}
+}
+
+func TestRegistryWithNoTenantsIsLoaded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	writeRegistry(t, path, "tenants: []\n", time.Unix(1, 0))
+	r := NewRegistry(path)
+	if !r.Loaded() {
+		t.Fatal("a file with no tenants is loaded")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if !r.Loaded() || r.Err() == nil {
+		t.Error("a good read of no tenants stays loaded after the file disappears")
 	}
 }
 
@@ -113,8 +128,8 @@ func TestRegistryUnreadableFromStartRefusesAPIWrites(t *testing.T) {
 	if r.APIAuthoringEnabled("acme") {
 		t.Error("an unreadable registry with no good copy must refuse API writes")
 	}
-	if r.Err() == nil {
-		t.Error("Err() reports the parse failure on every call")
+	if r.Err() == nil || r.Loaded() {
+		t.Error("Err() reports the parse failure on every call, and nothing is loaded")
 	}
 	writeRegistry(t, path, registryYAML, time.Unix(2, 0))
 	if !r.APIAuthoringEnabled("beta") || r.Err() != nil {
