@@ -42,6 +42,7 @@ const (
 // Item is one declared resource the operator asks a service to apply.
 type Item struct {
 	TenantID   string          `json:"tenant_id"`
+	Namespace  string          `json:"namespace"`
 	Name       string          `json:"name"`
 	UID        string          `json:"uid"`
 	Generation int64           `json:"generation"`
