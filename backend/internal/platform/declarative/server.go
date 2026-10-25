@@ -82,7 +82,7 @@ func (c *Controller) handleApply(w http.ResponseWriter, r *http.Request) {
 	if !api.DecodeJSON(ctx, r, w, c.logger, &item) {
 		return
 	}
-	if item.TenantID == "" || item.Namespace == "" || item.Name == "" || item.UID == "" || len(item.Spec) == 0 {
+	if item.TenantID == "" || item.Namespace == "" || item.Name == "" || item.UID == "" || len(item.Spec) == 0 || string(item.Spec) == "null" {
 		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeMissingField, "tenant_id, namespace, name, uid and spec are required", nil), nil)
 		return
 	}

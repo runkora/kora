@@ -114,6 +114,7 @@ func TestControllerApplyErrors(t *testing.T) {
 		{"unknown kind", "/internal/declared/widgets", `{"tenant_id":"a","namespace":"ns","name":"n","uid":"u","spec":{}}`, http.StatusNotFound},
 		{"missing namespace", "/internal/declared/agents", `{"tenant_id":"a","name":"n","uid":"u","spec":{}}`, http.StatusBadRequest},
 		{"missing uid", "/internal/declared/agents", `{"tenant_id":"a","name":"n","spec":{}}`, http.StatusBadRequest},
+		{"null spec", "/internal/declared/agents", `{"tenant_id":"a","namespace":"ns","name":"n","uid":"u","spec":null}`, http.StatusBadRequest},
 		{"missing spec", "/internal/declared/agents", `{"tenant_id":"a","name":"n","uid":"u"}`, http.StatusBadRequest},
 		{"bad json", "/internal/declared/agents", `{`, http.StatusBadRequest},
 		{"applier error", "/internal/declared/agents", `{"tenant_id":"a","namespace":"ns","name":"n","uid":"u","spec":{}}`, http.StatusInternalServerError},
