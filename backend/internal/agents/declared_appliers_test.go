@@ -259,7 +259,7 @@ func TestAgentApplierRecordsTheRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if at, _ := repo.GetAgentType(ctx, res.ID); at.CreatedBy != "repo:github.com/acme/agents" || at.Repository != "github.com/acme/agents" {
+	if at, _ := repo.GetAgentType(ctx, res.ID); at.CreatedBy != "resource:kora-tenant-acme/code-reviewer" || at.Repository != "github.com/acme/agents" {
 		t.Errorf("row = created_by %q repository %q", at.CreatedBy, at.Repository)
 	}
 	waitActive(t, repo, res.ID)
@@ -269,7 +269,7 @@ func TestAgentApplierRecordsTheRepository(t *testing.T) {
 	if _, err := a.Apply(ctx, it); err != nil {
 		t.Fatal(err)
 	}
-	if at, _ := repo.GetAgentType(ctx, res.ID); at.Repository != "" || at.CreatedBy != "repo:github.com/acme/agents" {
+	if at, _ := repo.GetAgentType(ctx, res.ID); at.Repository != "" || at.CreatedBy != "resource:kora-tenant-acme/code-reviewer" {
 		t.Errorf("after removing the annotation: created_by %q repository %q", at.CreatedBy, at.Repository)
 	}
 }

@@ -24,15 +24,12 @@ type declaredWrite struct {
 
 // withDeclaredWrite marks ctx as a declared write. The service skips the caller checks, takes the
 // tenant from the item and records the resource's UID, generation and repository on the row.
-// created_by names the repository, or the resource when it names none.
+// created_by names the resource. The repository annotation is tenant-writable, so it is shown,
+// never attributed.
 func withDeclaredWrite(ctx context.Context, item declarative.Item) context.Context {
-	createdBy := "resource:" + item.Namespace + "/" + item.Name
-	if item.Repository != "" {
-		createdBy = "repo:" + item.Repository
-	}
 	return context.WithValue(ctx, declaredWriteKey{}, declaredWrite{
 		tenantID:    item.TenantID,
-		createdBy:   createdBy,
+		createdBy:   "resource:" + item.Namespace + "/" + item.Name,
 		resourceUID: item.UID,
 		generation:  item.Generation,
 		repository:  item.Repository,

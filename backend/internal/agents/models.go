@@ -228,8 +228,7 @@ type AgentType struct {
 	// Guardrails are the loop-guard thresholds; unset fields take the platform defaults.
 	Guardrails Guardrails `json:"guardrails"`
 	// CreatedBy is the token subject that created the type; the owner check in Authz reads it.
-	// A declared agent has repo:<repository>, or resource:<namespace>/<name> when its
-	// resource names no repository.
+	// A declared agent has resource:<namespace>/<name>.
 	CreatedBy string `json:"created_by,omitempty"`
 	// Source is declarative.SourceAPI or SourceCRD. A crd row is read-only through the API.
 	Source string `json:"source"`
