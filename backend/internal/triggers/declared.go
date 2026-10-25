@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"reflect"
 	"slices"
 
@@ -337,10 +336,10 @@ func triggerRequest(name string, spec v1alpha1.TriggerSpec) CreateTriggerRequest
 		MatchContains:  spec.MatchContains,
 		PromptTemplate: spec.PromptTemplate,
 		AdmissionSettings: AdmissionSettings{
-			MaxParallel:      clampInt16(spec.MaxParallel),
+			MaxParallel:      spec.MaxParallel,
 			Overflow:         spec.Overflow,
-			MaxQueueDepth:    clampInt16(spec.MaxQueueDepth),
-			TimeoutSeconds:   clampInt16(spec.TimeoutSeconds),
+			MaxQueueDepth:    spec.MaxQueueDepth,
+			TimeoutSeconds:   spec.TimeoutSeconds,
 			DedupeEnabled:    spec.DedupeEnabled,
 			AutopauseEnabled: spec.AutopauseEnabled,
 		},
@@ -384,22 +383,4 @@ func triggerRequest(name string, spec v1alpha1.TriggerSpec) CreateTriggerRequest
 		}
 	}
 	return req
-}
-
-// clampInt16 narrows an admission value. One out of range stays out of range,
-// so validation refuses it rather than a wrapped value passing.
-func clampInt16(v *int32) *int16 {
-	if v == nil {
-		return nil
-	}
-	var n int16
-	switch {
-	case *v > math.MaxInt16:
-		n = math.MaxInt16
-	case *v < math.MinInt16:
-		n = math.MinInt16
-	default:
-		n = int16(*v)
-	}
-	return &n
 }
