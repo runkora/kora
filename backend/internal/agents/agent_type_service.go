@@ -409,7 +409,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		State:                   AgentTypeStateProvisioning,
 		CreatedBy:               creatorSubject(ctx),
 	}
-	at.Source, at.ResourceUID, at.ResourceGeneration = sourceFor(ctx)
+	at.Source, at.ResourceUID, at.ResourceGeneration, at.Repository = sourceFor(ctx)
 	if err := s.checkCeiling(ctx, at, s.scopeResolver()); err != nil {
 		return nil, err
 	}
@@ -729,7 +729,7 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 
 	applyAgentTypeUpdates(at, req)
 	if d, ok := declaredFromContext(ctx); ok {
-		at.ResourceGeneration = d.generation
+		at.ResourceGeneration, at.Repository = d.generation, d.repository
 	}
 
 	// Keep the inference grant aligned with the model: when the model changes and

@@ -19,16 +19,23 @@ type declaredWrite struct {
 	createdBy   string
 	resourceUID string
 	generation  int64
+	repository  string
 }
 
 // withDeclaredWrite marks ctx as a declared write. The service skips the caller checks, takes the
-// tenant from the item and records the resource's UID and generation on the row.
+// tenant from the item and records the resource's UID, generation and repository on the row.
+// created_by names the repository, or the resource when it names none.
 func withDeclaredWrite(ctx context.Context, item declarative.Item) context.Context {
+	createdBy := "resource:" + item.Namespace + "/" + item.Name
+	if item.Repository != "" {
+		createdBy = "repo:" + item.Repository
+	}
 	return context.WithValue(ctx, declaredWriteKey{}, declaredWrite{
 		tenantID:    item.TenantID,
-		createdBy:   "resource:" + item.Namespace + "/" + item.Name,
+		createdBy:   createdBy,
 		resourceUID: item.UID,
 		generation:  item.Generation,
+		repository:  item.Repository,
 	})
 }
 
@@ -52,10 +59,10 @@ func refuseAPIWrite(ctx context.Context, sw authoringSwitch, tenantID, source st
 	return nil
 }
 
-// sourceFor is the source, resource UID and resource generation a new row takes.
-func sourceFor(ctx context.Context) (string, string, int64) {
+// sourceFor is the source, resource UID, resource generation and repository a new row takes.
+func sourceFor(ctx context.Context) (string, string, int64, string) {
 	if d, ok := declaredFromContext(ctx); ok {
-		return declarative.SourceCRD, d.resourceUID, d.generation
+		return declarative.SourceCRD, d.resourceUID, d.generation, d.repository
 	}
-	return declarative.SourceAPI, "", 0
+	return declarative.SourceAPI, "", 0, ""
 }

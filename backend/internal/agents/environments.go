@@ -83,9 +83,11 @@ type Environment struct {
 	// ResourceUID is the UID of the Environment resource a crd row projects.
 	ResourceUID string `json:"-"`
 	// ResourceGeneration is the resource generation the crd row last applied.
-	ResourceGeneration int64     `json:"-"`
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	ResourceGeneration int64 `json:"-"`
+	// Repository is the repository that drives a crd row, if its resource names one.
+	Repository string    `json:"repository,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // DefaultEnvironment is the environment of an agent with none attached. It runs
@@ -269,7 +271,7 @@ func (s *EnvironmentService) CreateEnvironment(ctx context.Context, req Environm
 	if err := refuseAPIWrite(ctx, s.authoring, env.TenantID, declarative.SourceAPI); err != nil {
 		return nil, err
 	}
-	env.Source, env.ResourceUID, env.ResourceGeneration = sourceFor(ctx)
+	env.Source, env.ResourceUID, env.ResourceGeneration, env.Repository = sourceFor(ctx)
 	if env.Slug == "" {
 		env.Slug = deriveSlug(env.Name)
 	}
@@ -322,10 +324,10 @@ func (s *EnvironmentService) UpdateEnvironment(ctx context.Context, req Environm
 		return nil, err
 	}
 	env := s.fromRequest(tenantID, existing.ID, req)
-	env.Source, env.ResourceUID, env.ResourceGeneration = existing.Source, existing.ResourceUID, existing.ResourceGeneration
+	env.Source, env.ResourceUID, env.ResourceGeneration, env.Repository = existing.Source, existing.ResourceUID, existing.ResourceGeneration, existing.Repository
 	// A recreated resource takes over the row of the one it replaces.
 	if d, ok := declaredFromContext(ctx); ok {
-		env.ResourceUID, env.ResourceGeneration = d.resourceUID, d.generation
+		env.ResourceUID, env.ResourceGeneration, env.Repository = d.resourceUID, d.generation, d.repository
 	}
 	if env.Slug == "" {
 		env.Slug = existing.Slug

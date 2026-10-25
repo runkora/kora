@@ -34,11 +34,11 @@ func TestPostgres_DeclaredSource(t *testing.T) {
 	if _, err := r.GetEnvironmentBySlug(ctx, tenant, "missing"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("GetEnvironmentBySlug(missing) = %v, want ErrNotFound", err)
 	}
-	got.ResourceUID, got.ResourceGeneration = "uid-env-2", 4
+	got.ResourceUID, got.ResourceGeneration, got.Repository = "uid-env-2", 4, "github.com/acme/agents"
 	if err := r.UpdateEnvironment(ctx, *got); err != nil {
 		t.Fatalf("UpdateEnvironment: %v", err)
 	}
-	if e, _ := r.GetEnvironment(ctx, tenant, got.ID); e.ResourceUID != "uid-env-2" || e.ResourceGeneration != 4 {
+	if e, _ := r.GetEnvironment(ctx, tenant, got.ID); e.ResourceUID != "uid-env-2" || e.ResourceGeneration != 4 || e.Repository != "github.com/acme/agents" {
 		t.Errorf("updated environment uid = %q generation = %d", e.ResourceUID, e.ResourceGeneration)
 	}
 	envs, err := r.ListDeclaredEnvironments(ctx, tenant)
@@ -51,7 +51,7 @@ func TestPostgres_DeclaredSource(t *testing.T) {
 
 	apiAgent := testAgentType(tenant)
 	declared := testAgentType(tenant, AgentEnvironment{EnvironmentID: got.ID, IsDefault: true})
-	declared.Source, declared.ResourceUID, declared.ResourceGeneration = declarative.SourceCRD, "uid-agent", 2
+	declared.Source, declared.ResourceUID, declared.ResourceGeneration, declared.Repository = declarative.SourceCRD, "uid-agent", 2, "github.com/acme/agents"
 	gone := testAgentType(tenant)
 	gone.Source, gone.ResourceUID = declarative.SourceCRD, "uid-gone"
 	for _, at := range []AgentType{apiAgent, declared, gone} {
@@ -66,10 +66,10 @@ func TestPostgres_DeclaredSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAgentTypeBySlug: %v", err)
 	}
-	if at.Source != declarative.SourceCRD || at.ResourceUID != "uid-agent" || at.ResourceGeneration != 2 {
+	if at.Source != declarative.SourceCRD || at.ResourceUID != "uid-agent" || at.ResourceGeneration != 2 || at.Repository != "github.com/acme/agents" {
 		t.Errorf("declared agent source = %q uid = %q", at.Source, at.ResourceUID)
 	}
-	if a, _ := r.GetAgentType(ctx, apiAgent.ID); a.Source != declarative.SourceAPI || a.ResourceUID != "" {
+	if a, _ := r.GetAgentType(ctx, apiAgent.ID); a.Source != declarative.SourceAPI || a.ResourceUID != "" || a.Repository != "" {
 		t.Errorf("API agent source = %q uid = %q", a.Source, a.ResourceUID)
 	}
 	at.ResourceGeneration = 5

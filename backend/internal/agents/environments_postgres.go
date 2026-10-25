@@ -17,7 +17,7 @@ import (
 // ── Environments ────────────────────────────────────────────────────────────
 
 // name holds the slug and display_name the name for people.
-const environmentColumns = `id, tenant_id, name, display_name, description, sandbox_image, cpu, memory, disk, egress_hosts, connectors, source, COALESCE(resource_uid, ''), resource_generation, created_at, updated_at`
+const environmentColumns = `id, tenant_id, name, display_name, description, sandbox_image, cpu, memory, disk, egress_hosts, connectors, source, COALESCE(resource_uid, ''), resource_generation, COALESCE(repository, ''), created_at, updated_at`
 
 func (r *PostgresRepository) CreateEnvironment(ctx context.Context, env Environment) error {
 	if env.ID == "" {
@@ -29,10 +29,10 @@ func (r *PostgresRepository) CreateEnvironment(ctx context.Context, env Environm
 		return err
 	}
 	_, err = r.pool.Exec(ctx, `
-		INSERT INTO environments (id, tenant_id, name, display_name, description, sandbox_image, cpu, memory, disk, egress_hosts, connectors, source, resource_uid, resource_generation, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,NULLIF($13, ''),$14,$15,$16)`,
+		INSERT INTO environments (id, tenant_id, name, display_name, description, sandbox_image, cpu, memory, disk, egress_hosts, connectors, source, resource_uid, resource_generation, repository, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,NULLIF($13, ''),$14,NULLIF($15, ''),$16,$17)`,
 		env.ID, env.TenantID, env.Slug, env.Name, env.Description, env.SandboxImage,
-		env.Size.CPU, env.Size.Memory, env.Size.Disk, env.EgressHosts, connectorsJSON, cmp.Or(env.Source, declarative.SourceAPI), env.ResourceUID, env.ResourceGeneration, now, now,
+		env.Size.CPU, env.Size.Memory, env.Size.Disk, env.EgressHosts, connectorsJSON, cmp.Or(env.Source, declarative.SourceAPI), env.ResourceUID, env.ResourceGeneration, env.Repository, now, now,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -123,10 +123,10 @@ func (r *PostgresRepository) UpdateEnvironment(ctx context.Context, env Environm
 	}
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE environments
-		SET display_name=$1, description=$2, sandbox_image=$3, cpu=$4, memory=$5, disk=$6, egress_hosts=$7, connectors=$8::jsonb, updated_at=$9, resource_uid=NULLIF($12, ''), resource_generation=$13
+		SET display_name=$1, description=$2, sandbox_image=$3, cpu=$4, memory=$5, disk=$6, egress_hosts=$7, connectors=$8::jsonb, updated_at=$9, resource_uid=NULLIF($12, ''), resource_generation=$13, repository=NULLIF($14, '')
 		WHERE tenant_id=$10 AND id=$11`,
 		env.Name, env.Description, env.SandboxImage, env.Size.CPU, env.Size.Memory, env.Size.Disk,
-		env.EgressHosts, connectorsJSON, time.Now().UTC(), env.TenantID, env.ID, env.ResourceUID, env.ResourceGeneration,
+		env.EgressHosts, connectorsJSON, time.Now().UTC(), env.TenantID, env.ID, env.ResourceUID, env.ResourceGeneration, env.Repository,
 	)
 	if err != nil {
 		return fmt.Errorf("update environment: %w", err)
@@ -193,7 +193,7 @@ func scanEnvironment(s scanner) (*Environment, error) {
 	var e Environment
 	var connectorsJSON []byte
 	err := s.Scan(&e.ID, &e.TenantID, &e.Slug, &e.Name, &e.Description, &e.SandboxImage,
-		&e.Size.CPU, &e.Size.Memory, &e.Size.Disk, &e.EgressHosts, &connectorsJSON, &e.Source, &e.ResourceUID, &e.ResourceGeneration, &e.CreatedAt, &e.UpdatedAt)
+		&e.Size.CPU, &e.Size.Memory, &e.Size.Disk, &e.EgressHosts, &connectorsJSON, &e.Source, &e.ResourceUID, &e.ResourceGeneration, &e.Repository, &e.CreatedAt, &e.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

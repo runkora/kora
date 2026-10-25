@@ -70,8 +70,10 @@ func TestEnvironmentApplier(t *testing.T) {
 		t.Fatalf("update = %+v, %v, row %+v", got, err, store.envs[res.ID])
 	}
 
-	// A recreated resource takes over the row and keeps its id.
-	if got, err := a.Apply(ctx, item(t, "go-build", "uid-2", 1, spec, nil)); err != nil || got.ID != res.ID || store.envs[res.ID].ResourceUID != "uid-2" {
+	// A recreated resource takes over the row, keeps its id and takes the new repository.
+	recreated := item(t, "go-build", "uid-2", 1, spec, nil)
+	recreated.Repository = "github.com/acme/agents"
+	if got, err := a.Apply(ctx, recreated); err != nil || got.ID != res.ID || store.envs[res.ID].ResourceUID != "uid-2" || store.envs[res.ID].Repository != "github.com/acme/agents" {
 		t.Fatalf("takeover = %+v, %v, row %+v", got, err, store.envs[res.ID])
 	}
 
@@ -241,6 +243,21 @@ func TestAgentApplier(t *testing.T) {
 	if got, _ := a.List(ctx, applierTenant); !slices.Equal(got, []declarative.Declared{{Name: "code-reviewer", UID: "uid-1"}}) {
 		t.Errorf("list = %+v", got)
 	}
+}
+
+func TestAgentApplierRecordsTheRepository(t *testing.T) {
+	ctx := context.Background()
+	a, repo, _ := newAgentApplier()
+	it := item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs)
+	it.Repository = "github.com/acme/agents"
+	res, err := a.Apply(ctx, it)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at, _ := repo.GetAgentType(ctx, res.ID); at.CreatedBy != "repo:github.com/acme/agents" || at.Repository != "github.com/acme/agents" {
+		t.Errorf("row = created_by %q repository %q", at.CreatedBy, at.Repository)
+	}
+	waitActive(t, repo, res.ID)
 }
 
 func TestAgentApplierRecreatedResourceIsANewAgent(t *testing.T) {
