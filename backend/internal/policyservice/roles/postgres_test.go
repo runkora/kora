@@ -65,8 +65,15 @@ func TestPostgres_PurgeScopeFromAll_Roles(t *testing.T) {
 		t.Fatalf("Upsert: %v", err)
 	}
 
+	if err := repo.UpsertDeclared(ctx, &RoleEntry{TenantID: tenant, Role: "declared", Scopes: []string{purge}, ResourceName: "declared", ResourceUID: "uid-d"}); err != nil {
+		t.Fatalf("UpsertDeclared: %v", err)
+	}
+
 	if err := repo.PurgeScopeFromAll(ctx, purge); err != nil {
 		t.Fatalf("PurgeScopeFromAll: %v", err)
+	}
+	if d, _ := repo.GetByRole(ctx, tenant, "declared"); !slices.Equal(d.Scopes, []string{purge}) {
+		t.Errorf("declared role scopes = %v, want its spec kept", d.Scopes)
 	}
 
 	roleA, err := repo.GetByRole(ctx, tenant, "role-a")

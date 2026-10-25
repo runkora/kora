@@ -85,8 +85,9 @@ type Repository interface {
 	// CountByTenant returns the number of stored roles for a tenant, without the roles named in exclude.
 	CountByTenant(ctx context.Context, tenantID string, exclude []string) (int, error)
 
-	// PurgeScopeFromAll removes a scope string from every role's scopes array
-	// across all tenants. Called when a vocabulary scope is deleted.
+	// PurgeScopeFromAll removes a scope string from every API role's scopes
+	// array across all tenants. Called when a vocabulary scope is deleted. A
+	// declared role keeps its spec, and its next apply reports the missing scope.
 	PurgeScopeFromAll(ctx context.Context, scope string) error
 
 	// UpsertDeclared writes a crd row keyed by tenant and role, scopes and budget in full.
@@ -297,7 +298,7 @@ func (r *postgresRepository) PurgeScopeFromAll(ctx context.Context, scope string
 			FROM jsonb_array_elements_text(scopes) AS elem
 			WHERE elem != $1
 		)
-		WHERE scopes @> jsonb_build_array($1::text)
+		WHERE scopes @> jsonb_build_array($1::text) AND source = 'api'
 	`, scope)
 	if err != nil {
 		return fmt.Errorf("purge scope from roles: %w", err)
