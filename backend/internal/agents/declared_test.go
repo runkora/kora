@@ -32,7 +32,7 @@ func newDenyingAgentTypeService(repo *mockRepository, locked lockedTenants) *Age
 }
 
 func declaredCtx() context.Context {
-	return withDeclaredWrite(context.Background(), "acme", "kora-tenant-acme", "reviewer", "uid-1", 1)
+	return withDeclaredWrite(context.Background(), declarative.Item{TenantID: "acme", Namespace: "kora-tenant-acme", Name: "reviewer", UID: "uid-1", Generation: 1})
 }
 
 func declaredCreateRequest() CreateAgentTypeRequest {
@@ -147,7 +147,7 @@ func TestDeclaredEnvironmentWrites(t *testing.T) {
 	attached := &AgentType{ID: "a1", TenantID: "acme", Slug: "a", IdentityMode: IdentityModeAutonomous, GrantScopes: []string{"x:y:z"},
 		Environments: []AgentEnvironment{{EnvironmentID: env.ID, IsDefault: true}}}
 	repo.agentTypes[attached.ID] = attached
-	recreated := withDeclaredWrite(context.Background(), "acme", "kora-tenant-acme", "go", "uid-2", 2)
+	recreated := withDeclaredWrite(context.Background(), declarative.Item{TenantID: "acme", Namespace: "kora-tenant-acme", Name: "go", UID: "uid-2", Generation: 2})
 	updated, err := svc.UpdateEnvironment(recreated, EnvironmentRequest{ID: env.ID, Name: "Go 2"})
 	if err != nil {
 		t.Fatalf("declared update: %v", err)

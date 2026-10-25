@@ -22,13 +22,13 @@ type declaredWrite struct {
 }
 
 // withDeclaredWrite marks ctx as a declared write. The service skips the caller checks, takes the
-// tenant from tenantID and records the resource's UID and generation on the row.
-func withDeclaredWrite(ctx context.Context, tenantID, namespace, name, uid string, generation int64) context.Context {
+// tenant from the item and records the resource's UID and generation on the row.
+func withDeclaredWrite(ctx context.Context, item declarative.Item) context.Context {
 	return context.WithValue(ctx, declaredWriteKey{}, declaredWrite{
-		tenantID:    tenantID,
-		createdBy:   "resource:" + namespace + "/" + name,
-		resourceUID: uid,
-		generation:  generation,
+		tenantID:    item.TenantID,
+		createdBy:   "resource:" + item.Namespace + "/" + item.Name,
+		resourceUID: item.UID,
+		generation:  item.Generation,
 	})
 }
 

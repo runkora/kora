@@ -328,8 +328,8 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 // (docs/adr/2026-10-24-declarative-resources.md).
 func declaredController(cfg *agentsConfig.Config, verifier *token.Verifier, logger logging.Logger, repo *agents.PostgresRepository, atSvc *agents.AgentTypeService, envSvc *agents.EnvironmentService) *declarative.Controller {
 	return declarative.NewController(verifier, logger, map[string]declarative.Applier{
-		declarative.KindEnvironments: agents.NewEnvironmentApplier(repo, envSvc, cfg.TenantNamespace),
-		declarative.KindAgents:       agents.NewAgentApplier(repo, atSvc, cfg.TenantNamespace),
+		declarative.KindEnvironments: agents.NewEnvironmentApplier(repo, envSvc),
+		declarative.KindAgents:       agents.NewAgentApplier(repo, atSvc),
 	})
 }
 

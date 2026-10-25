@@ -46,14 +46,13 @@ type agentWriter interface {
 
 // EnvironmentApplier applies declared environments.
 type EnvironmentApplier struct {
-	store     declaredEnvironmentStore
-	writer    environmentWriter
-	namespace func(tenantID string) string
+	store  declaredEnvironmentStore
+	writer environmentWriter
 }
 
 // NewEnvironmentApplier returns the declarative.Applier for KindEnvironments.
-func NewEnvironmentApplier(store declaredEnvironmentStore, writer environmentWriter, namespace func(tenantID string) string) *EnvironmentApplier {
-	return &EnvironmentApplier{store: store, writer: writer, namespace: namespace}
+func NewEnvironmentApplier(store declaredEnvironmentStore, writer environmentWriter) *EnvironmentApplier {
+	return &EnvironmentApplier{store: store, writer: writer}
 }
 
 // Apply creates or updates the environment named item.Name. A recreated resource takes over the
@@ -74,7 +73,7 @@ func (a *EnvironmentApplier) Apply(ctx context.Context, item declarative.Item) (
 		return declarative.Result{Outcome: declarative.OutcomeProjected, ID: row.ID, Ready: true}, nil
 	}
 
-	ctx = withDeclaredWrite(ctx, item.TenantID, a.namespace(item.TenantID), item.Name, item.UID, item.Generation)
+	ctx = withDeclaredWrite(ctx, item)
 	req := environmentRequest(item.Name, spec)
 	var env *Environment
 	if row == nil {
@@ -107,7 +106,7 @@ func (a *EnvironmentApplier) Delete(ctx context.Context, tenantID, name string) 
 	if row.Source != declarative.SourceCRD {
 		return nil
 	}
-	err = a.writer.DeleteEnvironment(withDeclaredWrite(ctx, tenantID, a.namespace(tenantID), name, "", 0), row.ID)
+	err = a.writer.DeleteEnvironment(withDeclaredWrite(ctx, declarative.Item{TenantID: tenantID, Name: name}), row.ID)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return fmt.Errorf("delete environment %q: %w", name, err)
 	}
@@ -135,14 +134,13 @@ func environmentRequest(name string, spec v1alpha1.EnvironmentSpec) EnvironmentR
 
 // AgentApplier applies declared agents and provisions them.
 type AgentApplier struct {
-	store     declaredAgentStore
-	writer    agentWriter
-	namespace func(tenantID string) string
+	store  declaredAgentStore
+	writer agentWriter
 }
 
 // NewAgentApplier returns the declarative.Applier for KindAgents.
-func NewAgentApplier(store declaredAgentStore, writer agentWriter, namespace func(tenantID string) string) *AgentApplier {
-	return &AgentApplier{store: store, writer: writer, namespace: namespace}
+func NewAgentApplier(store declaredAgentStore, writer agentWriter) *AgentApplier {
+	return &AgentApplier{store: store, writer: writer}
 }
 
 // Apply creates or updates the agent named item.Name. A recreated resource is a new agent with a
@@ -162,7 +160,7 @@ func (a *AgentApplier) Apply(ctx context.Context, item declarative.Item) (declar
 	if err != nil {
 		return declarative.Result{}, err
 	}
-	ctx = withDeclaredWrite(ctx, item.TenantID, a.namespace(item.TenantID), item.Name, item.UID, item.Generation)
+	ctx = withDeclaredWrite(ctx, item)
 	row, conflict, err := a.currentRow(ctx, item)
 	if err != nil {
 		return declarative.Result{}, err
@@ -225,7 +223,7 @@ func (a *AgentApplier) Delete(ctx context.Context, tenantID, name string) error 
 	if row.Source != declarative.SourceCRD {
 		return nil
 	}
-	err = a.writer.DeleteAgentType(withDeclaredWrite(ctx, tenantID, a.namespace(tenantID), name, "", 0), row.ID)
+	err = a.writer.DeleteAgentType(withDeclaredWrite(ctx, declarative.Item{TenantID: tenantID, Name: name}), row.ID)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return fmt.Errorf("delete agent type %q: %w", name, err)
 	}
