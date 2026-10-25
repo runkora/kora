@@ -24,9 +24,11 @@ import (
 var validTenantID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
 
 // tenantLister names the tenants that exist, whether or not they have policy
-// rows yet. The operator-written tenant registry is the implementation.
+// rows yet. Err reports why it cannot be read. The operator-written tenant
+// registry is the implementation.
 type tenantLister interface {
 	TenantIDs() []string
+	Err() error
 }
 
 // Server serves per-tenant OPA bundles at GET /v1/policy/bundles/{tenant_id}.
@@ -61,8 +63,13 @@ func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabu
 // grants, and tenants with registered routes. A registered tenant with no
 // rows is still a tenant; its reserved roles must reach the gateway bundle.
 func (s *Server) KnownTenantIDs(ctx context.Context) ([]string, error) {
+	registered := s.tenants.TenantIDs()
+	// An unreadable registry with no last good contents would drop tenants that have no rows.
+	if err := s.tenants.Err(); err != nil && len(registered) == 0 {
+		return nil, fmt.Errorf("read tenant registry: %w", err)
+	}
 	set := map[string]struct{}{}
-	for _, tid := range s.tenants.TenantIDs() {
+	for _, tid := range registered {
 		set[tid] = struct{}{}
 	}
 	grantTenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
