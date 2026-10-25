@@ -8,8 +8,6 @@
 
 import type { ResourceSource } from '@runkora/shared/api';
 
-export type { ResourceSource };
-
 /** Whether the item is projected from a declarative resource. */
 export function isDeclared(item: { source?: ResourceSource } | null | undefined): boolean {
   return item?.source === 'crd';
