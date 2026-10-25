@@ -210,6 +210,10 @@ func (r *PostgresCatalogRepository) UpsertDeclaredVirtualModel(ctx context.Conte
 		if _, err := tx.Exec(ctx, q,
 			id, vm.Family, vm.Name, vm.DisplayName, vm.Description, string(vm.Strategy), vm.Enabled, vm.ResourceName, vm.ResourceUID, vm.Repository,
 		); err != nil {
+			// An API create of the same key that committed after declaredRowID looked.
+			if isUniqueViolation(err) {
+				return fmt.Errorf("upsert declared virtual model %s: %w", vm.FullID(), ErrVirtualModelNameConflict)
+			}
 			return fmt.Errorf("upsert declared virtual model: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM virtual_model_routes WHERE virtual_model_id=$1`, id); err != nil {
