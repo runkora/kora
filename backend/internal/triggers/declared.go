@@ -159,6 +159,8 @@ func (s *TriggerService) Apply(ctx context.Context, item declarative.Item) (decl
 		return declarative.Result{Outcome: declarative.OutcomePending, Message: err.Error()}, nil
 	case errors.Is(err, ErrValidation):
 		return invalid(err), nil
+	case errors.Is(err, ErrAPINameTaken):
+		return nameConflict, nil
 	case err != nil:
 		return declarative.Result{}, err
 	}

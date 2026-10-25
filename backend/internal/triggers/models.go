@@ -100,6 +100,9 @@ var (
 	// ErrDeclaredNameTaken is returned when an API trigger would take the name
 	// of a declared trigger.
 	ErrDeclaredNameTaken = errors.New("a trigger managed by a declarative resource already has this name")
+	// ErrAPINameTaken is returned when a declared trigger would take the name
+	// of an API trigger.
+	ErrAPINameTaken = errors.New("a trigger built through the API already has this name")
 	// ErrAgentProvisioning is a validation error for an agent whose run
 	// scopes are not registered yet. It clears once the agent's pods are ready.
 	ErrAgentProvisioning = fmt.Errorf("%w: agent is still provisioning", ErrValidation)

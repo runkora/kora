@@ -2522,3 +2522,44 @@ func TestPostgres_DeclaredRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// A name is held by API triggers or by one declared trigger, never both.
+func TestPostgres_TriggerNameAcrossSources(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	src := seedSource(t, r, tenant)
+	trigger := func(name, source string) *Trigger {
+		gid := "grant-" + uuid.NewString()
+		uid := ""
+		if source == declarative.SourceCRD {
+			uid = "uid-" + name
+		}
+		return admissionDefaults(&Trigger{
+			ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, TargetKind: TargetKindAgent, SourceID: src.ID,
+			Name: name, AgentTypeID: "at-1", AgentSlug: "a", EventType: "push", PromptTemplate: "p",
+			GrantID: &gid, Enabled: true, Source: source, ResourceUID: uid,
+		})
+	}
+	for _, tc := range []struct {
+		name, source string
+		want         error
+	}{
+		{"shared", declarative.SourceAPI, nil},
+		{"shared", declarative.SourceAPI, nil},
+		{"shared", declarative.SourceCRD, ErrAPINameTaken},
+		{"declared", declarative.SourceCRD, nil},
+		{"declared", declarative.SourceAPI, ErrDeclaredNameTaken},
+	} {
+		if err := r.CreateTrigger(ctx, trigger(tc.name, tc.source)); !errors.Is(err, tc.want) {
+			t.Errorf("create %s %s: err = %v, want %v", tc.source, tc.name, err, tc.want)
+		}
+	}
+	api := trigger("renamed", declarative.SourceAPI)
+	if err := r.CreateTrigger(ctx, api); err != nil {
+		t.Fatal(err)
+	}
+	api.Name = "declared"
+	if err := r.UpdateTrigger(ctx, api, false, false); !errors.Is(err, ErrDeclaredNameTaken) {
+		t.Errorf("rename onto a declared name: err = %v", err)
+	}
+}

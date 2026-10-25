@@ -307,6 +307,9 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 	}
 
 	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+		if err := claimTriggerName(ctx, tx, t); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO triggers
 				(id, tenant_id, kind, target_kind, source_id, name, agent_type_id, agent_slug, event_type,
@@ -324,6 +327,30 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 		}
 		return writeRoute(ctx, tx, t)
 	})
+}
+
+// claimTriggerName serializes writes of one trigger name in a tenant and
+// refuses a name a trigger of the other source holds. API triggers may share a
+// name with each other.
+func claimTriggerName(ctx context.Context, tx pgx.Tx, t *Trigger) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1 || '/' || $2))`, t.TenantID, t.Name); err != nil {
+		return fmt.Errorf("lock trigger name: %w", err)
+	}
+	source := cmp.Or(t.Source, declarative.SourceAPI)
+	var held bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM triggers WHERE tenant_id = $1 AND name = $2 AND source <> $3 AND id <> $4)`,
+		t.TenantID, t.Name, source, t.ID).Scan(&held); err != nil {
+		return fmt.Errorf("check trigger name: %w", err)
+	}
+	switch {
+	case !held:
+		return nil
+	case source == declarative.SourceAPI:
+		return ErrDeclaredNameTaken
+	default:
+		return ErrAPINameTaken
+	}
 }
 
 // writeRoute replaces a routed trigger's settings and candidates. Other
@@ -584,6 +611,9 @@ func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writ
 	// The routing rows are replaced in the same transaction, and only when the
 	// edit changed routing, so a stale copy cannot revert a concurrent change.
 	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+		if err := claimTriggerName(ctx, tx, t); err != nil {
+			return err
+		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE triggers
 			SET    name = $1, event_type = $2, match_condition = $3, prompt_template = $4,
