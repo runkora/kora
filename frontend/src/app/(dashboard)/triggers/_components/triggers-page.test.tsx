@@ -77,3 +77,26 @@ describe('a chat source waiting for its signing secret', () => {
     expect(screen.queryByText('Waiting for signing secret')).toBeNull();
   });
 });
+
+describe('a locked tenant', () => {
+  it('explains the lock and offers no new trigger', () => {
+    renderWithProviders(
+      <TriggersPage
+        sources={SOURCES}
+        triggers={TRIGGERS}
+        deliveries={[]}
+        agents={[]}
+        error={null}
+      />,
+      { apiAuthoring: false },
+    );
+    expect(screen.getByText(/Triggers and sources in this tenant are managed in git/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /New trigger/ })).toBeNull();
+  });
+
+  it('offers a new trigger when the tenant is not locked', () => {
+    renderPage();
+    expect(screen.queryByText(/are managed in git/)).toBeNull();
+    expect(screen.getByRole('button', { name: /New trigger/ })).toBeTruthy();
+  });
+});
