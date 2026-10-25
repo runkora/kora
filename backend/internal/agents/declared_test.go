@@ -60,6 +60,7 @@ func TestDeclaredAgentWriteSkipsCallerChecks(t *testing.T) {
 		t.Errorf("declared agent = tenant %q source %q uid %q created_by %q", at.TenantID, at.Source, at.ResourceUID, at.CreatedBy)
 	}
 
+	waitActive(t, repo, at.ID)
 	name := "Reviewer 2"
 	if _, err := svc.UpdateAgentType(declaredCtx(), UpdateAgentTypeRequest{ID: at.ID, Name: &name}); err != nil {
 		t.Fatalf("declared update: %v", err)
