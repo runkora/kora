@@ -2,7 +2,7 @@
 
 **Status:** Approved  
 **Created:** 2026-10-20  
-**Last Updated:** 2026-10-20  
+**Last Updated:** 2026-10-23  
 **Owner:** Justin Wilkin  
 **Stakeholders:** Platform Team, trigger authors across engineering teams
 
@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-"Chat command" will be a trigger kind. A person who mentions the kora bot in a chat channel or sends it a direct message will start an agent run, and the agent will answer in the chat through the platform's MCP server. Slack is the first platform. A trigger is written once against kora's own chat events and fields and works the same on every later chat platform that delivers the same event.
+"Chat command" will be a trigger kind. A person who mentions the kora bot in a chat channel or sends it a direct message will start an agent run, and the agent will answer in the chat through the platform's MCP server. Slack is the first platform and Discord is the second. A trigger is written once against kora's own chat events and fields and works the same on every later chat platform that delivers the same event.
 
 ---
 
@@ -33,7 +33,7 @@ Triggers start runs from GitHub and Alertmanager webhooks, from a schedule and f
 ### Primary Goals
 
 1.  A mention of the bot in a channel or a direct message to the bot starts a run of the agent its trigger names.
-2.  An admin connects a Slack workspace without writing code.
+2.  An admin connects a Slack workspace or a Discord bot without writing code.
 3.  A trigger author writes a chat trigger once, and the same prompt, filters and follow-up settings work on every chat platform that delivers the same event.
 4.  A trigger author limits any webhook or chat trigger to chosen people, and to chosen roles where the platform reports roles.
 5.  A follow-up in the same thread or direct message conversation can reach the run that is already working on it.
@@ -50,7 +50,9 @@ None at this time.
 - Socket Mode.
 - Kubernetes resources that declare a chat source.
 - One Slack app distributed to several workspaces through OAuth.
-- Discord and Microsoft Teams in this release.
+- Microsoft Teams in this release.
+- Discord slash commands and other Discord interactions.
+- Discord roles in the sender restriction.
 - Reaction events.
 
 ---
@@ -66,7 +68,7 @@ None at this time.
 **Acceptance Criteria:**
 
 - [ ] The new-trigger screen offers "Chat command" next to the existing kinds.
-- [ ] The chat command kind offers Slack. Discord and Microsoft Teams are shown as coming later and cannot be picked.
+- [ ] The chat command kind offers Slack and Discord. Microsoft Teams is shown as coming later and cannot be picked.
 - [ ] The admin names the source, and kora creates it at once without a signing secret.
 - [ ] The source step shows the Slack app manifest with the real request URL, a copy button and the steps to create the app from it. An admin with an existing app sees the request URL on its own.
 - [ ] The wizard shows no placeholder URL for a source that does not exist yet.
@@ -90,6 +92,7 @@ None at this time.
 - [ ] The author can limit the trigger to conversations with a filter on the conversation.
 - [ ] Messages the bot or any other app posts as a bot never start a run.
 - [ ] Slack's retries of one event start at most one run for a trigger with deduplication on.
+- [ ] One Discord message starts at most one run for a trigger with deduplication on.
 
 ### US-003: Limit who can fire a trigger
 
@@ -102,7 +105,7 @@ None at this time.
 - [ ] The sender restriction works the same on webhook and chat command triggers.
 - [ ] The author lists people by the platform's id for them.
 - [ ] The author picks roles from the list the platform declares, each with its label and description.
-- [ ] GitHub offers its repository relationships as roles, and Slack offers no roles.
+- [ ] GitHub offers its repository relationships as roles. Slack and Discord offer no roles.
 - [ ] A GitHub trigger fires for the same senders as before.
 
 ### US-004: Follow up in the same conversation
@@ -130,6 +133,39 @@ None at this time.
 - [ ] A message excluded by a filter or the sender restriction shows as filtered with the cause.
 - [ ] A message from a bot shows as matching no trigger.
 
+### US-006: Connect a Discord bot
+
+**As a** tenant admin,  
+**I want** to register a Discord chat source with my Discord bot's token,  
+**So that** people in my Discord servers can reach agents from Discord.
+
+**Acceptance Criteria:**
+
+- [ ] The chat command kind offers Discord.
+- [ ] The admin names the source, and kora creates it at once without a token.
+- [ ] The source step shows no request URL. A Discord source has none.
+- [ ] The source step lists the setup in the Discord Developer Portal: create the application and its bot, and copy the bot token.
+- [ ] The source step shows an invite link for the bot, built from the application's id. The link asks for the permissions the agent needs to read the conversation and reply. It asks for no privileged permission.
+- [ ] The admin pastes the bot token into the same screen, and the wizard continues only after the token is saved.
+- [ ] Replacing the token asks the admin for the new token from the Developer Portal.
+- [ ] A Discord trigger is written exactly like a Slack trigger. It offers the same two events and the same chat fields.
+- [ ] The admin installs the bot in a server through the invite link. People reach it in the channels it can see and in direct messages.
+
+### US-007: See a Discord source's connection state
+
+**As a** tenant admin,  
+**I want** to see whether kora is connected to Discord for a source,  
+**So that** I can tell a source that works from one that hears nothing.
+
+**Acceptance Criteria:**
+
+- [ ] A Discord source shows one of three states on the triggers page and in the trigger drawer: waiting for its token, connected, or rejected with the reason.
+- [ ] A source without a token shows as waiting for its token, with a way to set it.
+- [ ] A source whose token Discord refuses shows as rejected with that reason.
+- [ ] A source whose bot lacks a setting that Discord requires shows as rejected with that reason.
+- [ ] Replacing the token clears a rejection. The source shows its new state within a minute.
+- [ ] A disabled source shows no connection.
+
 ---
 
 ## Proposed Solution
@@ -143,6 +179,15 @@ None at this time.
 
 The manifest asks for what kora needs to hear mentions and direct messages, and for what the agent needs to read the thread and reply. Replying in Slack goes through a Slack MCP server registered with the same Slack app's bot token. The admin adds any further permissions that server needs. kora's chat source never holds a Slack token.
 
+### Setup on Discord
+
+1.  The admin picks "Chat command" on the new-trigger screen, picks Discord and names the source. kora creates the source at once, without a token.
+2.  The admin creates the application and its bot in the Discord Developer Portal and copies the bot token.
+3.  The admin pastes the token into the same screen and continues. kora connects as the bot and shows the source as connected.
+4.  The admin opens the invite link and adds the bot to a server.
+
+A Discord source has no request URL. kora connects to Discord with the bot token and hears each message the bot is mentioned in and each direct message to it. Replying in Discord goes through a Discord MCP server registered with the same bot's token. The admin adds any further permissions that server needs.
+
 ### Writing a Trigger
 
 The author picks the mention event or the direct message event, narrows by conversation and person, and writes the prompt with kora's chat fields. The same trigger settings would work on another chat platform that delivers the same event. Agent choice and follow-ups come from trigger routing. A routing trigger's join key can identify the thread for mentions or the conversation for direct messages.
@@ -153,10 +198,12 @@ The author picks the mention event or the direct message event, narrows by conve
 
 ### In Scope
 
-- The "Chat command" trigger kind with Slack as its first platform.
+- The "Chat command" trigger kind with Slack as its first platform and Discord as its second.
 - kora's chat events and fields.
 - A sender restriction with people and platform-declared roles for webhook and chat triggers.
 - A Slack app manifest in the chat source setup.
+- A Discord bot setup guide and invite link in the chat source setup.
+- A connection state for each Discord source.
 
 ### Out of Scope
 
@@ -176,11 +223,17 @@ The author picks the mention event or the direct message event, narrows by conve
 
 **PD4a:** Until the signing secret is set, the source answers only Slack's URL check and starts nothing.
 
-**PD5:** Hearing the chat and replying in the chat stay separate. The chat source holds the signing secret, and the Slack MCP server holds the bot token. They are joined only by being the same Slack app, and no Slack credentials connection exists. **Accepted cost:** an admin configures two things for one Slack app. A Slack MCP server that posts as a user can start runs from its own replies.
+**PD5:** Hearing the chat and replying in the chat stay separate. For Slack, the chat source holds the signing secret, and the Slack MCP server holds the bot token. They are joined only by being the same Slack app, and no Slack credentials connection exists. For Discord, the chat source holds the bot token. kora logs in as the bot to hear messages. The Discord MCP server holds its own copy of the same token. They are joined only by being the same Discord bot. **Accepted cost:** an admin configures two things for one Slack app or one Discord bot. A Slack MCP server that posts as a user can start runs from its own replies. A Discord token lives in two places. Replacing it changes both.
 
 **PD6:** Chat triggers read kora's chat fields only. The platform's own payload stays visible in the delivery history. **Accepted cost:** a detail that kora's chat fields do not carry cannot be used in a prompt or a filter.
 
 **PD7:** The sender restriction lists people and roles for every provider. **Accepted cost:** an integration that sets a sender restriction through the API with the old field names is refused until it uses the new ones.
+
+**PD8:** One Discord bot serves every server it is invited to. Each Discord source holds one bot token. **Accepted cost:** a bot that people use in several servers needs triggers that narrow by conversation to keep the servers apart.
+
+**PD9:** A Discord channel message reaches kora only when it mentions the bot, the same as Slack. kora asks Discord for no permission to read other channel messages. **Accepted cost:** a follow-up in a channel that does not mention the bot starts nothing.
+
+**PD10:** kora hears Discord messages only while kora is running. **Accepted cost:** a message sent while no instance is running is lost.
 
 ---
 
@@ -190,4 +243,5 @@ The author picks the mention event or the direct message event, narrows by conve
 - [Trigger Payload Templating PRD](trigger-payload-templating.md)
 - [Delegated Agent Identity PRD](delegated-agent-identity.md)
 - [Chat Command Triggers ADR](../adr/2026-10-20-chat-command-triggers.md)
+- [Discord Gateway Chat Source ADR](../adr/2026-10-23-discord-gateway-chat-source.md)
 - [Trigger Routing PRD](trigger-routing.md)

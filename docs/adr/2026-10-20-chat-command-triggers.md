@@ -245,6 +245,8 @@ Slack requires a 2xx within three seconds. `Service.Ingest` records the delivery
 
 A Teams adapter would implement `chatAdapter` for Bot Framework activities. Teams sends them with a JWT in `Authorization` that the bot validates against keys from Bot Framework's OpenID metadata, with the bot's app id as the audience ([Bot Connector authentication](https://learn.microsoft.com/en-us/azure/bot-service/rest-api/bot-framework-rest-connector-authentication)). That validation needs a cached key fetch that `Verify` does not perform. Discord's HTTP endpoint carries interactions only, signed with Ed25519 in `X-Signature-Ed25519` and `X-Signature-Timestamp` ([Discord interactions](https://docs.discord.com/developers/interactions/overview)). Only a `command` event maps from it. A Discord adapter needs a 401 for a rejected signature and an initial reply to each interaction within three seconds ([Receiving and responding](https://docs.discord.com/developers/interactions/receiving-and-responding)). The pipeline has neither.
 
+The [Discord Gateway Chat Source ADR](2026-10-23-discord-gateway-chat-source.md) adds Discord as a chat platform over the Gateway instead.
+
 ---
 
 ## Consequences
