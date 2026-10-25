@@ -43,7 +43,7 @@
           "description": "The platform's workspace",
           "properties": { "id": { "type": "string", "description": "The platform's id for the workspace" } }
         },
-        "platform": { "type": "string", "description": "The chat platform, such as slack" }
+        "platform": { "type": "string", "description": "The chat platform, such as slack or discord" }
       }
     }
   }

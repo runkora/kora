@@ -31,7 +31,7 @@ func registerTriggerTools(srv *sdk.Server, b Backends, jc *korajson.Client, prod
 // types a trigger can listen for and the fields it can template or filter on.
 func registerTriggerProviderTools(srv *sdk.Server, providers string, jc *korajson.Client) {
 	addTool(srv, "triggers.providers.event_types",
-		"List the event types a provider (e.g. github, alertmanager, slack) sends, from its schema. category is chat for a "+
+		"List the event types a provider (e.g. github, alertmanager, slack, discord) sends, from its schema. category is chat for a "+
 			"chat platform, whose providers share the chat events mention and direct_message, and webhook otherwise. senders "+
 			"is present when the provider identifies who caused an event, and senders.roles lists the roles a trigger's "+
 			"sender_restriction may name, each with its label and description (empty when the provider reports no roles).",
@@ -81,7 +81,7 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 			"that secret (shown once). provider selects the payload format (e.g. github, generic); config holds "+
 			"provider-specific settings. A provider that issues its own signing secret cannot be created here: a secret "+
 			"must not pass through a tool call, so create it in the console or through the REST API. Chat sources such as "+
-			"slack are among these.",
+			"slack and discord are among these.",
 		func(ctx context.Context, a createSourceArgs) (*sdk.CallToolResult, error) {
 			if a.Name == "" || a.Provider == "" {
 				return toolError(errors.New("name and provider are required")), nil
@@ -423,16 +423,16 @@ type schedulePreviewArgs struct {
 }
 
 type senderRestriction struct {
-	IDs   []string `json:"ids,omitempty" jsonschema:"the provider's ids for the senders allowed to fire the trigger (a GitHub login, a Slack user id)"`
+	IDs   []string `json:"ids,omitempty" jsonschema:"the provider's ids for the senders allowed to fire the trigger (a GitHub login, a Slack or Discord user id)"`
 	Roles []string `json:"roles,omitempty" jsonschema:"sender roles allowed to fire the trigger, the values in senders.roles from triggers.providers.event_types"`
 }
 
 type providerArgs struct {
-	Provider string `json:"provider" jsonschema:"the provider (e.g. github, alertmanager, slack)"`
+	Provider string `json:"provider" jsonschema:"the provider (e.g. github, alertmanager, slack, discord)"`
 }
 
 type providerFieldsArgs struct {
-	Provider  string `json:"provider" jsonschema:"the provider (e.g. github, alertmanager, slack)"`
+	Provider  string `json:"provider" jsonschema:"the provider (e.g. github, alertmanager, slack, discord)"`
 	EventType string `json:"event_type" jsonschema:"the provider event type (e.g. issue_comment)"`
 }
 
