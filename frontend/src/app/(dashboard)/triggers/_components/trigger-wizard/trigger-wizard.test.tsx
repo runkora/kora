@@ -76,6 +76,7 @@ const PROVIDER_EVENT_TYPES: Record<string, TriggerEventTypes> = {
   },
   alertmanager: { declared: ['alert.firing'], category: 'webhook' },
   slack: { declared: ['mention', 'direct_message'], category: 'chat', senders: { roles: [] } },
+  discord: { declared: ['mention', 'direct_message'], category: 'chat', senders: { roles: [] } },
 };
 
 beforeEach(() => {
@@ -97,7 +98,7 @@ beforeEach(() => {
     fields:
       provider === 'alertmanager'
         ? ALERT_FIELDS
-        : provider === 'slack'
+        : provider === 'slack' || provider === 'discord'
           ? CHAT_FIELDS
           : (GITHUB_FIELDS[eventType] ?? []),
     error: null,
@@ -368,12 +369,15 @@ describe('chat command kind', () => {
     expect(screen.queryByText('acme/widgets')).toBeNull();
   });
 
-  it('starts on New source with Slack chosen when there is no chat source', async () => {
+  it('starts on New source with no platform chosen when there is no chat source', async () => {
     renderWizard('chat', CONTEXT.sources);
     expect(screen.queryByText('acme/widgets')).toBeNull();
-    expect(screen.getByText('Platform')).toBeTruthy();
-    expect(await screen.findByRole('button', { name: 'Create source' })).toBeTruthy();
-    expect(screen.getByRole('radio', { name: /^Slack/ })).toHaveAttribute('aria-checked', 'true');
+    expect(await screen.findByText('Platform')).toBeTruthy();
+    expect(await screen.findByRole('radio', { name: /^Slack/ })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+    expect(screen.queryByRole('button', { name: 'Create source' })).toBeNull();
   });
 
   it('chooses no platform when Slack could not be loaded', async () => {
@@ -438,12 +442,12 @@ describe('chat command kind', () => {
     expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true);
   });
 
-  it('offers Slack, and shows Discord and Microsoft Teams as planned', async () => {
+  it('offers Slack and Discord, and shows Microsoft Teams as planned', async () => {
     renderWizard('chat', []);
     fireEvent.click(screen.getByText('New source'));
     const slack = await screen.findByRole('radio', { name: /Slack/ });
     expect(slack.hasAttribute('disabled')).toBe(false);
-    expect(screen.getByRole('radio', { name: /Discord/ }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('radio', { name: /Discord/ }).hasAttribute('disabled')).toBe(false);
     expect(screen.getByRole('radio', { name: /Microsoft Teams/ }).hasAttribute('disabled')).toBe(
       true,
     );
@@ -528,6 +532,87 @@ describe('chat command kind', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false),
     );
+  });
+
+  /** Names a new Discord source and creates it. */
+  async function createDiscordSource() {
+    fireEvent.change(screen.getByLabelText(/Source name/), { target: { value: 'acme-discord' } });
+    fireEvent.click(await screen.findByText('Discord'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create source' }));
+    await screen.findByLabelText(/Bot token/);
+  }
+
+  it('creates the Discord source with no token and shows no request URL', async () => {
+    renderWizard('chat', []);
+    fireEvent.click(screen.getByText('New source'));
+    await createDiscordSource();
+    expect(api.createSource).toHaveBeenCalledWith({ name: 'acme-discord', provider: 'discord' });
+    expect(screen.queryByRole('button', { name: 'Copy request URL' })).toBeNull();
+    expect(document.body.textContent).not.toContain('/api/v1/webhooks/src-new');
+    expect(document.body.textContent).toContain('Copy the bot token');
+    expect(screen.getByLabelText(/Bot token/).getAttribute('type')).toBe('password');
+  });
+
+  it('does not continue until the bot token is saved', async () => {
+    renderWizard('chat', []);
+    fillNameAndPrompt();
+    fireEvent.click(screen.getByText('New source'));
+    await createDiscordSource();
+    fireEvent.click(await screen.findByRole('radio', { name: /Direct message/ }));
+    expect(screen.getByText('Save the bot token from your Discord application.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true);
+
+    fireEvent.change(screen.getByLabelText(/Bot token/), { target: { value: ' tok ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save token' }));
+    await screen.findByText('Bot token saved.');
+    expect(api.updateSource).toHaveBeenCalledWith('src-new', { signing_secret: 'tok' });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(false),
+    );
+  });
+
+  it('builds the invite link from the application id without sending it', async () => {
+    renderWizard('chat', []);
+    fireEvent.click(screen.getByText('New source'));
+    await createDiscordSource();
+    expect(screen.queryByRole('button', { name: 'Copy invite link' })).toBeNull();
+    fireEvent.change(screen.getByLabelText(/Application ID/), {
+      target: { value: '123456789012345678' },
+    });
+    expect(screen.getByRole('button', { name: 'Copy invite link' })).toBeTruthy();
+    expect(document.body.textContent).toContain(
+      'https://discord.com/oauth2/authorize?client_id=123456789012345678&scope=bot&permissions=274877975552',
+    );
+    expect(JSON.stringify(api.createSource.mock.calls)).not.toContain('123456789012345678');
+    expect(api.updateSource).not.toHaveBeenCalled();
+  });
+
+  it('keeps the invite link in the done block after the setup step is gone', async () => {
+    const onCreate = vi.fn().mockResolvedValue({
+      ok: true,
+      triggerId: 'trg-1',
+      endpoint: 'https://x/api/v1/webhooks/src-new',
+    });
+    renderWizard('chat', [], onCreate);
+    fillNameAndPrompt();
+    fireEvent.click(screen.getByText('New source'));
+    await createDiscordSource();
+    fireEvent.change(screen.getByLabelText(/Application ID/), {
+      target: { value: '123456789012345678' },
+    });
+    fireEvent.change(screen.getByLabelText(/Bot token/), { target: { value: 'tok' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save token' }));
+    await screen.findByText('Bot token saved.');
+    await chooseEventAndContinue();
+    fireEvent.click(screen.getByRole('radio', { name: 'Coder' }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Create trigger/ }));
+
+    expect(await screen.findByRole('button', { name: 'Copy invite link' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Copy request URL' })).toBeNull();
+    expect(JSON.stringify(onCreate.mock.calls)).not.toContain('123456789012345678');
+    expect(JSON.stringify(api.updateSource.mock.calls)).not.toContain('123456789012345678');
   });
 
   it('keeps the wizard on the source step when the source cannot be created', async () => {

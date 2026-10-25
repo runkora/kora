@@ -3,7 +3,7 @@
 /** @tier 3 — triggers-scoped. Platform-wide Triggers control surface:
  * Sources / Triggers / Deliveries. */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Alert,
@@ -33,11 +33,13 @@ import { TriggerList } from './trigger-list';
 import { DeliveryGrid } from './delivery-grid';
 import { consoleKindOf, matchesStatusFilter, runTargets } from '../_types';
 import { ingestHostFromWindow } from '../_lib/endpoints';
+import { DISCORD_PROVIDER } from '../_lib/discord-invite';
 import type {
   AgentOption,
   ConsoleKind,
   DeliveryRow,
   SourceCategory,
+  SourceConnection,
   SourceRow,
   TriggerRow,
 } from '../_types';
@@ -71,6 +73,9 @@ const KIND_FILTER_NOUN: Record<ConsoleKind, string> = {
   scheduled: 'scheduled',
   manual: 'manual',
 };
+
+/** How often a page with a connecting source asks for fresh data. */
+const CONNECTING_REFRESH_MS = 10_000;
 
 export function TriggersPage({
   sources,
@@ -106,8 +111,19 @@ export function TriggersPage({
   }, [sources]);
 
   const sourceWaiting = useMemo(() => {
-    const waiting = new Set(sources.filter((s) => !s.signingSecretSet).map((s) => s.id));
+    // A Discord source shows its connection state instead, and none while disabled.
+    const waiting = new Set(
+      sources
+        .filter((s) => !s.signingSecretSet && s.provider !== DISCORD_PROVIDER)
+        .map((s) => s.id),
+    );
     return (id: string) => waiting.has(id);
+  }, [sources]);
+
+  const sourceConnection = useMemo(() => {
+    const map = new Map<string, SourceConnection>();
+    for (const s of sources) if (s.connection !== null) map.set(s.id, s.connection);
+    return (id: string) => map.get(id);
   }, [sources]);
 
   const wizardSources = useMemo(
@@ -162,6 +178,14 @@ export function TriggersPage({
   // Every mutation this page can perform, shared with the agent page's
   // Triggers tab so the two surfaces drive the same drawer identically.
   const refresh = useCallback(() => router.refresh(), [router]);
+
+  // Refresh while a source is connecting: the backend records the session result.
+  const anyConnecting = sources.some((s) => s.connection?.state === 'connecting');
+  useEffect(() => {
+    if (!anyConnecting) return;
+    const timer = setInterval(() => router.refresh(), CONNECTING_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [anyConnecting, router]);
   const {
     fireManualTrigger,
     startManualRun,
@@ -289,6 +313,7 @@ export function TriggersPage({
               sourceName={sourceName}
               sourceCategory={sourceCategory}
               sourceWaiting={sourceWaiting}
+              sourceConnection={sourceConnection}
               onOpen={setDrawerTrigger}
               onToggle={(t) => void toggleTrigger(t)}
               canRunAgent={canRunAgent}

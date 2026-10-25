@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen } from '@testing-library/react';
 import { renderWithProviders } from '@runkora/test-utils';
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
 
 import { TriggersPage } from './triggers-page';
 import type { SourceRow } from '../_types';
@@ -11,6 +12,7 @@ import { makeTrigger } from '../_types/fixtures';
 const SOURCE: Omit<SourceRow, 'id' | 'name' | 'provider' | 'category'> = {
   enabled: true,
   signingSecretSet: true,
+  connection: null,
   createdAt: '2026-07-01T00:00:00Z',
   rejectionCount: 0,
   lastRejectionAt: null,
@@ -74,5 +76,47 @@ describe('a chat source waiting for its signing secret', () => {
   it('marks nothing when every source holds its secret', () => {
     renderPage();
     expect(screen.queryByText('Waiting for signing secret')).toBeNull();
+  });
+});
+
+describe('a Discord source that is connecting', () => {
+  const discord = (state: 'connecting' | 'connected'): SourceRow[] => [
+    {
+      ...SOURCE,
+      id: 'dc',
+      name: 'acme-discord',
+      provider: 'discord',
+      category: 'chat',
+      connection: { state },
+    },
+  ];
+  const page = (sources: SourceRow[]) => (
+    <TriggersPage sources={sources} triggers={[]} deliveries={[]} agents={[]} error={null} />
+  );
+
+  afterEach(() => {
+    vi.useRealTimers();
+    refresh.mockClear();
+  });
+
+  it('refreshes every 10 seconds until it is no longer connecting', () => {
+    vi.useFakeTimers();
+    const view = renderWithProviders(page(discord('connecting')));
+    expect(refresh).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(10_000);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(20_000);
+    expect(refresh).toHaveBeenCalledTimes(3);
+
+    view.rerender(page(discord('connected')));
+    vi.advanceTimersByTime(60_000);
+    expect(refresh).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not refresh when no source is connecting', () => {
+    vi.useFakeTimers();
+    renderWithProviders(page(discord('connected')));
+    vi.advanceTimersByTime(60_000);
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

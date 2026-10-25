@@ -56,7 +56,14 @@ import {
   LATER_CHAT_PLATFORMS,
   placeholderKeys,
 } from '../../../_lib/chat';
-import { PROVIDER_IDS, PROVIDERS, providerName, SENDER_ID_EXAMPLE } from '../../../_lib/providers';
+import {
+  ISSUED_SECRETS,
+  PROVIDER_IDS,
+  PROVIDERS,
+  providerName,
+  SENDER_ID_EXAMPLE,
+} from '../../../_lib/providers';
+import { DISCORD_PROVIDER, discordInviteUrl } from '../../../_lib/discord-invite';
 import { SLACK_PROVIDER, slackAppManifest } from '../../../_lib/slack-app-manifest';
 import { NEW_SOURCE } from '../types';
 import type {
@@ -215,7 +222,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
                 title={s.name}
                 description={
                   s.signingSecretSet === false
-                    ? `${providerName(s.provider)} · waiting for signing secret`
+                    ? `${providerName(s.provider)} · waiting for ${ISSUED_SECRETS[s.provider]?.label ?? 'signing secret'}`
                     : providerName(s.provider)
                 }
               />
@@ -231,11 +238,13 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
           </Grid>
         </RadioGroup>
         {/* A source that does not exist yet has no request URL to show. */}
-        {state.sourceChoice !== NEW_SOURCE && state.sourceChoice !== '' && (
-          <Text size="micro" mono color="subtle" truncate>
-            {endpointFor(ingestHost, state.sourceChoice)}
-          </Text>
-        )}
+        {state.sourceChoice !== NEW_SOURCE &&
+          state.sourceChoice !== '' &&
+          catalogProvider(state, sources) !== DISCORD_PROVIDER && (
+            <Text size="micro" mono color="subtle" truncate>
+              {endpointFor(ingestHost, state.sourceChoice)}
+            </Text>
+          )}
       </Stack>
 
       {state.sourceChoice === NEW_SOURCE && (
@@ -307,6 +316,9 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
           </Stack>
           {state.newSourceProvider === SLACK_PROVIDER && (
             <SlackAppSetup state={state} patch={patch} ingestHost={ingestHost} />
+          )}
+          {state.newSourceProvider === DISCORD_PROVIDER && (
+            <DiscordBotSetup state={state} patch={patch} />
           )}
         </Stack>
       )}
@@ -402,6 +414,12 @@ function validateSource(category: SourceCategory) {
           if (!s.newSourceSecretSaved)
             return { valid: false, hint: 'Save the signing secret from your Slack app.' };
         }
+        if (s.newSourceProvider === DISCORD_PROVIDER) {
+          if (s.newSourceCreated === null)
+            return { valid: false, hint: 'Create the source, then save its bot token.' };
+          if (!s.newSourceSecretSaved)
+            return { valid: false, hint: 'Save the bot token from your Discord application.' };
+        }
       } else if (!s.sourceChoice) {
         return { valid: false, hint: `Choose where ${COPY[category].arrivals} come from.` };
       }
@@ -440,6 +458,106 @@ function validateChatFields(s: WizardState) {
 }
 
 /**
+ * Creates a new source of a provider that issues its own secret, then saves
+ * the secret the admin pastes. The source is created first, with no secret, so
+ * a wizard closed early leaves it in the source picker rather than orphaned.
+ */
+function useIssuedSourceSetup(
+  provider: string,
+  state: WizardState,
+  patch: (next: Partial<WizardState>) => void,
+) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const create = async () => {
+    setPending(true);
+    setError(null);
+    const name = state.newSourceName.trim();
+    const made = await createSource({ name, provider });
+    setPending(false);
+    if (made.error !== null || made.source === null) {
+      setError(made.error ?? 'Failed to create the source.');
+      return;
+    }
+    // Refresh so a wizard closed early leaves the source in the picker, where a duplicate could not be created.
+    router.refresh();
+    patch({
+      newSourceCreated: { id: made.source.id, name, provider },
+      newSourceSecretSaved: false,
+    });
+  };
+
+  const saveSecret = async () => {
+    if (state.newSourceCreated === null) return;
+    setPending(true);
+    setError(null);
+    const saved = await updateSource(state.newSourceCreated.id, {
+      signing_secret: state.newSourceSecret.trim(),
+    });
+    setPending(false);
+    if (saved.error !== null) {
+      setError(saved.error);
+      return;
+    }
+    patch({ newSourceSecretSaved: true, newSourceSecret: '' });
+  };
+
+  return { pending, error, create, saveSecret };
+}
+
+/** The secret field and save button shared by the issued-secret providers. */
+function IssuedSecretFields({
+  provider,
+  placeholder,
+  state,
+  patch,
+  setup,
+}: {
+  provider: string;
+  placeholder: string;
+  state: WizardState;
+  patch: (next: Partial<WizardState>) => void;
+  setup: ReturnType<typeof useIssuedSourceSetup>;
+}) {
+  const { title = 'Secret', short = 'secret' } = ISSUED_SECRETS[provider] ?? {};
+  if (state.newSourceSecretSaved)
+    return (
+      <Text size="caption" color="status-healthy">
+        {title} saved.
+      </Text>
+    );
+  return (
+    <Stack gap="snug">
+      <FormField label={title} id="wizard-source-secret" required>
+        <Input
+          id="wizard-source-secret"
+          type="password"
+          autoComplete="off"
+          mono
+          value={state.newSourceSecret}
+          disabled={setup.pending}
+          onChange={(e) => patch({ newSourceSecret: e.target.value })}
+          placeholder={placeholder}
+          maxLength={256}
+        />
+      </FormField>
+      {setup.error !== null && <Alert variant="error">{setup.error}</Alert>}
+      <Stack direction="horizontal" justify="end">
+        <Button
+          size="xs"
+          disabled={setup.pending || !state.newSourceSecret.trim()}
+          onClick={() => void setup.saveSecret()}
+        >
+          {setup.pending ? 'Saving…' : `Save ${short}`}
+        </Button>
+      </Stack>
+    </Stack>
+  );
+}
+
+/**
  * A new Slack source's setup, in the order Slack needs. The source is created
  * first, with no signing secret, so its request URL exists. The admin sets the
  * URL in Slack, which checks it, and then saves the signing secret Slack issued.
@@ -454,42 +572,10 @@ function SlackAppSetup({
   ingestHost: string;
 }) {
   const { productName } = useBrand();
-  const router = useRouter();
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const setup = useIssuedSourceSetup(SLACK_PROVIDER, state, patch);
+  const { pending, error } = setup;
   const created = state.newSourceCreated;
-
-  const create = async () => {
-    setPending(true);
-    setError(null);
-    const name = state.newSourceName.trim();
-    const made = await createSource({ name, provider: SLACK_PROVIDER });
-    setPending(false);
-    if (made.error !== null || made.source === null) {
-      setError(made.error ?? 'Failed to create the source.');
-      return;
-    }
-    // The source exists now; refresh so a wizard closed early leaves it in the
-    // source picker rather than orphaned, where a duplicate could be created.
-    router.refresh();
-    patch({
-      newSourceCreated: { id: made.source.id, name, provider: SLACK_PROVIDER },
-      newSourceSecretSaved: false,
-    });
-  };
-
-  const saveSecret = async () => {
-    if (created === null) return;
-    setPending(true);
-    setError(null);
-    const saved = await updateSource(created.id, { signing_secret: state.newSourceSecret.trim() });
-    setPending(false);
-    if (saved.error !== null) {
-      setError(saved.error);
-      return;
-    }
-    patch({ newSourceSecretSaved: true, newSourceSecret: '' });
-  };
+  const create = setup.create;
 
   if (created === null) {
     return (
@@ -543,45 +629,132 @@ function SlackAppSetup({
           {requestUrl}
         </Text>
       </FieldRow>
-      {state.newSourceSecretSaved ? (
-        <Text size="caption" color="status-healthy">
-          Signing secret saved.
+      <IssuedSecretFields
+        provider={SLACK_PROVIDER}
+        placeholder="From Basic Information in your Slack app"
+        state={state}
+        patch={patch}
+        setup={setup}
+      />
+    </Stack>
+  );
+}
+
+/** The Discord invite link with its copy button; nothing until the application id is valid. */
+function InviteLinkRow({ url }: { url: string | null }) {
+  if (url === null) return null;
+  return (
+    <FieldRow
+      leading={
+        <Text as="span" size="caption" mono color="subtle">
+          invite link
         </Text>
-      ) : (
-        <Stack gap="snug">
-          <FormField label="Signing secret" id="wizard-source-secret" required>
-            <Input
-              id="wizard-source-secret"
-              type="password"
-              autoComplete="off"
-              mono
-              value={state.newSourceSecret}
-              disabled={pending}
-              onChange={(e) => patch({ newSourceSecret: e.target.value })}
-              placeholder="From Basic Information in your Slack app"
-              maxLength={256}
-            />
-          </FormField>
-          {error !== null && <Alert variant="error">{error}</Alert>}
-          <Stack direction="horizontal" justify="end">
-            <Button
-              size="xs"
-              disabled={pending || !state.newSourceSecret.trim()}
-              onClick={() => void saveSecret()}
-            >
-              {pending ? 'Saving…' : 'Save secret'}
-            </Button>
-          </Stack>
+      }
+      actions={<CopyButton value={url} label="Copy invite link" />}
+    >
+      <Text as="span" size="caption" mono truncate>
+        {url}
+      </Text>
+    </FieldRow>
+  );
+}
+
+/**
+ * A new Discord source's setup. The source is created first, with no token,
+ * then the admin saves the bot token. A Discord source has no request URL: kora
+ * connects out. The application id builds the invite link here and goes nowhere else.
+ */
+function DiscordBotSetup({
+  state,
+  patch,
+}: {
+  state: WizardState;
+  patch: (next: Partial<WizardState>) => void;
+}) {
+  const setup = useIssuedSourceSetup(DISCORD_PROVIDER, state, patch);
+  const inviteUrl = discordInviteUrl(state.newSourceApplicationId);
+
+  if (state.newSourceCreated === null) {
+    return (
+      <Stack gap="cozy">
+        <Stack gap="tight">
+          <SectionLabel>Discord bot</SectionLabel>
+          <Text size="caption" color="subtle">
+            Create the source first, then add its bot token. Discord needs no request URL.
+          </Text>
         </Stack>
-      )}
+        {setup.error !== null && <Alert variant="error">{setup.error}</Alert>}
+        <Stack direction="horizontal" justify="end">
+          <Button
+            size="xs"
+            disabled={setup.pending || !state.newSourceName.trim()}
+            onClick={() => void setup.create()}
+          >
+            {setup.pending ? 'Creating…' : 'Create source'}
+          </Button>
+        </Stack>
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack gap="cozy">
+      <Stack gap="tight">
+        <SectionLabel>Discord bot</SectionLabel>
+        <Text size="caption" color="subtle">
+          In the Discord Developer Portal:
+        </Text>
+        <Text size="caption" color="subtle">
+          1. Create an application.
+        </Text>
+        <Text size="caption" color="subtle">
+          2. Add a bot to it on the Bot page.
+        </Text>
+        <Text size="caption" color="subtle">
+          3. Copy the bot token and paste it below.
+        </Text>
+      </Stack>
+      <IssuedSecretFields
+        provider={DISCORD_PROVIDER}
+        placeholder="From the Bot page in the Developer Portal"
+        state={state}
+        patch={patch}
+        setup={setup}
+      />
+      <FormField
+        label="Application ID"
+        id="wizard-discord-application-id"
+        hint="From General Information in the Developer Portal. It builds the invite link here and is not saved."
+      >
+        <Input
+          id="wizard-discord-application-id"
+          mono
+          inputMode="numeric"
+          value={state.newSourceApplicationId}
+          onChange={(e) => patch({ newSourceApplicationId: e.target.value })}
+          placeholder="123456789012345678"
+          maxLength={20}
+        />
+      </FormField>
+      <InviteLinkRow url={inviteUrl} />
     </Stack>
   );
 }
 
 /** The chat command kind's done block: the request URL the chat app sends events to. */
 function ChatDoneContent({ state, context, endpoint }: DoneContentProps) {
-  if (!endpoint) return null;
   const provider = catalogProvider(state, context.sources);
+  if (provider === DISCORD_PROVIDER)
+    return (
+      <Stack gap="snug" minWidth="prose" maxWidth="prose">
+        <InviteLinkRow url={discordInviteUrl(state.newSourceApplicationId)} />
+        <Text size="caption" color="subtle" align="center">
+          Invite the bot to your Discord server. It starts a run when someone mentions it or sends
+          it a direct message.
+        </Text>
+      </Stack>
+    );
+  if (!endpoint) return null;
   const isNew = state.sourceChoice === NEW_SOURCE;
   const note =
     provider === SLACK_PROVIDER

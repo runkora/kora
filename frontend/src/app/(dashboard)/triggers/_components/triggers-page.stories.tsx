@@ -23,6 +23,7 @@ import {
   routingCandidates,
 } from './triggers-mock-data';
 import type { RoutingCase } from './triggers-mock-data';
+import type { SourceConnection } from '../_types';
 
 /** The path segment after `after`, e.g. the provider in `/api/trigger-providers/slack/fields`. */
 function segmentAfter(req: MockRequest, after: string): string {
@@ -105,6 +106,10 @@ const frame = [dashboardPage(catalogRoutes)];
 const WAITING_SOURCES = SOURCES.map((s) =>
   s.provider === 'slack' ? { ...s, signingSecretSet: false } : s,
 );
+
+/** The mock fleet with its Discord source in the given connection state. */
+const discordSources = (connection: SourceConnection, signingSecretSet = true) =>
+  SOURCES.map((s) => (s.provider === 'discord' ? { ...s, connection, signingSecretSet } : s));
 
 /** A busy fleet: healthy, degraded and failing triggers of every kind, with a day of deliveries. */
 export const Default: Story = { decorators: frame };
@@ -600,5 +605,145 @@ export const WizardWebhookSenders: Story = {
     const body = within(document.body);
     await body.findByText('Owns the repository');
     (await body.findByText('Senders')).scrollIntoView({ block: 'center' });
+  },
+};
+
+/** Names a new Discord source in the chat command wizard and creates it. */
+async function createDiscordSource(canvasElement: HTMLElement) {
+  await openKind(canvasElement, /Chat command/);
+  const body = within(document.body);
+  await userEvent.type(await body.findByLabelText(/Trigger name/), 'answer-discord-questions');
+  await userEvent.click(await body.findByText('New source'));
+  await userEvent.type(await body.findByLabelText(/Source name/), 'acme-discord-ops');
+  await userEvent.click(await body.findByRole('radio', { name: /Discord/ }));
+  await userEvent.click(await body.findByRole('button', { name: 'Create source' }));
+  await body.findByLabelText(/Bot token/);
+  return body;
+}
+
+/** The Discord source step before the token: the source exists, with the Developer Portal steps, no request URL and the token field. */
+export const WizardDiscordSource: Story = {
+  decorators: frame,
+  play: async ({ canvasElement }) => {
+    const body = await createDiscordSource(canvasElement);
+    (await body.findByText('Discord bot')).scrollIntoView({ block: 'start' });
+  },
+};
+
+/** The Discord source step with the token saved and the invite link built from the application id. */
+export const WizardDiscordInvite: Story = {
+  decorators: frame,
+  play: async ({ canvasElement }) => {
+    const body = await createDiscordSource(canvasElement);
+    await userEvent.type(
+      await body.findByLabelText(/Bot token/),
+      'MTIzNDU2.Gx7aBc.dGhpcy1pcy1ub3QtYS1yZWFsLXRva2Vu',
+    );
+    await userEvent.click(await body.findByRole('button', { name: 'Save token' }));
+    await body.findByText('Bot token saved.');
+    await userEvent.type(await body.findByLabelText(/Application ID/), '123456789012345678');
+    await body.findByRole('button', { name: 'Copy invite link' });
+    (await body.findByText('Discord bot')).scrollIntoView({ block: 'start' });
+  },
+};
+
+/** The done step for a new Discord source: no request URL, only the invite reminder. */
+export const WizardDiscordDone: Story = {
+  decorators: frame,
+  play: async ({ canvasElement }) => {
+    const body = await createDiscordSource(canvasElement);
+    await userEvent.type(
+      await body.findByLabelText(/Bot token/),
+      'MTIzNDU2.Gx7aBc.dGhpcy1pcy1ub3QtYS1yZWFsLXRva2Vu',
+    );
+    await userEvent.click(await body.findByRole('button', { name: 'Save token' }));
+    await body.findByText('Bot token saved.');
+    await userEvent.click(await body.findByRole('radio', { name: /Mention/ }));
+    await userEvent.type(
+      await body.findByLabelText('Prompt'),
+      'Answer the question in the thread.',
+    );
+    await next(body);
+    await userEvent.click(await body.findByRole('radio', { name: 'Triage Bot' }));
+    await next(body);
+    await next(body);
+    await userEvent.click(await body.findByRole('button', { name: /Create trigger/ }));
+    await body.findByText('Trigger created');
+  },
+};
+
+/** The triggers page with the Discord source waiting for its token. */
+export const DiscordSourceWaiting: Story = {
+  decorators: frame,
+  args: { sources: discordSources({ state: 'waiting' }, false) },
+  play: async ({ canvasElement }) => {
+    await within(canvasElement).findAllByText('Waiting for bot token');
+  },
+};
+
+/** The triggers page with the Discord source connecting. */
+export const DiscordSourceConnecting: Story = {
+  decorators: frame,
+  args: { sources: discordSources({ state: 'connecting' }) },
+  play: async ({ canvasElement }) => {
+    await within(canvasElement).findAllByText('Connecting');
+  },
+};
+
+/** The triggers page with the Discord source connected. */
+export const DiscordSourceConnected: Story = {
+  decorators: frame,
+  play: async ({ canvasElement }) => {
+    await within(canvasElement).findAllByText('Connected');
+  },
+};
+
+/** The triggers page with the Discord source rejected. */
+export const DiscordSourceRejected: Story = {
+  decorators: frame,
+  args: {
+    sources: discordSources({ state: 'rejected', reason: 'Discord refused the bot token' }),
+  },
+  play: async ({ canvasElement }) => {
+    await within(canvasElement).findAllByText('Rejected');
+  },
+};
+
+/** The drawer of a trigger on a rejected Discord source: the reason, and the way to replace the token. */
+export const DrawerDiscordRejected: Story = {
+  decorators: frame,
+  args: {
+    sources: discordSources({ state: 'rejected', reason: 'Discord refused the bot token' }),
+  },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByText('answer-discord-questions'));
+    const body = within(document.body);
+    await body.findByText(/Discord refused the bot token/);
+    await body.findByLabelText(/Bot token/);
+  },
+};
+
+/** The drawer of a trigger on a Discord source waiting for its token, with the way to set it. */
+export const DrawerDiscordWaiting: Story = {
+  decorators: frame,
+  args: { sources: discordSources({ state: 'waiting' }, false) },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByText('answer-discord-questions'));
+    const body = within(document.body);
+    await userEvent.type(
+      await body.findByLabelText(/Bot token/),
+      'MTIzNDU2.Gx7aBc.dGhpcy1pcy1ub3QtYS1yZWFsLXRva2Vu',
+    );
+    await userEvent.click(await body.findByRole('button', { name: 'Set token' }));
+    await body.findByText(/The bot token is stored/);
+  },
+};
+
+/** The drawer of a trigger on a connected Discord source. */
+export const DrawerDiscordConnected: Story = {
+  decorators: frame,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByText('answer-discord-questions'));
+    await within(document.body).findByText('Connection');
   },
 };

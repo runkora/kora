@@ -88,6 +88,7 @@ export function baseState(sources: readonly { id: string }[]): WizardState {
     newSourceSecret: '',
     newSourceCreated: null,
     newSourceSecretSaved: false,
+    newSourceApplicationId: '',
     eventType: '',
     eventFields: null,
     eventFieldsFailed: false,
