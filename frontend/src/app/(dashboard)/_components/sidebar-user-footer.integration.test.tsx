@@ -26,7 +26,6 @@ const { DEFAULT_SESSION, pushMock } = vi.hoisted(() => ({
     scopes: [],
     user: { sub: 'user-test-123', email: 'dev@runkora.test', name: 'Dev User' },
     loaded: true,
-    apiAuthoring: true,
   },
   pushMock: vi.fn(),
 }));
@@ -82,12 +81,7 @@ describe('SidebarUserFooter', () => {
   });
 
   it('shows "Loading…" before the session is loaded (user is null)', () => {
-    vi.mocked(useSession).mockReturnValueOnce({
-      scopes: [],
-      user: null,
-      loaded: false,
-      apiAuthoring: true,
-    });
+    vi.mocked(useSession).mockReturnValueOnce({ scopes: [], user: null, loaded: false });
     renderFooter();
     // Both the name and email fall back to "Loading…" when there's no user.
     expect(screen.getAllByText('Loading…').length).toBeGreaterThan(0);
@@ -98,7 +92,6 @@ describe('SidebarUserFooter', () => {
       scopes: [],
       user: { sub: 'anon-sub', email: 'anon@runkora.test', name: '' },
       loaded: true,
-      apiAuthoring: true,
     });
     const user = userEvent.setup();
     renderFooter();
