@@ -244,9 +244,6 @@ func (f *refs) connections(ctx context.Context, r *DeclaredReconciler, namespace
 
 func prepareVirtualModel(ctx context.Context, r *DeclaredReconciler, obj client.Object) (prepared, error) {
 	vm := obj.(*dv1.VirtualModel)
-	if vm.Namespace != systemNamespace {
-		return prepared{refusal: refusal(reasonInvalid, fmt.Sprintf("A VirtualModel must be in the %s namespace.", systemNamespace))}, nil
-	}
 	list := &dv1.VirtualModelList{}
 	if err := r.List(ctx, list, client.InNamespace(systemNamespace)); err != nil {
 		return prepared{}, fmt.Errorf("list VirtualModels: %w", err)
