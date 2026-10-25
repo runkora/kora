@@ -202,12 +202,13 @@ func setResult(status *dv1.Status, gen int64, res declarative.Result) bool {
 	return false
 }
 
-// SetupWithManager registers one controller for the kind. Spec changes and
-// changes to referenced resources reconcile it. Its own status patches do not.
+// SetupWithManager registers one controller for the kind. Spec and annotation
+// changes, and changes to referenced resources, reconcile it. Its own status
+// patches do not.
 func (r *DeclaredReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named("declared-"+r.kind.kind).
-		For(r.kind.newObj(), builder.WithPredicates(predicate.GenerationChangedPredicate{}))
+		For(r.kind.newObj(), builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{})))
 	for _, w := range r.kind.watches {
 		b = b.Watches(w.obj, handler.EnqueueRequestsFromMapFunc(w.mapper))
 	}
