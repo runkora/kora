@@ -6,6 +6,7 @@ metadata:
   namespace: kora-tenant-example
   labels:
     runkora.io/trigger-source: "true"
+# A local placeholder value. The local cluster runs no secrets controller. Keep real values out of Git.
 stringData:
   secret: local-only-webhook-secret
 ---

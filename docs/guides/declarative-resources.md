@@ -17,6 +17,37 @@ The key is the item's name in the API. `metadata.name` is a DNS label. An `Agent
 
 Working examples for the local example tenant are in `deploy/local/declarative/`.
 
+## Repository layout
+
+A tenant's repository holds the tenant's resources and sets their namespace and repository once, with Kustomize:
+
+```
+acme-agents/
+├── kustomization.yaml
+├── environment.yaml
+├── agent.yaml
+├── trigger-source.yaml      # ExternalSecret + TriggerSource
+├── triggers.yaml
+└── role.yaml
+```
+
+```yaml
+# kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: kora-tenant-acme
+commonAnnotations:
+  runkora.io/repository: github.com/acme/acme-agents
+resources:
+  - environment.yaml
+  - agent.yaml
+  - trigger-source.yaml
+  - triggers.yaml
+  - role.yaml
+```
+
+VirtualModels, system-namespace PolicyRoles and KoraTenant settings live in the platform team's repository. The tenant examples below leave out `metadata.namespace`, which the kustomization sets.
+
 ## VirtualModel
 
 A `VirtualModel` is a platform-wide catalog model, served as `<family>/<name>`. The cluster rejects one outside the system namespace.
@@ -54,7 +85,6 @@ apiVersion: runkora.io/v1alpha1
 kind: Environment
 metadata:
   name: go-build
-  namespace: kora-tenant-acme
 spec:
   displayName: Go build
   sandboxImage: kora-go
@@ -81,7 +111,6 @@ apiVersion: runkora.io/v1alpha1
 kind: Agent
 metadata:
   name: code-reviewer
-  namespace: kora-tenant-acme
 spec:
   displayName: Code reviewer
   description: Reviews pull requests in the acme repositories for correctness.
@@ -118,28 +147,39 @@ The agent's grant is derived from its spec with no caller scope ceiling. See [Cr
 
 ## TriggerSource
 
-A `TriggerSource` is a webhook endpoint for a provider. Its signing secret comes from a Secret in the same namespace. The Secret must carry the label `runkora.io/trigger-source=true`. The operator reads the Secret, ignores it without the label, and sends its value to kora-triggers.
+A `TriggerSource` is a webhook endpoint for a provider. Its signing secret comes from a Secret in the same namespace. The signing secret is the value the provider signs each delivery with, such as the secret set on a GitHub webhook. kora-triggers drops a delivery whose signature does not match. The Secret must carry the label `runkora.io/trigger-source=true`. The operator reads the Secret, ignores it without the label, and sends its value to kora-triggers.
 
 ```yaml
-apiVersion: v1
-kind: Secret
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
 metadata:
   name: github-webhook
-  namespace: kora-tenant-acme
-  labels:
-    runkora.io/trigger-source: "true"
-stringData:
-  secret: <the webhook secret configured in GitHub>
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: aws-secrets-manager
+  target:
+    name: github-webhook
+    template:
+      metadata:
+        labels:
+          runkora.io/trigger-source: "true"
+  data:
+    - secretKey: secret
+      remoteRef:
+        key: acme/kora/github-webhook
 ---
 apiVersion: runkora.io/v1alpha1
 kind: TriggerSource
 metadata:
   name: github-org
-  namespace: kora-tenant-acme
 spec:
   provider: github
   signingSecretRef: {name: github-webhook, key: secret}
 ```
+
+Keep the value out of Git. Any tool that creates the labelled Secret works, such as External Secrets Operator, Sealed Secrets or SOPS. The label goes on the created Secret, through the tool's template.
 
 - `provider`: the webhook provider, such as `github` or `slack`.
 - `config`: provider-specific configuration, as the API accepts it.
@@ -158,7 +198,6 @@ apiVersion: runkora.io/v1alpha1
 kind: Trigger
 metadata:
   name: review-on-pr
-  namespace: kora-tenant-acme
 spec:
   kind: webhook
   source: github-org
@@ -172,6 +211,10 @@ spec:
 A scheduled trigger takes `schedule` and no `source`:
 
 ```yaml
+apiVersion: runkora.io/v1alpha1
+kind: Trigger
+metadata:
+  name: weekday-summary
 spec:
   kind: scheduled
   agent: code-reviewer
@@ -201,7 +244,6 @@ apiVersion: runkora.io/v1alpha1
 kind: PolicyRole
 metadata:
   name: reviewers
-  namespace: kora-tenant-acme
 spec:
   role: Reviewers
   scopes:
@@ -281,16 +323,7 @@ The annotation `runkora.io/repository` names the repository that drives a resour
 
 The annotation is for display only. It grants nothing, and kora does not check it.
 
-Each repository stamps its own value. Several repositories can drive one tenant, and each item shows the repository it came from. Kustomize sets the annotation on every resource of a repository with `commonAnnotations`:
-
-```yaml
-# kustomization.yaml
-commonAnnotations:
-  runkora.io/repository: github.com/acme/payments-agents
-resources:
-  - agents.yaml
-  - triggers.yaml
-```
+Each repository stamps its own value, as `commonAnnotations` does in the [repository layout](#repository-layout). Several repositories can drive one tenant, and each item shows the repository it came from.
 
 ## Edits through the API
 
