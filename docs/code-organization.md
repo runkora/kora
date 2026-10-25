@@ -45,7 +45,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `agents` | Agent control plane: types, runs, sessions, pubsub, k8s, authz; sub-packages `sandbox/`, `sessionmanager/` |
 | `policyservice` | Authz data plane; sub-packages `api/`, `bundle/`, `grants/`, `principalroles/`, `roles/`, `routes/`, `tenantbudget/`, `vocabulary/` |
 | `policygw` | Policy-gateway HTTP transport (delegates evaluation to policy-service) |
-| `operator` | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook |
+| `operator` | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook, projection of declared resources |
 | `identityproxy` | `ext_proc` server, token cache, refresh loop |
 | `example` | Reference implementation, not production. Full feature layout (`models`, `repository`, `postgres`, `service`, `handlers`) with tests, demonstrating the pattern |
 | `credentials` | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, and the non-registrable `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
