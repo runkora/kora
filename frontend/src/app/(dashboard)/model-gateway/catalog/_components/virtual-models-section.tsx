@@ -132,7 +132,7 @@ export function VirtualModelsSection({
               <Text size="supporting" weight="emphasis" mono>
                 {m.name}
               </Text>
-              {m.declared && <ManagedInGitBadge />}
+              {m.declared && <ManagedInGitBadge repository={m.repository} />}
             </Stack>
             <Text size="caption" color="muted">
               {m.displayName}

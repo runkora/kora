@@ -4,6 +4,7 @@ import {
   declarativeRefusal,
   isDeclared,
   PLATFORM_LOCKED_MESSAGE,
+  repositoryUrl,
   writeErrorMessage,
 } from './declarative';
 
@@ -44,5 +45,17 @@ describe('writeErrorMessage', () => {
   it('falls back to the API message, then the status', () => {
     expect(writeErrorMessage(400, { code: 'invalid', message: 'bad name' })).toBe('bad name');
     expect(writeErrorMessage(500, null)).toBe('Request failed (500)');
+  });
+});
+
+describe('repositoryUrl', () => {
+  it.each([
+    ['github.com/acme/agents', 'https://github.com/acme/agents'],
+    ['https://gitlab.example.com/acme/agents', 'https://gitlab.example.com/acme/agents'],
+    ['payments-agents', null],
+    ['javascript:alert(1)', null],
+    ['http://github.com/acme/agents', null],
+  ])('%s', (repository, want) => {
+    expect(repositoryUrl(repository)).toBe(want);
   });
 });

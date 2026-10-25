@@ -147,7 +147,7 @@ export function EditorPanel({
                 {draft.enabled ? 'Enabled' : 'Disabled'}
               </Badge>
             )}
-            {draft.declared && <ManagedInGitBadge />}
+            {draft.declared && <ManagedInGitBadge repository={draft.repository} />}
           </Stack>
           {fullId && (
             <Text size="caption" color="muted" mono>
@@ -163,7 +163,9 @@ export function EditorPanel({
 
       <SidePanelBody>
         <Stack gap="comfortable">
-          {managedInGit && <ManagedInGitNotice declared={draft.declared} platform />}
+          {managedInGit && (
+            <ManagedInGitNotice declared={draft.declared} repository={draft.repository} platform />
+          )}
           {/* Identity fields */}
           <Stack paddingBottom="comfortable">
             <Grid cols={2} gap="snug">

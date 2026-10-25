@@ -142,7 +142,7 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
                 status={statusMap[agent.state] ?? 'unknown'}
                 label={labelMap[agent.state]}
               />
-              {agent.declared && <ManagedInGitBadge />}
+              {agent.declared && <ManagedInGitBadge repository={agent.repository} />}
             </Stack>
             <Stack direction="horizontal" align="center" gap="snug" wrap>
               <Text as="span" mono size="supporting" color="subtle">

@@ -84,7 +84,7 @@ function makeColumns(
               <Text mono size="supporting" weight="emphasis" truncate title={row.name}>
                 {row.name}
               </Text>
-              {row.declared && <ManagedInGitBadge />}
+              {row.declared && <ManagedInGitBadge repository={row.repository} />}
               {row.autoPausedAt !== null && (
                 <Badge variant="degraded" size="sm" shape="pill">
                   Auto-paused

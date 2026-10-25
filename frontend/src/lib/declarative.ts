@@ -21,6 +21,16 @@ export function managedInGit(declared: boolean, authoringLocked: boolean): boole
   return declared || authoringLocked;
 }
 
+/**
+ * The https link for a repository annotation value: an https URL as it is, or
+ * a host and path such as github.com/acme/agents. Anything else gets no link.
+ */
+export function repositoryUrl(repository: string): string | null {
+  if (/^https:\/\/\S+$/.test(repository)) return repository;
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+\/\S+$/i.test(repository)) return `https://${repository}`;
+  return null;
+}
+
 /** The refusal for a virtual model write with the platform switch off. */
 export const PLATFORM_LOCKED_MESSAGE =
   'Virtual models on this platform are managed in git. Make changes in the configuration repository.';

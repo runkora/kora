@@ -81,7 +81,7 @@ export function AgentCard({
                 Delegated
               </Text>
             )}
-            {agent.declared && <ManagedInGitBadge />}
+            {agent.declared && <ManagedInGitBadge repository={agent.repository} />}
           </Stack>
         }
         action={

@@ -24,6 +24,8 @@ export interface EnvironmentRow {
   updatedAt: string;
   /** Declared in the configuration repository: read-only here. */
   declared: boolean;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 // ── Transformers ──────────────────────────────────────────────────────────────
@@ -42,6 +44,7 @@ export function toEnvironmentRow(e: Environment): EnvironmentRow {
     createdAt: e.created_at,
     updatedAt: e.updated_at,
     declared: isDeclared(e),
+    repository: e.repository,
   };
 }
 

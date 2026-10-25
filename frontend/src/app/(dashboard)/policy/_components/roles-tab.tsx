@@ -287,7 +287,7 @@ function RoleCardGrid({
                     reserved
                   </Badge>
                 )}
-                {isDeclared(role) && <ManagedInGitBadge />}
+                {isDeclared(role) && <ManagedInGitBadge repository={role.repository} />}
               </Stack>
             </CardHeader>
 
@@ -396,7 +396,7 @@ function RoleTable({
                   reserved
                 </Badge>
               )}
-              {isDeclared(r) && <ManagedInGitBadge />}
+              {isDeclared(r) && <ManagedInGitBadge repository={r.repository} />}
             </Stack>
           );
         },

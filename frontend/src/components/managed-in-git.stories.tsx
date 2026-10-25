@@ -27,3 +27,11 @@ export const Badge: Story = {
 export const Notice: Story = {
   render: () => <ManagedInGitNotice declared />,
 };
+
+export const BadgeWithRepository: Story = {
+  render: () => <ManagedInGitBadge repository="github.com/acme/payments-agents" />,
+};
+
+export const NoticeWithRepository: Story = {
+  render: () => <ManagedInGitNotice declared repository="github.com/acme/payments-agents" />,
+};

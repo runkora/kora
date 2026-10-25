@@ -104,7 +104,7 @@ export function EnvironmentsPage({
               <Text size="supporting" weight="emphasis">
                 {row.name}
               </Text>
-              {row.declared && <ManagedInGitBadge />}
+              {row.declared && <ManagedInGitBadge repository={row.repository} />}
             </Stack>
             <Text size="caption" mono color="subtle">
               {row.slug}

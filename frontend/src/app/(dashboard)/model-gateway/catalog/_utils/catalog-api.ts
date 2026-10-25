@@ -28,6 +28,7 @@ export function toVirtualModel(m: ApiVirtualModel): VirtualModel {
     })),
     pricing: m.pricing,
     declared: isDeclared(m),
+    repository: m.repository,
   };
 }
 

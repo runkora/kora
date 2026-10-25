@@ -71,6 +71,8 @@ export interface AgentTypeRow {
   canDelete: boolean;
   /** Declared in the configuration repository: read-only here. */
   declared: boolean;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 export interface RunRow {
@@ -137,6 +139,7 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     canEdit: a.can_edit ?? false,
     canDelete: a.can_delete ?? false,
     declared: isDeclared(a),
+    repository: a.repository,
   };
 }
 

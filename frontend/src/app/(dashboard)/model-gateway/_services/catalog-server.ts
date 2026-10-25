@@ -58,6 +58,8 @@ export interface VirtualModel {
   pricing?: VirtualModelPricingWire;
   /** "crd" when the model is declared in the configuration repository. */
   source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 export interface ProviderModel {

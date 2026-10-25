@@ -1,13 +1,25 @@
 /** @tier 2 — kora-domain-aware: marks items declared in a tenant's configuration repository. Used by: agents, environments, triggers, policy roles, model gateway catalog. */
 import type { ReactNode } from 'react';
-import { Alert, Badge, Callout, Text } from '@runkora/hades';
-import { declarativeRefusal, PLATFORM_LOCKED_MESSAGE } from '@runkora/lib/declarative';
+import { Alert, Anchor, Badge, Callout, Text } from '@runkora/hades';
+import {
+  declarativeRefusal,
+  PLATFORM_LOCKED_MESSAGE,
+  repositoryUrl,
+} from '@runkora/lib/declarative';
 
-/** Marks an item declared in the configuration repository. Show it wherever the item is listed or opened. */
-export function ManagedInGitBadge() {
+export interface ManagedInGitBadgeProps {
+  /** The repository that drives the item, from its runkora.io/repository annotation. */
+  repository?: string;
+}
+
+/**
+ * Marks an item declared in the configuration repository. Show it wherever the item is listed or
+ * opened. It names the repository as text, since list rows are often links themselves.
+ */
+export function ManagedInGitBadge({ repository }: ManagedInGitBadgeProps) {
   return (
     <Badge variant="secondary" size="sm">
-      Managed in git
+      {repository ? `Managed by ${repository}` : 'Managed in git'}
     </Badge>
   );
 }
@@ -31,6 +43,8 @@ export function ManagedInGitCallout({ subject }: ManagedInGitCalloutProps) {
 export interface ManagedInGitNoticeProps {
   /** The item is declared in the configuration repository, rather than locked by a switch. */
   declared: boolean;
+  /** The repository that drives a declared item. It is linked when it reads as a URL or host and path. */
+  repository?: string;
   /** The lock is the platform's virtual model switch rather than the tenant's. */
   platform?: boolean;
   /** A sentence added after the explanation. */
@@ -40,9 +54,29 @@ export interface ManagedInGitNoticeProps {
 /** Heads a read-only detail view: why the item cannot change here. */
 export function ManagedInGitNotice({
   declared,
+  repository,
   platform = false,
   children,
 }: ManagedInGitNoticeProps) {
+  if (declared && repository) {
+    const url = repositoryUrl(repository);
+    return (
+      <Alert variant="info">
+        <Text size="caption">
+          Managed by{' '}
+          {url ? (
+            <Anchor href={url} target="_blank" rel="noopener noreferrer">
+              {repository}
+            </Anchor>
+          ) : (
+            repository
+          )}
+          . Make changes in that repository.
+          {children}
+        </Text>
+      </Alert>
+    );
+  }
   const message = declared
     ? declarativeRefusal('managed_by_resource')
     : platform

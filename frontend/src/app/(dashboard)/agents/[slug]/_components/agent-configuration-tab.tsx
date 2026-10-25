@@ -136,7 +136,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
 
       <Stack grow gap="relaxed">
         {managedInGit ? (
-          <ManagedInGitNotice declared={agent.declared} />
+          <ManagedInGitNotice declared={agent.declared} repository={agent.repository} />
         ) : (
           readOnly && (
             <Alert variant="info">

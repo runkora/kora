@@ -674,7 +674,7 @@ export function TriggerDrawer({
                   <ManagedInGitBadge />
                 </Stack>
               )}
-              <ManagedInGitNotice declared={trigger.declared}>
+              <ManagedInGitNotice declared={trigger.declared} repository={trigger.repository}>
                 {trigger.autoPausedAt !== null &&
                   ' You can still re-enable this trigger after its auto-pause.'}
               </ManagedInGitNotice>
@@ -712,7 +712,7 @@ export function TriggerDrawer({
                 <Stack gap="snug">
                   <Stack direction="horizontal" gap="snug" align="center">
                     <SectionLabel>{kind === 'chat' ? 'Request URL' : 'Endpoint'}</SectionLabel>
-                    {source?.declared && <ManagedInGitBadge />}
+                    {source?.declared && <ManagedInGitBadge repository={source.repository} />}
                     {source !== undefined && !source.signingSecretSet && (
                       <Badge variant="degraded" size="sm" shape="pill">
                         Waiting for signing secret

@@ -227,7 +227,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
                 Delegated
               </Badge>
             )}
-            {row.declared && <ManagedInGitBadge />}
+            {row.declared && <ManagedInGitBadge repository={row.repository} />}
           </Stack>
         ),
       },

@@ -53,7 +53,7 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
                 not budgetable
               </Badge>
             )}
-            {isDeclared(r) && <ManagedInGitBadge />}
+            {isDeclared(r) && <ManagedInGitBadge repository={r.repository} />}
           </Stack>
         ),
       },

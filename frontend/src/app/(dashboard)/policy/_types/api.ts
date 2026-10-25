@@ -71,6 +71,8 @@ export interface RoleEntry {
   unregistered_scopes?: string[];
   /** "crd" when the role is declared in the configuration repository. Reserved roles omit it. */
   source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 export interface RolesListResponse {

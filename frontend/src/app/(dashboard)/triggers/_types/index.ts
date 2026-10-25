@@ -149,6 +149,8 @@ export interface SourceRow {
   lastRejectionReason: string | null;
   /** Declared in the configuration repository: read-only here. */
   declared: boolean;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 export interface TriggerRow {
@@ -159,6 +161,8 @@ export interface TriggerRow {
   sourceMissing: boolean;
   /** Declared in the configuration repository: read-only here. */
   declared: boolean;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
   name: string;
   /** "routed" triggers have no single agent: both agent fields are empty. */
   targetKind: TriggerTargetKind;
@@ -317,6 +321,7 @@ export function toSourceRow(s: WebhookSource): SourceRow {
     lastRejectionAt: s.last_rejection_at ?? null,
     lastRejectionReason: s.last_rejection_reason ?? null,
     declared: isDeclared(s),
+    repository: s.repository,
   };
 }
 
@@ -338,6 +343,7 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     sourceId: t.source_id ?? '',
     sourceMissing: t.source_missing ?? false,
     declared: isDeclared(t),
+    repository: t.repository,
     name: t.name,
     targetKind: t.target_kind ?? 'agent',
     agentTypeId: t.agent_type_id ?? '',

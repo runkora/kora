@@ -319,6 +319,8 @@ export interface Environment {
   updated_at: string;
   /** "crd" when the item is declared in the configuration repository and read-only here. */
   source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 /** A sandbox's CPU, memory and local disk as Kubernetes quantities, e.g. "2", "4Gi". */
@@ -415,6 +417,8 @@ export interface AgentType {
   can_delete?: boolean;
   /** "crd" when the item is declared in the configuration repository and read-only here. */
   source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 /**
@@ -770,6 +774,8 @@ export interface WebhookSource {
   last_rejection_reason?: string;
   /** "crd" when the item is declared in the configuration repository and read-only here. */
   source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 /**
@@ -929,6 +935,8 @@ export interface Trigger {
   source_missing?: boolean;
   /** "crd" when the trigger is declared in the configuration repository and read-only here. */
   source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
   name: string;
   agent_type_id: string;
   agent_slug: string;
