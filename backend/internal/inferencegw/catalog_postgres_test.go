@@ -3,6 +3,7 @@ package inferencegw
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -271,5 +272,27 @@ func TestPostgres_DeclaredDeleteAndList(t *testing.T) {
 	}
 	if _, ok := rows["api"]; !ok {
 		t.Error("an API row was deleted")
+	}
+}
+
+// Concurrent creates that name one route leave it on exactly one model.
+func TestPostgres_ConcurrentRouteWrites(t *testing.T) {
+	repo, _, family := testCatalogRepo(t)
+	ctx := context.Background()
+	errs := make(chan error, 8)
+	for i := range 8 {
+		go func() { errs <- repo.CreateVirtualModel(ctx, testVM(family, fmt.Sprintf("m%d", i), "", "", "shared")) }()
+	}
+	created := 0
+	for range 8 {
+		switch err := <-errs; {
+		case err == nil:
+			created++
+		case !errors.Is(err, ErrVirtualModelRouteTaken):
+			t.Errorf("err = %v, want ErrVirtualModelRouteTaken", err)
+		}
+	}
+	if created != 1 {
+		t.Errorf("created %d models with the shared route, want 1", created)
 	}
 }

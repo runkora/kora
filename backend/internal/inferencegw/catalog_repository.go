@@ -443,6 +443,10 @@ func routeTaken(ctx context.Context, tx pgx.Tx, id string, routes []VirtualModel
 	for i, rt := range routes {
 		keys[i] = string(rt.Provider) + "/" + rt.ModelID
 	}
+	// Route writes take one transaction lock, so two models cannot both pass the check for one route.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('virtual_model_routes'))`); err != nil {
+		return fmt.Errorf("lock routes: %w", err)
+	}
 	var key, holder string
 	err := tx.QueryRow(ctx, `
 		SELECT rt.provider || '/' || rt.model_id, vm.family || '/' || vm.name
