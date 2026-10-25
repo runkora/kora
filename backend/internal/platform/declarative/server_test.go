@@ -89,7 +89,7 @@ func TestControllerApply(t *testing.T) {
 	srv := newTestServer(t, map[string]Applier{KindAgents: agents, KindEnvironments: &fakeApplier{}})
 
 	status, body := call(t, srv, http.MethodPost, "/internal/declared/agents", operator,
-		`{"tenant_id":"acme","name":"reviewer","uid":"u1","generation":2,"spec":{"displayName":"R"},"refs":{"go-build":"e1"},"secret":"c2VjcmV0"}`)
+		`{"tenant_id":"acme","namespace":"kora-tenant-acme","name":"reviewer","uid":"u1","generation":2,"spec":{"displayName":"R"},"refs":{"go-build":"e1"},"secret":"c2VjcmV0"}`)
 	if status != http.StatusOK {
 		t.Fatalf("status %d: %s", status, body)
 	}
@@ -111,11 +111,12 @@ func TestControllerApplyErrors(t *testing.T) {
 		name, path, body string
 		want             int
 	}{
-		{"unknown kind", "/internal/declared/widgets", `{"tenant_id":"a","name":"n","uid":"u","spec":{}}`, http.StatusNotFound},
+		{"unknown kind", "/internal/declared/widgets", `{"tenant_id":"a","namespace":"ns","name":"n","uid":"u","spec":{}}`, http.StatusNotFound},
+		{"missing namespace", "/internal/declared/agents", `{"tenant_id":"a","name":"n","uid":"u","spec":{}}`, http.StatusBadRequest},
 		{"missing uid", "/internal/declared/agents", `{"tenant_id":"a","name":"n","spec":{}}`, http.StatusBadRequest},
 		{"missing spec", "/internal/declared/agents", `{"tenant_id":"a","name":"n","uid":"u"}`, http.StatusBadRequest},
 		{"bad json", "/internal/declared/agents", `{`, http.StatusBadRequest},
-		{"applier error", "/internal/declared/agents", `{"tenant_id":"a","name":"n","uid":"u","spec":{}}`, http.StatusInternalServerError},
+		{"applier error", "/internal/declared/agents", `{"tenant_id":"a","namespace":"ns","name":"n","uid":"u","spec":{}}`, http.StatusInternalServerError},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

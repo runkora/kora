@@ -82,8 +82,8 @@ func (c *Controller) handleApply(w http.ResponseWriter, r *http.Request) {
 	if !api.DecodeJSON(ctx, r, w, c.logger, &item) {
 		return
 	}
-	if item.TenantID == "" || item.Name == "" || item.UID == "" || len(item.Spec) == 0 {
-		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeMissingField, "tenant_id, name, uid and spec are required", nil), nil)
+	if item.TenantID == "" || item.Namespace == "" || item.Name == "" || item.UID == "" || len(item.Spec) == 0 {
+		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeMissingField, "tenant_id, namespace, name, uid and spec are required", nil), nil)
 		return
 	}
 	res, err := a.Apply(ctx, item)
