@@ -188,7 +188,8 @@ func (s *Service) syncTenantBudgets(ctx context.Context, registry budgetRegistry
 	for _, row := range rows {
 		declaredRows[row.TenantID] = row
 	}
-	// The registry lists active tenants only. A suspended tenant keeps its budget.
+	// The registry lists active tenants only. A suspended tenant keeps its budget, and so
+	// does a deleted one until a tenant with its id returns.
 	for _, tenantID := range tenantIDs {
 		b, declared := registry.TenantBudget(tenantID)
 		row := declaredRows[tenantID]
