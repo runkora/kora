@@ -162,6 +162,7 @@ func (r *DeclaredReconciler) apply(ctx context.Context, obj client.Object, p pre
 	}
 	res, err := r.kind.client.Apply(ctx, r.kind.kind, declarative.Item{
 		TenantID:   p.tenantID,
+		Namespace:  obj.GetNamespace(),
 		Name:       obj.GetName(),
 		UID:        string(obj.GetUID()),
 		Generation: obj.GetGeneration(),

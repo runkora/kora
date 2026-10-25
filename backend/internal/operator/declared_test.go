@@ -149,7 +149,7 @@ func TestProjectEnvironment(t *testing.T) {
 
 	res := h.reconcile(t, declarative.KindEnvironments, env)
 	item := h.clients["agents"].last(t)
-	if item.TenantID != "acme" || item.Name != "go-build" || item.UID != "kora-tenant-acme/go-build" || item.Generation != 1 {
+	if item.TenantID != "acme" || item.Namespace != "kora-tenant-acme" || item.Name != "go-build" || item.UID != "kora-tenant-acme/go-build" || item.Generation != 1 {
 		t.Errorf("item = %+v", item)
 	}
 	var spec dv1.EnvironmentSpec
