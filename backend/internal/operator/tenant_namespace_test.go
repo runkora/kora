@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	sigsyaml "sigs.k8s.io/yaml"
 
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -61,8 +62,8 @@ func TestNamespaceConflict(t *testing.T) {
 func TestBuildRegistryYAMLDeclarativeFields(t *testing.T) {
 	t0 := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
 	locked := tenantAt("acme", "", t0)
-	locked.Spec.APIAuthoring = APIAuthoringDisabled
-	locked.Spec.Budget = &TenantBudget{LimitUSD: 1000, ResetCadence: "monthly"}
+	locked.Spec.APIAuthoring = declarative.APIAuthoringDisabled
+	locked.Spec.Budget = &declarative.Budget{LimitUSD: 1000, ResetCadence: "monthly"}
 	refused := tenantAt("beta", "kora-tenant-acme", t0.Add(time.Hour))
 	suspended := tenantAt("gamma", "", t0)
 	suspended.Spec.Active = false
@@ -80,14 +81,14 @@ func TestBuildRegistryYAMLDeclarativeFields(t *testing.T) {
 		t.Fatalf("want 2 active tenants, got %+v", reg.Tenants)
 	}
 	acme, beta := reg.Tenants[0], reg.Tenants[1]
-	if acme.APIAuthoring != APIAuthoringDisabled {
+	if acme.APIAuthoring != declarative.APIAuthoringDisabled {
 		t.Errorf("acme = %+v", acme)
 	}
 	if acme.Budget == nil || acme.Budget.LimitUSD != 1000 || acme.Budget.ResetCadence != "monthly" {
 		t.Errorf("acme budget = %+v", acme.Budget)
 	}
-	if beta.APIAuthoring != APIAuthoringEnabled || beta.Budget != nil {
-		t.Errorf("beta defaults = %+v", beta)
+	if beta.APIAuthoring != "" || beta.Budget != nil {
+		t.Errorf("beta = %+v", beta)
 	}
 }
 
@@ -138,13 +139,13 @@ func TestReconcileRefusesNamespaceConflict(t *testing.T) {
 	if err := sigsyaml.Unmarshal([]byte(cm.Data[tenantsConfigMapKey]), &reg); err != nil {
 		t.Fatal(err)
 	}
-	listed := map[string]string{}
+	listed := map[string]bool{}
 	for _, e := range reg.Tenants {
-		listed[e.ID] = e.APIAuthoring
+		listed[e.ID] = true
 	}
 	for _, id := range []string{"acme", "beta", "sys"} {
-		if listed[id] != APIAuthoringEnabled {
-			t.Errorf("registry entry for %s = %q, want listed with apiAuthoring Enabled", id, listed[id])
+		if !listed[id] {
+			t.Errorf("registry has no entry for %s", id)
 		}
 	}
 }
@@ -161,7 +162,7 @@ func findCondition(conds []metav1.Condition, condType string) *metav1.Condition 
 func TestKoraTenantSpecDeepCopy(t *testing.T) {
 	in := KoraTenantSpec{
 		OIDC:   TenantOIDCSpec{Scopes: []string{"openid"}, EmailDomains: []string{"acme.com"}, ClientSecretRef: &SecretRef{Name: "s"}},
-		Budget: &TenantBudget{LimitUSD: 10},
+		Budget: &declarative.Budget{LimitUSD: 10},
 	}
 	var out KoraTenantSpec
 	in.DeepCopyInto(&out)

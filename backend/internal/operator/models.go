@@ -7,6 +7,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 )
 
 // GroupVersion is the API group and version for kora CRDs.
@@ -60,21 +62,7 @@ type KoraTenantSpec struct {
 
 	// Budget is the tenant's spending limit. It replaces a budget set through the API.
 	// +optional
-	Budget *TenantBudget `json:"budget,omitempty"`
-}
-
-// API authoring values on KoraTenant.
-const (
-	APIAuthoringEnabled  = "Enabled"
-	APIAuthoringDisabled = "Disabled"
-)
-
-// TenantBudget is a tenant's spending limit per reset window.
-type TenantBudget struct {
-	LimitUSD float64 `json:"limitUSD"`
-	// ResetCadence is weekly or monthly.
-	// +kubebuilder:default=monthly
-	ResetCadence string `json:"resetCadence,omitempty"`
+	Budget *declarative.Budget `json:"budget,omitempty"`
 }
 
 // SecretRef is a reference to a Kubernetes Secret.

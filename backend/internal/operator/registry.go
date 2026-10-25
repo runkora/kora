@@ -10,6 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	sigsyaml "sigs.k8s.io/yaml"
 
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -22,12 +23,12 @@ type registryFile struct {
 }
 
 type registryEntry struct {
-	ID           string        `json:"id"`
-	DisplayName  string        `json:"displayName"`
-	State        string        `json:"state"`
-	OIDC         registryOIDC  `json:"oidc"`
-	APIAuthoring string        `json:"apiAuthoring"`
-	Budget       *TenantBudget `json:"budget,omitempty"`
+	ID           string              `json:"id"`
+	DisplayName  string              `json:"displayName"`
+	State        string              `json:"state"`
+	OIDC         registryOIDC        `json:"oidc"`
+	APIAuthoring string              `json:"apiAuthoring"`
+	Budget       *declarative.Budget `json:"budget,omitempty"`
 }
 
 type registryOIDC struct {
@@ -113,10 +114,6 @@ func (r *TenantRegistry) buildRegistryYAML(tenants []KoraTenant) (string, error)
 		if !t.Spec.Active {
 			continue
 		}
-		apiAuthoring := t.Spec.APIAuthoring
-		if apiAuthoring == "" {
-			apiAuthoring = APIAuthoringEnabled
-		}
 		scopes := t.Spec.OIDC.Scopes
 		if len(scopes) == 0 {
 			scopes = []string{"openid", "profile", "email"}
@@ -131,7 +128,7 @@ func (r *TenantRegistry) buildRegistryYAML(tenants []KoraTenant) (string, error)
 				Scopes:       scopes,
 				EmailDomains: t.Spec.OIDC.EmailDomains,
 			},
-			APIAuthoring: apiAuthoring,
+			APIAuthoring: t.Spec.APIAuthoring,
 			Budget:       t.Spec.Budget,
 		})
 	}
