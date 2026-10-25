@@ -263,7 +263,9 @@ type AgentSpec struct {
 	MCPTools []MCPTools `json:"mcpTools,omitempty"`
 	// Scopes are further scopes on the agent's grant.
 	// +kubebuilder:validation:items:MinLength=1
-	Scopes     []string     `json:"scopes,omitempty"`
+	Scopes []string `json:"scopes,omitempty"`
+	// Guardrails are loop-guard thresholds. Each pause must be above its warn.
+	// Unset fields take the platform defaults.
 	Guardrails *Guardrails  `json:"guardrails,omitempty"`
 	Budget     *AgentBudget `json:"budget,omitempty"`
 	// MaxConcurrentRunsPerPod is the number of runs one agent pod holds at
@@ -363,8 +365,10 @@ type TriggerSourceSpec struct {
 	Provider string `json:"provider"`
 	// Config is the provider-specific configuration, as the API accepts it.
 	// +kubebuilder:pruning:PreserveUnknownFields
-	Config           *runtime.RawExtension `json:"config,omitempty"`
-	SigningSecretRef SecretKeyRef          `json:"signingSecretRef"`
+	Config *runtime.RawExtension `json:"config,omitempty"`
+	// SigningSecretRef is the Secret key that holds the signing secret. The
+	// Secret must carry the label runkora.io/trigger-source=true.
+	SigningSecretRef SecretKeyRef `json:"signingSecretRef"`
 	// +optional
 	// +kubebuilder:default=true
 	Enabled bool `json:"enabled"`

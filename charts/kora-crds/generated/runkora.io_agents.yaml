@@ -156,8 +156,8 @@ spec:
                 type: string
               guardrails:
                 description: |-
-                  Guardrails are loop-guard thresholds. Unset fields take the platform
-                  defaults.
+                  Guardrails are loop-guard thresholds. Each pause must be above its warn.
+                  Unset fields take the platform defaults.
                 properties:
                   repeatedCallPause:
                     format: int32

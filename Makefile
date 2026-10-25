@@ -1298,18 +1298,19 @@ deadcode: ## Report Go functions no main package can reach
 
 HELM_DOCS_VERSION := v1.14.2
 CONTROLLER_GEN_VERSION := v0.23.0
-DECLARATIVE_API := backend/internal/platform/declarative/v1alpha1
+GENERATED := backend/internal/platform/declarative/v1alpha1/zz_generated.deepcopy.go charts/kora-crds/generated
 
 .PHONY: generate
 generate: ## Regenerate the declarative kinds' deepcopy functions and CRDs with controller-gen
+	@rm -f charts/kora-crds/generated/*.yaml
 	@cd backend && go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION) \
 	  object crd:allowDangerousTypes=true paths=./internal/platform/declarative/v1alpha1/... \
 	  output:crd:artifacts:config=../charts/kora-crds/generated
 
 .PHONY: generate-check
 generate-check: generate ## Fail if the generated deepcopy functions or CRDs are out of date
-	@git diff --exit-code -- $(DECLARATIVE_API) charts/kora-crds/generated \
-	  && test -z "$$(git ls-files --others --exclude-standard -- $(DECLARATIVE_API) charts/kora-crds/generated)" \
+	@git diff --exit-code -- $(GENERATED) \
+	  && test -z "$$(git ls-files --others --exclude-standard -- $(GENERATED))" \
 	  || { echo "$(COLOR_RED)✗ generated code out of date, run: make generate$(COLOR_RESET)"; exit 1; }
 
 .PHONY: chart-lint

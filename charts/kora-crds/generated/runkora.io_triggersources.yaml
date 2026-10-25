@@ -75,8 +75,9 @@ spec:
                 minLength: 1
                 type: string
               signingSecretRef:
-                description: SecretKeyRef names one key of a Secret in the resource's
-                  namespace.
+                description: |-
+                  SigningSecretRef is the Secret key that holds the signing secret. The
+                  Secret must carry the label runkora.io/trigger-source=true.
                 properties:
                   key:
                     minLength: 1
