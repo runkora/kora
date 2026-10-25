@@ -474,7 +474,7 @@ func (r *DeclaredReconciler) olderRole(ctx context.Context, role *dv1.PolicyRole
 
 // ─── Watches ──────────────────────────────────────────────────────────────────
 
-// enqueueSecretUsers maps a labelled Secret change to the TriggerSources in
+// enqueueSecretUsers maps a labeled Secret change to the TriggerSources in
 // its namespace that reference it.
 func (r *DeclaredReconciler) enqueueSecretUsers(ctx context.Context, obj client.Object) []reconcile.Request {
 	list := &dv1.TriggerSourceList{}
