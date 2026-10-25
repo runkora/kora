@@ -20,8 +20,7 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
-import { useHasScope, useTenantLocked } from '../../../_components/permissions-provider';
-import { managedInGit } from '@runkora/lib/declarative';
+import { useHasScope } from '../../../_components/permissions-provider';
 import { fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import {
   upsertTenantBudgetAction,
@@ -39,8 +38,6 @@ interface TenantCapCardProps {
 export function TenantCapCard({ cap, declared = false }: TenantCapCardProps) {
   const router = useRouter();
   const canWrite = useHasScope('platform:budgets:write');
-  // A declared cap, or any cap in a locked tenant, changes only in the configuration repository.
-  const managed = managedInGit(declared, useTenantLocked());
   const [editing, setEditing] = useState(false);
 
   const pct = cap && cap.limit_usd > 0 ? (cap.spend_usd / cap.limit_usd) * 100 : 0;
@@ -56,7 +53,7 @@ export function TenantCapCard({ cap, declared = false }: TenantCapCardProps) {
               Tenant Cap
             </Text>
           </Stack>
-          {managed ? (
+          {declared ? (
             <ManagedInGitBadge />
           ) : (
             <PermissionHint allowed={canWrite} action="change the tenant cap">

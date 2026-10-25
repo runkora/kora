@@ -23,10 +23,4 @@ describe('TenantCapCard', () => {
     expect(screen.getByText('Managed in git')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Set cap' })).not.toBeInTheDocument();
   });
-
-  it('shows an API budget in a locked tenant as managed in git with no edit', () => {
-    renderWithProviders(<TenantCapCard cap={null} />, { scopes: WRITER, apiAuthoring: false });
-    expect(screen.getByText('Managed in git')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Set cap' })).not.toBeInTheDocument();
-  });
 });
