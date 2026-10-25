@@ -69,11 +69,7 @@ func (r *PostgresRepository) listDeclared(ctx context.Context, query, tenantID s
 }
 
 func (r *PostgresRepository) ListEnvironments(ctx context.Context, tenantID string) ([]Environment, error) {
-	return r.listEnvironments(ctx, `SELECT `+environmentColumns+` FROM environments WHERE tenant_id = $1 ORDER BY name`, tenantID)
-}
-
-func (r *PostgresRepository) listEnvironments(ctx context.Context, query string, args ...any) ([]Environment, error) {
-	rows, err := r.pool.Query(ctx, query, args...)
+	rows, err := r.pool.Query(ctx, `SELECT `+environmentColumns+` FROM environments WHERE tenant_id = $1 ORDER BY name`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("query environments: %w", err)
 	}
