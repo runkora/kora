@@ -89,8 +89,8 @@ func TestRegistryReloadsAndKeepsLastGood(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.TenantIDs()) != 0 {
-		t.Error("a removed file lists no tenants")
+	if r.Err() == nil || r.APIAuthoringEnabled("beta") || !slices.Contains(r.TenantIDs(), "beta") {
+		t.Error("a removed file keeps the last good contents and reports an error")
 	}
 }
 

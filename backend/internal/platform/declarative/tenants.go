@@ -104,8 +104,9 @@ func (r *Registry) read() (map[string]tenant, error) {
 		return nil, nil
 	}
 	info, err := os.Stat(r.path)
-	if errors.Is(err, fs.ErrNotExist) {
-		r.tenants, r.modTime, r.size, r.err = nil, time.Time{}, 0, nil
+	// A registry that was never there leaves every tenant at its defaults. One
+	// that disappears keeps its last good contents.
+	if errors.Is(err, fs.ErrNotExist) && r.tenants == nil {
 		return nil, nil
 	}
 	if err != nil {
