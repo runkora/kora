@@ -511,17 +511,9 @@ describe('managed in git', () => {
     expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
   });
 
-  it('keeps the switch for re-enabling an auto-paused declared trigger', () => {
-    renderManaged(
-      trigger({ declared: true, enabled: false, autoPausedAt: '2026-07-01T00:00:00Z' }),
-    );
-    expect(screen.getByRole('switch', { name: /^(Enable|Disable) / })).toBeEnabled();
-  });
-
   it('treats every trigger in a locked tenant as managed in git, keeping API source rotation', () => {
     renderManaged(trigger(), { apiAuthoring: false });
     expect(screen.getByText(/tenant is managed in git/)).toBeTruthy();
-    expect(screen.getByRole('switch', { name: /^(Enable|Disable) / })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Rotate' })).toBeEnabled();
   });
 

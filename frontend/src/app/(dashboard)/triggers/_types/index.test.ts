@@ -25,10 +25,11 @@ import {
   isRedeliverable,
   failureSummary,
   matchesStatusFilter,
+  triggerToggleOpen,
   type DeliveryRow,
   type SourceCategory,
 } from './index';
-import { makeDelivery } from './fixtures';
+import { makeDelivery, makeTrigger } from './fixtures';
 import type { Trigger, TriggerDelivery } from '@runkora/shared/api';
 
 /** These tests want a bare arrival: verified, unnamed, at a known instant. */
@@ -730,5 +731,20 @@ describe('coalesce display helpers', () => {
     });
     expect(supersededRuns(d).map((r) => r.triggerId)).toEqual(['t1']);
     expect(supersededRuns(d, 't2')).toEqual([]);
+  });
+});
+
+describe('triggerToggleOpen', () => {
+  const paused = { enabled: false, autoPausedAt: '2026-07-01T00:00:00Z' };
+  it.each([
+    ['an API trigger', {}, false, true],
+    ['a sourceless trigger that is off', { sourceMissing: true, enabled: false }, false, false],
+    ['a sourceless trigger that is on', { sourceMissing: true }, false, true],
+    ['a declared trigger', { declared: true }, false, false],
+    ['an auto-paused declared trigger', { declared: true, ...paused }, false, true],
+    ['a trigger in a locked tenant', {}, true, false],
+    ['an auto-paused trigger in a locked tenant', paused, true, true],
+  ])('%s', (_, overrides, locked, want) => {
+    expect(triggerToggleOpen(makeTrigger(overrides), locked)).toBe(want);
   });
 });
