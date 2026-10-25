@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { declarativeRefusal, isDeclared, writeErrorMessage } from './declarative';
+import {
+  declarativeRefusal,
+  isDeclared,
+  PLATFORM_LOCKED_MESSAGE,
+  writeErrorMessage,
+} from './declarative';
 
 describe('isDeclared', () => {
   it('is true only for crd items', () => {
@@ -28,6 +33,12 @@ describe('writeErrorMessage', () => {
     expect(
       writeErrorMessage(409, { code: 'managed_by_resource', message: 'upstream text' }),
     ).toMatch(/managed in git/);
+  });
+
+  it('names the platform switch for a virtual model write', () => {
+    const body = { code: 'api_authoring_disabled' };
+    expect(writeErrorMessage(403, body, { platform: true })).toBe(PLATFORM_LOCKED_MESSAGE);
+    expect(writeErrorMessage(403, body)).toMatch(/This tenant is managed in git/);
   });
 
   it('falls back to the API message, then the status', () => {

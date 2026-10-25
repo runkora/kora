@@ -27,11 +27,7 @@ import type { VirtualModel as ApiVirtualModel } from '../../_services/catalog-se
 import { vmFullId, vmPolicyScope, vmToApiPayload, toVirtualModel } from '../_utils/catalog-api';
 import { RoutesTab } from './routes-tab';
 import { useHasScope } from '../../../_components/permissions-provider';
-import {
-  managedInGit as isManagedInGit,
-  PLATFORM_LOCKED_MESSAGE,
-  writeErrorMessage,
-} from '@runkora/lib/declarative';
+import { managedInGit as isManagedInGit, writeErrorMessage } from '@runkora/lib/declarative';
 import { ManagedInGitBadge, ManagedInGitNotice, PermissionHint } from '@runkora/components';
 
 interface EditorPanelProps {
@@ -43,13 +39,6 @@ interface EditorPanelProps {
   apiAuthoring?: boolean;
   providerModels: ProviderModel[];
   providers: Provider[];
-}
-
-/** The virtual model switch is platform-wide, so its refusal names the platform, not the tenant. */
-function vmWriteError(status: number, body: unknown): string {
-  return (body as { code?: unknown } | null)?.code === 'api_authoring_disabled'
-    ? PLATFORM_LOCKED_MESSAGE
-    : writeErrorMessage(status, body);
 }
 
 export function EditorPanel({
@@ -103,7 +92,9 @@ export function EditorPanel({
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        setError(vmWriteError(res.status, await res.json().catch(() => ({}))));
+        setError(
+          writeErrorMessage(res.status, await res.json().catch(() => ({})), { platform: true }),
+        );
         return;
       }
       const body = (await res.json()) as { data: ApiVirtualModel };
@@ -129,7 +120,9 @@ export function EditorPanel({
         onClose();
         return;
       }
-      setDeleteError(vmWriteError(res.status, await res.json().catch(() => ({}))));
+      setDeleteError(
+        writeErrorMessage(res.status, await res.json().catch(() => ({})), { platform: true }),
+      );
     } catch {
       setDeleteError('Network error');
     } finally {

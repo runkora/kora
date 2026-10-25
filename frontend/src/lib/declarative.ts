@@ -38,10 +38,16 @@ export function declarativeRefusal(code: unknown): string | null {
 
 /**
  * The message for a refused write: the managed-in-git explanation for the
- * declarative refusal codes, else the API's own message.
+ * declarative refusal codes, else the API's own message. `platform` names the
+ * platform's virtual model switch instead of the tenant's.
  */
-export function writeErrorMessage(status: number, body: unknown): string {
+export function writeErrorMessage(
+  status: number,
+  body: unknown,
+  { platform = false }: { platform?: boolean } = {},
+): string {
   const { code, message } = (body ?? {}) as { code?: unknown; message?: unknown };
+  if (platform && code === 'api_authoring_disabled') return PLATFORM_LOCKED_MESSAGE;
   return (
     declarativeRefusal(code) ??
     (typeof message === 'string' && message ? message : `Request failed (${status})`)
