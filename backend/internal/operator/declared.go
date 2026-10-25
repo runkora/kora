@@ -167,6 +167,7 @@ func (r *DeclaredReconciler) apply(ctx context.Context, obj client.Object, p pre
 		UID:        string(obj.GetUID()),
 		Generation: obj.GetGeneration(),
 		Spec:       spec,
+		Repository: obj.GetAnnotations()[declarative.AnnotationRepository],
 		Refs:       p.refs,
 		Secret:     p.secret,
 	})

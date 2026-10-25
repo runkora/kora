@@ -144,12 +144,14 @@ func declaredCondition(t *testing.T, obj client.Object, condType string) metav1.
 
 func TestProjectEnvironment(t *testing.T) {
 	env := &dv1.Environment{ObjectMeta: meta0("kora-tenant-acme", "go-build", 0), Spec: dv1.EnvironmentSpec{DisplayName: "Go", SandboxImage: "kora-go"}}
+	env.Annotations = map[string]string{declarative.AnnotationRepository: "github.com/acme/agents"}
 	img := &si.SandboxImage{ObjectMeta: metav1.ObjectMeta{Namespace: "kora-tenant-acme", Name: "kora-go"}}
 	h := newHarness(t, env, img)
 
 	res := h.reconcile(t, declarative.KindEnvironments, env)
 	item := h.clients["agents"].last(t)
-	if item.TenantID != "acme" || item.Namespace != "kora-tenant-acme" || item.Name != "go-build" || item.UID != "kora-tenant-acme/go-build" || item.Generation != 1 {
+	if item.TenantID != "acme" || item.Namespace != "kora-tenant-acme" || item.Name != "go-build" || item.UID != "kora-tenant-acme/go-build" || item.Generation != 1 ||
+		item.Repository != "github.com/acme/agents" {
 		t.Errorf("item = %+v", item)
 	}
 	var spec dv1.EnvironmentSpec
