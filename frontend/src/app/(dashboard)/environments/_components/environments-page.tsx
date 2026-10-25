@@ -261,6 +261,15 @@ export function EnvironmentsPage({
     [rows, images, canWrite, locked],
   );
 
+  const createButton = locked ? undefined : (
+    <PermissionHint allowed={canWrite} action="create environments">
+      <Button size="sm" disabled={!canWrite} onClick={() => setFormState({ environment: null })}>
+        <Icon name="plus" size="xs" />
+        New environment
+      </Button>
+    </PermissionHint>
+  );
+
   return (
     <Stack gap="comfortable">
       {/* Page header */}
@@ -273,18 +282,7 @@ export function EnvironmentsPage({
             configuration page.
           </Text>
         </Stack>
-        {!locked && (
-          <PermissionHint allowed={canWrite} action="create environments">
-            <Button
-              size="sm"
-              disabled={!canWrite}
-              onClick={() => setFormState({ environment: null })}
-            >
-              <Icon name="plus" size="xs" />
-              New environment
-            </Button>
-          </PermissionHint>
-        )}
+        {createButton}
       </Stack>
 
       {locked && <ManagedInGitCallout subject="Environments in this tenant" />}
@@ -296,20 +294,7 @@ export function EnvironmentsPage({
           icon="layers"
           title="No environments"
           description={`Agents without an environment run on the ${productName} base image. Create an environment to give them a registered image, a size and access.`}
-          action={
-            locked ? undefined : (
-              <PermissionHint allowed={canWrite} action="create environments">
-                <Button
-                  size="sm"
-                  disabled={!canWrite}
-                  onClick={() => setFormState({ environment: null })}
-                >
-                  <Icon name="plus" size="xs" />
-                  New environment
-                </Button>
-              </PermissionHint>
-            )
-          }
+          action={createButton}
         />
       ) : (
         <DataTable

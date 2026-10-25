@@ -197,6 +197,15 @@ export function AgentTriggersTab() {
     );
   }
 
+  const createButton = locked ? undefined : (
+    <PermissionHint allowed={canWrite} action="create triggers">
+      <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
+        <Icon name="plus" size="xs" />
+        New trigger
+      </Button>
+    </PermissionHint>
+  );
+
   return (
     <Stack gap="comfortable">
       <Stack direction="horizontal" align="start" justify="between" gap="comfortable">
@@ -207,14 +216,7 @@ export function AgentTriggersTab() {
             Managed by platform admins.
           </Text>
         </Stack>
-        {!locked && (
-          <PermissionHint allowed={canWrite} action="create triggers">
-            <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
-              <Icon name="plus" size="xs" />
-              New trigger
-            </Button>
-          </PermissionHint>
-        )}
+        {createButton}
       </Stack>
 
       {locked && <ManagedInGitCallout subject="Triggers in this tenant" />}
@@ -228,16 +230,7 @@ export function AgentTriggersTab() {
           icon="zap"
           title="No triggers for this agent"
           description="Create a trigger to run this agent automatically from a webhook event, a schedule, or a manual fire."
-          action={
-            locked ? undefined : (
-              <PermissionHint allowed={canWrite} action="create triggers">
-                <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
-                  <Icon name="plus" size="xs" />
-                  New trigger
-                </Button>
-              </PermissionHint>
-            )
-          }
+          action={createButton}
         />
       ) : (
         <TriggerList

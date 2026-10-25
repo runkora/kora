@@ -115,22 +115,22 @@ export function RolesTab({
     [router],
   );
 
+  const createButton = locked ? undefined : (
+    <PermissionHint allowed={canWrite} action="create roles">
+      <Button size="sm" disabled={!canWrite} onClick={() => setCreating(true)}>
+        <Icon name="plus" />
+        Create Role
+      </Button>
+    </PermissionHint>
+  );
+
   return (
     <Stack gap="comfortable">
       {/* Header */}
       <PageSectionHeader
         title="Roles"
         description="Map OIDC role names to platform scopes."
-        action={
-          locked ? undefined : (
-            <PermissionHint allowed={canWrite} action="create roles">
-              <Button size="sm" disabled={!canWrite} onClick={() => setCreating(true)}>
-                <Icon name="plus" />
-                Create Role
-              </Button>
-            </PermissionHint>
-          )
-        }
+        action={createButton}
       />
 
       {locked && <ManagedInGitCallout subject="Roles in this tenant" />}
@@ -180,16 +180,7 @@ export function RolesTab({
               icon="user-check"
               title="No roles yet"
               description="Roles map OIDC role claims to platform scopes. Create a role to define what permissions a role name grants."
-              action={
-                locked ? undefined : (
-                  <PermissionHint allowed={canWrite} action="create roles">
-                    <Button size="sm" disabled={!canWrite} onClick={() => setCreating(true)}>
-                      <Icon name="plus" />
-                      Create Role
-                    </Button>
-                  </PermissionHint>
-                )
-              }
+              action={createButton}
             />
           )
         ) : (
