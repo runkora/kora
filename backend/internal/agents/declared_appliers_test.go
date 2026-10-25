@@ -4,168 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/declarative/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 const applierTenant = "acme"
-
-// declaredRows is an in-memory store and writer for both appliers. It records the declared
-// write context of every write.
-type declaredRows struct {
-	agents   map[string]*AgentType   // by slug
-	envs     map[string]*Environment // by slug
-	writes   []declaredWrite
-	created  []CreateAgentTypeRequest
-	updated  []UpdateAgentTypeRequest
-	envReqs  []EnvironmentRequest
-	deleted  []string
-	inUse    bool
-	writeErr error
-}
-
-// emptyRows holds no rows.
-func emptyRows() *declaredRows {
-	return &declaredRows{agents: map[string]*AgentType{}, envs: map[string]*Environment{}}
-}
-
-// newDeclaredRows holds the declared environments env-go and env-go-2.
-func newDeclaredRows() *declaredRows {
-	return &declaredRows{agents: map[string]*AgentType{}, envs: map[string]*Environment{
-		"go-build":   {ID: "env-go", Slug: "go-build", Source: declarative.SourceCRD, ResourceUID: "uid-env"},
-		"go-build-2": {ID: "env-go-2", Slug: "go-build-2", Source: declarative.SourceCRD, ResourceUID: "uid-env-2"},
-	}}
-}
-
-func (d *declaredRows) record(ctx context.Context) declaredWrite {
-	w, _ := declaredFromContext(ctx)
-	d.writes = append(d.writes, w)
-	return w
-}
-
-func (d *declaredRows) GetAgentTypeBySlug(_ context.Context, _, slug string) (*AgentType, error) {
-	if at, ok := d.agents[slug]; ok {
-		cp := *at
-		return &cp, nil
-	}
-	return nil, ErrNotFound
-}
-
-func (d *declaredRows) GetEnvironmentBySlug(_ context.Context, _, slug string) (*Environment, error) {
-	if e, ok := d.envs[slug]; ok {
-		cp := *e
-		return &cp, nil
-	}
-	return nil, ErrNotFound
-}
-
-func (d *declaredRows) GetEnvironment(_ context.Context, _, id string) (*Environment, error) {
-	for _, e := range d.envs {
-		if e.ID == id {
-			cp := *e
-			return &cp, nil
-		}
-	}
-	return nil, ErrNotFound
-}
-
-func (d *declaredRows) ListDeclaredAgentTypes(context.Context, string) ([]declarative.Declared, error) {
-	var out []declarative.Declared
-	for _, at := range d.agents {
-		if at.Source == declarative.SourceCRD {
-			out = append(out, declarative.Declared{Name: at.Slug, UID: at.ResourceUID})
-		}
-	}
-	return out, nil
-}
-
-func (d *declaredRows) ListDeclaredEnvironments(context.Context, string) ([]declarative.Declared, error) {
-	var out []declarative.Declared
-	for _, e := range d.envs {
-		if e.Source == declarative.SourceCRD {
-			out = append(out, declarative.Declared{Name: e.Slug, UID: e.ResourceUID})
-		}
-	}
-	return out, nil
-}
-
-func (d *declaredRows) CreateAgentType(ctx context.Context, req CreateAgentTypeRequest) (*AgentType, error) {
-	w := d.record(ctx)
-	d.created = append(d.created, req)
-	if d.writeErr != nil {
-		return nil, d.writeErr
-	}
-	at := &AgentType{ID: "agent-" + w.resourceUID, Slug: req.Slug, Source: declarative.SourceCRD, ResourceUID: w.resourceUID,
-		ResourceGeneration: w.generation, State: AgentTypeStateProvisioning, Environments: req.Environments}
-	d.agents[req.Slug] = at
-	return at, nil
-}
-
-func (d *declaredRows) UpdateAgentType(ctx context.Context, req UpdateAgentTypeRequest) (*AgentType, error) {
-	w := d.record(ctx)
-	d.updated = append(d.updated, req)
-	if d.writeErr != nil {
-		return nil, d.writeErr
-	}
-	for _, at := range d.agents {
-		if at.ID == req.ID {
-			at.Environments, at.ResourceGeneration = *req.Environments, w.generation
-			cp := *at
-			return &cp, nil
-		}
-	}
-	return nil, ErrNotFound
-}
-
-func (d *declaredRows) DeleteAgentType(ctx context.Context, id string) error {
-	d.record(ctx)
-	d.deleted = append(d.deleted, id)
-	for slug, at := range d.agents {
-		if at.ID == id {
-			delete(d.agents, slug)
-		}
-	}
-	return nil
-}
-
-func (d *declaredRows) CreateEnvironment(ctx context.Context, req EnvironmentRequest) (*Environment, error) {
-	w := d.record(ctx)
-	d.envReqs = append(d.envReqs, req)
-	if d.writeErr != nil {
-		return nil, d.writeErr
-	}
-	e := &Environment{ID: "env-" + req.Slug, Slug: req.Slug, Source: declarative.SourceCRD, ResourceUID: w.resourceUID, ResourceGeneration: w.generation}
-	d.envs[req.Slug] = e
-	return e, nil
-}
-
-func (d *declaredRows) UpdateEnvironment(ctx context.Context, req EnvironmentRequest) (*Environment, error) {
-	w := d.record(ctx)
-	d.envReqs = append(d.envReqs, req)
-	if d.writeErr != nil {
-		return nil, d.writeErr
-	}
-	e := d.envs[req.Slug]
-	e.ResourceUID, e.ResourceGeneration = w.resourceUID, w.generation
-	return e, nil
-}
-
-func (d *declaredRows) DeleteEnvironment(ctx context.Context, id string) error {
-	d.record(ctx)
-	if d.inUse {
-		return ErrEnvironmentInUse
-	}
-	d.deleted = append(d.deleted, id)
-	for slug, e := range d.envs {
-		if e.ID == id {
-			delete(d.envs, slug)
-		}
-	}
-	return nil
-}
 
 func item(t *testing.T, name, uid string, generation int64, spec any, refs map[string]string) declarative.Item {
 	t.Helper()
@@ -176,6 +26,21 @@ func item(t *testing.T, name, uid string, generation int64, spec any, refs map[s
 	return declarative.Item{TenantID: applierTenant, Namespace: "kora-tenant-acme", Name: name, UID: uid, Generation: generation, Spec: raw, Refs: refs}
 }
 
+// newEnvironmentApplier runs the applier on the real environment service in a locked tenant,
+// so every write it makes passes as a declared write.
+func newEnvironmentApplier() (*EnvironmentApplier, *fakeEnvStore) {
+	k8s := &mockK8s{sandboxImages: map[string]*si.SandboxImage{
+		"kora-go":   validSandboxImage("kora-go", "ghcr.io/acme/go:1", "sha256:go"),
+		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/runkora/base:1", "sha256:b"),
+	}}
+	store := &fakeEnvStore{envs: map[string]Environment{}}
+	svc := NewEnvironmentService(store, newMockRepository(), k8s, k8s, fakeWriteChecker{}, lockedTenants{applierTenant: true}, EnvironmentServiceConfig{
+		TenantNamespaceFn: func(id string) string { return "kora-tenant-" + id },
+		EnvironmentSizes:  testSizes,
+	}, logging.NewLoggerWithOutput(io.Discard))
+	return NewEnvironmentApplier(store, svc), store
+}
+
 func envSpec() v1alpha1.EnvironmentSpec {
 	return v1alpha1.EnvironmentSpec{DisplayName: "Go build", SandboxImage: "kora-go",
 		Connectors: []v1alpha1.Connector{{Connection: "github", Actions: []string{"read"}}}}
@@ -183,40 +48,31 @@ func envSpec() v1alpha1.EnvironmentSpec {
 
 func TestEnvironmentApplier(t *testing.T) {
 	ctx := context.Background()
-	rows := emptyRows()
-	a := NewEnvironmentApplier(rows, rows)
+	a, store := newEnvironmentApplier()
 
 	res, err := a.Apply(ctx, item(t, "go-build", "uid-1", 1, envSpec(), nil))
-	if err != nil || res != (declarative.Result{Outcome: declarative.OutcomeProjected, ID: "env-go-build", Ready: true}) {
+	if err != nil || res.Outcome != declarative.OutcomeProjected || !res.Ready {
 		t.Fatalf("create = %+v, %v", res, err)
 	}
-	req := rows.envReqs[0]
-	if req.Slug != "go-build" || req.Name != "Go build" || req.SandboxImage != "kora-go" || req.ID != "" || len(req.Connectors) != 1 {
-		t.Errorf("create request = %+v", req)
-	}
-	if w := rows.writes[0]; w != (declaredWrite{tenantID: applierTenant, createdBy: "resource:kora-tenant-acme/go-build", resourceUID: "uid-1", generation: 1}) {
-		t.Errorf("declared write = %+v", w)
+	env := store.envs[res.ID]
+	if env.Slug != "go-build" || env.Name != "Go build" || env.SandboxImage != "kora-go" || len(env.Connectors) != 1 ||
+		env.Source != declarative.SourceCRD || env.ResourceUID != "uid-1" || env.ResourceGeneration != 1 {
+		t.Errorf("created row = %+v", env)
 	}
 
-	if _, err := a.Apply(ctx, item(t, "go-build", "uid-1", 1, envSpec(), nil)); err != nil || len(rows.envReqs) != 1 {
-		t.Errorf("an unchanged generation was written again: %d writes, %v", len(rows.envReqs), err)
+	if _, err := a.Apply(ctx, item(t, "go-build", "uid-1", 1, envSpec(), nil)); err != nil || store.writes != 1 {
+		t.Errorf("an unchanged generation was written again: %d writes, %v", store.writes, err)
 	}
 
 	spec := envSpec()
 	spec.DisplayName = "Go builds"
-	if res, err := a.Apply(ctx, item(t, "go-build", "uid-1", 2, spec, nil)); err != nil || res.ID != "env-go-build" {
-		t.Fatalf("update = %+v, %v", res, err)
-	}
-	if req := rows.envReqs[1]; req.ID != "env-go-build" || req.Name != "Go builds" {
-		t.Errorf("update request = %+v", req)
+	if got, err := a.Apply(ctx, item(t, "go-build", "uid-1", 2, spec, nil)); err != nil || got.ID != res.ID || store.envs[res.ID].Name != "Go builds" {
+		t.Fatalf("update = %+v, %v, row %+v", got, err, store.envs[res.ID])
 	}
 
 	// A recreated resource takes over the row and keeps its id.
-	if res, err := a.Apply(ctx, item(t, "go-build", "uid-2", 1, spec, nil)); err != nil || res.ID != "env-go-build" {
-		t.Fatalf("takeover = %+v, %v", res, err)
-	}
-	if rows.envs["go-build"].ResourceUID != "uid-2" || len(rows.deleted) != 0 {
-		t.Errorf("takeover left uid %q, deleted %v", rows.envs["go-build"].ResourceUID, rows.deleted)
+	if got, err := a.Apply(ctx, item(t, "go-build", "uid-2", 1, spec, nil)); err != nil || got.ID != res.ID || store.envs[res.ID].ResourceUID != "uid-2" {
+		t.Fatalf("takeover = %+v, %v, row %+v", got, err, store.envs[res.ID])
 	}
 
 	if got, _ := a.List(ctx, applierTenant); !slices.Equal(got, []declarative.Declared{{Name: "go-build", UID: "uid-2"}}) {
@@ -226,15 +82,15 @@ func TestEnvironmentApplier(t *testing.T) {
 
 func TestEnvironmentApplierRefusals(t *testing.T) {
 	ctx := context.Background()
-	rows := emptyRows()
-	rows.envs["dash"] = &Environment{ID: "e1", Slug: "dash", Source: declarative.SourceAPI}
-	a := NewEnvironmentApplier(rows, rows)
+	a, store := newEnvironmentApplier()
+	store.envs["e1"] = Environment{ID: "e1", TenantID: applierTenant, Slug: "dash", Source: declarative.SourceAPI}
 
-	if res, _ := a.Apply(ctx, item(t, "dash", "uid-1", 1, envSpec(), nil)); res.Outcome != declarative.OutcomeNameConflict || len(rows.writes) != 0 {
-		t.Errorf("conflict = %+v, writes %d", res, len(rows.writes))
+	if res, _ := a.Apply(ctx, item(t, "dash", "uid-1", 1, envSpec(), nil)); res.Outcome != declarative.OutcomeNameConflict || store.writes != 0 {
+		t.Errorf("conflict = %+v, writes %d", res, store.writes)
 	}
-	rows.writeErr = errors.Join(ErrInvalidEnvironment, errors.New("size.cpu is above the maximum"))
-	res, err := a.Apply(ctx, item(t, "go-build", "uid-1", 1, envSpec(), nil))
+	spec := envSpec()
+	spec.Size.Memory = "64Gi"
+	res, err := a.Apply(ctx, item(t, "go-build", "uid-1", 1, spec, nil))
 	if err != nil || res.Outcome != declarative.OutcomeInvalid || res.Message == "" {
 		t.Errorf("invalid = %+v, %v", res, err)
 	}
@@ -245,152 +101,25 @@ func TestEnvironmentApplierRefusals(t *testing.T) {
 
 func TestEnvironmentApplierDelete(t *testing.T) {
 	ctx := context.Background()
-	rows := emptyRows()
-	rows.envs["go-build"] = &Environment{ID: "env-1", Slug: "go-build", Source: declarative.SourceCRD}
-	rows.envs["dash"] = &Environment{ID: "env-2", Slug: "dash", Source: declarative.SourceAPI}
-	a := NewEnvironmentApplier(rows, rows)
+	a, store := newEnvironmentApplier()
+	store.envs["env-1"] = Environment{ID: "env-1", TenantID: applierTenant, Slug: "go-build", Source: declarative.SourceCRD}
+	store.envs["env-2"] = Environment{ID: "env-2", TenantID: applierTenant, Slug: "dash", Source: declarative.SourceAPI}
 
-	rows.inUse = true
+	store.deleteErr = ErrEnvironmentInUse
 	if err := a.Delete(ctx, applierTenant, "go-build"); !errors.Is(err, ErrEnvironmentInUse) {
 		t.Errorf("in-use delete = %v, want ErrEnvironmentInUse for the operator to retry", err)
 	}
-	rows.inUse = false
+	store.deleteErr = nil
 	for _, name := range []string{"go-build", "dash", "absent"} {
 		if err := a.Delete(ctx, applierTenant, name); err != nil {
 			t.Errorf("delete %s: %v", name, err)
 		}
 	}
-	if !slices.Equal(rows.deleted, []string{"env-1"}) || rows.envs["dash"] == nil {
-		t.Errorf("deleted = %v, want only the declared row", rows.deleted)
+	if _, ok := store.envs["env-1"]; ok {
+		t.Error("the declared environment was kept")
 	}
-}
-
-func agentSpec() v1alpha1.AgentSpec {
-	return v1alpha1.AgentSpec{
-		DisplayName: "Code reviewer", Framework: "claude-code", IdentityMode: "autonomous",
-		Model:        v1alpha1.ModelRef{Family: "anthropic", Name: "sonnet"},
-		Environments: []v1alpha1.AgentEnvironment{{Name: "go-build"}},
-		MCPTools:     []v1alpha1.MCPTools{{Server: "github", Tools: []string{"create_review", "list_prs"}}},
-	}
-}
-
-var agentRefs = map[string]string{"environment/go-build": "env-go"}
-
-func TestAgentApplier(t *testing.T) {
-	ctx := context.Background()
-	rows := newDeclaredRows()
-	a := NewAgentApplier(rows, rows)
-
-	res, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs))
-	if err != nil || res != (declarative.Result{Outcome: declarative.OutcomeProjected, ID: "agent-uid-1"}) {
-		t.Fatalf("create = %+v, %v; want Projected with the id and not ready while provisioning", res, err)
-	}
-	req := rows.created[0]
-	if req.Slug != "code-reviewer" || req.Name != "Code reviewer" || *req.ModelID != "anthropic/sonnet" || req.IdentityMode != IdentityModeAutonomous {
-		t.Errorf("create request = %+v", req)
-	}
-	if !slices.Equal(req.MCPTools, []string{"mcp:github:create_review:use", "mcp:github:list_prs:use"}) {
-		t.Errorf("mcp tools = %v", req.MCPTools)
-	}
-	if !slices.Equal(req.Environments, []AgentEnvironment{{EnvironmentID: "env-go", IsDefault: true}}) {
-		t.Errorf("environments = %+v", req.Environments)
-	}
-	if w := rows.writes[0]; w != (declaredWrite{tenantID: applierTenant, createdBy: "resource:kora-tenant-acme/code-reviewer", resourceUID: "uid-1", generation: 1}) {
-		t.Errorf("declared write = %+v", w)
-	}
-
-	rows.agents["code-reviewer"].State = AgentTypeStateActive
-	res, err = a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs))
-	if err != nil || res != (declarative.Result{Outcome: declarative.OutcomeProjected, ID: "agent-uid-1", Ready: true}) {
-		t.Fatalf("re-apply once active = %+v, %v", res, err)
-	}
-	if len(rows.writes) != 1 {
-		t.Errorf("an unchanged agent was written again: %d writes", len(rows.writes))
-	}
-
-	// A recreated Environment gives a new id, and the agent follows it at the same generation.
-	if _, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), map[string]string{"environment/go-build": "env-go-2"})); err != nil {
-		t.Fatal(err)
-	}
-	spec := agentSpec()
-	spec.DisplayName = "Reviewer"
-	if _, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 2, spec, map[string]string{"environment/go-build": "env-go-2"})); err != nil {
-		t.Fatal(err)
-	}
-	if len(rows.updated) != 2 {
-		t.Fatalf("updates = %d, want one for the new environment id and one for the new generation", len(rows.updated))
-	}
-	u := rows.updated[1]
-	if u.ID != "agent-uid-1" || *u.Name != "Reviewer" || *u.Budget != (AgentBudget{}) || u.Guardrails == nil || *u.IdentityMode != IdentityModeAutonomous {
-		t.Errorf("update request = %+v", u)
-	}
-
-	if got, _ := a.List(ctx, applierTenant); !slices.Equal(got, []declarative.Declared{{Name: "code-reviewer", UID: "uid-1"}}) {
-		t.Errorf("list = %+v", got)
-	}
-}
-
-func TestAgentApplierRecreatedResourceIsANewAgent(t *testing.T) {
-	rows := newDeclaredRows()
-	rows.agents["code-reviewer"] = &AgentType{ID: "old", Slug: "code-reviewer", Source: declarative.SourceCRD, ResourceUID: "uid-old", ResourceGeneration: 1, State: AgentTypeStateActive}
-	a := NewAgentApplier(rows, rows)
-	res, err := a.Apply(context.Background(), item(t, "code-reviewer", "uid-new", 1, agentSpec(), agentRefs))
-	if err != nil || res.ID != "agent-uid-new" {
-		t.Fatalf("apply = %+v, %v", res, err)
-	}
-	if !slices.Equal(rows.deleted, []string{"old"}) || len(rows.created) != 1 {
-		t.Errorf("deleted = %v, created = %d; want the old agent soft-deleted and a new one created", rows.deleted, len(rows.created))
-	}
-}
-
-func TestAgentApplierRefusals(t *testing.T) {
-	ctx := context.Background()
-	t.Run("name conflict", func(t *testing.T) {
-		rows := newDeclaredRows()
-		rows.agents["code-reviewer"] = &AgentType{ID: "a1", Slug: "code-reviewer", Source: declarative.SourceAPI}
-		res, err := NewAgentApplier(rows, rows).Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs))
-		if err != nil || res.Outcome != declarative.OutcomeNameConflict || len(rows.writes) != 0 {
-			t.Errorf("conflict = %+v, %v, writes %d", res, err, len(rows.writes))
-		}
-	})
-	t.Run("invalid", func(t *testing.T) {
-		rows := newDeclaredRows()
-		rows.agents["code-reviewer"] = &AgentType{ID: "a1", Slug: "code-reviewer", Source: declarative.SourceCRD, ResourceUID: "uid-1", ResourceGeneration: 1}
-		rows.writeErr = ErrIdentityModeImmutable
-		res, err := NewAgentApplier(rows, rows).Apply(ctx, item(t, "code-reviewer", "uid-1", 2, agentSpec(), agentRefs))
-		if err != nil || res.Outcome != declarative.OutcomeInvalid || res.Message == "" {
-			t.Errorf("invalid = %+v, %v", res, err)
-		}
-	})
-	t.Run("dashboard-built environment", func(t *testing.T) {
-		rows := newDeclaredRows()
-		rows.envs["dash"] = &Environment{ID: "env-dash", Slug: "dash", Source: declarative.SourceAPI}
-		res, err := NewAgentApplier(rows, rows).Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), map[string]string{"environment/go-build": "env-dash"}))
-		if err != nil || res.Outcome != declarative.OutcomePending || len(rows.writes) != 0 {
-			t.Errorf("dashboard environment = %+v, %v, writes %d", res, err, len(rows.writes))
-		}
-	})
-	t.Run("unresolved environment", func(t *testing.T) {
-		rows := newDeclaredRows()
-		res, err := NewAgentApplier(rows, rows).Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), nil))
-		if err != nil || res.Outcome != declarative.OutcomePending || len(rows.writes) != 0 {
-			t.Errorf("unresolved = %+v, %v, writes %d", res, err, len(rows.writes))
-		}
-	})
-}
-
-func TestAgentApplierDelete(t *testing.T) {
-	rows := newDeclaredRows()
-	rows.agents["code-reviewer"] = &AgentType{ID: "a1", Slug: "code-reviewer", Source: declarative.SourceCRD}
-	rows.agents["dash"] = &AgentType{ID: "a2", Slug: "dash", Source: declarative.SourceAPI}
-	a := NewAgentApplier(rows, rows)
-	for _, name := range []string{"code-reviewer", "dash", "absent"} {
-		if err := a.Delete(context.Background(), applierTenant, name); err != nil {
-			t.Errorf("delete %s: %v", name, err)
-		}
-	}
-	if !slices.Equal(rows.deleted, []string{"a1"}) || rows.writes[0].tenantID != applierTenant {
-		t.Errorf("deleted = %v, writes %+v; want only the declared agent", rows.deleted, rows.writes)
+	if _, ok := store.envs["env-2"]; !ok {
+		t.Error("the dashboard-built environment was deleted")
 	}
 }
 
@@ -406,8 +135,15 @@ func (s slugStore) GetAgentTypeBySlug(ctx context.Context, tenantID, slug string
 	return s.GetAgentType(ctx, at.ID)
 }
 
-func (slugStore) ListDeclaredAgentTypes(context.Context, string) ([]declarative.Declared, error) {
-	return nil, nil
+func (s slugStore) ListDeclaredAgentTypes(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
+	ats, err := s.ListAgentTypes(ctx, tenantID)
+	var out []declarative.Declared
+	for _, at := range ats {
+		if at.Source == declarative.SourceCRD {
+			out = append(out, declarative.Declared{Name: at.Slug, UID: at.ResourceUID})
+		}
+	}
+	return out, err
 }
 
 // countingWriter counts the writes that reach the real service.
@@ -426,25 +162,167 @@ func (c *countingWriter) UpdateAgentType(ctx context.Context, req UpdateAgentTyp
 	return c.AgentTypeService.UpdateAgentType(ctx, req)
 }
 
-// Through the real service, under an evaluator that refuses every caller, a re-apply of the
-// same generation writes nothing.
-func TestAgentApplierWithService(t *testing.T) {
+// newAgentApplier runs the applier on the real agent type service under an evaluator that
+// refuses every caller, in a locked tenant. The repository holds the declared environments
+// env-go and env-go-2.
+func newAgentApplier() (*AgentApplier, *mockRepository, *countingWriter) {
 	repo := newMockRepository()
-	repo.envs["env-go"] = &Environment{ID: "env-go", TenantID: applierTenant, Source: declarative.SourceCRD}
-	writer := &countingWriter{AgentTypeService: newDenyingAgentTypeService(repo, lockedTenants{})}
-	a := NewAgentApplier(slugStore{repo}, writer)
-	ctx := context.Background()
-	if res, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs)); err != nil || res.ID == "" {
-		t.Fatalf("apply = %+v, %v", res, err)
+	for _, id := range []string{"env-go", "env-go-2"} {
+		repo.envs[id] = &Environment{ID: id, TenantID: applierTenant, Source: declarative.SourceCRD}
 	}
-	if _, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs)); err != nil {
+	writer := &countingWriter{AgentTypeService: newDenyingAgentTypeService(repo, lockedTenants{applierTenant: true})}
+	return NewAgentApplier(slugStore{repo}, writer), repo, writer
+}
+
+func agentSpec() v1alpha1.AgentSpec {
+	return v1alpha1.AgentSpec{
+		DisplayName: "Code reviewer", Framework: "claude-code", IdentityMode: "autonomous",
+		Model:        v1alpha1.ModelRef{Family: "anthropic", Name: "sonnet"},
+		Environments: []v1alpha1.AgentEnvironment{{Name: "go-build"}},
+		MCPTools:     []v1alpha1.MCPTools{{Server: "github", Tools: []string{"create_review", "list_prs"}}},
+	}
+}
+
+var agentRefs = map[string]string{"environment/go-build": "env-go"}
+
+// waitActive waits for the service's background provisioning to finish, so a later write does
+// not race its state change.
+func waitActive(t *testing.T, repo *mockRepository, id string) {
+	t.Helper()
+	waitFor(t, time.Second, func() bool {
+		at, err := repo.GetAgentType(context.Background(), id)
+		return err == nil && at.State == AgentTypeStateActive
+	})
+}
+
+func TestAgentApplier(t *testing.T) {
+	ctx := context.Background()
+	a, repo, writer := newAgentApplier()
+
+	res, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs))
+	if err != nil || res.Outcome != declarative.OutcomeProjected || res.ID == "" || res.Ready {
+		t.Fatalf("create = %+v, %v; want Projected with the id and not ready while provisioning", res, err)
+	}
+	at, _ := repo.GetAgentType(ctx, res.ID)
+	if at.Slug != "code-reviewer" || at.Name != "Code reviewer" || at.ModelID == nil || *at.ModelID != "anthropic/sonnet" || at.IdentityMode != IdentityModeAutonomous {
+		t.Errorf("created row = %+v", at)
+	}
+	if at.Source != declarative.SourceCRD || at.CreatedBy != "resource:kora-tenant-acme/code-reviewer" || at.ResourceUID != "uid-1" || at.ResourceGeneration != 1 {
+		t.Errorf("row = source %q created_by %q uid %q generation %d", at.Source, at.CreatedBy, at.ResourceUID, at.ResourceGeneration)
+	}
+	if !slices.Equal(at.MCPTools, []string{"mcp:github:create_review:use", "mcp:github:list_prs:use"}) {
+		t.Errorf("mcp tools = %v", at.MCPTools)
+	}
+	if !slices.Equal(at.Environments, []AgentEnvironment{{EnvironmentID: "env-go", IsDefault: true}}) {
+		t.Errorf("environments = %+v", at.Environments)
+	}
+
+	waitActive(t, repo, res.ID)
+	res, err = a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs))
+	if err != nil || !res.Ready || writer.writes != 1 {
+		t.Fatalf("re-apply once active = %+v, %v, %d writes; want ready with no new write", res, err, writer.writes)
+	}
+
+	// A recreated Environment gives a new id, and the agent follows it at the same generation.
+	refs := map[string]string{"environment/go-build": "env-go-2"}
+	if _, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), refs)); err != nil {
 		t.Fatal(err)
 	}
-	if writer.writes != 1 {
-		t.Errorf("writes = %d, want the create only", writer.writes)
+	spec := agentSpec()
+	spec.DisplayName = "Reviewer"
+	if _, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 2, spec, refs)); err != nil {
+		t.Fatal(err)
 	}
-	at, _ := slugStore{repo}.GetAgentTypeBySlug(ctx, applierTenant, "code-reviewer")
-	if at.Source != declarative.SourceCRD || at.CreatedBy != "resource:kora-tenant-acme/code-reviewer" || at.ResourceGeneration != 1 {
-		t.Errorf("row = source %q created_by %q generation %d", at.Source, at.CreatedBy, at.ResourceGeneration)
+	at, _ = repo.GetAgentType(ctx, res.ID)
+	if writer.writes != 3 || at.Name != "Reviewer" || at.ResourceGeneration != 2 || at.Environments[0].EnvironmentID != "env-go-2" {
+		t.Errorf("after updates: %d writes, row %+v; want one write for the new environment id and one for the new generation", writer.writes, at)
+	}
+
+	if got, _ := a.List(ctx, applierTenant); !slices.Equal(got, []declarative.Declared{{Name: "code-reviewer", UID: "uid-1"}}) {
+		t.Errorf("list = %+v", got)
+	}
+}
+
+func TestAgentApplierRecreatedResourceIsANewAgent(t *testing.T) {
+	ctx := context.Background()
+	a, repo, _ := newAgentApplier()
+	old, err := a.Apply(ctx, item(t, "code-reviewer", "uid-old", 1, agentSpec(), agentRefs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitActive(t, repo, old.ID)
+	res, err := a.Apply(ctx, item(t, "code-reviewer", "uid-new", 1, agentSpec(), agentRefs))
+	if err != nil || res.ID == "" || res.ID == old.ID {
+		t.Fatalf("apply = %+v, %v; want a new agent", res, err)
+	}
+	if _, err := repo.GetAgentType(ctx, old.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("old agent = %v, want it deleted", err)
+	}
+}
+
+func TestAgentApplierRefusals(t *testing.T) {
+	ctx := context.Background()
+	t.Run("name conflict", func(t *testing.T) {
+		a, repo, writer := newAgentApplier()
+		if err := repo.CreateAgentType(ctx, AgentType{ID: "a1", TenantID: applierTenant, Slug: "code-reviewer", Source: declarative.SourceAPI}); err != nil {
+			t.Fatal(err)
+		}
+		res, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs))
+		if err != nil || res.Outcome != declarative.OutcomeNameConflict || writer.writes != 0 {
+			t.Errorf("conflict = %+v, %v, writes %d", res, err, writer.writes)
+		}
+	})
+	t.Run("identity mode change", func(t *testing.T) {
+		a, repo, _ := newAgentApplier()
+		created, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs))
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitActive(t, repo, created.ID)
+		spec := agentSpec()
+		spec.IdentityMode = "delegated"
+		res, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 2, spec, agentRefs))
+		if err != nil || res.Outcome != declarative.OutcomeInvalid || res.Message == "" {
+			t.Errorf("invalid = %+v, %v", res, err)
+		}
+	})
+	t.Run("dashboard-built environment", func(t *testing.T) {
+		a, repo, writer := newAgentApplier()
+		repo.envs["env-dash"] = &Environment{ID: "env-dash", TenantID: applierTenant, Source: declarative.SourceAPI}
+		res, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), map[string]string{"environment/go-build": "env-dash"}))
+		if err != nil || res.Outcome != declarative.OutcomePending || writer.writes != 0 {
+			t.Errorf("dashboard environment = %+v, %v, writes %d", res, err, writer.writes)
+		}
+	})
+	t.Run("unresolved environment", func(t *testing.T) {
+		a, _, writer := newAgentApplier()
+		res, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), nil))
+		if err != nil || res.Outcome != declarative.OutcomePending || writer.writes != 0 {
+			t.Errorf("unresolved = %+v, %v, writes %d", res, err, writer.writes)
+		}
+	})
+}
+
+func TestAgentApplierDelete(t *testing.T) {
+	ctx := context.Background()
+	a, repo, _ := newAgentApplier()
+	declared, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitActive(t, repo, declared.ID)
+	if err := repo.CreateAgentType(ctx, AgentType{ID: "a2", TenantID: applierTenant, Slug: "dash", Source: declarative.SourceAPI}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"code-reviewer", "dash", "absent"} {
+		if err := a.Delete(ctx, applierTenant, name); err != nil {
+			t.Errorf("delete %s: %v", name, err)
+		}
+	}
+	if _, err := repo.GetAgentType(ctx, declared.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("declared agent = %v, want it deleted", err)
+	}
+	if _, err := repo.GetAgentType(ctx, "a2"); err != nil {
+		t.Errorf("dashboard-built agent = %v, want it kept", err)
 	}
 }
