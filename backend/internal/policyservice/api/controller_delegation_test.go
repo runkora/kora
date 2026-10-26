@@ -44,7 +44,7 @@ func TestMiddleware_Delegation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			eval := &checkRecorder{}
 			routes := []routescopes.RouteScope{{PathPrefix: "/api/v1/policy/grants", Method: "GET", RequiredScope: "platform:grants:read"}}
-			c := NewController(nil, logging.NewLogger(), s.Verifier, tokentest.Blocklist{"jti-revoked": true}, eval, routes, "/api/v1")
+			c := NewController(nil, logging.NewLogger(), s.Verifier, tokentest.Blocklist{"jti-revoked": true}, eval, routes, "/api/v1", nil)
 			h := c.Middleware()(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, tokentest.Request(http.MethodGet, "/policy/grants", bearer, tc.delegation))
@@ -68,7 +68,7 @@ func TestMiddleware_Delegation(t *testing.T) {
 
 // A delegated run cannot assign scopes in a grant or role.
 func TestEnforceScopeCeiling_RefusesDelegated(t *testing.T) {
-	c := NewController(nil, logging.NewLogger(), nil, nil, nil, nil, "")
+	c := NewController(nil, logging.NewLogger(), nil, nil, nil, nil, "", nil)
 	claims := &token.PlatformClaims{}
 	claims.Subject = "spiffe://runkora.test/tenant/acme/agent/coder"
 	claims.Kora.TenantID = "acme"
@@ -86,7 +86,7 @@ func TestEnforceScopeCeiling_RefusesDelegated(t *testing.T) {
 
 // A delegated run cannot delete a role.
 func TestHandleDeleteRole_RefusesDelegated(t *testing.T) {
-	c := NewController(nil, logging.NewLogger(), nil, nil, nil, nil, "")
+	c := NewController(nil, logging.NewLogger(), nil, nil, nil, nil, "", nil)
 	claims := &token.PlatformClaims{}
 	claims.Subject = "spiffe://runkora.test/tenant/acme/agent/coder"
 	claims.Kora.TenantID = "acme"

@@ -40,8 +40,9 @@ type Config struct {
 		// Compiled into the gateway bundle so authz_gateway.rego can bypass
 		// OPA enforcement for browser UI traffic (`:authority` header match).
 		FrontendHost string `yaml:"frontendHost"`
-		// TenantsPath is the operator's tenant registry; the gateway bundle
-		// lists every tenant in it.
+		// TenantsPath is the operator's tenant registry. The gateway bundle
+		// lists every tenant in it. Each tenant's authoring switch and
+		// declared budget come from it too.
 		TenantsPath string `yaml:"tenantsPath"`
 	} `yaml:"bundle"`
 

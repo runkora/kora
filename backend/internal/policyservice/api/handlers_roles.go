@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 	"github.com/runkora/kora/backend/internal/policyservice/roles"
@@ -28,17 +29,8 @@ func (c *Controller) handleUpsertRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Role == "" || len(req.Scopes) == 0 {
-		platformapi.ErrorResponse(ctx, w, c.logger,
-			platformapi.ValidationError(platformapi.ErrCodeMissingField,
-				"role and scopes are required", nil), nil)
-		return
-	}
-
-	if len(req.Role) > 255 {
-		platformapi.ErrorResponse(ctx, w, c.logger,
-			platformapi.ValidationError(platformapi.ErrCodeInvalidField,
-				"role name must not exceed 255 characters", nil), nil)
+	if apiErr := validateRole(req.Role, req.Scopes); apiErr != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
 
@@ -49,6 +41,10 @@ func (c *Controller) handleUpsertRole(w http.ResponseWriter, r *http.Request) {
 	if tenantID == "" {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ValidationError(platformapi.ErrCodeMissingField, "tenant_id is required", nil), nil)
+		return
+	}
+
+	if c.refuseRoleWrite(ctx, w, tenantID, req.Role) {
 		return
 	}
 
@@ -68,6 +64,9 @@ func (c *Controller) handleUpsertRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	entry, err := c.svc.UpsertRole(ctx, tenantID, req.Role, req.Scopes, budget)
+	if declarative.WriteRefusal(ctx, w, c.logger, err) {
+		return
+	}
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, roleErrorResponse(err), err)
 		return
@@ -76,25 +75,59 @@ func (c *Controller) handleUpsertRole(w http.ResponseWriter, r *http.Request) {
 	platformapi.JSON(ctx, w, c.logger, http.StatusOK, roleWriteResponse{RoleEntry: entry, Warnings: c.svc.LintScopes(ctx, req.Scopes)})
 }
 
+// validateRole checks a role name and its scopes as every role write does.
+func validateRole(role string, scopes []string) *platformapi.APIError {
+	if role == "" || len(scopes) == 0 {
+		return platformapi.ValidationError(platformapi.ErrCodeMissingField, "role and scopes are required", nil)
+	}
+	if len(role) > 255 {
+		return platformapi.ValidationError(platformapi.ErrCodeInvalidField, "role name must not exceed 255 characters", nil)
+	}
+	return nil
+}
+
 // roleBudgetFromRequest validates a role budget body. nil clears the budget.
 func roleBudgetFromRequest(req *budgetAssignmentRequest) (*roles.BudgetAssignment, *platformapi.APIError) {
 	if req == nil {
 		return nil, nil
 	}
-	if req.LimitUSD <= 0 {
-		return nil, platformapi.ValidationError(platformapi.ErrCodeInvalidField,
-			"budget.limit_usd must be greater than zero", nil)
+	budget, apiErr := validRoleBudget(&roles.BudgetAssignment{LimitUSD: req.LimitUSD, ResetCadence: req.ResetCadence, Pooled: req.Pooled})
+	if apiErr != nil {
+		return nil, apiErr
 	}
 	if req.PerRunLimitUSD != 0 {
 		return nil, platformapi.ValidationError(platformapi.ErrCodeInvalidField,
 			"budget.per_run_limit_usd is not valid on roles — set it on the agent's grant", nil)
 	}
-	cadence, ok := normalizeCadence(req.ResetCadence)
+	return budget, nil
+}
+
+// validRoleBudget checks a role budget and normalizes its cadence.
+func validRoleBudget(b *roles.BudgetAssignment) (*roles.BudgetAssignment, *platformapi.APIError) {
+	if b.LimitUSD <= 0 {
+		return nil, platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+			"budget.limit_usd must be greater than zero", nil)
+	}
+	cadence, ok := normalizeCadence(b.ResetCadence)
 	if !ok {
 		return nil, platformapi.ValidationError(platformapi.ErrCodeInvalidField,
 			"budget.reset_cadence must be 'weekly' or 'monthly'", nil)
 	}
-	return &roles.BudgetAssignment{LimitUSD: req.LimitUSD, ResetCadence: cadence, Pooled: req.Pooled}, nil
+	return &roles.BudgetAssignment{LimitUSD: b.LimitUSD, ResetCadence: cadence, Pooled: b.Pooled}, nil
+}
+
+// refuseRoleWrite writes 403 when the tenant takes its roles from resources
+// only, and 409 when the role is projected from a resource.
+func (c *Controller) refuseRoleWrite(ctx context.Context, w http.ResponseWriter, tenantID, role string) bool {
+	if !c.registry.APIAuthoringEnabled(tenantID) {
+		return declarative.WriteRefusal(ctx, w, c.logger, declarative.ErrAPIAuthoringDisabled)
+	}
+	declared, err := c.svc.isDeclaredRole(ctx, tenantID, role)
+	if err != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger, roleErrorResponse(err), err)
+		return true
+	}
+	return declared && declarative.WriteRefusal(ctx, w, c.logger, declarative.ErrManagedByResource)
 }
 
 // roleBudgetChangeAllowed lets a role write change the role's budget only when
@@ -163,6 +196,10 @@ func (c *Controller) handleUpdateRoleBudget(w http.ResponseWriter, r *http.Reque
 	if tenantID == "" {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ValidationError(platformapi.ErrCodeMissingField, "tenant_id is required", nil), nil)
+		return
+	}
+
+	if c.refuseRoleWrite(ctx, w, tenantID, r.PathValue("role")) {
 		return
 	}
 
@@ -246,6 +283,10 @@ func (c *Controller) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 	if tenantID == "" {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ValidationError(platformapi.ErrCodeMissingField, "tenant_id query parameter is required", nil), nil)
+		return
+	}
+
+	if c.refuseRoleWrite(ctx, w, tenantID, r.PathValue("role")) {
 		return
 	}
 
