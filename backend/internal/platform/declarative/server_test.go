@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -170,5 +171,15 @@ func TestControllerWithoutTokenIsUnauthorized(t *testing.T) {
 	t.Cleanup(srv.Close)
 	if status, _ := call(t, srv, http.MethodGet, "/internal/declared/agents/acme", "", ""); status != http.StatusUnauthorized {
 		t.Errorf("status %d, want 401", status)
+	}
+}
+
+func TestControllerDeleteInUseIsConflict(t *testing.T) {
+	envs := &fakeApplier{err: fmt.Errorf("delete environment %q: %w", "e1", ErrInUse)}
+	srv := newTestServer(t, map[string]Applier{KindEnvironments: envs})
+
+	status, body := call(t, srv, http.MethodDelete, "/internal/declared/environments/acme/e1", operator, "")
+	if status != http.StatusConflict || !strings.Contains(body, `"code":"conflict"`) {
+		t.Errorf("status %d: %s, want 409 conflict", status, body)
 	}
 }

@@ -3,6 +3,7 @@ package declarative
 import (
 	"context"
 	"encoding/json"
+	"errors"
 )
 
 // Kinds, as they appear in the endpoint paths. Each is the CRD's plural name.
@@ -81,6 +82,10 @@ type Applier interface {
 	Delete(ctx context.Context, tenantID, name string) error
 	List(ctx context.Context, tenantID string) ([]Declared, error)
 }
+
+// ErrInUse is wrapped by a Delete refused because another item still uses this one.
+// The endpoint answers 409, and the operator retries the delete.
+var ErrInUse = errors.New("the declared item is still in use")
 
 // RefEnvironment is the Item.Refs key holding the id of the Environment name.
 func RefEnvironment(name string) string { return "environment/" + name }

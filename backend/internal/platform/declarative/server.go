@@ -1,6 +1,7 @@
 package declarative
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
@@ -100,7 +101,12 @@ func (c *Controller) handleDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := a.Delete(ctx, r.PathValue("tenant"), r.PathValue("name")); err != nil {
+	err := a.Delete(ctx, r.PathValue("tenant"), r.PathValue("name"))
+	switch {
+	case errors.Is(err, ErrInUse):
+		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, ErrInUse.Error(), nil), err)
+		return
+	case err != nil:
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "delete declared item", nil), err)
 		return
 	}
