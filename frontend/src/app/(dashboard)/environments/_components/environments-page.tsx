@@ -25,8 +25,9 @@ import { deleteEnvironment } from '../_services/environments-api';
 import { EnvironmentWizard } from './environment-wizard';
 import { imageProblem, sizeLabel } from '@runkora/lib/environments';
 import type { EnvironmentRow } from '../_types';
-import { useHasScope } from '../../_components/permissions-provider';
-import { PermissionHint } from '@runkora/components';
+import { managedInGit } from '@runkora/lib/declarative';
+import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
+import { ManagedInGitBadge, ManagedInGitCallout, PermissionHint } from '@runkora/components';
 
 interface EnvironmentsPageProps {
   rows: EnvironmentRow[];
@@ -67,6 +68,8 @@ export function EnvironmentsPage({
   // null = closed; { environment: null } = create; { environment: row } = edit.
   const [formState, setFormState] = useState<{ environment: EnvironmentRow | null } | null>(null);
   const canWrite = useHasScope('agents:environments:write');
+  // A locked tenant takes its environments from the configuration repository.
+  const locked = useTenantLocked();
   const [deleteCandidate, setDeleteCandidate] = useState<EnvironmentRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -97,9 +100,12 @@ export function EnvironmentsPage({
         sortAccessor: (row) => row.name,
         cell: (row) => (
           <Stack gap="none">
-            <Text size="supporting" weight="emphasis">
-              {row.name}
-            </Text>
+            <Stack direction="horizontal" align="center" gap="snug" wrap>
+              <Text size="supporting" weight="emphasis">
+                {row.name}
+              </Text>
+              {row.declared && <ManagedInGitBadge repository={row.repository} />}
+            </Stack>
             <Text size="caption" mono color="subtle">
               {row.slug}
             </Text>
@@ -217,41 +223,51 @@ export function EnvironmentsPage({
         pinEnd: true,
         locked: true,
         gridWidth: '5rem',
-        cell: (row) => (
-          <Stack direction="horizontal" gap="tight" justify="end">
-            <PermissionHint allowed={canWrite} action="edit environments">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                disabled={!canWrite}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setFormState({ environment: row });
-                }}
-                aria-label={`Edit ${row.name}`}
-              >
-                <Icon name="edit" size="2xs" />
-              </Button>
-            </PermissionHint>
-            <PermissionHint allowed={canWrite} action="delete environments">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                disabled={!canWrite}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDeleteCandidate(row);
-                }}
-                aria-label={`Delete ${row.name}`}
-              >
-                <Icon name="trash" size="2xs" />
-              </Button>
-            </PermissionHint>
-          </Stack>
-        ),
+        cell: (row) =>
+          managedInGit(row.declared, locked) ? null : (
+            <Stack direction="horizontal" gap="tight" justify="end">
+              <PermissionHint allowed={canWrite} action="edit environments">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={!canWrite}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFormState({ environment: row });
+                  }}
+                  aria-label={`Edit ${row.name}`}
+                >
+                  <Icon name="edit" size="2xs" />
+                </Button>
+              </PermissionHint>
+              <PermissionHint allowed={canWrite} action="delete environments">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={!canWrite}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteCandidate(row);
+                  }}
+                  aria-label={`Delete ${row.name}`}
+                >
+                  <Icon name="trash" size="2xs" />
+                </Button>
+              </PermissionHint>
+            </Stack>
+          ),
       },
     ],
-    [rows, images, canWrite],
+    [rows, images, canWrite, locked],
+  );
+
+  const createButton = locked ? undefined : (
+    <PermissionHint allowed={canWrite} action="create environments">
+      <Button size="sm" disabled={!canWrite} onClick={() => setFormState({ environment: null })}>
+        <Icon name="plus" size="xs" />
+        New environment
+      </Button>
+    </PermissionHint>
   );
 
   return (
@@ -266,17 +282,10 @@ export function EnvironmentsPage({
             configuration page.
           </Text>
         </Stack>
-        <PermissionHint allowed={canWrite} action="create environments">
-          <Button
-            size="sm"
-            disabled={!canWrite}
-            onClick={() => setFormState({ environment: null })}
-          >
-            <Icon name="plus" size="xs" />
-            New environment
-          </Button>
-        </PermissionHint>
+        {createButton}
       </Stack>
+
+      {locked && <ManagedInGitCallout subject="Environments in this tenant" />}
 
       {error ? (
         <Alert variant="error">{error}</Alert>
@@ -285,18 +294,7 @@ export function EnvironmentsPage({
           icon="layers"
           title="No environments"
           description={`Agents without an environment run on the ${productName} base image. Create an environment to give them a registered image, a size and access.`}
-          action={
-            <PermissionHint allowed={canWrite} action="create environments">
-              <Button
-                size="sm"
-                disabled={!canWrite}
-                onClick={() => setFormState({ environment: null })}
-              >
-                <Icon name="plus" size="xs" />
-                New environment
-              </Button>
-            </PermissionHint>
-          }
+          action={createButton}
         />
       ) : (
         <DataTable

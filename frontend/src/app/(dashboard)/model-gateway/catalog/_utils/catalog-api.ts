@@ -1,3 +1,4 @@
+import { isDeclared } from '@runkora/lib/declarative';
 import type {
   VirtualModel as ApiVirtualModel,
   ProviderModel as ApiProviderModel,
@@ -26,6 +27,8 @@ export function toVirtualModel(m: ApiVirtualModel): VirtualModel {
       enabled: r.enabled,
     })),
     pricing: m.pricing,
+    declared: isDeclared(m),
+    repository: m.repository,
   };
 }
 

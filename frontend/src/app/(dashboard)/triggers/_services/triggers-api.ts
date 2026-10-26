@@ -11,6 +11,7 @@
  * returned `error` field.
  */
 
+import { writeErrorMessage } from '@runkora/lib/declarative';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type {
   ModelObject,
@@ -43,7 +44,7 @@ export function errorMessageOf(status: number, body: ErrorBody): string {
   if (Array.isArray(missing) && missing.length > 0) {
     return `You do not hold every scope this trigger needs. Missing: ${missing.join(', ')}.`;
   }
-  return body.message ?? `Request failed (${status})`;
+  return writeErrorMessage(status, body);
 }
 
 async function errorMessage(res: Response): Promise<string> {

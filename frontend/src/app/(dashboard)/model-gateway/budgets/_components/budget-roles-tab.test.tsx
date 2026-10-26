@@ -22,3 +22,20 @@ describe('BudgetRolesTab', () => {
     expect(!(edit as HTMLButtonElement).disabled).toBe(enabled);
   });
 });
+
+describe('BudgetRolesTab managed in git', () => {
+  const WRITER = ['platform:budgets:read', 'platform:budgets:write'];
+
+  it('offers no budget edit on a declared role', () => {
+    renderWithProviders(<BudgetRolesTab roles={[{ ...ROLES[0]!, source: 'crd' as const }]} />, {
+      scopes: WRITER,
+    });
+    expect(screen.getByText('Managed in git')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Edit budget for engineer' })).toBeNull();
+  });
+
+  it('offers no budget edit in a locked tenant', () => {
+    renderWithProviders(<BudgetRolesTab roles={ROLES} />, { scopes: WRITER, apiAuthoring: false });
+    expect(screen.queryByRole('button', { name: 'Edit budget for engineer' })).toBeNull();
+  });
+});

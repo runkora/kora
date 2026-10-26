@@ -34,13 +34,14 @@ import type { DataTableColumn } from '@runkora/components';
 import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
 import { CreateRoleWizard } from './create-role-wizard';
-import { useHasScope } from '../../_components/permissions-provider';
+import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
+import { isDeclared, managedInGit } from '@runkora/lib/declarative';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { ScopeChipList, scopeColumnFilter } from '@runkora/components';
 import { ScopePicker } from '@runkora/components';
 import type { ScopeOption } from '@runkora/components';
 import { ViewToggle } from '@runkora/components';
-import { PermissionHint } from '@runkora/components';
+import { ManagedInGitBadge, ManagedInGitCallout, PermissionHint } from '@runkora/components';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,8 @@ export function RolesTab({
   const router = useRouter();
   const { productName } = useBrand();
   const canWrite = useHasScope('platform:roles:write');
+  // A locked tenant takes its roles from the configuration repository.
+  const locked = useTenantLocked();
   const [roles, setRoles] = useState(initialRoles);
   const [error, setError] = useState(initialError);
 
@@ -112,21 +115,25 @@ export function RolesTab({
     [router],
   );
 
+  const createButton = locked ? undefined : (
+    <PermissionHint allowed={canWrite} action="create roles">
+      <Button size="sm" disabled={!canWrite} onClick={() => setCreating(true)}>
+        <Icon name="plus" />
+        Create Role
+      </Button>
+    </PermissionHint>
+  );
+
   return (
     <Stack gap="comfortable">
       {/* Header */}
       <PageSectionHeader
         title="Roles"
         description="Map OIDC role names to platform scopes."
-        action={
-          <PermissionHint allowed={canWrite} action="create roles">
-            <Button size="sm" disabled={!canWrite} onClick={() => setCreating(true)}>
-              <Icon name="plus" />
-              Create Role
-            </Button>
-          </PermissionHint>
-        }
+        action={createButton}
       />
+
+      {locked && <ManagedInGitCallout subject="Roles in this tenant" />}
 
       {/* Info box */}
       <Callout>
@@ -173,14 +180,7 @@ export function RolesTab({
               icon="user-check"
               title="No roles yet"
               description="Roles map OIDC role claims to platform scopes. Create a role to define what permissions a role name grants."
-              action={
-                <PermissionHint allowed={canWrite} action="create roles">
-                  <Button size="sm" disabled={!canWrite} onClick={() => setCreating(true)}>
-                    <Icon name="plus" />
-                    Create Role
-                  </Button>
-                </PermissionHint>
-              }
+              action={createButton}
             />
           )
         ) : (
@@ -189,6 +189,7 @@ export function RolesTab({
             onEdit={setEditingRole}
             onDelete={setDeleteCandidate}
             canWrite={canWrite}
+            locked={locked}
           />
         )
       ) : (
@@ -197,6 +198,7 @@ export function RolesTab({
           onEdit={setEditingRole}
           onDelete={setDeleteCandidate}
           canWrite={canWrite}
+          locked={locked}
           viewToggle={<ViewToggle viewMode={viewMode} onToggle={setViewMode} />}
         />
       )}
@@ -259,16 +261,19 @@ function RoleCardGrid({
   onEdit,
   onDelete,
   canWrite,
+  locked,
 }: {
   roles: RoleEntry[];
   onEdit: (role: RoleEntry) => void;
   onDelete: (role: RoleEntry) => void;
   canWrite: boolean;
+  locked: boolean;
 }) {
   return (
     <Grid cols={{ base: 1, sm: 2 }} gap="comfortable">
       {roles.map((role) => {
         const isReserved = role.reserved === true;
+        const editable = !isReserved && !managedInGit(isDeclared(role), locked);
         const scopes = role.scopes ?? [];
         return (
           <Card key={role.id} column>
@@ -282,6 +287,7 @@ function RoleCardGrid({
                     reserved
                   </Badge>
                 )}
+                {isDeclared(role) && <ManagedInGitBadge repository={role.repository} />}
               </Stack>
             </CardHeader>
 
@@ -315,28 +321,32 @@ function RoleCardGrid({
                       Created {fmtDate(role.created_at)}
                     </Text>
                   )}
-                  <PermissionHint allowed={canWrite} action="edit roles">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      disabled={!canWrite}
-                      onClick={() => onEdit(role)}
-                      aria-label="Edit role"
-                    >
-                      <Icon name="edit" size="2xs" />
-                    </Button>
-                  </PermissionHint>
-                  <PermissionHint allowed={canWrite} action="delete roles">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      disabled={!canWrite}
-                      onClick={() => onDelete(role)}
-                      aria-label="Delete role"
-                    >
-                      <Icon name="trash" size="2xs" />
-                    </Button>
-                  </PermissionHint>
+                  {editable && (
+                    <>
+                      <PermissionHint allowed={canWrite} action="edit roles">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          disabled={!canWrite}
+                          onClick={() => onEdit(role)}
+                          aria-label="Edit role"
+                        >
+                          <Icon name="edit" size="2xs" />
+                        </Button>
+                      </PermissionHint>
+                      <PermissionHint allowed={canWrite} action="delete roles">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          disabled={!canWrite}
+                          onClick={() => onDelete(role)}
+                          aria-label="Delete role"
+                        >
+                          <Icon name="trash" size="2xs" />
+                        </Button>
+                      </PermissionHint>
+                    </>
+                  )}
                 </Stack>
               )}
             </CardFooter>
@@ -354,12 +364,14 @@ function RoleTable({
   onEdit,
   onDelete,
   canWrite,
+  locked,
   viewToggle,
 }: {
   roles: RoleEntry[];
   onEdit: (role: RoleEntry) => void;
   onDelete: (role: RoleEntry) => void;
   canWrite: boolean;
+  locked: boolean;
   viewToggle: React.ReactNode;
 }) {
   const columns = useMemo<DataTableColumn<RoleEntry>[]>(
@@ -384,6 +396,7 @@ function RoleTable({
                   reserved
                 </Badge>
               )}
+              {isDeclared(r) && <ManagedInGitBadge repository={r.repository} />}
             </Stack>
           );
         },
@@ -438,8 +451,8 @@ function RoleTable({
         locked: true,
         gridWidth: '5rem',
         cell: (r) => {
-          // Reserved roles are never editable, so they offer no controls at all.
-          if (r.reserved === true) return null;
+          // Reserved roles and roles managed in git offer no controls at all.
+          if (r.reserved === true || managedInGit(isDeclared(r), locked)) return null;
           return (
             <Stack direction="horizontal" gap="tight">
               <PermissionHint allowed={canWrite} action="edit roles">
@@ -475,7 +488,7 @@ function RoleTable({
         },
       },
     ],
-    [onEdit, onDelete, canWrite, roles],
+    [onEdit, onDelete, canWrite, locked, roles],
   );
 
   return (

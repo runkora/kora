@@ -3,6 +3,7 @@
 // AgentTypeRow and RunRow are the shapes consumed by all UI components.
 // Raw API shapes (AgentType, Run) only appear at the service layer boundary.
 
+import { isDeclared } from '@runkora/lib/declarative';
 import type {
   AgentEnvironment,
   AgentType,
@@ -68,6 +69,10 @@ export interface AgentTypeRow {
   canEdit: boolean;
   /** Whether the caller may delete this agent. */
   canDelete: boolean;
+  /** Declared in the configuration repository: read-only here. */
+  declared: boolean;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 export interface RunRow {
@@ -133,6 +138,8 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     canRun: a.can_run ?? false,
     canEdit: a.can_edit ?? false,
     canDelete: a.can_delete ?? false,
+    declared: isDeclared(a),
+    repository: a.repository,
   };
 }
 

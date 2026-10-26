@@ -13,13 +13,13 @@
 import { useMemo } from 'react';
 import { Badge, DataTable, Icon, IconTile, Sparkline, Stack, Text, Toggle } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
-import { consoleKindOf, KIND_ICON, relativeTime, runTargets } from '../_types';
+import { consoleKindOf, KIND_ICON, relativeTime, runTargets, triggerToggleOpen } from '../_types';
 import type { ConsoleKind, DeliveryRow, SourceCategory, TriggerRow } from '../_types';
 import { chatEventLabel } from '../_lib/chat';
 import { lastFired, recentFailures, sparkline } from '../_types/fleet';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
-import { useHasScope } from '../../_components/permissions-provider';
-import { PermissionHint } from '@runkora/components';
+import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
+import { ManagedInGitBadge, PermissionHint } from '@runkora/components';
 
 // ── View-model type ───────────────────────────────────────────────────────────
 
@@ -65,6 +65,7 @@ function makeColumns(
   onToggle: (t: TriggerRow) => void,
   canWrite: boolean,
   canRunAgent: (agentTypeId: string) => boolean,
+  tenantLocked: boolean,
 ): DataTableColumn<TriggerDisplayRow>[] {
   return [
     {
@@ -83,6 +84,7 @@ function makeColumns(
               <Text mono size="supporting" weight="emphasis" truncate title={row.name}>
                 {row.name}
               </Text>
+              {row.declared && <ManagedInGitBadge repository={row.repository} />}
               {row.autoPausedAt !== null && (
                 <Badge variant="degraded" size="sm" shape="pill">
                   Auto-paused
@@ -211,8 +213,7 @@ function makeColumns(
               <Toggle
                 checked={row.enabled}
                 onChange={() => onToggle(row)}
-                // A trigger whose source was deleted can be turned off, never on.
-                disabled={!canWrite || !runs || (row.sourceMissing && !row.enabled)}
+                disabled={!canWrite || !runs || !triggerToggleOpen(row, tenantLocked)}
                 aria-label={`${row.enabled ? 'Disable' : 'Enable'} ${row.name}`}
               />
             </PermissionHint>
@@ -304,9 +305,10 @@ export function TriggerList({
   );
 
   const canWrite = useHasScope('triggers:write');
+  const tenantLocked = useTenantLocked();
   const columns = useMemo(
-    () => makeColumns(sourceName, sourceWaiting, onToggle, canWrite, canRunAgent),
-    [sourceName, sourceWaiting, onToggle, canWrite, canRunAgent],
+    () => makeColumns(sourceName, sourceWaiting, onToggle, canWrite, canRunAgent, tenantLocked),
+    [sourceName, sourceWaiting, onToggle, canWrite, canRunAgent, tenantLocked],
   );
 
   return (

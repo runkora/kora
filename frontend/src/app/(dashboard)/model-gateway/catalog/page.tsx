@@ -65,6 +65,8 @@ export default async function CatalogPage() {
   const providersError = providersResult.ok ? null : providersResult.message;
   const error = !vmResult.ok ? vmResult.message : null;
   const syncSummary = buildSyncSummary(pricingEntries, !pricingResult.ok);
+  // The platform switch: off makes every virtual model read-only here.
+  const apiAuthoring = vmResult.ok ? (vmResult.data.api_authoring ?? true) : true;
 
   return (
     <CatalogTab
@@ -74,6 +76,7 @@ export default async function CatalogPage() {
       providersError={providersError}
       initialError={error}
       syncSummary={syncSummary}
+      apiAuthoring={apiAuthoring}
     />
   );
 }

@@ -197,3 +197,11 @@ describe('source missing', () => {
     expect(screen.getByText('No source')).toBeTruthy();
   });
 });
+
+describe('managed in git', () => {
+  it('marks a declared trigger and locks its switch', () => {
+    render(list({ triggers: [makeTrigger({ declared: true })] }));
+    expect(screen.getByText('Managed in git')).toBeTruthy();
+    expect(screen.getByRole('switch')).toBeDisabled();
+  });
+});

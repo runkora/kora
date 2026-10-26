@@ -11,6 +11,7 @@
  * (WebhookSource, Trigger, TriggerDelivery) only appear at the service boundary.
  */
 
+import { isDeclared, managedInGit } from '@runkora/lib/declarative';
 import type { IconName } from '@runkora/hades';
 import type {
   InputField,
@@ -146,6 +147,10 @@ export interface SourceRow {
   rejectionCount: number;
   lastRejectionAt: string | null;
   lastRejectionReason: string | null;
+  /** Declared in the configuration repository: read-only here. */
+  declared: boolean;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 export interface TriggerRow {
@@ -154,6 +159,10 @@ export interface TriggerRow {
   sourceId: string;
   /** A webhook trigger whose source was deleted. It does not fire and can only be disabled or deleted. */
   sourceMissing: boolean;
+  /** Declared in the configuration repository: read-only here. */
+  declared: boolean;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
   name: string;
   /** "routed" triggers have no single agent: both agent fields are empty. */
   targetKind: TriggerTargetKind;
@@ -311,7 +320,20 @@ export function toSourceRow(s: WebhookSource): SourceRow {
     rejectionCount: s.rejection_count ?? 0,
     lastRejectionAt: s.last_rejection_at ?? null,
     lastRejectionReason: s.last_rejection_reason ?? null,
+    declared: isDeclared(s),
+    repository: s.repository,
   };
+}
+
+/**
+ * Whether the on or off control may change. A trigger whose source was deleted
+ * can be turned off, never on. A trigger managed in git can only be re-enabled
+ * after an auto-pause, which the API still accepts.
+ */
+export function triggerToggleOpen(t: TriggerRow, tenantLocked: boolean): boolean {
+  if (t.sourceMissing && !t.enabled) return false;
+  if (!managedInGit(t.declared, tenantLocked)) return true;
+  return t.autoPausedAt !== null && !t.enabled;
 }
 
 export function toTriggerRow(t: Trigger): TriggerRow {
@@ -320,6 +342,8 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     kind: t.kind,
     sourceId: t.source_id ?? '',
     sourceMissing: t.source_missing ?? false,
+    declared: isDeclared(t),
+    repository: t.repository,
     name: t.name,
     targetKind: t.target_kind ?? 'agent',
     agentTypeId: t.agent_type_id ?? '',

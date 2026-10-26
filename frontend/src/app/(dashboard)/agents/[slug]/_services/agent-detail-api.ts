@@ -1,5 +1,6 @@
 // ── Agent detail — client-side BFF calls ──────────────────────────────────────
 
+import { writeErrorMessage } from '@runkora/lib/declarative';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type {
   AgentInsightsPeriod,
@@ -99,7 +100,7 @@ export async function deleteAgentType(id: string): Promise<{ error: string | nul
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
-    return { error: (body as { message?: string }).message ?? `Request failed (${res.status})` };
+    return { error: writeErrorMessage(res.status, body) };
   }
   return { error: null };
 }
@@ -148,7 +149,7 @@ export async function updateAgentType(
     const body = await res.json().catch(() => ({}) as { message?: string });
     return {
       agentType: null,
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
+      error: writeErrorMessage(res.status, body),
     };
   }
   const body = (await res.json()) as { data: AgentType };

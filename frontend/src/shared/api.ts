@@ -3,6 +3,9 @@
 // These interfaces mirror Go backend JSON response shapes exactly.
 // Field names match json tags — do not rename without updating the backend.
 
+/** Where an item came from: the API, or a declarative resource (read-only here). */
+export type ResourceSource = 'api' | 'crd';
+
 export interface HealthResponse {
   status: string;
   /** Human-readable service name, e.g. "kora-identity". */
@@ -314,6 +317,10 @@ export interface Environment {
   connectors: Connector[];
   created_at: string;
   updated_at: string;
+  /** "crd" when the item is declared in the configuration repository and read-only here. */
+  source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 /** A sandbox's CPU, memory and local disk as Kubernetes quantities, e.g. "2", "4Gi". */
@@ -408,6 +415,10 @@ export interface AgentType {
   can_edit?: boolean;
   /** Whether the caller may delete this agent. Set on reads. */
   can_delete?: boolean;
+  /** "crd" when the item is declared in the configuration repository and read-only here. */
+  source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 /**
@@ -761,6 +772,10 @@ export interface WebhookSource {
   signing_secret_set?: boolean;
   last_rejection_at?: string;
   last_rejection_reason?: string;
+  /** "crd" when the item is declared in the configuration repository and read-only here. */
+  source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 /**
@@ -918,6 +933,10 @@ export interface Trigger {
   source_id?: string;
   /** Set on a webhook trigger whose source was deleted. It does not fire and can only be disabled or deleted. */
   source_missing?: boolean;
+  /** "crd" when the trigger is declared in the configuration repository and read-only here. */
+  source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
   name: string;
   agent_type_id: string;
   agent_slug: string;

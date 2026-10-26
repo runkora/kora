@@ -22,7 +22,7 @@ import {
   EmptyState,
 } from '@runkora/hades';
 import Link from 'next/link';
-import { PermissionHint, StatusBadge } from '@runkora/components';
+import { ManagedInGitBadge, PermissionHint, StatusBadge } from '@runkora/components';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { AgentOverviewTab } from './agent-overview-tab';
@@ -142,6 +142,7 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
                 status={statusMap[agent.state] ?? 'unknown'}
                 label={labelMap[agent.state]}
               />
+              {agent.declared && <ManagedInGitBadge repository={agent.repository} />}
             </Stack>
             <Stack direction="horizontal" align="center" gap="snug" wrap>
               <Text as="span" mono size="supporting" color="subtle">

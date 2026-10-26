@@ -27,13 +27,15 @@ import {
   deleteTenantBudgetAction,
 } from '../../../policy/_actions/tenant-budget';
 import type { TenantCapStatus } from '../../_types';
-import { PermissionHint } from '@runkora/components';
+import { ManagedInGitBadge, PermissionHint } from '@runkora/components';
 
 interface TenantCapCardProps {
   cap: TenantCapStatus | null;
+  /** The budget is declared on the tenant's resource: read-only here. */
+  declared?: boolean;
 }
 
-export function TenantCapCard({ cap }: TenantCapCardProps) {
+export function TenantCapCard({ cap, declared = false }: TenantCapCardProps) {
   const router = useRouter();
   const canWrite = useHasScope('platform:budgets:write');
   const [editing, setEditing] = useState(false);
@@ -51,11 +53,20 @@ export function TenantCapCard({ cap }: TenantCapCardProps) {
               Tenant Cap
             </Text>
           </Stack>
-          <PermissionHint allowed={canWrite} action="change the tenant cap">
-            <Button variant="ghost" size="sm" disabled={!canWrite} onClick={() => setEditing(true)}>
-              {cap ? 'Edit' : 'Set cap'}
-            </Button>
-          </PermissionHint>
+          {declared ? (
+            <ManagedInGitBadge />
+          ) : (
+            <PermissionHint allowed={canWrite} action="change the tenant cap">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!canWrite}
+                onClick={() => setEditing(true)}
+              >
+                {cap ? 'Edit' : 'Set cap'}
+              </Button>
+            </PermissionHint>
+          )}
         </Stack>
       </CardHeader>
       <CardContent>

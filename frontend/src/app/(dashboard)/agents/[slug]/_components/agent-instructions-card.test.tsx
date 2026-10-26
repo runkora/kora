@@ -27,4 +27,12 @@ describe('AgentInstructionsCard', () => {
     expect(screen.getByText('No instructions set')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Edit instructions' })).toBeTruthy();
   });
+
+  it('disables Edit when the caller cannot edit here', () => {
+    renderWithProviders(<AgentInstructionsCard prompt="# Title" onEdit={vi.fn()} editDisabled />);
+    expect(screen.getByRole('button', { name: 'Edit instructions' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+  });
 });

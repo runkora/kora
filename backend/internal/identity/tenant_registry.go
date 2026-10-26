@@ -27,8 +27,9 @@ import (
 //	    apiAuthoring: "Enabled"   # Enabled | Disabled
 //	    budget: {limitUSD: 1000, resetCadence: monthly}  # optional
 //
-// identity reads id, state and oidc. Services that own declarative resources
-// read apiAuthoring and budget through internal/platform/declarative.
+// identity reads id, state and oidc here, and apiAuthoring through
+// internal/platform/declarative. Services that own declarative resources read
+// apiAuthoring and budget the same way.
 //
 // OIDC client secrets are NOT stored in this file. They are read from the
 // aggregated Secret kora-tenant-oidc-secrets (managed by the kora-operator)

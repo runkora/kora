@@ -12,6 +12,7 @@ function trigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
     kind: 'webhook',
     sourceId: 'src-1',
     sourceMissing: false,
+    declared: false,
     name: 'Trigger',
     targetKind: 'agent',
     agentTypeId: 'at-1',
