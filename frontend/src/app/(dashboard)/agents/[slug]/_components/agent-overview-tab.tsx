@@ -69,6 +69,13 @@ export function AgentOverviewTab({ overview, status, onEditInstructions }: Agent
   const runsFailed = overview ? overview.failed.runs : status === 'failed';
   const usageFailed = overview ? overview.failed.usage : status === 'failed';
   const loading = status === 'loading';
+  // Size the row to the tiles that render so they fill it. A failed part shows one card.
+  const tiles = (runs ? 3 : 0) + (usage ? 2 : 0) + (runsFailed ? 1 : 0) + (usageFailed ? 1 : 0);
+  const statCols = { base: 2, md: Math.min(tiles, 3), xl: Math.min(tiles, 5) } as {
+    base: 2;
+    md: 1 | 2 | 3;
+    xl: 1 | 2 | 3 | 4 | 5;
+  };
 
   return (
     <Stack
@@ -77,7 +84,7 @@ export function AgentOverviewTab({ overview, status, onEditInstructions }: Agent
       style={{ opacity: loading ? 0.6 : 1, transition: 'opacity 150ms' }}
     >
       {(usage || runs || runsFailed || usageFailed) && (
-        <Grid cols={{ base: 2, md: 3, xl: 5 }} gap="comfortable">
+        <Grid cols={statCols} gap="comfortable">
           {runsFailed && <CouldNotLoad title="Run stats" />}
           {usageFailed && <CouldNotLoad title="Tokens and spend" />}
           {runs && (
