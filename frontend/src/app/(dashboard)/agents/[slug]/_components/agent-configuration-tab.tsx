@@ -45,8 +45,10 @@ import { managedInGit as isManagedInGit } from '@runkora/lib/declarative';
 import {
   groupMcpScopes,
   ReadOnlyConnections,
+  ReadOnlyFramework,
   ReadOnlyMcpTools,
   ReadOnlyModel,
+  ReadOnlySystemPrompt,
 } from './agent-configuration-readonly';
 import { useTenantLocked } from '../../../_components/permissions-provider';
 import { ConfigurationRail } from './configuration-rail';
@@ -209,24 +211,30 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
               description="How the agent behaves, and the model and framework it runs on."
             />
             <FormField label="System instructions" required>
-              <Textarea
-                disabled={readOnly}
-                value={cfg.systemPrompt}
-                onChange={(e) => cfg.setSystemPrompt(e.target.value)}
-                rows={5}
-                resize="vertical"
-              />
+              {readOnly ? (
+                <ReadOnlySystemPrompt value={cfg.systemPrompt} />
+              ) : (
+                <Textarea
+                  value={cfg.systemPrompt}
+                  onChange={(e) => cfg.setSystemPrompt(e.target.value)}
+                  rows={5}
+                  resize="vertical"
+                />
+              )}
             </FormField>
             <Separator />
             <Stack gap="cozy">
               <Text as="span" size="caption" weight="heavy" color="muted">
                 Framework
               </Text>
-              <FrameworkCards
-                disabled={readOnly}
-                value={cfg.framework}
-                onChange={(v: AgentFramework) => cfg.setFramework(v)}
-              />
+              {readOnly ? (
+                <ReadOnlyFramework framework={cfg.framework} />
+              ) : (
+                <FrameworkCards
+                  value={cfg.framework}
+                  onChange={(v: AgentFramework) => cfg.setFramework(v)}
+                />
+              )}
             </Stack>
             <Stack gap="cozy">
               <Stack direction="horizontal" align="center">
