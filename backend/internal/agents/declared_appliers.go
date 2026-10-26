@@ -94,7 +94,7 @@ func (a *EnvironmentApplier) Apply(ctx context.Context, item declarative.Item) (
 }
 
 // Delete deletes the declared environment. One still attached to an agent returns an error
-// wrapping ErrEnvironmentInUse, and the operator retries.
+// wrapping ErrEnvironmentInUse and declarative.ErrInUse, and the operator retries.
 func (a *EnvironmentApplier) Delete(ctx context.Context, tenantID, name string) error {
 	row, err := a.store.GetEnvironmentBySlug(ctx, tenantID, name)
 	if errors.Is(err, ErrNotFound) {
@@ -107,6 +107,9 @@ func (a *EnvironmentApplier) Delete(ctx context.Context, tenantID, name string) 
 		return nil
 	}
 	err = a.writer.DeleteEnvironment(withDeclaredWrite(ctx, declarative.Item{TenantID: tenantID, Name: name}), row.ID)
+	if errors.Is(err, ErrEnvironmentInUse) {
+		return fmt.Errorf("delete environment %q: %w: %w", name, declarative.ErrInUse, err)
+	}
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return fmt.Errorf("delete environment %q: %w", name, err)
 	}

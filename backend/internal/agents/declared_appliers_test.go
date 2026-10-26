@@ -113,8 +113,8 @@ func TestEnvironmentApplierDelete(t *testing.T) {
 	store.envs["env-2"] = Environment{ID: "env-2", TenantID: applierTenant, Slug: "dash", Source: declarative.SourceAPI}
 
 	store.deleteErr = ErrEnvironmentInUse
-	if err := a.Delete(ctx, applierTenant, "go-build"); !errors.Is(err, ErrEnvironmentInUse) {
-		t.Errorf("in-use delete = %v, want ErrEnvironmentInUse for the operator to retry", err)
+	if err := a.Delete(ctx, applierTenant, "go-build"); !errors.Is(err, ErrEnvironmentInUse) || !errors.Is(err, declarative.ErrInUse) {
+		t.Errorf("in-use delete = %v, want ErrEnvironmentInUse and declarative.ErrInUse for the operator to retry", err)
 	}
 	store.deleteErr = nil
 	for _, name := range []string{"go-build", "dash", "absent"} {
