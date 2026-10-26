@@ -10,6 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	sigsyaml "sigs.k8s.io/yaml"
 
+	"github.com/runkora/kora/backend/internal/platform/claimbinding"
 	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
@@ -36,6 +37,8 @@ type registryOIDC struct {
 	ClientID     string   `json:"clientID"`
 	Scopes       []string `json:"scopes"`
 	EmailDomains []string `json:"emailDomains,omitempty"`
+	// ClaimBinding is omitted for tenants that route by issuer alone.
+	ClaimBinding *claimbinding.Binding `json:"claimBinding,omitempty"`
 }
 
 const (
@@ -106,12 +109,13 @@ func (r *TenantRegistry) Sync(ctx context.Context) error {
 // identity service parses. The format must remain stable: the identity
 // service owns the schema; the operator only writes it.
 //
-// Only active tenants are listed.
+// Only active tenants are listed. A tenant whose email domain conflicts with an
+// older tenant's is left out, so the identity service never sees an overlap.
 func (r *TenantRegistry) buildRegistryYAML(tenants []KoraTenant) (string, error) {
 	entries := make([]registryEntry, 0, len(tenants))
 	for i := range tenants {
 		t := &tenants[i]
-		if !t.Spec.Active {
+		if !t.Spec.Active || emailDomainConflict(t, tenants) != "" {
 			continue
 		}
 		scopes := t.Spec.OIDC.Scopes
@@ -127,6 +131,7 @@ func (r *TenantRegistry) buildRegistryYAML(tenants []KoraTenant) (string, error)
 				ClientID:     t.Spec.OIDC.ClientID,
 				Scopes:       scopes,
 				EmailDomains: t.Spec.OIDC.EmailDomains,
+				ClaimBinding: claimTenant(t).Binding,
 			},
 			APIAuthoring: t.Spec.APIAuthoring,
 			Budget:       t.Spec.Budget,

@@ -427,6 +427,13 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		attribute.String("identity.source", string(IdentitySourceFederated)),
 	)
 
+	tenantID, err := s.bindTenant(ts, req.TenantID, idToken)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "tenant claim binding failed")
+		return nil, err
+	}
+
 	displayName := resolveDisplayName(claims.Name, claims.PreferredUsername, claims.Email, claims.Sub)
 
 	principalClaims := map[string]string{
@@ -443,7 +450,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 	principal := &Principal{
 		ID:             claims.Sub,
 		Type:           PrincipalTypeHuman,
-		TenantID:       req.TenantID,
+		TenantID:       tenantID,
 		DisplayName:    displayName,
 		IdentitySource: IdentitySourceFederated,
 		Claims:         principalClaims,
@@ -521,6 +528,13 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 		attribute.String("identity.source", string(IdentitySourceFederated)),
 	)
 
+	tenantID, err := s.bindTenant(tenant, req.TenantID, idToken)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "tenant claim binding failed")
+		return nil, err
+	}
+
 	displayName := resolveDisplayName(claims.Name, claims.PreferredUsername, claims.Email, claims.Sub)
 
 	principalClaims := map[string]string{
@@ -537,7 +551,7 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 	principal := &Principal{
 		ID:             claims.Sub,
 		Type:           PrincipalTypeHuman,
-		TenantID:       req.TenantID,
+		TenantID:       tenantID,
 		DisplayName:    displayName,
 		IdentitySource: IdentitySourceFederated,
 		Claims:         principalClaims,
@@ -1239,22 +1253,67 @@ func (s *Service) DiscoverTenantByEmail(ctx context.Context, email string) (*Ten
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	// Tenants that share a domain share the issuer, so any of them answers.
+	// Pick the lowest ID so the answer is stable.
+	var found string
 	for tenantID, ts := range s.oidcTenants {
+		if found != "" && tenantID >= found {
+			continue
+		}
 		for _, d := range ts.cfg.EmailDomains {
 			if strings.ToLower(d) == domain {
-				return &TenantDiscovery{
-					TenantID:  tenantID,
-					IssuerURL: ts.cfg.IssuerURL,
-					ClientID:  ts.cfg.ClientID,
-					Scopes:    ts.cfg.Scopes,
-				}, nil
+				found = tenantID
+				break
 			}
 		}
+	}
+	if found != "" {
+		ts := s.oidcTenants[found]
+		return &TenantDiscovery{
+			TenantID:  found,
+			IssuerURL: ts.cfg.IssuerURL,
+			ClientID:  ts.cfg.ClientID,
+			Scopes:    ts.cfg.Scopes,
+		}, nil
 	}
 
 	span.RecordError(ErrTenantNotFound)
 	span.SetStatus(codes.Error, ErrTenantNotFound.Error())
 	return nil, ErrTenantNotFound
+}
+
+// bindTenant returns the tenant that owns a verified ID token. A tenant without
+// a claimBinding owns its own tokens. For a bound tenant, the owner is the one
+// tenant on the same issuer and client whose binding matches the token claims.
+// No match is ErrClaimBindingMismatch and several are ErrMultipleTenantsMatch.
+func (s *Service) bindTenant(requested *tenantOIDCState, requestedID string, idToken *gooidc.IDToken) (string, error) {
+	if requested.cfg.ClaimBinding == nil {
+		return requestedID, nil
+	}
+	var claims map[string]any
+	if err := idToken.Claims(&claims); err != nil {
+		return "", fmt.Errorf("extract id_token claims: %w", err)
+	}
+
+	s.mu.RLock()
+	var matched []string
+	for id, ts := range s.oidcTenants {
+		if ts.cfg.IssuerURL == requested.cfg.IssuerURL && ts.cfg.ClientID == requested.cfg.ClientID &&
+			ts.cfg.ClaimBinding.Matches(claims) {
+			matched = append(matched, id)
+		}
+	}
+	s.mu.RUnlock()
+
+	switch len(matched) {
+	case 0:
+		return "", ErrClaimBindingMismatch
+	case 1:
+		return matched[0], nil
+	default:
+		slices.Sort(matched)
+		return "", fmt.Errorf("%w: %s", ErrMultipleTenantsMatch, strings.Join(matched, ", "))
+	}
 }
 
 // recordDeviceAuthError records span error details for device authorization flow errors.

@@ -62,4 +62,42 @@ Set `deleteNamespaceOnRemoval: true` only when deleting the `KoraTenant` must de
 
 To define the tenant's agents, triggers and roles as resources, or to lock the tenant to them with `apiAuthoring`, see [Declarative resources](declarative-resources.md).
 
+## Sharing an email domain
+
+By default one email domain reaches one tenant, and the operator marks a tenant `Invalid` when it claims a domain an older tenant holds. Tenants can share a domain when they use the same `issuerURL` and `clientID` and each sets `claimBinding`. After sign-in, kora issues the session for the tenant whose binding matches the ID token.
+
+```yaml
+apiVersion: runkora.io/v1alpha1
+kind: KoraTenant
+metadata:
+  name: engineering
+spec:
+  displayName: Engineering
+  oidc:
+    issuerURL: https://idp.example.com/oauth2/default
+    clientID: kora-production
+    scopes: [openid, profile, email, groups]
+    emailDomains: [example.com]
+    claimBinding:
+      claim: groups
+      values: [engineering]
+---
+apiVersion: runkora.io/v1alpha1
+kind: KoraTenant
+metadata:
+  name: sre
+spec:
+  displayName: SRE
+  oidc:
+    issuerURL: https://idp.example.com/oauth2/default
+    clientID: kora-production
+    scopes: [openid, profile, email, groups]
+    emailDomains: [example.com]
+    claimBinding:
+      claim: groups
+      values: [sre]
+```
+
+A scalar claim must equal one of `values`. An array claim such as `groups` must contain one. A person whose claims match no tenant gets a 403. A person who matches several tenants cannot sign in yet, and the error lists the tenants.
+
 Once the tenant is ready, configure access for its principals with [policy and roles](policy-and-roles.md).

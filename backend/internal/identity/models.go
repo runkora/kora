@@ -400,6 +400,8 @@ var (
 	ErrUnsupportedTokenType        = errors.New("unsupported token type")
 	ErrIDTokenInvalid              = errors.New("id_token failed verification")
 	ErrTenantNotFound              = errors.New("tenant not found for email domain")
+	ErrClaimBindingMismatch        = errors.New("id_token claims match no tenant")
+	ErrMultipleTenantsMatch        = errors.New("id_token claims match several tenants")
 	ErrDeviceFlowNotSupported      = errors.New("tenant OIDC provider does not support Device Authorization Grant")
 	ErrInvalidEmailFormat          = errors.New("invalid email format")
 	ErrPATNotFound                 = errors.New("PAT not found")

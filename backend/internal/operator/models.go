@@ -115,6 +115,28 @@ type TenantOIDCSpec struct {
 	// See docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md
 	// +optional
 	EmailDomains []string `json:"emailDomains,omitempty"`
+
+	// ClaimBinding restricts membership to people whose ID token claim matches.
+	// Tenants that share an email domain must share issuerURL and clientID and
+	// each set a claimBinding.
+	// See docs/adr/2026-10-26-tenant-claim-binding-and-shared-email-domains.md
+	// +optional
+	ClaimBinding *ClaimBinding `json:"claimBinding,omitempty"`
+}
+
+// ClaimBinding names an ID token claim and the values that bind a person to the
+// tenant. A scalar claim must equal one of Values. An array claim such as
+// groups must contain one of them.
+//
+// +kubebuilder:object:generate=true
+type ClaimBinding struct {
+	// Claim is the ID token claim name, for example groups.
+	// +kubebuilder:validation:MinLength=1
+	Claim string `json:"claim"`
+
+	// Values are the claim values that bind a person to the tenant.
+	// +kubebuilder:validation:MinItems=1
+	Values []string `json:"values"`
 }
 
 // KoraTenantStatus records observed tenant state.
@@ -141,6 +163,7 @@ const (
 	ConditionNamespaceReady         = "NamespaceReady"
 	ConditionRegistryUpdated        = "RegistryUpdated"
 	ConditionPrerequisitesSatisfied = "PrerequisitesSatisfied"
+	ConditionEmailDomainsValid      = "EmailDomainsValid"
 )
 
 // Tenant phase values.
@@ -150,6 +173,7 @@ const (
 	TenantPhaseReady        = "Ready"
 	TenantPhaseDegraded     = "Degraded"
 	TenantPhaseSuspended    = "Suspended"
+	TenantPhaseInvalid      = "Invalid"
 )
 
 // KoraTenantList is a list of KoraTenant resources.

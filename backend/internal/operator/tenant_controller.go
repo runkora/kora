@@ -118,6 +118,10 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return result, err
 	}
 
+	if result, refused, err := r.refuseEmailDomainConflict(ctx, tenant); refused || err != nil {
+		return result, err
+	}
+
 	// Only transition to Provisioning from an initial/unset state. Once the
 	// tenant has reached Ready, we do not regress it to Provisioning at the
 	// start of every reconcile, since that would generate a status patch, trigger a
@@ -662,6 +666,35 @@ func (r *TenantReconciler) refuseNamespaceConflict(ctx context.Context, tenant *
 		return ctrl.Result{}, true, fmt.Errorf("sync tenant registry: %w", err)
 	}
 	// The other tenant's deletion does not enqueue this one.
+	return ctrl.Result{RequeueAfter: time.Minute}, true, nil
+}
+
+// refuseEmailDomainConflict marks a tenant Invalid while it claims an email
+// domain of an older tenant without meeting the shared-domain rule. The
+// registry leaves the tenant out.
+func (r *TenantReconciler) refuseEmailDomainConflict(ctx context.Context, tenant *KoraTenant) (ctrl.Result, bool, error) {
+	list := &KoraTenantList{}
+	if err := r.List(ctx, list); err != nil {
+		return ctrl.Result{}, false, fmt.Errorf("list KoraTenants: %w", err)
+	}
+	conflict := emailDomainConflict(tenant, list.Items)
+	if conflict == "" {
+		_ = r.setTenantCondition(ctx, tenant, ConditionEmailDomainsValid, metav1.ConditionTrue, "Valid", "email domains are unique or shared through claimBinding")
+		if tenant.Status.Phase == TenantPhaseInvalid {
+			_ = r.setTenantPhase(ctx, tenant, TenantPhasePending)
+		}
+		return ctrl.Result{}, false, nil
+	}
+	r.Logger.Warn(ctx, "refusing tenant email domains",
+		logging.Field{Key: "tenant", Value: tenant.Name},
+		logging.Field{Key: "reason", Value: conflict},
+	)
+	_ = r.setTenantCondition(ctx, tenant, ConditionEmailDomainsValid, metav1.ConditionFalse, "EmailDomainConflict", conflict)
+	_ = r.setTenantPhase(ctx, tenant, TenantPhaseInvalid)
+	if err := r.Registry.Sync(ctx); err != nil {
+		return ctrl.Result{}, true, fmt.Errorf("sync tenant registry: %w", err)
+	}
+	// The other tenant's change does not enqueue this one.
 	return ctrl.Result{RequeueAfter: time.Minute}, true, nil
 }
 
