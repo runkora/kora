@@ -28,5 +28,10 @@ spec:
     emailDomains:
       - orbit.local.clearroute.io
 
+  # GitHub repositories this tenant's SkillMarketplaceSources may register.
+  # Only a platform admin edits this list (docs/guides/tenants.md).
+  allowedMarketplaceRepos:
+    - clear-route/skills-marketplace
+
   # Retain the namespace when this CR is deleted (default). Prevents accidental
   # workload deletion during local dev iteration.

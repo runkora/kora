@@ -33,18 +33,21 @@ const skillsMappingValues = `skillsService:
 
 func TestChartSkillsMappingLoadsRegistry(t *testing.T) {
 	cases := []struct {
-		name   string
-		values string
-		want   map[string][]string
+		name     string
+		values   string
+		wantFile bool
+		want     map[string][]string
 	}{
 		{
+			// The chart leaves the key to the operator unless sources are listed.
 			name:   "empty defaults",
 			values: "{}\n",
 			want:   map[string][]string{"tenant-a": nil},
 		},
 		{
-			name:   "tenant sources",
-			values: skillsMappingValues,
+			name:     "tenant sources",
+			values:   skillsMappingValues,
+			wantFile: true,
 			want: map[string][]string{
 				"tenant-a": {"example__core-skills", "example__platform-skills"},
 				"tenant-b": {"partner__reference-skills"},
@@ -72,8 +75,12 @@ func TestChartSkillsMappingLoadsRegistry(t *testing.T) {
 			if err := cfg.ApplyEnvOverrides(); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := os.Stat(cfg.Marketplace.SourcesConfigPath); err != nil {
-				t.Fatalf("chart did not supply the file skills-service reads: %v", err)
+			_, statErr := os.Stat(cfg.Marketplace.SourcesConfigPath)
+			if tc.wantFile && statErr != nil {
+				t.Fatalf("chart did not supply the file skills-service reads: %v", statErr)
+			}
+			if !tc.wantFile && statErr == nil {
+				t.Fatalf("chart supplied %s with no sources listed; the key belongs to the operator", cfg.Marketplace.SourcesConfigPath)
 			}
 			registry, err := skills.NewRegistry(cfg.Marketplace.SourcesConfigPath, logging.NewDevelopmentLogger())
 			if err != nil {

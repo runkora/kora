@@ -878,6 +878,8 @@ skillsService:
   serviceAccount:
     annotations: {}
   configOverrides: {}
+  # Leave empty when the operator renders the list from SkillMarketplaceSource
+  # resources: the chart then owns no data key in the ConfigMap.
   skillsMapping:
     # -- Approved GitHub repositories grouped by platform tenant ID.
     tenants: []
