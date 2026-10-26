@@ -106,6 +106,8 @@ export interface HeadingProps extends VariantProps<typeof headingVariants> {
   'aria-hidden'?: boolean | 'true' | 'false';
   role?: React.AriaRole;
   title?: string;
+  /** `-1` makes the heading a programmatic focus target (e.g. a result screen) without adding it to the tab order. */
+  tabIndex?: -1;
   onClick?: React.MouseEventHandler<HTMLElement>;
 }
 
