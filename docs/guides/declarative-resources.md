@@ -45,7 +45,7 @@ spec:
   strategy: priority
   routes:
     - provider: bedrock:prod
-      modelID: anthropic.claude-sonnet-4-5-20250929-v1:0
+      modelID: us.anthropic.claude-sonnet-5-5
       priority: 1
 ```
 
