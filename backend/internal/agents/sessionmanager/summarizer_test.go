@@ -131,7 +131,7 @@ func TestSummarizer_ErrorOnNon200(t *testing.T) {
 	}
 }
 
-func TestSummarizer_ErrorOnEmptyContent(t *testing.T) {
+func TestSummarizer_ErrorOnEmptyContentAndMessage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -140,8 +140,8 @@ func TestSummarizer_ErrorOnEmptyContent(t *testing.T) {
 	defer srv.Close()
 
 	s := newSummarizer(logging.NewLogger())
-	if _, err := s.Summarize(context.Background(), srv.URL, "m", "x"); err == nil {
-		t.Fatal("expected error for empty content, got nil")
+	if _, err := s.Summarize(context.Background(), srv.URL, "m", "  \n"); err == nil {
+		t.Fatal("expected error for empty content and blank message, got nil")
 	}
 }
 
@@ -166,19 +166,23 @@ func TestSummarizer_SkipsLeadingThinkingBlock(t *testing.T) {
 }
 
 // A reasoning model can spend its whole token budget thinking and return only
-// a thinking block; that must still surface the empty-summary error, not a
-// summary built from the thinking block's own content.
-func TestSummarizer_ErrorOnThinkingBlockOnly(t *testing.T) {
+// a thinking block; the label falls back to the first line of the message, not
+// the thinking block's content.
+func TestSummarizer_FallsBackOnThinkingBlockOnly(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"content":[{"type":"thinking","thinking":"reasoning..."}]}`)) //nolint:errcheck
+		w.Write([]byte(`{"stop_reason":"max_tokens","content":[{"type":"thinking","thinking":"reasoning..."}]}`)) //nolint:errcheck
 	}))
 	defer srv.Close()
 
 	s := newSummarizer(logging.NewLogger())
-	if _, err := s.Summarize(context.Background(), srv.URL, "m", "x"); err == nil {
-		t.Fatal("expected error when only a thinking block is returned, got nil")
+	got, err := s.Summarize(context.Background(), srv.URL, "m", "\nSummarise https://github.com/runkora/kora/pull/768\nmore detail")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := "Summarise https://github.com/runkora/kora/pull/768"; got != want {
+		t.Errorf("summary = %q, want %q", got, want)
 	}
 }
 

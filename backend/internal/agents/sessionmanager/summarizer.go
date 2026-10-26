@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -124,6 +125,9 @@ func (s *summarizer) Summarize(ctx context.Context, baseURL, model, initialMessa
 		s.Logger().Warn(ctx, "Inference gateway response has no text block",
 			logging.Field{Key: "stop_reason", Value: result.StopReason},
 			logging.Field{Key: "block_types", Value: blockTypes(result.Content)})
+		if label := truncateSummary(firstLine(initialMessage)); label != "" {
+			return label, nil
+		}
 		return "", fmt.Errorf("inference gateway returned empty summary")
 	}
 
@@ -178,6 +182,16 @@ func firstText(blocks []messagesContentBlock) string {
 	for _, block := range blocks {
 		if block.Type == "text" && block.Text != "" {
 			return block.Text
+		}
+	}
+	return ""
+}
+
+// firstLine returns the first non-blank line of s.
+func firstLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if strings.TrimSpace(line) != "" {
+			return line
 		}
 	}
 	return ""
