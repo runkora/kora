@@ -117,6 +117,41 @@ describe('DashboardSidebar', () => {
       expect(screen.queryByRole('link', { name: /agents/i })).not.toBeInTheDocument();
     });
 
+    it('shows Agents to a user holding only per-agent read scopes', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['agents:types:pr-summariser:read'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.getByRole('link', { name: /agents/i })).toBeInTheDocument();
+    });
+
+    it('hides Connections without platform:connections:read', () => {
+      renderSidebar();
+      expect(screen.queryByRole('link', { name: /connections/i })).not.toBeInTheDocument();
+    });
+
+    it('shows Connections with platform:connections:read', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['platform:connections:read'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.getByRole('link', { name: /connections/i })).toBeInTheDocument();
+    });
+
+    it('hides Agents from a user holding only per-agent write scopes', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['agents:types:pr-summariser:write'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.queryByRole('link', { name: /agents/i })).not.toBeInTheDocument();
+    });
+
     it('a broader scope covers a nav scope', () => {
       vi.mocked(useSession).mockReturnValueOnce({
         scopes: ['agents:read'],

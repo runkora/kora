@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scopeCovers, hasScopeCovering } from './permissions';
+import { scopeCovers, hasScopeCovering, hasScopeWithin } from './permissions';
 
 describe('scopeCovers', () => {
   it('covers an identical scope', () => {
@@ -63,5 +63,20 @@ describe('hasScopeCovering', () => {
 
   it('a per-slug scope does not cover its parent', () => {
     expect(hasScopeCovering(['agents:runs:coder:write'], 'agents:runs:write')).toBe(false);
+  });
+});
+
+describe('hasScopeWithin', () => {
+  it('accepts a narrower scope of the same action', () => {
+    expect(hasScopeWithin(['agents:types:pr-summariser:read'], 'agents:types:read')).toBe(true);
+  });
+
+  it('accepts a covering scope', () => {
+    expect(hasScopeWithin(['agents:read'], 'agents:types:read')).toBe(true);
+  });
+
+  it('rejects another action or resource', () => {
+    expect(hasScopeWithin(['agents:types:pr-summariser:write'], 'agents:types:read')).toBe(false);
+    expect(hasScopeWithin(['agents:runs:pr-summariser:read'], 'agents:types:read')).toBe(false);
   });
 });

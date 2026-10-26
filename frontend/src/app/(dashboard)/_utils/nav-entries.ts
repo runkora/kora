@@ -11,6 +11,8 @@ export type NavEntry = {
   badge?: number;
   wip?: boolean;
   requiredScope?: string;
+  /** Show the entry when the user holds a scope below `requiredScope`, as the page lists per resource. */
+  allowNarrowerScope?: boolean;
 };
 
 export type NavGroup = { label: string; items: NavEntry[] };
@@ -24,8 +26,14 @@ const MAIN_NAV: NavEntry[] = [
     href: APP_ROUTES.agents.list,
     icon: 'bot',
     requiredScope: 'agents:types:read',
+    allowNarrowerScope: true,
   },
-  { label: 'Connections', href: APP_ROUTES.connections, icon: 'network' },
+  {
+    label: 'Connections',
+    href: APP_ROUTES.connections,
+    icon: 'network',
+    requiredScope: 'platform:connections:read',
+  },
   { label: 'MCP Servers', href: APP_ROUTES.mcpGateway.servers, icon: 'server' },
   {
     label: 'Environments',
