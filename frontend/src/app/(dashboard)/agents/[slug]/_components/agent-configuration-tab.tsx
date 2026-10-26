@@ -42,6 +42,12 @@ import {
   permissionHintText,
 } from '@runkora/components';
 import { managedInGit as isManagedInGit } from '@runkora/lib/declarative';
+import {
+  groupMcpScopes,
+  ReadOnlyConnections,
+  ReadOnlyMcpTools,
+  ReadOnlyModel,
+} from './agent-configuration-readonly';
 import { useTenantLocked } from '../../../_components/permissions-provider';
 import { ConfigurationRail } from './configuration-rail';
 import { useAgentConfiguration } from '../_hooks/use-agent-configuration';
@@ -228,19 +234,22 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
                   Model
                 </Text>
                 <Stack grow />
-                <Text as="span" size="micro" color="subtle">
-                  {cfg.models.length} enabled by your platform
-                </Text>
+                {!readOnly && (
+                  <Text as="span" size="micro" color="subtle">
+                    {cfg.models.length} enabled by your platform
+                  </Text>
+                )}
               </Stack>
-              {cfg.modelsError && (
-                <Alert variant="error">Models failed to load: {cfg.modelsError}</Alert>
+              {readOnly ? (
+                <ReadOnlyModel modelId={cfg.modelId} models={cfg.models} />
+              ) : (
+                <>
+                  {cfg.modelsError && (
+                    <Alert variant="error">Models failed to load: {cfg.modelsError}</Alert>
+                  )}
+                  <ModelPicker models={cfg.models} value={cfg.modelId} onChange={cfg.setModelId} />
+                </>
               )}
-              <ModelPicker
-                disabled={readOnly}
-                models={cfg.models}
-                value={cfg.modelId}
-                onChange={cfg.setModelId}
-              />
             </Stack>
           </Stack>
         )}
@@ -255,7 +264,9 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
             />
             <Text as="span" size="supporting" color="muted">
               <Text as="span" size="supporting" weight="heavy" color="accent">
-                {countGrantedServers(cfg.mcpServers, cfg.mcpCatalog, cfg.mcpTools)}
+                {readOnly
+                  ? groupMcpScopes(cfg.mcpTools).length
+                  : countGrantedServers(cfg.mcpServers, cfg.mcpCatalog, cfg.mcpTools)}
               </Text>{' '}
               servers ·{' '}
               <Text as="span" size="supporting" weight="heavy">
@@ -263,28 +274,36 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
               </Text>{' '}
               tools granted
             </Text>
-            {cfg.mcpError && (
-              <Alert variant="error">MCP servers failed to load: {cfg.mcpError}</Alert>
+            {readOnly ? (
+              <ReadOnlyMcpTools scopes={cfg.mcpTools} />
+            ) : (
+              <>
+                {cfg.mcpError && (
+                  <Alert variant="error">MCP servers failed to load: {cfg.mcpError}</Alert>
+                )}
+                <McpToolTree
+                  servers={cfg.mcpServers}
+                  catalog={cfg.mcpCatalog}
+                  granted={cfg.mcpTools}
+                  onChange={cfg.setMcpTools}
+                />
+              </>
             )}
-            <McpToolTree
-              disabled={readOnly}
-              servers={cfg.mcpServers}
-              catalog={cfg.mcpCatalog}
-              granted={cfg.mcpTools}
-              onChange={cfg.setMcpTools}
-            />
             <Separator />
             <Stack gap="cozy">
               <SectionLabel
                 title="Connections"
                 desc="Credentialed connections the agent may call. Credentials are injected just-in-time. The agent never sees them."
               />
-              <ConnectionCards
-                disabled={readOnly}
-                available={cfg.availableConnections}
-                value={cfg.connectors}
-                onChange={cfg.setConnectors}
-              />
+              {readOnly ? (
+                <ReadOnlyConnections connectors={cfg.connectors} />
+              ) : (
+                <ConnectionCards
+                  available={cfg.availableConnections}
+                  value={cfg.connectors}
+                  onChange={cfg.setConnectors}
+                />
+              )}
             </Stack>
           </Stack>
         )}
