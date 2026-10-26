@@ -1,6 +1,6 @@
 # Install and Distribution Model: Published Charts and a Tenant-Only Operator
 
-**Status:** Proposed (amended 2026-09-10: schema application moved into the `kora` chart, see [Database Migrations](2026-09-10-database-migrations.md))
+**Status:** Proposed (amended 2026-09-10: schema application moved into the `kora` chart, see [Database Migrations](2026-09-10-database-migrations.md). Amended 2026-10-24: the operator projects declared resources, see Amendment 1)
 **Date:** 2026-09-04
 **Deciders:** Justin Wilkin
 **Technical Story:** Implements the [Install and Distribution PRD](../prd/install-and-distribution.md). Supersedes [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) and amends [Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md). The companion decision on how kora's sidecars reach pods in a mesh kora did not install is [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md).
@@ -504,10 +504,23 @@ Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouche
 
 ---
 
+## Amendment 1 (2026-10-24): The operator projects declared resources
+
+**Status:** Accepted
+
+The operator's role widens from tenant reconciliation to projecting declared resources. It joins the mesh and gains read access to the six kinds. See [Declarative Resources](2026-10-24-declarative-resources.md), section 10.
+
+**Consequences.**
+
+*   Tenant reconciliation and the webhook are unaffected by an owning service being down.
+
+---
+
 ## Related Decisions
 
 - [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md), superseded: the platform reconciler, `OrbitPlatform`, version pins in Go and chart baking are removed; tenant reconciliation, aggregators and the webhook are retained.
 - [Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md), amended: two charts instead of two-with-subcharts; Istio and SPIRE are prerequisites rather than subcharts; publishing is no longer deferred; the dog-food principle is kept through the reference Helmfile.
+- [Declarative Resources](2026-10-24-declarative-resources.md): Amendment 1.
 - [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md), companion: how kora's sidecars and mesh annotations reach pods without istiod injection templates, the preflight, and restricted profile compliance.
 - [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md): `frontendHost` and the `api.` convention are unchanged; `gateway.create`/`gateway.name` and the Ingress options bind to it.
 - [Kubernetes Manifest Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md): the mechanism through which chart-level scheduling values reach runtime-created pods.
