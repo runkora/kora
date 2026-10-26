@@ -514,7 +514,7 @@ func TestDispatchPending_MintKeepsFailing_OutcomeShowsMintError(t *testing.T) {
 	if want := "mint trigger token: mint call: context deadline exceeded"; *runs[0].Error != want {
 		t.Errorf("error = %q, want %q", *runs[0].Error, want)
 	}
-	if len(deps.minter.calls) < 2 {
-		t.Errorf("mint calls = %d, want a retry", len(deps.minter.calls))
+	if n := deps.minter.callCount(); n < 2 {
+		t.Errorf("mint calls = %d, want a retry", n)
 	}
 }

@@ -681,6 +681,13 @@ func (f *fakeMinter) MintServiceToken(_ context.Context, tenantID, principalID, 
 	return f.token, nil
 }
 
+// callCount returns the number of mints recorded so far.
+func (f *fakeMinter) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
 // reset clears recorded calls so a test can assert on mints made after setup.
 func (f *fakeMinter) reset() {
 	f.mu.Lock()

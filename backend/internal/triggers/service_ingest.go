@@ -520,11 +520,17 @@ func (s *Service) triggerToken(ctx context.Context, t Trigger) (string, error) {
 	}
 	// A mint call can fail for a moment (a mesh disruption, a timeout) without
 	// the trigger having done anything wrong, so retry it within the budget.
-	// A refusal is a real denial and is not retried.
+	// A refusal, an unexpected status and an empty token are answers from
+	// identity, not transient failures, and are not retried.
 	var tok string
 	var mintErr error
 	err = retryWhileGrantPropagates(ctx,
-		func(err error) bool { return ctx.Err() == nil && !errors.Is(err, identityclient.ErrMintForbidden) },
+		func(err error) bool {
+			return ctx.Err() == nil &&
+				!errors.Is(err, identityclient.ErrMintForbidden) &&
+				!errors.Is(err, identityclient.ErrUnexpectedStatus) &&
+				!errors.Is(err, identityclient.ErrMissingToken)
+		},
 		func(backoff time.Duration) {
 			s.logger.Debug(ctx, "token mint failed, retrying",
 				logging.Field{Key: "trigger_id", Value: t.ID},
