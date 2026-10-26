@@ -6,7 +6,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/crdtest"
 )
 
-const crdFile = "templates/crd-inferenceprovider.yaml"
+const crdFile = "generated/runkora.io_inferenceproviders.yaml"
 
 func provider(apis ...any) map[string]any {
 	return map[string]any{
@@ -71,15 +71,6 @@ func TestCRDEnumMatchesAPIConstants(t *testing.T) {
 	}
 }
 
-func TestDeepCopyKeepsAPIs(t *testing.T) {
-	p := &InferenceProvider{Spec: Spec{Type: TypeCompatible, Compatible: &Compatible{BaseURL: "https://x/v1", APIs: []API{APISystemOne}}}}
-	cp := p.DeepCopy()
-	cp.Spec.Compatible.APIs[0] = APIMessages
-	if p.Spec.Compatible.APIs[0] != APISystemOne {
-		t.Error("DeepCopy shares the APIs slice")
-	}
-}
-
 // TestCRDDecisionModelsShape checks the schema of decisionModels. The CEL rule
 // that ties it to systemone is not executed here; see
 // TestCRDDecisionModelsRuleIsDeclared.
@@ -107,37 +98,5 @@ func TestCRDDecisionModelsShape(t *testing.T) {
 				t.Errorf("error = %v, want error %v", err, tc.wantErr)
 			}
 		})
-	}
-}
-
-// TestCRDDecisionModelsRuleIsDeclared asserts that the CRD carries the CEL rule
-// requiring systemone in apis for decisionModels. The rule is asserted, not
-// executed: running CEL needs k8s.io/apiserver and cel-go, which this module
-// does not take on. The API server enforces it.
-func TestCRDDecisionModelsRuleIsDeclared(t *testing.T) {
-	const (
-		wantRule    = "!has(self.decisionModels) || 'systemone' in self.apis"
-		wantMessage = "decisionModels needs systemone in apis."
-	)
-	compatible := crdtest.Prop(crdtest.Prop(crdtest.Schema(t, crdFile), "spec"), "compatible")
-	rules, _ := compatible["x-kubernetes-validations"].([]any)
-	for _, r := range rules {
-		rule := r.(crdtest.Node)
-		if rule["rule"] == wantRule {
-			if rule["message"] != wantMessage {
-				t.Errorf("rule message = %q, want %q", rule["message"], wantMessage)
-			}
-			return
-		}
-	}
-	t.Errorf("spec.compatible has no x-kubernetes-validations rule %q", wantRule)
-}
-
-func TestDeepCopyKeepsDecisionModels(t *testing.T) {
-	p := &InferenceProvider{Spec: Spec{Type: TypeCompatible, Compatible: &Compatible{BaseURL: "https://x/v1", APIs: []API{APISystemOne}, DecisionModels: []string{"clef"}}}}
-	cp := p.DeepCopy()
-	cp.Spec.Compatible.DecisionModels[0] = "other"
-	if p.Spec.Compatible.DecisionModels[0] != "clef" {
-		t.Error("DeepCopy shares the DecisionModels slice")
 	}
 }

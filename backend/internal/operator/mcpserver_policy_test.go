@@ -218,18 +218,6 @@ func TestValidateMCPServerSpec_NameBoundedByLabelValue(t *testing.T) {
 	}
 }
 
-// The spec carries a map, so a shallow copy would alias it between CRs.
-func TestMCPServer_DeepCopyIsolatesTheSelector(t *testing.T) {
-	srv := mcpWorkloadSrv("gh", "kora-tenant-acme", "http://gh:8000/mcp", map[string]string{"app": "gh"})
-
-	copied := srv.DeepCopy()
-	copied.Spec.Workload.Selector["app"] = "changed"
-
-	if srv.Spec.Workload.Selector["app"] != "gh" {
-		t.Error("mutating the copy changed the original")
-	}
-}
-
 func unstructuredSlice(obj map[string]any, path ...string) ([]any, bool, error) {
 	cur := any(obj)
 	for _, key := range path {

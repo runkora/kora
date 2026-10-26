@@ -22,7 +22,6 @@ package operator
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // -----------------------------------------------------------------------------
@@ -37,10 +36,12 @@ import (
 // +kubebuilder:printcolumn:name="ClientID",type=string,JSONPath=`.spec.clientId`
 // +kubebuilder:printcolumn:name="Name",type=string,JSONPath=`.spec.clientName`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:object:generate=true
 type OAuthClient struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// +required
 	Spec OAuthClientSpec `json:"spec,omitempty"`
 }
 
@@ -48,6 +49,8 @@ type OAuthClient struct {
 // enforces at the authorize endpoint. There is no secret and no grant/scope
 // vocabulary here: authorization of the resulting human token is owned by the
 // policy service, exactly as with Connection under Amendment 3.
+//
+// +kubebuilder:object:generate=true
 type OAuthClientSpec struct {
 	// ClientID is the stable, human-readable client identifier the app presents
 	// at the authorize and token endpoints (e.g. "example-app"). It MUST be
@@ -70,72 +73,9 @@ type OAuthClientSpec struct {
 
 // OAuthClientList is a list of OAuthClient resources.
 // +kubebuilder:object:root=true
+// +kubebuilder:object:generate=true
 type OAuthClientList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []OAuthClient `json:"items"`
-}
-
-// -----------------------------------------------------------------------------
-// DeepCopy (hand-written, mirroring Connection)
-// -----------------------------------------------------------------------------
-
-// DeepCopyObject implements runtime.Object.
-func (c *OAuthClient) DeepCopyObject() runtime.Object {
-	if c == nil {
-		return nil
-	}
-	out := new(OAuthClient)
-	c.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (c *OAuthClient) DeepCopyInto(out *OAuthClient) {
-	*out = *c
-	out.TypeMeta = c.TypeMeta
-	c.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	c.Spec.DeepCopyInto(&out.Spec)
-}
-
-// DeepCopy returns a deep copy.
-func (c *OAuthClient) DeepCopy() *OAuthClient {
-	if c == nil {
-		return nil
-	}
-	out := new(OAuthClient)
-	c.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto for OAuthClientSpec deep-copies the RedirectURIs slice.
-func (s *OAuthClientSpec) DeepCopyInto(out *OAuthClientSpec) {
-	*out = *s
-	if s.RedirectURIs != nil {
-		out.RedirectURIs = make([]string, len(s.RedirectURIs))
-		copy(out.RedirectURIs, s.RedirectURIs)
-	}
-}
-
-// DeepCopyObject implements runtime.Object for OAuthClientList.
-func (l *OAuthClientList) DeepCopyObject() runtime.Object {
-	if l == nil {
-		return nil
-	}
-	out := new(OAuthClientList)
-	l.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (l *OAuthClientList) DeepCopyInto(out *OAuthClientList) {
-	*out = *l
-	out.TypeMeta = l.TypeMeta
-	l.ListMeta.DeepCopyInto(&out.ListMeta)
-	if l.Items != nil {
-		out.Items = make([]OAuthClient, len(l.Items))
-		for i := range l.Items {
-			l.Items[i].DeepCopyInto(&out.Items[i])
-		}
-	}
 }

@@ -1,0 +1,339 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.23.0
+  name: inferenceproviders.runkora.io
+spec:
+  group: runkora.io
+  names:
+    kind: InferenceProvider
+    listKind: InferenceProviderList
+    plural: inferenceproviders
+    shortNames:
+    - kip
+    singular: inferenceprovider
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.type
+      name: Type
+      type: string
+    - jsonPath: .status.providerName
+      name: Provider
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          InferenceProvider registers one model provider with the inference gateway,
+          which watches it. Apply it in the kora system namespace. The provider
+          registers as <type>:<metadata.name>. Credentials are Secrets in the same
+          namespace, labelled runkora.io/inference-provider=true, and named here, never
+          inlined.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: 'Spec is a union: Type names the one block that is set.'
+            properties:
+              azure:
+                description: Azure is Azure AI.
+                properties:
+                  anthropicEndpoint:
+                    pattern: ^https?://.+
+                    type: string
+                  apiKeySecretRef:
+                    description: SecretKeyRef names one key of a Secret in the resource's
+                      namespace.
+                    properties:
+                      key:
+                        minLength: 1
+                        type: string
+                      name:
+                        minLength: 1
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                  apiVersion:
+                    minLength: 1
+                    type: string
+                  endpoint:
+                    pattern: ^https?://.+
+                    type: string
+                required:
+                - apiKeySecretRef
+                - apiVersion
+                - endpoint
+                type: object
+              bedrock:
+                description: |-
+                  Bedrock is AWS Bedrock. Without credentials the gateway's workload
+                  identity applies (IRSA, EKS Pod Identity).
+                properties:
+                  assumeRoleARN:
+                    description: AssumeRoleARN is a role the gateway assumes on top
+                      of its base credentials.
+                    pattern: ^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$
+                    type: string
+                  credentials:
+                    description: |-
+                      BedrockCredentials names a Secret with keys accessKeyID, secretAccessKey
+                      and optionally sessionToken.
+                    properties:
+                      secretRef:
+                        description: SecretNameRef names a Secret in the resource's
+                          namespace.
+                        properties:
+                          name:
+                            minLength: 1
+                            type: string
+                        required:
+                        - name
+                        type: object
+                    required:
+                    - secretRef
+                    type: object
+                  externalID:
+                    type: string
+                  region:
+                    minLength: 1
+                    type: string
+                  roleSessionName:
+                    description: |-
+                      RoleSessionName names the assumed sessions in CloudTrail. Defaults to
+                      kora-inference-gateway.
+                    pattern: ^[\w+=,.@-]{2,64}$
+                    type: string
+                required:
+                - region
+                type: object
+              compatible:
+                description: |-
+                  Compatible is an endpoint that speaks the OpenAI or Anthropic APIs, such
+                  as OpenAI, Anthropic, OpenRouter or vLLM. apis lists what it serves; those
+                  pass through natively.
+                properties:
+                  apiKeySecretRef:
+                    description: APIKeySecretRef is a key of a Secret labelled runkora.io/inference-provider=true.
+                    properties:
+                      key:
+                        minLength: 1
+                        type: string
+                      name:
+                        minLength: 1
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                  apis:
+                    items:
+                      description: API is an inference API a compatible endpoint serves.
+                      enum:
+                      - chatCompletions
+                      - embeddings
+                      - responses
+                      - messages
+                      - systemone
+                      type: string
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-type: set
+                  baseURL:
+                    description: |-
+                      BaseURL is the prefix of /chat/completions and /messages, e.g.
+                      https://openrouter.ai/api/v1. http and https are allowed.
+                    pattern: ^https?://.+
+                    type: string
+                  decisionModels:
+                    description: |-
+                      DecisionModels names models served on POST /systemone when the endpoint
+                      publishes no metadata that says so. Requires systemone in APIs.
+                    items:
+                      minLength: 1
+                      type: string
+                    type: array
+                required:
+                - apis
+                - baseURL
+                type: object
+                x-kubernetes-validations:
+                - message: an endpoint serving messages needs a baseURL ending in
+                    /v1.
+                  rule: '!(''messages'' in self.apis) || self.baseURL.endsWith(''/v1'')
+                    || self.baseURL.endsWith(''/v1/'')'
+                - message: decisionModels needs systemone in apis.
+                  rule: '!has(self.decisionModels) || ''systemone'' in self.apis'
+              displayName:
+                description: DisplayName is the human-readable name shown in the dashboard.
+                maxLength: 128
+                type: string
+              models:
+                description: |-
+                  Models are the upstream model ids to offer. Empty offers every discovered
+                  model. When the upstream has no model list, this is the list.
+                items:
+                  minLength: 1
+                  type: string
+                type: array
+              type:
+                description: Type is the provider type. It selects the one config
+                  block that must be set.
+                enum:
+                - bedrock
+                - vertexai
+                - azure
+                - compatible
+                type: string
+              vertexai:
+                description: |-
+                  VertexAI is Google Vertex AI. Without credentialsSecretRef, Application
+                  Default Credentials apply (GKE Workload Identity).
+                properties:
+                  anthropicLocation:
+                    description: AnthropicLocation is the region for Claude models
+                      when it differs from location.
+                    type: string
+                  credentialsSecretRef:
+                    description: CredentialsSecretRef is a Secret key holding a service
+                      account JSON key.
+                    properties:
+                      key:
+                        minLength: 1
+                        type: string
+                      name:
+                        minLength: 1
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                  location:
+                    minLength: 1
+                    type: string
+                  projectID:
+                    minLength: 1
+                    type: string
+                required:
+                - location
+                - projectID
+                type: object
+            required:
+            - type
+            type: object
+            x-kubernetes-validations:
+            - message: set the bedrock block if and only if type is bedrock.
+              rule: (self.type == 'bedrock') == has(self.bedrock)
+            - message: set the vertexai block if and only if type is vertexai.
+              rule: (self.type == 'vertexai') == has(self.vertexai)
+            - message: set the azure block if and only if type is azure.
+              rule: (self.type == 'azure') == has(self.azure)
+            - message: set the compatible block if and only if type is compatible.
+              rule: (self.type == 'compatible') == has(self.compatible)
+          status:
+            description: Status is written by the inference gateway.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              observedGeneration:
+                format: int64
+                type: integer
+              phase:
+                enum:
+                - Ready
+                - Invalid
+                type: string
+              providerName:
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: metadata.name must be a DNS label; it becomes the provider name
+            suffix.
+          rule: self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name)
+            <= 63
+    served: true
+    storage: true
+    subresources:
+      status: {}

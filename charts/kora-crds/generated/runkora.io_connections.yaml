@@ -1,0 +1,118 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.23.0
+  name: connections.runkora.io
+spec:
+  group: runkora.io
+  names:
+    kind: Connection
+    listKind: ConnectionList
+    plural: connections
+    shortNames:
+    - kconn
+    singular: connection
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.adapter
+      name: Adapter
+      type: string
+    - jsonPath: .spec.baseHost
+      name: Host
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Connection declares the credential-source identity of one external service
+          the egress gateway brokers for a tenant. It lives in the tenant namespace.
+          The CR name (metadata.name) is the agent-facing connection name.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              ConnectionSpec carries credential-source identity only. Per Amendment 3 the
+              grantable action vocabulary, the agent grant/PDP authorization, and the
+              repos/permissions the token can reach are owned by other authorities and are
+              deliberately not restated here.
+            properties:
+              adapter:
+                description: |-
+                  Adapter selects the credential mechanism (e.g. "github_app",
+                  "kubernetes"). Validated at resolve time by the gateway's adapter
+                  registry rather than by the CRD schema, so adding an adapter does not
+                  require a CRD bump.
+                minLength: 1
+                type: string
+              baseHost:
+                description: |-
+                  BaseHost is the upstream the gateway terminates and re-originates, e.g.
+                  "github.com". Optional for adapters that do not key on a single host.
+                type: string
+              caCert:
+                description: |-
+                  CACert is the PEM certificate authority the gateway verifies this
+                  upstream against, for an upstream not signed by a public root. It
+                  belongs to the connection rather than to any adapter: the gateway owns
+                  the outbound TLS leg, and no adapter dials the upstream.
+                type: string
+              config:
+                description: |-
+                  Config is the connection's adapter-specific configuration, passed
+                  through to the gateway verbatim. For github_app the adapter parses
+                  app_id (string) and installation_id (number); snake_case is required.
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              secretKey:
+                description: |-
+                  SecretKey is which data key inside the referenced Secret holds the
+                  material. Optional — when empty and the Secret has exactly one key, that
+                  key is used.
+                type: string
+              secretRef:
+                description: |-
+                  SecretRef is the name of a Kubernetes Secret in this namespace holding
+                  the connection's secret material (e.g. the GitHub App private key). A
+                  name, never a value — the material is materialized by the deployer's
+                  secret pipeline.
+                minLength: 1
+                type: string
+            required:
+            - adapter
+            - secretRef
+            type: object
+            x-kubernetes-validations:
+            - message: kubernetes connections must use a DNS hostname as baseHost,
+                not a bare IPv4 address. TLS to an IP literal carries no SNI; the
+                sandbox's transparent-egress interception can never authorize it.
+              rule: self.adapter != 'kubernetes' || self.baseHost == ” || !(self.baseHost.matches('^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+(:[0-9]+)?$')
+                || self.baseHost.matches('^\\[[0-9a-fA-F:]+\\](:[0-9]+)?$') || (self.baseHost.matches('^[0-9a-fA-F:]+$')
+                && self.baseHost.split(':').size() > 2))
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}

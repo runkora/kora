@@ -1,11 +1,12 @@
+// +kubebuilder:object:generate=false
+// +groupName=runkora.io
+// +versionName=v1alpha1
+
 // Package operator reconciles tenant resources and enforces tenant workload prerequisites.
 package operator
 
 import (
-	"slices"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
@@ -19,22 +20,33 @@ var GroupVersion = schema.GroupVersion{Group: "runkora.io", Version: "v1alpha1"}
 // -----------------------------------------------------------------------------
 
 // KoraTenant declares a tenant's existence, OIDC configuration, and namespace.
+// The CR name (metadata.name) is the tenant ID, so no separate tenantId field
+// exists. The operator creates the tenant namespace, auto-derived as
+// "kora-tenant-{name}" when spec.namespace is omitted, and registers the tenant
+// in the kora-tenants ConfigMap consumed by the identity service. All tenant
+// configuration lives in this single CR.
 //
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName=kt
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Namespace",type=string,JSONPath=`.status.namespace`
+// +kubebuilder:printcolumn:name="OIDC",type=string,JSONPath=`.spec.oidc.issuerURL`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:validation:XValidation:rule="has(oldSelf.spec.__namespace__) ? (has(self.spec.__namespace__) && self.spec.__namespace__ == oldSelf.spec.__namespace__) : (!has(self.spec.__namespace__) || self.spec.__namespace__ == 'kora-tenant-' + self.metadata.name)",message="spec.namespace is immutable. Recreate the KoraTenant to use another namespace."
+// +kubebuilder:object:generate=true
 type KoraTenant struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// +required
 	Spec   KoraTenantSpec   `json:"spec,omitempty"`
 	Status KoraTenantStatus `json:"status,omitempty"`
 }
 
 // KoraTenantSpec defines the desired state of a tenant.
+//
+// +kubebuilder:object:generate=true
 type KoraTenantSpec struct {
 	// DisplayName is the human-readable tenant name surfaced in the identity
 	// service tenant registry.
@@ -44,10 +56,13 @@ type KoraTenantSpec struct {
 	// Active controls whether the tenant is active. When false, the operator
 	// sets state:suspended in the registry without deleting cluster resources.
 	// +kubebuilder:default=true
+	// +optional
 	Active bool `json:"active"`
 
 	// Namespace selects the tenant workload namespace, defaulting to
 	// kora-tenant-<name>. The operator labels it but never deletes it.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 
@@ -57,6 +72,7 @@ type KoraTenantSpec struct {
 	// APIAuthoring is Enabled or Disabled. Disabled makes the tenant's
 	// agents, environments, triggers, trigger sources and roles read-only
 	// through the API. See docs/adr/2026-10-24-declarative-resources.md.
+	// +kubebuilder:validation:Enum=Enabled;Disabled
 	// +kubebuilder:default=Enabled
 	APIAuthoring string `json:"apiAuthoring,omitempty"`
 
@@ -66,23 +82,24 @@ type KoraTenantSpec struct {
 }
 
 // SecretRef is a reference to a Kubernetes Secret.
+//
+// +kubebuilder:object:generate=true
 type SecretRef struct {
 	// Name is the Secret name.
-	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 	// Namespace defaults to the system namespace if omitted.
-	// +optional
+	// +required
 	Namespace string `json:"namespace,omitempty"`
 }
 
 // TenantOIDCSpec defines OIDC configuration for a tenant.
+//
+// +kubebuilder:object:generate=true
 type TenantOIDCSpec struct {
 	// IssuerURL is the OIDC issuer URL.
-	// +kubebuilder:validation:Pattern=`^https?://`
 	IssuerURL string `json:"issuerURL"`
 
 	// ClientID is the OIDC client ID registered with the identity provider.
-	// +kubebuilder:validation:MinLength=1
 	ClientID string `json:"clientID"`
 
 	// ClientSecretRef references the OIDC client-secret Secret. Omit it for public clients.
@@ -101,9 +118,10 @@ type TenantOIDCSpec struct {
 }
 
 // KoraTenantStatus records observed tenant state.
+//
+// +kubebuilder:object:generate=true
 type KoraTenantStatus struct {
 	// Phase summarizes tenant lifecycle state.
-	// +kubebuilder:validation:Enum=Pending;Provisioning;Ready;Degraded;Suspended
 	Phase string `json:"phase,omitempty"`
 
 	// Namespace is the provisioned tenant namespace name.
@@ -136,88 +154,9 @@ const (
 
 // KoraTenantList is a list of KoraTenant resources.
 // +kubebuilder:object:root=true
+// +kubebuilder:object:generate=true
 type KoraTenantList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []KoraTenant `json:"items"`
-}
-
-// DeepCopyObject implements runtime.Object.
-func (t *KoraTenant) DeepCopyObject() runtime.Object {
-	if t == nil {
-		return nil
-	}
-	out := new(KoraTenant)
-	t.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (t *KoraTenant) DeepCopyInto(out *KoraTenant) {
-	*out = *t
-	out.TypeMeta = t.TypeMeta
-	t.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	t.Spec.DeepCopyInto(&out.Spec)
-	t.Status.DeepCopyInto(&out.Status)
-}
-
-// DeepCopy returns a deep copy.
-func (t *KoraTenant) DeepCopy() *KoraTenant {
-	if t == nil {
-		return nil
-	}
-	out := new(KoraTenant)
-	t.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyObject implements runtime.Object for KoraTenantList.
-func (l *KoraTenantList) DeepCopyObject() runtime.Object {
-	if l == nil {
-		return nil
-	}
-	out := new(KoraTenantList)
-	l.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (l *KoraTenantList) DeepCopyInto(out *KoraTenantList) {
-	*out = *l
-	out.TypeMeta = l.TypeMeta
-	l.ListMeta.DeepCopyInto(&out.ListMeta)
-	if l.Items != nil {
-		out.Items = make([]KoraTenant, len(l.Items))
-		for i := range l.Items {
-			l.Items[i].DeepCopyInto(&out.Items[i])
-		}
-	}
-}
-
-// DeepCopyInto for KoraTenantSpec.
-func (s *KoraTenantSpec) DeepCopyInto(out *KoraTenantSpec) {
-	*out = *s
-	if s.OIDC.ClientSecretRef != nil {
-		ref := *s.OIDC.ClientSecretRef
-		out.OIDC.ClientSecretRef = &ref
-	}
-	out.OIDC.Scopes = slices.Clone(s.OIDC.Scopes)
-	out.OIDC.EmailDomains = slices.Clone(s.OIDC.EmailDomains)
-	if s.Budget != nil {
-		b := *s.Budget
-		out.Budget = &b
-	}
-}
-
-// DeepCopyInto for KoraTenantStatus.
-func (s *KoraTenantStatus) DeepCopyInto(out *KoraTenantStatus) {
-	*out = *s
-	if s.LastReconciledAt != nil {
-		t := *s.LastReconciledAt
-		out.LastReconciledAt = &t
-	}
-	if s.Conditions != nil {
-		out.Conditions = make([]metav1.Condition, len(s.Conditions))
-		copy(out.Conditions, s.Conditions)
-	}
 }

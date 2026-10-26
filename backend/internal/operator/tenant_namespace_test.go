@@ -159,22 +159,6 @@ func findCondition(conds []metav1.Condition, condType string) *metav1.Condition 
 	return nil
 }
 
-func TestKoraTenantSpecDeepCopy(t *testing.T) {
-	in := KoraTenantSpec{
-		OIDC:   TenantOIDCSpec{Scopes: []string{"openid"}, EmailDomains: []string{"acme.com"}, ClientSecretRef: &SecretRef{Name: "s"}},
-		Budget: &declarative.Budget{LimitUSD: 10},
-	}
-	var out KoraTenantSpec
-	in.DeepCopyInto(&out)
-	out.OIDC.Scopes[0] = "x"
-	out.OIDC.EmailDomains[0] = "x"
-	out.OIDC.ClientSecretRef.Name = "x"
-	out.Budget.LimitUSD = 99
-	if in.OIDC.Scopes[0] != "openid" || in.OIDC.EmailDomains[0] != "acme.com" || in.OIDC.ClientSecretRef.Name != "s" || in.Budget.LimitUSD != 10 {
-		t.Errorf("DeepCopyInto shares state: %+v", in)
-	}
-}
-
 func TestServedTenants(t *testing.T) {
 	t0 := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
 	owner := tenantAt("acme", "shared", t0)
