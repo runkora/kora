@@ -1,6 +1,6 @@
-# Deploying kora
+# Deploying runkora
 
-kora is two Helm charts. `kora-crds` installs the custom resources; `kora` installs the operator, the cluster-scoped identity and gateway resources, and the platform services.
+runkora is two Helm charts. `kora-crds` installs the custom resources; `kora` installs the operator, the cluster-scoped identity and gateway resources, and the platform services.
 
 The `kora` chart installs the operator alongside the platform services. Once running, the operator watches the kora CRDs and reconciles them into live tenants: it creates tenant namespaces, mints the per-tenant CA and OPA config, aggregates the registries, and serves the admission webhooks. 
 

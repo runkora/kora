@@ -4,7 +4,7 @@ An MCP server exposes tools an agent can call. Registering it as an `MCPServer` 
 
 An `MCPServer` in `kora-system` is registered as platform-global, its tools become available to every tenant, like the kora MCP. When registered in a tenant namespace, it belongs to that tenant alone.
 
-The following guide assumes kora is already installed. See [Deploying kora](deployment.md) for the install.
+The following guide assumes kora is already installed. See [Deploying runkora](deployment.md) for the install.
 
 ## Registering an MCP server
 

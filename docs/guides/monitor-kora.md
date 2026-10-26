@@ -1,6 +1,6 @@
-# Monitor kora
+# Monitor runkora
 
-In kora, every service emits structured logs, OpenTelemetry traces and Prometheus metrics. The console shows what runs, models and triggers are doing. kora does not ship dashboards, alerts or a collector. You send its telemetry to the observability stack you already run, and build alerts there.
+In runkora, every service emits structured logs, OpenTelemetry traces and Prometheus metrics. The console shows what runs, models and triggers are doing. kora does not ship dashboards, alerts or a collector. You send its telemetry to the observability stack you already run, and build alerts there.
 
 ## Export traces and metrics
 

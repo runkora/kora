@@ -4,7 +4,7 @@ kora exposes an OAuth authorization server. A hosted application can send its us
 
 Every client is public and uses PKCE. A platform owner registers an `OAuthClient` through a CR rather than the app self-registering at runtime. Unlike dynamically-registered clients, it may declare non-loopback HTTPS redirect URIs.
 
-The following guide assumes kora is already installed. See [Deploying kora](deployment.md) for the install.
+The following guide assumes kora is already installed. See [Deploying runkora](deployment.md) for the install.
 
 ## Configuring an OAuth client
 

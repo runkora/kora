@@ -4,7 +4,7 @@ For agents to be effective, they often need to reach external services. kora gra
 
 Connections are namespaced. Apply one in a tenant namespace for that tenant to use.
 
-The following guide assumes kora is already installed. See [Deploying kora](deployment.md) for the install.
+The following guide assumes kora is already installed. See [Deploying runkora](deployment.md) for the install.
 
 ## Configuring a connection
 
