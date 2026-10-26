@@ -57,6 +57,13 @@ spec:
         - name: workloads
           configMap:
             name: kora-agents-workloads
+        # Operator-owned tenant registry: each tenant's authoring switch.
+        # Optional so the pod starts before any tenant exists; read again when
+        # it changes.
+        - name: tenants-config
+          configMap:
+            name: {{ .Values.agents.tenantsConfigMap }}
+            optional: true
         {{- include "kora.redisCAVolume" . | nindent 8 }}
         {{- include "kora.extraVolumes" (dict "root" $ "name" "agents") | nindent 8 }}
       containers:
@@ -106,5 +113,8 @@ spec:
               readOnly: true
             - name: workloads
               mountPath: /etc/kora/workloads
+              readOnly: true
+            - name: tenants-config
+              mountPath: /etc/kora
               readOnly: true
             {{- include "kora.extraVolumeMounts" (dict "root" $ "name" "agents") | nindent 12 }}

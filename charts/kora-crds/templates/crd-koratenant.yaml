@@ -50,6 +50,11 @@ spec:
           type: object
           required:
             - spec
+          x-kubernetes-validations:
+            # The operator maps a namespace's resources to its tenant. A tenant that changed namespace would take another namespace's resources.
+            # CEL reserves the word namespace, so the field is spelled __namespace__.
+            - rule: "has(oldSelf.spec.__namespace__) ? (has(self.spec.__namespace__) && self.spec.__namespace__ == oldSelf.spec.__namespace__) : (!has(self.spec.__namespace__) || self.spec.__namespace__ == 'kora-tenant-' + self.metadata.name)"
+              message: spec.namespace is immutable. Recreate the KoraTenant to use another namespace.
           properties:
             apiVersion:
               type: string
@@ -72,9 +77,41 @@ spec:
                     Kubernetes namespace for tenant workloads. When omitted the
                     operator auto-derives the namespace as "kora-tenant-{name}".
                     The operator creates this namespace with the required Istio
-                    and SPIRE labels.
+                    and SPIRE labels. It cannot change once the tenant exists.
+                    The operator refuses the system namespace and a namespace
+                    another tenant uses.
                   type: string
                   minLength: 1
+                  maxLength: 63
+                apiAuthoring:
+                  description: >
+                    Whether the dashboard, API and MCP server may create, edit
+                    and delete agents, environments, triggers, trigger sources
+                    and roles in this tenant. Disabled leaves the tenant's
+                    resources as the only way to define them.
+                  type: string
+                  enum:
+                    - Enabled
+                    - Disabled
+                  default: Enabled
+                budget:
+                  description: >
+                    The tenant's spending limit. It replaces any tenant budget
+                    set through the API.
+                  type: object
+                  required:
+                    - limitUSD
+                  properties:
+                    limitUSD:
+                      type: number
+                      exclusiveMinimum: true
+                      minimum: 0
+                    resetCadence:
+                      type: string
+                      enum:
+                        - weekly
+                        - monthly
+                      default: monthly
                 active:
                   description: >
                     Whether the tenant is active. Inactive tenants are excluded

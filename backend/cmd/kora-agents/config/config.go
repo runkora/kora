@@ -40,6 +40,8 @@ type Config struct {
 		TenantNamespacePrefix string `yaml:"tenantNamespacePrefix"`
 		// SystemNamespace is where kora-agents itself runs.
 		SystemNamespace string `yaml:"systemNamespace"`
+		// TenantsPath is where the chart mounts the kora-tenants registry.
+		TenantsPath string `yaml:"tenantsPath"`
 	} `yaml:"kubernetes"`
 
 	Platform struct {

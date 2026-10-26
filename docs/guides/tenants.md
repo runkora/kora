@@ -41,7 +41,7 @@ spec:
   deleteNamespaceOnRemoval: false
 ```
 
-To adopt an existing namespace you can set it explicitly: `spec.namespace`. kora derives `kora-tenant-<name>` if you omit this field.
+To adopt an existing namespace you can set it explicitly: `spec.namespace`. kora derives `kora-tenant-<name>` if you omit this field. The namespace cannot change once the tenant exists. The operator refuses the system namespace and a namespace another tenant already uses, and holds such a tenant at `Degraded`.
 
 A confidential client needs a Secret in the `clientSecretRef` namespace, carrying the client secret under the key `OIDC_CLIENT_SECRET`. Project it through your secret manager, the same as the platform secrets. A public client does not need to set a `clientSecretRef`. For local use you can create a secret directly:
 

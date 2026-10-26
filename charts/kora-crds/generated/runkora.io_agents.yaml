@@ -1,0 +1,331 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.23.0
+  name: agents.runkora.io
+spec:
+  group: runkora.io
+  names:
+    kind: Agent
+    listKind: AgentList
+    plural: agents
+    shortNames:
+    - kag
+    singular: agent
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.identityMode
+      name: Mode
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Accepted")].status
+      name: Accepted
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Agent is an agent type for the tenant whose namespace holds it. Its
+          metadata.name is the agent slug.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              AgentSpec mirrors the agent create request. Scopes is the API's
+              grant_scopes. Framework, IdentityMode and Connectivity.Mode have CRD
+              defaults.
+            properties:
+              budget:
+                description: AgentBudget is applied to the agent's grant.
+                properties:
+                  limitUSD:
+                    minimum: 0
+                    type: number
+                  perRunLimitUSD:
+                    minimum: 0
+                    type: number
+                  resetCadence:
+                    default: monthly
+                    enum:
+                    - weekly
+                    - monthly
+                    type: string
+                type: object
+              connectivity:
+                description: Connectivity is the agent's egress posture. Hosts applies
+                  in whitelist mode.
+                properties:
+                  hosts:
+                    description: Hosts the agent may reach in whitelist mode, exact
+                      or "*.suffix".
+                    items:
+                      minLength: 1
+                      type: string
+                    type: array
+                  mode:
+                    default: none
+                    enum:
+                    - none
+                    - whitelist
+                    - open
+                    type: string
+                type: object
+              connectors:
+                items:
+                  description: |-
+                    Connector attaches a Connection and the actions the agent may invoke
+                    through it. Resources narrows it to upstream resources; empty means all.
+                  properties:
+                    actions:
+                      items:
+                        minLength: 1
+                        type: string
+                      minItems: 1
+                      type: array
+                    connection:
+                      description: Connection is a Connection name in this namespace.
+                      minLength: 1
+                      type: string
+                    resources:
+                      items:
+                        minLength: 1
+                        type: string
+                      type: array
+                  required:
+                  - actions
+                  - connection
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - connection
+                x-kubernetes-list-type: map
+              description:
+                type: string
+              displayName:
+                minLength: 1
+                type: string
+              environments:
+                description: |-
+                  Environments the agent may run in, by name. One is the default. Empty
+                  runs kora-base.
+                items:
+                  description: AgentEnvironment attaches an Environment by name.
+                  properties:
+                    default:
+                      type: boolean
+                    name:
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              framework:
+                default: claude-code
+                enum:
+                - claude-code
+                - codex
+                - opencode
+                type: string
+              guardrails:
+                description: |-
+                  Guardrails are loop-guard thresholds. Each pause must be above its warn.
+                  Unset fields take the platform defaults.
+                properties:
+                  repeatedCallPause:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  repeatedCallWarn:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  waitRearmPause:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  waitRearmWarn:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                type: object
+              identityMode:
+                default: autonomous
+                description: IdentityMode is who the agent acts as. Recreate the Agent
+                  to change it.
+                enum:
+                - autonomous
+                - delegated
+                type: string
+                x-kubernetes-validations:
+                - message: identityMode is immutable.
+                  rule: self == oldSelf
+              maxConcurrentRunsPerPod:
+                description: |-
+                  MaxConcurrentRunsPerPod is the number of runs one agent pod holds at
+                  once. Unset takes the install default.
+                format: int32
+                minimum: 1
+                type: integer
+              mcpTools:
+                description: MCPTools are the tools the agent may call, per MCPServer.
+                items:
+                  description: |-
+                    MCPTools lists the tools of one MCPServer the agent may call. Each expands
+                    to the scope mcp:<server>:<tool>:use.
+                  properties:
+                    server:
+                      description: Server is an MCPServer name in this namespace.
+                      minLength: 1
+                      type: string
+                    tools:
+                      items:
+                        minLength: 1
+                        type: string
+                      minItems: 1
+                      type: array
+                  required:
+                  - server
+                  - tools
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - server
+                x-kubernetes-list-type: map
+              model:
+                description: Model is the VirtualModel the agent runs on.
+                properties:
+                  family:
+                    pattern: ^[a-z0-9_-]{1,255}$
+                    type: string
+                  name:
+                    pattern: ^[a-z0-9_-]{1,255}$
+                    type: string
+                required:
+                - family
+                - name
+                type: object
+              scopes:
+                description: Scopes are further scopes on the agent's grant.
+                items:
+                  minLength: 1
+                  type: string
+                type: array
+              systemPrompt:
+                type: string
+            required:
+            - displayName
+            - model
+            type: object
+          status:
+            description: |-
+              Status is the status every declarative kind reports. The operator writes it
+              from the owning service's response.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              id:
+                description: ID is the id of the item the resource is projected to.
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: metadata.name must be a DNS-1035 label of at most 52 characters.
+          rule: self.metadata.name.matches('^[a-z]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name)
+            <= 52
+        - message: metadata.name must not be delegated or autonomous. They are identity
+            mode names.
+          rule: '!(self.metadata.name in [''delegated'', ''autonomous''])'
+    served: true
+    storage: true
+    subresources:
+      status: {}
