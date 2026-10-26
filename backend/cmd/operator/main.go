@@ -27,6 +27,8 @@ import (
 	"github.com/runkora/kora/backend/internal/operator/preflight"
 	"github.com/runkora/kora/backend/internal/operator/webhookcert"
 	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/clients/declared"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
 	"github.com/runkora/kora/backend/internal/platform/config"
 	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -242,6 +244,8 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 				operator.NewServiceEntry(): {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
 				// The operator caches only the sandbox image warmer DaemonSets.
 				&appsv1.DaemonSet{}: {Label: operator.WarmerSelector()},
+				// The operator caches only the Secrets a TriggerSource may reference.
+				&corev1.Secret{}: {Label: operator.TriggerSourceSecretSelector()},
 			},
 		},
 		// Bypass the cache to avoid a cluster-wide Secret informer.
@@ -375,7 +379,44 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 		Aggregator: mcpAggregator,
 		Logger:     logger,
 	}
-	return mcpServerReconciler.SetupWithManager(mgr)
+	if err := mcpServerReconciler.SetupWithManager(mgr); err != nil {
+		return err
+	}
+	return initDeclared(mgr, logger)
+}
+
+// initDeclared registers the controllers that project declarative resources
+// into their owning services, and the sweep that deletes items whose resource
+// is gone. Every call carries the operator's own platform token.
+func initDeclared(mgr ctrl.Manager, logger logging.Logger) error {
+	cfg := oc.Current.Declared
+	if cfg.IdentityURL == "" {
+		logger.Info(context.Background(), "declared resource projection is off: declared.identityURL is not set")
+		return nil
+	}
+	token := identityclient.NewClient(cfg.IdentityURL, logger).SelfTokenSource()
+	reconcilers := operator.NewDeclaredReconcilers(mgr.GetClient(), mgr.GetAPIReader(), declaredClients(cfg, token, logger), logger)
+	for _, r := range reconcilers {
+		if err := r.SetupWithManager(mgr); err != nil {
+			return err
+		}
+	}
+	return mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		if !mgr.GetCache().WaitForCacheSync(ctx) {
+			return nil
+		}
+		return operator.SweepAll(ctx, reconcilers, oc.Current.SyncPeriod(), logger)
+	}))
+}
+
+// declaredClients builds one client per owning service, all sharing token.
+func declaredClients(cfg oc.Declared, token declared.TokenSource, logger logging.Logger) operator.DeclaredClients {
+	return operator.DeclaredClients{
+		Agents:           declared.NewClient(cfg.AgentsURL, token, logger),
+		Triggers:         declared.NewClient(cfg.TriggersURL, token, logger),
+		PolicyService:    declared.NewClient(cfg.PolicyServiceURL, token, logger),
+		InferenceGateway: declared.NewClient(cfg.InferenceGatewayURL, token, logger),
+	}
 }
 
 // preflightSource adapts the runner to the reconciler's narrow interface.

@@ -55,6 +55,13 @@ cmd/operator:
     preflight:
       supportedIstioMinors: {{ .Values.operator.preflight.supportedIstioMinors | toJson }}
       intervalSeconds: {{ .Values.operator.preflight.intervalSeconds | int }}
+  {{- /* The services declared resources project into, each with its base path. */}}
+  declared:
+    identityURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-identity") | toJson }}
+    agentsURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-agents") | toJson }}
+    triggersURL: {{ printf "%s/api/v1" (include "kora.serviceURL" (dict "root" . "name" "kora-triggers")) | toJson }}
+    policyServiceURL: {{ printf "%s/api/v1" (include "kora.serviceURL" (dict "root" . "name" "kora-policy-service")) | toJson }}
+    inferenceGatewayURL: {{ printf "%s/v1" (include "kora.serviceURL" (dict "root" . "name" "kora-inference-gateway")) | toJson }}
 {{ include "kora.observabilityConfigModule" . }}
 {{ include "kora.brandConfigModule" . }}
 {{- end }}

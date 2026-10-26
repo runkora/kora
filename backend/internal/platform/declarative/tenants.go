@@ -1,8 +1,7 @@
 // Package declarative holds the contract between the operator and the services
 // that own declarative resources: the items the operator applies, the
-// endpoints a service serves for them, the refusals of API writes, the
-// standard status conditions and the tenant registry services read for the
-// authoring switch and the tenant budget.
+// endpoints a service serves for them, the refusals of API writes and the
+// tenant registry services read for the authoring switch and the tenant budget.
 //
 // See docs/adr/2026-10-24-declarative-resources.md.
 package declarative

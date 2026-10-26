@@ -1,6 +1,10 @@
 package operator
 
-import "fmt"
+import (
+	"fmt"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
 
 // tenantNamespace returns spec.namespace, or kora-tenant-<name> if unset.
 func tenantNamespace(t *KoraTenant) string {
@@ -20,19 +24,21 @@ func namespaceConflict(tenant *KoraTenant, tenants []KoraTenant) string {
 	}
 	for i := range tenants {
 		other := &tenants[i]
-		if other.Name != tenant.Name && tenantNamespace(other) == ns && createdFirst(other, tenant) {
+		if other.Name != tenant.Name && tenantNamespace(other) == ns && declaredBefore(other, tenant) {
 			return fmt.Sprintf("namespace %q belongs to tenant %q", ns, other.Name)
 		}
 	}
 	return ""
 }
 
-// createdFirst orders tenants by creation time, then by name.
-func createdFirst(a, b *KoraTenant) bool {
-	if !a.CreationTimestamp.Equal(&b.CreationTimestamp) {
-		return a.CreationTimestamp.Before(&b.CreationTimestamp)
+// declaredBefore orders objects claiming one key: the older keeps it, with
+// namespace/name breaking a tie.
+func declaredBefore(a, b client.Object) bool {
+	ta, tb := a.GetCreationTimestamp(), b.GetCreationTimestamp()
+	if !ta.Equal(&tb) {
+		return ta.Before(&tb)
 	}
-	return a.Name < b.Name
+	return a.GetNamespace()+"/"+a.GetName() < b.GetNamespace()+"/"+b.GetName()
 }
 
 // servedTenants returns the active tenants that hold their namespace. The

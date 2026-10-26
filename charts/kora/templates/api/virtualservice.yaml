@@ -53,6 +53,22 @@ spec:
             host: kora-identity.{{ include "kora.systemNamespace" . }}.svc.cluster.local
             port:
               number: 80
+    # ── Declared-item endpoints: never reachable from the edge ────────────────
+    # Only the operator applies declared resources, from inside the mesh. Each
+    # service serves them under its base path, and the catch-all inference
+    # route below would otherwise carry /v1/internal/declared/ to the gateway.
+    - match:
+        - uri:
+            prefix: /internal/declared/
+        - uri:
+            prefix: /v1/internal/declared/
+        - uri:
+            prefix: /api/v1/internal/declared/
+      {{- include "kora.forceHttpsHeaders" . | nindent 6 }}
+      directResponse:
+        status: 404
+        body:
+          string: '{"code":"not_found","message":"not found"}'
     # ── MCP tool-gateway ───────────────────────────────────────────────────────
     - match:
         - uri:
