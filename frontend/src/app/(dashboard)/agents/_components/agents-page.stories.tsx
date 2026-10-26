@@ -203,3 +203,21 @@ export const HundredFiftyAgents: Story = {
   },
   decorators: withRoutes(scaleRoutes),
 };
+
+/** A declared agent whose repository is too long for the card header. */
+export const ManagedInGitLongRepository: Story = {
+  decorators: withRoutes(listRoutes()),
+  args: {
+    ...Default.args,
+    initialAgentTypes: AGENT_ROWS.slice(0, 3).map((a, i) =>
+      i === 0
+        ? {
+            ...a,
+            slug: 'pr-summariser',
+            declared: true,
+            repository: 'github.com/example-org/example-agents-with-a-long-name',
+          }
+        : a,
+    ),
+  },
+};

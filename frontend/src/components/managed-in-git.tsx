@@ -1,6 +1,6 @@
 /** @tier 2 — kora-domain-aware: marks items declared in a tenant's configuration repository. Used by: agents, environments, triggers, policy roles, model gateway catalog. */
 import type { ReactNode } from 'react';
-import { Alert, Anchor, Badge, Callout, Text } from '@runkora/hades';
+import { Alert, Anchor, Callout, Text, TruncatingBadge } from '@runkora/hades';
 import {
   declarativeRefusal,
   PLATFORM_LOCKED_MESSAGE,
@@ -14,14 +14,12 @@ export interface ManagedInGitBadgeProps {
 
 /**
  * Marks an item declared in the configuration repository. Show it wherever the item is listed or
- * opened. It names the repository as text, since list rows are often links themselves.
+ * opened. It names the repository as text, since list rows are often links themselves. A long repository
+ * truncates inside the space it is given, and the full text is the native tooltip.
  */
 export function ManagedInGitBadge({ repository }: ManagedInGitBadgeProps) {
-  return (
-    <Badge variant="secondary" size="sm">
-      {repository ? `Managed by ${repository}` : 'Managed in git'}
-    </Badge>
-  );
+  const label = repository ? `Managed by ${repository}` : 'Managed in git';
+  return <TruncatingBadge label={label} variant="secondary" textColor="foreground" />;
 }
 
 export interface ManagedInGitCalloutProps {
