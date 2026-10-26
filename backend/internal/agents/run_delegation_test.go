@@ -390,7 +390,7 @@ func TestReaper_RevokesDelegationOnReapedRuns(t *testing.T) {
 	t.Fatalf("reaper did not revoke the stale run's delegation; revoked = %v", issuer.revokedJTIs())
 }
 
-func TestDeleteAgentType_RevokesDelegationsOfForceDeletedRuns(t *testing.T) {
+func TestDeleteAgentType_RevokesDelegationsOfCancelledRuns(t *testing.T) {
 	f, repo, _, _ := newTestService(t)
 	issuer := &fakeDelegationIssuer{}
 	f.at.SetDelegationBroker(newDelegationTestBroker(issuer))

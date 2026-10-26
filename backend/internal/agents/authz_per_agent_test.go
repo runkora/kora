@@ -70,6 +70,8 @@ func TestCheckRun_PerAgentDelegatedAndOwner(t *testing.T) {
 		{"another caller is not the owner", []string{"agents:types:autonomous:write"}, "bob", mine, "read", false},
 		{"the owner's subject in another tenant", []string{"agents:types:autonomous:write"}, "alice", AgentType{ID: "at-x", TenantID: "t2", Slug: "mine", CreatedBy: "alice"}, "read", false},
 		{"no created_by matches no caller", []string{"agents:types:write"}, "", AgentType{Slug: "legacy"}, "read", false},
+		{"a deleted agent's slug scope", []string{"agents:runs:coder:read"}, "bob", AgentType{ID: "at-old", Slug: "coder", State: AgentTypeStateDeleted}, "read", false},
+		{"a deleted agent under the parent scope", []string{"agents:runs:read"}, "bob", AgentType{ID: "at-old", Slug: "coder", State: AgentTypeStateDeleted}, "read", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -309,7 +311,7 @@ func TestCreateAgentType_RepublishesScopesBeforeProvisioning(t *testing.T) {
 	repo := newMockRepository()
 	k8s := blockingK8s{mockK8s: &mockK8s{}, release: make(chan struct{})}
 	t.Cleanup(func() { close(k8s.release) })
-	svc := NewAgentTypeService(repo, repo, k8s, NewAuthz(&scopedEvaluator{granted: []string{"agents:types:delegated:write"}}),
+	svc := NewAgentTypeService(repo, repo, k8s, NewAuthz(&scopedEvaluator{granted: []string{"agents:types:delegated:write"}}), nil,
 		AgentTypeServiceConfig{MaxConcurrentRunsPerPod: 5, TenantNamespaceFn: func(id string) string { return "kora-tenant-" + id }},
 		logging.NewLoggerWithOutput(io.Discard))
 	var calls atomic.Int32
@@ -356,6 +358,59 @@ func TestGetAgentType_CanRun(t *testing.T) {
 			}
 			if got.CanRun == nil || *got.CanRun != tt.want {
 				t.Errorf("can_run = %v, want %v", got.CanRun, tt.want)
+			}
+		})
+	}
+}
+
+// A new agent that reuses a deleted agent's slug must not expose the deleted agent's runs through its per-agent scopes.
+// The deleted agent's runs stay readable by their starter and under the tenant-wide agents:runs:read.
+func TestDeletedAgentRuns_SlugReuseDoesNotExposeThem(t *testing.T) {
+	tests := []struct {
+		name     string
+		granted  []string
+		caller   string
+		readsOld bool
+		wantList []string
+	}{
+		{"the new agent's grant", []string{"agents:runs:bot:read", "agents:runs:bot:write"}, "bob", false, []string{"run-new"}},
+		{"the starter of the old run", nil, "alice", true, []string{"run-old"}},
+		{"a tenant-wide run reader", []string{"agents:runs:read"}, "bob", true, []string{"run-new", "run-old"}},
+		{"the creator of both agents", []string{"agents:types:autonomous:write"}, "carol", true, []string{"run-new", "run-old"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, repo, _, _ := newTestServiceWithEval(t, coversEvaluator{granted: tt.granted})
+			seedAgentType(t, repo, AgentType{ID: "at-old", TenantID: "t1", Slug: "bot", CreatedBy: "carol"})
+			seedRun(t, repo, Run{ID: "run-old", TenantID: "t1", AgentTypeID: "at-old", State: RunStateCompleted, CreatedBy: "alice"})
+			if err := repo.SoftDeleteAgentType(context.Background(), "at-old"); err != nil {
+				t.Fatal(err)
+			}
+			seedAgentType(t, repo, AgentType{ID: "at-new", TenantID: "t1", Slug: "bot", CreatedBy: "carol"})
+			seedRun(t, repo, Run{ID: "run-new", TenantID: "t1", AgentTypeID: "at-new", State: RunStateCompleted, CreatedBy: "dave"})
+			ctx := withRunCallerCtx(context.Background(), "t1", tt.caller)
+
+			_, err := svc.run.GetRun(ctx, "run-old")
+			if tt.readsOld && err != nil {
+				t.Errorf("GetRun of the deleted agent's run = %v, want allowed", err)
+			}
+			if !tt.readsOld && !errors.Is(err, ErrNotFound) {
+				t.Errorf("GetRun of the deleted agent's run = %v, want ErrNotFound", err)
+			}
+			if err := svc.run.TerminateRun(ctx, "run-old"); !errors.Is(err, ErrNotFound) {
+				t.Errorf("TerminateRun of the deleted agent's run = %v, want ErrNotFound", err)
+			}
+			page, err := svc.run.ListRuns(ctx, nil, RunListQuery{Limit: 10})
+			if err != nil {
+				t.Fatalf("ListRuns: %v", err)
+			}
+			var got []string
+			for _, r := range page.Runs {
+				got = append(got, r.ID)
+			}
+			slices.Sort(got)
+			if !slices.Equal(got, tt.wantList) {
+				t.Errorf("ListRuns = %v, want %v", got, tt.wantList)
 			}
 		})
 	}

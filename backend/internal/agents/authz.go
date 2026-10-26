@@ -184,6 +184,9 @@ func (a *Authz) checkRun(ctx context.Context, at AgentType, action string) error
 	if owner, err := a.ownerAllowed(ctx, at); err != nil || owner {
 		return err
 	}
+	if at.IsDeleted() {
+		return a.checkDeletedAgentRun(ctx, action)
+	}
 	allowed, err := policy.AgentRunAllowed(ctx, a.eval, at.Slug, at.IsDelegated(), action)
 	if err != nil {
 		return err
@@ -192,6 +195,33 @@ func (a *Authz) checkRun(ctx context.Context, at AgentType, action string) error
 		return ErrForbidden
 	}
 	return nil
+}
+
+// checkDeletedAgentRun allows runs of a deleted agent only under the tenant-wide agents:runs:<action> scope.
+// A per-agent scope names a slug that a newer agent may now hold.
+func (a *Authz) checkDeletedAgentRun(ctx context.Context, action string) error {
+	r, err := a.eval.Check(ctx, policy.CheckInput{
+		Claims:       claimsFromContext(ctx),
+		Delegation:   policy.DelegationFromContext(ctx),
+		ResourceType: "agents",
+		PathSegments: []string{"runs"},
+		Action:       action,
+	})
+	if err != nil {
+		return fmt.Errorf("authz check deleted agent runs: %w", err)
+	}
+	if !r.Allow {
+		return ErrForbidden
+	}
+	return nil
+}
+
+// runScopeSegments is the scope path for the agent type's runs. A deleted agent has no per-slug path.
+func runScopeSegments(at AgentType) []string {
+	if at.IsDeleted() {
+		return []string{"runs"}
+	}
+	return []string{"runs", at.Slug}
 }
 
 // canReadDelegatedRuns reports whether the principal holds agents:delegated:read.
@@ -211,13 +241,14 @@ func (a *Authz) canReadDelegatedRuns(ctx context.Context) (bool, error) {
 
 // readableRunAgentTypes returns the IDs of the agent types in ats whose runs the
 // principal may read: agents:runs:<slug>:read, or the caller created the type.
+// A deleted agent's runs need the tenant-wide agents:runs:read.
 func (a *Authz) readableRunAgentTypes(ctx context.Context, ats []AgentType) ([]string, error) {
 	if len(ats) == 0 {
 		return nil, nil
 	}
 	candidates := make([]policy.Candidate, len(ats))
 	for i, at := range ats {
-		candidates[i] = policy.Candidate{ID: at.ID, PathSegments: []string{"runs", at.Slug}}
+		candidates[i] = policy.Candidate{ID: at.ID, PathSegments: runScopeSegments(at)}
 	}
 	allowed, err := a.eval.Query(ctx, policy.QueryInput{
 		Claims:       claimsFromContext(ctx),

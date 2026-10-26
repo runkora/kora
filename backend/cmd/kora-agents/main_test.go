@@ -65,7 +65,7 @@ func withPolicyServiceURL(t *testing.T, url string) {
 
 func newAgentTypeService() *agents.AgentTypeService {
 	// Only SetAgentTypeHook is exercised, so the collaborators can stay nil.
-	return agents.NewAgentTypeService(nil, nil, nil, nil, agents.AgentTypeServiceConfig{}, logging.NewLogger())
+	return agents.NewAgentTypeService(nil, nil, nil, nil, nil, agents.AgentTypeServiceConfig{}, logging.NewLogger())
 }
 
 // TestInitScopeRegistrationPublishesRoutesAndSlugScopes asserts the register
