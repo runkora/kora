@@ -57,7 +57,7 @@ const (
 // InferenceProvider registers one model provider with the inference gateway,
 // which watches it. Apply it in the kora system namespace. The provider
 // registers as <type>:<metadata.name>. Credentials are Secrets in the same
-// namespace, labelled runkora.io/inference-provider=true, and named here, never
+// namespace, labeled runkora.io/inference-provider=true, and named here, never
 // inlined.
 //
 // +kubebuilder:object:root=true
@@ -187,7 +187,7 @@ type Compatible struct {
 	// +kubebuilder:validation:MinItems=1
 	// +listType=set
 	APIs []API `json:"apis"`
-	// APIKeySecretRef is a key of a Secret labelled runkora.io/inference-provider=true.
+	// APIKeySecretRef is a key of a Secret labeled runkora.io/inference-provider=true.
 	APIKeySecretRef *SecretKeyRef `json:"apiKeySecretRef,omitempty"`
 
 	// DecisionModels names models served on POST /systemone when the endpoint

@@ -107,7 +107,7 @@ spec:
             - message: kubernetes connections must use a DNS hostname as baseHost,
                 not a bare IPv4 address. TLS to an IP literal carries no SNI; the
                 sandbox's transparent-egress interception can never authorize it.
-              rule: self.adapter != 'kubernetes' || self.baseHost == ” || !(self.baseHost.matches('^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+(:[0-9]+)?$')
+              rule: self.adapter != 'kubernetes' || self.baseHost == '' || !(self.baseHost.matches('^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+(:[0-9]+)?$')
                 || self.baseHost.matches('^\\[[0-9a-fA-F:]+\\](:[0-9]+)?$') || (self.baseHost.matches('^[0-9a-fA-F:]+$')
                 && self.baseHost.split(':').size() > 2))
         required:

@@ -36,7 +36,7 @@ spec:
           InferenceProvider registers one model provider with the inference gateway,
           which watches it. Apply it in the kora system namespace. The provider
           registers as <type>:<metadata.name>. Credentials are Secrets in the same
-          namespace, labelled runkora.io/inference-provider=true, and named here, never
+          namespace, labeled runkora.io/inference-provider=true, and named here, never
           inlined.
         properties:
           apiVersion:
@@ -139,7 +139,7 @@ spec:
                   pass through natively.
                 properties:
                   apiKeySecretRef:
-                    description: APIKeySecretRef is a key of a Secret labelled runkora.io/inference-provider=true.
+                    description: APIKeySecretRef is a key of a Secret labeled runkora.io/inference-provider=true.
                     properties:
                       key:
                         minLength: 1
