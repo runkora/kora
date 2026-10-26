@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -517,8 +518,29 @@ func (s *Service) triggerToken(ctx context.Context, t Trigger) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	tok, err := s.minter.MintServiceToken(ctx, t.TenantID, principalID, displayName, sourceTokenTTL)
+	// A mint call can fail for a moment (a mesh disruption, a timeout) without
+	// the trigger having done anything wrong, so retry it within the budget.
+	// A refusal is a real denial and is not retried.
+	var tok string
+	var mintErr error
+	err = retryWhileGrantPropagates(ctx,
+		func(err error) bool { return ctx.Err() == nil && !errors.Is(err, identityclient.ErrMintForbidden) },
+		func(backoff time.Duration) {
+			s.logger.Debug(ctx, "token mint failed, retrying",
+				logging.Field{Key: "trigger_id", Value: t.ID},
+				logging.Field{Key: "backoff", Value: backoff.String()},
+			)
+		},
+		func() error {
+			tok, mintErr = s.minter.MintServiceToken(ctx, t.TenantID, principalID, displayName, sourceTokenTTL)
+			return mintErr
+		})
 	if err != nil {
+		// A cancel during backoff returns the context error; the outcome should
+		// still show the mint error that was being retried.
+		if mintErr != nil {
+			err = mintErr
+		}
 		return "", fmt.Errorf("mint trigger token: %w", err)
 	}
 	return tok, nil

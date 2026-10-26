@@ -658,6 +658,8 @@ func (m *mockRepository) lastDelivery() *Delivery {
 type fakeMinter struct {
 	token string
 	err   error
+	// failFirst makes the first n calls fail with err before calls succeed.
+	failFirst int
 
 	mu    sync.Mutex
 	calls []mintCall
@@ -671,8 +673,9 @@ type mintCall struct {
 func (f *fakeMinter) MintServiceToken(_ context.Context, tenantID, principalID, _ string, _ time.Duration) (string, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, mintCall{tenantID: tenantID, principalID: principalID})
+	n := len(f.calls)
 	f.mu.Unlock()
-	if f.err != nil {
+	if f.err != nil && (f.failFirst == 0 || n <= f.failFirst) {
 		return "", f.err
 	}
 	return f.token, nil
