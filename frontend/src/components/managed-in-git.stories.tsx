@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
+import { Stack } from '@runkora/hades';
 import { ManagedInGitBadge, ManagedInGitCallout, ManagedInGitNotice } from './managed-in-git';
 
 /**
@@ -34,4 +35,12 @@ export const BadgeWithRepository: Story = {
 
 export const NoticeWithRepository: Story = {
   render: () => <ManagedInGitNotice declared repository="github.com/acme/payments-agents" />,
+};
+
+export const BadgeLongRepositoryNarrow: Story = {
+  render: () => (
+    <Stack style={{ width: 180 }}>
+      <ManagedInGitBadge repository="github.com/example-org/example-agents-with-a-long-name" />
+    </Stack>
+  ),
 };

@@ -72,8 +72,8 @@ export function AgentCard({
         leadingIcon="bot"
         title={agent.name}
         description={
-          <Stack direction="horizontal" align="center" gap="snug">
-            <Text mono size="caption" color="muted">
+          <Stack direction="horizontal" align="center" gap="snug" wrap>
+            <Text mono size="caption" color="muted" truncate>
               {agent.slug}
             </Text>
             {agent.identityMode === 'delegated' && (
