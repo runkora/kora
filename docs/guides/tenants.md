@@ -62,9 +62,13 @@ Set `deleteNamespaceOnRemoval: true` only when deleting the `KoraTenant` must de
 
 To define the tenant's agents, triggers and roles as resources, or to lock the tenant to them with `apiAuthoring`, see [Declarative resources](declarative-resources.md).
 
+Once the tenant is ready, configure access for its principals with [policy and roles](policy-and-roles.md).
+
 ## Sharing an email domain
 
-By default one email domain reaches one tenant, and the operator marks a tenant `Invalid` when it claims a domain an older tenant holds. Tenants can share a domain when they use the same `issuerURL` and `clientID` and each sets `claimBinding`. After sign-in, kora issues the session for the tenant whose binding matches the ID token.
+Each email domain reaches one tenant by default. The operator marks a tenant `Invalid` when it claims a domain that an older tenant already holds.
+
+Several tenants can share a domain when they use the same `issuerURL` and `clientID` and each one sets a `claimBinding`. kora signs a person in to the tenant whose binding matches their ID token.
 
 ```yaml
 apiVersion: runkora.io/v1alpha1
@@ -98,6 +102,10 @@ spec:
       values: [sre]
 ```
 
-kora reads the domain from the ID token's `email` claim and considers only the tenants on the same issuer and client whose `emailDomains` include it, ignoring case. A binding never admits someone whose email domain belongs to another tenant. A token without an `email` claim is checked against the requested tenant only. A scalar claim must equal one of `values`. An array claim such as `groups` must contain one. A person whose claims match no tenant gets a 403. A person who matches several tenants cannot sign in yet, and the error lists the tenants.
+kora chooses the tenant in three steps:
 
-Once the tenant is ready, configure access for its principals with [policy and roles](policy-and-roles.md).
+1.  It reads the domain from the ID token's `email` claim and keeps the tenants on the same issuer and client that list the domain in `emailDomains`. Without an `email` claim, it keeps only the tenant the person signed in to.
+2.  It checks each tenant's binding against the token. A string claim must equal one of `values`, and a list claim such as `groups` must contain one of them.
+3.  It signs the person in to the tenant that matches.
+
+A person who matches no tenant gets a 403. A person who matches more than one tenant cannot sign in, and the error lists the tenants they match.
