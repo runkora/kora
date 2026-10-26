@@ -33,3 +33,13 @@ export function scopeCovers(granted: string, required: string): boolean {
 export function hasScopeCovering(scopes: string[], required: string): boolean {
   return scopes.some((s) => scopeCovers(s, required));
 }
+
+/**
+ * Returns `true` if any scope in `scopes` covers `required` or sits below it,
+ * such as `agents:types:pr-summariser:read` under `agents:types:read`. Use it
+ * to show a list view that the API filters per resource. Gate actions with
+ * `hasScopeCovering`.
+ */
+export function hasScopeWithin(scopes: string[], required: string): boolean {
+  return scopes.some((s) => scopeCovers(s, required) || scopeCovers(required, s));
+}
