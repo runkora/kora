@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@runkora/test-utils';
 
 const agent = {
@@ -18,6 +18,16 @@ vi.mock('../_hooks/use-agent-configuration', () => ({
     name: current.name,
     setName: vi.fn(),
     description: '',
+    models: [],
+    systemPrompt: 'Review every pull request.\nBe brief.',
+    framework: 'claude-code',
+    setFramework: vi.fn(),
+    modelId: 'anthropic/claude-sonnet-4-6',
+    mcpTools: ['mcp:github:issues.list:use', 'mcp:github:pulls.get:use', 'mcp:slack:use'],
+    mcpServers: [],
+    mcpCatalog: [],
+    availableConnections: [],
+    connectors: [{ connection: 'jira', actions: ['read'] }],
     setDescription: vi.fn(),
     budgetLimitUSD: '',
     budgetCadence: 'monthly',
@@ -53,5 +63,30 @@ describe('AgentConfigurationTab', () => {
     current = agent;
     renderWithProviders(<AgentConfigurationTab />, { apiAuthoring: false });
     expect(screen.getByDisplayValue('Reviewer')).toBeDisabled();
+  });
+
+  it("shows a read-only viewer the agent's model, tools and connections", () => {
+    current = { ...agent, canEdit: false };
+    renderWithProviders(<AgentConfigurationTab initialSection="behaviour" />);
+    expect(screen.getByText('anthropic/claude-sonnet-4-6')).toBeInTheDocument();
+    expect(screen.queryByText(/enabled by your platform/)).toBeNull();
+    fireEvent.click(screen.getByText('Tools & access'));
+    expect(screen.getByText('github')).toBeInTheDocument();
+    expect(screen.getByText('issues.list')).toBeInTheDocument();
+    expect(screen.getByText('jira')).toBeInTheDocument();
+    expect(screen.getByText('read')).toBeInTheDocument();
+    expect(screen.getByText('slack')).toBeInTheDocument();
+    expect(screen.getByText('All tools')).toBeInTheDocument();
+    expect(screen.queryByText('No tools or actions')).toBeNull();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+  });
+
+  it('renders the framework and system instructions as text, with no controls', () => {
+    current = { ...agent, canEdit: false };
+    renderWithProviders(<AgentConfigurationTab initialSection="behaviour" />);
+    expect(screen.getByText('Claude Code')).toBeInTheDocument();
+    expect(screen.getByText(/Review every pull request\./)).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).toBeNull();
+    expect(screen.queryByRole('textbox')).toBeNull();
   });
 });
