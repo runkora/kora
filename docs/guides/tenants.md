@@ -14,7 +14,7 @@ A tenant is isolated on several axes:
 
 Users reach their tenant by email domain. When someone signs in, kora routes them to the tenant whose `emailDomains` claim their address, and authenticates them through that tenant's OIDC client.
 
-The following guide assumes kora is already installed. See [Deploying kora](deployment.md) for the install.
+The following guide assumes kora is already installed. See [Deploying runkora](deployment.md) for the install.
 
 ## Configuring a tenant
 

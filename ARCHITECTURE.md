@@ -1,6 +1,6 @@
-# kora Architecture
+# runkora architecture
 
-kora is the control plane for AI agents. It gives every agent a verifiable
+runkora is the control plane for AI agents. It gives every agent a verifiable
 identity, checks every action against policy before it runs, and brokers every
 credential so agents never hold secrets.
 
