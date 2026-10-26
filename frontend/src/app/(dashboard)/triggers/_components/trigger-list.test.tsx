@@ -189,3 +189,11 @@ describe('chat command triggers', () => {
     expect(screen.getByText('mention')).toBeTruthy();
   });
 });
+
+describe('source missing', () => {
+  it('marks a webhook trigger whose source was deleted', () => {
+    render(list({ triggers: [makeTrigger({ sourceId: '', sourceMissing: true })] }));
+    expect(screen.getByText('Source deleted')).toBeTruthy();
+    expect(screen.getByText('No source')).toBeTruthy();
+  });
+});

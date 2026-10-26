@@ -217,6 +217,7 @@ func scanTrigger(row pgx.Row) (*Trigger, error) {
 		return nil, err
 	}
 	t.SourceID = deref(sourceID)
+	t.SourceMissing = t.Kind == KindWebhook && sourceID == nil
 	t.PrincipalID = deref(principalID)
 	t.AgentTypeID = deref(agentTypeID)
 	t.AgentSlug = deref(agentSlug)

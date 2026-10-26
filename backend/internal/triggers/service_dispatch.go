@@ -99,6 +99,15 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) (held 
 		})
 		return false
 	}
+	if t.SourceMissing {
+		s.outcomes.record(ctx, &DeliveryRun{
+			TenantID: p.TenantID, DeliveryID: p.DeliveryID,
+			TriggerID: p.TriggerID, TriggerName: t.Name,
+			Status: RunStatusDropped,
+			Error:  new("the trigger's source was deleted while this fire was waiting"),
+		})
+		return false
+	}
 
 	// The timeout bounds the start request, which returns once kora-agents has
 	// queued the run. A run that later fails to start does not reach this outcome.

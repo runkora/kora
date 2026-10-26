@@ -21,7 +21,7 @@ export const PATCH = withAuth(
   },
 );
 
-// DELETE /api/trigger-sources/[id] — remove a source and its triggers (204).
+// DELETE /api/trigger-sources/[id] removes a source (204). Its triggers stay with no source.
 export const DELETE = withAuth(
   async (_req: NextRequest, session, context?: { params: Promise<Params> }) => {
     const { id } = await (context?.params ?? Promise.resolve({ id: '' }));
