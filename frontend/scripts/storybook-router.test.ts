@@ -21,6 +21,7 @@ describe('Storybook app router mock', () => {
     const decorate = annotations.find(
       (d) => (d as { name: string }).name === 'RouterDecorator',
     ) as (s: () => unknown, c: unknown) => never;
+    expect(decorate, 'RouterDecorator not found in @storybook/nextjs/preview').toBeDefined();
     const html = renderToString(
       decorate(() => createElement(Probe), {
         parameters: { nextjs: { appDirectory: true, navigation: { pathname: '/x' } } },
