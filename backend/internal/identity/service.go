@@ -415,7 +415,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		Roles             []string `json:"roles"`
 		Groups            []string `json:"groups"`
 	}
-	if err := idToken.Claims(&claims); err != nil {
+	if err = idToken.Claims(&claims); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "claims extraction failed")
 		return nil, fmt.Errorf("extract id token claims: %w", err)
@@ -516,7 +516,7 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 		Roles             []string `json:"roles"`
 		Groups            []string `json:"groups"`
 	}
-	if err := idToken.Claims(&claims); err != nil {
+	if err = idToken.Claims(&claims); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "claims extraction failed")
 		return nil, fmt.Errorf("extract id_token claims: %w", err)
