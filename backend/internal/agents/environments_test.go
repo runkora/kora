@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
@@ -57,15 +58,37 @@ func TestEnvironmentSizes_Validate(t *testing.T) {
 	}
 }
 
-// fakeEnvStore is an in-memory environment store for the service tests.
+// fakeEnvStore is an in-memory environment store for the service tests. writes counts creates
+// and updates.
 type fakeEnvStore struct {
 	envs      map[string]Environment
 	deleteErr error
+	writes    int
 }
 
 func (f *fakeEnvStore) CreateEnvironment(_ context.Context, env Environment) error {
+	f.writes++
 	f.envs[env.ID] = env
 	return nil
+}
+
+func (f *fakeEnvStore) GetEnvironmentBySlug(_ context.Context, tenantID, slug string) (*Environment, error) {
+	for _, e := range f.envs {
+		if e.TenantID == tenantID && e.Slug == slug {
+			return &e, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (f *fakeEnvStore) ListDeclaredEnvironments(_ context.Context, tenantID string) ([]declarative.Declared, error) {
+	var out []declarative.Declared
+	for _, e := range f.envs {
+		if e.TenantID == tenantID && e.Source == declarative.SourceCRD {
+			out = append(out, declarative.Declared{Name: e.Slug, UID: e.ResourceUID})
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeEnvStore) GetEnvironment(_ context.Context, tenantID, id string) (*Environment, error) {
@@ -81,14 +104,21 @@ func (f *fakeEnvStore) ListEnvironments(context.Context, string) ([]Environment,
 }
 
 func (f *fakeEnvStore) UpdateEnvironment(_ context.Context, env Environment) error {
+	f.writes++
 	f.envs[env.ID] = env
 	return nil
 }
 
-func (f *fakeEnvStore) DeleteEnvironment(context.Context, string, string) error { return f.deleteErr }
+func (f *fakeEnvStore) DeleteEnvironment(_ context.Context, _, id string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	delete(f.envs, id)
+	return nil
+}
 
 func newEnvironmentService(store *fakeEnvStore, k8s *mockK8s) *EnvironmentService {
-	return NewEnvironmentService(store, newMockRepository(), k8s, k8s, fakeWriteChecker{}, EnvironmentServiceConfig{
+	return NewEnvironmentService(store, newMockRepository(), k8s, k8s, fakeWriteChecker{}, lockedTenants{}, EnvironmentServiceConfig{
 		TenantNamespaceFn: func(id string) string { return "kora-tenant-" + id },
 		EnvironmentSizes:  testSizes,
 	}, logging.NewLoggerWithOutput(io.Discard))
@@ -292,7 +322,8 @@ func TestHandleEnvironment_NameRequired(t *testing.T) {
 
 // Deleting an attached environment is a 409. The frontend tells the user to detach it first.
 func TestHandleDeleteEnvironment_InUse(t *testing.T) {
-	svc := newEnvironmentService(&fakeEnvStore{deleteErr: ErrEnvironmentInUse}, &mockK8s{})
+	store := &fakeEnvStore{envs: map[string]Environment{"env-1": {ID: "env-1", TenantID: "t-1"}}, deleteErr: ErrEnvironmentInUse}
+	svc := newEnvironmentService(store, &mockK8s{})
 	c := NewController(nil, nil, svc, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	req := withTenantRequest(httptest.NewRequest(http.MethodDelete, "/api/v1/environments/env-1", http.NoBody), "t-1")
 	req.SetPathValue("id", "env-1")

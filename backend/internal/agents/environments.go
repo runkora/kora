@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/google/uuid"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
@@ -77,8 +78,16 @@ type Environment struct {
 	Size         EnvironmentSize `json:"size"`
 	EgressHosts  []string        `json:"egress_hosts"`
 	Connectors   []Connector     `json:"connectors"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
+	// Source is declarative.SourceAPI or SourceCRD. A crd row is read-only through the API.
+	Source string `json:"source"`
+	// ResourceUID is the UID of the Environment resource a crd row projects.
+	ResourceUID string `json:"-"`
+	// ResourceGeneration is the resource generation the crd row last applied.
+	ResourceGeneration int64 `json:"-"`
+	// Repository is the repository that drives a crd row, if its resource names one.
+	Repository string    `json:"repository,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // DefaultEnvironment is the environment of an agent with none attached. It runs
@@ -235,6 +244,8 @@ type EnvironmentService struct {
 	writes agentWriteChecker
 	cfg    EnvironmentServiceConfig
 	logger logging.Logger
+	// authoring can lock a tenant to its declarative resources.
+	authoring authoringSwitch
 }
 
 // NewEnvironmentService constructs an EnvironmentService.
@@ -244,10 +255,11 @@ func NewEnvironmentService(
 	images sandboxImageReader,
 	grants grantReconciler,
 	writes agentWriteChecker,
+	authoring authoringSwitch,
 	cfg EnvironmentServiceConfig,
 	logger logging.Logger,
 ) *EnvironmentService {
-	return &EnvironmentService{repo: repo, agents: agents, images: images, grants: grants, writes: writes, cfg: cfg, logger: logger}
+	return &EnvironmentService{repo: repo, agents: agents, images: images, grants: grants, writes: writes, authoring: authoring, cfg: cfg, logger: logger}
 }
 
 // CreateEnvironment registers a new environment for the caller's tenant.
@@ -256,6 +268,10 @@ func (s *EnvironmentService) CreateEnvironment(ctx context.Context, req Environm
 	defer span.End()
 
 	env := s.fromRequest(tenantFromContext(ctx), uuid.NewString(), req)
+	if err := refuseAPIWrite(ctx, s.authoring, env.TenantID, declarative.SourceAPI); err != nil {
+		return nil, err
+	}
+	env.Source, env.ResourceUID, env.ResourceGeneration, env.Repository = sourceFor(ctx)
 	if env.Slug == "" {
 		env.Slug = deriveSlug(env.Name)
 	}
@@ -304,7 +320,15 @@ func (s *EnvironmentService) UpdateEnvironment(ctx context.Context, req Environm
 	if err != nil {
 		return nil, err
 	}
+	if err = refuseAPIWrite(ctx, s.authoring, tenantID, existing.Source); err != nil {
+		return nil, err
+	}
 	env := s.fromRequest(tenantID, existing.ID, req)
+	env.Source, env.ResourceUID, env.ResourceGeneration, env.Repository = existing.Source, existing.ResourceUID, existing.ResourceGeneration, existing.Repository
+	// A recreated resource takes over the row of the one it replaces.
+	if d, ok := declaredFromContext(ctx); ok {
+		env.ResourceUID, env.ResourceGeneration, env.Repository = d.resourceUID, d.generation, d.repository
+	}
 	if env.Slug == "" {
 		env.Slug = existing.Slug
 	}
@@ -340,7 +364,15 @@ func (s *EnvironmentService) DeleteEnvironment(ctx context.Context, id string) e
 		trace.WithAttributes(attribute.String("environment_id", id)))
 	defer span.End()
 
-	err := s.repo.DeleteEnvironment(ctx, tenantFromContext(ctx), id)
+	tenantID := tenantFromContext(ctx)
+	existing, err := s.repo.GetEnvironment(ctx, tenantID, id)
+	if err != nil {
+		return err
+	}
+	if err = refuseAPIWrite(ctx, s.authoring, tenantID, existing.Source); err != nil {
+		return err
+	}
+	err = s.repo.DeleteEnvironment(ctx, tenantID, id)
 	switch {
 	case err == nil:
 		return nil

@@ -16,6 +16,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -189,6 +190,9 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 
 	at, err := c.agentTypes.CreateAgentType(withCallerBearerFrom(ctx, r), req)
 	if err != nil {
+		if declarative.WriteRefusal(ctx, w, c.logger, err) {
+			return
+		}
 		if errors.Is(err, ErrSlugTaken) {
 			apiErr := api.ConflictError(api.ErrCodeResourceExists, "slug already taken for this tenant", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -342,6 +346,9 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 
 	at, err := c.agentTypes.UpdateAgentType(withCallerBearerFrom(ctx, r), req)
 	if err != nil {
+		if declarative.WriteRefusal(ctx, w, c.logger, err) {
+			return
+		}
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -370,6 +377,9 @@ func (c *Controller) handleDeleteAgentType(w http.ResponseWriter, r *http.Reques
 	id := r.PathValue("id")
 
 	if err := c.agentTypes.DeleteAgentType(ctx, id); err != nil {
+		if declarative.WriteRefusal(ctx, w, c.logger, err) {
+			return
+		}
 		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found or not in active state", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)

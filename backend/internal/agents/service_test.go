@@ -1172,7 +1172,7 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	authz := NewAuthz(&allowAllEvaluator{})
 	atSvc := NewAgentTypeService(
-		repo, repo, k8s, authz, nil,
+		repo, repo, k8s, authz, nil, lockedTenants{},
 		AgentTypeServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },

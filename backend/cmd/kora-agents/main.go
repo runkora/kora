@@ -19,6 +19,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	smclient "github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
@@ -236,8 +237,10 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	authz := agents.NewAuthz(eval)
+	// The kora-tenants registry can lock a tenant's agents and environments to its declarative resources.
+	tenants := declarative.NewRegistry(cfg.Kubernetes.TenantsPath)
 
-	atSvc := agents.NewAgentTypeService(repo, repo, k8s, authz, pubsub, agents.AgentTypeServiceConfig{
+	atSvc := agents.NewAgentTypeService(repo, repo, k8s, authz, pubsub, tenants, agents.AgentTypeServiceConfig{
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
 	}, logger)
@@ -266,7 +269,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize run service: %w", err)
 	}
 
-	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, atSvc, agents.EnvironmentServiceConfig{
+	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, atSvc, tenants, agents.EnvironmentServiceConfig{
 		TenantNamespaceFn: cfg.TenantNamespace,
 		EnvironmentSizes:  sizes,
 	}, logger)
@@ -316,8 +319,18 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		),
 		controller,
 		catalogController,
+		declaredController(verifier, logger, repo, atSvc, envSvc),
 	)
 	return server, repo, atSvc, runSvc, draftSvc, nil
+}
+
+// declaredController serves the operator's declared-item endpoints for environments and agents
+// (docs/adr/2026-10-24-declarative-resources.md).
+func declaredController(verifier *token.Verifier, logger logging.Logger, repo *agents.PostgresRepository, atSvc *agents.AgentTypeService, envSvc *agents.EnvironmentService) *declarative.Controller {
+	return declarative.NewController(verifier, logger, map[string]declarative.Applier{
+		declarative.KindEnvironments: agents.NewEnvironmentApplier(repo, envSvc),
+		declarative.KindAgents:       agents.NewAgentApplier(repo, atSvc),
+	})
 }
 
 // sandboxGuardrails reads the install's sandbox provisioning settings.

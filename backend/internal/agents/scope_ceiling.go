@@ -40,6 +40,9 @@ func (s *AgentTypeService) checkCeilingWith(ctx context.Context, at AgentType, r
 	if claims := claimsFromContext(ctx); claims != nil && claims.Kora.PrincipalType == token.PrincipalTypeSystem {
 		return nil
 	}
+	if _, ok := declaredFromContext(ctx); ok {
+		return nil
+	}
 	if err := refuseDelegatedAutonomousWrite(ctx, at); err != nil {
 		return err
 	}
@@ -72,6 +75,9 @@ func (s *AgentTypeService) checkCeilingWith(ctx context.Context, at AgentType, r
 // write to an autonomous agent, whatever its scopes. The autonomous agent's
 // standing authority would outlive the person's delegation.
 func refuseDelegatedAutonomousWrite(ctx context.Context, at AgentType) error {
+	if _, ok := declaredFromContext(ctx); ok {
+		return nil
+	}
 	if !at.IsDelegated() && policy.DelegationFromContext(ctx) != nil {
 		return fmt.Errorf("%w: %w", ErrScopeCeiling, errDelegatedCaller)
 	}

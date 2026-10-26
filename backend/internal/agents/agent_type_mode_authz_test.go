@@ -39,7 +39,7 @@ func newModeTestService(t *testing.T, granted ...string) (*AgentTypeService, *mo
 	k8s := &mockK8s{}
 	authz := NewAuthz(&scopedEvaluator{granted: granted})
 	svc := NewAgentTypeService(
-		repo, repo, k8s, authz, nil,
+		repo, repo, k8s, authz, nil, lockedTenants{},
 		AgentTypeServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
