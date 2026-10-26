@@ -3,9 +3,10 @@ package identity
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"sigs.k8s.io/yaml"
+
+	"github.com/runkora/kora/backend/internal/platform/claimbinding"
 )
 
 // ─── Tenant Registry ──────────────────────────────────────────────────────────
@@ -24,6 +25,8 @@ import (
 //	      issuerURL: "https://accounts.google.com"
 //	      clientID: "123.apps.googleusercontent.com"
 //	      scopes: [openid, profile, email]
+//	      emailDomains: [acme.com]
+//	      claimBinding: {claim: groups, values: [engineering]}  # optional
 //	    apiAuthoring: "Enabled"   # Enabled | Disabled
 //	    budget: {limitUSD: 1000, resetCadence: monthly}  # optional
 //
@@ -61,6 +64,10 @@ type tenantOIDCEntry struct {
 	// by the Home Realm Discovery endpoint. Example: ["acme.com", "acme.io"].
 	// See docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md
 	EmailDomains []string `json:"emailDomains"`
+	// ClaimBinding binds membership to an ID token claim. Tenants that share an
+	// email domain must share issuerURL and clientID and each set it.
+	// See docs/adr/2026-10-26-tenant-claim-binding-and-shared-email-domains.md
+	ClaimBinding *claimbinding.Binding `json:"claimBinding,omitempty"`
 }
 
 // TenantOIDCConfig is the resolved per-tenant OIDC configuration exposed to
@@ -74,6 +81,8 @@ type TenantOIDCConfig struct {
 	// EmailDomains lists the email address domains that resolve to this tenant
 	// during Home Realm Discovery. See docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md.
 	EmailDomains []string
+	// ClaimBinding is nil when the issuer alone determines membership.
+	ClaimBinding *claimbinding.Binding
 }
 
 // loadTenantRegistry reads the tenant registry at path and returns a map keyed
@@ -100,8 +109,7 @@ func loadTenantRegistry(path string, clientSecrets map[string]string) (map[strin
 	}
 
 	out := make(map[string]TenantOIDCConfig, len(reg.Tenants))
-	// Track email domain ownership to detect collisions at startup.
-	domainOwner := make(map[string]string) // lowercase domain → tenant ID
+	var active []claimbinding.Tenant
 
 	for _, t := range reg.Tenants {
 		if t.State != "active" {
@@ -113,16 +121,23 @@ func loadTenantRegistry(path string, clientSecrets map[string]string) (map[strin
 			scopes = []string{"openid", "profile", "email"}
 		}
 
-		for _, d := range t.OIDC.EmailDomains {
-			lower := strings.ToLower(d)
-			if owner, exists := domainOwner[lower]; exists {
+		// Tenants may share an email domain only through claim bindings.
+		cur := claimbinding.Tenant{
+			ID:           t.ID,
+			IssuerURL:    t.OIDC.IssuerURL,
+			ClientID:     t.OIDC.ClientID,
+			EmailDomains: t.OIDC.EmailDomains,
+			Binding:      t.OIDC.ClaimBinding,
+		}
+		for _, other := range active {
+			if d := claimbinding.Overlap(other, cur); d != "" {
 				return nil, fmt.Errorf(
-					"duplicate email domain %q: claimed by both tenant %q and %q",
-					lower, owner, t.ID,
+					"duplicate email domain %q: claimed by both tenant %q and %q without sharing issuer, client and claimBinding",
+					d, other.ID, t.ID,
 				)
 			}
-			domainOwner[lower] = t.ID
 		}
+		active = append(active, cur)
 
 		out[t.ID] = TenantOIDCConfig{
 			IssuerURL:    t.OIDC.IssuerURL,
@@ -130,6 +145,7 @@ func loadTenantRegistry(path string, clientSecrets map[string]string) (map[strin
 			ClientSecret: clientSecrets[t.ID],
 			Scopes:       scopes,
 			EmailDomains: t.OIDC.EmailDomains,
+			ClaimBinding: t.OIDC.ClaimBinding,
 		}
 	}
 

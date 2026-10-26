@@ -63,3 +63,49 @@ Set `deleteNamespaceOnRemoval: true` only when deleting the `KoraTenant` must de
 To define the tenant's agents, triggers and roles as resources, or to lock the tenant to them with `apiAuthoring`, see [Declarative resources](declarative-resources.md).
 
 Once the tenant is ready, configure access for its principals with [policy and roles](policy-and-roles.md).
+
+## Sharing an email domain
+
+Each email domain reaches one tenant by default. The operator marks a tenant `Invalid` when it claims a domain that an older tenant already holds.
+
+Several tenants can share a domain when they use the same `issuerURL` and `clientID` and each one sets a `claimBinding`. kora signs a person in to the tenant whose binding matches their ID token.
+
+```yaml
+apiVersion: runkora.io/v1alpha1
+kind: KoraTenant
+metadata:
+  name: engineering
+spec:
+  displayName: Engineering
+  oidc:
+    issuerURL: https://idp.example.com/oauth2/default
+    clientID: kora-production
+    scopes: [openid, profile, email, groups]
+    emailDomains: [example.com]
+    claimBinding:
+      claim: groups
+      values: [engineering]
+---
+apiVersion: runkora.io/v1alpha1
+kind: KoraTenant
+metadata:
+  name: sre
+spec:
+  displayName: SRE
+  oidc:
+    issuerURL: https://idp.example.com/oauth2/default
+    clientID: kora-production
+    scopes: [openid, profile, email, groups]
+    emailDomains: [example.com]
+    claimBinding:
+      claim: groups
+      values: [sre]
+```
+
+kora chooses the tenant in three steps:
+
+1.  It reads the domain from the ID token's `email` claim and keeps the tenants on the same issuer and client that list the domain in `emailDomains`. Without an `email` claim, it keeps only the tenant the person signed in to.
+2.  It checks each tenant's binding against the token. A string claim must equal one of `values`, and a list claim such as `groups` must contain one of them.
+3.  It signs the person in to the tenant that matches.
+
+A person who matches no tenant gets a 403. A person who matches more than one tenant cannot sign in, and the error lists the tenants they match.

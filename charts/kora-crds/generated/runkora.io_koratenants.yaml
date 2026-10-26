@@ -109,6 +109,29 @@ spec:
               oidc:
                 description: OIDC configures the identity provider for this tenant.
                 properties:
+                  claimBinding:
+                    description: |-
+                      ClaimBinding restricts membership to people whose ID token claim matches.
+                      Tenants that share an email domain must share issuerURL and clientID and
+                      each set a claimBinding.
+                      See docs/adr/2026-10-26-tenant-claim-binding-and-shared-email-domains.md
+                    properties:
+                      claim:
+                        description: Claim is the ID token claim name, for example
+                          groups.
+                        minLength: 1
+                        type: string
+                      values:
+                        description: Values are the claim values that bind a person
+                          to the tenant.
+                        items:
+                          type: string
+                        minItems: 1
+                        type: array
+                    required:
+                    - claim
+                    - values
+                    type: object
                   clientID:
                     description: ClientID is the OIDC client ID registered with the
                       identity provider.

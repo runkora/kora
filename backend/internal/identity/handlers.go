@@ -519,6 +519,14 @@ func (c *Controller) handleSessionError(w http.ResponseWriter, r *http.Request, 
 		apiErr := api.UnauthorizedError(api.ErrCodeUnauthorized, "id_token verification failed — token may be expired, tampered with, or issued by an unexpected provider", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 
+	case errors.Is(err, ErrClaimBindingMismatch):
+		apiErr := api.ForbiddenError(api.ErrCodeForbidden, "the account is not a member of this tenant", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+
+	case errors.Is(err, ErrMultipleTenantsMatch):
+		apiErr := api.ConflictError("multiple_tenants_match", err.Error(), nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+
 	// Refresh token errors.
 	case errors.Is(err, ErrRefreshTokenNotFound), errors.Is(err, ErrRefreshTokenRevoked):
 		apiErr := api.UnauthorizedError(api.ErrCodeUnauthorized, "refresh token is invalid or has been revoked", nil)
