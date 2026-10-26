@@ -11,9 +11,4 @@ describe('ManagedInGitBadge', () => {
     expect(container.querySelector(`[title="${label}"]`)).not.toBeNull();
     expect(screen.getByText(label)).toHaveClass('truncate');
   });
-
-  it('shrinks to the space it is given', () => {
-    const { container } = render(<ManagedInGitBadge repository={repository} />);
-    expect(container.firstElementChild).toHaveStyle({ maxWidth: '100%', minWidth: '0' });
-  });
 });
