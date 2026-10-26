@@ -66,54 +66,54 @@ To define the tenant's agents, triggers and roles as resources, or to lock the t
 
 Once the tenant is ready, configure access for its principals with [policy and roles](policy-and-roles.md).
 
-## Sharing an email domain
+## Approving skill marketplace repositories
 
-Each email domain reaches one tenant by default. The operator marks a tenant `Invalid` when it claims a domain that an older tenant already holds.
-
-Several tenants can share a domain when they use the same `issuerURL` and `clientID` and each one sets a `claimBinding`. kora signs a person in to the tenant whose binding matches their ID token.
+A tenant's [skill marketplace sources](skill-marketplace-sources.md) are served only from repositories you approve on its `OrbitTenant`. Tenant administrators cannot edit `OrbitTenant`, so this list is the platform's control over what each tenant can surface.
 
 ```yaml
-apiVersion: runkora.io/v1alpha1
-kind: KoraTenant
-metadata:
-  name: engineering
 spec:
-  displayName: Engineering
-  oidc:
-    issuerURL: https://idp.example.com/oauth2/default
-    clientID: kora-production
-    scopes: [openid, profile, email, groups]
-    emailDomains: [example.com]
-    claimBinding:
-      claim: groups
-      values: [engineering]
----
-apiVersion: runkora.io/v1alpha1
-kind: KoraTenant
-metadata:
-  name: sre
-spec:
-  displayName: SRE
-  oidc:
-    issuerURL: https://idp.example.com/oauth2/default
-    clientID: kora-production
-    scopes: [openid, profile, email, groups]
-    emailDomains: [example.com]
-    claimBinding:
-      claim: groups
-      values: [sre]
+  allowedMarketplaceRepos:
+    - acme-corp/internal-skills
+    - acme-corp/public-docs
 ```
 
-kora chooses the tenant in three steps:
+Each entry is `owner/repo`, matched without regard to case. The skills service always reads a repository's default branch. The API server rejects an entry that is not a valid `owner/repo`. A source on a suspended tenant (`active: false`) stays `Pending` with reason `TenantNotActive`, whatever the list holds.
 
-1.  It reads the domain from the ID token's `email` claim and keeps the tenants on the same issuer and client that list the domain in `emailDomains`. Without an `email` claim, it keeps only the tenant the person signed in to.
-2.  It checks each tenant's binding against the token. A string claim must equal one of `values`, and a list claim such as `groups` must contain one of them.
-3.  It signs the person in to the tenant that matches. When several match, it uses the tenant the sign-in asks for if that tenant is among them.
+Before adding an entry:
 
-A person who matches no tenant gets a 403. A person who matches several tenants picks one on the sign-in page and switches between them from the dashboard. A switch signs in again with the identity provider and succeeds only when the person still matches the target tenant. It ends the session it replaces.
+1. Confirm the request came from the tenant that owns the source's namespace. That is `orbit-tenant-<name>`, or the tenant's `spec.namespace` when it sets one.
+2. Confirm the repository is one this tenant may expose. kora reads every marketplace with the platform GitHub App, so an entry lets the tenant's users read the repository's `SKILL.md` files and the markdown documents beside them, private repositories included. The list is the only gate.
+3. Review the change like any other access grant, in your GitOps repository.
 
-Choose the tenant for a CLI sign-in with `--tenant-id`. When the account matches several tenants and `--tenant-id` names none of them, the script prints the matches and asks for a re-run with one of them. The API returns this case as a 409 whose `details.tenants` lists each match's `id` and `display_name`.
+Apply it with `kubectl edit orbittenant <name>` or through GitOps. The operator re-renders the marketplace list when it sees the change to the `OrbitTenant`, and the source moves from `Pending` to `Aggregated`. Removing an entry takes the source out of the marketplace the same way. kora does not track or notify pending requests, so agree an approval turnaround with your tenants.
+
+Periodically compare each tenant's list with the sources registered against it, and remove entries no source uses. An unused entry lets the tenant register that repository again without asking you:
 
 ```bash
-./scripts/auth-device.sh --tenant-id sre
+kubectl get orbittenant <name> -o jsonpath='{.spec.allowedMarketplaceRepos}'
+kubectl get skillmarketplacesources -n orbit-tenant-<name>
 ```
+
+### Granting `marketplace:read`
+
+Users can browse marketplaces only with the `marketplace:read` scope. `platform-admin` holds every registered scope, so it needs no grant. For everyone else, add the scope to the role your tenant's members carry (see [Managing Roles](policy-and-roles.md#managing-roles)).
+
+`PUT /api/v1/policy/roles` replaces a role's scopes as a whole, so read the role first and send back its current scopes plus the new one. A request that lists only `marketplace:read` removes the role's other scopes.
+
+```
+GET /api/v1/policy/roles/engineer
+```
+
+SYSTEM principals must include `?tenant_id=acme`. Then, with the scopes the response returned:
+
+```
+PUT /api/v1/policy/roles
+Authorization: Bearer <platform-token>
+
+{
+  "role":   "engineer",
+  "scopes": ["inference:invoke", "mcp:gmail:read", "marketplace:read"]
+}
+```
+
+SYSTEM principals must include `tenant_id` in the body. The request is rejected if `marketplace:read` is not in the scope vocabulary, which you can check with `GET /api/v1/policy/vocabulary/marketplace:read`. The skills service registers the scope when it registers its routes. The change reaches enforcement within one bundle polling cycle, see [Propagation Timing](policy-and-roles.md#propagation-timing).

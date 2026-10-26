@@ -32,7 +32,11 @@ type TenantReconciler struct {
 	ConnAggregator  *ConnectionAggregator
 	MCPAggregator   *MCPServerAggregator
 	OAuthAggregator *OAuthClientAggregator
-	Logger          logging.Logger
+	// MarketplaceAggregator renders tenants' SkillMarketplaceSources. An edit
+	// to spec.allowedMarketplaceRepos changes the tenant's generation, so it
+	// reaches Reconcile through the existing predicate.
+	MarketplaceAggregator *SkillMarketplaceAggregator
+	Logger                logging.Logger
 
 	// BundlePollingMinDelay is the minimum OPA bundle polling interval in seconds.
 	BundlePollingMinDelay int
@@ -96,7 +100,23 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	tenant := &KoraTenant{}
 	if err := r.Get(ctx, req.NamespacedName, tenant); err != nil {
 		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, r.syncDeleted(ctx)
+			// CR deleted: re-run every aggregator so the removed tenant is no
+			// longer served (registry, OIDC secrets, CAs, connections, MCP
+			// servers, OAuth clients, skill marketplace sources).
+			for _, sync := range []func(context.Context) error{
+				r.Registry.Sync,
+				r.Aggregator.Sync,
+				r.CAAggregator.Sync,
+				r.ConnAggregator.Sync,
+				r.MCPAggregator.Sync,
+				r.OAuthAggregator.Sync,
+				r.MarketplaceAggregator.Sync,
+			} {
+				if syncErr := sync(ctx); syncErr != nil {
+					return ctrl.Result{}, syncErr
+				}
+			}
+			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("get KoraTenant %q: %w", req.Name, err)
 	}
@@ -254,6 +274,15 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			// here so a tenant suspend / reactivate includes/excludes its clients.
 			name: "aggregated OAuth clients",
 			run:  func(ctx context.Context) error { return r.OAuthAggregator.Sync(ctx) },
+		},
+		{
+			// Aggregated skill marketplace sources: each tenant's
+			// SkillMarketplaceSource CRs are rendered into the
+			// orbit-skill-marketplace-sources ConfigMap skills-service mounts.
+			// Re-aggregated here because an allowlist edit, a suspend and a
+			// reactivation all change which sources are served.
+			name: "aggregated skill marketplace sources",
+			run:  func(ctx context.Context) error { return r.MarketplaceAggregator.Sync(ctx) },
 		},
 	}
 	for _, step := range steps {
@@ -497,6 +526,10 @@ func (r *TenantReconciler) reconcileSuspended(ctx context.Context, tenant *KoraT
 	if err := r.OAuthAggregator.Sync(ctx); err != nil {
 		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync aggregated OAuth clients for suspended tenant: %w", err)
+	}
+	if err := r.MarketplaceAggregator.Sync(ctx); err != nil {
+		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync skill marketplace sources for suspended tenant: %w", err)
 	}
 	_ = r.setTenantPhase(ctx, tenant, TenantPhaseSuspended)
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
