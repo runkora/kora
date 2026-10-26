@@ -97,6 +97,15 @@ const (
 
 // Sentinel errors. Callers branch on these with errors.Is.
 var (
+	// ErrDeclaredNameTaken is returned when an API trigger would take the name
+	// of a declared trigger.
+	ErrDeclaredNameTaken = errors.New("a trigger managed by a declarative resource already has this name")
+	// ErrAPINameTaken is returned when a declared trigger would take the name
+	// of an API trigger.
+	ErrAPINameTaken = errors.New("a trigger built through the API already has this name")
+	// ErrAgentProvisioning is a validation error for an agent whose run
+	// scopes are not registered yet. It clears once the agent's pods are ready.
+	ErrAgentProvisioning = fmt.Errorf("%w: agent is still provisioning", ErrValidation)
 	// ErrSourceNotFound is returned when a webhook source does not exist (or is
 	// not visible to the caller's tenant).
 	ErrSourceNotFound = errors.New("webhook source not found")
@@ -189,6 +198,11 @@ type WebhookSource struct {
 	Enabled     bool           `json:"enabled"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
+	// Source is declarative.SourceAPI or SourceCRD. ResourceUID is the projected resource's UID.
+	// Repository is the repository that drives a crd row, if its resource names one.
+	Source      string `json:"source"`
+	ResourceUID string `json:"-"`
+	Repository  string `json:"repository,omitempty"`
 
 	// SigningSecretSet is false for a source of an issued-secret provider that is
 	// still waiting for its signing secret. Set from SecretCiphertext on reads.
@@ -390,6 +404,11 @@ type Trigger struct {
 	Enabled     bool      `json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// Source is declarative.SourceAPI or SourceCRD. ResourceUID is the projected resource's UID.
+	// Repository is the repository that drives a crd row, if its resource names one.
+	Source      string `json:"source"`
+	ResourceUID string `json:"-"`
+	Repository  string `json:"repository,omitempty"`
 
 	// ─── Admission control ──────────────────────────────────────────────────
 	// MaxParallel caps how many runs from this trigger may be in flight.

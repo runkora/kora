@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"os"
 	"slices"
 	"strings"
@@ -2411,5 +2412,154 @@ func TestPostgres_Admission_Coalesces(t *testing.T) {
 	first, _ := r.GetDelivery(ctx, tenant, ids[0])
 	if first.Status != StatusSkipped {
 		t.Errorf("superseded delivery status = %q, want skipped", first.Status)
+	}
+}
+
+// Declared rows carry source 'crd' and their resource UID. API rows default to 'api'.
+func TestPostgres_DeclaredColumns(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	apiSrc := seedSource(t, r, tenant)
+	if got, _ := r.GetSource(ctx, tenant, apiSrc.ID); got.Source != declarative.SourceAPI || got.ResourceUID != "" {
+		t.Errorf("API source = %q %q, want api and no UID", got.Source, got.ResourceUID)
+	}
+
+	gid := "grant-" + uuid.NewString()
+	src := &WebhookSource{
+		ID: uuid.NewString(), TenantID: tenant, Name: "github-org", Provider: ProviderGitHub,
+		PrincipalID: "trigger-source:y", GrantID: &gid, Enabled: true, SecretCiphertext: "c",
+		Source: declarative.SourceCRD, ResourceUID: "uid-s", Repository: "github.com/acme/triggers",
+	}
+	if err := r.CreateSource(ctx, src); err != nil {
+		t.Fatalf("CreateSource: %v", err)
+	}
+	byName, err := r.GetSourceByName(ctx, tenant, "github-org")
+	if err != nil || byName.ID != src.ID || byName.Source != declarative.SourceCRD || byName.ResourceUID != "uid-s" || byName.Repository != "github.com/acme/triggers" {
+		t.Fatalf("GetSourceByName = %+v, %v", byName, err)
+	}
+	if declared, _ := r.ListDeclaredSources(ctx, tenant); !slices.Equal(declared, []declarative.Declared{{Name: "github-org", UID: "uid-s"}}) {
+		t.Errorf("ListDeclaredSources = %+v", declared)
+	}
+
+	tr := &Trigger{
+		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, TargetKind: TargetKindAgent, SourceID: src.ID,
+		Name: "review-on-pr", AgentTypeID: "at-1", AgentSlug: "code-reviewer", EventType: "pull_request",
+		PromptTemplate: "p", GrantID: &gid, Enabled: true, Source: declarative.SourceCRD, ResourceUID: "uid-t",
+		Repository: "github.com/acme/triggers",
+	}
+	admissionDefaults(tr)
+	if err := r.CreateTrigger(ctx, tr); err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+	stored, err := r.GetDeclaredTrigger(ctx, tenant, "review-on-pr")
+	if err != nil || stored.ID != tr.ID || stored.ResourceUID != "uid-t" {
+		t.Fatalf("GetDeclaredTrigger = %+v, %v", stored, err)
+	}
+	// The declared write path compares against the row read back, so an unchanged resync writes nothing.
+	if !sameDeclared(stored, tr) {
+		t.Errorf("a stored declared trigger does not match its spec:\n stored %+v\n spec   %+v", stored, tr)
+	}
+	if taken, _ := r.TriggerNameTaken(ctx, tenant, "review-on-pr", declarative.SourceCRD); !taken {
+		t.Error("TriggerNameTaken(crd) = false")
+	}
+	if taken, _ := r.TriggerNameTaken(ctx, tenant, "review-on-pr", declarative.SourceAPI); taken {
+		t.Error("TriggerNameTaken(api) = true")
+	}
+	if all, _ := r.ListDeclaredTriggers(ctx, tenant); !slices.Equal(all, []declarative.Declared{{Name: "review-on-pr", UID: "uid-t"}}) {
+		t.Errorf("ListDeclaredTriggers = %+v", all)
+	}
+
+	// The declared write moves the agent and the source. An auto-pause and the
+	// failure count survive it.
+	if _, err := r.pool.Exec(ctx, `UPDATE triggers SET consecutive_failures = 4 WHERE id = $1`, tr.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AutoPause(ctx, tr.ID); err != nil {
+		t.Fatalf("AutoPause: %v", err)
+	}
+	tr.AgentTypeID, tr.AgentSlug, tr.SourceID, tr.Enabled, tr.Repository = "at-2", "fixer", apiSrc.ID, true, ""
+	if err := r.UpdateDeclaredTrigger(ctx, tr); err != nil {
+		t.Fatalf("UpdateDeclaredTrigger: %v", err)
+	}
+	got, _ := r.GetTrigger(ctx, tenant, tr.ID)
+	if got.AgentTypeID != "at-2" || got.AgentSlug != "fixer" || got.SourceID != apiSrc.ID || got.Repository != "" {
+		t.Errorf("declared write = %+v", got)
+	}
+	if got.Enabled || got.AutoPausedAt == nil || got.ConsecutiveFailures != 4 {
+		t.Errorf("auto-pause after a declared write: enabled=%v paused=%v failures=%d", got.Enabled, got.AutoPausedAt, got.ConsecutiveFailures)
+	}
+}
+
+// Scheduled, manual and routed declared triggers read back equal to their spec, so a resync writes nothing.
+func TestPostgres_DeclaredRoundTrip(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	src := seedSource(t, r, tenant)
+	gid := "grant-" + uuid.NewString()
+	joinRuns := true
+	cases := map[string]*Trigger{
+		"scheduled": {Kind: KindScheduled, TargetKind: TargetKindAgent, AgentTypeID: "at-1", AgentSlug: "a",
+			ScheduleConfig: &ScheduleConfig{CronExpression: "0 2 * * *", Timezone: "UTC", CatchUp: true}, PrincipalID: "trigger:x"},
+		"manual": {Kind: KindManual, TargetKind: TargetKindAgent, AgentTypeID: "at-1", AgentSlug: "a",
+			ManualConfig: &ManualConfig{Inputs: []InputField{{Name: "repo", Type: InputTypeChoice, Choices: []string{"a", "b"}}}}, PrincipalID: "trigger:y"},
+		"routed": {Kind: KindWebhook, TargetKind: TargetKindRouted, SourceID: src.ID, EventType: "push",
+			Routing: &RoutingConfig{Candidates: []string{"at-1", "at-2"}, Model: "liquid/d1", Confidence: ConfidenceBalanced,
+				JoinRuns: &joinRuns, candidateSlugs: map[string]string{"at-1": "a", "at-2": "b"}}},
+	}
+	for name, tr := range cases {
+		tr.ID, tr.TenantID, tr.Name, tr.PromptTemplate = uuid.NewString(), tenant, name, "p"
+		tr.GrantID, tr.Enabled, tr.Source, tr.ResourceUID = &gid, true, declarative.SourceCRD, "uid-"+name
+		admissionDefaults(tr)
+		if err := r.CreateTrigger(ctx, tr); err != nil {
+			t.Fatalf("%s: CreateTrigger: %v", name, err)
+		}
+		stored, err := r.GetDeclaredTrigger(ctx, tenant, name)
+		if err != nil {
+			t.Fatalf("%s: GetDeclaredTrigger: %v", name, err)
+		}
+		if !sameDeclared(stored, tr) {
+			t.Errorf("%s: stored %+v does not match spec %+v", name, stored, tr)
+		}
+	}
+}
+
+// A name is held by API triggers or by one declared trigger, never both.
+func TestPostgres_TriggerNameAcrossSources(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	src := seedSource(t, r, tenant)
+	trigger := func(name, source string) *Trigger {
+		gid := "grant-" + uuid.NewString()
+		uid := ""
+		if source == declarative.SourceCRD {
+			uid = "uid-" + name
+		}
+		return admissionDefaults(&Trigger{
+			ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, TargetKind: TargetKindAgent, SourceID: src.ID,
+			Name: name, AgentTypeID: "at-1", AgentSlug: "a", EventType: "push", PromptTemplate: "p",
+			GrantID: &gid, Enabled: true, Source: source, ResourceUID: uid,
+		})
+	}
+	for _, tc := range []struct {
+		name, source string
+		want         error
+	}{
+		{"shared", declarative.SourceAPI, nil},
+		{"shared", declarative.SourceAPI, nil},
+		{"shared", declarative.SourceCRD, ErrAPINameTaken},
+		{"declared", declarative.SourceCRD, nil},
+		{"declared", declarative.SourceAPI, ErrDeclaredNameTaken},
+	} {
+		if err := r.CreateTrigger(ctx, trigger(tc.name, tc.source)); !errors.Is(err, tc.want) {
+			t.Errorf("create %s %s: err = %v, want %v", tc.source, tc.name, err, tc.want)
+		}
+	}
+	api := trigger("renamed", declarative.SourceAPI)
+	if err := r.CreateTrigger(ctx, api); err != nil {
+		t.Fatal(err)
+	}
+	api.Name = "declared"
+	if err := r.UpdateTrigger(ctx, api, false, false); !errors.Is(err, ErrDeclaredNameTaken) {
+		t.Errorf("rename onto a declared name: err = %v", err)
 	}
 }

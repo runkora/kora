@@ -1,6 +1,7 @@
 package triggers
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
@@ -86,10 +88,12 @@ func (r *postgresRepository) CreateSource(ctx context.Context, s *WebhookSource)
 	// payload it wants to re-run predates the secret currently in force.
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO webhook_sources
-			(id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, secret_rotated_at)
+			(id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, secret_rotated_at,
+			 source, resource_uid, repository)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
-	`, s.ID, s.TenantID, s.Name, s.Provider, s.PrincipalID, s.GrantID, s.SecretCiphertext, configJSON, s.Enabled)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10, $11, $12)
+	`, s.ID, s.TenantID, s.Name, s.Provider, s.PrincipalID, s.GrantID, s.SecretCiphertext, configJSON, s.Enabled,
+		cmp.Or(s.Source, declarative.SourceAPI), storage.NullIfZero(s.ResourceUID), storage.NullIfZero(s.Repository))
 	if err != nil {
 		return sourceWriteError("create webhook source", err)
 	}
@@ -109,21 +113,22 @@ func sourceWriteError(what string, err error) error {
 	return fmt.Errorf("%s: %w", what, err)
 }
 
-const sourceColumns = `id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, created_at, updated_at, rejection_count, last_rejection_at, last_rejection_reason, accepted_count, secret_rotated_at`
+const sourceColumns = `id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, created_at, updated_at, rejection_count, last_rejection_at, last_rejection_reason, accepted_count, secret_rotated_at, source, resource_uid, repository`
 
 func scanSource(row pgx.Row) (*WebhookSource, error) {
 	var s WebhookSource
 	var configJSON []byte
-	var lastRejectionReason *string
+	var lastRejectionReason, resourceUID, repository *string
 	if err := row.Scan(
 		&s.ID, &s.TenantID, &s.Name, &s.Provider, &s.PrincipalID, &s.GrantID,
 		&s.SecretCiphertext, &configJSON, &s.Enabled, &s.CreatedAt, &s.UpdatedAt,
 		&s.RejectionCount, &s.LastRejectionAt, &lastRejectionReason,
-		&s.AcceptedCount, &s.SecretRotatedAt,
+		&s.AcceptedCount, &s.SecretRotatedAt, &s.Source, &resourceUID, &repository,
 	); err != nil {
 		return nil, err
 	}
 	s.LastRejectionReason = deref(lastRejectionReason)
+	s.ResourceUID, s.Repository = deref(resourceUID), deref(repository)
 	if len(configJSON) > 0 {
 		if err := json.Unmarshal(configJSON, &s.Config); err != nil {
 			return nil, fmt.Errorf("unmarshal source config: %w", err)
@@ -147,6 +152,19 @@ func (r *postgresRepository) ListSources(ctx context.Context, tenantID string) (
 		`SELECT `+sourceColumns+` FROM webhook_sources WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantID)
 }
 
+func (r *postgresRepository) GetSourceByName(ctx context.Context, tenantID, name string) (*WebhookSource, error) {
+	return getOne(ctx, r.pool, "webhook source by name", ErrSourceNotFound, scanSource,
+		`SELECT `+sourceColumns+` FROM webhook_sources WHERE tenant_id = $1 AND name = $2`, tenantID, name)
+}
+
+func (r *postgresRepository) ListDeclaredSources(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
+	rows, err := r.pool.Query(ctx, `SELECT name, resource_uid FROM webhook_sources WHERE tenant_id = $1 AND source = 'crd'`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("list declared webhook sources: %w", err)
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[declarative.Declared])
+}
+
 func (r *postgresRepository) UpdateSource(ctx context.Context, s *WebhookSource) error {
 	configJSON, err := json.Marshal(s.Config)
 	if err != nil {
@@ -159,12 +177,12 @@ func (r *postgresRepository) UpdateSource(ctx context.Context, s *WebhookSource)
 	// secret forward and invalidate every replay of an older payload.
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE webhook_sources
-		SET    name = $1, secret_ciphertext = $2, grant_id = $3, config = $4, enabled = $5,
+		SET    name = $1, secret_ciphertext = $2, grant_id = $3, config = $4, enabled = $5, repository = $8,
 		       secret_rotated_at = CASE WHEN secret_ciphertext IS DISTINCT FROM $2
 		                                THEN now() ELSE secret_rotated_at END,
 		       updated_at = now()
 		WHERE  id = $6 AND tenant_id = $7
-	`, s.Name, s.SecretCiphertext, s.GrantID, configJSON, s.Enabled, s.ID, s.TenantID)
+	`, s.Name, s.SecretCiphertext, s.GrantID, configJSON, s.Enabled, s.ID, s.TenantID, storage.NullIfZero(s.Repository))
 	if err != nil {
 		return sourceWriteError("update webhook source", err)
 	}
@@ -199,23 +217,24 @@ func (r *postgresRepository) DeleteSource(ctx context.Context, tenantID, id stri
 const triggerColumns = `id, tenant_id, kind, target_kind, source_id, name, agent_type_id, agent_slug, event_type,
 	match_condition, prompt_template, kind_config, principal_id, grant_id, grant_id_svc, enabled, created_at, updated_at,
 	max_parallel, overflow, max_queue_depth, timeout_seconds, dedupe_enabled, autopause_enabled,
-	consecutive_failures, auto_paused_at,
+	consecutive_failures, auto_paused_at, source, resource_uid, repository,
 	(SELECT count(*) FROM trigger_pending_deliveries p
 	  WHERE p.trigger_id = triggers.id AND p.claimed_at IS NULL) AS pending_count`
 
 func scanTrigger(row pgx.Row) (*Trigger, error) {
 	var t Trigger
 	var condJSON, kindConfigJSON []byte
-	var sourceID, principalID, agentTypeID, agentSlug *string
+	var sourceID, principalID, agentTypeID, agentSlug, resourceUID, repository *string
 	if err := row.Scan(
 		&t.ID, &t.TenantID, &t.Kind, &t.TargetKind, &sourceID, &t.Name, &agentTypeID, &agentSlug,
 		&t.EventType, &condJSON, &t.PromptTemplate, &kindConfigJSON,
 		&principalID, &t.GrantID, &t.GrantIDSvc, &t.Enabled, &t.CreatedAt, &t.UpdatedAt,
 		&t.MaxParallel, &t.Overflow, &t.MaxQueueDepth, &t.TimeoutSeconds, &t.DedupeEnabled,
-		&t.AutopauseEnabled, &t.ConsecutiveFailures, &t.AutoPausedAt, &t.PendingCount,
+		&t.AutopauseEnabled, &t.ConsecutiveFailures, &t.AutoPausedAt, &t.Source, &resourceUID, &repository, &t.PendingCount,
 	); err != nil {
 		return nil, err
 	}
+	t.ResourceUID, t.Repository = deref(resourceUID), deref(repository)
 	t.SourceID = deref(sourceID)
 	t.SourceMissing = t.Kind == KindWebhook && sourceID == nil
 	t.PrincipalID = deref(principalID)
@@ -288,23 +307,50 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 	}
 
 	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+		if err := claimTriggerName(ctx, tx, t); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO triggers
 				(id, tenant_id, kind, target_kind, source_id, name, agent_type_id, agent_slug, event_type,
 				 match_condition, prompt_template, kind_config, principal_id, grant_id, grant_id_svc, enabled,
 				 overflow, max_parallel, max_queue_depth, timeout_seconds,
-				 dedupe_enabled, autopause_enabled)
+				 dedupe_enabled, autopause_enabled, source, resource_uid, repository)
 			VALUES
-				($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+				($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
 		`, t.ID, t.TenantID, t.Kind, defaultTargetKind(t.TargetKind), sourceID, t.Name,
 			storage.NullIfZero(t.AgentTypeID), storage.NullIfZero(t.AgentSlug), t.EventType,
 			condJSON, t.PromptTemplate, kindConfigJSON, storage.NullIfZero(t.PrincipalID), t.GrantID, t.GrantIDSvc, t.Enabled,
 			t.Overflow, t.MaxParallel, t.MaxQueueDepth, t.TimeoutSeconds,
-			t.DedupeEnabled, t.AutopauseEnabled); err != nil {
+			t.DedupeEnabled, t.AutopauseEnabled, cmp.Or(t.Source, declarative.SourceAPI), storage.NullIfZero(t.ResourceUID), storage.NullIfZero(t.Repository)); err != nil {
 			return fmt.Errorf("create trigger: %w", err)
 		}
 		return writeRoute(ctx, tx, t)
 	})
+}
+
+// claimTriggerName serializes writes of one trigger name in a tenant and
+// refuses a name a trigger of the other source holds. API triggers may share a
+// name with each other.
+func claimTriggerName(ctx context.Context, tx pgx.Tx, t *Trigger) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1 || '/' || $2))`, t.TenantID, t.Name); err != nil {
+		return fmt.Errorf("lock trigger name: %w", err)
+	}
+	source := cmp.Or(t.Source, declarative.SourceAPI)
+	var held bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM triggers WHERE tenant_id = $1 AND name = $2 AND source <> $3 AND id <> $4)`,
+		t.TenantID, t.Name, source, t.ID).Scan(&held); err != nil {
+		return fmt.Errorf("check trigger name: %w", err)
+	}
+	switch {
+	case !held:
+		return nil
+	case source == declarative.SourceAPI:
+		return ErrDeclaredNameTaken
+	default:
+		return ErrAPINameTaken
+	}
 }
 
 // writeRoute replaces a routed trigger's settings and candidates. Other
@@ -428,6 +474,73 @@ func (r *postgresRepository) ListTriggers(ctx context.Context, tenantID, agentTy
 	return r.listTriggers(ctx, "triggers", query, args...)
 }
 
+// GetDeclaredTrigger returns the trigger a Trigger resource projects to.
+func (r *postgresRepository) GetDeclaredTrigger(ctx context.Context, tenantID, name string) (*Trigger, error) {
+	t, err := getOne(ctx, r.pool, "declared trigger", ErrTriggerNotFound, scanTrigger,
+		`SELECT `+triggerColumns+` FROM triggers WHERE tenant_id = $1 AND name = $2 AND source = 'crd'`, tenantID, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.attachRoutes(ctx, []*Trigger{t}); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// TriggerNameTaken reports whether a trigger from source already has the name in the tenant.
+func (r *postgresRepository) TriggerNameTaken(ctx context.Context, tenantID, name, source string) (bool, error) {
+	var taken bool
+	if err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM triggers WHERE tenant_id = $1 AND name = $2 AND source = $3)`,
+		tenantID, name, source).Scan(&taken); err != nil {
+		return false, fmt.Errorf("check trigger name: %w", err)
+	}
+	return taken, nil
+}
+
+func (r *postgresRepository) ListDeclaredTriggers(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
+	rows, err := r.pool.Query(ctx, `SELECT name, resource_uid FROM triggers WHERE tenant_id = $1 AND source = 'crd'`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("list declared triggers: %w", err)
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[declarative.Declared])
+}
+
+// UpdateDeclaredTrigger writes every field a Trigger resource owns, including
+// the agent, the source and the grant the API cannot change. enabled is left
+// alone while the trigger is auto-paused: only clearing the pause re-enables it.
+func (r *postgresRepository) UpdateDeclaredTrigger(ctx context.Context, t *Trigger) error {
+	condJSON, err := json.Marshal(t.MatchCondition)
+	if err != nil {
+		return fmt.Errorf("marshal match condition: %w", err)
+	}
+	kindConfigJSON, err := marshalKindConfig(t)
+	if err != nil {
+		return err
+	}
+	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE triggers
+			SET    source_id = $1, agent_type_id = $2, agent_slug = $3, event_type = $4, match_condition = $5,
+			       prompt_template = $6, kind_config = $7, grant_id = $8, dedupe_enabled = $9, autopause_enabled = $10,
+			       max_parallel = $11, overflow = $12, max_queue_depth = $13, timeout_seconds = $14,
+			       enabled = CASE WHEN auto_paused_at IS NULL THEN $15 ELSE enabled END,
+			       repository = $18, updated_at = now()
+			WHERE  id = $16 AND tenant_id = $17
+		`, storage.NullIfZero(t.SourceID), storage.NullIfZero(t.AgentTypeID), storage.NullIfZero(t.AgentSlug),
+			t.EventType, condJSON, t.PromptTemplate, kindConfigJSON, t.GrantID, t.DedupeEnabled, t.AutopauseEnabled,
+			t.MaxParallel, t.Overflow, t.MaxQueueDepth, t.TimeoutSeconds, t.Enabled, t.ID, t.TenantID,
+			storage.NullIfZero(t.Repository))
+		if err != nil {
+			return fmt.Errorf("update declared trigger: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrTriggerNotFound
+		}
+		return writeRoute(ctx, tx, t)
+	})
+}
+
 // matchablePredicate is the load-bearing definition of "matchable": enabled,
 // plus auto-paused. It appears in every matchable listing as one constant so
 // the two listings cannot drift apart on what matchable means.
@@ -498,6 +611,9 @@ func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writ
 	// The routing rows are replaced in the same transaction, and only when the
 	// edit changed routing, so a stale copy cannot revert a concurrent change.
 	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+		if err := claimTriggerName(ctx, tx, t); err != nil {
+			return err
+		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE triggers
 			SET    name = $1, event_type = $2, match_condition = $3, prompt_template = $4,

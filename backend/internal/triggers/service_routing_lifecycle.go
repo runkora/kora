@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -71,21 +72,17 @@ func (s *TriggerService) RoutingCandidates(ctx context.Context) ([]RoutingCandid
 	return out, nil
 }
 
-// resolveRouting validates a routing object and reads every candidate as the
-// caller, who must be able to run it, refusing a candidate from another tenant
-// or a delegated one. The fallback is a candidate, so it is covered.
-func (s *TriggerService) resolveRouting(ctx context.Context, src WebhookSource, raw *RoutingConfig) (*RoutingConfig, error) {
+// resolveRouting validates a routing object and resolves every candidate
+// with bind. The fallback is a candidate, so it is covered.
+func resolveRouting(ctx context.Context, raw *RoutingConfig, bind binder) (*RoutingConfig, error) {
 	r, err := normalizeRouting(raw)
 	if err != nil {
 		return nil, err
 	}
 	r.candidateSlugs = make(map[string]string, len(r.Candidates))
 	for _, id := range r.Candidates {
-		at, err := requireRunAuthority(ctx, s.agents, id)
+		at, err := bind(ctx, id)
 		if err != nil {
-			return nil, err
-		}
-		if err := refuseDelegatedBinding(at, src.TenantID, id); err != nil {
 			return nil, err
 		}
 		r.candidateSlugs[id] = at.Slug
@@ -115,7 +112,7 @@ func (s *TriggerService) applyRoutingUpdate(ctx context.Context, t *Trigger, cla
 		return false, nil, err
 	}
 	if raw != nil {
-		if t.Routing, err = s.resolveRouting(ctx, *src, raw); err != nil {
+		if t.Routing, err = resolveRouting(ctx, raw, s.callerBinder(src.TenantID)); err != nil {
 			return false, nil, err
 		}
 		// A chat trigger's join key reads only chat and meta fields.
@@ -214,10 +211,10 @@ func scopeCheckInput(scope string) policy.CheckInput {
 }
 
 // grantCreateError turns a scope the policy service does not know into a
-// validation error. On a routed trigger that scope is the decision model's use
-// scope, which is the one value the caller names freely. On an agent trigger
-// the run scopes of agentSlug are registered once the agent's pods are ready,
-// so an unknown scope there means the agent is still provisioning.
+// validation error. On a routed trigger it can be the decision model's use
+// scope, which is the one value the caller names freely. An agent's run scopes
+// are registered once its pods are ready. An unknown run scope of the bound
+// agent or of a candidate means that agent is still provisioning.
 func grantCreateError(err error, r *RoutingConfig, agentSlug string) error {
 	var vocab *policyclient.ScopeNotInVocabularyError
 	if !errors.As(err, &vocab) {
@@ -228,8 +225,14 @@ func grantCreateError(err error, r *RoutingConfig, agentSlug string) error {
 			return fmt.Errorf("%w: routing.model %q is not a model in this tenant's catalog", ErrValidation, r.Model)
 		}
 	}
-	if agentSlug != "" && slices.Contains(triggerRunScopes(agentSlug), vocab.Scope) {
-		return fmt.Errorf("%w: agent %q is still provisioning; retry once its pods are ready", ErrValidation, agentSlug)
+	slugs := []string{agentSlug}
+	if r != nil {
+		slugs = slices.Collect(maps.Values(r.candidateSlugs))
+	}
+	for _, slug := range slugs {
+		if slug != "" && slices.Contains(triggerRunScopes(slug), vocab.Scope) {
+			return fmt.Errorf("%w: %q; retry once its pods are ready", ErrAgentProvisioning, slug)
+		}
 	}
 	return fmt.Errorf("%w: %w", ErrValidation, err)
 }
