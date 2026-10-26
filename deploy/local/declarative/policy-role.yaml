@@ -1,0 +1,13 @@
+# Lets users with the gitops-reviewers role claim read and start the agent's runs, each within a monthly budget.
+apiVersion: runkora.io/v1alpha1
+kind: PolicyRole
+metadata:
+  name: gitops-reviewers
+  namespace: kora-tenant-example
+  annotations:
+    runkora.io/repository: github.com/runkora/kora
+spec:
+  scopes:
+    - agents:runs:gitops-reviewer:read
+    - agents:runs:gitops-reviewer:write
+  budget: {limitUSD: 20, resetCadence: monthly}

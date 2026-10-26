@@ -60,4 +60,6 @@ kubectl get namespace kora-tenant-example
 
 Set `deleteNamespaceOnRemoval: true` only when deleting the `KoraTenant` must delete every workload in its namespace.
 
+To define the tenant's agents, triggers and roles as resources, or to lock the tenant to them with `apiAuthoring`, see [Declarative resources](declarative-resources.md).
+
 Once the tenant is ready, configure access for its principals with [policy and roles](policy-and-roles.md).

@@ -1,0 +1,19 @@
+# A catalog model routed to the local Bedrock provider bedrock:us. make cluster-bedrock-creds registers that provider.
+# Change the provider to bedrock:<alias> for another alias in BEDROCK_ACCOUNTS.
+apiVersion: runkora.io/v1alpha1
+kind: VirtualModel
+metadata:
+  name: gitops-sonnet
+  namespace: kora-system
+  annotations:
+    runkora.io/repository: github.com/runkora/kora
+spec:
+  family: gitops
+  name: sonnet
+  displayName: GitOps Sonnet
+  description: Declared in deploy/local/declarative.
+  strategy: priority
+  routes:
+    - provider: bedrock:us
+      modelID: us.anthropic.claude-sonnet-5-5
+      priority: 1
