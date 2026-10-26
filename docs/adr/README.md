@@ -88,6 +88,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) — `Accepted` · 2026-07-22
 - [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) — `Accepted` · 2026-09-29
 - [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) — `Accepted` · 2026-10-15
+- [Release Asset Downloads Without Connection Selection](2026-10-26-release-asset-downloads-without-connection-selection.md) — `Proposed` · 2026-10-26
 - [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) — `Superseded by [sandbox-environments](2026-10-03-sandbox-environments.md)` · 2026-06-14
 - [Sandbox Environments](2026-10-03-sandbox-environments.md) — `Accepted (Amended 2026-10-08)` · 2026-10-03
 - [Bundled Sandbox Images](2026-10-07-bundled-sandbox-images.md) — `Accepted` · 2026-10-07
@@ -324,4 +325,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-22 | [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md) | Accepted | — |
 | 2026-10-24 | [Declarative Resources](2026-10-24-declarative-resources.md) | Accepted | — |
 | 2026-10-26 | [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) | Proposed | — |
+| 2026-10-26 | [Release Asset Downloads Without Connection Selection](2026-10-26-release-asset-downloads-without-connection-selection.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

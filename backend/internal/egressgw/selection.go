@@ -105,7 +105,16 @@ func (b *Broker) selectConnection(ctx context.Context, claims *token.PlatformCla
 	case len(held) > 1 && len(ids) > 0:
 		return b.selectByIDs(ctx, claims, req.Host, candidates, held, scoped, scopes, target, ids, lookup)
 	}
-	return nil, unresolved(req.Host, candidates, len(held) > 1, "the "+target.Subject+" names no owner")
+	// A signed release-asset URL carries its own authorization and names no owner.
+	// It is unresolved but not ambiguous, so only the anonymous read fallback serves it.
+	return nil, unresolved(req.Host, candidates, len(held) > 1 && !isReleaseAssetHost(req.Host), "the "+target.Subject+" names no owner")
+}
+
+// releaseAssetHost serves the signed redirect target of a GitHub release download.
+const releaseAssetHost = "release-assets.githubusercontent.com"
+
+func isReleaseAssetHost(host string) bool {
+	return strings.EqualFold(strings.TrimSuffix(host, "."), releaseAssetHost)
 }
 
 // selectByOwners returns the one candidate every named owner maps to, or the

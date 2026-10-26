@@ -142,6 +142,8 @@ func TestAuthorize_UnresolvedConnection(t *testing.T) {
 		{name: "third-owner read is anonymous", method: http.MethodGet, url: "https://github.com/octocat/hello-world.git/info/refs?service=git-upload-pack", wantAction: anonymousReadAction},
 		{name: "third-owner write is denied", method: http.MethodPost, url: "https://github.com/octocat/hello-world.git/git-receive-pack"},
 		{name: "owner-less read holding none is anonymous", method: http.MethodGet, url: "https://api.github.com/search/repositories?q=kora", wantAction: anonymousReadAction},
+		{name: "release asset read holding both is anonymous", method: http.MethodGet, url: "https://release-assets.githubusercontent.com/github-production-release-asset/1/2?sig=abc", scopes: holdsBoth, wantAction: anonymousReadAction},
+		{name: "release asset write holding both is denied", method: http.MethodPost, url: "https://release-assets.githubusercontent.com/github-production-release-asset/1/2", scopes: holdsBoth},
 		{name: "owner-less read holding both is denied", method: http.MethodGet, url: "https://api.github.com/search/repositories?q=kora", scopes: holdsBoth},
 	}
 	for _, tc := range tests {
