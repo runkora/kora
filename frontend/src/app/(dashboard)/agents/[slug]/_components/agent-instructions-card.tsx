@@ -21,19 +21,31 @@ interface AgentInstructionsCardProps {
   prompt: string;
   /** Opens the Configuration tab at the Behaviour step. */
   onEdit: () => void;
+  /** Disables Edit when the caller cannot change the agent here. */
+  editDisabled?: boolean;
 }
 
 const FADE = 'linear-gradient(to bottom, black calc(100% - 4rem), transparent)';
 
-function EditButton({ onEdit }: Pick<AgentInstructionsCardProps, 'onEdit'>) {
+function EditButton({ onEdit, editDisabled }: Omit<AgentInstructionsCardProps, 'prompt'>) {
   return (
-    <Button variant="ghost" size="sm" aria-label="Edit instructions" onClick={onEdit}>
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-label="Edit instructions"
+      disabled={editDisabled}
+      onClick={onEdit}
+    >
       Edit
     </Button>
   );
 }
 
-export function AgentInstructionsCard({ prompt, onEdit }: AgentInstructionsCardProps) {
+export function AgentInstructionsCard({
+  prompt,
+  onEdit,
+  editDisabled,
+}: AgentInstructionsCardProps) {
   const [view, setView] = useState<PromptView>('rendered');
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
@@ -60,7 +72,7 @@ export function AgentInstructionsCard({ prompt, onEdit }: AgentInstructionsCardP
             <Text size="supporting" color="muted">
               No instructions set
             </Text>
-            <EditButton onEdit={onEdit} />
+            <EditButton onEdit={onEdit} editDisabled={editDisabled} />
           </Stack>
         </CardContent>
       </Card>
@@ -87,7 +99,7 @@ export function AgentInstructionsCard({ prompt, onEdit }: AgentInstructionsCardP
               ]}
             />
             <CopyButton value={prompt} label="Copy instructions" />
-            <EditButton onEdit={onEdit} />
+            <EditButton onEdit={onEdit} editDisabled={editDisabled} />
           </Stack>
         }
       />
