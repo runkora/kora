@@ -98,6 +98,6 @@ spec:
       values: [sre]
 ```
 
-A scalar claim must equal one of `values`. An array claim such as `groups` must contain one. A person whose claims match no tenant gets a 403. A person who matches several tenants cannot sign in yet, and the error lists the tenants.
+kora reads the domain from the ID token's `email` claim and considers only the tenants on the same issuer and client whose `emailDomains` include it, ignoring case. A binding never admits someone whose email domain belongs to another tenant. A token without an `email` claim is checked against the requested tenant only. A scalar claim must equal one of `values`. An array claim such as `groups` must contain one. A person whose claims match no tenant gets a 403. A person who matches several tenants cannot sign in yet, and the error lists the tenants.
 
 Once the tenant is ready, configure access for its principals with [policy and roles](policy-and-roles.md).

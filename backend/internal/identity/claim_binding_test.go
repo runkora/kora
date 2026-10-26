@@ -184,3 +184,66 @@ func TestLoadTenantRegistry_DomainOverlap(t *testing.T) {
 		})
 	}
 }
+
+func TestExchangeIDToken_ClaimBindingEmailDomainGate(t *testing.T) {
+	issuer, _, key := newSigningOIDCTestServerWithKey(t)
+	registry := fmt.Sprintf(`version: "v1"
+tenants:
+  - id: engineering
+    displayName: engineering
+    state: active
+    oidc:
+      issuerURL: %[1]q
+      clientID: test-client
+      emailDomains: [Acme.com]
+      claimBinding: {claim: groups, values: ["engineering"]}
+  - id: sre
+    displayName: sre
+    state: active
+    oidc:
+      issuerURL: %[1]q
+      clientID: test-client
+      emailDomains: [other.com]
+      claimBinding: {claim: groups, values: ["sre"]}
+`, issuer)
+	tests := []struct {
+		name    string
+		claims  jwt.MapClaims
+		wantErr error
+		wantID  string
+	}{
+		{"groups match a tenant on another domain", jwt.MapClaims{"groups": []string{"sre"}}, ErrClaimBindingMismatch, ""},
+		{"domain compared case-insensitively", jwt.MapClaims{"email": "alice@ACME.com", "groups": []string{"engineering"}}, nil, "engineering"},
+		{"domain gates, claim chooses", jwt.MapClaims{"email": "bob@other.com", "groups": []string{"sre", "engineering"}}, nil, "sre"},
+		{"no email claim considers the requested tenant", jwt.MapClaims{"email": nil, "groups": []string{"engineering"}}, nil, "engineering"},
+		{"no email claim ignores other tenants", jwt.MapClaims{"email": nil, "groups": []string{"sre"}}, ErrClaimBindingMismatch, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, err := newTestServiceWithRegistry(t, registry)
+			if err != nil {
+				t.Fatalf("NewService: %v", err)
+			}
+			claims := tc.claims
+			if _, ok := claims["email"]; !ok {
+				claims["email"] = "alice@acme.com"
+			}
+			resp, err := svc.ExchangeIDToken(context.Background(), SessionRequest{
+				TenantID: "engineering",
+				IDToken:  issueIDTokenWithClaims(t, issuer, key, claims),
+			})
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("err = %v, want %v", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ExchangeIDToken: %v", err)
+			}
+			if got := sessionTenant(t, resp); got != tc.wantID {
+				t.Errorf("session tenant = %q, want %q", got, tc.wantID)
+			}
+		})
+	}
+}

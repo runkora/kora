@@ -1284,7 +1284,9 @@ func (s *Service) DiscoverTenantByEmail(ctx context.Context, email string) (*Ten
 
 // bindTenant returns the tenant that owns a verified ID token. A tenant without
 // a claimBinding owns its own tokens. For a bound tenant, the owner is the one
-// tenant on the same issuer and client whose binding matches the token claims.
+// tenant whose binding matches the token claims, chosen among the tenants on the
+// same issuer and client that claim the email domain of the token's email claim.
+// A token without an email claim considers only the requested tenant.
 // No match is ErrClaimBindingMismatch and several are ErrMultipleTenantsMatch.
 func (s *Service) bindTenant(requested *tenantOIDCState, requestedID string, idToken *gooidc.IDToken) (string, error) {
 	if requested.cfg.ClaimBinding == nil {
@@ -1295,11 +1297,22 @@ func (s *Service) bindTenant(requested *tenantOIDCState, requestedID string, idT
 		return "", fmt.Errorf("extract id_token claims: %w", err)
 	}
 
+	domain := tokenEmailDomain(claims)
+
 	s.mu.RLock()
 	var matched []string
 	for id, ts := range s.oidcTenants {
-		if ts.cfg.IssuerURL == requested.cfg.IssuerURL && ts.cfg.ClientID == requested.cfg.ClientID &&
-			ts.cfg.ClaimBinding.Matches(claims) {
+		if ts.cfg.IssuerURL != requested.cfg.IssuerURL || ts.cfg.ClientID != requested.cfg.ClientID {
+			continue
+		}
+		if domain == "" {
+			if id != requestedID {
+				continue
+			}
+		} else if !claimsEmailDomain(ts.cfg.EmailDomains, domain) {
+			continue
+		}
+		if ts.cfg.ClaimBinding.Matches(claims) {
 			matched = append(matched, id)
 		}
 	}
@@ -1314,6 +1327,22 @@ func (s *Service) bindTenant(requested *tenantOIDCState, requestedID string, idT
 		slices.Sort(matched)
 		return "", fmt.Errorf("%w: %s", ErrMultipleTenantsMatch, strings.Join(matched, ", "))
 	}
+}
+
+// tokenEmailDomain returns the lowercased domain of the email claim, or "" when
+// the claim is absent, not a string or has no domain.
+func tokenEmailDomain(claims map[string]any) string {
+	email, _ := claims["email"].(string)
+	at := strings.LastIndex(email, "@")
+	if at < 0 {
+		return ""
+	}
+	return strings.ToLower(email[at+1:])
+}
+
+// claimsEmailDomain reports whether domains includes domain, ignoring case.
+func claimsEmailDomain(domains []string, domain string) bool {
+	return slices.ContainsFunc(domains, func(d string) bool { return strings.EqualFold(d, domain) })
 }
 
 // recordDeviceAuthError records span error details for device authorization flow errors.

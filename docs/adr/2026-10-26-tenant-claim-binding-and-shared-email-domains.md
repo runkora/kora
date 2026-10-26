@@ -58,7 +58,7 @@ The person names their tenant on the sign-in page.
 - **Binding:** `spec.oidc.claimBinding` holds `claim` and `values`. A scalar claim matches when it equals one value. An array claim matches when it contains one value. A missing claim never matches.
 - **Plural values:** `values` replaces the single `value` of the earlier design, so one tenant can bind several groups.
 - **Unbound tenants:** A tenant without `claimBinding` keeps issuer-only membership.
-- **Sign-in:** A bound tenant resolves among the tenants on the same issuer and client. No match is 403. One match issues the session for that tenant, even if the client named another. Several matches fail with an error that lists the tenants.
+- **Sign-in:** A bound tenant resolves among the tenants on the same issuer and client whose `emailDomains` include the domain of the verified ID token's `email` claim, compared case-insensitively. The email domain is a gate and the claim chooses among the tenants behind it, so a person whose groups match a tenant on another domain gets a 403. A token without an `email` claim considers only the requested tenant. No match is 403. One match issues the session for that tenant, even if the client named another. Several matches fail with an error that lists the tenants.
 - **Discovery:** For a shared domain, discovery returns the tenant with the lowest ID. All sharing tenants have the same issuer and client.
 - **Overlap:** Two tenants may claim one domain only under the shared-domain rule. The identity service refuses a registry with any other overlap. The operator marks the newer `KoraTenant` `Invalid`, leaves it out of the registry and keeps the older tenant's domain.
 
