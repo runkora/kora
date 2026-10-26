@@ -111,7 +111,7 @@ spec:
         - destination:
             host: orbit-skills-service.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
             port:
-              number: 8089
+              number: 8098
     # ── Inference gateway (OpenAI-compatible API), the API-host default ────────
     - timeout: 3600s # Long timeout; inference streams can run for many minutes.
       {{- include "orbit.forceHttpsHeaders" . | nindent 6 }}

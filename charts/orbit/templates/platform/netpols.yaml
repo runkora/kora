@@ -42,7 +42,7 @@ spec:
 # port before iptables redirects into the sidecar: the app ports below are
 # required even though every call goes through Envoy.
 # 3000 frontend, 8080 identity, 8081 inference-gateway, 8083 policy-service,
-# 8084 policy-gateway, 8089 skills-service, 8095 orbit-mcp, 8096 tool-gateway,
+# 8084 policy-gateway, 8098 skills-service, 8095 orbit-mcp, 8096 tool-gateway,
 # 8097 triggers, 9090 policy-gateway ext_authz, 15006/15008 Envoy redirect/HBONE,
 # 15090 metrics.
 apiVersion: networking.k8s.io/v1
@@ -68,7 +68,7 @@ spec:
         - port: 8081
         - port: 8083
         - port: 8084
-        - port: 8089
+        - port: 8098
         - port: 8095
         - port: 8096
         - port: 8097
@@ -87,7 +87,7 @@ spec:
         - port: 8081
         - port: 8083
         - port: 8084
-        - port: 8089
+        - port: 8098
         - port: 8095
         - port: 8096
         # Egress leg for the frontend BFF calling the triggers API.
@@ -293,7 +293,7 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [orbit-inference-gateway, orbit-egress-gateway, orbit-identity, orbit-tool-gateway]
+        values: [orbit-inference-gateway, orbit-egress-gateway, orbit-identity, orbit-tool-gateway, orbit-skills-service]
   policyTypes:
     - Egress
   egress:
@@ -417,7 +417,7 @@ spec:
           protocol: TCP
         - port: 8081
           protocol: TCP
-        - port: 8089
+        - port: 8098
           protocol: TCP
         - port: 8096
           protocol: TCP
