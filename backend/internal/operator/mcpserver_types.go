@@ -22,11 +22,7 @@
 package operator
 
 import (
-	"maps"
-	"slices"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // MCP server lifecycle phases (operator reconciliation state).
@@ -61,7 +57,12 @@ const transportStreamableHTTP = "streamable-http"
 // MCPServer — namespaced; kora-system for global, tenant namespace for tenant
 // -----------------------------------------------------------------------------
 
-// MCPServer declares one MCP server kora governs.
+// MCPServer declares one MCP server kora governs. Apply it in kora-system for a
+// platform-global server or in a tenant namespace for a tenant's own server.
+// The operator aggregates every MCPServer into the kora-mcp-servers ConfigMap
+// the tool-gateway mounts. The gateway introspects each server's tools and
+// registers them as mcp:<server>:<tool>:use scopes. The CR name
+// (metadata.name) is the stable server slug used in the scope path.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
@@ -69,15 +70,19 @@ const transportStreamableHTTP = "streamable-http"
 // +kubebuilder:printcolumn:name="Endpoint",type=string,JSONPath=`.spec.endpoint`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:object:generate=true
 type MCPServer struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// +required
 	Spec   MCPServerSpec   `json:"spec,omitempty"`
 	Status MCPServerStatus `json:"status,omitempty"`
 }
 
 // MCPServerSpec is the declared intent for one MCP server.
+//
+// +kubebuilder:object:generate=true
 type MCPServerSpec struct {
 	// DisplayName for the catalog UI.
 	// +optional
@@ -94,12 +99,14 @@ type MCPServerSpec struct {
 
 	// Transport selects the MCP transport. MVP: "streamable-http" (the default
 	// when empty).
+	// +kubebuilder:validation:Enum=streamable-http
 	// +optional
 	Transport string `json:"transport,omitempty"`
 
 	// ReintrospectIntervalSeconds is read by the gateway's introspection worker
 	// to re-sync the tool surface on a timer (besides on registry reload).
 	// 0 = on-reload only.
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	ReintrospectIntervalSeconds int `json:"reintrospectIntervalSeconds,omitempty"`
 
@@ -128,15 +135,25 @@ type MCPServerSpec struct {
 }
 
 // MCPServerAuth lists the credential headers sent on every upstream request.
+//
+// +kubebuilder:object:generate=true
 type MCPServerAuth struct {
+	// Headers are the request headers, each set to the prefix followed by a Secret value.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
 	Headers []MCPServerAuthHeader `json:"headers"`
 }
 
 // MCPServerAuthHeader is one header set to Prefix followed by a Secret value.
+//
+// +kubebuilder:object:generate=true
 type MCPServerAuthHeader struct {
-	// Name is the header name.
+	// Name is the header name, e.g. Authorization or x-api-key. Letters, digits and hyphens only.
+	// +kubebuilder:validation:MaxLength=64
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9-]+$`
 	Name string `json:"name"`
 	// Prefix is sent before the value, e.g. "Bearer ".
+	// +kubebuilder:validation:MaxLength=256
 	// +optional
 	Prefix string `json:"prefix,omitempty"`
 	// SecretRef is the Secret and key holding the value, in the CR's namespace.
@@ -144,43 +161,32 @@ type MCPServerAuthHeader struct {
 }
 
 // MCPServerSecretRef names a key in a Secret in the CR's namespace.
+//
+// +kubebuilder:object:generate=true
 type MCPServerSecretRef struct {
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	Name string `json:"name"`
-	Key  string `json:"key"`
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[-._a-zA-Z0-9]+$`
+	Key string `json:"key"`
 }
 
 // MCPServerWorkload identifies the pods serving an MCPServer's endpoint.
+//
+// +kubebuilder:object:generate=true
 type MCPServerWorkload struct {
 	// Selector matches the serving pods by label, in the CR's own namespace.
 	// +optional
 	Selector map[string]string `json:"selector,omitempty"`
 }
 
-// DeepCopyInto copies all fields into out.
-func (w *MCPServerWorkload) DeepCopyInto(out *MCPServerWorkload) {
-	*out = *w
-	if w.Selector != nil {
-		out.Selector = make(map[string]string, len(w.Selector))
-		maps.Copy(out.Selector, w.Selector)
-	}
-}
-
-// DeepCopyInto copies all fields into out.
-func (s *MCPServerSpec) DeepCopyInto(out *MCPServerSpec) {
-	*out = *s
-	if s.Workload != nil {
-		out.Workload = new(MCPServerWorkload)
-		s.Workload.DeepCopyInto(out.Workload)
-	}
-	if s.Auth != nil {
-		out.Auth = &MCPServerAuth{Headers: slices.Clone(s.Auth.Headers)}
-	}
-}
-
 // MCPServerStatus is reconciliation state owned by the operator — whether the
 // CR was accepted and aggregated into the registry. Introspection health
 // (reachability, tool count, last sync) is gateway runtime state, surfaced via
 // metrics + the catalog UI, NOT here.
+//
+// +kubebuilder:object:generate=true
 type MCPServerStatus struct {
 	// Phase is one of Pending|Aggregated|Invalid.
 	// +optional
@@ -195,79 +201,9 @@ type MCPServerStatus struct {
 
 // MCPServerList is a list of MCPServer resources.
 // +kubebuilder:object:root=true
+// +kubebuilder:object:generate=true
 type MCPServerList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []MCPServer `json:"items"`
-}
-
-// -----------------------------------------------------------------------------
-// DeepCopy (hand-written, mirroring Connection/KoraTenant)
-// -----------------------------------------------------------------------------
-
-// DeepCopyObject implements runtime.Object.
-func (m *MCPServer) DeepCopyObject() runtime.Object {
-	if m == nil {
-		return nil
-	}
-	out := new(MCPServer)
-	m.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (m *MCPServer) DeepCopyInto(out *MCPServer) {
-	*out = *m
-	out.TypeMeta = m.TypeMeta
-	m.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	m.Spec.DeepCopyInto(&out.Spec)
-	m.Status.DeepCopyInto(&out.Status)
-}
-
-// DeepCopy returns a deep copy.
-func (m *MCPServer) DeepCopy() *MCPServer {
-	if m == nil {
-		return nil
-	}
-	out := new(MCPServer)
-	m.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto for MCPServerStatus — the pointer time and condition slice need
-// deep copies.
-func (s *MCPServerStatus) DeepCopyInto(out *MCPServerStatus) {
-	*out = *s
-	if s.LastReconciledAt != nil {
-		out.LastReconciledAt = s.LastReconciledAt.DeepCopy()
-	}
-	if s.Conditions != nil {
-		out.Conditions = make([]metav1.Condition, len(s.Conditions))
-		for i := range s.Conditions {
-			s.Conditions[i].DeepCopyInto(&out.Conditions[i])
-		}
-	}
-}
-
-// DeepCopyObject implements runtime.Object for MCPServerList.
-func (l *MCPServerList) DeepCopyObject() runtime.Object {
-	if l == nil {
-		return nil
-	}
-	out := new(MCPServerList)
-	l.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (l *MCPServerList) DeepCopyInto(out *MCPServerList) {
-	*out = *l
-	out.TypeMeta = l.TypeMeta
-	l.ListMeta.DeepCopyInto(&out.ListMeta)
-	if l.Items != nil {
-		out.Items = make([]MCPServer, len(l.Items))
-		for i := range l.Items {
-			l.Items[i].DeepCopyInto(&out.Items[i])
-		}
-	}
 }

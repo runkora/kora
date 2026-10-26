@@ -22,8 +22,13 @@ const APIAuthoringDisabled = "Disabled"
 
 // Budget is a tenant budget declared on KoraTenant.
 type Budget struct {
-	LimitUSD     float64 `json:"limitUSD"`
-	ResetCadence string  `json:"resetCadence"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:ExclusiveMinimum=true
+	LimitUSD float64 `json:"limitUSD"`
+	// +kubebuilder:validation:Enum=weekly;monthly
+	// +kubebuilder:default=monthly
+	// +optional
+	ResetCadence string `json:"resetCadence"`
 }
 
 // tenant is one entry of the registry file the operator writes. Only the

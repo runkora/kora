@@ -28,16 +28,19 @@ import (
 
 // Connection declares the credential-source identity of one external service
 // the egress gateway brokers for a tenant. It lives in the tenant namespace.
+// The CR name (metadata.name) is the agent-facing connection name.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:shortName=kconn
 // +kubebuilder:printcolumn:name="Adapter",type=string,JSONPath=`.spec.adapter`
 // +kubebuilder:printcolumn:name="Host",type=string,JSONPath=`.spec.baseHost`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:object:generate=true
 type Connection struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// +required
 	Spec ConnectionSpec `json:"spec,omitempty"`
 }
 
@@ -45,6 +48,9 @@ type Connection struct {
 // grantable action vocabulary, the agent grant/PDP authorization, and the
 // repos/permissions the token can reach are owned by other authorities and are
 // deliberately not restated here.
+//
+// +kubebuilder:validation:XValidation:rule=`self.adapter != 'kubernetes' || size(self.baseHost) == 0 || !(self.baseHost.matches('^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+(:[0-9]+)?$') || self.baseHost.matches('^\\[[0-9a-fA-F:]+\\](:[0-9]+)?$') || (self.baseHost.matches('^[0-9a-fA-F:]+$') && self.baseHost.split(':').size() > 2))`,message="kubernetes connections must use a DNS hostname as baseHost, not a bare IPv4 address. TLS to an IP literal carries no SNI; the sandbox's transparent-egress interception can never authorize it."
+// +kubebuilder:object:generate=true
 type ConnectionSpec struct {
 	// Adapter selects the credential mechanism (e.g. "github_app",
 	// "kubernetes"). Validated at resolve time by the gateway's adapter
@@ -88,70 +94,9 @@ type ConnectionSpec struct {
 
 // ConnectionList is a list of Connection resources.
 // +kubebuilder:object:root=true
+// +kubebuilder:object:generate=true
 type ConnectionList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Connection `json:"items"`
-}
-
-// -----------------------------------------------------------------------------
-// DeepCopy (hand-written, mirroring KoraTenant)
-// -----------------------------------------------------------------------------
-
-// DeepCopyObject implements runtime.Object.
-func (c *Connection) DeepCopyObject() runtime.Object {
-	if c == nil {
-		return nil
-	}
-	out := new(Connection)
-	c.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (c *Connection) DeepCopyInto(out *Connection) {
-	*out = *c
-	out.TypeMeta = c.TypeMeta
-	c.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	c.Spec.DeepCopyInto(&out.Spec)
-}
-
-// DeepCopy returns a deep copy.
-func (c *Connection) DeepCopy() *Connection {
-	if c == nil {
-		return nil
-	}
-	out := new(Connection)
-	c.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto for ConnectionSpec. runtime.RawExtension carries its own
-// DeepCopyInto.
-func (s *ConnectionSpec) DeepCopyInto(out *ConnectionSpec) {
-	*out = *s
-	s.Config.DeepCopyInto(&out.Config)
-}
-
-// DeepCopyObject implements runtime.Object for ConnectionList.
-func (l *ConnectionList) DeepCopyObject() runtime.Object {
-	if l == nil {
-		return nil
-	}
-	out := new(ConnectionList)
-	l.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (l *ConnectionList) DeepCopyInto(out *ConnectionList) {
-	*out = *l
-	out.TypeMeta = l.TypeMeta
-	l.ListMeta.DeepCopyInto(&out.ListMeta)
-	if l.Items != nil {
-		out.Items = make([]Connection, len(l.Items))
-		for i := range l.Items {
-			l.Items[i].DeepCopyInto(&out.Items[i])
-		}
-	}
 }
