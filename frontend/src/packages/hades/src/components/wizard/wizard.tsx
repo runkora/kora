@@ -326,43 +326,55 @@ WizardStep.displayName = 'WizardStep';
  * Post-flow screen: a centred icon, title, description, optional body and actions. It fills the
  * modal body like `Wizard.Step fullPage`, so the rail and footer are hidden while it is a direct
  * child of `<Wizard>` (wrapping it in a fragment or helper component stops it being recognised).
+ *
+ * Accessibility: the submit button that had focus unmounts with the form, so on mount focus moves
+ * to the title (Tab then reaches the actions in order, and a one-time secret in `children` is read
+ * before the actions). Focus moves on mount only, so it moves again each time the screen remounts.
  */
 const WizardSuccess = React.forwardRef<HTMLDivElement, WizardSuccessProps>(
-  ({ title, description, icon = 'check-circle', children, actions }, ref) => (
-    <Stack ref={ref} data-slot="wizard-step-full" grow overflow="hidden">
-      <Stack
-        data-slot="wizard-success"
-        grow
-        align="center"
-        justify="center"
-        gap="comfortable"
-        padding="loose"
-        overflowY="auto"
-      >
-        <Stack align="center" gap="snug">
-          <Icon
-            name={icon}
-            size="xl"
-            color="accent"
-            container
-            containerVariant="accent"
-            circle
-            label=""
-          />
-          <Heading variant="subsection">{title}</Heading>
-          {description && (
-            <Text size="supporting" color="muted" align="center">
-              {description}
-            </Text>
-          )}
-        </Stack>
-        {children}
-        <Stack direction="horizontal" gap="cozy" wrap justify="center">
-          {actions}
+  ({ title, description, icon = 'check-circle', children, actions }, ref) => {
+    const titleRef = React.useRef<HTMLElement>(null);
+    React.useEffect(() => {
+      titleRef.current?.focus();
+    }, []);
+    return (
+      <Stack ref={ref} data-slot="wizard-step-full" grow overflow="hidden">
+        <Stack
+          data-slot="wizard-success"
+          grow
+          align="center"
+          justify="center"
+          gap="comfortable"
+          padding="loose"
+          overflowY="auto"
+        >
+          <Stack align="center" gap="snug">
+            <Icon
+              name={icon}
+              size="xl"
+              color="accent"
+              container
+              containerVariant="accent"
+              circle
+              label=""
+            />
+            <Heading ref={titleRef} variant="subsection" tabIndex={-1} className="outline-none">
+              {title}
+            </Heading>
+            {description && (
+              <Text size="supporting" color="muted" align="center">
+                {description}
+              </Text>
+            )}
+          </Stack>
+          {children}
+          <Stack direction="horizontal" gap="cozy" wrap justify="center">
+            {actions}
+          </Stack>
         </Stack>
       </Stack>
-    </Stack>
-  ),
+    );
+  },
 );
 WizardSuccess.displayName = 'WizardSuccess';
 

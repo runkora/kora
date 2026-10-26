@@ -79,6 +79,51 @@ describe('Wizard.Success', () => {
     expect(document.querySelector('[data-slot="wizard-success"]')).not.toBeNull();
   });
 
+  it('focuses the title on mount without adding it to the tab order', () => {
+    render(
+      <Wizard open onClose={() => {}} icon="rocket" title="Demo">
+        <Wizard.Success
+          title="Thing created"
+          description="It is ready."
+          actions={<button type="button">Done</button>}
+        >
+          <p>Secret body</p>
+        </Wizard.Success>
+      </Wizard>,
+    );
+    const heading = screen.getByRole('heading', { name: 'Thing created' });
+    expect(document.activeElement).toBe(heading);
+    expect(heading).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('focuses the title again each time it mounts, not on re-render', () => {
+    const ui = (mode: 'step' | 'a' | 'a2') =>
+      mode === 'step' ? (
+        <Wizard open onClose={() => {}} icon="rocket" title="Demo">
+          <Wizard.Step>
+            <button type="button">Content</button>
+          </Wizard.Step>
+        </Wizard>
+      ) : (
+        <Wizard open onClose={() => {}} icon="rocket" title="Demo">
+          <Wizard.Success
+            title="Done"
+            actions={<button type="button">Again</button>}
+            description={mode === 'a2' ? 'changed' : undefined}
+          />
+        </Wizard>
+      );
+    const view = render(ui('step'));
+    view.rerender(ui('a'));
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Done' }));
+    screen.getByRole('button', { name: 'Again' }).focus();
+    view.rerender(ui('a2'));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Again' }));
+    view.rerender(ui('step'));
+    view.rerender(ui('a'));
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Done' }));
+  });
+
   it('hides the rail and footer as a direct child', () => {
     render(
       <Wizard open onClose={() => {}} icon="rocket" title="Demo" rail={rail} footer={footer}>
