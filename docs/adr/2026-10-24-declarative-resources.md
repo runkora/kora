@@ -357,7 +357,7 @@ On the local cluster:
 *   Declared changes wait while the operator is down. Projected items keep running from Postgres.
 *   The operator's start depends on the mesh issuing it a certificate.
 *   The operator depends on an internal endpoint in four services.
-*   The authoring switch reaches each service when its registry mount refreshes. Services can disagree for a few minutes.
+*   The authoring switch reaches each service when its registry mount refreshes. Services can disagree for a few minutes. The dashboard reads the switch from the session and shows a change after the next sign-in or token refresh.
 *   `kora-crds` must be applied before `kora`.
 *   Changing a tenant's namespace requires deleting and recreating the `KoraTenant`.
 *   Inference usage is keyed by `agent_slug`. A new agent with a deleted agent's slug shares its usage history.
