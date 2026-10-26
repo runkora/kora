@@ -28,7 +28,12 @@ const MAIN_NAV: NavEntry[] = [
     requiredScope: 'agents:types:read',
     allowNarrowerScope: true,
   },
-  { label: 'Connections', href: APP_ROUTES.connections, icon: 'network' },
+  {
+    label: 'Connections',
+    href: APP_ROUTES.connections,
+    icon: 'network',
+    requiredScope: 'platform:connections:read',
+  },
   { label: 'MCP Servers', href: APP_ROUTES.mcpGateway.servers, icon: 'server' },
   {
     label: 'Environments',

@@ -127,6 +127,21 @@ describe('DashboardSidebar', () => {
       expect(screen.getByRole('link', { name: /agents/i })).toBeInTheDocument();
     });
 
+    it('hides Connections without platform:connections:read', () => {
+      renderSidebar();
+      expect(screen.queryByRole('link', { name: /connections/i })).not.toBeInTheDocument();
+    });
+
+    it('shows Connections with platform:connections:read', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['platform:connections:read'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.getByRole('link', { name: /connections/i })).toBeInTheDocument();
+    });
+
     it('hides Agents from a user holding only per-agent write scopes', () => {
       vi.mocked(useSession).mockReturnValueOnce({
         scopes: ['agents:types:pr-summariser:write'],
