@@ -178,8 +178,9 @@ func TestPostgres_UpsertOwnershipAndRequires(t *testing.T) {
 
 // TestPostgres_TenantScoping covers the tenant dimension of the vocabulary:
 // two tenants can hold the same scope without overwriting each other, readers
-// see the tenant's entries plus global ones, a tenant entry shadows a global
-// one, and a global prune never touches tenant entries. These live in SQL
+// see the tenant's entries plus global ones, a global entry wins over a
+// tenant's entry with the same scope, and a global prune never touches tenant
+// entries. These live in SQL
 // (the primary key, IN ($tenant, ”), DISTINCT ON), so they run against the
 // database.
 func TestPostgres_TenantScoping(t *testing.T) {
@@ -188,6 +189,7 @@ func TestPostgres_TenantScoping(t *testing.T) {
 
 	shared := "test:" + service + ":shared"
 	globalOnly := "test:" + service + ":global"
+	tenantOnly := "test:" + service + ":tenant"
 
 	put := func(tenant, scope, desc string) {
 		t.Helper()
@@ -203,16 +205,31 @@ func TestPostgres_TenantScoping(t *testing.T) {
 	put("globex", shared, "globex shared")
 	put("", shared, "global shared")
 	put("", globalOnly, "global only")
+	put("acme", tenantOnly, "acme tenant")
+	put("globex", tenantOnly, "globex tenant")
 
-	// Two tenants with the same scope do not overwrite each other.
-	for tenant, want := range map[string]string{"acme": "acme shared", "globex": "globex shared"} {
-		got, err := repo.GetByScope(ctx, tenant, shared)
+	// Two tenants with the same scope, and no global entry, do not overwrite
+	// each other.
+	for tenant, want := range map[string]string{"acme": "acme tenant", "globex": "globex tenant"} {
+		got, err := repo.GetByScope(ctx, tenant, tenantOnly)
 		if err != nil {
 			t.Fatalf("GetByScope %q: %v", tenant, err)
 		}
 		if got.Description != want || got.TenantID != tenant {
-			t.Errorf("GetByScope(%q) = %q (tenant %q), want %q (the tenant's own entry shadows global)",
+			t.Errorf("GetByScope(%q) = %q (tenant %q), want its own entry %q",
 				tenant, got.Description, got.TenantID, want)
+		}
+	}
+
+	// A global entry wins over a tenant's entry with the same scope.
+	for _, tenant := range []string{"acme", "globex"} {
+		got, err := repo.GetByScope(ctx, tenant, shared)
+		if err != nil {
+			t.Fatalf("GetByScope %q: %v", tenant, err)
+		}
+		if got.TenantID != "" || got.Description != "global shared" {
+			t.Errorf("GetByScope(%q) = %q (tenant %q), want the global entry (global wins)",
+				tenant, got.Description, got.TenantID)
 		}
 	}
 
@@ -230,6 +247,10 @@ func TestPostgres_TenantScoping(t *testing.T) {
 	if err != nil || !ok {
 		t.Errorf("Exists(initech, global-only) = %v, %v; want true", ok, err)
 	}
+	ok, err = repo.Exists(ctx, "initech", tenantOnly)
+	if err != nil || ok {
+		t.Errorf("Exists(initech, another tenant's scope) = %v, %v; want false", ok, err)
+	}
 
 	// List returns one entry per scope: the tenant's own plus global ones.
 	list, err := repo.List(ctx, "acme", "test")
@@ -242,12 +263,14 @@ func TestPostgres_TenantScoping(t *testing.T) {
 			mine = append(mine, e)
 		}
 	}
-	if len(mine) != 2 {
-		t.Fatalf("List(acme) returned %d entries for this test, want 2 (shared + global-only): %+v", len(mine), mine)
+	if len(mine) != 3 {
+		t.Fatalf("List(acme) returned %d entries for this test, want 3 (shared, global-only, acme's own): %+v", len(mine), mine)
 	}
+	wantList := map[string]string{shared: "global shared", globalOnly: "global only", tenantOnly: "acme tenant"}
 	for _, e := range mine {
-		if e.Scope == shared && e.Description != "acme shared" {
-			t.Errorf("List(acme) shared = %q, want acme's own entry", e.Description)
+		if e.Description != wantList[e.Scope] {
+			t.Errorf("List(acme) %q = %q, want %q (global wins over a tenant's entry with the same scope)",
+				e.Scope, e.Description, wantList[e.Scope])
 		}
 	}
 
@@ -260,9 +283,11 @@ func TestPostgres_TenantScoping(t *testing.T) {
 		t.Errorf("global prune deleted %v, want only the global %q", deleted, shared)
 	}
 	for _, tenant := range []string{"acme", "globex"} {
-		got, err := repo.GetByScope(ctx, tenant, shared)
-		if err != nil || got.TenantID != tenant {
-			t.Errorf("tenant %q entry gone after a global prune: %v", tenant, err)
+		for _, scope := range []string{shared, tenantOnly} {
+			got, err := repo.GetByScope(ctx, tenant, scope)
+			if err != nil || got.TenantID != tenant {
+				t.Errorf("tenant %q entry for %q gone after a global prune: %v", tenant, scope, err)
+			}
 		}
 	}
 }

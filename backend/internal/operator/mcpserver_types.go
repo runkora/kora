@@ -36,9 +36,9 @@ const (
 	// MCPServerPhaseAggregated means the CR was accepted and folded into the
 	// kora-mcp-servers registry ConfigMap.
 	MCPServerPhaseAggregated = "Aggregated"
-	// MCPServerPhaseInvalid means the spec was rejected (bad spec, or a
-	// tenant-namespaced CR setting callerIdentity: forward). The server is NOT
-	// in the registry.
+	// MCPServerPhaseInvalid means the spec was rejected (bad spec, a
+	// tenant-namespaced CR setting callerIdentity: forward, or a tenant CR whose
+	// name a global server already holds). The server is NOT in the registry.
 	MCPServerPhaseInvalid = "Invalid"
 )
 

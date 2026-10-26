@@ -71,6 +71,11 @@ var (
 	// value. The generated policies carry the name in a label, so a longer one
 	// would be rejected by the API server when the policy is written.
 	ErrMCPServerNameTooLong = fmt.Errorf("metadata.name must be at most %d characters", maxLabelValueLength)
+	// ErrMCPServerNameCollidesWithGlobal is returned when a tenant-namespaced CR
+	// has the name of a global (kora-system) server. The tool-gateway routes a
+	// request for that name to the global server, so the tenant's would be
+	// unreachable and its scopes would contradict the global server's.
+	ErrMCPServerNameCollidesWithGlobal = errors.New("name collides with a global (kora-system) MCPServer")
 )
 
 // maxLabelValueLength is the Kubernetes limit on a label value, which is
@@ -242,10 +247,21 @@ type mcpServerSkip struct {
 // "" for kora-system, the owning tenant otherwise), validates the spec, and
 // returns the sorted registry entries plus the excluded servers (with reasons).
 // A server is excluded when its namespace has no active owning tenant
-// (orphaned/suspended) or its spec is invalid.
+// (orphaned/suspended), its spec is invalid, or it is a tenant server whose name
+// a valid global server already holds (global wins).
 func buildMCPRegistry(servers []MCPServer, nsToTenant map[string]string) ([]mcpServerRegistryEntry, []mcpServerSkip) {
 	var entries []mcpServerRegistryEntry
 	var skipped []mcpServerSkip
+
+	// Names held by valid global servers. Only a registered server holds a name,
+	// so an invalid global server does not count.
+	globalNames := make(map[string]bool)
+	for i := range servers {
+		srv := &servers[i]
+		if srv.Namespace == systemNamespace && validateMCPServerSpec(srv.Spec, srv.Name, srv.Namespace) == nil {
+			globalNames[srv.Name] = true
+		}
+	}
 
 	for i := range servers {
 		srv := &servers[i]
@@ -257,6 +273,11 @@ func buildMCPRegistry(servers []MCPServer, nsToTenant map[string]string) ([]mcpS
 		}
 
 		if err := validateMCPServerSpec(srv.Spec, srv.Name, srv.Namespace); err != nil {
+			skipped = append(skipped, mcpServerSkip{srv.Name, srv.Namespace, err.Error()})
+			continue
+		}
+
+		if err := globalNameCollision(srv.Namespace, srv.Name, globalNames); err != nil {
 			skipped = append(skipped, mcpServerSkip{srv.Name, srv.Namespace, err.Error()})
 			continue
 		}
@@ -338,6 +359,17 @@ func validateMCPServerSpec(spec MCPServerSpec, name, namespace string) error {
 		return ErrMCPServerNoWorkloadSelector
 	}
 	return validateMCPServerAuth(spec)
+}
+
+// globalNameCollision reports whether a server in namespace takes a name that a
+// valid global server already holds. Global servers never collide with
+// themselves, and the same name in two tenant namespaces is allowed. The error
+// names the global server so it can be shown on the CR's status.
+func globalNameCollision(namespace, name string, globalNames map[string]bool) error {
+	if namespace == systemNamespace || !globalNames[name] {
+		return nil
+	}
+	return fmt.Errorf("%w: %s/%s", ErrMCPServerNameCollidesWithGlobal, systemNamespace, name)
 }
 
 // effectiveTransport defaults an empty transport to streamable-http.

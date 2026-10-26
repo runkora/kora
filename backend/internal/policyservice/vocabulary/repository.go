@@ -57,14 +57,17 @@ var ErrScopeOwnedByAnother = errors.New("scope is registered by another service"
 // Repository defines the scope vocabulary storage contract.
 type Repository interface {
 	// GetByScope retrieves a scope entry by its full scope string, from the
-	// tenant's own entries or the global ones. A tenant entry shadows a global one.
+	// tenant's own entries or the global ones. A global entry wins over a tenant
+	// entry with the same scope, matching how the tool-gateway routes a name
+	// shared by a global and a tenant server.
 	GetByScope(ctx context.Context, tenantID, scope string) (*ScopeEntry, error)
 
 	// Exists checks whether a scope is registered for the tenant or globally.
 	Exists(ctx context.Context, tenantID, scope string) (bool, error)
 
 	// List returns the scopes visible to the tenant (its own plus global),
-	// optionally filtered by resource type. A tenant entry shadows a global one.
+	// optionally filtered by resource type. A global entry wins over a tenant
+	// entry with the same scope.
 	List(ctx context.Context, tenantID, resourceType string) ([]*ScopeEntry, error)
 
 	// Upsert inserts a scope entry or updates its metadata if it already exists,
@@ -188,11 +191,11 @@ func (r *postgresRepository) DeleteOrphans(ctx context.Context, registeredBy, te
 }
 
 func (r *postgresRepository) GetByScope(ctx context.Context, tenantID, scope string) (*ScopeEntry, error) {
-	// ORDER BY tenant_id DESC puts the tenant's own row ahead of the global ('') one.
+	// ORDER BY tenant_id puts the global ('') row ahead of the tenant's own.
 	row := r.pool.QueryRow(ctx, `
 		SELECT scope, resource_type, path_segments, action, description, requires, created_at, tenant_id
 		FROM policy_scope_vocabulary WHERE scope = $1 AND tenant_id IN ($2, '')
-		ORDER BY tenant_id DESC LIMIT 1
+		ORDER BY tenant_id LIMIT 1
 	`, scope, tenantID)
 	return r.scanEntry(row)
 }
@@ -209,20 +212,20 @@ func (r *postgresRepository) Exists(ctx context.Context, tenantID, scope string)
 }
 
 func (r *postgresRepository) List(ctx context.Context, tenantID, resourceType string) ([]*ScopeEntry, error) {
-	// DISTINCT ON (scope) with tenant_id DESC keeps the tenant's row over a global one.
+	// DISTINCT ON (scope) with tenant_id ascending keeps the global row over a tenant's.
 	var rows pgx.Rows
 	var err error
 	if resourceType != "" {
 		rows, err = r.pool.Query(ctx, `
 			SELECT DISTINCT ON (scope) scope, resource_type, path_segments, action, description, requires, created_at, tenant_id
 			FROM policy_scope_vocabulary WHERE tenant_id IN ($1, '') AND resource_type = $2
-			ORDER BY scope, tenant_id DESC
+			ORDER BY scope, tenant_id
 		`, tenantID, resourceType)
 	} else {
 		rows, err = r.pool.Query(ctx, `
 			SELECT DISTINCT ON (scope) scope, resource_type, path_segments, action, description, requires, created_at, tenant_id
 			FROM policy_scope_vocabulary WHERE tenant_id IN ($1, '')
-			ORDER BY scope, tenant_id DESC
+			ORDER BY scope, tenant_id
 		`, tenantID)
 	}
 	if err != nil {
@@ -271,7 +274,7 @@ func (r *postgresRepository) ListWithUsage(ctx context.Context, resourceType, te
 		query += ` AND v.resource_type = $2`
 		args = append(args, resourceType)
 	}
-	query += ` ORDER BY v.scope, v.tenant_id DESC`
+	query += ` ORDER BY v.scope, v.tenant_id`
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {

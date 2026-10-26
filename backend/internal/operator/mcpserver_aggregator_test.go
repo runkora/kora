@@ -193,6 +193,74 @@ func TestBuildMCPRegistry(t *testing.T) {
 	}
 }
 
+// A tenant server named like a valid global server is left out and its skip
+// reason names the global server. The same name in two tenants, or in a tenant
+// alone, stays registered, and an invalid global server does not hold its name.
+func TestBuildMCPRegistry_GlobalNameWins(t *testing.T) {
+	nsToTenant := map[string]string{"kora-tenant-acme": "acme", "kora-tenant-globex": "globex"}
+
+	servers := []MCPServer{
+		mcpSrv("slack", systemNamespace, MCPServerSpec{Endpoint: "http://slack.kora-system.svc/mcp"}),
+		// Same name as the global server: excluded.
+		mcpSrv("slack", "kora-tenant-acme", MCPServerSpec{Endpoint: "http://slack.acme.svc/mcp"}),
+		// Same name in two tenants, no global server: both kept.
+		mcpSrv("github", "kora-tenant-acme", MCPServerSpec{Endpoint: "http://github.acme.svc/mcp"}),
+		mcpSrv("github", "kora-tenant-globex", MCPServerSpec{Endpoint: "http://github.globex.svc/mcp"}),
+		// An invalid global server is not registered, so it does not hold the name.
+		mcpSrv("jira", systemNamespace, MCPServerSpec{}),
+		mcpSrv("jira", "kora-tenant-acme", MCPServerSpec{Endpoint: "http://jira.acme.svc/mcp"}),
+	}
+
+	entries, skipped := buildMCPRegistry(servers, nsToTenant)
+
+	got := map[string]bool{}
+	for _, e := range entries {
+		got[e.TenantID+"/"+e.Name] = true
+	}
+	for _, want := range []string{"/slack", "acme/github", "globex/github", "acme/jira"} {
+		if !got[want] {
+			t.Errorf("expected %q in the registry; got %+v", want, entries)
+		}
+	}
+	if got["acme/slack"] {
+		t.Error("tenant server named like a global server must not be registered")
+	}
+	if len(entries) != 4 {
+		t.Errorf("got %d entries, want 4: %+v", len(entries), entries)
+	}
+
+	// Two excluded: the colliding tenant server and the invalid global one.
+	if len(skipped) != 2 {
+		t.Fatalf("got %d skipped, want 2: %+v", len(skipped), skipped)
+	}
+	for _, s := range skipped {
+		if s.Name == "slack" && s.Namespace == "kora-tenant-acme" {
+			if !strings.Contains(s.Reason, systemNamespace+"/slack") {
+				t.Errorf("collision reason %q should name the global server %s/slack", s.Reason, systemNamespace)
+			}
+		}
+	}
+}
+
+func TestGlobalNameCollision(t *testing.T) {
+	globalNames := map[string]bool{"slack": true}
+
+	err := globalNameCollision("kora-tenant-acme", "slack", globalNames)
+	if !errors.Is(err, ErrMCPServerNameCollidesWithGlobal) {
+		t.Fatalf("tenant server named like a global one: err = %v, want a collision", err)
+	}
+	if !strings.Contains(err.Error(), systemNamespace+"/slack") {
+		t.Errorf("error %q should name the global server %s/slack", err, systemNamespace)
+	}
+
+	if err := globalNameCollision("kora-tenant-acme", "github", globalNames); err != nil {
+		t.Errorf("name no global server holds: err = %v, want nil", err)
+	}
+	if err := globalNameCollision(systemNamespace, "slack", globalNames); err != nil {
+		t.Errorf("a global server never collides with itself: err = %v, want nil", err)
+	}
+}
+
 func TestBuildMCPRegistry_Empty(t *testing.T) {
 	entries, skipped := buildMCPRegistry(nil, map[string]string{})
 	if len(entries) != 0 || len(skipped) != 0 {

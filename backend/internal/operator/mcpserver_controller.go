@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -97,6 +98,16 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// the aggregator: a valid server must be (re)included, and an invalid one
 	// must be excluded (e.g. it was valid before and the spec just regressed).
 	vErr := validateMCPServerSpec(srv.Spec, srv.Name, srv.Namespace)
+	if vErr == nil {
+		// A tenant server may not reuse a global server's name: the gateway routes
+		// that name to the global server, so the tenant's would be unreachable.
+		// The CR is flagged, not deleted.
+		collision, lookupErr := r.collidesWithGlobal(ctx, srv)
+		if lookupErr != nil {
+			return ctrl.Result{}, lookupErr
+		}
+		vErr = collision
+	}
 
 	if syncErr := r.Aggregator.Sync(ctx); syncErr != nil {
 		return ctrl.Result{}, syncErr
@@ -108,8 +119,12 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			logging.Field{Key: "namespace", Value: srv.Namespace},
 			logging.Field{Key: "reason", Value: vErr.Error()},
 		)
+		reason := "SpecInvalid"
+		if errors.Is(vErr, ErrMCPServerNameCollidesWithGlobal) {
+			reason = "GlobalNameCollision"
+		}
 		return ctrl.Result{}, r.setStatus(ctx, srv, MCPServerPhaseInvalid,
-			metav1.ConditionFalse, "SpecInvalid", vErr.Error())
+			metav1.ConditionFalse, reason, vErr.Error())
 	}
 
 	policies, pErr := r.reconcilePolicies(ctx, srv)
@@ -136,6 +151,30 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 // credentialRecheckInterval matches the tenant reconciler's periodic requeue.
 const credentialRecheckInterval = 5 * time.Minute
+
+// collidesWithGlobal reports whether a tenant server takes the name of a valid
+// global (kora-system) server. The aggregator applies the same rule when it
+// builds the registry, so a colliding server is left out there and flagged here.
+// The first result is the collision (nil when there is none); the second is a
+// failure to look the global server up.
+func (r *MCPServerReconciler) collidesWithGlobal(ctx context.Context, srv *MCPServer) (collision, lookupErr error) {
+	if srv.Namespace == systemNamespace {
+		return nil, nil
+	}
+	global := &MCPServer{}
+	getErr := r.Get(ctx, types.NamespacedName{Namespace: systemNamespace, Name: srv.Name}, global)
+	switch {
+	case apierrors.IsNotFound(getErr):
+		return nil, nil
+	case getErr != nil:
+		return nil, fmt.Errorf("get global MCPServer %q: %w", srv.Name, getErr)
+	}
+	// An invalid global server is not registered, so it does not hold the name.
+	if validateMCPServerSpec(global.Spec, global.Name, global.Namespace) != nil {
+		return nil, nil
+	}
+	return globalNameCollision(srv.Namespace, srv.Name, map[string]bool{srv.Name: true}), nil
+}
 
 // reconcilePolicies applies the policies fronting a server's workload, both in
 // the CR's namespace and owned by it: ingress admitting the tool-gateway, and an
