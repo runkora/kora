@@ -1,6 +1,6 @@
 # Generic Webhook Source
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-10-27  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [Generic Webhook Source PRD](../prd/generic-webhook-source.md)

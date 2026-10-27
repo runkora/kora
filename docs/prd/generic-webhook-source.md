@@ -1,6 +1,6 @@
 # Generic Webhook Source - Product Requirements Document
 
-**Status:** In Review  
+**Status:** Implemented  
 **Created:** 2026-10-27  
 **Last Updated:** 2026-10-27  
 **Owner:** Justin Wilkin  
