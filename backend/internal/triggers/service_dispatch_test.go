@@ -469,3 +469,52 @@ func TestAdmission_Wait_LogsEviction(t *testing.T) {
 		t.Fatal("no eviction was logged")
 	}
 }
+
+// ─── Token mint retry ────────────────────────────────────────────────────────
+
+// A mint call that times out once is a mesh blip, not a failed fire.
+func TestDispatchPending_MintTimeoutOnce_StillStartsRun(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+	ids := enqueue(t, svc, deps, trig, 1)
+	deps.minter.reset()
+	deps.minter.err = context.DeadlineExceeded
+	deps.minter.failFirst = 1
+
+	svc.DispatchPending(context.Background(), PendingDelivery{
+		ID: "p-1", TenantID: testTenant, TriggerID: trig.ID, DeliveryID: ids[0],
+	})
+
+	runs := deps.repo.deliveryRunsFor(ids[0])
+	if len(runs) != 1 || runs[0].Status != RunStatusDispatched {
+		t.Fatalf("outcomes = %+v, want one dispatched", runs)
+	}
+	if deps.agents.callCount() != 1 {
+		t.Errorf("run starts = %d, want 1", deps.agents.callCount())
+	}
+}
+
+// When the retries are used up, the outcome carries the mint error.
+func TestDispatchPending_MintKeepsFailing_OutcomeShowsMintError(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+	ids := enqueue(t, svc, deps, trig, 1)
+	deps.minter.err = errors.New("mint call: context deadline exceeded")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	svc.DispatchPending(ctx, PendingDelivery{
+		ID: "p-1", TenantID: testTenant, TriggerID: trig.ID, DeliveryID: ids[0],
+	})
+
+	runs := deps.repo.deliveryRunsFor(ids[0])
+	if len(runs) != 1 || runs[0].Error == nil {
+		t.Fatalf("outcomes = %+v, want one failure", runs)
+	}
+	if want := "mint trigger token: mint call: context deadline exceeded"; *runs[0].Error != want {
+		t.Errorf("error = %q, want %q", *runs[0].Error, want)
+	}
+	if n := deps.minter.callCount(); n < 2 {
+		t.Errorf("mint calls = %d, want a retry", n)
+	}
+}
