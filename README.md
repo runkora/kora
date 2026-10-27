@@ -21,8 +21,16 @@ kora is not an agent framework, a model router, or an LLM wrapper. It runs the a
 
 ## Getting started
 
+- **Try kora locally:** [`make up`](https://github.com/runkora/examples/tree/main/quickstart) in [runkora/examples](https://github.com/runkora/examples) installs kora on a local k3d cluster and applies one of its examples.
 - **Run kora in a Kubernetes cluster:** Install it with the [deployment guide](docs/guides/deployment.md).
 - **Work on kora:** Get it running locally with the [local development guide](docs/contributing/local-development.md).
+
+## Agent factories
+
+In kora, an agent factory is a group of agents that are connected, each with a different role, and work towards a goal. A factory can be wired through various triggers, and include human gates to observe and interact with the factory at any step.
+
+- **[Autofix](https://github.com/runkora/examples/tree/main/factories/autofix):** Hunts for bugs, verifies issues and fixes them as pull requests.
+- **[SRE](https://github.com/runkora/examples/tree/main/factories/sre):** Triages alerts, proposes fixes as pull requests and sweeps the cluster's costs.
 
 ## Documentation
 
@@ -31,6 +39,7 @@ kora is not an agent framework, a model router, or an LLM wrapper. It runs the a
 - [Architecture](ARCHITECTURE.md): How kora works.
 - [Docs](https://runkora.dev): Comprehensive platform documentation.
 - [Contributing](CONTRIBUTING.md): Start here if you want to contribute.
+- [Examples](https://github.com/runkora/examples): Try kora locally with the quickstart examples.
 
 ## Community
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"strings"
 	"testing"
@@ -59,9 +60,7 @@ func issueIDTokenWithClaims(t *testing.T, issuer string, key *rsa.PrivateKey, ex
 		"exp": now.Add(5 * time.Minute).Unix(), "iat": now.Unix(),
 		"email": "alice@acme.com",
 	}
-	for k, v := range extra {
-		claims[k] = v
-	}
+	maps.Copy(claims, extra)
 	signed, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(key)
 	if err != nil {
 		t.Fatalf("sign: %v", err)
