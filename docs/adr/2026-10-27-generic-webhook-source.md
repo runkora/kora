@@ -98,7 +98,9 @@ The fields are as follows:
 - `verification.method` is required and is one of `bearer`, `hmac_sha256` or `standard_webhooks`.
 - `verification.header`, `verification.prefix` and `verification.encoding` apply only to `hmac_sha256`. `header` is required and must be a valid HTTP header name. `prefix` is optional and at most 32 bytes. `encoding` is `hex` or `base64` and defaults to `hex`.
 - `event_type` is optional and holds exactly one of `header` or `path`. A `path` uses the same dotted segment grammar as template placeholders.
-- Any other key is refused.
+- An `event_type.header` cannot be `Authorization`, the configured signature header or a `webhook-*` header.
+- `header`, `prefix` and `encoding` are refused on `bearer` and `standard_webhooks`.
+- A key that is not listed here, or that differs from a listed key only in case, is refused.
 
 `ValidateConfig` runs on API create and on every declared `Apply`, through the shared `validateSourceCreate` path. A `TriggerSource` with the same config in `spec.config` produces the same source:
 
