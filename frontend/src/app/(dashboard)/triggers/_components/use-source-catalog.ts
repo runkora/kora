@@ -20,10 +20,13 @@ import {
   fetchProviderEventTypes,
   fetchProviderFields,
 } from '../_services/triggers-api';
+import { GENERIC_EVENT_TYPE, GENERIC_PROVIDER } from '../_lib/generic-source';
 
 export interface SourceCatalog {
   declared: string[];
   observed: string[];
+  /** The event types arrived and the schema declares none: event types and fields are typed. */
+  schemaless: boolean;
   /** The roles a sender restriction may name; empty when the provider reports none. */
   roles: SenderRole[];
   /** Whether the provider says who caused an event, so a sender restriction applies. */
@@ -54,7 +57,9 @@ export function useSourceCatalog(
   const [types, setTypes] = useState<Answer<TriggerEventTypes | null> | null>(null);
   const [fields, setFields] = useState<Answer<TriggerField[]> | null>(null);
   const typesKey = sourceId ? `source/${sourceId}` : provider ? `provider/${provider}` : '';
-  const fieldsKey = provider && eventType ? `${provider}/${eventType}` : '';
+  // A generic source has only the meta fields, whatever the event, so typing does not refetch.
+  const fieldsEvent = provider === GENERIC_PROVIDER ? GENERIC_EVENT_TYPE : eventType;
+  const fieldsKey = provider && fieldsEvent ? `${provider}/${fieldsEvent}` : '';
 
   useEffect(() => {
     if (!typesKey) return;
@@ -72,19 +77,26 @@ export function useSourceCatalog(
   useEffect(() => {
     if (!fieldsKey) return;
     let live = true;
-    void fetchProviderFields(provider, eventType).then((res) => {
+    void fetchProviderFields(provider, fieldsEvent).then((res) => {
       if (live) setFields({ key: fieldsKey, value: res.fields, error: res.error });
     });
     return () => {
       live = false;
     };
-  }, [fieldsKey, provider, eventType]);
+  }, [fieldsKey, provider, fieldsEvent]);
 
   const currentTypes = types !== null && types.key === typesKey ? types : null;
   const currentFields = fields !== null && fields.key === fieldsKey ? fields : null;
   return {
     declared: currentTypes?.value?.declared ?? [],
     observed: currentTypes?.value?.observed ?? [],
+    // Known from the provider for a generic source, so a slow or failed answer still takes typing.
+    schemaless:
+      provider === GENERIC_PROVIDER ||
+      (currentTypes !== null &&
+        currentTypes.value !== null &&
+        // A Go nil slice arrives as null.
+        (currentTypes.value.declared ?? []).length === 0),
     roles: currentTypes?.value?.senders?.roles ?? [],
     identifiesSenders: currentTypes?.value?.senders !== undefined,
     fields: currentFields?.value ?? [],

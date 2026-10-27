@@ -58,6 +58,23 @@ describe('webhook drafts', () => {
     });
   });
 
+  it("sends a new generic source's config and pasted secret", async () => {
+    mockCreateSource.mockResolvedValue({ source: { id: 'src-9' }, error: null } as never);
+    const config = { verification: { method: 'standard_webhooks' } };
+    await createFromWizardDraft(
+      draft({
+        source: { newName: 'linear', provider: 'generic', config, signingSecret: 'whsec_x' },
+      }),
+      OPTIONS,
+    );
+    expect(mockCreateSource).toHaveBeenCalledWith({
+      name: 'linear',
+      provider: 'generic',
+      config,
+      signing_secret: 'whsec_x',
+    });
+  });
+
   it('sends the sender restriction when the draft carries one, and omits it otherwise', async () => {
     await createFromWizardDraft(
       draft({ senderRestriction: { ids: ['octocat'], roles: ['MEMBER'] } }),

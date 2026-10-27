@@ -21,6 +21,9 @@ const ALERT_FIELDS: TriggerField[] = [
   { path: 'status', group: 'event', description: 'firing or resolved' },
   { path: 'commonLabels.<name>', group: 'commonLabels', description: 'A label', pattern: true },
 ];
+const GENERIC_FIELDS: TriggerField[] = [
+  { path: 'meta.event_type', group: 'meta', description: 'The event type' },
+];
 const api = vi.hoisted(() => ({
   fetchEventTypes: vi.fn(),
   fetchProviderEventTypes: vi.fn(),
@@ -55,6 +58,13 @@ const ALERTS: TriggerWizardSource = {
   provider: 'alertmanager',
   category: 'webhook',
 };
+const GENERIC: TriggerWizardSource = {
+  id: 'src-4',
+  name: 'linear',
+  provider: 'generic',
+  category: 'webhook',
+  config: { verification: { method: 'hmac_sha256', header: 'Linear-Signature' } },
+};
 const SLACK: TriggerWizardSource = {
   id: 'src-3',
   name: 'acme slack',
@@ -75,6 +85,7 @@ const PROVIDER_EVENT_TYPES: Record<string, TriggerEventTypes> = {
     },
   },
   alertmanager: { declared: ['alert.firing'], category: 'webhook' },
+  generic: { declared: [], category: 'webhook' },
   slack: { declared: ['mention', 'direct_message'], category: 'chat', senders: { roles: [] } },
 };
 
@@ -88,18 +99,22 @@ beforeEach(() => {
     eventTypes:
       sourceId === 'src-2'
         ? PROVIDER_EVENT_TYPES.alertmanager
-        : sourceId === 'src-3'
-          ? PROVIDER_EVENT_TYPES.slack
-          : { ...PROVIDER_EVENT_TYPES.github, observed: ['custom'] },
+        : sourceId === GENERIC.id
+          ? { declared: [], observed: ['issue.created'], category: 'webhook' }
+          : sourceId === 'src-3'
+            ? PROVIDER_EVENT_TYPES.slack
+            : { ...PROVIDER_EVENT_TYPES.github, observed: ['custom'] },
     error: null,
   }));
   api.fetchProviderFields.mockImplementation(async (provider: string, eventType: string) => ({
     fields:
       provider === 'alertmanager'
         ? ALERT_FIELDS
-        : provider === 'slack'
-          ? CHAT_FIELDS
-          : (GITHUB_FIELDS[eventType] ?? []),
+        : provider === 'generic'
+          ? GENERIC_FIELDS
+          : provider === 'slack'
+            ? CHAT_FIELDS
+            : (GITHUB_FIELDS[eventType] ?? []),
     error: null,
   }));
 });
@@ -606,6 +621,159 @@ describe('chat command kind', () => {
     expect(onCreate.mock.calls[0]![0].source).toEqual({ existingId: 'src-new' });
     expect(onCreate.mock.calls[1]![0].source).toEqual({ existingId: 'src-new' });
     expect(api.createSource).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('generic webhook source', () => {
+  function fillNameAndPrompt() {
+    fireEvent.change(screen.getByLabelText(/Trigger name/), { target: { value: 'linear' } });
+    const prompt = screen.getByRole('textbox', { name: 'Prompt' });
+    prompt.textContent = 'Triage {{ data.title }}';
+    fireEvent.input(prompt);
+  }
+
+  async function chooseGeneric() {
+    fireEvent.click(screen.getByText('New source'));
+    fireEvent.change(screen.getByLabelText(/Source name/), { target: { value: 'linear' } });
+    fireEvent.click(await screen.findByText('Generic webhook'));
+  }
+
+  const continueButton = () => screen.getByRole('button', { name: /Continue/ });
+
+  it('asks for the signature header, prefix and encoding of an HMAC source', async () => {
+    renderWizard('webhook', []);
+    fillNameAndPrompt();
+    await chooseGeneric();
+    expect(screen.getByText('Verification')).toBeTruthy();
+    expect(screen.getByText('Choose how deliveries are verified.')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('HMAC-SHA256'));
+    expect(screen.getByText('Name the header that carries the signature.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Signature header/), {
+      target: { value: 'Linear-Signature' },
+    });
+    expect(screen.getByLabelText(/Prefix/)).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Encoding' })).toBeTruthy();
+    expect(continueButton().hasAttribute('disabled')).toBe(false);
+  });
+
+  it('offers to generate or paste the secret, and asks for a pasted one', async () => {
+    renderWizard('webhook', []);
+    fillNameAndPrompt();
+    await chooseGeneric();
+    fireEvent.click(screen.getByText('Standard Webhooks'));
+    expect(screen.queryByLabelText(/^Secret/)).toBeNull();
+
+    fireEvent.click(screen.getByText("Paste the sender's secret"));
+    expect(screen.getByText("Paste the sender's signing secret.")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/^Secret/), { target: { value: 'whsec_abc' } });
+    expect(continueButton().hasAttribute('disabled')).toBe(false);
+  });
+
+  it('always generates a bearer token', async () => {
+    renderWizard('webhook', []);
+    await chooseGeneric();
+    fireEvent.click(screen.getByText('Bearer token'));
+    expect(screen.queryByText("Paste the sender's secret")).toBeNull();
+    expect(screen.getByText(/generates the token and shows it once/)).toBeTruthy();
+  });
+
+  it('starts on the event type webhook and takes a typed one once a location is set', async () => {
+    renderWizard('webhook', []);
+    await chooseGeneric();
+    const eventType = () => screen.getByRole('textbox', { name: 'Event type' });
+    await waitFor(() => expect(eventType()).toHaveValue('webhook'));
+
+    fireEvent.click(screen.getByText('Payload field'));
+    expect(eventType()).toHaveValue('');
+    fireEvent.change(screen.getByLabelText('Event type field'), { target: { value: 'type' } });
+    fireEvent.change(eventType(), { target: { value: 'Issue' } });
+    expect(eventType()).toHaveValue('Issue');
+  });
+
+  it('starts an existing generic source with no event type location on webhook', async () => {
+    renderWizard('webhook', [{ ...GENERIC, config: { verification: { method: 'bearer' } } }]);
+    expect(await screen.findByRole('textbox', { name: 'Event type' })).toHaveValue('webhook');
+  });
+
+  it('suggests the event types an existing source has received', async () => {
+    renderWizard('webhook', [GENERIC]);
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Event type' }), {
+      target: { value: 'x' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Suggestions for event type' }));
+    fireEvent.click(await screen.findByText('issue.created'));
+    expect(screen.getByRole('textbox', { name: 'Event type' })).toHaveValue('issue.created');
+  });
+
+  it('takes a typed filter field and refuses one that is not a path', async () => {
+    renderWizard('webhook', [GENERIC]);
+    fillNameAndPrompt();
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Event type' }), {
+      target: { value: 'Issue' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Add filter/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter 1 field' }), {
+      target: { value: 'data.state name' },
+    });
+    fireEvent.change(screen.getByLabelText('Filter 1 values'), { target: { value: 'open' } });
+    expect(screen.getByText(/data.state name is not a field path/)).toBeTruthy();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter 1 field' }), {
+      target: { value: 'data.state' },
+    });
+    expect(continueButton().hasAttribute('disabled')).toBe(false);
+  });
+
+  it('offers no sender restriction', async () => {
+    renderWizard('webhook', [GENERIC]);
+    await screen.findByRole('textbox', { name: 'Event type' });
+    expect(screen.queryByText('Senders')).toBeNull();
+  });
+
+  it('sends the config and the pasted secret with the new source', async () => {
+    const onCreate = vi.fn().mockResolvedValue({ ok: true, triggerId: 'trg-1' });
+    renderWizard('webhook', [], onCreate);
+    fillNameAndPrompt();
+    await chooseGeneric();
+    fireEvent.click(screen.getByText('HMAC-SHA256'));
+    fireEvent.change(screen.getByLabelText(/Signature header/), { target: { value: 'X-Sig' } });
+    fireEvent.change(screen.getByLabelText(/Prefix/), { target: { value: 'sha256=' } });
+    fireEvent.click(screen.getByText("Paste the sender's secret"));
+    fireEvent.change(screen.getByLabelText(/^Secret/), { target: { value: ' s3cret ' } });
+    fireEvent.click(screen.getByText('Header'));
+    fireEvent.change(screen.getByLabelText('Event type header'), {
+      target: { value: 'X-Event-Key' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Event type' }), {
+      target: { value: 'Issue' },
+    });
+    fireEvent.click(continueButton());
+    fireEvent.click(screen.getByRole('radio', { name: 'Coder' }));
+    fireEvent.click(continueButton());
+    fireEvent.click(continueButton());
+    expect(screen.getByText('HMAC-SHA256, pasted secret')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Create trigger/ }));
+
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'Issue',
+        source: {
+          newName: 'linear',
+          provider: 'generic',
+          config: {
+            verification: {
+              method: 'hmac_sha256',
+              header: 'X-Sig',
+              prefix: 'sha256=',
+              encoding: 'hex',
+            },
+            event_type: { header: 'X-Event-Key' },
+          },
+          signingSecret: 's3cret',
+        },
+      }),
+    );
   });
 });
 

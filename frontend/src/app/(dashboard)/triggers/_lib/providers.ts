@@ -6,6 +6,7 @@
 
 import type { IconName } from '@runkora/hades';
 import type { SourceCategory } from '../_types';
+import { GENERIC_PROVIDER } from './generic-source';
 import { SLACK_PROVIDER } from './slack-app-manifest';
 
 export const PROVIDERS: { id: string; name: string; description: string; icon: IconName }[] = [
@@ -20,6 +21,13 @@ export const PROVIDERS: { id: string; name: string; description: string; icon: I
     name: 'Prometheus Alertmanager',
     description: 'Alert notifications, verified by bearer token.',
     icon: 'bell',
+  },
+  {
+    id: GENERIC_PROVIDER,
+    name: 'Generic webhook',
+    description:
+      'Any system that signs webhooks with a bearer token, HMAC-SHA256 or Standard Webhooks.',
+    icon: 'webhook',
   },
   {
     id: SLACK_PROVIDER,

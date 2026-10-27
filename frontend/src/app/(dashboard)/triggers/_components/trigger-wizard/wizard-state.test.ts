@@ -330,6 +330,14 @@ describe('validateFilters', () => {
 
     expect(validateFilters([{ field: '', values: 'opened' }]).valid).toBe(false);
   });
+
+  it('blocks a typed field that is not a dotted path', () => {
+    expect(validateFilters([{ field: 'data..state', values: 'open' }])).toEqual({
+      valid: false,
+      hint: 'data..state is not a field path. Use dotted names, such as data.issue.title.',
+    });
+    expect(validateFilters([{ field: 'data.issue_2.state', values: 'open' }]).valid).toBe(true);
+  });
 });
 
 describe('describeMatchCondition', () => {

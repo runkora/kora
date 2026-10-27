@@ -58,6 +58,17 @@ import {
 } from '../../../_lib/chat';
 import { PROVIDER_IDS, PROVIDERS, providerName, SENDER_ID_EXAMPLE } from '../../../_lib/providers';
 import { SLACK_PROVIDER, slackAppManifest } from '../../../_lib/slack-app-manifest';
+import {
+  defaultEventType,
+  fixedEventType,
+  GENERIC_EVENT_TYPE,
+  GENERIC_PROVIDER,
+  genericConfigFrom,
+  genericDraftHint,
+  pastesSecret,
+  VERIFICATION_METHODS,
+} from '../../../_lib/generic-source';
+import { GenericSourceSetup } from './generic-source-setup';
 import { NEW_SOURCE } from '../types';
 import type {
   DoneContentProps,
@@ -136,6 +147,24 @@ function ownSources(context: WizardContext, category: SourceCategory) {
   return context.sources.filter((s) => s.category === category);
 }
 
+/**
+ * The event type a trigger starts with on a source: `webhook` for a generic
+ * source that has no event type location, since every delivery carries it.
+ */
+function startingEventType(
+  state: WizardState,
+  sources: { id: string; provider: string; config?: Record<string, unknown> }[],
+  sourceChoice: string,
+  provider: string,
+): string {
+  if (sourceChoice === NEW_SOURCE)
+    return provider === GENERIC_PROVIDER
+      ? defaultEventType(state.newSourceGeneric.eventLocation)
+      : '';
+  const source = sources.find((s) => s.id === sourceChoice);
+  return source === undefined ? '' : (fixedEventType(source.provider, source.config) ?? '');
+}
+
 function categoryOf(definition: TriggerKindDefinition): SourceCategory {
   return definition.sourceCategory ?? 'webhook';
 }
@@ -154,6 +183,21 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
     state.eventType,
   );
   const fields = schemaCatalog(catalog.fields);
+  // A generic source has no schema: event types and field paths are typed.
+  const schemaless = category === 'webhook' && catalog.schemaless;
+  const chooseSource = (sourceChoice: string) =>
+    patch({
+      sourceChoice,
+      ...RESET_EVENT,
+      eventType: startingEventType(state, sources, sourceChoice, state.newSourceProvider),
+    });
+  const chooseProvider = (provider: string) =>
+    patch({
+      newSourceProvider: provider,
+      newSourceSecret: '',
+      ...RESET_EVENT,
+      eventType: startingEventType(state, sources, NEW_SOURCE, provider),
+    });
   const loadedPaths = catalog.fieldsReady ? catalog.fields.map((f) => f.path).join('\n') : null;
 
   // A chat trigger's fields are checked before create, since the backend
@@ -201,7 +245,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
         </Stack>
         <RadioGroup
           value={state.sourceChoice}
-          onValueChange={(v) => patch({ sourceChoice: v, ...RESET_EVENT })}
+          onValueChange={chooseSource}
           aria-label={copy.sourceLabel}
         >
           <Grid cols={2} gap="cozy">
@@ -210,7 +254,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
                 key={s.id}
                 value={s.id}
                 selected={state.sourceChoice === s.id}
-                onSelect={(v) => patch({ sourceChoice: v, ...RESET_EVENT })}
+                onSelect={chooseSource}
                 icon={definition.icon}
                 title={s.name}
                 description={
@@ -223,7 +267,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
             <RadioCard
               value={NEW_SOURCE}
               selected={state.sourceChoice === NEW_SOURCE}
-              onSelect={(v) => patch({ sourceChoice: v, ...RESET_EVENT })}
+              onSelect={chooseSource}
               icon="plus"
               title="New source"
               description={copy.newSourceHelp}
@@ -259,7 +303,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
             <SectionLabel>{copy.providerLabel}</SectionLabel>
             <RadioGroup
               value={state.newSourceProvider}
-              onValueChange={(v) => patch({ newSourceProvider: v, ...RESET_EVENT })}
+              onValueChange={chooseProvider}
               aria-label={copy.providerLabel}
               disabled={state.newSourceCreated !== null}
             >
@@ -269,7 +313,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
                     key={p.id}
                     value={p.id}
                     selected={state.newSourceProvider === p.id}
-                    onSelect={(v) => patch({ newSourceProvider: v, ...RESET_EVENT })}
+                    onSelect={chooseProvider}
                     icon={p.icon}
                     title={p.name}
                     description={p.description}
@@ -308,6 +352,21 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
           {state.newSourceProvider === SLACK_PROVIDER && (
             <SlackAppSetup state={state} patch={patch} ingestHost={ingestHost} />
           )}
+          {state.newSourceProvider === GENERIC_PROVIDER && (
+            <GenericSourceSetup
+              draft={state.newSourceGeneric}
+              onChange={(next) =>
+                patch({
+                  newSourceGeneric: next,
+                  ...(next.eventLocation !== state.newSourceGeneric.eventLocation && {
+                    eventType: defaultEventType(next.eventLocation),
+                  }),
+                })
+              }
+              secret={state.newSourceSecret}
+              onSecretChange={(newSourceSecret) => patch({ newSourceSecret })}
+            />
+          )}
         </Stack>
       )}
 
@@ -331,15 +390,21 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
         ) : (
           <>
             <Text size="caption" color="subtle">
-              The event type this trigger listens for, from the provider&apos;s published schema.
+              {schemaless
+                ? 'The event type this trigger listens for, as the sender names it. Types this source has received are suggested.'
+                : 'The event type this trigger listens for, from the provider’s published schema.'}
             </Text>
             <CatalogPicker
               aria-label="Event type"
               value={state.eventType}
-              placeholder="Choose an event"
+              placeholder={schemaless ? GENERIC_EVENT_TYPE : 'Choose an event'}
               catalog={eventTypeCatalog(catalog.declared, catalog.observed)}
               searchPlaceholder="Search events…"
-              onSelect={(eventType) => patch({ eventType, filters: [] })}
+              freeText={schemaless}
+              // With no schema the fields do not depend on the event, so typing keeps the filters.
+              onSelect={(eventType) =>
+                patch(schemaless ? { eventType } : { eventType, filters: [] })
+              }
             />
           </>
         )}
@@ -356,6 +421,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
         <FilterRowsEditor
           rows={state.filters}
           fields={fields}
+          freeText={schemaless}
           onChange={(filters) => patch({ filters })}
         />
       </Stack>
@@ -374,9 +440,11 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
         hint="What the run starts with. Delivery values follow it in a block marked as untrusted data."
         catalog={fields}
         catalogLabel={
-          state.eventType
-            ? `Fields on ${eventName} ${copy.arrivals}.`
-            : 'Choose an event to see its fields.'
+          schemaless
+            ? 'Delivery metadata. Type any payload path, such as {{ data.issue.title }}.'
+            : state.eventType
+              ? `Fields on ${eventName} ${copy.arrivals}.`
+              : 'Choose an event to see its fields.'
         }
         placeholder={copy.promptPlaceholder}
       />
@@ -396,6 +464,10 @@ function validateSource(category: SourceCategory) {
             valid: false,
             hint: category === 'chat' ? 'Choose a platform.' : 'Choose a provider.',
           };
+        if (s.newSourceProvider === GENERIC_PROVIDER) {
+          const hint = genericDraftHint(s.newSourceGeneric, s.newSourceSecret);
+          if (hint !== undefined) return { valid: false, hint };
+        }
         if (s.newSourceProvider === SLACK_PROVIDER) {
           if (s.newSourceCreated === null)
             return { valid: false, hint: 'Create the source to get its request URL.' };
@@ -610,8 +682,12 @@ function ChatDoneContent({ state, context, endpoint }: DoneContentProps) {
   );
 }
 
-function WebhookDoneContent({ context, endpoint, secret }: DoneContentProps) {
+function WebhookDoneContent({ state, context, endpoint, secret }: DoneContentProps) {
   if (!endpoint) return null;
+  const pasted =
+    state.sourceChoice === NEW_SOURCE &&
+    state.newSourceProvider === GENERIC_PROVIDER &&
+    pastesSecret(state.newSourceGeneric);
   return (
     <Stack gap="snug" minWidth="prose" maxWidth="prose">
       <FieldRow
@@ -655,8 +731,9 @@ function WebhookDoneContent({ context, endpoint, secret }: DoneContentProps) {
         </>
       ) : (
         <Text size="caption" color="subtle" align="center">
-          Add this URL and content type to your provider&apos;s webhook settings on{' '}
-          {context.ingestHost}. The signing secret was shown when the source was created.
+          {pasted
+            ? 'Add this URL and content type to your sender’s webhook settings. Deliveries are verified with the secret you pasted.'
+            : `Add this URL and content type to your provider’s webhook settings on ${context.ingestHost}. The signing secret was shown when the source was created.`}
         </Text>
       )}
     </Stack>
@@ -700,6 +777,13 @@ function sourceKind(
           ? { key: 'Event', value: chatEventLabel(state.eventType) }
           : { key: 'Event', value: state.eventType, mono: true },
       ];
+      if (state.sourceChoice === NEW_SOURCE && state.newSourceProvider === GENERIC_PROVIDER) {
+        const method = VERIFICATION_METHODS.find((m) => m.value === state.newSourceGeneric.method);
+        rows.push({
+          key: 'Verification',
+          value: `${method?.title ?? '—'}, ${pastesSecret(state.newSourceGeneric) ? 'pasted secret' : 'generated secret'}`,
+        });
+      }
       const filters = describeMatchCondition(state.filters);
       if (filters) rows.push({ key: 'Filters', value: filters, mono: true });
       const senders = [...splitIds(state.senders.ids), ...state.senders.roles];
@@ -721,7 +805,16 @@ function sourceKind(
             : state.newSourceCreated !== null
               ? // The source step already created it.
                 { existingId: state.newSourceCreated.id }
-              : { newName: state.newSourceName.trim(), provider: state.newSourceProvider },
+              : {
+                  newName: state.newSourceName.trim(),
+                  provider: state.newSourceProvider,
+                  ...(state.newSourceProvider === GENERIC_PROVIDER && {
+                    config: genericConfigFrom(state.newSourceGeneric),
+                    ...(pastesSecret(state.newSourceGeneric) && {
+                      signingSecret: state.newSourceSecret.trim(),
+                    }),
+                  }),
+                },
         eventType: state.eventType,
         ...(matchCondition ? { matchCondition } : {}),
         ...(matchContains ? { matchContains } : {}),
@@ -738,7 +831,7 @@ export const webhookKind: TriggerKindDefinition = {
   title: 'Webhook',
   description: (productName) =>
     `An external service posts a signed event to your ${productName} endpoint.`,
-  example: 'GitHub · Alertmanager',
+  example: 'GitHub · Alertmanager · Generic',
   ...sourceKind('webhook'),
   doneContent: WebhookDoneContent,
 };

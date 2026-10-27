@@ -45,14 +45,17 @@ const catalogRoutes: MockRoutes = {
   },
   'GET /api/trigger-providers/:provider/event-types': (req: MockRequest) =>
     providerEventTypes(segmentAfter(req, 'trigger-providers')),
-  'GET /api/trigger-providers/:provider/fields': (req: MockRequest) => ({
-    data: {
-      fields:
-        EVENT_TYPES_BY_PROVIDER[segmentAfter(req, 'trigger-providers')]?.category === 'chat'
-          ? CHAT_FIELDS
-          : PULL_REQUEST_FIELDS,
-    },
-  }),
+  'GET /api/trigger-providers/:provider/fields': (req: MockRequest) => {
+    const provider = segmentAfter(req, 'trigger-providers');
+    const fields =
+      EVENT_TYPES_BY_PROVIDER[provider]?.category === 'chat' ? CHAT_FIELDS : PULL_REQUEST_FIELDS;
+    // A generic source has only the meta fields.
+    return {
+      data: {
+        fields: provider === 'generic' ? fields.filter((f) => f.path.startsWith('meta.')) : fields,
+      },
+    };
+  },
   'POST /api/triggers/schedule-preview': { data: SCHEDULE_PREVIEW },
   'POST /api/triggers': (req: MockRequest) => ({
     data: { id: 'trg_created01', ...(req.body as object) },
@@ -224,6 +227,23 @@ export const WizardWebhook: Story = {
       await within(canvasElement).findByRole('button', { name: /New trigger/ }),
     );
     await userEvent.click(await within(document.body).findByRole('radio', { name: /Webhook/ }));
+  },
+};
+
+/** A new generic webhook source, verified by HMAC with a secret the sender issued. */
+export const WizardGenericSource: Story = {
+  decorators: frame,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      await within(canvasElement).findByRole('button', { name: /New trigger/ }),
+    );
+    const body = within(document.body);
+    await userEvent.click(await body.findByRole('radio', { name: /Webhook/ }));
+    await userEvent.click(await body.findByText('New source'));
+    await userEvent.click(await body.findByText('Generic webhook'));
+    await userEvent.click(await body.findByText('HMAC-SHA256'));
+    await userEvent.type(await body.findByLabelText(/Signature header/), 'X-Signature');
+    await userEvent.click(await body.findByText("Paste the sender's secret"));
   },
 };
 
