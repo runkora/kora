@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -111,14 +112,44 @@ func parseGenericConfig(config map[string]any) (genericConfig, error) {
 	if err := dec.Decode(&cfg); err != nil {
 		return cfg, fmt.Errorf("%w: config: %w", ErrValidation, err)
 	}
+	if err := checkGenericKeys(config); err != nil {
+		return cfg, err
+	}
 	if err := validateGenericVerification(cfg.Verification); err != nil {
 		return cfg, err
 	}
-	if err := validateGenericEventType(cfg.EventType); err != nil {
+	if err := validateGenericEventType(cfg.EventType, cfg.Verification.Header); err != nil {
 		return cfg, err
 	}
 	return cfg, nil
 }
+
+// genericKeys are the exact keys each config object takes. The JSON decoder
+// matches keys without case, and the stored config must read as it runs.
+var genericKeys = map[string][]string{
+	"verification": {"method", "header", "prefix", "encoding"},
+	"event_type":   {"header", "path"},
+}
+
+// checkGenericKeys refuses a key that is not spelled exactly as genericKeys lists it.
+func checkGenericKeys(config map[string]any) error {
+	for key, value := range config {
+		allowed, ok := genericKeys[key]
+		if !ok {
+			return fmt.Errorf("%w: config.%s is not a known key", ErrValidation, key)
+		}
+		nested, _ := value.(map[string]any)
+		for k := range nested {
+			if !slices.Contains(allowed, k) {
+				return fmt.Errorf("%w: config.%s.%s is not a known key", ErrValidation, key, k)
+			}
+		}
+	}
+	return nil
+}
+
+// reservedEventTypeHeaders carry credentials or signatures and must not become a stored event type.
+var reservedEventTypeHeaders = []string{"Authorization", "Webhook-Id", "Webhook-Timestamp", "Webhook-Signature"}
 
 func validateGenericVerification(v *genericVerification) error {
 	if v == nil {
@@ -151,11 +182,14 @@ func validateGenericVerification(v *genericVerification) error {
 	return nil
 }
 
-func validateGenericEventType(e *genericEventType) error {
+func validateGenericEventType(e *genericEventType, signatureHeader string) error {
 	if e == nil {
 		return nil
 	}
+	reserved := append(slices.Clone(reservedEventTypeHeaders), http.CanonicalHeaderKey(signatureHeader))
 	switch {
+	case e.Header != "" && slices.Contains(reserved, http.CanonicalHeaderKey(e.Header)):
+		return fmt.Errorf("%w: config.event_type.header must not name a credential or signature header", ErrValidation)
 	case (e.Header == "") == (e.Path == ""):
 		return fmt.Errorf("%w: config.event_type needs exactly one of header or path", ErrValidation)
 	case e.Header != "" && !headerNamePattern.MatchString(e.Header):

@@ -99,6 +99,11 @@ func TestGenericConfig_Validation(t *testing.T) {
 		"event type bad path":   {"verification": map[string]any{"method": genericBearer}, "event_type": map[string]any{"path": "data..type"}},
 		"event type bad header": {"verification": map[string]any{"method": genericBearer}, "event_type": map[string]any{"header": "X:E"}},
 		"wrong value type":      {"verification": map[string]any{"method": 7}},
+		"key in other case":     {"Verification": map[string]any{"METHOD": genericBearer}},
+		"duplicate key by case": {"verification": map[string]any{"method": genericHMACSHA256, "header": "X-Real", "Header": "X-Other"}},
+		"event type from auth":  {"verification": map[string]any{"method": genericBearer}, "event_type": map[string]any{"header": "authorization"}},
+		"event type from sig":   {"verification": map[string]any{"method": genericHMACSHA256, "header": "X-Signature"}, "event_type": map[string]any{"header": "x-signature"}},
+		"event type from std":   {"verification": map[string]any{"method": genericStandardWebhooks}, "event_type": map[string]any{"header": "Webhook-Id"}},
 	}
 	for name, c := range invalid {
 		if err := a.ValidateConfig(c); !errors.Is(err, ErrValidation) {
