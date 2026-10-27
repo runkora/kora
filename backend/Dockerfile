@@ -57,7 +57,7 @@ RUN mkdir -p /configs && \
     done
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
+FROM alpine:3.23@sha256:ff7f0c727dd796aa36787bfcd9a64bf35a6ce72a73451b3359fde849b6703d63
 
 # Non-root user matching the chart securityContext (runAsUser: 65532,
 # runAsNonRoot: true, per charts/kora/templates/*/deployment.yaml). Baking the

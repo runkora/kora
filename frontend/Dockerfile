@@ -22,7 +22,7 @@
 # deps and builder run on the build platform, and only the runner stage builds
 # per target. The standalone output traces sharp for /_next/image, so pnpm
 # installs its linux musl binaries for both image architectures.
-FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS deps
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS deps
 
 WORKDIR /app
 
@@ -92,7 +92,7 @@ RUN node scripts/bundle-validate-theme.mjs
 
 # ── Stage 3: runner ───────────────────────────────────────────────────────────
 # Minimal production image — only the standalone output, static assets, and public dir.
-FROM node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS runner
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runner
 
 WORKDIR /app
 

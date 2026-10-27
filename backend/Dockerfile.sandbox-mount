@@ -20,7 +20,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /kora ./cmd/sandbox-mount
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
+FROM alpine:3.23@sha256:ff7f0c727dd796aa36787bfcd9a64bf35a6ce72a73451b3359fde849b6703d63
 
 # Runs as root: the agent mounts filesystems and starts the kernel NFS server.
 RUN apk add --no-cache nfs-utils && mkdir -p /var/lib/nfs /exports
