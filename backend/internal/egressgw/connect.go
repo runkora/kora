@@ -9,6 +9,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"regexp"
+	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -144,10 +146,12 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// intercepted and credential-brokered (below); every other port is a raw,
 	// authorized TCP relay. The sandbox OPA already gated the destination, so
 	// the gateway lets it through. See shouldIntercept and serveRelay.
-	host, port, splitErr := net.SplitHostPort(r.Host)
-	if splitErr != nil {
-		// CONNECT normally carries "host:port"; tolerate a bare host as HTTPS.
-		host, port = r.Host, "443"
+	host, port, ok := parseConnectAuthority(r)
+	if !ok {
+		platformapi.ErrorResponse(ctx, w, h.logger,
+			platformapi.BadRequestError(platformapi.ErrCodeValidationFailed,
+				"CONNECT target must be host:port", nil), nil)
+		return
 	}
 	if !h.shouldIntercept(ctx, tenantID, r.Host, port) {
 		h.serveRelay(ctx, w, claims, host, port)
@@ -464,3 +468,28 @@ func (w *connectResponseWriter) finish() error {
 // Hijack is intentionally absent: the inner ProxyHandler must not hijack the
 // tunneled TLS conn. Streaming inner handlers use Flush instead.
 var _ http.ResponseWriter = (*connectResponseWriter)(nil)
+
+// dnsName matches a DNS hostname or a dotted IPv4 address: dot-separated
+// labels of letters, digits and inner hyphens. The sandbox OPA uses the same.
+var dnsName = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$`)
+
+// parseConnectAuthority returns the CONNECT target only when it is exactly a
+// hostname or IPv4 address and one port, the shape the sandbox OPA accepts.
+// The sandbox controls the SNI that becomes this authority, so userinfo or
+// extra separators are refused rather than read differently from the OPA.
+func parseConnectAuthority(r *http.Request) (host, port string, ok bool) {
+	if r.URL != nil && r.URL.User != nil {
+		return "", "", false
+	}
+	host, port, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		return "", "", false
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 || strconv.Itoa(n) != port {
+		return "", "", false
+	}
+	if !dnsName.MatchString(host) {
+		return "", "", false
+	}
+	return host, port, true
+}

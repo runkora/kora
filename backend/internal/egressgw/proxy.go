@@ -133,9 +133,11 @@ func (p *ProxyHandler) forward(w http.ResponseWriter, r *http.Request, upstream 
 				logging.Field{Key: "upstream", Value: upstream.String()},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
-			platformapi.ErrorResponse(req.Context(), rw, p.logger,
-				platformapi.ServiceUnavailableError(platformapi.ErrCodeServiceUnavailable, "upstream call failed", nil),
-				err)
+			apiErr := platformapi.ServiceUnavailableError(platformapi.ErrCodeServiceUnavailable, "upstream call failed", nil)
+			if errors.Is(err, ErrLocalTarget) {
+				apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, "egress target not allowed", nil)
+			}
+			platformapi.ErrorResponse(req.Context(), rw, p.logger, apiErr, err)
 		},
 	}
 	rp.ServeHTTP(w, r)

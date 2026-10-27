@@ -40,14 +40,17 @@
 # OPA-gated, in two places:
 #   - :443 (patch 3/4) tunnels using the TLS SNI as the CONNECT host, so
 #     hostname posture (*.example.com) works for HTTPS.
-#   - every other port (patch 5) is the virtualOutbound catch-all: it tunnels
+#   - TLS with an SNI on a port without a dedicated listener (patch 6/7)
+#     tunnels using the SNI and the dialled port as the CONNECT host, so
+#     hostname posture works there too. A hostname grant covers every port.
+#   - all remaining TCP (patch 5) is the virtualOutbound catch-all: it tunnels
 #     using the ORIGINAL destination (ip:port) as the CONNECT host, so posture
-#     for raw TCP is IP-based (fail-closed for hostname whitelists). Empty-SNI
-#     TLS on :443 likewise tunnels with an empty host and is fail-closed.
+#     for raw TCP and for TLS to an IP literal is IP-based (fail-closed for
+#     hostname whitelists). Empty-SNI TLS on :443 tunnels with an empty host
+#     and is fail-closed.
 # A DENIED connection is reset at this sandbox's OPA before reaching the gateway
-# (no data leaves the pod). For an ALLOWED non-443 raw-TCP connection the gateway
-# still needs a raw-passthrough mode (it only TLS-intercepts today), tracked
-# follow-up. UDP is not CONNECT-tunnellable (DNS→CoreDNS only; deny the rest).
+# (no data leaves the pod). The gateway TLS-intercepts :443 and registered
+# connections and raw-relays every other ALLOWED connection. UDP is not CONNECT-tunnellable (DNS→CoreDNS only; deny the rest).
 {{- if .Values.egressGateway.transparentEgress.enabled }}
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
@@ -202,4 +205,94 @@ spec:
             cluster: kora_egress_encap_cluster
             tunneling_config:
               hostname: "%DOWNSTREAM_LOCAL_ADDRESS%"
+    # 6) virtualOutbound reads the SNI before choosing a chain. original_dst
+    #    runs first so a connection that times out the inspector (a
+    #    server-first protocol, a slow client) still keeps its original
+    #    destination and reaches a dedicated listener or the catch-all. Envoy
+    #    appends its implicit original_dst after these, where it is a no-op.
+    #    The 1s timeout bounds how long a server-first connection waits.
+    - applyTo: LISTENER
+      match:
+        context: SIDECAR_OUTBOUND
+        listener:
+          name: virtualOutbound
+      patch:
+        operation: MERGE
+        value:
+          listener_filters:
+            - name: envoy.filters.listener.original_dst
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.listener.original_dst.v3.OriginalDst
+            - name: envoy.filters.listener.tls_inspector
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
+          listener_filters_timeout: 1s
+          continue_on_listener_filters_timeout: true
+          # Chooses the chain: port 15001 is the self-blackhole, TLS whose SNI
+          # is a plain DNS name takes patch 7, and everything else (raw TCP,
+          # TLS to an IP literal, a crafted SNI) takes the catch-all and its
+          # ip:port posture. The SNI becomes the CONNECT authority, so a strict
+          # shape keeps OPA and the gateway reading the same host. The chain
+          # names are Istio's (checked on 1.31): recheck them on an upgrade.
+          filter_chain_matcher:
+            matcher_tree:
+              input:
+                name: port
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.matching.common_inputs.network.v3.DestinationPortInput
+              exact_match_map:
+                map:
+                  "15001":
+                    action:
+                      name: blackhole
+                      typed_config:
+                        "@type": type.googleapis.com/google.protobuf.StringValue
+                        value: virtualOutbound-blackhole
+            on_no_match:
+              matcher:
+                matcher_list:
+                  matchers:
+                    - predicate:
+                        single_predicate:
+                          input:
+                            name: sni
+                            typed_config:
+                              "@type": type.googleapis.com/envoy.extensions.matching.common_inputs.network.v3.ServerNameInput
+                          value_match:
+                            safe_regex:
+                              google_re2: {}
+                              regex: "^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$"
+                      on_match:
+                        action:
+                          name: tls
+                          typed_config:
+                            "@type": type.googleapis.com/google.protobuf.StringValue
+                            value: kora-egress-tls
+                on_no_match:
+                  action:
+                    name: catchall
+                    typed_config:
+                      "@type": type.googleapis.com/google.protobuf.StringValue
+                      value: virtualOutbound-catchall-tcp
+    # 7) TLS chain on virtualOutbound: tunnel using the SNI and the dialled
+    #    port, so TLS on a port without a dedicated listener (a :6443 API
+    #    server) matches its hostname posture and reaches the gateway as
+    #    host:port. Patch 6 selects it only for an SNI that is a plain DNS name.
+    - applyTo: FILTER_CHAIN
+      match:
+        context: SIDECAR_OUTBOUND
+        listener:
+          name: virtualOutbound
+      patch:
+        operation: ADD
+        value:
+          name: kora-egress-tls
+          filters:
+            - name: envoy.filters.network.tcp_proxy
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+                stat_prefix: kora_egress_tls
+                cluster: kora_egress_encap_cluster
+                tunneling_config:
+                  hostname: "%REQUESTED_SERVER_NAME%:%DOWNSTREAM_LOCAL_PORT%"
 {{- end }}

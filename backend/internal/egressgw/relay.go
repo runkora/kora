@@ -2,6 +2,7 @@ package egressgw
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -44,7 +45,7 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 
 	// Dial the upstream BEFORE hijack so a failure surfaces as a clean HTTP
 	// error to the tool rather than a silently-closed tunnel.
-	dialer := &net.Dialer{Timeout: relayDialTimeout}
+	dialer := &net.Dialer{Timeout: relayDialTimeout, Control: RefuseLocalTarget}
 	upstream, dialErr := dialer.DialContext(ctx, "tcp", target)
 	if dialErr != nil {
 		span.RecordError(dialErr)
@@ -54,9 +55,11 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 			logging.Field{Key: "port", Value: port},
 			logging.Field{Key: "error", Value: dialErr.Error()},
 		)
-		platformapi.ErrorResponse(ctx, w, h.logger,
-			platformapi.InternalError(platformapi.ErrCodeInternalError, "upstream unreachable", nil),
-			dialErr)
+		apiErr := platformapi.InternalError(platformapi.ErrCodeInternalError, "upstream unreachable", nil)
+		if errors.Is(dialErr, ErrLocalTarget) {
+			apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, "egress target not allowed", nil)
+		}
+		platformapi.ErrorResponse(ctx, w, h.logger, apiErr, dialErr)
 		return
 	}
 	defer func() { _ = upstream.Close() }()

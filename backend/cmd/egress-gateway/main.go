@@ -31,6 +31,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -295,6 +296,9 @@ func upstreamTransport() (*http.Transport, error) {
 	}
 	t := base.Clone()
 	t.ResponseHeaderTimeout = upstreamResponseHeaderTimeout
+	// The forward host comes from a sandbox, so the dial refuses the gateway's
+	// own loopback and link-local targets. Timeouts match http.DefaultTransport.
+	t.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second, Control: egressgw.RefuseLocalTarget}).DialContext
 	return t, nil
 }
 
