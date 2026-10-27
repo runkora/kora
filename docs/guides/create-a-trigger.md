@@ -8,12 +8,12 @@ A trigger can only start [autonomous agents](../concepts/identity.md#autonomous-
 
 ## Choose a kind
 
-| Kind | Starts a run when |
-| --- | --- |
-| Webhook | GitHub, Alertmanager or any other system posts a signed event to kora |
-| Chat command | Someone mentions the bot in a Slack channel or sends it a direct message |
-| Schedule | A recurring time arrives, in a timezone you choose |
-| Manual | Someone fills in a form in the console, or calls the same schema through the API |
+| Kind         | Starts a run when                                                                |
+| ------------ | -------------------------------------------------------------------------------- |
+| Webhook      | GitHub, Alertmanager or any other system posts a signed event to kora            |
+| Chat command | Someone mentions the bot in a Slack channel or sends it a direct message         |
+| Schedule     | A recurring time arrives, in a timezone you choose                               |
+| Manual       | Someone fills in a form in the console, or calls the same schema through the API |
 
 ## Set up the event
 
@@ -51,13 +51,13 @@ Route every event to one agent, or let kora choose. When kora chooses, a decisio
 
 ## Set delivery limits
 
-| Setting | Default |
-| --- | --- |
-| Max parallel runs | 4, and 1 for a schedule |
-| When the limit is reached | Wait in order, or replace the waiting delivery for a schedule |
-| Max queued deliveries | 32 |
-| Suppress duplicates | On |
-| Auto-pause on repeated failure | On, after ten failed deliveries in a row |
+| Setting                        | Default                                                       |
+| ------------------------------ | ------------------------------------------------------------- |
+| Max parallel runs              | 4, and 1 for a schedule                                       |
+| When the limit is reached      | Wait in order, or replace the waiting delivery for a schedule |
+| Max queued deliveries          | 32                                                            |
+| Suppress duplicates            | On                                                            |
+| Auto-pause on repeated failure | On, after ten failed deliveries in a row                      |
 
 Webhook and chat triggers can also coalesce events. Events with the same key within a window start one run with the newest event.
 
