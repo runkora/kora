@@ -73,7 +73,7 @@ export function MarketplaceSkillList() {
       noun="skills"
       emptyMessage="No skills to show."
       onRowClick={(skill) =>
-        router.push(APP_ROUTES.marketplace.detail(browse.marketplace, skill.skillSlug))
+        router.push(APP_ROUTES.marketplace.detail(browse.marketplace, skill.skillName))
       }
       rowLabel={(skill) => `Open ${skill.name}`}
     />

@@ -9,11 +9,11 @@ import { MarketplaceSkillDetail } from './_components/marketplace-skill-detail';
 import { MarketplaceSkillLoadError } from './_components/marketplace-skill-load-error';
 
 interface SkillDetailPageProps {
-  params: Promise<{ marketplaceSlug: string; skillSlug: string }>;
+  params: Promise<{ marketplaceSlug: string; skillName: string }>;
 }
 
 export default async function SkillDetailPage({ params }: SkillDetailPageProps) {
-  const { marketplaceSlug, skillSlug } = await params;
+  const { marketplaceSlug, skillName } = await params;
   const session = await getSession();
 
   if (!isSessionValid(session)) {
@@ -30,7 +30,7 @@ export default async function SkillDetailPage({ params }: SkillDetailPageProps) 
     );
   }
 
-  const result = await loadSkillPage(session.accessToken, marketplaceSlug, skillSlug);
+  const result = await loadSkillPage(session.accessToken, marketplaceSlug, skillName);
 
   let content: React.ReactNode;
   if (!result.ok && result.status === 404) {

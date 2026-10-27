@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { server } from '@orbit/test-utils';
-import type { ListSkillsResponse, SkillSummary } from '@orbit/shared/api';
+import type { MarketplaceDetail, SkillSummary } from '@orbit/shared/api';
 import type { SkillSort } from '../_types';
 
 vi.mock('@orbit/server/config', () => ({
@@ -20,11 +20,12 @@ const SKILLS: SkillSummary[] = Array.from({ length: 405 }, (_, index) => ({
   name: `Skill ${String(404 - index).padStart(3, '0')}`,
   description: '',
   skillSlug: `acme__skills__${String(index).padStart(3, '0')}`,
+  skillName: `${String(index).padStart(3, '0')}`,
 }));
-const BATCHES = new Map<string, ListSkillsResponse>([
-  ['', { skills: SKILLS.slice(0, 200), nextCursor: 'second-batch' }],
-  ['second-batch', { skills: SKILLS.slice(200, 400), nextCursor: 'third-batch' }],
-  ['third-batch', { skills: SKILLS.slice(400) }],
+const BATCHES = new Map<string, MarketplaceDetail>([
+  ['', { ...MARKETPLACE, skills: SKILLS.slice(0, 200), nextCursor: 'second-batch' }],
+  ['second-batch', { ...MARKETPLACE, skills: SKILLS.slice(200, 400), nextCursor: 'third-batch' }],
+  ['third-batch', { ...MARKETPLACE, skills: SKILLS.slice(400) }],
 ]);
 let requestedCursors: (string | null)[];
 
@@ -34,7 +35,7 @@ beforeEach(() => {
     http.get('http://skills-service.test/v1/marketplaces', () =>
       HttpResponse.json({ marketplaces: [MARKETPLACE] }),
     ),
-    http.get('http://skills-service.test/v1/marketplaces/acme__skills/skills', ({ request }) => {
+    http.get('http://skills-service.test/v1/marketplaces/acme__skills', ({ request }) => {
       const cursor = new URL(request.url).searchParams.get('cursor');
       requestedCursors.push(cursor);
       const batch = BATCHES.get(cursor ?? '');

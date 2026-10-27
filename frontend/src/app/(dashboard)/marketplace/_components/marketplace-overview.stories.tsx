@@ -22,6 +22,7 @@ const platformSkills: SkillSummary[] = [
     const number = String(index + 1).padStart(2, '0');
     return {
       skillSlug: `platform-engineering__skills__platform-review-${number}`,
+      skillName: `platform-review-${number}`,
       name: `Platform Review ${number}`,
       description: 'Checks a platform configuration and explains proposed changes.',
     };
@@ -40,16 +41,19 @@ const sources: StorySource[] = [
     skills: [
       {
         skillSlug: 'clearroute__core-skills__architecture-review',
+        skillName: 'architecture-review',
         name: 'Architecture Review',
         description: 'Reviews component responsibilities and dependency boundaries.',
       },
       {
         skillSlug: 'clearroute__core-skills__code-review',
+        skillName: 'code-review',
         name: 'Code Review',
         description: 'Reviews a change for correctness and maintainability.',
       },
       {
         skillSlug: 'clearroute__core-skills__release-notes',
+        skillName: 'release-notes',
         name: 'Release Notes',
         description: 'Summarizes changes for a release.',
       },

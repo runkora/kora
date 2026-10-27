@@ -91,8 +91,7 @@ async function reload(page: Page) {
   await expect(page.getByRole('button', { name: /^Marketplace:/ })).toBeVisible();
 }
 
-const budgetSkillPath =
-  '/marketplace/platform-engineering__skills/platform-engineering__skills__budget-forecaster';
+const budgetSkillPath = '/marketplace/platform-engineering__skills/budget-forecaster';
 
 async function expectCleanUrl(page: Page, pathname = '/marketplace') {
   await expect(page).toHaveURL((url) => url.pathname === pathname && url.search === '');
@@ -131,7 +130,7 @@ async function expectDefaultOverview(page: Page) {
     'aria-current',
     'page',
   );
-  await expect(page.getByText('1–6 of 6', { exact: true })).toBeVisible();
+  await expect(page.getByRole('main').getByText('1–6 of 6', { exact: true })).toBeVisible();
   await expect(page.getByRole('row', { name: /^Open / })).toHaveCount(6);
   await expect(page.getByRole('row', { name: /^Open / }).first()).toHaveAccessibleName(
     'Open Change Freeze Checker',
@@ -167,7 +166,7 @@ test.describe('/marketplace — overview and Skill detail', () => {
     await mockMarketplaceRoutes(page);
   });
 
-  test('browsing keeps a clean address, opens a slug-only Skill and returns to defaults', async ({
+  test('browsing keeps a clean address, opens a Skill by name and returns to defaults', async ({
     page,
   }) => {
     const browseRequests: URL[] = [];
@@ -216,6 +215,14 @@ test.describe('/marketplace — overview and Skill detail', () => {
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Budget Forecaster' })).toBeVisible();
     await expectCleanUrl(page, budgetSkillPath);
+  });
+
+  test('an existing full-slug Skill address still loads its details', async ({ page }) => {
+    const path =
+      '/marketplace/platform-engineering__skills/platform-engineering__skills__budget-forecaster';
+    await page.goto(path);
+    await expect(page.getByRole('heading', { name: 'Budget Forecaster' })).toBeVisible();
+    await expectCleanUrl(page, path);
   });
 
   test('old browse queries are ignored and a refresh resets in-memory browse values', async ({
@@ -614,10 +621,7 @@ test.describe('/marketplace — accessibility and layout', () => {
       await page.getByRole('textbox', { name: 'Search Skills' }).fill('React Expert');
       await page.getByRole('row', { name: 'Open React Expert' }).click();
       await expect(page.getByRole('heading', { name: 'React Expert', exact: true })).toBeVisible();
-      await expectCleanUrl(
-        page,
-        '/marketplace/platform-engineering__skills/platform-engineering__skills__react-expert',
-      );
+      await expectCleanUrl(page, '/marketplace/platform-engineering__skills/react-expert');
       const contents = page
         .getByRole('heading', { name: 'Contents', exact: true })
         .locator('../..');

@@ -106,7 +106,7 @@ export async function loadMarketplaceOverview(
 export async function loadSkillPage(
   accessToken: string,
   marketplaceSlug: string,
-  skillSlug: string,
+  skillName: string,
 ): Promise<SkillPageResult> {
   let marketplaces: Marketplace[];
   try {
@@ -122,7 +122,7 @@ export async function loadSkillPage(
     return { ok: false, status: 404, message: 'Marketplace not found' };
   }
 
-  const result = await loadSkillDetail(accessToken, marketplaceSlug, skillSlug);
+  const result = await loadSkillDetail(accessToken, marketplaceSlug, skillName);
   return result.ok ? { ...result, marketplaceName: marketplace.name } : result;
 }
 
@@ -130,11 +130,11 @@ export async function loadSkillPage(
 async function loadSkillDetail(
   accessToken: string,
   marketplaceSlug: string,
-  skillSlug: string,
+  skillName: string,
 ): Promise<SkillDetailResult> {
   let skill: Skill | null;
   try {
-    skill = await fetchSkillDetail(accessToken, marketplaceSlug, skillSlug);
+    skill = await fetchSkillDetail(accessToken, marketplaceSlug, skillName);
   } catch (err) {
     console.error('[loadSkillDetail] failed to load the Skill:', err);
     return fromApiError(err, 'Failed to load the Skill');

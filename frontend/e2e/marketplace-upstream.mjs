@@ -21,18 +21,27 @@ createServer((req, res) => {
     return json(401, { message: 'Unauthorized' });
   if (url.pathname === '/v1/marketplaces') return json(200, { marketplaces: MARKETPLACE_FIXTURES });
 
-  const [version, resource, marketplaceSlug, skills, skillSlug] = parts;
+  const [version, resource, marketplaceSlug, skillName] = parts;
   const catalogue = SKILL_FIXTURES_BY_MARKETPLACE[marketplaceSlug];
-  if (version !== 'v1' || resource !== 'marketplaces' || skills !== 'skills' || !catalogue) {
+  if (version !== 'v1' || resource !== 'marketplaces' || !catalogue) {
     return json(404, { message: 'Marketplace not found' });
   }
-  if (parts.length === 4) {
+  if (parts.length === 3) {
     const search = (url.searchParams.get('search') ?? '').toLowerCase();
     return json(200, {
+      ...MARKETPLACE_FIXTURES.find((entry) => entry.marketplaceSlug === marketplaceSlug),
       skills: catalogue.filter((skill) => skill.name.toLowerCase().includes(search)),
     });
   }
-  if (skillSlug === 'upstream-error') return json(503, { message: 'Temporary catalogue failure.' });
+  if (parts.length !== 4) return json(404, { message: 'Skill not found' });
+  const name = skillName.startsWith(`${marketplaceSlug}__`)
+    ? skillName.slice(marketplaceSlug.length + 2)
+    : skillName;
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
+    return json(400, { message: 'Invalid skill name' });
+  }
+  if (name === 'upstream-error') return json(503, { message: 'Temporary catalogue failure.' });
+  const skillSlug = `${marketplaceSlug}__${name}`;
   const skill = catalogue.some((entry) => entry.skillSlug === skillSlug)
     ? SKILL_DETAIL_FIXTURES.find((entry) => entry.skillSlug === skillSlug)
     : undefined;

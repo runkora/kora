@@ -1,6 +1,6 @@
 import 'server-only';
 
-import type { GetMarketplaces, ListSkillsResponse, Skill, SkillSummary } from '@orbit/shared/api';
+import type { GetMarketplaces, MarketplaceDetail, Skill, SkillSummary } from '@orbit/shared/api';
 import { config } from '@orbit/server/config';
 import { ApiError } from './api-error';
 
@@ -59,8 +59,8 @@ export async function fetchSkills(
     batchSignal.throwIfAborted();
     if (nextCursor) query.set('cursor', nextCursor);
     const qs = query.toString();
-    const batch = await request<ListSkillsResponse>(
-      `/marketplaces/${marketplaceSlug}/skills${qs ? `?${qs}` : ''}`,
+    const batch = await request<MarketplaceDetail>(
+      `/marketplaces/${encodeURIComponent(marketplaceSlug)}${qs ? `?${qs}` : ''}`,
       accessToken,
       batchSignal,
     );
@@ -78,7 +78,7 @@ export async function fetchSkills(
 }
 
 /**
- * GET /marketplaces/{marketplaceSlug}/skills/{skillSlug}
+ * GET /marketplaces/{marketplaceSlug}/{skillName}
  *
  * Returns null for a missing Skill (404), so a caller can show a not-found
  * state without needing to inspect the error.
@@ -86,11 +86,11 @@ export async function fetchSkills(
 export async function fetchSkillDetail(
   accessToken: string,
   marketplaceSlug: string,
-  skillSlug: string,
+  skillName: string,
 ): Promise<Skill | null> {
   try {
     return await request<Skill>(
-      `/marketplaces/${encodeURIComponent(marketplaceSlug)}/skills/${encodeURIComponent(skillSlug)}`,
+      `/marketplaces/${encodeURIComponent(marketplaceSlug)}/${encodeURIComponent(skillName)}`,
       accessToken,
     );
   } catch (err) {

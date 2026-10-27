@@ -1,4 +1,4 @@
-/** @tier 3 — marketplace/[marketplaceSlug]/[skillSlug]-scoped. Read-only presentation of one Skill's details. */
+/** @tier 3 — marketplace/[marketplaceSlug]/[skillName]-scoped. Read-only presentation of one Skill's details. */
 
 import { Card, CardContent, CardHeader, CodeBlock, Heading, Stack, Text } from '@orbit/hades';
 import type { Skill } from '@orbit/shared/api';

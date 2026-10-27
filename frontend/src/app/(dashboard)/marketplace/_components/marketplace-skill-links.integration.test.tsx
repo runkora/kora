@@ -10,7 +10,7 @@ const { push } = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
 
 const browse = {
-  marketplace: 'team/repo ?#',
+  marketplace: 'team__repo',
   query: 'review',
   page: 3,
   pageSize: 12,
@@ -22,10 +22,17 @@ const overview: MarketplaceOverviewData = {
   ],
   requested: browse,
   browse,
-  skills: [{ name: 'Reviewer', description: 'Reviews code.', skillSlug: 'review/50% ?#' }],
+  skills: [
+    {
+      name: 'Reviewer',
+      description: 'Reviews code.',
+      skillSlug: 'team__repo__reviewer',
+      skillName: 'reviewer',
+    },
+  ],
   total: 30,
 };
-const detailHref = '/marketplace/team%2Frepo%20%3F%23/review%2F50%25%20%3F%23';
+const detailHref = '/marketplace/team__repo/reviewer';
 
 beforeEach(() => {
   push.mockReset();
