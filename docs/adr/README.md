@@ -137,6 +137,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) — `Accepted` · 2026-10-13
 - [Trigger Routing](2026-10-19-trigger-routing.md) — `Accepted` · 2026-10-19
 - [Chat Command Triggers](2026-10-20-chat-command-triggers.md) — `Accepted` · 2026-10-20
+- [Generic Webhook Source](2026-10-27-generic-webhook-source.md) — `Proposed` · 2026-10-27
 
 ### MCP / Tool Gateway
 
@@ -326,4 +327,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-24 | [Declarative Resources](2026-10-24-declarative-resources.md) | Accepted | — |
 | 2026-10-26 | [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) | Proposed | — |
 | 2026-10-26 | [Release Asset Downloads Without Connection Selection](2026-10-26-release-asset-downloads-without-connection-selection.md) | Proposed | — |
+| 2026-10-27 | [Generic Webhook Source](2026-10-27-generic-webhook-source.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
