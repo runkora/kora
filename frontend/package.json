@@ -87,7 +87,7 @@
       "browserslist": "^4.28.7",
       "ws@8": "^8.21.0",
       "flatted": "^3.4.2",
-      "qs": "^6.16.0",
+      "qs": "^6.16.1",
       "uuid@<11": "^11.1.1",
       "@humanfs/node": "^0.16.8",
       "postcss-selector-parser@7": "^7.1.3",
