@@ -41,10 +41,20 @@ type Skill struct {
 }
 
 // SkillSummary is the list-endpoint projection sent to the frontend.
-// Path is intentionally omitted — the frontend receives name, description,
-// and skillSlug only.
+// Path is intentionally omitted — the frontend receives name, description, skillSlug, and skillName only.
 type SkillSummary struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	SkillSlug   string `json:"skillSlug"`
+	SkillName   string `json:"skillName"`
+}
+
+// MarketplaceDetail is the response of GET /marketplaces/{marketplaceSlug}:
+// the selected marketplace and one cursor batch of its skills.
+type MarketplaceDetail struct {
+	Name            string         `json:"name"`
+	MarketplaceSlug string         `json:"marketplaceSlug"`
+	Link            string         `json:"link"`
+	Skills          []SkillSummary `json:"skills"`
+	NextCursor      string         `json:"nextCursor,omitempty"` // empty = no more results
 }

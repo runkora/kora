@@ -72,3 +72,15 @@ egressGateway:
   # scripts/cluster/register-k8s-connection.sh register it.
   upstreamPorts:
     - 6443
+
+
+# Test Marketplace repositories for the local tenants.
+skillsService:
+  skillsMapping:
+    tenants:
+      - id: example
+        marketplaces:
+          - https://github.com/sidp-2003/skills-marketplace-test-acme
+      - id: example1
+        marketplaces:
+          - https://github.com/sidp-2003/skills-marketplace-test

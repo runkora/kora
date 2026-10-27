@@ -193,6 +193,7 @@ type SkillSummary struct {
     Name        string `json:"name"`
     Description string `json:"description"`
     SkillSlug   string `json:"skillSlug"`
+    SkillName   string `json:"skillName"` // nameSlug alone; addresses the detail endpoint
 }
 ```
 
@@ -224,7 +225,9 @@ Generated once by the registry when loading `skills-mapping.yaml` and stored on 
 
 Example: `clear-route__skills-marketplace__react-expert`
 
-`nameSlug` is the slugified form of the `name` frontmatter field (lowercase, non-alphanumeric runs replaced by `-`). The slug is stable across cache evictions and pod restarts. It is returned to the frontend in both list and detail responses, and is the value the frontend passes as the `{skillSlug}` URL parameter.
+`nameSlug` is the slugified form of the `name` frontmatter field (lowercase, non-alphanumeric runs replaced by `-`). The slug is stable across cache evictions and pod restarts. It is returned to the frontend in both list and detail responses.
+
+**Skill name** — the `nameSlug` alone, e.g. `react-expert`. The list response returns it as `skillName`, and it is the value the frontend puts in its route (`/marketplace/{marketplaceSlug}/{skillName}`) and passes as the `{skillName}` URL parameter of the detail endpoint. The service rebuilds the full slug as `marketplaceSlug + "__" + skillName`, so the frontend never splits or joins on the `__` separator. For callers that still address skills by slug, the endpoint also accepts the full `{marketplaceSlug}__{nameSlug}` and strips the `{marketplaceSlug}__` prefix. Any other value that is not a valid `nameSlug` (`^[a-z0-9]+(-[a-z0-9]+)*$`), including another marketplace's skill slug, is rejected with `400`.
 
 ### Redis Key Structure
 
@@ -315,7 +318,7 @@ Why it matters: if the BFF or the URL supplied `tenant_id`, a caller could tampe
 
 ```text
 HTTP request arrives at skills-service
-   │  path: /v1/marketplaces/{marketplaceSlug}/skills[/{skillSlug}]
+   │  path: /v1/marketplaces/{marketplaceSlug}[/{skillName}]
    ▼
 Resolve tenantID from the authenticated caller (token claims)
    │
@@ -349,8 +352,12 @@ Redis GET
       apply search / server-cap ──► respond 200
 
 
-For GET /v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}:
+For GET /v1/marketplaces/{marketplaceSlug}/{skillName}:
+   │  skillSlug = marketplaceSlug + "__" + skillName
    │  (after marketplace list resolved as above)
+   ▼
+Find skillSlug in []SkillEntry   (404 if absent)
+   │
    ▼
 Redis GET {skillSlug}
    │
@@ -388,10 +395,10 @@ All Marketplace endpoints live under `/v1/marketplaces`, matching the versioned 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/v1/marketplaces` | List marketplaces declared for the caller's tenant |
-| GET | `/v1/marketplaces/{marketplaceSlug}/skills` | Server-capped skill list — `name`, `description`, `skillSlug` |
-| GET | `/v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}` | Full skill detail — `SKILL.md` body + resource files |
+| GET | `/v1/marketplaces/{marketplaceSlug}` | The selected marketplace (`name`, `marketplaceSlug`, `link`) with a server-capped skill list — `name`, `description`, `skillSlug`, `skillName`; accepts `?search=` and `?cursor=` |
+| GET | `/v1/marketplaces/{marketplaceSlug}/{skillName}` | Full skill detail — `SKILL.md` body + resource files |
 
-`{marketplaceSlug}` is the `{org}__{repo}` value from the registry. `{skillSlug}` is the `{marketplaceSlug}__{nameSlug}` value and cannot contain a slash.
+`{marketplaceSlug}` is the `{org}__{repo}` value from the registry. `{skillName}` is the `{nameSlug}` value; the service combines the two into the `{marketplaceSlug}__{nameSlug}` skill slug.
 
 #### `GET /v1/marketplaces`
 
@@ -418,13 +425,14 @@ Response (HTTP 200):
 
 `org` and `repoName` are stripped. `marketplaceSlug` and `link` are returned — the frontend needs `marketplaceSlug` to address subsequent skill list requests and `link` to offer a direct GitHub link.
 
-#### `GET /v1/marketplaces/{marketplaceSlug}/skills`
+#### `GET /v1/marketplaces/{marketplaceSlug}`
 
 Query parameters:
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `search` | string | No | Case-insensitive substring match on `name`; omit to return all skills |
+| `cursor` | string | No | The previous response's `nextCursor`; omit for the first page |
 
 The server:
 
@@ -437,28 +445,32 @@ The server:
 
 ```json
 {
+  "name": "skills-marketplace",
+  "marketplaceSlug": "clear-route__skills-marketplace",
+  "link": "https://github.com/clear-route/skills-marketplace",
   "skills": [
     {
       "name": "React Expert",
       "description": "Senior React developer",
-      "skillSlug": "clear-route__skills-marketplace__react-expert"
+      "skillSlug": "clear-route__skills-marketplace__react-expert",
+      "skillName": "react-expert"
     }
   ]
 }
 ```
 
-`Path` and `DocPaths` are always stripped before the response is written; the list item type (`SkillSummary`) exposes `name`, `description`, and `skillSlug`. An empty result returns `{ "skills": [] }` with HTTP 200.
+`Path` and `DocPaths` are always stripped before the response is written; the list item type (`SkillSummary`) exposes `name`, `description`, `skillSlug`, and `skillName`. An empty result returns `{ "skills": [] }` with HTTP 200.
 
 If `marketplaceSlug` is not declared for the caller's tenant, the handler returns `404 Not Found`.
 
 If Redis is unavailable, or if the cache is cold and GitHub is unreachable, the handler returns `503 Service Unavailable`. These are genuine server failures.
 
-#### `GET /v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}`
+#### `GET /v1/marketplaces/{marketplaceSlug}/{skillName}`
 
 Example:
 
 ```
-GET /v1/marketplaces/clear-route__skills-marketplace/skills/clear-route__skills-marketplace__react-expert
+GET /v1/marketplaces/clear-route__skills-marketplace/react-expert
 ```
 
 Response (HTTP 200):
@@ -485,7 +497,7 @@ Response (HTTP 200):
 
 `skill` is always present. `documents` is an empty array if the skill has no adjacent `.md` files. `skillSlug` is returned in the response.
 
-On a skill-cache miss, the handler first ensures the marketplace list is populated (running the same cache-aside crawl as the list endpoint if needed), then fetches the full file content for the requested skill entry and caches it under `{skillSlug}`. If the marketplace is not declared for the tenant, or if the crawl completes but `skillSlug` is not found, the handler returns `404 Not Found`. `503` is reserved for the same genuine server-failure cases as the list endpoint.
+The handler first resolves the tenant's marketplace list from `marketplace:{tenantID}:{marketplaceSlug}` (running the same cache-aside crawl as the list endpoint if needed) and checks that `{marketplaceSlug}__{skillName}` is in it. Only then does it read `{skillSlug}`; on a skill-cache miss it fetches the full file content and caches it under `{skillSlug}`. Because the per-skill key has no tenant prefix, the membership check is what keeps a tenant from reading skills outside its own marketplaces. If the marketplace is not declared for the tenant, or the skill is not in its list, the handler returns `404 Not Found`. `503` is reserved for the same genuine server-failure cases as the list endpoint.
 
 ### Status-Code Summary
 
@@ -565,7 +577,7 @@ When `skills-service` starts:
 
 ### Step 4 — User Browses Skills
 
-1. The frontend calls `GET /v1/marketplaces/{marketplaceSlug}/skills`.
+1. The frontend calls `GET /v1/marketplaces/{marketplaceSlug}`.
 2. `skills-service` resolves `tenantID` from the authenticated caller.
 3. Matches `marketplaceSlug` against the tenant's registry → `MarketplaceSource { org, repoName }`.
 4. Constructs the key `marketplace:{tenantID}:{marketplaceSlug}` and reads Redis.
@@ -575,11 +587,11 @@ When `skills-service` starts:
 
 ### Step 5 — User Opens a Skill Detail Page
 
-1. The frontend calls `GET /v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}`.
-2. `skills-service` performs the same `tenantID` resolution and `marketplaceSlug` registry validation.
-3. Reads Redis for `{skillSlug}`; on a hit, responds `200`.
-4. On a miss: ensures the marketplace list is populated (cache-aside for `[]SkillEntry` if needed), finds the matching `SkillEntry` by `SkillSlug`, fetches `SKILL.md` and all `DocPaths` in parallel, caches the `Skill`, responds `200`.
-5. If `skillSlug` is not found in the repository, responds `404`.
+1. The user clicks a skill card; the frontend navigates to `/marketplace/{marketplaceSlug}/{skillName}` and calls `GET /v1/marketplaces/{marketplaceSlug}/{skillName}`.
+2. `skills-service` performs the same `tenantID` resolution and `marketplaceSlug` registry validation, and builds `skillSlug = {marketplaceSlug}__{skillName}`.
+3. Resolves the marketplace list (cache-aside for `[]SkillEntry` if needed) and finds the `SkillEntry` with that `SkillSlug`; if there is none, responds `404`.
+4. Reads Redis for `{skillSlug}`; on a hit, responds `200`.
+5. On a miss: fetches `SKILL.md` and all `DocPaths`, caches the `Skill`, responds `200`.
 
 ### Service Layout
 
@@ -621,7 +633,7 @@ Set up `skills-service` skeleton, ConfigMap and Secret mounts, `registry.Registr
 Implement `cache.go`, `crawler.go`, and `service.go`: tenant-scoped Redis key helpers using `{org}__{repo}` marketplace slugs, `SKILL.md` and adjacent `.md` crawl with `{marketplaceSlug}__{nameSlug}` skill slugs, two-level write to Redis on miss, and the cache-aside orchestration used by the handlers.
 
 **Phase 3 — API endpoints**
-Implement `GET /v1/marketplaces` (returns name, marketplaceSlug, link), `GET /v1/marketplaces/{marketplaceSlug}/skills` (list, search, server-side cap at 200), and `GET /v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}` (full detail). Wire the `marketplaceSlug` → registry → `MarketplaceSource` lookup and the status-code semantics (`200`/`404`/`503`) as defined above. Wire the BFF proxy. Frontend can populate the selector, browse, and open skills end to end.
+Implement `GET /v1/marketplaces` (returns name, marketplaceSlug, link), `GET /v1/marketplaces/{marketplaceSlug}` (marketplace with its skill list, search, server-side cap at 200), and `GET /v1/marketplaces/{marketplaceSlug}/{skillName}` (full detail). Wire the `marketplaceSlug` → registry → `MarketplaceSource` lookup and the status-code semantics (`200`/`404`/`503`) as defined above. Wire the BFF proxy. Frontend can populate the selector, browse, and open skills end to end.
 
 **Phase 4 (deferred) — Stampede protection and/or startup preload**
 Revisit if metrics show duplicate crawls on cold-cache bursts, or if the first-request-after-expiry latency turns out to be a real user problem. Both are additive to the cache-aside design and require no changes to the API contract.

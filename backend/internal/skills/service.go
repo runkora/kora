@@ -18,10 +18,21 @@ const serverCap = 200
 
 var slugSeparators = regexp.MustCompile(`[^a-z0-9]+`)
 
+// skillNamePattern matches every value skillSlugify can produce. The detail
+// handler rejects any other skillName before it reaches the service.
+var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
 // skillSlugify converts a skill name to the URL-safe slug segment used in
 // skillSlug, e.g. "Code Review" → "code-review".
 func skillSlugify(name string) string {
 	return strings.Trim(slugSeparators.ReplaceAllString(strings.ToLower(name), "-"), "-")
+}
+
+// fullSkillSlug builds the skillSlug stored in Redis from the two URL
+// segments of the detail endpoint, e.g. ("org__repo", "go-expert") →
+// "org__repo__go-expert".
+func fullSkillSlug(marketplaceSlug, skillName string) string {
+	return marketplaceSlug + "__" + skillName
 }
 
 // encodeCursor returns an opaque cursor pointing after skillSlug.
@@ -205,50 +216,67 @@ func (s *Service) ListSkills(ctx context.Context, tenantID, marketplaceSlug, sea
 			Name:        e.Name,
 			Description: e.Description,
 			SkillSlug:   e.SkillSlug,
+			SkillName:   strings.TrimPrefix(e.SkillSlug, source.MarketplaceSlug+"__"),
 		})
 	}
 
 	return ListSkillsResponse{Skills: summaries, NextCursor: next}, nil
 }
 
-// GetSkill returns the full Skill record for skillSlug.
-// Access rule: skillSlug must begin with marketplaceSlug+"__" and the
-// marketplace must be in the caller's tenant list.
-func (s *Service) GetSkill(ctx context.Context, tenantID, marketplaceSlug, skillSlug string) (Skill, error) {
+// GetMarketplace returns the selected marketplace with one batch of its
+// skills. search and cursor behave as in ListSkills.
+func (s *Service) GetMarketplace(ctx context.Context, tenantID, marketplaceSlug, search, cursor string) (MarketplaceDetail, error) {
+	source, err := s.findSource(tenantID, marketplaceSlug)
+	if err != nil {
+		return MarketplaceDetail{}, err
+	}
+
+	list, err := s.ListSkills(ctx, tenantID, source.MarketplaceSlug, search, cursor)
+	if err != nil {
+		return MarketplaceDetail{}, err
+	}
+
+	return MarketplaceDetail{
+		Name:            source.Name,
+		MarketplaceSlug: source.MarketplaceSlug,
+		Link:            source.Link,
+		Skills:          list.Skills,
+		NextCursor:      list.NextCursor,
+	}, nil
+}
+
+// GetSkill returns the full Skill record for skillName in marketplaceSlug.
+// The marketplace must be in the caller's tenant list, and the skill
+// (marketplaceSlug + "__" + skillName) must be in that marketplace's cached
+// skill list; otherwise the result is a not-found error.
+func (s *Service) GetSkill(ctx context.Context, tenantID, marketplaceSlug, skillName string) (Skill, error) {
 	source, err := s.findSource(tenantID, marketplaceSlug)
 	if err != nil {
 		return Skill{}, err
 	}
 
-	// Enforce that the skill belongs to the requested marketplace.
-	if !strings.HasPrefix(skillSlug, marketplaceSlug+"__") {
+	skillSlug := fullSkillSlug(source.MarketplaceSlug, skillName)
+
+	// Confirm the skill is in the tenant's marketplace before reading content.
+	// The per-skill key has no tenant prefix, so this check is what keeps a
+	// tenant from reading skills outside its own marketplaces.
+	entries, err := s.resolveMarketplace(ctx, tenantID, source)
+	if err != nil {
+		return Skill{}, err
+	}
+	_, found := slices.BinarySearchFunc(entries, skillSlug, func(e SkillEntry, slug string) int {
+		return strings.Compare(e.SkillSlug, slug)
+	})
+	if !found {
 		return Skill{}, ErrSkillNotFound
 	}
 
-	// Check the individual skill cache first.
 	skill, hit, err := s.cache.GetSkill(ctx, skillSlug)
 	if err != nil {
 		return Skill{}, fmt.Errorf("read skill cache: %w", err)
 	}
 	if hit {
 		return skill, nil
-	}
-
-	// If the marketplace list is cached, check whether the skill exists in it
-	// before crawling — a missing skill returns 404 without a GitHub round-trip.
-	if entries, hit, mktErr := s.cache.GetMarketplace(ctx, tenantID, source.MarketplaceSlug); mktErr != nil {
-		return Skill{}, fmt.Errorf("read marketplace cache: %w", mktErr)
-	} else if hit {
-		found := false
-		for _, e := range entries {
-			if e.SkillSlug == skillSlug {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return Skill{}, ErrSkillNotFound
-		}
 	}
 
 	return s.crawlAndFind(ctx, tenantID, source, skillSlug)

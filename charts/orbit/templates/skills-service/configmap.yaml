@@ -1,3 +1,4 @@
+{{- $mapping := .Values.skillsService.skillsMapping | default (dict "tenants" (list)) -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -5,11 +6,4 @@ metadata:
   namespace: {{ include "orbit.systemNamespace" . }}
 data:
   skills-mapping.yaml: |
-    skillsMapping:
-      tenants:
-        - id: example
-          marketplaces:
-            - https://github.com/sidp-2003/skills-marketplace-test-acme
-        - id: example1
-          marketplaces:
-            - https://github.com/sidp-2003/skills-marketplace-test
+    {{- dict "skillsMapping" $mapping | toYaml | nindent 4 }}
