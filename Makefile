@@ -739,6 +739,10 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 		echo "$(COLOR_YELLOW)  kora-identity booted before the tenant existed; restarting it$(COLOR_RESET)"; \
 		kubectl rollout restart deployment/kora-identity -n kora-system >/dev/null; \
 		kubectl rollout status deployment/kora-identity -n kora-system --timeout=180s; \
+		for i in $$(seq 1 30); do \
+			kubectl logs deployment/kora-identity -n kora-system -c kora-identity 2>/dev/null | grep -q "OIDC provider initialized" && break; \
+			sleep 2; \
+		done; \
 		if ! kubectl logs deployment/kora-identity -n kora-system -c kora-identity 2>/dev/null | grep -q "OIDC provider initialized"; then \
 			echo "$(COLOR_RED)✗ kora-identity still has no OIDC provider. 'make auth' will fail with oidc_not_configured.$(COLOR_RESET)"; \
 			echo "  Check: kubectl logs deployment/kora-identity -n kora-system -c kora-identity | grep -i tenant"; \
