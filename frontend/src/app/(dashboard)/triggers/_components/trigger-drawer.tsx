@@ -510,8 +510,7 @@ export function TriggerDrawer({
     // A half-written filter looks configured but matches nothing, so it is the
     // one edit worth refusing rather than saving as-is. Same rule as the
     // wizard's, from the same function.
-    validate: (value) =>
-      value.eventType.trim() ? validateFilters(value.filters).hint : 'Needs an event type',
+    validate: (value) => validateFilters(value.filters).hint,
   });
 
   const storedSenders = useMemo(
@@ -621,6 +620,9 @@ export function TriggerDrawer({
   const webhookFields = schemaCatalog(sourceCatalog.fields);
   // A generic source has no schema: its event type and filter fields are typed.
   const schemaless = kind !== 'chat' && sourceCatalog.schemaless;
+  // A typed event type can be emptied; a picked one cannot.
+  const filtersBlocker =
+    schemaless && !filters.value.eventType.trim() ? 'Needs an event type' : filters.blocker;
   const genericMethod =
     source === undefined ? undefined : verificationMethodOf(source.provider, source.config);
   const promptCatalog =
@@ -1033,7 +1035,7 @@ export function TriggerDrawer({
                     dirty={filters.dirty}
                     pending={filters.pending}
                     error={filters.error}
-                    blocker={filters.blocker}
+                    blocker={filtersBlocker}
                     saveLabel="Save filters"
                     onSave={filters.save}
                     onDiscard={filters.discard}

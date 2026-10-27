@@ -773,6 +773,13 @@ describe('a generic webhook source', () => {
     expect(screen.getByRole('button', { name: 'Save filters' })).toBeDisabled();
   });
 
+  it('does not ask a schema source for an event type the picker sets', () => {
+    renderDrawer(trigger({ eventType: '' }));
+    fireEvent.change(screen.getByLabelText('Filter 1 values'), { target: { value: 'closed' } });
+    expect(screen.queryByText('Needs an event type')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save filters' })).not.toBeDisabled();
+  });
+
   it('offers only a generated bearer token', () => {
     renderGeneric('bearer');
     expect(screen.getByRole('button', { name: 'Rotate' })).toBeTruthy();

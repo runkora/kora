@@ -64,6 +64,18 @@ describe('genericDraftHint', () => {
     expect(pastesSecret({ ...paste, method: 'bearer' })).toBe(false);
   });
 
+  it('refuses a credential or signature header as the event type header', () => {
+    const hint = 'The event type header cannot be a credential or signature header.';
+    const at = (eventKey: string, draft = HMAC) =>
+      genericDraftHint({ ...draft, eventLocation: 'header', eventKey }, '');
+    expect(at('authorization')).toBe(hint);
+    expect(at('Webhook-Signature')).toBe(hint);
+    expect(at('WEBHOOK-ID', { ...HMAC, method: 'standard_webhooks' })).toBe(hint);
+    expect(at('x-signature')).toBe(hint);
+    expect(at('X-Signature', { ...HMAC, method: 'bearer' })).toBeUndefined();
+    expect(at('X-Event-Key')).toBeUndefined();
+  });
+
   it('checks the event type header and path', () => {
     expect(genericDraftHint({ ...HMAC, eventLocation: 'header', eventKey: '' }, '')).toBe(
       'Name a valid HTTP header for the event type.',

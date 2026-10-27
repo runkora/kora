@@ -3,6 +3,8 @@
  * step collects, the config the API stores, and what the console reads back.
  */
 
+import { FIELD_PATH } from './field-path';
+
 /** The provider id of a generic webhook source. */
 export const GENERIC_PROVIDER = 'generic';
 
@@ -63,8 +65,19 @@ export const EMPTY_GENERIC_DRAFT: GenericSourceDraft = {
 /** An HTTP header name: one RFC 9110 token. */
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
-/** A field path, in the grammar the backend checks for templates and filters. */
-export const FIELD_PATH = /^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$/;
+/** Headers that carry credentials or signatures; the backend refuses them as the event type header. */
+const RESERVED_EVENT_HEADERS = [
+  'authorization',
+  'webhook-id',
+  'webhook-timestamp',
+  'webhook-signature',
+];
+
+/** Whether `name` may hold the event type: not a reserved header nor the signature header. */
+function eventHeaderAllowed(name: string, signatureHeader: string): boolean {
+  const lower = name.toLowerCase();
+  return !RESERVED_EVENT_HEADERS.includes(lower) && lower !== signatureHeader.trim().toLowerCase();
+}
 
 /** The backend refuses a longer prefix. */
 const MAX_PREFIX_BYTES = 32;
@@ -106,8 +119,10 @@ export function genericDraftHint(draft: GenericSourceDraft, secret: string): str
   }
   if (pastesSecret(draft) && !secret.trim()) return "Paste the sender's signing secret.";
   if (draft.eventLocation === 'header') {
-    if (!HEADER_NAME.test(draft.eventKey.trim()))
-      return 'Name a valid HTTP header for the event type.';
+    const header = draft.eventKey.trim();
+    if (!HEADER_NAME.test(header)) return 'Name a valid HTTP header for the event type.';
+    if (!eventHeaderAllowed(header, draft.method === 'hmac_sha256' ? draft.header : ''))
+      return 'The event type header cannot be a credential or signature header.';
   } else if (draft.eventLocation === 'path') {
     if (!FIELD_PATH.test(draft.eventKey.trim()))
       return 'Name the event type field as a dotted path, such as type or data.action.';

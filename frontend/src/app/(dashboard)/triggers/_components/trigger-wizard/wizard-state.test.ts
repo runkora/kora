@@ -555,3 +555,27 @@ describe('validateDelivery chat coalesce key', () => {
     ).toBe(true);
   });
 });
+
+describe('initialState on a generic source', () => {
+  const generic = (config: Record<string, unknown>): TriggerWizardSource => ({
+    id: 'src-gen',
+    name: 'linear',
+    provider: 'generic',
+    category: 'webhook',
+    config,
+  });
+
+  it('starts on webhook when the source has no event type location', () => {
+    const state = initialState(TRIGGER_KINDS.webhook, [
+      generic({ verification: { method: 'bearer' } }),
+    ]);
+    expect(state.eventType).toBe('webhook');
+  });
+
+  it('starts empty when the source reads the event type from the delivery', () => {
+    const state = initialState(TRIGGER_KINDS.webhook, [
+      generic({ verification: { method: 'bearer' }, event_type: { path: 'type' } }),
+    ]);
+    expect(state.eventType).toBe('');
+  });
+});
