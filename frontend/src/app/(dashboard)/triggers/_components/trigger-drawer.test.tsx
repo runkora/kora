@@ -764,6 +764,15 @@ describe('a generic webhook source', () => {
     expect(screen.getByRole('textbox', { name: 'Event type' })).toHaveValue('Issue');
   });
 
+  it('refuses to save an event type that is only whitespace', async () => {
+    renderGeneric('hmac_sha256');
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Event type' }), {
+      target: { value: '  ' },
+    });
+    expect(screen.getByText('Needs an event type')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save filters' })).toBeDisabled();
+  });
+
   it('offers only a generated bearer token', () => {
     renderGeneric('bearer');
     expect(screen.getByRole('button', { name: 'Rotate' })).toBeTruthy();

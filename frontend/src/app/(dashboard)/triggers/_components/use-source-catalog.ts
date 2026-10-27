@@ -25,7 +25,7 @@ import { GENERIC_EVENT_TYPE, GENERIC_PROVIDER } from '../_lib/generic-source';
 export interface SourceCatalog {
   declared: string[];
   observed: string[];
-  /** The event types arrived and the schema declares none: event types and fields are typed. */
+  /** Event types and fields are typed: always for a generic source, else once the schema declares none. */
   schemaless: boolean;
   /** The roles a sender restriction may name; empty when the provider reports none. */
   roles: SenderRole[];
@@ -57,7 +57,7 @@ export function useSourceCatalog(
   const [types, setTypes] = useState<Answer<TriggerEventTypes | null> | null>(null);
   const [fields, setFields] = useState<Answer<TriggerField[]> | null>(null);
   const typesKey = sourceId ? `source/${sourceId}` : provider ? `provider/${provider}` : '';
-  // A generic source has only the meta fields, whatever the event, so typing does not refetch.
+  // One fields request per generic source: it has only the meta fields, whatever the event.
   const fieldsEvent = provider === GENERIC_PROVIDER ? GENERIC_EVENT_TYPE : eventType;
   const fieldsKey = provider && fieldsEvent ? `${provider}/${fieldsEvent}` : '';
 
@@ -90,7 +90,7 @@ export function useSourceCatalog(
   return {
     declared: currentTypes?.value?.declared ?? [],
     observed: currentTypes?.value?.observed ?? [],
-    // Known from the provider for a generic source, so a slow or failed answer still takes typing.
+    // Read from the provider for a generic source: typing works while the answer loads or fails.
     schemaless:
       provider === GENERIC_PROVIDER ||
       (currentTypes !== null &&

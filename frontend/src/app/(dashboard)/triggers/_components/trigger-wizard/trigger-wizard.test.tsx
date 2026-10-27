@@ -696,6 +696,53 @@ describe('generic webhook source', () => {
     expect(await screen.findByRole('textbox', { name: 'Event type' })).toHaveValue('webhook');
   });
 
+  it('refuses an event type that is only whitespace', async () => {
+    renderWizard('webhook', [GENERIC]);
+    fillNameAndPrompt();
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Event type' }), {
+      target: { value: '   ' },
+    });
+    expect(screen.getByText('Choose the event this trigger listens for.')).toBeTruthy();
+    expect(continueButton().hasAttribute('disabled')).toBe(true);
+  });
+
+  it('trims the typed event type in the draft', async () => {
+    const onCreate = vi.fn().mockResolvedValue({ ok: true, triggerId: 'trg-1' });
+    renderWizard('webhook', [GENERIC], onCreate);
+    fillNameAndPrompt();
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Event type' }), {
+      target: { value: ' Issue ' },
+    });
+    fireEvent.click(continueButton());
+    fireEvent.click(screen.getByRole('radio', { name: 'Coder' }));
+    fireEvent.click(continueButton());
+    fireEvent.click(continueButton());
+    fireEvent.click(screen.getByRole('button', { name: /Create trigger/ }));
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'Issue' }));
+  });
+
+  it('resets the event type to webhook when the location goes back to None', async () => {
+    renderWizard('webhook', []);
+    await chooseGeneric();
+    const eventType = () => screen.getByRole('textbox', { name: 'Event type' });
+    await waitFor(() => expect(eventType()).toHaveValue('webhook'));
+    fireEvent.click(screen.getByText('Header'));
+    fireEvent.change(eventType(), { target: { value: 'Issue' } });
+    fireEvent.click(screen.getByText('None'));
+    expect(eventType()).toHaveValue('webhook');
+  });
+
+  it('still clears the filters when a GitHub event is picked', async () => {
+    renderWizard('webhook');
+    fireEvent.click(screen.getByRole('button', { name: 'Event type' }));
+    fireEvent.click(await screen.findByText('issue_comment'));
+    fireEvent.click(screen.getByRole('button', { name: /Add filter/ }));
+    expect(screen.getByLabelText('Filter 1 values')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Event type' }));
+    fireEvent.click(await screen.findByText('push'));
+    expect(screen.queryByLabelText('Filter 1 values')).toBeNull();
+  });
+
   it('suggests the event types an existing source has received', async () => {
     renderWizard('webhook', [GENERIC]);
     fireEvent.change(await screen.findByRole('textbox', { name: 'Event type' }), {

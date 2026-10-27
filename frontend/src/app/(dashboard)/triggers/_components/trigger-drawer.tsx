@@ -499,7 +499,7 @@ export function TriggerDrawer({
       // Sent together: the event narrows which fields exist, so a filter and
       // the event it belongs to must never land as two separate states.
       savePatch({
-        eventType: value.eventType,
+        eventType: value.eventType.trim(),
         matchCondition: matchConditionFrom(value.filters) ?? {},
         matchContains: matchContainsFrom(value.filters) ?? {},
       }),
@@ -510,7 +510,8 @@ export function TriggerDrawer({
     // A half-written filter looks configured but matches nothing, so it is the
     // one edit worth refusing rather than saving as-is. Same rule as the
     // wizard's, from the same function.
-    validate: (value) => validateFilters(value.filters).hint,
+    validate: (value) =>
+      value.eventType.trim() ? validateFilters(value.filters).hint : 'Needs an event type',
   });
 
   const storedSenders = useMemo(

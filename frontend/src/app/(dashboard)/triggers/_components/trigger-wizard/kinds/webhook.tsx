@@ -401,7 +401,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
               catalog={eventTypeCatalog(catalog.declared, catalog.observed)}
               searchPlaceholder="Search events…"
               freeText={schemaless}
-              // With no schema the fields do not depend on the event, so typing keeps the filters.
+              // Typing keeps the filters: a schemaless source's fields do not depend on the event.
               onSelect={(eventType) =>
                 patch(schemaless ? { eventType } : { eventType, filters: [] })
               }
@@ -477,7 +477,7 @@ function validateSource(category: SourceCategory) {
       } else if (!s.sourceChoice) {
         return { valid: false, hint: `Choose where ${COPY[category].arrivals} come from.` };
       }
-      if (!s.eventType)
+      if (!s.eventType.trim())
         return {
           valid: false,
           hint:
@@ -781,7 +781,7 @@ function sourceKind(
         const method = VERIFICATION_METHODS.find((m) => m.value === state.newSourceGeneric.method);
         rows.push({
           key: 'Verification',
-          value: `${method?.title ?? '—'}, ${pastesSecret(state.newSourceGeneric) ? 'pasted secret' : 'generated secret'}`,
+          value: `${method?.title ?? ''}, ${pastesSecret(state.newSourceGeneric) ? 'pasted secret' : 'generated secret'}`,
         });
       }
       const filters = describeMatchCondition(state.filters);
@@ -815,7 +815,7 @@ function sourceKind(
                     }),
                   }),
                 },
-        eventType: state.eventType,
+        eventType: state.eventType.trim(),
         ...(matchCondition ? { matchCondition } : {}),
         ...(matchContains ? { matchContains } : {}),
         ...(senderRestriction ? { senderRestriction } : {}),
