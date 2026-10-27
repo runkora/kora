@@ -310,12 +310,8 @@ func (s *SourceService) newSecret(src *WebhookSource, supplied string) (secret s
 // maxSigningSecretBytes bounds a signing secret the admin supplies.
 const maxSigningSecretBytes = 256
 
-// sourceSecret returns the signing secret for a create or a rotation. An
-// adapter that checks supplied secrets stores a supplied one and generates one
-// when it is omitted. A provider that issues its own secret takes it from the
-// request. Every other provider gets a generated one and refuses a supplied
-// value. issued reports a secret taken from the request. optional lets an
-// issued-secret provider omit the value, and secret is then empty.
+// sourceSecret returns the signing secret for a create or a rotation. issued
+// reports a secret taken from the request, which is never returned.
 func (s *SourceService) sourceSecret(src *WebhookSource, supplied string, optional bool) (secret string, issued bool, err error) {
 	adapter, err := s.registry.ForSource(*src)
 	if err != nil {
@@ -323,7 +319,7 @@ func (s *SourceService) sourceSecret(src *WebhookSource, supplied string, option
 	}
 	if checker, ok := adapter.(suppliedSecretChecker); ok {
 		if supplied == "" {
-			secret, err = newGeneratedSecret(adapter)
+			secret, err = checker.GenerateSecret()
 			return secret, false, err
 		}
 		if secret, err = suppliedSecret(supplied); err != nil {
@@ -335,7 +331,7 @@ func (s *SourceService) sourceSecret(src *WebhookSource, supplied string, option
 		if supplied != "" {
 			return "", false, fmt.Errorf("%w: signing_secret is not accepted for provider %q", ErrValidation, adapter.Provider())
 		}
-		secret, err = newGeneratedSecret(adapter)
+		secret, err = generateSecret()
 		return secret, false, err
 	}
 	if optional && supplied == "" {
@@ -343,14 +339,6 @@ func (s *SourceService) sourceSecret(src *WebhookSource, supplied string, option
 	}
 	secret, err = suppliedSecret(supplied)
 	return secret, true, err
-}
-
-// newGeneratedSecret generates a secret in the adapter's own format, or the platform default.
-func newGeneratedSecret(adapter SourceAdapter) (string, error) {
-	if g, ok := adapter.(secretGenerator); ok {
-		return g.GenerateSecret()
-	}
-	return generateSecret()
 }
 
 // suppliedSecret trims a signing secret the admin or a resource supplies and checks its bounds.

@@ -613,3 +613,65 @@ func TestGenericCatalogAndSenders(t *testing.T) {
 		t.Errorf("sender restriction on a generic source: got %v, want ErrValidation", err)
 	}
 }
+
+func TestSourceApply_GenericConfigChange(t *testing.T) {
+	_, deps := newTestService(t)
+	first := mustApply(t, deps.sources, genericSourceItem(t, hmacConfig("X-Signature", "", ""), "not base64!"), declarative.OutcomeProjected)
+
+	mustApply(t, deps.sources, genericSourceItem(t, methodConfig(genericStandardWebhooks), "not base64!"), declarative.OutcomeInvalid)
+	if got := deps.repo.sources[first.ID].Config["verification"].(map[string]any)["method"]; got != genericHMACSHA256 {
+		t.Errorf("a refused change rewrote the method to %v", got)
+	}
+
+	std := "whsec_" + base64.StdEncoding.EncodeToString([]byte("declared-key"))
+	second := mustApply(t, deps.sources, genericSourceItem(t, methodConfig(genericStandardWebhooks), std), declarative.OutcomeProjected)
+	if second.ID != first.ID {
+		t.Errorf("config change recreated the source: %s, want %s", second.ID, first.ID)
+	}
+	if got := deps.repo.sources[first.ID].Config["verification"].(map[string]any)["method"]; got != genericStandardWebhooks {
+		t.Errorf("method = %v, want the config updated in place", got)
+	}
+	if got := storedSecret(t, deps, first.ID); got != std {
+		t.Errorf("stored secret %q, want the new Secret value", got)
+	}
+}
+
+func TestIngest_GenericBearerAndStandardWebhooks(t *testing.T) {
+	svc, deps := newTestService(t)
+	ctx := context.Background()
+	body := []byte(`{"data":{"title":"t"}}`)
+
+	bearer, err := createGeneric(t, deps.sources, methodConfig(genericBearer), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := svc.Ingest(ctx, bearer.ID, http.Header{"Authorization": {"Bearer " + bearer.Secret}}, body); err != nil || out.Outcome != IngestAccepted {
+		t.Errorf("bearer signed: %v, %v; want accepted", out.Outcome, err)
+	}
+	if _, err := svc.Ingest(ctx, bearer.ID, http.Header{"Authorization": {"Bearer wrong"}}, body); !errors.Is(err, ErrSignatureInvalid) {
+		t.Errorf("bearer wrong token: got %v, want ErrSignatureInvalid", err)
+	}
+
+	std, err := deps.sources.CreateSource(ctx, testTenant, CreateSourceRequest{
+		Name: "std", Provider: ProviderGeneric, Config: methodConfig(genericStandardWebhooks),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(std.Secret, standardWebhooksSecretPrefix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := time.Now().Unix()
+	signed := standardHeaders("msg_1", ts, standardSignature(key, "msg_1", ts, body))
+	if out, err := svc.Ingest(ctx, std.ID, signed, body); err != nil || out.Outcome != IngestAccepted {
+		t.Errorf("standard webhooks signed: %v, %v; want accepted", out.Outcome, err)
+	}
+	stale := standardHeaders("msg_2", ts-600, standardSignature(key, "msg_2", ts-600, body))
+	if _, err := svc.Ingest(ctx, std.ID, stale, body); !errors.Is(err, ErrSignatureInvalid) {
+		t.Errorf("standard webhooks stale timestamp: got %v, want ErrSignatureInvalid", err)
+	}
+	if deps.repo.sources[bearer.ID].RejectionCount != 1 || deps.repo.sources[std.ID].RejectionCount != 1 {
+		t.Error("each refused delivery must count once on its source")
+	}
+}

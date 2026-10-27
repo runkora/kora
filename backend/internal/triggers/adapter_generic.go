@@ -65,8 +65,7 @@ type genericEventType struct {
 }
 
 // genericAdapter is the provider for systems kora has no built-in adapter for.
-// The registered value has no config and refuses every delivery. ForSource
-// returns the adapter one source runs with.
+// The registered value has no config and refuses every delivery.
 type genericAdapter struct {
 	cfg genericConfig
 	// now is the clock for the Standard Webhooks window; nil means time.Now.

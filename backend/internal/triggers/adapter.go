@@ -101,11 +101,7 @@ type sourceConfigured interface {
 type suppliedSecretChecker interface {
 	// CheckSuppliedSecret refuses a supplied secret the method cannot use.
 	CheckSuppliedSecret(secret string) error
-}
-
-// secretGenerator is implemented by adapters whose generated secret has a
-// format of its own.
-type secretGenerator interface {
+	// GenerateSecret returns a secret in the form the method expects, for a create that omits one.
 	GenerateSecret() (string, error)
 }
 
@@ -140,9 +136,8 @@ func NewRegistry() (*Registry, error) {
 	return r, nil
 }
 
-// register adds an adapter with its catalog. A chat adapter gets the shared
-// chat catalog, never its own schema. A webhook adapter with no schema gets an
-// empty catalog.
+// register adds an adapter with its catalog. Chat adapters share the chat
+// catalog, and a schema-less adapter gets an empty one, never nil.
 func (r *Registry) register(a SourceAdapter) error {
 	schema := a.Schema()
 	if categoryOf(a) == CategoryChat {
