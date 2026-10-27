@@ -147,6 +147,8 @@ Set the provider's webhook URL to the path in `status.webhookPath` on the API ho
 kubectl get triggersources -n kora-tenant-example -o wide
 ```
 
+A `generic` source takes its verification and event type settings in `spec.config`, in the shape the API accepts. See [Connect any other system](create-a-trigger.md#connect-any-other-system). The Secret holds the signing secret for every method, bearer included. A `standard_webhooks` secret must be base64, with an optional `whsec_` prefix. Changing `spec.config` updates the source in place.
+
 Recreating a `TriggerSource`, or changing its `provider`, gives it a new webhook path.
 
 ## Create a trigger

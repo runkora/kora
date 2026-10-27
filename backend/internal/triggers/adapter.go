@@ -13,8 +13,8 @@ import (
 // pipeline (verify → match → template → dispatch → log) is adapter-agnostic.
 // The fields a trigger can read come from the provider's schema.
 //
-// One adapter per file: see adapter_github.go, adapter_alertmanager.go and
-// adapter_slack.go. To add a new adapter, drop a new adapter_<provider>.go file
+// One adapter per file: see adapter_github.go, adapter_alertmanager.go,
+// adapter_slack.go and adapter_generic.go. To add a new adapter, drop a new adapter_<provider>.go file
 // with the implementation and register it in NewRegistry below.
 type SourceAdapter interface {
 	// Provider returns the adapter's stable identifier (e.g. "github").
@@ -87,6 +87,28 @@ type issuedSecret interface {
 	providerIssuesSecret()
 }
 
+// sourceConfigured is implemented by adapters whose behavior comes from the
+// source's config.
+type sourceConfigured interface {
+	// ValidateConfig refuses a config the adapter cannot run with.
+	ValidateConfig(config map[string]any) error
+	// ForSource returns the adapter for one source.
+	ForSource(config map[string]any) (SourceAdapter, error)
+}
+
+// suppliedSecretChecker is implemented by configured adapters that accept a
+// secret the admin supplies.
+type suppliedSecretChecker interface {
+	// CheckSuppliedSecret refuses a supplied secret the method cannot use.
+	CheckSuppliedSecret(secret string) error
+}
+
+// secretGenerator is implemented by adapters whose generated secret has a
+// format of its own.
+type secretGenerator interface {
+	GenerateSecret() (string, error)
+}
+
 // handshaker is implemented by adapters whose provider sends a verification
 // request that expects a reply and is not a delivery.
 type handshaker interface {
@@ -110,7 +132,7 @@ type Registry struct {
 // does not build fails startup.
 func NewRegistry() (*Registry, error) {
 	r := &Registry{adapters: make(map[string]SourceAdapter), catalogs: make(map[string]*Catalog)}
-	for _, a := range []SourceAdapter{&githubAdapter{}, &alertmanagerAdapter{}, &slackAdapter{}} {
+	for _, a := range []SourceAdapter{&githubAdapter{}, &alertmanagerAdapter{}, &slackAdapter{}, &genericAdapter{}} {
 		if err := r.register(a); err != nil {
 			return nil, err
 		}
@@ -119,15 +141,19 @@ func NewRegistry() (*Registry, error) {
 }
 
 // register adds an adapter with its catalog. A chat adapter gets the shared
-// chat catalog, never its own schema.
+// chat catalog, never its own schema. A webhook adapter with no schema gets an
+// empty catalog.
 func (r *Registry) register(a SourceAdapter) error {
 	schema := a.Schema()
 	if categoryOf(a) == CategoryChat {
 		schema = chatSchema
 	}
-	c, err := BuildCatalog(schema)
-	if err != nil {
-		return fmt.Errorf("build %s catalog: %w", a.Provider(), err)
+	c := &Catalog{events: map[string][]Field{}}
+	if schema != nil {
+		var err error
+		if c, err = BuildCatalog(schema); err != nil {
+			return fmt.Errorf("build %s catalog: %w", a.Provider(), err)
+		}
 	}
 	r.adapters[a.Provider()] = a
 	r.catalogs[a.Provider()] = c
@@ -138,6 +164,19 @@ func (r *Registry) register(a SourceAdapter) error {
 func (r *Registry) Get(provider string) (SourceAdapter, bool) {
 	a, ok := r.adapters[provider]
 	return a, ok
+}
+
+// ForSource returns the adapter a source runs with: the registered adapter, or
+// its configured copy when the adapter reads the source's config.
+func (r *Registry) ForSource(src WebhookSource) (SourceAdapter, error) {
+	a, ok := r.adapters[src.Provider]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
+	}
+	if c, ok := a.(sourceConfigured); ok {
+		return c.ForSource(src.Config)
+	}
+	return a, nil
 }
 
 // Catalog returns a provider's catalog, or nil for an unknown provider.

@@ -91,26 +91,22 @@ func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req C
 		return nil, declarative.ErrAPIAuthoringDisabled
 	}
 	name := strings.TrimSpace(req.Name)
-	if err := s.validateSourceCreate(name, req.Provider); err != nil {
-		return nil, err
-	}
-	adapter, _ := s.registry.Get(req.Provider)
-	secret, issued, err := sourceSecret(adapter, req.SigningSecret, true)
-	if err != nil {
-		return nil, err
-	}
-
-	ciphertext, err := s.sealSecret(secret)
-	if err != nil {
+	if err := s.validateSourceCreate(name, req.Provider, req.Config); err != nil {
 		return nil, err
 	}
 	src := &WebhookSource{
-		TenantID:         tenantID,
-		Name:             name,
-		Provider:         req.Provider,
-		Config:           req.Config,
-		Enabled:          true,
-		SecretCiphertext: ciphertext,
+		TenantID: tenantID,
+		Name:     name,
+		Provider: req.Provider,
+		Config:   req.Config,
+		Enabled:  true,
+	}
+	secret, issued, err := s.sourceSecret(src, req.SigningSecret, true)
+	if err != nil {
+		return nil, err
+	}
+	if src.SecretCiphertext, err = s.sealSecret(secret); err != nil {
+		return nil, err
 	}
 	if err := s.insertSource(ctx, src); err != nil {
 		return nil, err
@@ -122,15 +118,23 @@ func (s *SourceService) CreateSource(ctx context.Context, tenantID string, req C
 	}, nil
 }
 
-// validateSourceCreate checks a new source's name and provider.
-func (s *SourceService) validateSourceCreate(name, provider string) error {
+// validateSourceCreate checks a new source's name, provider and, for an
+// adapter that reads it, config.
+func (s *SourceService) validateSourceCreate(name, provider string, config map[string]any) error {
 	if name == "" {
 		return fmt.Errorf("%w: name is required", ErrValidation)
 	}
 	if err := validateTextBounds(name, ""); err != nil {
 		return err
 	}
-	return s.registry.validateProvider(provider)
+	if err := s.registry.validateProvider(provider); err != nil {
+		return err
+	}
+	adapter, _ := s.registry.Get(provider)
+	if c, ok := adapter.(sourceConfigured); ok {
+		return c.ValidateConfig(config)
+	}
+	return nil
 }
 
 // insertSource gives a new source its id, its SERVICE principal and the
@@ -244,7 +248,7 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 	}
 	var rotated string
 	if changesSecret {
-		secret, issued, ciphertext, err := s.newSecret(src.Provider, req.SigningSecret)
+		secret, issued, ciphertext, err := s.newSecret(src, req.SigningSecret)
 		if err != nil {
 			return nil, err
 		}
@@ -285,8 +289,8 @@ func (s *SourceService) refuseUpdate(src *WebhookSource, req UpdateSourceRequest
 // takesFirstSecret reports whether the request sets the first secret of a source
 // that is waiting for one. That needs no rotate_secret.
 func (s *SourceService) takesFirstSecret(src *WebhookSource, req UpdateSourceRequest) bool {
-	adapter, ok := s.registry.Get(src.Provider)
-	if !ok {
+	adapter, err := s.registry.ForSource(*src)
+	if err != nil {
 		return false
 	}
 	_, issued := adapter.(issuedSecret)
@@ -294,12 +298,8 @@ func (s *SourceService) takesFirstSecret(src *WebhookSource, req UpdateSourceReq
 }
 
 // newSecret resolves and encrypts the secret an update sets.
-func (s *SourceService) newSecret(provider, supplied string) (secret string, issued bool, ciphertext string, err error) {
-	adapter, ok := s.registry.Get(provider)
-	if !ok {
-		return "", false, "", fmt.Errorf("%w: %q", ErrUnknownProvider, provider)
-	}
-	secret, issued, err = sourceSecret(adapter, supplied, false)
+func (s *SourceService) newSecret(src *WebhookSource, supplied string) (secret string, issued bool, ciphertext string, err error) {
+	secret, issued, err = s.sourceSecret(src, supplied, false)
 	if err != nil {
 		return "", false, "", err
 	}
@@ -310,17 +310,32 @@ func (s *SourceService) newSecret(provider, supplied string) (secret string, iss
 // maxSigningSecretBytes bounds a signing secret the admin supplies.
 const maxSigningSecretBytes = 256
 
-// sourceSecret returns the signing secret for a create or a rotation. A provider
-// that issues its own secret takes it from the request; every other provider
-// gets a generated one and refuses a supplied value. issued reports the former.
-// optional lets an issued-secret provider omit the value, and secret is then
-// empty.
-func sourceSecret(adapter SourceAdapter, supplied string, optional bool) (secret string, issued bool, err error) {
+// sourceSecret returns the signing secret for a create or a rotation. An
+// adapter that checks supplied secrets stores a supplied one and generates one
+// when it is omitted. A provider that issues its own secret takes it from the
+// request. Every other provider gets a generated one and refuses a supplied
+// value. issued reports a secret taken from the request. optional lets an
+// issued-secret provider omit the value, and secret is then empty.
+func (s *SourceService) sourceSecret(src *WebhookSource, supplied string, optional bool) (secret string, issued bool, err error) {
+	adapter, err := s.registry.ForSource(*src)
+	if err != nil {
+		return "", false, err
+	}
+	if checker, ok := adapter.(suppliedSecretChecker); ok {
+		if supplied == "" {
+			secret, err = newGeneratedSecret(adapter)
+			return secret, false, err
+		}
+		if secret, err = suppliedSecret(supplied); err != nil {
+			return "", false, err
+		}
+		return secret, true, checker.CheckSuppliedSecret(secret)
+	}
 	if _, ok := adapter.(issuedSecret); !ok {
 		if supplied != "" {
 			return "", false, fmt.Errorf("%w: signing_secret is not accepted for provider %q", ErrValidation, adapter.Provider())
 		}
-		secret, err = generateSecret()
+		secret, err = newGeneratedSecret(adapter)
 		return secret, false, err
 	}
 	if optional && supplied == "" {
@@ -328,6 +343,14 @@ func sourceSecret(adapter SourceAdapter, supplied string, optional bool) (secret
 	}
 	secret, err = suppliedSecret(supplied)
 	return secret, true, err
+}
+
+// newGeneratedSecret generates a secret in the adapter's own format, or the platform default.
+func newGeneratedSecret(adapter SourceAdapter) (string, error) {
+	if g, ok := adapter.(secretGenerator); ok {
+		return g.GenerateSecret()
+	}
+	return generateSecret()
 }
 
 // suppliedSecret trims a signing secret the admin or a resource supplies and checks its bounds.

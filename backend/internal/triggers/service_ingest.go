@@ -48,9 +48,9 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		s.recordSourceRejection(ctx, src.ID, "source is disabled")
 		return IngestResult{}, ErrSourceDisabled
 	}
-	adapter, ok := s.registry.Get(src.Provider)
-	if !ok {
-		return IngestResult{}, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
+	adapter, err := s.registry.ForSource(*src)
+	if err != nil {
+		return IngestResult{}, err
 	}
 
 	if src.SecretCiphertext == "" {

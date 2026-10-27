@@ -74,11 +74,23 @@ func (s *SourceService) declaredSource(item declarative.Item) (*WebhookSource, s
 			return nil, "", fmt.Errorf("%w: config must be an object", ErrValidation)
 		}
 	}
-	if err := s.validateSourceCreate(item.Name, spec.Provider); err != nil {
+	if err := s.validateSourceCreate(item.Name, spec.Provider, want.Config); err != nil {
 		return nil, "", err
 	}
 	secret, err := suppliedSecret(string(item.Secret))
-	return want, secret, err
+	if err != nil {
+		return nil, "", err
+	}
+	adapter, err := s.registry.ForSource(*want)
+	if err != nil {
+		return nil, "", err
+	}
+	if checker, ok := adapter.(suppliedSecretChecker); ok {
+		if err := checker.CheckSuppliedSecret(secret); err != nil {
+			return nil, "", err
+		}
+	}
+	return want, secret, nil
 }
 
 // updateDeclaredSource writes a changed secret, enablement or config over the stored source.
