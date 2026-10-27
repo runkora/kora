@@ -77,7 +77,7 @@ func NewController(
 	}
 }
 
-// MarketplaceRoutes declares the scope required by all three marketplace routes.
+// MarketplaceRoutes declares the scope required by every marketplace route.
 func MarketplaceRoutes(basePath string) []routescopes.RouteScope {
 	return []routescopes.RouteScope{{
 		PathPrefix:    strings.TrimRight(basePath, "/") + "/marketplaces",
@@ -109,8 +109,8 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 // Boot registers all marketplace endpoints on the platform mux.
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /marketplaces", c.handleListMarketplaces)
-	mux.Handle("GET /marketplaces/{marketplaceSlug}/skills", c.handleListSkills)
-	mux.Handle("GET /marketplaces/{marketplaceSlug}/skills/{skillSlug}", c.handleGetSkill)
+	mux.Handle("GET /marketplaces/{marketplaceSlug}", c.handleGetMarketplace)
+	mux.Handle("GET /marketplaces/{marketplaceSlug}/{skillName}", c.handleGetSkill)
 }
 
 func (c *Controller) handleListMarketplaces(w http.ResponseWriter, r *http.Request) {
@@ -135,9 +135,10 @@ func (c *Controller) handleListMarketplaces(w http.ResponseWriter, r *http.Reque
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"marketplaces": marketplaces})
 }
 
-// handleListSkills returns up to serverCap skills per call. Clients pass the
-// previous response's nextCursor as ?cursor= to fetch the next batch.
-func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
+// handleGetMarketplace returns the selected marketplace and up to serverCap of
+// its skills. Clients pass the previous response's nextCursor as ?cursor= to
+// fetch the next batch, and ?search= to filter by skill name.
+func (c *Controller) handleGetMarketplace(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	tenantID, ok := c.tenantID(w, r)
@@ -145,7 +146,7 @@ func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
-	result, err := c.service.ListSkills(
+	result, err := c.service.GetMarketplace(
 		ctx,
 		tenantID,
 		r.PathValue("marketplaceSlug"),
@@ -169,20 +170,23 @@ func (c *Controller) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 	}
 
 	marketplaceSlug := r.PathValue("marketplaceSlug")
-	skillSlug := r.PathValue("skillSlug")
+	// Accept a full skillSlug ({marketplaceSlug}__{skillName}) as well, for
+	// callers that still address skills by slug.
+	skillName := strings.TrimPrefix(r.PathValue("skillName"), marketplaceSlug+"__")
 
-	// Reject obviously malformed slugs before hitting the service.
-	if skillSlug == "" || strings.Contains(skillSlug, "/") {
+	// skillName is the slugified name segment of a skillSlug. Anything else,
+	// including another marketplace's slug or a value with a slash, is malformed.
+	if !skillNamePattern.MatchString(skillName) {
 		apiErr := api.ValidationError(
 			api.ErrCodeInvalidField,
-			"skillSlug must be a single path segment",
+			"skillName must be lowercase letters, digits, and single hyphens",
 			nil,
 		)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
 
-	skill, err := c.service.GetSkill(ctx, tenantID, marketplaceSlug, skillSlug)
+	skill, err := c.service.GetSkill(ctx, tenantID, marketplaceSlug, skillName)
 	if err != nil {
 		c.respondError(w, r, err)
 		return

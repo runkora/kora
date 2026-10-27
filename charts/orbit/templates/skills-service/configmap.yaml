@@ -15,4 +15,3 @@ or reset the operator's data.
 data:
   skills-mapping.yaml: |
     {{- dict "skillsMapping" $mapping | toYaml | nindent 4 }}
-{{- end }}

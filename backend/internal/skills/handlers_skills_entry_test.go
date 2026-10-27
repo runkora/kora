@@ -204,7 +204,7 @@ func TestControllerMarketplaces(t *testing.T) {
 func TestControllerListSkills(t *testing.T) {
 	fix := newHandlerController(true)
 	slug := handlerSource.MarketplaceSlug
-	rr := handlerRequest(fix, "/marketplaces/"+slug+"/skills?search=REACT", "tenant-a")
+	rr := handlerRequest(fix, "/marketplaces/"+slug+"?search=REACT", "tenant-a")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
@@ -217,10 +217,13 @@ func TestControllerListSkills(t *testing.T) {
 	if len(body.Skills) != 2 {
 		t.Fatalf("want 2 react skills, got %d: %s", len(body.Skills), rr.Body.String())
 	}
-	// Each skill must include skillSlug.
+	// Each skill must include skillSlug and skillName.
 	for _, s := range body.Skills {
 		if _, ok := s["skillSlug"]; !ok {
 			t.Errorf("skillSlug missing from list response: %v", s)
+		}
+		if _, ok := s["skillName"]; !ok {
+			t.Errorf("skillName missing from list response: %v", s)
 		}
 	}
 	if fix.crawler.fetchCalls != 0 {
@@ -237,7 +240,7 @@ func TestControllerServerCap(t *testing.T) {
 	fix.crawler.skills = items
 
 	slug := handlerSource.MarketplaceSlug
-	rr := handlerRequest(fix, "/marketplaces/"+slug+"/skills", "tenant-a")
+	rr := handlerRequest(fix, "/marketplaces/"+slug, "tenant-a")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
@@ -266,7 +269,7 @@ func TestControllerPagination(t *testing.T) {
 		}
 	}
 	fix.crawler.skills = items
-	base := "/marketplaces/" + handlerSource.MarketplaceSlug + "/skills"
+	base := "/marketplaces/" + handlerSource.MarketplaceSlug
 
 	type page struct {
 		Skills     []map[string]any `json:"skills"`
@@ -301,7 +304,7 @@ func TestControllerPagination(t *testing.T) {
 
 func TestControllerInvalidCursor(t *testing.T) {
 	fix := newHandlerController(true)
-	target := "/marketplaces/" + handlerSource.MarketplaceSlug + "/skills?cursor=!!bad!!"
+	target := "/marketplaces/" + handlerSource.MarketplaceSlug + "?cursor=!!bad!!"
 	rr := handlerRequest(fix, target, "tenant-a")
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status %d, want 400: %s", rr.Code, rr.Body.String())
@@ -314,8 +317,7 @@ func TestControllerInvalidCursor(t *testing.T) {
 func TestControllerGetSkill(t *testing.T) {
 	fix := newHandlerController(true)
 	slug := handlerSource.MarketplaceSlug
-	skillSlug := slug + "__react-expert"
-	rr := handlerRequest(fix, "/marketplaces/"+slug+"/skills/"+skillSlug, "tenant-a")
+	rr := handlerRequest(fix, "/marketplaces/"+slug+"/react-expert", "tenant-a")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
@@ -331,6 +333,61 @@ func TestControllerGetSkill(t *testing.T) {
 	}
 }
 
+func TestControllerGetMarketplace(t *testing.T) {
+	fix := newHandlerController(true)
+	slug := handlerSource.MarketplaceSlug
+	rr := handlerRequest(fix, "/marketplaces/"+slug+"?search=react", "tenant-a")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	var body MarketplaceDetail
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Name != handlerSource.Name || body.MarketplaceSlug != slug || body.Link != handlerSource.Link {
+		t.Fatalf("wrong marketplace: %+v", body)
+	}
+	if len(body.Skills) != 2 {
+		t.Fatalf("got %d skills, want 2 matching react: %+v", len(body.Skills), body.Skills)
+	}
+	for _, sk := range body.Skills {
+		if sk.Name == "" || sk.SkillName == "" {
+			t.Errorf("skill missing name or skillName: %+v", sk)
+		}
+	}
+	if strings.Contains(rr.Body.String(), "SKILL.md") || strings.Contains(rr.Body.String(), `"org"`) {
+		t.Fatal("backend-only fields leaked into marketplace response")
+	}
+}
+
+func TestControllerGetSkillBySkillName(t *testing.T) {
+	fix := newHandlerController(true)
+	slug := handlerSource.MarketplaceSlug
+	rr := handlerRequest(fix, "/marketplaces/"+slug+"/go-expert", "tenant-a")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	var body Skill
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.SkillSlug != slug+"__go-expert" || body.File.Content != "# Go Expert" {
+		t.Fatalf("wrong skill returned: %+v", body)
+	}
+}
+
+func TestControllerGetSkillAcceptsFullSlug(t *testing.T) {
+	fix := newHandlerController(true)
+	slug := handlerSource.MarketplaceSlug
+	rr := handlerRequest(fix, "/marketplaces/"+slug+"/"+slug+"__react-expert", "tenant-a")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"skillSlug":"`+slug+`__react-expert"`) {
+		t.Fatalf("wrong skill returned: %s", rr.Body.String())
+	}
+}
+
 func TestControllerNotFound(t *testing.T) {
 	slug := handlerSource.MarketplaceSlug
 	for _, tc := range []struct {
@@ -339,11 +396,13 @@ func TestControllerNotFound(t *testing.T) {
 		tenantID string
 		code     int
 	}{
-		{"unknown marketplace", "/marketplaces/unknown__slug/skills", "tenant-a", http.StatusNotFound},
-		{"wrong tenant", "/marketplaces/" + slug + "/skills", "tenant-b", http.StatusNotFound},
-		{"unknown skill", "/marketplaces/" + slug + "/skills/" + slug + "__missing", "tenant-a", http.StatusNotFound},
-		{"wrong prefix skill", "/marketplaces/" + slug + "/skills/other__repo__skill", "tenant-a", http.StatusNotFound},
-		{"slash in skill name", "/marketplaces/" + slug + "/skills/bad%2Fname", "tenant-a", http.StatusBadRequest},
+		{"unknown marketplace detail", "/marketplaces/unknown__slug", "tenant-a", http.StatusNotFound},
+		{"marketplace detail in wrong tenant", "/marketplaces/" + slug, "tenant-b", http.StatusNotFound},
+		{"unknown skill by name", "/marketplaces/" + slug + "/missing", "tenant-a", http.StatusNotFound},
+		{"skill by name in wrong tenant", "/marketplaces/" + slug + "/react-expert", "tenant-b", http.StatusNotFound},
+		{"invalid skill name", "/marketplaces/" + slug + "/React-Expert", "tenant-a", http.StatusBadRequest},
+		{"other marketplace's skill slug", "/marketplaces/" + slug + "/other__repo__react-expert", "tenant-a", http.StatusBadRequest},
+		{"slash in skill name", "/marketplaces/" + slug + "/bad%2Fname", "tenant-a", http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fix := newHandlerController(true)
@@ -360,7 +419,7 @@ func TestControllerNotFound(t *testing.T) {
 
 func TestControllerReadFailures(t *testing.T) {
 	slug := handlerSource.MarketplaceSlug
-	for _, target := range []string{"/skills", "/skills/" + slug + "__react-expert"} {
+	for _, target := range []string{"", "/react-expert"} {
 		for _, tc := range []struct {
 			name                     string
 			getErr, crawlErr, setErr error
@@ -400,8 +459,8 @@ func TestControllerRequiresTenant(t *testing.T) {
 	slug := handlerSource.MarketplaceSlug
 	for _, target := range []string{
 		"/marketplaces",
-		"/marketplaces/" + slug + "/skills",
-		"/marketplaces/" + slug + "/skills/" + slug + "__react-expert",
+		"/marketplaces/" + slug,
+		"/marketplaces/" + slug + "/react-expert",
 	} {
 		for _, claims := range []*token.PlatformClaims{nil, {}} {
 			fix := newHandlerController(true)
@@ -475,8 +534,8 @@ func TestControllerAuthorization(t *testing.T) {
 	slug := handlerSource.MarketplaceSlug
 	targets := []string{
 		"/marketplaces",
-		"/marketplaces/" + slug + "/skills",
-		"/marketplaces/" + slug + "/skills/" + slug + "__react-expert",
+		"/marketplaces/" + slug,
+		"/marketplaces/" + slug + "/react-expert",
 	}
 
 	for _, tc := range []struct {
