@@ -8,6 +8,8 @@ import type { ModelObject, TriggerRoutingCandidate } from '@runkora/shared/api';
 import { resolveBrowserZone, timezoneOptions } from './cron';
 import { LIMITS } from '../../_types';
 import { firstUnknownChatField, placeholderKeys } from '../../_lib/chat';
+import { EMPTY_GENERIC_DRAFT, fixedEventType } from '../../_lib/generic-source';
+import { FIELD_PATH } from '../../_lib/field-path';
 import type { Senders, TriggerCoalesce, TriggerRoutingRow } from '../../_types';
 import type { SenderRestrictionDraft } from '../sender-restriction-editor';
 import type { FilterOperator, FilterRow } from '../filter-rows-editor';
@@ -88,6 +90,7 @@ export function baseState(sources: readonly { id: string }[]): WizardState {
     newSourceSecret: '',
     newSourceCreated: null,
     newSourceSecretSaved: false,
+    newSourceGeneric: EMPTY_GENERIC_DRAFT,
     eventType: '',
     eventFields: null,
     eventFieldsFailed: false,
@@ -136,7 +139,11 @@ export function initialState(
       ? sources
       : sources.filter((s) => s.category === def.sourceCategory);
   const state = { ...baseState(own), ...def.defaults };
-  return own.length === 0 && def.newSourceWhenNone ? { ...state, sourceChoice: NEW_SOURCE } : state;
+  if (own.length === 0 && def.newSourceWhenNone) return { ...state, sourceChoice: NEW_SOURCE };
+  // A generic source with no event type location gives every delivery one event type.
+  const first = own[0];
+  const eventType = first === undefined ? undefined : fixedEventType(first.provider, first.config);
+  return eventType === undefined ? state : { ...state, eventType };
 }
 
 /** Splits a filter row's values on `|`, dropping blanks. */
@@ -191,6 +198,13 @@ export function validateFilters(filters: FilterRow[]): StepValidation {
     return hasField !== hasValues;
   });
   if (halfWritten) return { valid: false, hint: 'Finish or remove the empty filter' };
+  // A typed field path must parse; a field from the schema always does.
+  const malformed = filters.find((row) => row.field.trim() && !FIELD_PATH.test(row.field.trim()));
+  if (malformed)
+    return {
+      valid: false,
+      hint: `${malformed.field.trim()} is not a field path. Use dotted names, such as data.issue.title.`,
+    };
   return VALID;
 }
 

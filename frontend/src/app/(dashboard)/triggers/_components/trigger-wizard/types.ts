@@ -19,6 +19,7 @@ import type {
 import type { Frequency } from './cron';
 import type { FilterRow } from '../filter-rows-editor';
 import type { SenderRestrictionDraft } from '../sender-restriction-editor';
+import type { GenericSourceDraft } from '../../_lib/generic-source';
 import type {
   ConsoleKind,
   Senders,
@@ -102,6 +103,8 @@ export interface TriggerWizardSource {
   category: SourceCategory;
   /** False for a source still waiting for the signing secret its provider issues. */
   signingSecretSet?: boolean;
+  /** The provider's settings for this source; only a generic source has any. */
+  config?: Record<string, unknown>;
 }
 
 /** What the parent needs in order to create the source and the trigger. */
@@ -110,7 +113,16 @@ export interface TriggerDraft {
   kind: TriggerKind;
   name: string;
   promptTemplate: string;
-  source?: { existingId: string } | { newName: string; provider: string };
+  source?:
+    | { existingId: string }
+    | {
+        newName: string;
+        provider: string;
+        /** A generic source's verification and event type settings. */
+        config?: Record<string, unknown>;
+        /** A secret the sender issued; omitted to have the platform generate one. */
+        signingSecret?: string;
+      };
   /** Webhook only. */
   eventType?: string;
   /**
@@ -216,6 +228,8 @@ export interface WizardState {
   newSourceCreated: { id: string; name: string; provider: string } | null;
   /** Whether the created source holds its signing secret. */
   newSourceSecretSaved: boolean;
+  /** A new generic source's verification and event type settings. */
+  newSourceGeneric: GenericSourceDraft;
   eventType: string;
   /**
    * The chosen event's field paths, for a kind that checks placeholders

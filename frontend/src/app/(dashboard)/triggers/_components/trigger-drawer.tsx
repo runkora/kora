@@ -50,6 +50,7 @@ import { endpointFor } from '../_lib/endpoints';
 import { SLACK_PROVIDER } from '../_lib/slack-app-manifest';
 import { chatConversationKey, chatEventLabel } from '../_lib/chat';
 import { providerName, SENDER_ID_EXAMPLE } from '../_lib/providers';
+import { takesPastedSecret, verificationMethodOf, verificationNote } from '../_lib/generic-source';
 import { ChatEventPicker } from './chat-event-picker';
 import { CatalogPicker } from './catalog-picker';
 import { CoalesceEditor } from './coalesce-editor';
@@ -290,12 +291,15 @@ function EditActions({
 function IssuedSecretRow({
   providerName,
   waiting = false,
+  hint,
   onReplace,
 }: {
   /** The provider's display name, e.g. "Slack". */
   providerName: string;
   /** The source has no secret yet: the first one is set, not replaced. */
   waiting?: boolean;
+  /** Replaces the provider-app wording, for a sender with no app to regenerate it in. */
+  hint?: string;
   onReplace?: (secret: string) => Promise<boolean>;
 }) {
   const id = useId();
@@ -321,9 +325,10 @@ function IssuedSecretRow({
         label="Signing secret"
         id={id}
         hint={
-          waiting
+          hint ??
+          (waiting
             ? `Waiting for the signing secret. Copy it from your ${providerName} app's Basic Information page and paste it here.`
-            : `Regenerate it in your ${providerName} app, then paste the new secret here.`
+            : `Regenerate it in your ${providerName} app, then paste the new secret here.`)
         }
       >
         <Input
@@ -494,7 +499,7 @@ export function TriggerDrawer({
       // Sent together: the event narrows which fields exist, so a filter and
       // the event it belongs to must never land as two separate states.
       savePatch({
-        eventType: value.eventType,
+        eventType: value.eventType.trim(),
         matchCondition: matchConditionFrom(value.filters) ?? {},
         matchContains: matchContainsFrom(value.filters) ?? {},
       }),
@@ -613,6 +618,13 @@ export function TriggerDrawer({
   const endpoint = endpointFor(ingestHost, trigger.sourceId);
 
   const webhookFields = schemaCatalog(sourceCatalog.fields);
+  // A generic source has no schema: its event type and filter fields are typed.
+  const schemaless = kind !== 'chat' && sourceCatalog.schemaless;
+  // A typed event type can be emptied; a picked one cannot.
+  const filtersBlocker =
+    schemaless && !filters.value.eventType.trim() ? 'Needs an event type' : filters.blocker;
+  const genericMethod =
+    source === undefined ? undefined : verificationMethodOf(source.provider, source.config);
   const promptCatalog =
     trigger.kind === 'webhook'
       ? webhookFields
@@ -795,6 +807,25 @@ export function TriggerDrawer({
                       recovered.
                     </Text>
                   )}
+                  {/* A generic HMAC or Standard Webhooks sender may issue its own secret. */}
+                  {takesPastedSecret(genericMethod ?? '') && source !== undefined && (
+                    <IssuedSecretRow
+                      key={trigger.id}
+                      providerName={providerName(source.provider)}
+                      hint="Or paste a secret your sender issued. It replaces the stored one and is never shown back."
+                      onReplace={
+                        onRotateSecret &&
+                        ((secret) =>
+                          onRotateSecret(trigger, secret).then((r) => {
+                            if (r === null) return false;
+                            // A generated secret shown earlier stopped working when this one landed.
+                            setRotatedSecret(null);
+                            setRotateArmed(false);
+                            return true;
+                          }))
+                      }
+                    />
+                  )}
                   {/* Requests that fail authentication never become deliveries;
                       this counter is the only place a wrong secret shows up. */}
                   {source !== undefined && source.rejectionCount > 0 && (
@@ -805,9 +836,9 @@ export function TriggerDrawer({
                   )}
 
                   <Text size="caption" color="subtle">
-                    Deliveries are verified with an HMAC signature over the raw body. Unsigned or
-                    stale requests are rejected before any run starts, and are counted on the source
-                    rather than recorded as deliveries.
+                    {genericMethod !== undefined
+                      ? verificationNote(genericMethod)
+                      : 'Deliveries are verified with an HMAC signature over the raw body. Unsigned or stale requests are rejected before any run starts, and are counted on the source rather than recorded as deliveries.'}
                   </Text>
                 </Stack>
               )}
@@ -980,6 +1011,7 @@ export function TriggerDrawer({
                       catalog={eventTypeCatalog(sourceCatalog.declared, sourceCatalog.observed)}
                       searchPlaceholder="Search events…"
                       disabled={!runEditable}
+                      freeText={schemaless}
                       onSelect={(eventType) => filters.setValue({ ...filters.value, eventType })}
                     />
                   )}
@@ -989,6 +1021,7 @@ export function TriggerDrawer({
                     fields={webhookFields}
                     onChange={setFilterRows}
                     disabled={!runEditable}
+                    freeText={schemaless}
                   />
 
                   <Text size="caption" color="subtle">
@@ -1002,7 +1035,7 @@ export function TriggerDrawer({
                     dirty={filters.dirty}
                     pending={filters.pending}
                     error={filters.error}
-                    blocker={filters.blocker}
+                    blocker={filtersBlocker}
                     saveLabel="Save filters"
                     onSave={filters.save}
                     onDiscard={filters.discard}

@@ -41,6 +41,8 @@ interface FilterRowsEditorProps {
   onChange: (next: FilterRow[]) => void;
   /** Renders every row and Add filter disabled, for callers who may not change the filters. */
   disabled?: boolean;
+  /** Fields are typed, for a source with no schema; `fields` are offered as suggestions. */
+  freeText?: boolean;
 }
 
 const DEFAULT_VALUES_HINT = 'value | other';
@@ -51,6 +53,7 @@ export function FilterRowsEditor({
   fields,
   onChange,
   disabled = false,
+  freeText = false,
 }: FilterRowsEditorProps) {
   const setRow = (index: number, next: Partial<FilterRow>) =>
     onChange(rows.map((row, i) => (i === index ? { ...row, ...next } : row)));
@@ -71,12 +74,13 @@ export function FilterRowsEditor({
               <CatalogPicker
                 aria-label={`Filter ${i + 1} field`}
                 value={row.pattern ?? row.field}
-                placeholder="Choose a field"
+                placeholder={freeText ? 'data.issue.title' : 'Choose a field'}
                 catalog={fields}
                 selectablePatterns
                 disabled={disabled}
+                freeText={freeText}
                 onSelect={(token, entry) =>
-                  entry.pattern
+                  entry?.pattern
                     ? setRow(i, { pattern: token, patternName: '', field: '' })
                     : setRow(i, { field: token, pattern: undefined, patternName: undefined })
                 }

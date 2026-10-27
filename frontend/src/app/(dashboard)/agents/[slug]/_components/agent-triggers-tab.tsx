@@ -317,6 +317,7 @@ export function AgentTriggersTab() {
             name: src.name,
             provider: src.provider,
             category: src.category,
+            config: src.config,
           }))}
           ingestHost={ingestHost}
           onCreate={createTriggerForAgent}

@@ -141,3 +141,48 @@ describe('useProviderCategories', () => {
     });
   });
 });
+
+describe('useSourceCatalog schemaless', () => {
+  it('is schemaless for a generic source before any answer, and fetches its fields once', async () => {
+    api.fetchEventTypes.mockReturnValue(new Promise(() => undefined));
+    const { result, rerender } = renderHook(
+      ({ eventType }) => useSourceCatalog('generic', 'src-gen', eventType),
+      { initialProps: { eventType: 'i' } },
+    );
+    expect(result.current.schemaless).toBe(true);
+    rerender({ eventType: 'issue' });
+    await act(async () => {});
+    expect(api.fetchProviderFields).toHaveBeenCalledTimes(1);
+    expect(api.fetchProviderFields).toHaveBeenCalledWith('generic', 'webhook');
+  });
+
+  it('is schemaless when a source reports a null declared list', async () => {
+    api.fetchEventTypes.mockResolvedValue({
+      eventTypes: { declared: null, category: 'webhook' },
+      error: null,
+    });
+    const { result } = renderHook(() => useSourceCatalog('custom', 'src-x', ''));
+    await act(async () => {});
+    expect(result.current.schemaless).toBe(true);
+  });
+
+  it('is not schemaless for a provider with declared types, and fetches per event', async () => {
+    api.fetchEventTypes.mockResolvedValue({
+      eventTypes: { declared: ['push'], category: 'webhook' },
+      error: null,
+    });
+    const { result, rerender } = renderHook(
+      ({ eventType }) => useSourceCatalog('github', 'src-gh', eventType),
+      { initialProps: { eventType: 'push' } },
+    );
+    expect(result.current.schemaless).toBe(false);
+    await act(async () => {});
+    expect(result.current.schemaless).toBe(false);
+    rerender({ eventType: 'issue_comment' });
+    await act(async () => {});
+    expect(api.fetchProviderFields.mock.calls).toEqual([
+      ['github', 'push'],
+      ['github', 'issue_comment'],
+    ]);
+  });
+});

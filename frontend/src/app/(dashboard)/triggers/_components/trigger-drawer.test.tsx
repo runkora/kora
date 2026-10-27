@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@runkora/test-utils';
 
 // The drawer reads the source's schema catalogue from the API.
@@ -682,5 +682,108 @@ describe('source missing', () => {
     view.unmount();
     renderDrawer(trigger({ sourceId: '', sourceMissing: true, enabled: false }));
     expect(screen.getByRole('switch', { name: /^Enable/ }).hasAttribute('disabled')).toBe(true);
+  });
+});
+
+describe('a generic webhook source', () => {
+  function renderGeneric(
+    method: string,
+    onRotateSecret: (t: TriggerRow, secret?: string) => Promise<string | null> = vi.fn(),
+    eventTypesFail = false,
+  ) {
+    api.fetchEventTypes.mockResolvedValue(
+      eventTypesFail
+        ? { eventTypes: null, error: 'unavailable' }
+        : { eventTypes: { declared: [], observed: ['Issue'], category: 'webhook' }, error: null },
+    );
+    api.fetchProviderFields.mockResolvedValue({
+      fields: [{ path: 'meta.event_type', group: 'meta', description: 'The event type' }],
+      error: null,
+    });
+    const generic: SourceRow = {
+      ...SOURCES[0]!,
+      name: 'linear',
+      provider: 'generic',
+      config: { verification: { method } },
+    };
+    renderWithProviders(
+      <TriggerDrawer
+        canRunAgent
+        trigger={trigger({ eventType: 'Issue', matchCondition: { 'data.state': ['open'] } })}
+        sources={[generic]}
+        deliveries={[]}
+        ingestHost="local.runkora.io:8443"
+        onClose={vi.fn()}
+        onToggleEnabled={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn().mockResolvedValue(null)}
+        onRotateSecret={onRotateSecret}
+      />,
+    );
+  }
+
+  it('takes a typed event type and filter field, with no sender restriction', async () => {
+    renderGeneric('hmac_sha256');
+    const eventType = await screen.findByRole('textbox', { name: 'Event type' });
+    expect(eventType).toHaveValue('Issue');
+    expect(screen.getByRole('textbox', { name: 'Filter 1 field' })).toHaveValue('data.state');
+
+    fireEvent.change(eventType, { target: { value: 'Comment' } });
+    expect(screen.getByRole('button', { name: 'Save filters' })).toBeTruthy();
+    expect(screen.queryByText('Senders')).toBeNull();
+  });
+
+  it('rotates to a generated secret or a pasted one', async () => {
+    const onRotateSecret = vi.fn().mockResolvedValue('');
+    renderGeneric('standard_webhooks', onRotateSecret);
+    expect(screen.getByRole('button', { name: 'Rotate' })).toBeTruthy();
+    expect(screen.getByText(/Standard Webhooks signature/)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(/Signing secret/), { target: { value: 'whsec_x' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace secret' }));
+    expect(onRotateSecret).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'whsec_x');
+    expect(await screen.findByText(/The new secret is stored/)).toBeTruthy();
+  });
+
+  it('drops a generated secret once a pasted one replaces it', async () => {
+    const onRotateSecret = vi.fn().mockResolvedValueOnce('GENERATED123').mockResolvedValueOnce('');
+    renderGeneric('hmac_sha256', onRotateSecret);
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Break the old secret?' }));
+    expect(await screen.findByText('GENERATED123')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(/Signing secret/), { target: { value: 'pasted' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace secret' }));
+    expect(await screen.findByText(/The new secret is stored/)).toBeTruthy();
+    expect(screen.queryByText('GENERATED123')).toBeNull();
+  });
+
+  it('takes a typed event type when the event types fail to load', async () => {
+    renderGeneric('bearer', vi.fn(), true);
+    await waitFor(() => expect(api.fetchEventTypes).toHaveBeenCalled());
+    expect(screen.getByRole('textbox', { name: 'Event type' })).toHaveValue('Issue');
+  });
+
+  it('refuses to save an event type that is only whitespace', async () => {
+    renderGeneric('hmac_sha256');
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Event type' }), {
+      target: { value: '  ' },
+    });
+    expect(screen.getByText('Needs an event type')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save filters' })).toBeDisabled();
+  });
+
+  it('does not ask a schema source for an event type the picker sets', () => {
+    renderDrawer(trigger({ eventType: '' }));
+    fireEvent.change(screen.getByLabelText('Filter 1 values'), { target: { value: 'closed' } });
+    expect(screen.queryByText('Needs an event type')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save filters' })).not.toBeDisabled();
+  });
+
+  it('offers only a generated bearer token', () => {
+    renderGeneric('bearer');
+    expect(screen.getByRole('button', { name: 'Rotate' })).toBeTruthy();
+    expect(screen.queryByLabelText(/Signing secret/)).toBeNull();
+    expect(screen.getByText(/bearer token in the Authorization header/)).toBeTruthy();
   });
 });

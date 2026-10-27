@@ -330,6 +330,14 @@ describe('validateFilters', () => {
 
     expect(validateFilters([{ field: '', values: 'opened' }]).valid).toBe(false);
   });
+
+  it('blocks a typed field that is not a dotted path', () => {
+    expect(validateFilters([{ field: 'data..state', values: 'open' }])).toEqual({
+      valid: false,
+      hint: 'data..state is not a field path. Use dotted names, such as data.issue.title.',
+    });
+    expect(validateFilters([{ field: 'data.issue_2.state', values: 'open' }]).valid).toBe(true);
+  });
 });
 
 describe('describeMatchCondition', () => {
@@ -545,5 +553,29 @@ describe('validateDelivery chat coalesce key', () => {
     expect(
       validateDelivery(state({ ...chat, eventFields: null, coalesceKey: '{{ channel }}' })).valid,
     ).toBe(true);
+  });
+});
+
+describe('initialState on a generic source', () => {
+  const generic = (config: Record<string, unknown>): TriggerWizardSource => ({
+    id: 'src-gen',
+    name: 'linear',
+    provider: 'generic',
+    category: 'webhook',
+    config,
+  });
+
+  it('starts on webhook when the source has no event type location', () => {
+    const state = initialState(TRIGGER_KINDS.webhook, [
+      generic({ verification: { method: 'bearer' } }),
+    ]);
+    expect(state.eventType).toBe('webhook');
+  });
+
+  it('starts empty when the source reads the event type from the delivery', () => {
+    const state = initialState(TRIGGER_KINDS.webhook, [
+      generic({ verification: { method: 'bearer' }, event_type: { path: 'type' } }),
+    ]);
+    expect(state.eventType).toBe('');
   });
 });

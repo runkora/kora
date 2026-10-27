@@ -630,6 +630,8 @@ export const SLACK_EVENT_TYPES: TriggerEventTypes = {
 export const EVENT_TYPES_BY_PROVIDER: Record<string, TriggerEventTypes> = {
   github: GITHUB_EVENT_TYPES,
   alertmanager: ALERTMANAGER_EVENT_TYPES,
+  // A generic source has no schema.
+  generic: { declared: [], category: 'webhook' },
   slack: SLACK_EVENT_TYPES,
 };
 

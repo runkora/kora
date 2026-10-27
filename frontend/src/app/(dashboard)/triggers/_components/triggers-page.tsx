@@ -120,6 +120,7 @@ export function TriggersPage({
         provider: s.provider,
         category: s.category,
         signingSecretSet: s.signingSecretSet,
+        config: s.config,
       })),
     [sources],
   );

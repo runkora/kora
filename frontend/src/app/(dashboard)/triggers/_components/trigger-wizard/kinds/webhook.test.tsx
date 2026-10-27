@@ -6,6 +6,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 import { chatKind, webhookKind } from './webhook';
 import { initialState } from '../wizard-state';
 import { NEW_SOURCE } from '../types';
+import { EMPTY_GENERIC_DRAFT } from '../../../_lib/generic-source';
 import type { TriggerWizardSource, WizardContext } from '../types';
 
 const CONTEXT: WizardContext = {
@@ -40,6 +41,29 @@ describe('webhook DoneContent', () => {
   it('renders nothing without an endpoint', () => {
     const { container } = renderDone({});
     expect(container).toBeEmptyDOMElement();
+  });
+  it('says a pasted generic secret verifies deliveries, and shows none', () => {
+    const state = {
+      ...initialState(webhookKind, CONTEXT.sources),
+      sourceChoice: NEW_SOURCE,
+      newSourceProvider: 'generic',
+      newSourceGeneric: {
+        ...EMPTY_GENERIC_DRAFT,
+        method: 'hmac_sha256' as const,
+        secretChoice: 'paste' as const,
+      },
+    };
+    const DoneContent = webhookKind.doneContent;
+    render(
+      <DoneContent
+        state={state}
+        context={CONTEXT}
+        triggerId="trg-1"
+        endpoint="https://runkora.test/api/v1/webhooks/src-1"
+      />,
+    );
+    expect(screen.getByText(/verified with the secret you pasted/)).toBeInTheDocument();
+    expect(screen.queryByText(/shown when the source was created/)).toBeNull();
   });
 });
 
