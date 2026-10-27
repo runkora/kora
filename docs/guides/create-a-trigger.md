@@ -17,7 +17,7 @@ A trigger can only start [autonomous agents](../concepts/identity.md#autonomous-
 
 ## Set up the event
 
-For a webhook or chat command, choose the source the trigger listens on. A source is the kora endpoint a provider posts events to. Several triggers can share one. kora verifies every request before it records a delivery. GitHub deliveries are checked by HMAC signature, Alertmanager by bearer token and Slack by its signing secret. A generic source is checked by the method you choose. Creating a new source shows its URL and a generated secret once.
+For a webhook or chat command, choose the source the trigger listens on. A source is the kora endpoint a provider posts events to. Several triggers can share one. kora verifies every request before it records a delivery. GitHub deliveries are checked by HMAC signature, Alertmanager by bearer token and Slack by its signing secret. Creating a new source shows its URL and a generated secret once.
 
 Then narrow which events start a run:
 
@@ -25,34 +25,21 @@ Then narrow which events start a run:
 - **Filters:** only deliveries that match every filter start a run. A filter checks that a field `is` one of a set of values, or `contains` one of them. For example, a trigger can run only for comments that mention `@kora-agent`.
 - **Senders:** leave this empty to accept events from anyone. Otherwise a sender must be listed by name or hold a role you tick. On GitHub, the roles are owner, member and collaborator.
 
+A schedule takes a cadence, from every few minutes to monthly, or a cron expression. kora shows the next times it will fire, and can catch up on runs missed while the platform was unavailable. A manual trigger takes the input fields its form asks for.
+
 ### Connect any other system
 
-A generic source connects a system kora has no built-in provider for. Choose how kora verifies each request:
+Pick **Generic webhook** as the provider when kora has no built-in one for your system, then pick how the sender proves a request is genuine:
 
-| Method | The sender |
-| --- | --- |
-| Bearer token | Sends `Authorization: Bearer <secret>`. kora always generates the token. |
-| HMAC-SHA256 | Signs the raw body with the secret and sends the signature in a header you name. Set an optional prefix such as `sha256=`. The encoding is `hex` by default, or `base64`. |
-| Standard Webhooks | Signs each request as the [Standard Webhooks](https://www.standardwebhooks.com/) specification defines. kora refuses a timestamp more than five minutes from its clock. |
+- **HMAC-SHA256** when the sender signs the body. Enter the header the signature arrives in, and the prefix (such as `sha256=`) and encoding if the sender uses them.
+- **Standard Webhooks** when the sender follows the [Standard Webhooks](https://www.standardwebhooks.com/) specification.
+- **Bearer token** when the sender can only send a fixed token. kora generates it.
 
-For HMAC-SHA256 and Standard Webhooks, paste the secret the sender issued, or leave it empty for kora to generate one. kora shows a generated secret once and never shows a pasted one. A generated Standard Webhooks secret starts with `whsec_`.
+For HMAC-SHA256 and Standard Webhooks, choose whether kora generates the secret or you paste the one the sender gave you.
 
-The event type location is optional. Set a request header such as `X-Event-Key`, or a payload path such as `type`. Without one, every delivery has the event type `webhook`. A delivery that lacks the configured header or path has no event type and starts no run.
+If the sender says which event a request carries, set **Event type location** to that header or payload field and type the event name in the trigger, such as `issue.created`. Without a location every delivery has the event type `webhook`.
 
-A generic source has no schema. Type the event type and the field paths yourself, such as `data.issue.title`. A path the delivery lacks resolves to an empty value. A generic source takes no sender restriction. kora treats a delivery with the same body as a repeat.
-
-Through the API, the source's `config` holds these settings:
-
-```json
-{
-  "verification": { "method": "hmac_sha256", "header": "X-Signature", "prefix": "sha256=", "encoding": "hex" },
-  "event_type": { "path": "type" }
-}
-```
-
-`verification.method` is `bearer`, `hmac_sha256` or `standard_webhooks`. `header`, `prefix` and `encoding` apply only to `hmac_sha256`. `event_type` holds one of `header` or `path`. kora refuses any other key. A source's config cannot change after create.
-
-A schedule takes a cadence, from every few minutes to monthly, or a cron expression. kora shows the next times it will fire, and can catch up on runs missed while the platform was unavailable. A manual trigger takes the input fields its form asks for.
+A generic source has no field list. Type paths into filters and the prompt yourself, such as `data.issue.title`.
 
 ## Write the prompt
 
