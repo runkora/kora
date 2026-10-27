@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-06-jit-credential-brokering-egress-gateway.md -->
 
-**Status:** Proposed (Amended 2026-10-07: Amendment 5 Accepted)
+**Status:** Proposed (Amended 2026-10-27: Amendment 6 Accepted)
 **Date:** 2026-06-06
 **Deciders:** Platform Engineering
 **Technical Story:** How a kora agent running in a sandbox makes governed, audited, credential-isolated calls to external services (GitHub, AWS, Kubernetes, OAuth2/OIDC apps, API-key SaaS) without any credential entering the agent. Implements the [credential-broker-and-outbound-connections PRD](../prd/credential-broker-and-outbound-connections.md).
@@ -10,6 +10,8 @@
 > **Amended 2026-06-07** — egress authorization is **two complementary layers**: the sandbox OPA enforces connectivity **posture** (`egress:<host>:connect`), and per-connection authorization (`connection:<name>:<action>`) is enforced at the **gateway**, not the sandbox OPA. The sandbox OPA cannot evaluate the connection scope (it sees only the CONNECT host, never the connection name or the inner-request action). See [Amendment — 2026-06-07](#amendment--2026-06-07-two-layer-egress-authorization), which supersedes the "sandbox OPA authorizes `connection:<name>:<action>`" statements below.
 
 > **Amended 2026-06-12** — connection registration is **GitOps**. A `Connection` is a tenant-namespaced CRD carrying credential-source identity only (`adapter`, `secretRef`, `config`); the secret is referenced and materialised by the deployer's secret pipeline, never handled by kora. The **operator aggregates** the CRs (and their referenced Secrets) into `kora-system` config the gateway **mounts** — mirroring the tenant-CA aggregator — and the Postgres registry + `/api/v1/connections` admin CRUD API are **removed**. See [Amendment 3 — 2026-06-12](#amendment-3--2026-06-12-connections-are-gitops-crs-not-a-crud-registry), which supersedes the "connection-registration control plane / admin CRUD" statements below.
+
+> **Amended 2026-10-27**: TLS that carries an SNI on a port without a dedicated sandbox listener tunnels as `CONNECT <sni>:<dialled port>` under hostname posture, so a hostname grant covers every port of that host. See [Amendment 6 (2026-10-27)](#amendment-6-2026-10-27-tls-on-non-443-ports-tunnels-by-sni-and-dialled-port).
 
 ---
 
@@ -639,6 +641,34 @@ The broker and the GitHub adapter will change as follows:
 - TLS termination errors / trust failures by tenant.
 - Per-tenant gateway availability and egress error rate.
 
+## Amendment 6 (2026-10-27): TLS on non-443 ports tunnels by SNI and dialled port
+
+**Status:** Accepted
+
+Touches *Egress lockdown* and Amendment 2. Credential brokering is unchanged.
+
+### Context
+
+A `kubernetes` connection to an API server on `:6443` failed from every sandbox ([#795](https://github.com/runkora/kora/issues/795)). The sandbox Envoy has no listener for `:6443`, so the connection took the `virtualOutbound` catch-all. The catch-all tunnels `CONNECT <ip>:<port>`. The sandbox OPA matched the IP against a hostname posture and denied it. kubectl saw a reset.
+
+Amendment 2 listed SNI on the catch-all as proven on a sandbox but not in the chart.
+
+### Decision
+
+1.  `virtualOutbound` runs `original_dst` and then `tls_inspector`, with a 1s listener-filter timeout that continues on expiry. A connection that sends nothing first keeps its original destination and reaches its dedicated listener or the catch-all.
+2.  TLS whose SNI is a plain DNS name, on a port without a dedicated listener, tunnels as `CONNECT <sni>:<dialled port>`. The sandbox OPA evaluates hostname posture on it. The gateway intercepts it when a connection serves the host, and relays it otherwise.
+3.  Raw TCP, TLS to an IP literal and TLS with any other SNI keep the catch-all. They tunnel as `CONNECT <ip>:<port>` and keep IP posture.
+4.  The sandbox OPA and the gateway accept a CONNECT authority only when it is exactly a hostname or IPv4 address and one port. The SNI a sandbox sends becomes this authority, so userinfo or extra separators are refused rather than read as different hosts by the two parsers.
+5.  The gateway refuses loopback, unspecified and link-local upstream addresses on the relay and the forward leg. The check runs after DNS resolution, so it also covers an empty host and `localhost`.
+6.  The session-manager egress canary probes a connection's base host with its port.
+
+### Consequences
+
+*   A hostname grant (`egress:<host>:connect`) covers TLS to that host on every port. OPA strips the port before matching. Posture does not gate ports.
+*   TLS with a DNS-name SNI on a non-443 port now matches hostname posture, not IP posture. An IP grant no longer covers it, and the gateway dials the SNI as it resolves, not the address the client dialled. The :443 path already behaved this way.
+*   A server-first protocol on any outbound port waits up to 1s before it is forwarded.
+*   A connection on a non-443 port still needs that port in `egressGateway.upstreamPorts` before the gateway may dial it.
+
 ---
 
 ## Related Decisions
@@ -662,4 +692,4 @@ The broker and the GitHub adapter will change as follows:
 
 The credential broker completes kora's traffic topology: inbound (edge OPA), east-west (sidecar mTLS + OPA), and now **outbound** (per-tenant egress gateway with credential injection). v1 lands GitHub bot authority; the design's load-bearing bet — TLS termination + platform-token auth + JIT mint at a per-tenant gateway — is provable in the milestone-0 spike before the rest is built. Delegated authority is the first follow-on and was deliberately scoped out without compromising the architecture: it arrives as an additional header on the same channel.
 
-**Last Updated:** 2026-10-07
+**Last Updated:** 2026-10-27

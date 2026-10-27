@@ -41,6 +41,17 @@ func TestEgressCanaryHost(t *testing.T) {
 			want:  "github.com",
 		},
 		{
+			name: "a connector base host keeps its port",
+			at: AgentType{
+				Connectivity: Connectivity{Mode: ConnectivityWhitelist, Hosts: []string{"pypi.org"}},
+				Connectors:   []Connector{{Connection: "cluster", Actions: []string{"cluster:read"}}},
+			},
+			conns: stubConns{entries: map[string]struct{ adapter, baseHost string }{
+				"cluster": {platformconns.AdapterKubernetesBearer, "k3d-server-0:6443"},
+			}},
+			want: "k3d-server-0:6443",
+		},
+		{
 			name:  "whitelist skips wildcard hosts",
 			at:    AgentType{Connectivity: Connectivity{Mode: ConnectivityWhitelist, Hosts: []string{"*.example.com", "pypi.org"}}},
 			conns: stubConns{},

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -1004,8 +1005,13 @@ func (s *RunService) egressCanaryHost(ctx context.Context, at AgentType) string 
 	}
 	// Connector hosts first: adapters declare HTTPS APIs, while a whitelisted
 	// host may serve something other than HTTPS.
+	// A base host that names a port comes first, so a :6443 API server is
+	// probed on :6443 rather than on :443 where nothing answers.
 	var hosts []string
 	for _, ce := range access.ConnectorEgress {
+		if canaryBaseHost.MatchString(ce.BaseHost) {
+			hosts = append(hosts, ce.BaseHost)
+		}
 		hosts = append(hosts, ce.Hosts...)
 	}
 	hosts = append(hosts, access.EnvironmentHosts...)
@@ -1020,6 +1026,10 @@ func (s *RunService) egressCanaryHost(ctx context.Context, at AgentType) string 
 	}
 	return ""
 }
+
+// canaryBaseHost admits a connection base host that names a port, in the shape
+// the session-manager's probe accepts. Anything else falls back to the hosts.
+var canaryBaseHost = regexp.MustCompile(`^[A-Za-z0-9.-]+:[0-9]{1,5}$`)
 
 // openEgressCanaryHost is probed for open-egress agents that name no host: any
 // host is allowed, and this one reliably answers HTTPS.

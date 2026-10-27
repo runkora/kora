@@ -191,6 +191,9 @@ type ConnectorEgress struct {
 	Connection string   `json:"connection"`
 	Adapter    string   `json:"adapter"`
 	Hosts      []string `json:"hosts"`
+	// BaseHost is the connection's base host with any port. Hosts drop the port
+	// because posture matches hostnames; the egress canary needs it to probe.
+	BaseHost string `json:"-"`
 }
 
 // EnvironmentAccess is what one attached environment contributes.
@@ -314,7 +317,7 @@ func (r *ScopeResolver) resolveConnectorEgress(ctx context.Context, tenantID str
 		if len(hosts) == 0 {
 			continue
 		}
-		out = append(out, ConnectorEgress{Connection: c.Connection, Adapter: adapter, Hosts: hosts})
+		out = append(out, ConnectorEgress{Connection: c.Connection, Adapter: adapter, Hosts: hosts, BaseHost: baseHost})
 	}
 	return out, nil
 }

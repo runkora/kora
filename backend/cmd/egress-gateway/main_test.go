@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -135,5 +137,28 @@ func TestInitScopeRegistrationPublishesConnectionVocabulary(t *testing.T) {
 		if _, ok := declared[want]; !ok {
 			t.Errorf("scope %q missing from the registration: %v", want, declared)
 		}
+	}
+}
+
+// The forward leg refuses to dial the gateway's own loopback: the upstream host
+// comes from a sandbox.
+func TestUpstreamTransportRefusesLoopback(t *testing.T) {
+	var hit atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit.Store(true) }))
+	defer srv.Close()
+
+	transport, err := upstreamTransport()
+	if err != nil {
+		t.Fatalf("upstreamTransport: %v", err)
+	}
+	resp, err := (&http.Client{Transport: transport, Timeout: 5 * time.Second}).Get(srv.URL)
+	if err == nil {
+		_ = resp.Body.Close()
+	}
+	if !errors.Is(err, egressgw.ErrLocalTarget) {
+		t.Errorf("err = %v, want ErrLocalTarget", err)
+	}
+	if hit.Load() {
+		t.Error("loopback upstream was reached")
 	}
 }

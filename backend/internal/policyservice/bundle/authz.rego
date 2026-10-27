@@ -573,11 +573,15 @@ _is_connect if {
 }
 
 # Destination host from the CONNECT :authority, lowercased, port stripped.
-# IPv4/DNS only: split on ":" takes the host; an IPv6 literal would split on its
-# own colons and never match a sane egress pattern (→ deny), which is intended.
-_connect_host := lower(host) if {
+# The authority must be exactly a DNS name or IPv4 address and one port. The
+# SNI a sandbox sends can become this authority, so anything else (userinfo,
+# a second colon, an IPv6 literal) leaves the host undefined and denies, rather
+# than letting OPA and the gateway read different hosts from one string.
+_connect_host := lower(parts[0]) if {
 	_is_connect
-	host := split(input.attributes.request.http.host, ":")[0]
+	authority := input.attributes.request.http.host
+	regex.match(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*:[0-9]{1,5}$`, authority)
+	parts := split(authority, ":")
 }
 
 # _host_matches(pattern, host): does an egress grant's host pattern cover host?

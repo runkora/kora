@@ -225,3 +225,50 @@ func TestEgress_OwnPostureLayer2_Delegated(t *testing.T) {
 		})
 	}
 }
+
+// The CONNECT host must parse the same way in OPA and the gateway. A sandbox
+// controls the SNI that becomes the authority, so only a plain DNS name or
+// IPv4 address with one port yields a host; anything else leaves it undefined
+// and the CONNECT is denied.
+func TestEgress_ConnectHost(t *testing.T) {
+	pq := prepareAuthzFuncQuery(t, `x := data.kora.authz._connect_host`)
+
+	cases := []struct {
+		authority string
+		want      string
+		ok        bool
+	}{
+		{"api.github.com:443", "api.github.com", true},
+		{"K3D-Server-0:6443", "k3d-server-0", true},
+		{"172.21.0.3:6443", "172.21.0.3", true},
+		{"github.com:x@evil.com:6443", "", false},
+		{"github.com@evil.com:443", "", false},
+		{"github.com:443:6443", "", false},
+		{"github.com/evil:443", "", false},
+		{"github.com evil:443", "", false},
+		{":443", "", false},
+		{"github.com", "", false},
+		{"[::1]:443", "", false},
+		{"-bad.example.com:443", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.authority, func(t *testing.T) {
+			rs, err := pq.Eval(context.Background(), rego.EvalInput(map[string]any{
+				"attributes": map[string]any{"request": map[string]any{"http": map[string]any{
+					"method": "CONNECT",
+					"host":   tc.authority,
+				}}},
+			}))
+			if err != nil {
+				t.Fatalf("eval: %v", err)
+			}
+			got, ok := "", false
+			if len(rs) > 0 && len(rs[0].Bindings) > 0 {
+				got, ok = rs[0].Bindings["x"].(string)
+			}
+			if ok != tc.ok || got != tc.want {
+				t.Errorf("_connect_host(%q) = %q (defined %v), want %q (defined %v)", tc.authority, got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
