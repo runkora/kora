@@ -98,9 +98,9 @@ export function GenericSourceSetup({
               maxLength={32}
             />
           </FormField>
-          <Stack gap="snug">
-            <SectionLabel>Encoding</SectionLabel>
+          <FormField label="Encoding" id="wizard-generic-encoding">
             <SegmentedControl
+              id="wizard-generic-encoding"
               aria-label="Encoding"
               value={draft.encoding}
               onChange={(v) => set({ encoding: v as SignatureEncoding })}
@@ -109,7 +109,7 @@ export function GenericSourceSetup({
                 { value: 'base64', label: 'Base64' },
               ]}
             />
-          </Stack>
+          </FormField>
         </Grid>
       )}
 

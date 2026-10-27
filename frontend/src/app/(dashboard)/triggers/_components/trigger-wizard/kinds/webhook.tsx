@@ -103,6 +103,10 @@ interface SourceKindCopy {
   arrivals: string;
 }
 
+// Example prompt for sources with no schema. It uses the meta fields every delivery carries.
+const GENERIC_PROMPT_PLACEHOLDER =
+  'Handle the {{ meta.event_type }} delivery from {{ meta.source }}.';
+
 const COPY: Record<SourceCategory, SourceKindCopy> = {
   webhook: {
     namePlaceholder: 'github-push',
@@ -111,8 +115,8 @@ const COPY: Record<SourceCategory, SourceKindCopy> = {
     sourceHelp: (productName) =>
       `The ${productName} endpoint your provider posts events to. Triggers listen on a source; several triggers can share one.`,
     newSourceHelp: 'Register a new origin that posts to this endpoint.',
-    sourceNameHint: 'How this origin appears in the sources list, e.g. acme/widgets.',
-    sourceNamePlaceholder: 'acme/widgets',
+    sourceNameHint: 'How this origin appears in the sources list, e.g. example-org/widgets.',
+    sourceNamePlaceholder: 'example-org/widgets',
     providerLabel: 'Provider',
     filtersHelp: 'Only deliveries matching every filter start a run. Values are alternatives.',
     promptPlaceholder: 'Answer the question in {{ comment.body }} on {{ issue.html_url }}.',
@@ -125,8 +129,8 @@ const COPY: Record<SourceCategory, SourceKindCopy> = {
     sourceHelp: (productName) =>
       `The chat app that sends messages to ${productName}. Triggers listen on a source; several triggers can share one.`,
     newSourceHelp: 'Connect a chat workspace through a new app.',
-    sourceNameHint: 'How this workspace appears in the sources list, e.g. acme-slack.',
-    sourceNamePlaceholder: 'acme-slack',
+    sourceNameHint: 'How this workspace appears in the sources list, e.g. example-slack.',
+    sourceNamePlaceholder: 'example-slack',
     providerLabel: 'Platform',
     filtersHelp:
       'Only messages matching every filter start a run. A filter on conversation.id limits it to chosen channels. Values are alternatives.',
@@ -446,7 +450,7 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
               ? `Fields on ${eventName} ${copy.arrivals}.`
               : 'Choose an event to see its fields.'
         }
-        placeholder={copy.promptPlaceholder}
+        placeholder={schemaless ? GENERIC_PROMPT_PLACEHOLDER : copy.promptPlaceholder}
       />
       <DataBlockPreview template={state.promptTemplate} />
     </Stack>
