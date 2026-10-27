@@ -569,11 +569,14 @@ func validateScheduleConfig(sc *ScheduleConfig) error {
 	return nil
 }
 
+// truncate cuts b to at most n bytes of text a Postgres TEXT column accepts.
 func truncate(b []byte, n int) string {
-	if len(b) <= n {
-		return string(b)
-	}
-	return strings.ToValidUTF8(string(b[:n]), "")
+	return cleanText(string(b[:min(len(b), n)]))
+}
+
+// cleanText drops the invalid UTF-8 and NUL bytes a Postgres TEXT column refuses.
+func cleanText(s string) string {
+	return strings.ReplaceAll(strings.ToValidUTF8(s, ""), "\x00", "")
 }
 
 // maxPayloadBytes caps what is stored per delivery. An oversized payload is

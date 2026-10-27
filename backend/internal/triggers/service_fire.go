@@ -332,9 +332,9 @@ func (s *Service) redeliverWebhook(ctx context.Context, tenantID string, origina
 	if src.SecretRotatedAt != nil && original.ReceivedAt.Before(*src.SecretRotatedAt) {
 		return nil, fmt.Errorf("%w: this payload arrived before the source's current signing secret was issued", ErrNotRedeliverable)
 	}
-	adapter, ok := s.registry.Get(src.Provider)
-	if !ok {
-		return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
+	adapter, err := s.registry.ForSource(*src)
+	if err != nil {
+		return nil, err
 	}
 	if err := requireRunAccessForSource(ctx, s.repo, s.agents, src.ID); err != nil {
 		return nil, err

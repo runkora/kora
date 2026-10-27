@@ -340,7 +340,7 @@ type triggerIDArgs struct {
 type createSourceArgs struct {
 	Name     string         `json:"name" jsonschema:"the source name"`
 	Provider string         `json:"provider" jsonschema:"the webhook provider / payload format (e.g. github, generic)"`
-	Config   map[string]any `json:"config,omitempty" jsonschema:"provider-specific configuration"`
+	Config   map[string]any `json:"config,omitempty" jsonschema:"provider-specific configuration. A generic source needs verification.method (bearer, hmac_sha256 or standard_webhooks); hmac_sha256 also takes verification.header, prefix and encoding (hex or base64). An optional event_type holds one of header or path. Without event_type every delivery has the event type webhook"`
 }
 
 type updateSourceArgs struct {

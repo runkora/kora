@@ -63,7 +63,7 @@ metadata:
 spec:
   displayName: Go build
   sandboxImage: kora-go
-  size: {cpu: "2", memory: 4Gi, disk: 10Gi}
+  size: { cpu: "2", memory: 4Gi, disk: 10Gi }
   egressHosts: [proxy.golang.org]
   connectors:
     - connection: github
@@ -85,7 +85,7 @@ spec:
   displayName: Code reviewer
   description: Reviews pull requests for correctness.
   identityMode: autonomous
-  model: {family: anthropic, name: sonnet}
+  model: { family: anthropic, name: sonnet }
   systemPrompt: |
     Review pull requests for correctness.
   environments:
@@ -97,7 +97,7 @@ spec:
   mcpTools:
     - server: github
       tools: [create_review]
-  budget: {limitUSD: 50, resetCadence: monthly}
+  budget: { limitUSD: 50, resetCadence: monthly }
 ```
 
 - `model`: the family and name of a `VirtualModel`.
@@ -138,7 +138,7 @@ metadata:
   name: github-org
 spec:
   provider: github
-  signingSecretRef: {name: github-webhook, key: secret}
+  signingSecretRef: { name: github-webhook, key: secret }
 ```
 
 Set the provider's webhook URL to the path in `status.webhookPath` on the API host:
@@ -146,6 +146,24 @@ Set the provider's webhook URL to the path in `status.webhookPath` on the API ho
 ```bash
 kubectl get triggersources -n kora-tenant-example -o wide
 ```
+
+For a system with no built-in provider, use `provider: generic`:
+
+```yaml
+apiVersion: runkora.io/v1alpha1
+kind: TriggerSource
+metadata:
+  name: linear
+spec:
+  provider: generic
+  config:
+    verification:
+      { method: hmac_sha256, header: Linear-Signature, encoding: hex }
+    event_type: { path: type }
+  signingSecretRef: { name: linear-webhook, key: secret }
+```
+
+`verification.method` is `hmac_sha256`, `standard_webhooks` or `bearer`. `header`, `prefix` and `encoding` apply to `hmac_sha256` only, and `event_type` takes a `header` or a `path`.
 
 Recreating a `TriggerSource`, or changing its `provider`, gives it a new webhook path.
 
@@ -183,7 +201,7 @@ spec:
   scopes:
     - agents:runs:code-reviewer:read
     - agents:runs:code-reviewer:write
-  budget: {limitUSD: 200, resetCadence: monthly}
+  budget: { limitUSD: 200, resetCadence: monthly }
 ```
 
 `budget` gives each holder the limit, or one shared limit with `pooled: true`. A role in a tenant namespace cannot hold `platform:` scopes. Declare such a role in the system namespace and set `spec.tenant` to the tenant's name. See [Policy and roles](policy-and-roles.md) for scopes.
@@ -200,7 +218,7 @@ metadata:
 spec:
   # displayName, oidc and the other fields as in the Tenants guide.
   apiAuthoring: Disabled
-  budget: {limitUSD: 1000, resetCadence: monthly}
+  budget: { limitUSD: 1000, resetCadence: monthly }
 ```
 
 With `Disabled`:
@@ -222,23 +240,23 @@ kubectl describe agents.runkora.io code-reviewer -n kora-tenant-example
 
 Each resource reports three conditions. The condition message lists what is missing.
 
-| Condition | True when | Reasons when false |
-| --- | --- | --- |
-| `Accepted` | The spec is valid, the namespace belongs to a tenant and the name is free | `Invalid`, `UnknownTenant`, `NameConflict` |
-| `ResolvedRefs` | Every resource it references exists and is ready | `RefNotFound`, `Pending` |
-| `Ready` | The item is live with the current spec | `Pending` |
+| Condition      | True when                                                                 | Reasons when false                         |
+| -------------- | ------------------------------------------------------------------------- | ------------------------------------------ |
+| `Accepted`     | The spec is valid, the namespace belongs to a tenant and the name is free | `Invalid`, `UnknownTenant`, `NameConflict` |
+| `ResolvedRefs` | Every resource it references exists and is ready                          | `RefNotFound`, `Pending`                   |
+| `Ready`        | The item is live with the current spec                                    | `Pending`                                  |
 
 A declared resource references declared resources only. An item built in the console counts as missing, even when its name matches.
 
 ## Change and delete resources
 
-| What | Happens |
-| --- | --- |
-| Edit a resource | The item changes to match. |
-| Delete a resource | The item is deleted. A deleted agent keeps its runs, sessions and events. |
-| Delete a `TriggerSource` | Its triggers stay and stop firing until the source is declared again. |
-| Declare a name that a console item holds | The resource reports `NameConflict`, and the console item stays. |
-| Edit or delete a declared item in the console or API | The API refuses with HTTP 409 and the code `managed_by_resource`. |
+| What                                                 | Happens                                                                   |
+| ---------------------------------------------------- | ------------------------------------------------------------------------- |
+| Edit a resource                                      | The item changes to match.                                                |
+| Delete a resource                                    | The item is deleted. A deleted agent keeps its runs, sessions and events. |
+| Delete a `TriggerSource`                             | Its triggers stay and stop firing until the source is declared again.     |
+| Declare a name that a console item holds             | The resource reports `NameConflict`, and the console item stays.          |
+| Edit or delete a declared item in the console or API | The API refuses with HTTP 409 and the code `managed_by_resource`.         |
 
 ## Who can write these resources
 
