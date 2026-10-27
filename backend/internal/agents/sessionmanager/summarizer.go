@@ -189,7 +189,7 @@ func firstText(blocks []messagesContentBlock) string {
 
 // firstLine returns the first non-blank line of s.
 func firstLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		if strings.TrimSpace(line) != "" {
 			return line
 		}

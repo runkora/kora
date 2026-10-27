@@ -6,6 +6,7 @@ package claimbinding
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -27,12 +28,7 @@ func (b *Binding) Matches(claims map[string]any) bool {
 		return false
 	}
 	if list, isList := raw.([]any); isList {
-		for _, item := range list {
-			if b.hasValue(item) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(list, b.hasValue)
 	}
 	return b.hasValue(raw)
 }
@@ -48,12 +44,7 @@ func (b *Binding) hasValue(v any) bool {
 	default:
 		return false
 	}
-	for _, want := range b.Values {
-		if s == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(b.Values, s)
 }
 
 // Tenant is the routing view of a tenant used by the overlap rule.
