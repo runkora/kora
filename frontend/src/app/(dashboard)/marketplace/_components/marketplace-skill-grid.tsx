@@ -18,7 +18,7 @@ export function MarketplaceSkillGrid() {
           key={skill.skillSlug}
           skill={skill}
           marketplaceName={marketplaceName}
-          href={APP_ROUTES.marketplace.detail(browse.marketplace, skill.skillSlug)}
+          href={APP_ROUTES.marketplace.detail(browse.marketplace, skill.skillName)}
         />
       ))}
     </Grid>

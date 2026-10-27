@@ -17,6 +17,7 @@ import { marketplaceStoryPlatform } from './marketplace-story-fixtures';
 
 const sampleSkills: SkillSummary[] = Array.from({ length: 240 }, (_, index) => ({
   skillSlug: `platform-engineering__skills__sample-${index + 1}`,
+  skillName: `sample-${index + 1}`,
   name: `Sample Skill ${index + 1}`,
   description: 'Sample Skill for the pagination preview.',
 }));

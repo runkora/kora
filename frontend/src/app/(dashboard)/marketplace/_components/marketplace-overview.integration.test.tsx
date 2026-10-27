@@ -118,6 +118,7 @@ function overviewWith(overrides: Partial<MarketplaceOverviewData> = {}): Marketp
 
 const SKILL = {
   skillSlug: 'core/skills/react-expert',
+  skillName: 'react-expert',
   name: 'React Expert',
   description: 'Senior React developer.',
 };

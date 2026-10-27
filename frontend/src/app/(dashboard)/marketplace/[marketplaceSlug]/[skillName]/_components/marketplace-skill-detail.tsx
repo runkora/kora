@@ -1,6 +1,4 @@
-'use client';
-
-/** @tier 3 — marketplace/[marketplaceSlug]/[skillSlug]-scoped. Read-only presentation of one Skill's details. */
+/** @tier 3 — marketplace/[marketplaceSlug]/[skillName]-scoped. Read-only presentation of one Skill's details. */
 
 import { useMemo, useState } from 'react';
 import { CodeBlock, Stack } from '@orbit/hades';

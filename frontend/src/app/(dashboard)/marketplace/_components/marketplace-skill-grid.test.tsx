@@ -27,11 +27,13 @@ describe('MarketplaceSkillGrid rendering', () => {
       skills: [
         {
           skillSlug: 'core/skills/react-expert',
+          skillName: 'react-expert',
           name: 'React Expert',
           description: 'Senior React developer.',
         },
         {
           skillSlug: 'core/skills/go-expert',
+          skillName: 'go-expert',
           name: 'Go Expert',
           description: 'Senior Go developer.',
         },
@@ -52,7 +54,9 @@ describe('MarketplaceSkillGrid rendering', () => {
       ],
       requested: BROWSE,
       browse: BROWSE,
-      skills: [{ skillSlug: 'core/skills/blank', name: 'Blank', description: '' }],
+      skills: [
+        { skillSlug: 'core/skills/blank', skillName: 'blank', name: 'Blank', description: '' },
+      ],
       total: 1,
     });
 
@@ -61,8 +65,8 @@ describe('MarketplaceSkillGrid rendering', () => {
 
   it('renders the same result set that the list view renders', () => {
     const skills = [
-      { skillSlug: 'core/skills/a', name: 'A', description: 'Skill A' },
-      { skillSlug: 'core/skills/b', name: 'B', description: 'Skill B' },
+      { skillSlug: 'core/skills/a', skillName: 'a', name: 'A', description: 'Skill A' },
+      { skillSlug: 'core/skills/b', skillName: 'b', name: 'B', description: 'Skill B' },
     ];
     renderGrid({
       marketplaces: [

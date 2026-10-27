@@ -45,13 +45,12 @@ describe('DashboardHeader in the Marketplace', () => {
     expect(screen.queryByRole('link', { name: 'Back' })).not.toBeInTheDocument();
   });
 
-  it('detail: shows the Skill name, without the Marketplace prefix, as the breadcrumb label', () => {
-    const skillSlug = 'platform-engineering__skills__react-expert';
-    renderHeader(APP_ROUTES.marketplace.detail('platform-engineering__skills', skillSlug));
+  it('detail: shows the Skill identifier as the breadcrumb label', () => {
+    const skillName = 'react-expert';
+    renderHeader(APP_ROUTES.marketplace.detail('platform-engineering__skills', skillName));
 
     expect(screen.getByText('Marketplace')).toBeInTheDocument();
-    expect(screen.getByText('react-expert')).toBeInTheDocument();
-    expect(screen.queryByText(skillSlug)).not.toBeInTheDocument();
+    expect(screen.getByText(skillName)).toBeInTheDocument();
     expect(screen.queryByText('platform-engineering__skills')).not.toBeInTheDocument();
   });
 });

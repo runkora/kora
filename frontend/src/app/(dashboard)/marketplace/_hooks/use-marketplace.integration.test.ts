@@ -46,7 +46,7 @@ const FIRST_RENDER: MarketplaceOverviewData = {
   marketplaces: MARKETPLACES,
   requested: DEFAULT_BROWSE,
   browse: { ...DEFAULT_BROWSE, marketplace: 'ClearRoute Core' },
-  skills: [{ skillSlug: 'core/skills/first', name: 'First', description: '' }],
+  skills: [{ skillSlug: 'core/skills/first', skillName: 'first', name: 'First', description: '' }],
   total: 1,
 };
 
@@ -61,7 +61,14 @@ const PLATFORM_PAGE_2: MarketplaceOverviewData = {
   marketplaces: MARKETPLACES,
   requested: PLATFORM_PAGE_2_BROWSE,
   browse: PLATFORM_PAGE_2_BROWSE,
-  skills: [{ skillSlug: 'platform/skills/twenty-five', name: 'Twenty-five', description: '' }],
+  skills: [
+    {
+      skillSlug: 'platform/skills/twenty-five',
+      skillName: 'twenty-five',
+      name: 'Twenty-five',
+      description: '',
+    },
+  ],
   total: 30,
 };
 
@@ -209,7 +216,7 @@ describe('request lifecycle', () => {
 
   it('keeps the current results on screen while a later request is loading', async () => {
     const data = overviewData({
-      skills: [{ skillSlug: 'core/skills/a', name: 'A', description: '' }],
+      skills: [{ skillSlug: 'core/skills/a', skillName: 'a', name: 'A', description: '' }],
       total: 1,
     });
     setLocation();
@@ -220,7 +227,7 @@ describe('request lifecycle', () => {
           data: overviewData({
             browse: { ...data.browse, page: 2 },
             requested: { ...data.browse, page: 2 },
-            skills: [{ skillSlug: 'core/skills/b', name: 'B', description: '' }],
+            skills: [{ skillSlug: 'core/skills/b', skillName: 'b', name: 'B', description: '' }],
             total: 1,
           }),
         });

@@ -47,16 +47,8 @@ export const APP_ROUTES = {
   },
   marketplace: {
     overview: '/marketplace',
-    /**
-     * The Skill's detail path. A skillSlug is `<marketplaceSlug>__<name>`, so
-     * the repeated Marketplace prefix is left out of the path; use
-     * `skillSlugFromPath` to restore it.
-     */
-    detail: (marketplaceSlug: string, skillSlug: string) => {
-      const prefix = `${marketplaceSlug}__`;
-      const name = skillSlug.startsWith(prefix) ? skillSlug.slice(prefix.length) : skillSlug;
-      return `/marketplace/${encodeURIComponent(marketplaceSlug)}/${encodeURIComponent(name)}` as const;
-    },
+    detail: (marketplaceSlug: string, skillName: string) =>
+      `/marketplace/${encodeURIComponent(marketplaceSlug)}/${encodeURIComponent(skillName)}` as const,
   },
 
   // ── Policy ───────────────────────────────────────────────────────────────

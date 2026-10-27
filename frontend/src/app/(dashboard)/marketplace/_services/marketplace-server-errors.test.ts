@@ -103,6 +103,7 @@ describe('Skills page', () => {
         name,
         description: '',
         skillSlug: `solo__${name.toLowerCase()}`,
+        skillName: `${name.toLowerCase()}`,
       })),
     });
 
@@ -132,6 +133,7 @@ describe('Skills page', () => {
         name: `Skill ${String(index).padStart(2, '0')}`,
         description: '',
         skillSlug: `solo__skill-${index}`,
+        skillName: `skill-${index}`,
       })),
     });
 
@@ -255,7 +257,7 @@ describe('loadSkillPage', () => {
     vi.mocked(getPreferences).mockResolvedValue(preferencesWith('another__marketplace'));
     vi.mocked(fetchSkillDetail).mockResolvedValue(skill);
 
-    const result = await loadSkillPage(ACCESS_TOKEN, 'team__repo', skill.skillSlug);
+    const result = await loadSkillPage(ACCESS_TOKEN, 'team__repo', 'reviewer');
 
     expect(result).toEqual({
       ok: true,
@@ -266,7 +268,7 @@ describe('loadSkillPage', () => {
     expect(fetchSkillDetail).toHaveBeenCalledExactlyOnceWith(
       ACCESS_TOKEN,
       'team__repo',
-      skill.skillSlug,
+      'reviewer',
     );
     expect(getPreferences).not.toHaveBeenCalled();
     expect(fetchSkills).not.toHaveBeenCalled();
@@ -274,7 +276,7 @@ describe('loadSkillPage', () => {
 
   it('does not query a Skill under an unknown Marketplace', async () => {
     vi.mocked(fetchMarketplaces).mockResolvedValue({ marketplaces: [] });
-    expect(await loadSkillPage(ACCESS_TOKEN, 'unknown', skill.skillSlug)).toEqual({
+    expect(await loadSkillPage(ACCESS_TOKEN, 'unknown', 'reviewer')).toEqual({
       ok: false,
       status: 404,
       message: 'Marketplace not found',
@@ -284,7 +286,7 @@ describe('loadSkillPage', () => {
 
   it('preserves an authorization refusal while loading Marketplace metadata', async () => {
     vi.mocked(fetchMarketplaces).mockRejectedValue(new ApiError(403, 'forbidden', 'No access'));
-    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', skill.skillSlug)).toEqual({
+    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', 'reviewer')).toEqual({
       ok: false,
       status: 403,
       message: 'No access',
@@ -296,7 +298,7 @@ describe('loadSkillPage', () => {
     vi.mocked(fetchMarketplaces).mockResolvedValue(teamMarketplaces);
     vi.mocked(fetchSkillDetail).mockResolvedValue(null);
 
-    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', 'team__repo__does-not-exist')).toEqual({
+    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', 'does-not-exist')).toEqual({
       ok: false,
       status: 404,
       message: 'Skill not found',
@@ -309,7 +311,7 @@ describe('loadSkillPage', () => {
       new ApiError(500, 'internal', 'Upstream failure'),
     );
 
-    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', skill.skillSlug)).toEqual({
+    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', 'reviewer')).toEqual({
       ok: false,
       status: 500,
       message: 'Upstream failure',
@@ -320,7 +322,7 @@ describe('loadSkillPage', () => {
     vi.mocked(fetchMarketplaces).mockResolvedValue(teamMarketplaces);
     vi.mocked(fetchSkillDetail).mockRejectedValue(new Error('boom'));
 
-    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', skill.skillSlug)).toEqual({
+    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', 'reviewer')).toEqual({
       ok: false,
       status: 502,
       message: 'Failed to load the Skill',

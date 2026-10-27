@@ -19,7 +19,7 @@ const skill = {
 async function renderPage(skillSegment = 'reviewer') {
   render(
     await SkillDetailPage({
-      params: Promise.resolve({ marketplaceSlug: 'team__repo', skillSlug: skillSegment }),
+      params: Promise.resolve({ marketplaceSlug: 'team__repo', skillName: 'reviewer' }),
     }),
   );
 }
@@ -42,7 +42,8 @@ beforeEach(() => {
 describe('Skill detail Server Component', () => {
   it('restores the full skillSlug from the short path segment and renders details with a clean return link', async () => {
     await renderPage();
-    expect(loadSkillPage).toHaveBeenCalledExactlyOnceWith('token', 'team__repo', skill.skillSlug);
+    expect(loadSkillPage).toHaveBeenCalledExactlyOnceWith('token', 'team__repo', 'reviewer');
+    expect(screen.getByRole('heading', { name: 'Reviewer' })).toBeVisible();
     expect(screen.getByText('# Instructions')).toBeVisible();
     expect(screen.getByRole('link', { name: 'Skills' })).toHaveAttribute('href', '/marketplace');
   });

@@ -4,11 +4,11 @@
 
 **Date:** 2026-08-17
 
-**Updated:** 2026-10-21
+**Updated:** 2026-10-27
 
 **Deciders:** Frontend Engineering, Product Owner, Security Review (TBD)
 
-This document describes the frontend after those amendments, the 2026-10-19 cleanup, and the 2026-10-21 cursor integration. The original proposal and the broader [Marketplace PRD](../prd/agent-marketplace.md) retain their existing approval status. The [frontend deep dive](../architecture/marketplace.md) includes the component diagram and file map.
+This document describes the frontend after those amendments, the 2026-10-19 cleanup, the 2026-10-21 cursor integration, and the 2026-10-27 backend API alignment. The original proposal and the broader [Marketplace PRD](../prd/agent-marketplace.md) retain their existing approval status. The [frontend deep dive](../architecture/marketplace.md) includes the component diagram and file map.
 
 ## Context
 
@@ -28,9 +28,9 @@ For detail navigation, retaining the in-place view was considered against restor
 
 ## Decision
 
-Retain option 1 and apply the accepted amendments below. All product JSX uses existing Hades components. Feature components remain scoped to Marketplace, with detail-only files colocated under `[marketplaceSlug]/[skillSlug]`.
+Retain option 1 and apply the accepted amendments below. All product JSX uses existing Hades components. Feature components remain scoped to Marketplace, with detail-only files colocated under `[marketplaceSlug]/[skillName]`.
 
-The accepted named-parameter amendment (2026-10-16) replaces the catch-all directory with `[marketplaceSlug]/[skillSlug]/page.tsx`. The public detail URL stays the same. Next.js supplies two named string parameters and rejects addresses with fewer or more segments through its normal 404 handling.
+The accepted named-parameter amendment (2026-10-16) replaces the catch-all directory with two named parameters. The 2026-10-27 backend API alignment names the second parameter `skillName`, giving `[marketplaceSlug]/[skillName]/page.tsx`. The public detail URL retains two path segments. Next.js supplies two named string parameters and rejects addresses with fewer or more segments through its normal 404 handling.
 
 The dashboard layout's `PageGutter` owns outer page spacing for both Marketplace routes. Marketplace uses that shared layout directly, following the dashboard convention that feature pages do not add their own outer padding.
 
@@ -41,7 +41,7 @@ The dashboard layout's `PageGutter` owns outer page spacing for both Marketplace
 | Overview                 | `/marketplace` loads the default browse values with the saved Marketplace, or the first available source in skills-service order.                                                                                                                 |
 | Browse controls          | `useMarketplace` owns source, search, sort, page, page size, results, loading, error, cancellation, and retry. It sends browse values on API requests without adding them to the address or creating pagination history entries.                  |
 | Old browse links         | The overview ignores old browse query values for its initial load. The hook removes those keys while preserving unrelated query context, fragments, and Next.js history state.                                                                    |
-| Detail                   | `/marketplace/{marketplaceSlug}/{skillSlug}` loads the requested Skill on the server. Each identifier is encoded as one path segment. The page awaits `params`; it does not split an opaque Skill slug or infer identity from browse preferences. |
+| Detail                   | `/marketplace/{marketplaceSlug}/{skillName}` loads the requested Skill on the server. Each identifier is encoded as one path segment. The page awaits `params`; it passes the backend-provided `skillName` without splitting the full Skill slug or inferring identity from browse preferences. |
 | Direct links and refresh | A valid detail link opens that Skill, including after refresh. A missing Skill shows the missing-Skill state; an address with fewer or more than two segments uses the app's 404 page.                                                            |
 | Return                   | The detail page's Skills link returns to `/marketplace`. No extra search/page persistence or browse-state restoration mechanism is introduced.                                                                                                    |
 | Local presentation       | The overview owns list/card selection and the toolbar owns picker-open state. These are not navigation parameters.                                                                                                                                |
@@ -54,24 +54,24 @@ Browse API requests validate search, page size, page, sort, and Marketplace thro
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Overview `page.tsx`                         | Validates the session, calls `loadMarketplaceOverview`, and passes initial data/error to `MarketplaceShell`.                                                                                                                                           |
 | Overview shell and provider                 | Mount the browse hook/context and render controls and results. No selected-Skill state lives here.                                                                                                                                                     |
-| `[marketplaceSlug]/[skillSlug]/page.tsx`    | Validates the session, reads both named path identifiers, calls `loadSkillPage`, and renders the requested detail or its failure state.                                                                                                                |
-| `[marketplaceSlug]/[skillSlug]/loading.tsx` | Defines the single-use detail loading skeleton inline while the Server Component resolves.                                                                                                                                                            |
+| `[marketplaceSlug]/[skillName]/page.tsx`    | Validates the session, reads both named path identifiers, calls `loadSkillPage`, and renders the requested detail or its failure state.                                                                                                                |
+| `[marketplaceSlug]/[skillName]/loading.tsx` | Defines the single-use detail loading skeleton inline while the Server Component resolves.                                                                                                                                                            |
 | Detail components                           | Render the Skill title, description, `SKILL.md`, resource files, and Source metadata. The retry component calls `router.refresh()` inside a transition and disables itself while pending.                                                              |
 | Browse BFF                                  | `GET /api/marketplace/skills` uses `withAuth`, parses API query values, and calls the shared overview loader.                                                                                                                                          |
 | Shared server loader                        | Owns source selection and browse shaping. `loadSkillPage` resolves the requested Marketplace display name from the authenticated source list and uses a private `loadSkillDetail` helper. Results distinguish success, missing data, refusals, and upstream failures. |
 | Server client                               | Calls skills-service through `SKILLS_SERVICE_URL`, forwarding the session's bearer token with a ten-second timeout. The browse request also combines the caller's abort signal.                                                                        |
 
-The detail UI, retry, component tests, and stories live in `frontend/src/app/(dashboard)/marketplace/[marketplaceSlug]/[skillSlug]/_components/`. The route's `page.tsx`, `page.test.tsx`, and `loading.tsx` sit alongside that directory. Overview UI, context, hook, and shared loaders remain in their existing Marketplace directories.
+The detail UI, retry, component tests, and stories live in `frontend/src/app/(dashboard)/marketplace/[marketplaceSlug]/[skillName]/_components/`. The route's `page.tsx`, `page.test.tsx`, and `loading.tsx` sit alongside that directory. Overview UI, context, hook, and shared loaders remain in their existing Marketplace directories.
 
 The dedicated Server Component is the entry point for Skill details. The unused `GET /api/marketplace/skill` BFF and its URL builder were removed in the 2026-10-19 cleanup; `loadSkillDetail` is private to the server loader. Keeping that helper internal avoids maintaining an unused browser API alongside the server detail route.
 
 ### Backend types and identifiers
 
-`frontend/src/shared/api.ts` mirrors skills-service with `Marketplace`, `GetMarketplaces`, `SkillSummary`, `ListSkillsResponse`, `SkillFile`, and `Skill`. `SkillSort` belongs to the frontend feature because the backend does not sort by display name.
+`frontend/src/shared/api.ts` mirrors skills-service with `Marketplace`, `GetMarketplaces`, `SkillSummary`, `MarketplaceDetail`, `SkillFile`, and `Skill`. `SkillSort` belongs to the frontend feature because the backend does not sort by display name.
 
-A Marketplace's `marketplaceSlug` is its identity; its name is a label and need not be unique. The selected source and saved `marketplace.lastSelected` preference hold the slug. A Skill is addressed with both its Marketplace slug and opaque Skill slug. The Source panel obtains the Marketplace label from the authenticated list for that request.
+A Marketplace's `marketplaceSlug` is its identity; its name is a label and need not be unique. The selected source and saved `marketplace.lastSelected` preference hold the slug. A Skill detail request uses the Marketplace slug and the backend-provided `skillName` (the URL-safe name segment). The full `skillSlug` remains the stable identifier for list keys and display; the frontend does not derive `skillName` from it. Existing links containing the full `skillSlug` remain valid because the backend accepts it as the detail path value. The Source panel obtains the Marketplace label from the authenticated list for that request.
 
-The backend list API returns at most 200 Skills per cursor batch, in Skill-slug order, and may include `nextCursor`. The server-only `fetchSkills` client follows every cursor for the selected Marketplace and search, using the same session token. The shared loader then sorts the complete matching list by name, counts it, and returns only the requested display page to the browser.
+The backend marketplace endpoint (`GET /v1/marketplaces/{marketplaceSlug}`) returns the selected Marketplace metadata and at most 200 Skills per cursor batch, in Skill-slug order, and may include `nextCursor`. Each summary includes `skillName`. Detail requests use `GET /v1/marketplaces/{marketplaceSlug}/{skillName}`. The server-only `fetchSkills` client follows every cursor for the selected Marketplace and search, using the same session token. The shared loader then sorts the complete matching list by name, counts it, and returns only the requested display page to the browser.
 
 For cursor integration, passing a cursor directly to each browser page was considered. The existing backend does not supply name sorting or a total count, so that option would change the current sort and numbered-page behavior. Following cursors on the Next.js server preserves that behavior without changing the backend contract. Each Skills load has one ten-second deadline covering all batches, also honors caller cancellation, and rejects repeated cursors. A later batch failure rejects the load instead of presenting a truncated list as complete.
 
@@ -120,6 +120,7 @@ The [accessibility and layout evidence](../../frontend/e2e/marketplace-accessibi
 | 2026-10-16 | Replace the catch-all directory with `[marketplaceSlug]/[skillSlug]`, retaining the two-segment detail URL and colocated detail files. | Accepted named-parameter amendment, explicitly requested by the learner.                           |
 | 2026-10-19 | Remove the unused Skill-detail BFF and URL builder, keep the detail helper private, inline the route skeleton, and use dashboard-owned page spacing. | Implemented cleanup of the server-rendered detail architecture.                                    |
 | 2026-10-21 | Follow Skills cursors server-side before name sorting, counting, and slicing a display page. | Pagination correction with a shared deadline and cancellation; preserves the existing browser API. |
+| 2026-10-27 | Align with the backend marketplace endpoint and use the returned `skillName` for detail navigation. | API contract alignment; retains cursor handling, full-slug link compatibility, and server-side authentication. |
 
 ## Related decisions
 

@@ -7,7 +7,7 @@
  * responses behind page.route() for browse requests and
  * marketplace-upstream.mjs for Server Component loads. The slugs follow the
  * backend rules: marketplaceSlug = org__repo, skillSlug =
- * marketplaceSlug__slugify(name).
+ * marketplaceSlug__slugify(name), with skillName = slugify(name).
  */
 import type { Marketplace, Skill, SkillSummary } from '@orbit/shared/api';
 
@@ -41,31 +41,37 @@ export const SKILL_FIXTURES_BY_MARKETPLACE: Record<string, SkillSummary[]> = {
       name: 'Incident Triage',
       description: 'Triages incoming incidents by severity.',
       skillSlug: 'clearroute__core-skills__incident-triage',
+      skillName: 'incident-triage',
     },
     {
       name: 'Change Freeze Checker',
       description: 'Reports whether a change window is currently open.',
       skillSlug: 'clearroute__core-skills__change-freeze-checker',
+      skillName: 'change-freeze-checker',
     },
     {
       name: 'Customer Impact Summariser',
       description: 'Estimates affected customers from an incident.',
       skillSlug: 'clearroute__core-skills__customer-impact-summariser',
+      skillName: 'customer-impact-summariser',
     },
     {
       name: 'Escalation Router',
       description: 'Routes an incident to the correct on-call rota.',
       skillSlug: 'clearroute__core-skills__escalation-router',
+      skillName: 'escalation-router',
     },
     {
       name: 'Postmortem Reviewer',
       description: 'Checks a postmortem for action-item quality.',
       skillSlug: 'clearroute__core-skills__postmortem-reviewer',
+      skillName: 'postmortem-reviewer',
     },
     {
       name: 'Status Page Drafter',
       description: 'Drafts a customer-facing status update.',
       skillSlug: 'clearroute__core-skills__status-page-drafter',
+      skillName: 'status-page-drafter',
     },
   ],
   'clearroute__platform-skills': [
@@ -73,11 +79,13 @@ export const SKILL_FIXTURES_BY_MARKETPLACE: Record<string, SkillSummary[]> = {
       name: 'Incident Triage',
       description: 'Triages incoming incidents by owning team.',
       skillSlug: 'clearroute__platform-skills__incident-triage',
+      skillName: 'incident-triage',
     },
     {
       name: 'Cost Report',
       description: 'Summarises spend by environment.',
       skillSlug: 'clearroute__platform-skills__cost-report',
+      skillName: 'cost-report',
     },
   ],
   'partner-org__reference-skills': [],
@@ -86,306 +94,367 @@ export const SKILL_FIXTURES_BY_MARKETPLACE: Record<string, SkillSummary[]> = {
       name: 'React Expert',
       description: 'Senior React developer.',
       skillSlug: 'platform-engineering__skills__react-expert',
+      skillName: 'react-expert',
     },
     {
       name: 'React Reviewer',
       description: 'Reviews React components for accessibility and state handling.',
       skillSlug: 'platform-engineering__skills__react-reviewer',
+      skillName: 'react-reviewer',
     },
     {
       name: 'Airflow Access Review',
       description: 'List who can reach Airflow and flag grants with no named owner.',
       skillSlug: 'platform-engineering__skills__airflow-access-review',
+      skillName: 'airflow-access-review',
     },
     {
       name: 'Alert Noise Reducer',
       description: 'Groups duplicate alerts and proposes threshold changes.',
       skillSlug: 'platform-engineering__skills__alert-noise-reducer',
+      skillName: 'alert-noise-reducer',
     },
     {
       name: 'Ansible Drift Check',
       description: 'Compares live host state against playbook intent.',
       skillSlug: 'platform-engineering__skills__ansible-drift-check',
+      skillName: 'ansible-drift-check',
     },
     {
       name: 'API Contract Diff',
       description: 'Diffs OpenAPI specifications and flags breaking changes.',
       skillSlug: 'platform-engineering__skills__api-contract-diff',
+      skillName: 'api-contract-diff',
     },
     {
       name: 'Argo Sync Auditor',
       description: 'Reports applications that are out of sync with Git.',
       skillSlug: 'platform-engineering__skills__argo-sync-auditor',
+      skillName: 'argo-sync-auditor',
     },
     {
       name: 'Backup Restore Drill',
       description: 'Walks a restore rehearsal and records the outcome.',
       skillSlug: 'platform-engineering__skills__backup-restore-drill',
+      skillName: 'backup-restore-drill',
     },
     {
       name: 'Bazel Cache Analyst',
       description: 'Explains cache misses in a build graph.',
       skillSlug: 'platform-engineering__skills__bazel-cache-analyst',
+      skillName: 'bazel-cache-analyst',
     },
     {
       name: 'Bicep Linter',
       description: 'Reviews Azure Bicep templates for policy violations.',
       skillSlug: 'platform-engineering__skills__bicep-linter',
+      skillName: 'bicep-linter',
     },
     {
       name: 'Budget Forecaster',
       description: 'Projects month-end cloud spend from the current burn rate.',
       skillSlug: 'platform-engineering__skills__budget-forecaster',
+      skillName: 'budget-forecaster',
     },
     {
       name: 'Cert Expiry Sweep',
       description: 'Lists TLS certificates expiring within thirty days.',
       skillSlug: 'platform-engineering__skills__cert-expiry-sweep',
+      skillName: 'cert-expiry-sweep',
     },
     {
       name: 'CI Flake Hunter',
       description: 'Finds tests that fail intermittently across runs.',
       skillSlug: 'platform-engineering__skills__ci-flake-hunter',
+      skillName: 'ci-flake-hunter',
     },
     {
       name: 'Cluster Upgrade Planner',
       description: 'Sequences a Kubernetes version upgrade.',
       skillSlug: 'platform-engineering__skills__cluster-upgrade-planner',
+      skillName: 'cluster-upgrade-planner',
     },
     {
       name: 'Cost Anomaly Explainer',
       description: 'Attributes a spend spike to a specific service change.',
       skillSlug: 'platform-engineering__skills__cost-anomaly-explainer',
+      skillName: 'cost-anomaly-explainer',
     },
     {
       name: 'Dashboard Gap Finder',
       description: 'Flags services with no latency dashboard.',
       skillSlug: 'platform-engineering__skills__dashboard-gap-finder',
+      skillName: 'dashboard-gap-finder',
     },
     {
       name: 'Data Retention Auditor',
       description: 'Checks table retention settings against policy.',
       skillSlug: 'platform-engineering__skills__data-retention-auditor',
+      skillName: 'data-retention-auditor',
     },
     {
       name: 'DNS Record Reviewer',
       description: 'Finds dangling and duplicate DNS records.',
       skillSlug: 'platform-engineering__skills__dns-record-reviewer',
+      skillName: 'dns-record-reviewer',
     },
     {
       name: 'Docker Image Slimmer',
       description: 'Proposes smaller base images and merged layers.',
       skillSlug: 'platform-engineering__skills__docker-image-slimmer',
+      skillName: 'docker-image-slimmer',
     },
     {
       name: 'Envoy Config Explainer',
       description: 'Explains an Envoy listener chain in plain terms.',
       skillSlug: 'platform-engineering__skills__envoy-config-explainer',
+      skillName: 'envoy-config-explainer',
     },
     {
       name: 'Feature Flag Reaper',
       description: 'Lists flags fully rolled out and safe to remove.',
       skillSlug: 'platform-engineering__skills__feature-flag-reaper',
+      skillName: 'feature-flag-reaper',
     },
     {
       name: 'GitHub Action Auditor',
       description: 'Reviews workflow permissions and unpinned actions.',
       skillSlug: 'platform-engineering__skills__github-action-auditor',
+      skillName: 'github-action-auditor',
     },
     {
       name: 'Grafana Panel Builder',
       description: "Drafts dashboard panels from a service's metric names.",
       skillSlug: 'platform-engineering__skills__grafana-panel-builder',
+      skillName: 'grafana-panel-builder',
     },
     {
       name: 'Helm Values Differ',
       description: 'Diffs rendered Helm output between two releases.',
       skillSlug: 'platform-engineering__skills__helm-values-differ',
+      skillName: 'helm-values-differ',
     },
     {
       name: 'IAM Policy Minimiser',
       description: 'Narrows over-broad IAM policies to observed use.',
       skillSlug: 'platform-engineering__skills__iam-policy-minimiser',
+      skillName: 'iam-policy-minimiser',
     },
     {
       name: 'Incident Timeline Writer',
       description: 'Assembles an incident timeline from logs and alerts.',
       skillSlug: 'platform-engineering__skills__incident-timeline-writer',
+      skillName: 'incident-timeline-writer',
     },
     {
       name: 'Ingress Route Mapper',
       description: 'Maps hostnames to services across namespaces.',
       skillSlug: 'platform-engineering__skills__ingress-route-mapper',
+      skillName: 'ingress-route-mapper',
     },
     {
       name: 'Istio mTLS Checker',
       description: 'Reports workloads still accepting plaintext traffic.',
       skillSlug: 'platform-engineering__skills__istio-mtls-checker',
+      skillName: 'istio-mtls-checker',
     },
     {
       name: 'Kafka Lag Diagnoser',
       description: 'Explains consumer lag and proposes remedies.',
       skillSlug: 'platform-engineering__skills__kafka-lag-diagnoser',
+      skillName: 'kafka-lag-diagnoser',
     },
     {
       name: 'Kubecost Reporter',
       description: 'Summarises namespace spend for a reporting period.',
       skillSlug: 'platform-engineering__skills__kubecost-reporter',
+      skillName: 'kubecost-reporter',
     },
     {
       name: 'Latency Budget Tracker',
       description: 'Tracks error budget burn against a service objective.',
       skillSlug: 'platform-engineering__skills__latency-budget-tracker',
+      skillName: 'latency-budget-tracker',
     },
     {
       name: 'Load Test Planner',
       description: 'Designs a load profile from production traffic shape.',
       skillSlug: 'platform-engineering__skills__load-test-planner',
+      skillName: 'load-test-planner',
     },
     {
       name: 'Log Volume Trimmer',
       description: 'Identifies the noisiest log lines by ingest cost.',
       skillSlug: 'platform-engineering__skills__log-volume-trimmer',
+      skillName: 'log-volume-trimmer',
     },
     {
       name: 'Migration Rehearsal',
       description: 'Dry-runs a schema migration and reports lock risk.',
       skillSlug: 'platform-engineering__skills__migration-rehearsal',
+      skillName: 'migration-rehearsal',
     },
     {
       name: 'Node Pool Rightsizer',
       description: 'Recommends instance types from utilisation history.',
       skillSlug: 'platform-engineering__skills__node-pool-rightsizer',
+      skillName: 'node-pool-rightsizer',
     },
     {
       name: 'On-Call Handover',
       description: "Drafts a handover note from the shift's incidents.",
       skillSlug: 'platform-engineering__skills__on-call-handover',
+      skillName: 'on-call-handover',
     },
     {
       name: 'OPA Policy Explainer',
       description: 'Explains why a request was denied by policy.',
       skillSlug: 'platform-engineering__skills__opa-policy-explainer',
+      skillName: 'opa-policy-explainer',
     },
     {
       name: 'Postgres Index Advisor',
       description: 'Suggests indexes from slow query logs.',
       skillSlug: 'platform-engineering__skills__postgres-index-advisor',
+      skillName: 'postgres-index-advisor',
     },
     {
       name: 'PR Risk Scorer',
       description: 'Scores a pull request by blast radius.',
       skillSlug: 'platform-engineering__skills__pr-risk-scorer',
+      skillName: 'pr-risk-scorer',
     },
     {
       name: 'Prometheus Rule Linter',
       description: 'Reviews alerting rules for common mistakes.',
       skillSlug: 'platform-engineering__skills__prometheus-rule-linter',
+      skillName: 'prometheus-rule-linter',
     },
     {
       name: 'Redis Memory Profiler',
       description: 'Breaks down key space by memory use.',
       skillSlug: 'platform-engineering__skills__redis-memory-profiler',
+      skillName: 'redis-memory-profiler',
     },
     {
       name: 'Release Notes Drafter',
       description: 'Assembles release notes from merged pull requests.',
       skillSlug: 'platform-engineering__skills__release-notes-drafter',
+      skillName: 'release-notes-drafter',
     },
     {
       name: 'Runbook Generator',
       description: 'Turns a resolved incident into a reusable runbook.',
       skillSlug: 'platform-engineering__skills__runbook-generator',
+      skillName: 'runbook-generator',
     },
     {
       name: 'SBOM Reviewer',
       description: 'Reviews a software bill of materials for known risk.',
       skillSlug: 'platform-engineering__skills__sbom-reviewer',
+      skillName: 'sbom-reviewer',
     },
     {
       name: 'Secret Rotation Planner',
       description: 'Sequences rotation across dependent services.',
       skillSlug: 'platform-engineering__skills__secret-rotation-planner',
+      skillName: 'secret-rotation-planner',
     },
     {
       name: 'Secret Scanner',
       description: 'Finds credentials committed to a repository.',
       skillSlug: 'platform-engineering__skills__secret-scanner',
+      skillName: 'secret-scanner',
     },
     {
       name: 'Service Catalog Auditor',
       description: 'Flags services missing an owner or a tier.',
       skillSlug: 'platform-engineering__skills__service-catalog-auditor',
+      skillName: 'service-catalog-auditor',
     },
     {
       name: 'SLO Drafter',
       description: 'Proposes service level objectives from latency history.',
       skillSlug: 'platform-engineering__skills__slo-drafter',
+      skillName: 'slo-drafter',
     },
     {
       name: 'Spot Interruption Planner',
       description: 'Assesses which workloads tolerate spot capacity.',
       skillSlug: 'platform-engineering__skills__spot-interruption-planner',
+      skillName: 'spot-interruption-planner',
     },
     {
       name: 'SQL Query Reviewer',
       description: 'Reviews queries for full scans and N+1 patterns.',
       skillSlug: 'platform-engineering__skills__sql-query-reviewer',
+      skillName: 'sql-query-reviewer',
     },
     {
       name: 'SSL Config Grader',
       description: 'Grades TLS configuration against current guidance.',
       skillSlug: 'platform-engineering__skills__ssl-config-grader',
+      skillName: 'ssl-config-grader',
     },
     {
       name: 'Terraform Cost Preview',
       description: 'Estimates the cost change from a Terraform plan.',
       skillSlug: 'platform-engineering__skills__terraform-cost-preview',
+      skillName: 'terraform-cost-preview',
     },
     {
       name: 'Terraform Module Reviewer',
       description: 'Reviews module interfaces for reuse.',
       skillSlug: 'platform-engineering__skills__terraform-module-reviewer',
+      skillName: 'terraform-module-reviewer',
     },
     {
       name: 'Test Coverage Mapper',
       description: 'Maps untested code paths to recent incidents.',
       skillSlug: 'platform-engineering__skills__test-coverage-mapper',
+      skillName: 'test-coverage-mapper',
     },
     {
       name: 'Toil Estimator',
       description: 'Quantifies repetitive operational work per week.',
       skillSlug: 'platform-engineering__skills__toil-estimator',
+      skillName: 'toil-estimator',
     },
     {
       name: 'Trace Sampler Tuner',
       description: 'Recommends sampling rates from trace volume.',
       skillSlug: 'platform-engineering__skills__trace-sampler-tuner',
+      skillName: 'trace-sampler-tuner',
     },
     {
       name: 'Vault Policy Reviewer',
       description: 'Reviews Vault policies for least privilege.',
       skillSlug: 'platform-engineering__skills__vault-policy-reviewer',
+      skillName: 'vault-policy-reviewer',
     },
     {
       name: 'VPC Peering Mapper',
       description: 'Diagrams cross-account network reachability.',
       skillSlug: 'platform-engineering__skills__vpc-peering-mapper',
+      skillName: 'vpc-peering-mapper',
     },
     {
       name: 'Webhook Replay Tool',
       description: 'Replays a failed webhook delivery against staging.',
       skillSlug: 'platform-engineering__skills__webhook-replay-tool',
+      skillName: 'webhook-replay-tool',
     },
     {
       name: 'Terraform Audit A',
       description: 'Audits Terraform state for drift. Variant A.',
       skillSlug: 'platform-engineering__skills__terraform-audit-a',
+      skillName: 'terraform-audit-a',
     },
     {
       name: 'Terraform Audit B',
       description: 'Audits Terraform state for drift. Variant B.',
       skillSlug: 'platform-engineering__skills__terraform-audit-b',
+      skillName: 'terraform-audit-b',
     },
   ],
 };
@@ -393,12 +462,11 @@ export const SKILL_FIXTURES_BY_MARKETPLACE: Record<string, SkillSummary[]> = {
 /** The full Skills, built from the lists. Each Skill has only its SKILL.md. */
 export const SKILL_DETAIL_FIXTURES: Skill[] = Object.values(SKILL_FIXTURES_BY_MARKETPLACE).flatMap(
   (skills) =>
-    skills.map((summary) => {
-      const folder = summary.skillSlug.split('__').pop() ?? summary.skillSlug;
+    skills.map(({ skillName, ...summary }) => {
       return {
         ...summary,
         skill: {
-          path: `skills/${folder}/SKILL.md`,
+          path: `skills/${skillName}/SKILL.md`,
           name: 'SKILL.md',
           content: `# ${summary.name}\n\n${summary.description}`,
         },

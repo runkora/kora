@@ -7,14 +7,20 @@
  * and to marketplace-server.ts, not to this client.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ListSkillsResponse, SkillSummary } from '@orbit/shared/api';
+import type { MarketplaceDetail, SkillSummary } from '@orbit/shared/api';
 
 vi.mock('@orbit/server/config', () => ({
-  config: { skillsServiceUrl: 'http://skills-service.test' },
+  config: { skillsServiceUrl: 'http://skills-service.test/v1' },
 }));
 
 import { ApiError } from './api-error';
 import { fetchMarketplaces, fetchSkillDetail, fetchSkills } from './marketplace-client';
+
+const marketplace = {
+  name: 'Skills',
+  marketplaceSlug: 'acme__skills',
+  link: 'https://github.com/acme/skills',
+};
 
 function stubFetch(respond: (url: string, init: RequestInit) => Promise<Response>) {
   vi.stubGlobal(
@@ -40,7 +46,7 @@ describe('fetchMarketplaces', () => {
 
     const result = await fetchMarketplaces('token-a');
 
-    expect(seenUrl).toBe('http://skills-service.test/marketplaces');
+    expect(seenUrl).toBe('http://skills-service.test/v1/marketplaces');
     expect(seenAuth).toBe('Bearer token-a');
     expect(result).toEqual({ marketplaces: [] });
   });
@@ -51,25 +57,25 @@ describe('fetchSkills', () => {
     let seenUrl = '';
     stubFetch(async (url) => {
       seenUrl = url;
-      return Response.json({ skills: [] });
+      return Response.json({ ...marketplace, skills: [] });
     });
 
     await fetchSkills('token', 'acme__skills', '');
 
-    expect(seenUrl).toBe('http://skills-service.test/marketplaces/acme__skills/skills');
+    expect(seenUrl).toBe('http://skills-service.test/v1/marketplaces/acme__skills');
   });
 
   it('encodes the search query', async () => {
     let seenUrl = '';
     stubFetch(async (url) => {
       seenUrl = url;
-      return Response.json({ skills: [] });
+      return Response.json({ ...marketplace, skills: [] });
     });
 
     await fetchSkills('token', 'acme__skills', 'react native');
 
     expect(seenUrl).toBe(
-      'http://skills-service.test/marketplaces/acme__skills/skills?search=react+native',
+      'http://skills-service.test/v1/marketplaces/acme__skills?search=react+native',
     );
   });
 
@@ -78,13 +84,14 @@ describe('fetchSkills', () => {
       name: `Skill ${index}`,
       description: '',
       skillSlug: `acme__skills__${index}`,
+      skillName: `${index}`,
     }));
     const firstCursor = 'next+ /?&=';
     const secondCursor = 'last/+=&?#';
-    const batches = new Map<string, ListSkillsResponse>([
-      ['', { skills: skills.slice(0, 200), nextCursor: firstCursor }],
-      [firstCursor, { skills: skills.slice(200, 400), nextCursor: secondCursor }],
-      [secondCursor, { skills: skills.slice(400) }],
+    const batches = new Map<string, MarketplaceDetail>([
+      ['', { ...marketplace, skills: skills.slice(0, 200), nextCursor: firstCursor }],
+      [firstCursor, { ...marketplace, skills: skills.slice(200, 400), nextCursor: secondCursor }],
+      [secondCursor, { ...marketplace, skills: skills.slice(400) }],
     ]);
     const requests: {
       path: string;
@@ -112,7 +119,7 @@ describe('fetchSkills', () => {
     expect(result.skills).toEqual(skills);
     expect(requests).toEqual(
       [null, firstCursor, secondCursor].map((cursor) => ({
-        path: '/marketplaces/acme__skills/skills',
+        path: '/v1/marketplaces/acme__skills',
         search: 'react native',
         cursor,
         authorization: 'Bearer session-token',
@@ -126,7 +133,8 @@ describe('fetchSkills', () => {
       calls += 1;
       return calls === 1
         ? Response.json({
-            skills: [{ name: 'First', description: '', skillSlug: 'first' }],
+            ...marketplace,
+            skills: [{ name: 'First', description: '', skillSlug: 'first', skillName: 'first' }],
             nextCursor: 'next',
           })
         : Response.json({ code: 'unavailable', message: 'Unavailable' }, { status: 503 });
@@ -140,7 +148,7 @@ describe('fetchSkills', () => {
     const controller = new AbortController();
     stubFetch(async () => {
       controller.abort();
-      return Response.json({ skills: [], nextCursor: 'next' });
+      return Response.json({ ...marketplace, skills: [], nextCursor: 'next' });
     });
 
     await expect(fetchSkills('token', 'acme__skills', '', controller.signal)).rejects.toMatchObject(
@@ -159,12 +167,12 @@ describe('fetchSkills', () => {
     let calls = 0;
     stubFetch(async (_url, init) => {
       calls += 1;
-      if (calls === 1) return Response.json({ skills: [], nextCursor: 'next' });
+      if (calls === 1) return Response.json({ ...marketplace, skills: [], nextCursor: 'next' });
       const deadline = deadlines[0];
       if (!deadline || !init.signal) throw new Error('Missing request deadline');
       deadline.abort(new DOMException('Request timed out', 'TimeoutError'));
       init.signal.throwIfAborted();
-      return Response.json({ skills: [] });
+      return Response.json({ ...marketplace, skills: [] });
     });
 
     await expect(fetchSkills('token', 'acme__skills', '')).rejects.toMatchObject({
@@ -174,7 +182,7 @@ describe('fetchSkills', () => {
   });
 
   it('rejects a repeated cursor instead of requesting the same batch indefinitely', async () => {
-    stubFetch(async () => Response.json({ skills: [], nextCursor: 'same-cursor' }));
+    stubFetch(async () => Response.json({ ...marketplace, skills: [], nextCursor: 'same-cursor' }));
 
     await expect(fetchSkills('token', 'acme__skills', '')).rejects.toMatchObject({
       status: 502,
@@ -210,7 +218,7 @@ describe('fetchSkillDetail', () => {
     await fetchSkillDetail('token', 'team/repo ?#', 'skill/50% ?#');
 
     expect(seenUrl).toBe(
-      'http://skills-service.test/marketplaces/team%2Frepo%20%3F%23/skills/skill%2F50%25%20%3F%23',
+      'http://skills-service.test/v1/marketplaces/team%2Frepo%20%3F%23/skill%2F50%25%20%3F%23',
     );
   });
 
@@ -224,9 +232,15 @@ describe('fetchSkillDetail', () => {
     };
     stubFetch(async () => Response.json(skill));
 
-    const result = await fetchSkillDetail('token', 'acme__skills', 'acme__skills__react-expert');
+    const result = await fetchSkillDetail('token', 'acme__skills', 'react-expert');
 
     expect(result).toEqual(skill);
+    expect(fetch).toHaveBeenCalledWith(
+      'http://skills-service.test/v1/marketplaces/acme__skills/react-expert',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer token' }),
+      }),
+    );
   });
 
   it('returns null for a missing Skill instead of throwing', async () => {
@@ -234,7 +248,7 @@ describe('fetchSkillDetail', () => {
       Response.json({ code: 'resource_not_found', message: 'skill not found' }, { status: 404 }),
     );
 
-    const result = await fetchSkillDetail('token', 'acme__skills', 'acme__skills__missing');
+    const result = await fetchSkillDetail('token', 'acme__skills', 'missing');
 
     expect(result).toBeNull();
   });
@@ -242,8 +256,8 @@ describe('fetchSkillDetail', () => {
   it('still throws for a non-404 failure', async () => {
     stubFetch(async () => new Response('unavailable', { status: 503 }));
 
-    await expect(
-      fetchSkillDetail('token', 'acme__skills', 'acme__skills__x'),
-    ).rejects.toMatchObject({ status: 503 });
+    await expect(fetchSkillDetail('token', 'acme__skills', 'x')).rejects.toMatchObject({
+      status: 503,
+    });
   });
 });
