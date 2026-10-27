@@ -10,5 +10,5 @@ metadata:
   namespace: orbit-tenant-example
 spec:
   github:
-    owner: clear-route
-    repo: skills-marketplace
+    owner: anthropics
+    repo: skills
