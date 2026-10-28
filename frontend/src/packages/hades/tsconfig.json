@@ -18,7 +18,6 @@
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "baseUrl": ".",
     "paths": {
       "@orbit/hades": ["./src/index.ts"],
       "@orbit/hades/*": ["./src/*"]

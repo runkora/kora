@@ -32,7 +32,9 @@ createServer((req, res) => {
       skills: catalogue.filter((skill) => skill.name.toLowerCase().includes(search)),
     });
   }
-  if (skillSlug === 'upstream-error') return json(503, { message: 'Temporary catalogue failure.' });
+  // The detail page sends the full skillSlug, `<marketplaceSlug>__<name>`.
+  if (skillSlug === `${marketplaceSlug}__upstream-error`)
+    return json(503, { message: 'Temporary catalogue failure.' });
   const skill = catalogue.some((entry) => entry.skillSlug === skillSlug)
     ? SKILL_DETAIL_FIXTURES.find((entry) => entry.skillSlug === skillSlug)
     : undefined;

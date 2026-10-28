@@ -1,84 +1,64 @@
+'use client';
+
 /** @tier 3 — marketplace/[marketplaceSlug]/[skillSlug]-scoped. Read-only presentation of one Skill's details. */
 
-import { Card, CardContent, CardHeader, CodeBlock, Heading, Stack, Text } from '@orbit/hades';
+import { useMemo, useState } from 'react';
+import { CodeBlock, Stack } from '@orbit/hades';
 import type { Skill } from '@orbit/shared/api';
+import { SkillFileExplorer } from './skill-file-explorer';
+import type { ExplorerFile } from './skill-file-explorer';
+import { SkillRepositoryCard } from './skill-repository-card';
 
 interface MarketplaceSkillDetailProps {
   skill: Skill;
-  /** The display name of the Marketplace. The skills-service Skill has no Marketplace field. */
-  marketplaceName: string;
+  /** The GitHub repository link of the Skill's Marketplace. */
+  repositoryUrl: string;
 }
 
-export function MarketplaceSkillDetail({ skill, marketplaceName }: MarketplaceSkillDetailProps) {
-  return (
-    <Stack gap="relaxed">
-      <Stack gap="snug" style={{ minWidth: 0 }}>
-        <Heading variant="title">{skill.name}</Heading>
-        <Text size="supporting" color="subtle">
-          {marketplaceName}
-        </Text>
-        <Stack maxWidth="prose">
-          <Text size="supporting" color="muted">
-            {skill.description}
-          </Text>
-        </Stack>
-      </Stack>
+/** The path of a file relative to the Skill's folder (the folder holding SKILL.md). */
+function relativeTo(folder: string, path: string): string {
+  return folder && path.startsWith(`${folder}/`) ? path.slice(folder.length + 1) : path;
+}
 
-      <Stack direction={{ base: 'vertical', lg: 'horizontal' }} gap="relaxed" align="start">
-        <Stack gap="comfortable" grow minWidth="none" style={{ width: '100%' }}>
-          <Stack direction="horizontal" align="baseline" justify="between">
-            <Heading variant="section">Contents</Heading>
-            <Text as="span" size="caption" color="subtle">
-              {skill.documents.length} resource
-              {skill.documents.length === 1 ? '' : 's'}
-            </Text>
-          </Stack>
-
-          <CodeBlock filename={skill.skill.name} text={skill.skill.content} wrap />
-
-          {skill.documents.map((resource) => (
-            <CodeBlock key={resource.path} filename={resource.name} text={resource.content} wrap />
-          ))}
-        </Stack>
-        <Stack
-          gap="comfortable"
-          shrink
-          minWidth="none"
-          maxWidth={{ base: 'full', lg: 'detail-panel' }}
-          style={{ width: '100%', position: 'sticky', top: 0 }}
-        >
-          <Card column>
-            <CardHeader title="Source" />
-            <CardContent>
-              <Stack gap="cozy">
-                <SourceRow label="Marketplace" value={marketplaceName} />
-                <SourceRow label="Path" value={skill.skill.path} mono />
-              </Stack>
-            </CardContent>
-          </Card>
-        </Stack>
-      </Stack>
-    </Stack>
+export function MarketplaceSkillDetail({ skill, repositoryUrl }: MarketplaceSkillDetailProps) {
+  const slash = skill.skill.path.lastIndexOf('/');
+  const folder = slash >= 0 ? skill.skill.path.slice(0, slash) : '';
+  const files = useMemo<ExplorerFile[]>(
+    () =>
+      [skill.skill, ...skill.documents].map((file) => ({
+        relativePath: relativeTo(folder, file.path),
+        file,
+      })),
+    [skill, folder],
   );
-}
 
-function SourceRow({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+  const [selectedPath, setSelectedPath] = useState(files[0].relativePath);
+  const selected = files.find((f) => f.relativePath === selectedPath) ?? files[0];
+
   return (
-    <Stack gap="none" style={{ minWidth: 0 }}>
-      <Text as="span" size="caption" color="subtle">
-        {label}
-      </Text>
-      <Text as="span" size="supporting" mono={mono} truncate>
-        {value}
-      </Text>
+    <Stack direction={{ base: 'vertical', lg: 'horizontal' }} gap="relaxed" align="start">
+      <Stack gap="comfortable" grow minWidth="none" style={{ width: '100%' }}>
+        <SkillFileExplorer
+          files={files}
+          selectedPath={selected.relativePath}
+          onSelect={setSelectedPath}
+        />
+
+        <CodeBlock
+          key={selected.relativePath}
+          filename={selected.relativePath}
+          text={selected.file.content}
+          wrap
+        />
+      </Stack>
+      <Stack
+        shrink
+        minWidth="none"
+        maxWidth={{ base: 'full', lg: 'detail-panel' }}
+        style={{ width: '100%', position: 'sticky', top: 0 }}
+      >
+        <SkillRepositoryCard repositoryUrl={repositoryUrl} />
+      </Stack>
     </Stack>
   );
 }

@@ -151,7 +151,7 @@ describe('headerTooltip on a sortable column', () => {
 });
 
 describe('DataTable overflow handling', () => {
-  const tracks = () => screen.getAllByRole('row')[0].style.gridTemplateColumns;
+  const tracks = () => (screen.getAllByRole('row')[0] as HTMLElement).style.gridTemplateColumns;
 
   it('floors flexible columns so they cannot collapse', () => {
     renderTable([
@@ -289,7 +289,7 @@ describe('DataTable horizontal scrolling', () => {
     renderTable(columns());
     const scroller = screen.getByRole('table').closest('.overflow-x-auto') as HTMLElement;
     expect(scroller).not.toBeNull();
-    expect(scroller).toContainElement(screen.getAllByRole('row')[0]);
+    expect(scroller).toContainElement(screen.getAllByRole('row')[0] as HTMLElement);
     expect(scroller).toContainElement(screen.getByRole('cell', { name: 'apollo' }));
     expect((scroller.firstElementChild as HTMLElement).style.minWidth).toBe(
       'calc(8rem + 6rem + 48px + 60px)',
@@ -314,7 +314,7 @@ describe('DataTable column titles', () => {
         sortAccessor: (r) => r.rank,
       },
     ]);
-    const [plain, sortable] = screen.getAllByRole('columnheader');
+    const [plain, sortable] = screen.getAllByRole('columnheader') as [HTMLElement, HTMLElement];
     // The header row carries the overline treatment (uppercase) ...
     expect(screen.getAllByRole('row')[0]).toHaveClass('uppercase');
     expect(plain.textContent).toBe('Mixed Case');
@@ -458,5 +458,26 @@ describe('DataTable pinned-column elevation', () => {
     // Padding is split evenly either side of the content, so with the line showing
     // the icon sits in the middle of the pinned column instead of hugging the line.
     expect(screen.getByRole('cell', { name: 'del' })).toHaveClass('justify-center', 'pl-2', 'pr-2');
+  });
+});
+
+describe('DataTable toolbar', () => {
+  const columns: DataTableColumn<Row>[] = [
+    { id: 'name', header: 'Name', cell: (r) => r.name, locked: true },
+    { id: 'status', header: 'Status', cell: (r) => r.status },
+  ];
+
+  it('shows the toolbar by default', () => {
+    render(<DataTable data={data} columns={columns} getRowKey={(r) => r.name} />);
+    expect(screen.getByRole('button', { name: 'Toggle column visibility' })).toBeInTheDocument();
+  });
+
+  it('leaves the toolbar out with hideToolbar, keeping the header and rows', () => {
+    render(<DataTable data={data} columns={columns} getRowKey={(r) => r.name} hideToolbar />);
+    expect(
+      screen.queryByRole('button', { name: 'Toggle column visibility' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('Name')).toBeInTheDocument();
+    expect(screen.getByText('apollo')).toBeInTheDocument();
   });
 });

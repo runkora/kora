@@ -78,7 +78,7 @@ Each entry is `owner/repo`, matched without regard to case. The skills service a
 Before adding an entry:
 
 1. Confirm the request came from the tenant that owns the source's namespace. That is `orbit-tenant-<name>`, or the tenant's `spec.namespace` when it sets one.
-2. Confirm the repository is one this tenant may expose. kora reads every marketplace with the platform GitHub App, so an entry lets the tenant's users read the repository's `SKILL.md` files and the markdown documents beside them, private repositories included. The list is the only gate.
+2. Confirm the repository is one this tenant may expose. kora reads every marketplace with the platform GitHub App, so an entry lets the tenant's users read the repository's `SKILL.md` files and the text files beside them (scripts, templates, references), private repositories included. The list is the only gate.
 3. Review the change like any other access grant, in your GitOps repository.
 
 Apply it with `kubectl edit orbittenant <name>` or through GitOps. The operator re-renders the marketplace list when it sees the change to the `OrbitTenant`, and the source moves from `Pending` to `Aggregated`. Removing an entry takes the source out of the marketplace the same way. kora does not track or notify pending requests, so agree an approval turnaround with your tenants.

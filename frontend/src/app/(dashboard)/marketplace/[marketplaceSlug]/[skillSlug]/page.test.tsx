@@ -16,10 +16,10 @@ const skill = {
   documents: [],
 };
 
-async function renderPage() {
+async function renderPage(skillSegment = 'reviewer') {
   render(
     await SkillDetailPage({
-      params: Promise.resolve({ marketplaceSlug: 'team__repo', skillSlug: skill.skillSlug }),
+      params: Promise.resolve({ marketplaceSlug: 'team__repo', skillSlug: skillSegment }),
     }),
   );
 }
@@ -27,9 +27,12 @@ async function renderPage() {
 beforeEach(() => {
   vi.mocked(getSession).mockReset();
   vi.mocked(isSessionValid).mockReset().mockReturnValue(true);
-  vi.mocked(loadSkillPage)
-    .mockReset()
-    .mockResolvedValue({ ok: true, skill, marketplaceName: 'Team' });
+  vi.mocked(loadSkillPage).mockReset().mockResolvedValue({
+    ok: true,
+    skill,
+    marketplaceName: 'Team',
+    marketplaceLink: 'https://github.com/team/repo',
+  });
   // Only the access token is read after the session validator succeeds.
   vi.mocked(getSession).mockResolvedValue({ accessToken: 'token' } as Awaited<
     ReturnType<typeof getSession>
@@ -37,12 +40,16 @@ beforeEach(() => {
 });
 
 describe('Skill detail Server Component', () => {
-  it('loads the exact identifiers from the path and renders details with a clean return link', async () => {
+  it('restores the full skillSlug from the short path segment and renders details with a clean return link', async () => {
     await renderPage();
     expect(loadSkillPage).toHaveBeenCalledExactlyOnceWith('token', 'team__repo', skill.skillSlug);
-    expect(screen.getByRole('heading', { name: 'Reviewer' })).toBeVisible();
     expect(screen.getByText('# Instructions')).toBeVisible();
     expect(screen.getByRole('link', { name: 'Skills' })).toHaveAttribute('href', '/marketplace');
+  });
+
+  it('still loads an older link whose segment carries the full skillSlug', async () => {
+    await renderPage(skill.skillSlug);
+    expect(loadSkillPage).toHaveBeenCalledExactlyOnceWith('token', 'team__repo', skill.skillSlug);
   });
 
   it('rejects expired sessions before loading upstream data', async () => {

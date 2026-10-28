@@ -20,7 +20,7 @@ type SkillDetailResult =
   { ok: true; skill: Skill } | { ok: false; status: number; message: string };
 
 export type SkillPageResult =
-  | { ok: true; skill: Skill; marketplaceName: string }
+  | { ok: true; skill: Skill; marketplaceName: string; marketplaceLink: string }
   | { ok: false; status: number; message: string };
 
 /** The status of a request that its caller cancelled. Nobody reads the response. */
@@ -123,7 +123,9 @@ export async function loadSkillPage(
   }
 
   const result = await loadSkillDetail(accessToken, marketplaceSlug, skillSlug);
-  return result.ok ? { ...result, marketplaceName: marketplace.name } : result;
+  return result.ok
+    ? { ...result, marketplaceName: marketplace.name, marketplaceLink: marketplace.link }
+    : result;
 }
 
 /** Loads one Skill of one Marketplace. A missing Skill is a 404. */

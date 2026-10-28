@@ -125,6 +125,7 @@ func TestCrawlerTreeWalk(t *testing.T) {
 			file("skills/skill-a/SKILL.md"),
 			file("skills/skill-b/SKILL.md"),
 			file("skills/skill-b/resources/file.md"),
+			file("skills/skill-b/scripts/run.py"),
 		}}
 		c := newTestCrawler(github, &fakeGitHubTokenProvider{token: "test-token"})
 
@@ -135,7 +136,7 @@ func TestCrawlerTreeWalk(t *testing.T) {
 
 		want := map[string]skillFilePath{
 			"skills/skill-a": {skillPath: "skills/skill-a/SKILL.md"},
-			"skills/skill-b": {skillPath: "skills/skill-b/SKILL.md", docPaths: []string{"skills/skill-b/resources/file.md"}},
+			"skills/skill-b": {skillPath: "skills/skill-b/SKILL.md", docPaths: []string{"skills/skill-b/resources/file.md", "skills/skill-b/scripts/run.py"}},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("FetchTree = %#v, want %#v", got, want)
@@ -398,6 +399,37 @@ func TestFetchSkills(t *testing.T) {
 		}
 		if len(got[0].Documents) != 1 || got[0].Documents[0].Content != docBody {
 			t.Errorf("Documents = %+v, want one doc with body %q", got[0].Documents, docBody)
+		}
+	})
+
+	t.Run("keeps text resource files and skips binary ones", func(t *testing.T) {
+		script := "print('hello')\n"
+		github := &fakeGitHubTreeClient{
+			contents: map[string]string{
+				"skills/s/SKILL.md":        skillMD("Skill", "desc"),
+				"skills/s/scripts/run.py":  script,
+				"skills/s/fonts/font.ttf":  "\x00\x01\x00\x00",
+				"skills/s/assets/logo.png": "\x89PNG\r\n\x1a\n\xff",
+			},
+		}
+		c := newTestCrawler(github, &fakeGitHubTokenProvider{token: "test-token"})
+
+		skillPaths := map[string]skillFilePath{
+			"skills/s": {
+				skillPath: "skills/s/SKILL.md",
+				docPaths:  []string{"skills/s/assets/logo.png", "skills/s/fonts/font.ttf", "skills/s/scripts/run.py"},
+			},
+		}
+		got, err := c.FetchSkills(context.Background(), testSource, skillPaths)
+		if err != nil {
+			t.Fatalf("FetchSkills: %v", err)
+		}
+		if len(got) != 1 {
+			t.Fatalf("FetchSkills = %d entries, want 1", len(got))
+		}
+		want := []SkillFile{{Path: "skills/s/scripts/run.py", Name: "run.py", Content: script}}
+		if !reflect.DeepEqual(got[0].Documents, want) {
+			t.Errorf("Documents = %+v, want %+v", got[0].Documents, want)
 		}
 	})
 
