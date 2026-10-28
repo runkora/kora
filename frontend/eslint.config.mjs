@@ -20,9 +20,6 @@ const eslintConfig = defineConfig([
     'out/**',
     'build/**',
     'next-env.d.ts',
-    // Storybook's default build output (pnpm build-storybook). Minified
-    // bundles must never be linted; git ignores the directory too.
-    'storybook-static/**',
   ]),
 
   // Register the local plugin globally so individual config objects below

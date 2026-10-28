@@ -484,7 +484,6 @@ frontend:
     policyServiceUrl: ""
     orbitAgentsUrl: ""
     toolGatewayUrl: ""
-    skillsServiceUrl: ""
     nextPublicAppUrl: ""
   # Holds BFF_SESSION_SECRET.
   existingSecret: orbit-frontend-secrets
@@ -878,14 +877,6 @@ skillsService:
   serviceAccount:
     annotations: {}
   configOverrides: {}
-  # Leave empty when the operator renders the list from SkillMarketplaceSource
-  # resources: the chart then owns no data key in the ConfigMap.
-  skillsMapping:
-    # -- Approved GitHub repositories grouped by platform tenant ID.
-    tenants: []
-  # githubApps lists the GitHub App Secrets to mount into the pod.
-  # Each entry mounts one Kubernetes Secret as a read-only directory.
-  # The first entry is also used as the default App (GITHUB_APP_PRIVATE_KEY_PATH).
   githubApps:
     - secretName: orbit-skills-github-app
       mountPath: /var/run/secrets/skills/github-apps/default

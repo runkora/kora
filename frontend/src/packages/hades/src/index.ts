@@ -404,9 +404,6 @@ export type {
   DataTableFilterOption,
 } from './components/data-table';
 
-export { ViewToggle } from './components/view-toggle';
-export type { ViewToggleProps } from './components/view-toggle';
-
 // ─── Hooks ───────────────────────────────────────────────────────────────────
 
 export { useDialog } from './hooks/use-dialog';

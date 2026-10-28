@@ -2,8 +2,7 @@ apiVersion: v2
 name: orbit-crds
 description: >
   Defines the OrbitTenant, Connection, OAuthClient, MCPServer,
-  SkillMarketplaceSource, InferenceProvider and SandboxImage resources kora
-  runs on. Apply this chart before orbit.
+  InferenceProvider and SandboxImage resources kora runs on. Apply this chart before orbit.
 type: application
 version: 0.0.0
 appVersion: "0.0.0"

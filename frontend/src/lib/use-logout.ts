@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { useRouter } from 'next/navigation';
 
 export interface UseLogoutReturn {
   isLoggingOut: boolean;
@@ -10,18 +9,16 @@ export interface UseLogoutReturn {
 
 export function useLogout(): UseLogoutReturn {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const router = useRouter();
 
   const logout = useCallback(async () => {
     if (isLoggingOut) return;
     setIsLoggingOut(true);
-
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } finally {
-      router.replace('/login');
+      window.location.href = '/login';
     }
-  }, [isLoggingOut, router]);
+  }, [isLoggingOut]);
 
   return { isLoggingOut, logout };
 }

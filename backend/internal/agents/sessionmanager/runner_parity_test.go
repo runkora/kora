@@ -181,11 +181,11 @@ func TestCodexConfig_MCPServers(t *testing.T) {
 		"github":  {`default_tools_approval_mode = "approve"`},
 	} {
 		header := "[mcp_servers." + server + "]\n"
-		_, after, ok := strings.Cut(got, header)
-		if !ok {
+		start := strings.Index(got, header)
+		if start < 0 {
 			t.Fatalf("config.toml has no %s table:\n%s", header, got)
 		}
-		table := after
+		table := got[start+len(header):]
 		if end := strings.Index(table, "\n["); end >= 0 {
 			table = table[:end]
 		}

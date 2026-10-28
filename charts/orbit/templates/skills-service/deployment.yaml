@@ -20,7 +20,6 @@ spec:
       annotations:
         {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         checksum/config: {{ include (print $.Template.BasePath "/skills-service/config.yaml") . | sha256sum }}
-        checksum/marketplace-sources: {{ include (print $.Template.BasePath "/skills-service/configmap.yaml") . | sha256sum }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "skillsService") | nindent 8 }}
     spec:
       serviceAccountName: orbit-skills-service
@@ -65,14 +64,15 @@ spec:
             - name: ORBIT_MARKETPLACE_SOURCES_CONFIG
               value: "/etc/orbit/marketplace"
             {{- include "orbit.platformEnv" (dict "root" $ "name" "skillsService" "keys" (list "REDIS_PASSWORD")) | nindent 12 }}
+            {{- include "orbit.extraEnv" (dict "root" $ "name" "skillsService") | nindent 12 }}
           ports:
-            - name: skills-http
-              containerPort: 8098
+            - name: http
+              containerPort: 8085
               protocol: TCP
           livenessProbe:
             httpGet:
               path: /health
-              port: 8098
+              port: 8085
             initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 5
@@ -80,7 +80,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /health
-              port: 8098
+              port: 8085
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5

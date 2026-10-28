@@ -17,55 +17,6 @@ import { ApiRoute } from './api-routes';
  *      session verb symmetry, discover path coupling).
  */
 describe('ApiRoute', () => {
-  describe('marketplaceSkills', () => {
-    it('encodes browse values and returns the Marketplace BFF path', () => {
-      const url = new URL(
-        ApiRoute.marketplaceSkills.GET({
-          marketplace: 'A & B',
-          query: 'C# D',
-          page: 2,
-          pageSize: 12,
-          sort: 'name-desc',
-        }),
-        'http://localhost',
-      );
-      expect(url.pathname).toBe('/api/marketplace/skills');
-      expect(Object.fromEntries(url.searchParams)).toEqual({
-        marketplace: 'A & B',
-        query: 'C# D',
-        page: '2',
-        pageSize: '12',
-        sort: 'name-desc',
-      });
-    });
-
-    it('omits an empty search', () => {
-      const url = new URL(
-        ApiRoute.marketplaceSkills.GET({
-          marketplace: '',
-          query: '',
-          page: 1,
-          pageSize: 24,
-          sort: 'name-asc',
-        }),
-        'http://localhost',
-      );
-      expect(url.searchParams.has('query')).toBe(false);
-      expect(url.searchParams.has('marketplace')).toBe(false);
-    });
-
-    it('starts with /api', () => {
-      expect(
-        ApiRoute.marketplaceSkills.GET({
-          marketplace: '',
-          query: '',
-          page: 1,
-          pageSize: 24,
-          sort: 'name-asc',
-        }),
-      ).toMatch(/^\/api\//);
-    });
-  });
   describe('discover', () => {
     it('PATH returns a path with no query string', () => {
       // PUBLIC_PATHS uses PATH() because the Edge middleware matches pathname

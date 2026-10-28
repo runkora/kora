@@ -2,8 +2,6 @@
 package operator
 
 import (
-	"slices"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -51,17 +49,6 @@ type OrbitTenantSpec struct {
 
 	// OIDC configures the identity provider for this tenant.
 	OIDC TenantOIDCSpec `json:"oidc"`
-
-	// AllowedMarketplaceRepos lists the GitHub repositories, as owner/repo, that
-	// this tenant's SkillMarketplaceSources may register. Matching ignores case.
-	// Only platform admins edit it: OrbitTenant is cluster-scoped, outside any
-	// tenant admin's namespace. A source whose repository is not listed stays
-	// Pending (NotAllowlisted).
-	// See docs/adr/2026-10-13-skill-marketplace-source-registration.md.
-	// +optional
-	// +kubebuilder:validation:items:MaxLength=140
-	// +kubebuilder:validation:items:Pattern=`^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$`
-	AllowedMarketplaceRepos []string `json:"allowedMarketplaceRepos,omitempty"`
 }
 
 // SecretRef is a reference to a Kubernetes Secret.
@@ -201,9 +188,10 @@ func (s *OrbitTenantSpec) DeepCopyInto(out *OrbitTenantSpec) {
 		ref := *s.OIDC.ClientSecretRef
 		out.OIDC.ClientSecretRef = &ref
 	}
-	out.OIDC.Scopes = slices.Clone(s.OIDC.Scopes)
-	out.OIDC.EmailDomains = slices.Clone(s.OIDC.EmailDomains)
-	out.AllowedMarketplaceRepos = slices.Clone(s.AllowedMarketplaceRepos)
+	if s.OIDC.Scopes != nil {
+		out.OIDC.Scopes = make([]string, len(s.OIDC.Scopes))
+		copy(out.OIDC.Scopes, s.OIDC.Scopes)
+	}
 }
 
 // DeepCopyInto for OrbitTenantStatus.

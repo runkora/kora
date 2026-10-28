@@ -755,8 +755,6 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 	fi
 	@echo "$(COLOR_YELLOW)Applying tenant workload fixtures...$(COLOR_RESET)"
 	@kubectl apply -f deploy/local/fixtures/
-	@echo "$(COLOR_YELLOW)Registering skill marketplace sources...$(COLOR_RESET)"
-	@kubectl apply -f deploy/local/marketplace/
 	@echo "$(COLOR_YELLOW)Waiting for example workload to be ready...$(COLOR_RESET)"
 	@until kubectl get deployment orbit-example -n orbit-tenant-example &>/dev/null; do sleep 3; done
 	@kubectl rollout status deployment/orbit-example -n orbit-tenant-example --timeout=180s

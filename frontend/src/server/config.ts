@@ -67,9 +67,9 @@ export const config = {
   toolGatewayUrl: requireEnv('TOOL_GATEWAY_URL').replace(/\/$/, ''),
 
   /**
-   * Base URL of the skills-service (port 8089), including its `/v1` base
-   * path. The BFF reads the Marketplaces, their Skill lists, and Skill
-   * details. Never sent to the browser.
+   * Base URL of the skills-service (port 8085).
+   * Serves the marketplace catalogue and skill detail endpoints.
+   * Never sent to the browser.
    */
   skillsServiceUrl: requireEnv('SKILLS_SERVICE_URL').replace(/\/$/, ''),
 

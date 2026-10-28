@@ -126,11 +126,12 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — `Accepted` · 2026-07-23
 - [Hades Wizard Component](2026-08-03-terra-wizard-component.md) — `Proposed` · 2026-08-03
 - [Agent Marketplace — Cache-Aside, Tenant-Scoped Redis Keys, and Resource-Aware Skills](2026-08-28-marketplace-adr-backend.md) — `Proposed` · 2026-08-28
+- [Hades Wizard Component](2026-08-03-terra-wizard-component.md) — `Proposed` · 2026-08-03
+>>>>>>> origin/main
 - [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) — `Proposed` · 2026-09-06
 - [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) — `Proposed` · 2026-09-18
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) — `Accepted` · 2026-09-28
 - [Agent Run Guardrails](2026-09-29-agent-run-guardrails.md) — `Accepted (Amended 2026-09-30)` · 2026-09-29
-- [Agent Marketplace Backend](2026-08-28-marketplace-adr-backend.md) — `Proposed` · 2026-09-17
 
 ### MCP / Tool Gateway
 
@@ -165,7 +166,6 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [Nav Cleanup and Live Dashboard](2026-06-19-nav-cleanup-and-live-dashboard.md) — `Accepted` · 2026-06-19
 - [Mobile & Tablet Responsive Design](2026-06-19-mobile-responsive-design.md) — `Accepted` · 2026-06-19
 - [Profile Page Architecture](2026-05-13-profile-page-architecture.md) — `Proposed` · 2026-05-13
-- [Agent Marketplace Frontend Architecture](2026-08-17-agent-marketplace-frontend-architecture.md) — `Proposed (Amended 2026-10-16: server detail routing Accepted)` · 2026-08-17
 
 ## All ADRs (chronological)
 
@@ -268,7 +268,6 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-23 | [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) | Accepted | — |
 | 2026-07-28 | [OAuth2 Web-Redirect Clients: GitOps Pre-Registration via an OAuthClient CRD](2026-07-28-oauth2-web-redirect-clients.md) | Accepted | — |
 | 2026-08-03 | [Hades Wizard Component](2026-08-03-terra-wizard-component.md) | Proposed | — |
-| 2026-08-17 | [Agent Marketplace Frontend Architecture](2026-08-17-agent-marketplace-frontend-architecture.md) | Proposed (Amended 2026-10-16: server detail routing Accepted) | — |
 | 2026-09-06 | [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) | Proposed | — |
 | 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted | — |
 | 2026-07-24 | [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) | Accepted | — |
@@ -283,11 +282,12 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-04 | [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) | Proposed | — |
 | 2026-09-04 | [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) | Accepted (Amended 2026-10-02, 2026-10-12) | — |
 | 2026-08-28 | [Agent Marketplace — Cache-Aside, Tenant-Scoped Redis Keys, and Resource-Aware Skills](2026-08-28-marketplace-adr-backend.md) | Proposed | — |
+| 2026-09-04 | [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) | Accepted (Amended 2026-10-02, 2026-10-12) | — |
+>>>>>>> origin/main
 | 2026-09-10 | [Database Migrations](2026-09-10-database-migrations.md) | Proposed | — |
 | 2026-09-15 | [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) | Accepted | — |
 | 2026-09-16 | [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md) | Accepted | — |
 | 2026-09-17 | [Tenant MCP Servers as a Recognised Workload Class](2026-09-17-mcp-workload-class.md) | Proposed | — |
-| 2026-09-17 | [Agent Marketplace Backend](2026-08-28-marketplace-adr-backend.md) | Proposed | — |
 | 2026-09-18 | [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) | Proposed | — |
 | 2026-09-18 | [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) | Accepted | — |
 | 2026-09-18 | [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) | Accepted | — |

@@ -23,7 +23,6 @@
 #
 # Required files:
 #   secrets/signing.key      RSA private key for JWT signing (orbit-system only)
-#   secrets/orbit-github-app.pem  GitHub App private key for skills-service (orbit-system only)
 # =============================================================================
 set -euo pipefail
 
@@ -77,17 +76,6 @@ step "Checking prerequisites"
 if should_run "orbit-system"; then
   [[ -f "${SECRETS_DIR}/signing.key" ]] \
     || fail "secrets/signing.key not found — run 'make gen-signing-key' first"
-  # skills-service reads this key at startup and exits without it. Its pod would
-  # never become Ready and the orbit release's --wait would run out its 10
-  # minutes before reporting anything, so stop here instead.
-  [[ -f "${SECRETS_DIR}/orbit-github-app.pem" ]] \
-    || fail "secrets/orbit-github-app.pem not found — skills-service cannot start without the GitHub App key"
-  # The IDs come from the local github Connection so the App is named in one place.
-  GITHUB_CONNECTION="${REPO_ROOT}/deploy/local/connections/github.yaml"
-  GITHUB_APP_ID="$(yq '.spec.config.app_id' "${GITHUB_CONNECTION}")"
-  GITHUB_APP_INSTALLATION_ID="$(yq '.spec.config.installation_id' "${GITHUB_CONNECTION}")"
-  [[ "${GITHUB_APP_ID}" =~ ^[0-9]+$ && "${GITHUB_APP_INSTALLATION_ID}" =~ ^[0-9]+$ ]] \
-    || fail "could not read numeric app_id and installation_id from deploy/local/connections/github.yaml"
   [[ -n "${REDIS_PASSWORD:-}" ]] \
     || fail "REDIS_PASSWORD is not set (required for orbit-system)"
   [[ -n "${BFF_SESSION_SECRET:-}" ]] \
@@ -153,17 +141,6 @@ if should_run "orbit-system"; then
     --dry-run=client -o yaml | kubectl apply -f -
 
   ok "orbit-frontend-secrets in orbit-system"
-
-  # orbit-skills-github-app — skills-service's GitHub App credential. The chart
-  # mounts private-key.pem and reads both IDs from this Secret's keys.
-  kubectl create secret generic orbit-skills-github-app \
-    --namespace orbit-system \
-    --from-file=private-key.pem="${SECRETS_DIR}/orbit-github-app.pem" \
-    --from-literal=GITHUB_APP_ID="${GITHUB_APP_ID}" \
-    --from-literal=GITHUB_APP_INSTALLATION_ID="${GITHUB_APP_INSTALLATION_ID}" \
-    --dry-run=client -o yaml | kubectl apply -f -
-
-  ok "orbit-skills-github-app in orbit-system"
 fi
 
 # ── orbit-tenant-example (example agent) ─────────────────────────────────────
@@ -181,7 +158,7 @@ if [[ -z "${TARGET_NAMESPACE}" ]]; then
   echo -e "${GREEN}  Secrets applied to all namespaces               ${RESET}"
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
   echo ""
-  echo "  orbit-system         → orbit-secrets (DB + Redis + signing key) + orbit-frontend-secrets (BFF session) + orbit-skills-github-app (GitHub App key)"
+  echo "  orbit-system         → orbit-secrets (DB + Redis + signing key) + orbit-frontend-secrets (BFF session)"
   echo "  orbit-tenant-example → DB only"
 else
   echo -e "${GREEN}  Secrets applied to ${TARGET_NAMESPACE}${RESET}"

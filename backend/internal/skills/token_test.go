@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -47,20 +46,18 @@ func TestNewTokenProvider_InvalidPEM(t *testing.T) {
 // call (for assertions on mint count and on the JWT it was handed) and
 // returns a canned token/error.
 type fakeMinter struct {
-	mu     sync.Mutex
-	calls  int
-	jwts   []string
-	bodies []ghclient.InstallationTokenRequest
+	mu    sync.Mutex
+	calls int
+	jwts  []string
 
 	tok ghclient.InstallationToken // set by tests
 	err error
 }
 
-func (f *fakeMinter) CreateInstallationToken(_ context.Context, appJWT string, _ int64, body ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error) {
+func (f *fakeMinter) CreateInstallationToken(_ context.Context, appJWT string, _ int64, _ ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error) {
 	f.mu.Lock()
 	f.calls++
 	f.jwts = append(f.jwts, appJWT)
-	f.bodies = append(f.bodies, body)
 	f.mu.Unlock()
 	return f.tok, f.err
 }
@@ -109,10 +106,6 @@ func TestToken_MintsOnFirstUse(t *testing.T) {
 	}
 	if claims.Issuer != "app-1" {
 		t.Errorf("app jwt issuer: got %q, want %q", claims.Issuer, "app-1")
-	}
-	wantPermissions := map[string]string{"contents": "read"}
-	if !maps.Equal(minter.bodies[0].Permissions, wantPermissions) {
-		t.Errorf("installation token permissions = %v, want %v", minter.bodies[0].Permissions, wantPermissions)
 	}
 }
 

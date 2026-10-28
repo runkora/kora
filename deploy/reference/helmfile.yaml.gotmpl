@@ -12,7 +12,6 @@ helmDefaults:
   wait: true
   timeout: 600
   createNamespace: true
-  forceConflicts: true
   {{- with (.Values | get "kubeContext" "") }}
   kubeContext: {{ . }}
   {{- end }}

@@ -104,9 +104,7 @@ func (p *TokenProvider) Token(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("sign github app jwt: %w", err)
 	}
 
-	tok, err := p.client.CreateInstallationToken(ctx, appJWT, p.installationID, ghclient.InstallationTokenRequest{
-		Permissions: map[string]string{"contents": "read"},
-	})
+	tok, err := p.client.CreateInstallationToken(ctx, appJWT, p.installationID, ghclient.InstallationTokenRequest{})
 	if err != nil {
 		return "", fmt.Errorf("mint github app installation token: %w", err)
 	}

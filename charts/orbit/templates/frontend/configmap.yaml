@@ -18,5 +18,4 @@ data:
   POLICY_SERVICE_URL: {{ $c.policyServiceUrl | default (printf "http://orbit-policy-service.%s.svc.cluster.local/api/v1" $ns) | quote }}
   ORBIT_AGENTS_URL: {{ $c.orbitAgentsUrl | default (printf "http://orbit-agents.%s.svc.cluster.local" $ns) | quote }}
   TOOL_GATEWAY_URL: {{ $c.toolGatewayUrl | default (printf "http://orbit-tool-gateway.%s.svc.cluster.local" $ns) | quote }}
-  SKILLS_SERVICE_URL: {{ $c.skillsServiceUrl | default (printf "http://orbit-skills-service.%s.svc.cluster.local:8098/v1" $ns) | quote }}
   NEXT_PUBLIC_APP_URL: {{ $c.nextPublicAppUrl | default (printf "https://%s" (include "orbit.frontendHost" .)) | quote }}

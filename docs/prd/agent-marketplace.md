@@ -356,8 +356,7 @@ Marketplace appears under Control Plane. The experience is designed for finding,
 
 ### Related Documents
 
-- **[Marketplace frontend architecture](../adr/2026-08-17-agent-marketplace-frontend-architecture.md):** Records the current Skill overview and dedicated detail-page behavior. The frontend amendments do not approve the broader draft product scope in this PRD.
-- **[Marketplace backend architecture](../adr/2026-08-28-marketplace-adr-backend.md):** Source access, read APIs, and caching.
+- **Agent Skills and Plugins Marketplace Architecture** — Separate ADR for architecture decisions. Desktop draft: ADR.
 - **Orbit PRD Template** — https://github.com/clear-route/orbit/blob/main/docs/prd/template.md
 
 ### References

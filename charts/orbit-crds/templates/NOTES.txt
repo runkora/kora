@@ -1,4 +1,4 @@
-kora CRDs installed: orbittenants, connections, oauthclients, mcpservers, skillmarketplacesources, inferenceproviders, sandboximages (orbit.io).
+kora CRDs installed: orbittenants, connections, oauthclients, mcpservers, inferenceproviders, sandboximages (orbit.io).
 
 Install the orbit chart next, into the namespace kora will run in:
 
@@ -7,4 +7,4 @@ Install the orbit chart next, into the namespace kora will run in:
 
 The CRDs carry helm.sh/resource-policy: keep. Uninstalling this release leaves
 them, and every OrbitTenant, Connection, OAuthClient, MCPServer,
-SkillMarketplaceSource, InferenceProvider and SandboxImage, in place.
+InferenceProvider and SandboxImage, in place.
