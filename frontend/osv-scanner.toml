@@ -9,3 +9,7 @@ reason = "braces has no fixed release. It is reached only through devDependencie
 [[IgnoredVulns]]
 id = "GHSA-848j-6mx2-7j84"
 reason = "elliptic has no fixed release. It is reached only through Storybook's node polyfills, a devDependency that is not part of the production build."
+
+[[IgnoredVulns]]
+id = "GHSA-gcqx-w48m-w2h4"
+reason = "deepmerge has no fixed release. It is reached only through Storybook's webpack builder, a devDependency that is not part of the production build."
