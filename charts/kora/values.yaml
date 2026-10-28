@@ -726,8 +726,8 @@ agents:
       memory: 4Gi
       disk: 10Gi
     # -- Largest size an environment may request. An unset field takes the
-    # value of `defaultSize`. Raise it to what a sandbox node holds: see the
-    # deployment guide.
+    # value of `defaultSize`. Raise it to what a sandbox node holds: see
+    # docs/guides/sandbox-nodes.md.
     maxSize: {}
   # Sandbox image settings (docs/adr/2026-10-03-sandbox-environments.md). Platform teams
   # register their own images as SandboxImage resources in tenant namespaces.

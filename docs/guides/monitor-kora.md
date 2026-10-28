@@ -16,9 +16,15 @@ global:
 
 - **`otlpEndpoint`:** an OTLP gRPC endpoint. kora does not support OTLP over HTTP. The scheme is required, with `http://` for plaintext and `https://` for TLS. The endpoint receives traces and metrics from every service and agent pod.
 - **`samplingRate`:** the share of traces kept, from 0 to 1. Empty keeps the production default of 0.1.
-- **`collectorNamespace`:** the namespace of an in-cluster collector. kora opens the network path to it. For a collector outside the cluster, list its address under `networkPolicy.externalServices` instead.
+- **`collectorNamespace`:** the namespace of an in-cluster collector. kora opens egress to that namespace on the endpoint's port, and without it the default-deny policy drops the export.
 
 Runs on Claude Code export the harness's own traces, metrics and logs to the same endpoint, tagged with the run and tenant they belong to.
+
+kora propagates W3C `traceparent` headers. Export your mesh's spans to the same collector to see the proxy hop and the application span in one trace.
+
+For a collector outside the cluster, leave `collectorNamespace` empty, add its CIDR and port to `networkPolicy.externalServices`, and register its host with the mesh in a `ServiceEntry`.
+
+The collector is the only external host an agent pod can reach. On a shared SaaS endpoint, a prompt-injected agent could export data to an attacker's account on the same service. To prevent this, run an in-cluster collector that forwards to the external one, and point `otlpEndpoint` at it. See [agent pod egress lockdown](../adr/2026-09-30-agent-pod-egress-lockdown.md).
 
 ## Scrape metrics
 
@@ -33,7 +39,9 @@ global:
       enabled: true
 ```
 
-The scraper must run in the mesh, in the namespace set by `scraperNamespace`. The kora operator serves its controller metrics on port 8080.
+The scraper must run in the mesh, in the namespace set by `scraperNamespace`. To scrape kora-triggers, add the scraper's mesh identity to `triggers.authorizationPolicy.metricsScraperPrincipals` as `ns/<namespace>/sa/<serviceaccount>`. If your Prometheus Operator selects ServiceMonitors by label, set the label in `global.metrics.serviceMonitor.additionalLabels`.
+
+The kora operator has no ServiceMonitor. It serves controller metrics on port 8080 at `/metrics`, and its pods carry `prometheus.io/*` annotations for scrapers that discover targets that way.
 
 | Metric | What it measures |
 | --- | --- |
@@ -52,7 +60,7 @@ kora logs JSON to stdout. A line logged inside a traced request carries the trac
 
 | Message | Means |
 | --- | --- |
-| `egress denied by policy` | A sandbox request to an external host was blocked |
+| `egress denied by policy` | A request through a connection was refused by policy |
 | `scope enforcement: denied` | A request was refused for a missing scope |
 | `tools/call denied` | An MCP tool call was refused |
 | `reaped stale runs` | Runs with no activity for 30 minutes were closed |
@@ -66,10 +74,11 @@ The resources platform teams register report whether kora accepted them:
 
 | Resource | Healthy when |
 | --- | --- |
-| Tenant | Phase is `Ready` |
+| `KoraTenant` | Phase is `Ready` |
 | `MCPServer` | Phase is `Aggregated` |
 | `SandboxImage` | `Valid` is true |
 | `InferenceProvider` | Phase is `Ready` |
+| `Agent`, `Environment`, `PolicyRole`, `Trigger`, `TriggerSource`, `VirtualModel` | `Ready` is true |
 
 ## Watch runs
 

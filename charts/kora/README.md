@@ -37,7 +37,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.config.sessionManagerImage | string | `""` |  |
 | agents.configOverrides | object | `{}` | Raw config merged last over kora-agents' rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. e.g. {cmd/kora-agents: {drafts: {retentionDays: 7}}} |
 | agents.environments.defaultSize | object | `{"cpu":"2","disk":"10Gi","memory":"4Gi"}` | Size for an environment that sets none, and for the built-in default. |
-| agents.environments.maxSize | object | `{}` | Largest size an environment may request. An unset field takes the value of `defaultSize`. Raise it to what a sandbox node holds: see the deployment guide. |
+| agents.environments.maxSize | object | `{}` | Largest size an environment may request. An unset field takes the value of `defaultSize`. Raise it to what a sandbox node holds: see docs/guides/sandbox-nodes.md. |
 | agents.extraEnv | list | `[]` |  |
 | agents.extraVolumeMounts | list | `[]` |  |
 | agents.extraVolumes | list | `[]` |  |
