@@ -8,17 +8,6 @@ import { ApiRoute } from './api-routes';
  * Pure functions — no DOM, no network, no MSW required.
  */
 describe('APP_ROUTES', () => {
-  it('overview is the bare Marketplace path', () => {
-    expect(APP_ROUTES.marketplace.overview).toBe('/marketplace');
-  });
-
-  it('keeps both Skill identifiers in encoded path segments without browse parameters', () => {
-    const path = APP_ROUTES.marketplace.detail('team/repo ?#', 'skill/50% ?#');
-    const url = new URL(path, 'http://localhost');
-    expect(url.pathname).toBe('/marketplace/team%2Frepo%20%3F%23/skill%2F50%25%20%3F%23');
-    expect(url.search).toBe('');
-    expect(url.hash).toBe('');
-  });
   // APP_ROUTES is `as const` — TypeScript enforces value types at every call
   // site, so asserting individual string values against themselves adds no
   // signal. The only structural invariant the type system cannot enforce is

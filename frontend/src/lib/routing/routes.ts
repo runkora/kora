@@ -51,11 +51,6 @@ export const APP_ROUTES = {
     servers: '/mcp-gateway',
     server: (slug: string) => `/mcp-gateway/${slug}` as const,
   },
-  marketplace: {
-    overview: '/marketplace',
-    detail: (marketplaceSlug: string, skillSlug: string) =>
-      `/marketplace/${encodeURIComponent(marketplaceSlug)}/${encodeURIComponent(skillSlug)}` as const,
-  },
 
   // ── Policy ───────────────────────────────────────────────────────────────
   policy: {

@@ -128,17 +128,6 @@ spec:
                       type: array
                       items:
                         type: string
-                allowedMarketplaceRepos:
-                  description: >
-                    GitHub repositories, as owner/repo, that this tenant's
-                    SkillMarketplaceSources may register. Matching ignores case.
-                    Only platform admins edit it. A source whose repository is
-                    not listed stays Pending with reason NotAllowlisted.
-                  type: array
-                  items:
-                    type: string
-                    maxLength: 140
-                    pattern: '^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$'
             status:
               type: object
               properties:

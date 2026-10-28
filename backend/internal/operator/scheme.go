@@ -24,8 +24,6 @@ func AddToScheme(s *runtime.Scheme) error {
 		&MCPServerList{},
 		&OAuthClient{},
 		&OAuthClientList{},
-		&SkillMarketplaceSource{},
-		&SkillMarketplaceSourceList{},
 	)
 
 	// Wire up metav1 types (ListOptions, WatchEvent, etc.) to our group version.

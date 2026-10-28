@@ -161,7 +161,6 @@ Kubernetes: `>=1.34.0-0`
 | frontend.config.nextPublicAppUrl | string | `""` |  |
 | frontend.config.policyGatewayUrl | string | `""` |  |
 | frontend.config.policyServiceUrl | string | `""` |  |
-| frontend.config.skillsServiceUrl | string | `""` |  |
 | frontend.config.toolGatewayUrl | string | `""` |  |
 | frontend.existingSecret | string | `"kora-frontend-secrets"` |  |
 | frontend.extraEnv | list | `[]` |  |
@@ -476,20 +475,6 @@ Kubernetes: `>=1.34.0-0`
 | sandboxMount.resources.requests.cpu | string | `"20m"` |  |
 | sandboxMount.resources.requests.memory | string | `"32Mi"` |  |
 | sandboxMount.tolerations | list | `[]` | Added to the tolerations of agents.workloads.sandbox and agents.workloads.sessionManager, which the agent always carries. |
-| skillsService.githubApps[0].mountPath | string | `"/var/run/secrets/skills/github-apps/default"` |  |
-| skillsService.githubApps[0].secretName | string | `"orbit-skills-github-app"` |  |
-| skillsService.image.digest | string | `""` |  |
-| skillsService.image.pullPolicy | string | `""` |  |
-| skillsService.image.registry | string | `""` |  |
-| skillsService.image.repository | string | `"orbit-skills-service"` |  |
-| skillsService.image.tag | string | `""` |  |
-| skillsService.nodeSelector | object | `{}` |  |
-| skillsService.replicas | int | `1` |  |
-| skillsService.resources.limits.cpu | string | `"500m"` |  |
-| skillsService.resources.limits.memory | string | `"256Mi"` |  |
-| skillsService.resources.requests.cpu | string | `"100m"` |  |
-| skillsService.resources.requests.memory | string | `"64Mi"` |  |
-| skillsService.skillsMapping.tenants | list | `[]` | Approved GitHub repositories grouped by platform tenant ID. |
 | spire.className | string | `"spire-system-spire"` |  |
 | theme.document | string | `""` | The full theme.yaml as one string, passed with `--set-file theme.document=theme.yaml` or Argo CD `fileParameters`. Slot URLs must be https and a font host must send Access-Control-Allow-Origin. The chart also reads productName for the backend and fails the render if it is outside the Hades product-name bounds. |
 | toolGateway.affinity | object | `{}` |  |

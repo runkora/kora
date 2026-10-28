@@ -50,7 +50,7 @@ import { EmptyState } from '@orbit/components';
 import { ConfirmDialog } from '@orbit/components';
 import { FilterChip } from './filter-chip';
 import { GrantDetailModal } from './grant-detail-modal';
-import { ViewToggle } from '@orbit/terra';
+import { ViewToggle } from './view-toggle';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 

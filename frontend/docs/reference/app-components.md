@@ -93,27 +93,8 @@ See [table-layout.md](../golden-paths/table-layout.md) for the sizing rules arou
 `RUN_STATE_DISPLAY` maps a run state to the status dot and label every run surface shows. A `pending` run reads Queued, `starting` reads Starting and `active` reads Running.
 
 ```tsx
-import { RUN_STATE_DISPLAY } from '@runkora/components';
+import { RUN_STATE_DISPLAY } from '@orbit/components';
 
 const dot = RUN_STATE_DISPLAY[run.state];
 <StatusDot status={dot.status} role="img" aria-label={dot.label} />;
-```
-
----
-
-## ViewToggle
-
-Import:** `import { ViewToggle } from '@orbit/terra'`
-
-**When to use:** Any result list that the user can show as cards or as a list. It renders two icon buttons in a Terra `ButtonGroup` and sets `aria-pressed` on the active button. The policy Grants and Roles tabs and the Marketplace overview use it.
-
-```tsx
-interface ViewToggleProps {
-  viewMode: 'cards' | 'list';
-  onToggle: (mode: 'cards' | 'list') => void;
-}
-```
-
-```tsx
-<ViewToggle viewMode={viewMode} onToggle={setViewMode} />
 ```

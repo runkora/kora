@@ -30,9 +30,6 @@ const SECTIONS: Record<string, SectionHeader> = {
   'model-gateway': { title: 'Model Gateway' },
   'mcp-gateway': { title: 'MCP Servers' },
   chat: { title: 'Chat' },
-  // The Skill links carry the overview browse values (marketplace, search,
-  // sort, page size, page). See marketplace/_utils/browse-params.ts.
-  marketplace: { title: 'Marketplace', keepQueryOnBack: true },
 };
 
 // useSyncExternalStore plumbing for reading the browser host: the host never
