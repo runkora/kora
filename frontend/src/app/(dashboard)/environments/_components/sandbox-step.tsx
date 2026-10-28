@@ -220,7 +220,7 @@ export function ImageChoice({
       {onlyBase ? (
         <Text size="caption" color="muted">
           Only the base image is available. Platform teams can register more.{' '}
-          <ExternalLink url="https://github.com/runkora/kora/blob/main/docs/guides/deployment.md#sandbox-images-and-environments">
+          <ExternalLink url="https://github.com/runkora/kora/blob/main/docs/guides/create-an-environment.md#register-a-sandbox-image">
             Read the sandbox image guide
           </ExternalLink>
         </Text>

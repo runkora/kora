@@ -63,7 +63,8 @@ identity:
 
 inferenceGateway:
   # IAM role for the gateway pod, granting Bedrock discovery and invoke. On EKS
-  # this is the IRSA or Pod Identity annotation. See docs/guides/deployment.md.
+  # this is the IRSA or Pod Identity annotation. See the AWS Bedrock section of
+  # docs/guides/register-inference-provider.md.
   serviceAccount:
     annotations: {}
 

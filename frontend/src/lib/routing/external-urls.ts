@@ -16,7 +16,7 @@
 
 export const EXTERNAL_URLS = [
   'https://github.com/runkora/kora',
-  'https://github.com/runkora/kora/blob/main/docs/guides/deployment.md#sandbox-images-and-environments',
+  'https://github.com/runkora/kora/blob/main/docs/guides/create-an-environment.md#register-a-sandbox-image',
 ] as const satisfies readonly (`https://${string}` | `http://${string}`)[];
 
 /**

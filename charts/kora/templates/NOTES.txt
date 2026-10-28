@@ -18,4 +18,4 @@ Prerequisites are verified by the operator's preflight. Check it with:
   kubectl get koratenants -A
   kubectl logs deployment/kora-operator -n {{ include "kora.systemNamespace" . }}
 
-Register a tenant by applying an KoraTenant. See docs/guides/deployment.md.
+Register a tenant by applying a KoraTenant. See docs/guides/tenants.md.
