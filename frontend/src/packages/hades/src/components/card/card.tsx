@@ -270,6 +270,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
             subtle &&
             !inset &&
             !selected &&
+            !transparent &&
             "[[data-theme='light']_&]:bg-background",
           transparent && !selected && 'bg-transparent',
           selected &&
