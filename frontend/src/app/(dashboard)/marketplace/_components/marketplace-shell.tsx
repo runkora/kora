@@ -1,15 +1,27 @@
 'use client';
 
-/** @tier 3 — marketplace-scoped. Client boundary for the marketplace list page. */
+/** @tier 3 — marketplace-scoped. Client boundary: mounts MarketplaceProvider and renders the overview. */
 
-import type { Marketplace } from '@orbit/lib/marketplace';
-import { MarketplacePage } from './marketplace-page';
+import { MarketplaceProvider } from '../_context/marketplace-context';
+import type { MarketplaceOverviewData } from '../_types';
+import { MarketplaceOverview } from './marketplace-overview';
 
 interface MarketplaceShellProps {
-  marketplaces: Marketplace[];
-  error: string | null;
+  initialOverview: MarketplaceOverviewData;
+  initialError: string | null;
 }
 
-export function MarketplaceShell({ marketplaces, error }: MarketplaceShellProps) {
-  return <MarketplacePage marketplaces={marketplaces} error={error} />;
+/**
+ * Client boundary for the Marketplace overview.
+ *
+ * Receives the first result page from the RSC page as props, mounts
+ * MarketplaceProvider, and renders the overview. The shell has no state.
+ * It only connects the RSC page to the provider.
+ */
+export function MarketplaceShell({ initialOverview, initialError }: MarketplaceShellProps) {
+  return (
+    <MarketplaceProvider initialData={initialOverview} initialError={initialError}>
+      <MarketplaceOverview />
+    </MarketplaceProvider>
+  );
 }

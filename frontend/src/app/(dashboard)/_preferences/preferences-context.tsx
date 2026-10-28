@@ -6,8 +6,6 @@ import type { ReactNode } from 'react';
 import type { UserPreferences } from './preferences.schema';
 import { serializeSparse } from './preferences.schema';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
 interface PreferencesContextValue {
   preferences: UserPreferences;
   /**
@@ -15,21 +13,32 @@ interface PreferencesContextValue {
    * debounced PUT to the backend (500 ms).
    */
   updatePreferences: (updater: (prev: UserPreferences) => UserPreferences) => void;
+  /**
+   * False when the first read of the preferences failed. Then `preferences`
+   * holds only the defaults, and a PUT replaces the stored document with them.
+   * A feature that saves without an explicit user action must not save then.
+   */
+  loaded: boolean;
 }
-
-// ── Context ───────────────────────────────────────────────────────────────────
 
 const PreferencesContext = createContext<PreferencesContextValue | null>(null);
 
-// ── Provider ──────────────────────────────────────────────────────────────────
-
 interface PreferencesProviderProps {
   initialPreferences: UserPreferences;
+  /** Whether the read of `initialPreferences` succeeded. */
+  loaded?: boolean;
   children: ReactNode;
 }
 
-export function PreferencesProvider({ initialPreferences, children }: PreferencesProviderProps) {
+export function PreferencesProvider({
+  initialPreferences,
+  loaded: loadedProp,
+  children,
+}: PreferencesProviderProps) {
+  // Both values describe the initial snapshot. A server refresh preserves this
+  // state, so new props must not mark fallback preferences as safely loaded.
   const [preferences, setPreferences] = useState<UserPreferences>(initialPreferences);
+  const [loaded] = useState(loadedProp !== false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMounted = useRef(false);
 
@@ -46,9 +55,7 @@ export function PreferencesProvider({ initialPreferences, children }: Preference
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body,
-      }).catch(() => {
-        // Best-effort write — silently dropped per ADR-0061.
-      });
+      }).catch(() => {});
     }, 500);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -60,13 +67,11 @@ export function PreferencesProvider({ initialPreferences, children }: Preference
   }, []);
 
   return (
-    <PreferencesContext.Provider value={{ preferences, updatePreferences }}>
+    <PreferencesContext.Provider value={{ preferences, updatePreferences, loaded }}>
       {children}
     </PreferencesContext.Provider>
   );
 }
-
-// ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function usePreferences(): PreferencesContextValue {
   const ctx = useContext(PreferencesContext);

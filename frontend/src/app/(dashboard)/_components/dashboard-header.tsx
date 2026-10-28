@@ -30,6 +30,7 @@ const SECTIONS: Record<string, SectionHeader> = {
   'model-gateway': { title: 'Model Gateway' },
   'mcp-gateway': { title: 'MCP Servers' },
   chat: { title: 'Chat' },
+  marketplace: { title: 'Marketplace' },
 };
 
 // useSyncExternalStore plumbing for reading the browser host: the host never

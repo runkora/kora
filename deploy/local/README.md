@@ -9,6 +9,7 @@ deploy/local/
 ├── connections/   # Connection resources for the example tenant (Kubernetes, GitHub)
 ├── declarative/   # One of each declarative resource kind for the example tenant
 ├── fixtures/      # Example tenant workload
+├── marketplace/   # SkillMarketplaceSource examples (applied by make cluster-deploy)
 └── tenants/       # OrbitTenant resources
 ```
 
@@ -42,3 +43,7 @@ A connection without its credential is skipped, not failed.
 ## Fixtures
 
 `fixtures/orbit-tenant-example.yaml` is the example tenant's workload: a self-contained `Deployment` and `Service` for local testing.
+
+## Skill marketplace sources
+
+`marketplace/` holds `SkillMarketplaceSource` examples for the example tenant. Each repository must also be on the tenant's `allowedMarketplaceRepos` in `tenants/example.yaml`, or the source stays `Pending`. See [Skill marketplace sources](../../docs/guides/skill-marketplace-sources.md).

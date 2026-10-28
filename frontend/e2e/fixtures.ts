@@ -15,6 +15,7 @@ import type { BrowserContext } from '@playwright/test';
 
 const TEST_SESSION_SECRET = 'playwright-test-session-secret-32ch';
 const SESSION_COOKIE_NAME = 'orbit_session';
+const TEST_BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000';
 // Match the server's default maxAge (30 days). sealData takes ttl in seconds, not ms.
 const TTL_S = 30 * 24 * 60 * 60;
 
@@ -41,7 +42,31 @@ export async function injectSessionCookie(context: BrowserContext): Promise<void
     {
       name: SESSION_COOKIE_NAME,
       value: sealedSession,
-      url: 'http://localhost:3000',
+      url: TEST_BASE_URL,
+      httpOnly: true,
+      sameSite: 'Strict',
+    },
+  ]);
+}
+
+/**
+ * Seals a session payload whose expiresAt is already in the past, for tests
+ * that exercise the Marketplace overview's own "Session expired" message
+ * (as distinct from the Edge middleware's unauthenticated-redirect path,
+ * which injectSessionCookie's valid session already bypasses).
+ */
+export async function injectExpiredSessionCookie(context: BrowserContext): Promise<void> {
+  const expiredPayload = { ...TEST_SESSION_PAYLOAD, expiresAt: Math.floor(Date.now() / 1000) - 60 };
+  const sealedSession = await sealData(expiredPayload, {
+    password: TEST_SESSION_SECRET,
+    ttl: TTL_S,
+  });
+
+  await context.addCookies([
+    {
+      name: SESSION_COOKIE_NAME,
+      value: sealedSession,
+      url: TEST_BASE_URL,
       httpOnly: true,
       sameSite: 'Strict',
     },

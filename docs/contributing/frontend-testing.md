@@ -193,6 +193,8 @@ Every file in `frontend/e2e/` must satisfy:
 - **No database or Redis**: no infrastructure dependencies whatsoever
 - **No real OIDC IdP**: mock OIDC discovery and authorization endpoints with `page.route()`
 
+Marketplace's server-rendered pages fetch upstream data from the Next.js process, outside the browser interception boundary. `frontend/e2e/marketplace-upstream.mjs` provides a test-only HTTP fixture for those requests; Playwright starts it alongside Next.js. Later browse requests use browser route mocks. Both use `marketplace-fixtures.ts`, so the overview, direct detail links, refresh, and failure states run without a Go service. See the [Marketplace browser evidence](../../frontend/e2e/marketplace-accessibility.md).
+
 If a test needs the real backend, it is a **system-level** concern and does not belong in `frontend/e2e/`. It requires a separate test harness with Docker Compose (see [frontend-test-strategy-and-toolchain](../adr/2026-05-08-frontend-test-strategy-and-toolchain.md) Category B).
 
 This boundary keeps `make check` infrastructure-free and executable on every PR.
