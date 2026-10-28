@@ -144,6 +144,13 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   selectedVariant?: 'tint' | 'outline';
 
   /**
+   * The colour of the selected state. `'danger'` draws the border and tint in
+   * the error colour, to mark what a destructive control is about to remove.
+   * Only read when `selected` is `true`; `selectedVariant` is ignored for it.
+   */
+  selectedTone?: 'accent' | 'danger';
+
+  /**
    * `overflow-y` CSS property. Use `'auto'` to make the card contents
    * vertically scrollable within a fixed height or `maxHeight` constraint.
    * Card already applies `overflow-hidden` — `overflowY` adds a scroll layer.
@@ -189,10 +196,21 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   /**
    * Border colour token.
    * - `'subtle'` (default) — `border-border-subtle`, the standard card border.
+   * - `'none'` — no visible border, for a filled card that sits on a pane and
+   *   is told apart by its fill alone (the rows of a sentence-style builder).
+   *   Pair with `subtle`: the fill is the elevated step in dark mode and the
+   *   recessed step in light mode, where elevated is too close to the pane.
    * - `'default'` — `border-border`, matching the Input component border.
    *   Use when the card sits adjacent to an Input and visual parity matters.
    */
-  border?: 'subtle' | 'default';
+  border?: 'subtle' | 'default' | 'none';
+
+  /**
+   * When `true`, draws the card with no fill, so it takes the colour of whatever it sits on.
+   * Use for option cards inside a filled surface, where a fill of their own would read as a
+   * darker patch. A selected card keeps its own fill.
+   */
+  transparent?: boolean | undefined;
 
   /**
    * When `true`, adds `divide-y divide-border-subtle` between direct children.
@@ -217,12 +235,14 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
       inset = false,
       selected = false,
       selectedVariant = 'tint',
+      selectedTone = 'accent',
       overflowY,
       maxHeight,
       toggleable = false,
       defaultOpen = false,
       subtle = false,
       border = 'subtle',
+      transparent = false,
       divide = false,
       children,
       ...props
@@ -238,12 +258,26 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
         data-selected={selected ? 'true' : undefined}
         className={cn(
           'rounded-lg border text-foreground overflow-hidden',
-          border === 'default' ? 'border-border' : 'border-border-subtle',
+          border === 'default'
+            ? 'border-border'
+            : border === 'none'
+              ? 'border-transparent'
+              : 'border-border-subtle',
           inset ? 'bg-background' : subtle ? 'bg-surface-elevated' : 'bg-surface',
+          // Without a border the fill alone sets the card apart. The light ramp steps lighter
+          // with elevation, so there the fill is the recessed step: it stays visible on the pane.
+          border === 'none' &&
+            subtle &&
+            !inset &&
+            !selected &&
+            "[[data-theme='light']_&]:bg-background",
+          transparent && !selected && 'bg-transparent',
           selected &&
-            (selectedVariant === 'outline'
-              ? 'border-border-accent bg-surface-elevated'
-              : 'border-border-accent bg-accent/10'),
+            (selectedTone === 'danger'
+              ? 'border-status-error bg-status-error/10'
+              : selectedVariant === 'outline'
+                ? 'border-border-accent bg-surface-elevated'
+                : 'border-border-accent bg-accent/10'),
           (column || toggleable) && 'flex flex-col',
           divide && 'divide-y divide-border-subtle',
           interactive &&

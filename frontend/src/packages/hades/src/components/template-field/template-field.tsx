@@ -57,6 +57,10 @@ export interface TemplateFieldProps {
    * "Fields for push deliveries". Makes a narrowed catalog say why.
    */
   catalogLabel?: string;
+  /** Shown in the Preview panel under the example, for what the rendered template is sent with. */
+  previewExtra?: React.ReactNode;
+  /** Sets the text in a monospace face, as a code block, for templates that read as source. */
+  code?: boolean;
   /** @internal Used for internal Hades composition via cn(). */
   className?: string;
 }
@@ -222,6 +226,8 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
       onChange,
       catalog,
       catalogLabel,
+      previewExtra,
+      code = false,
       placeholder,
       id,
       'aria-label': ariaLabel,
@@ -249,6 +255,7 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
     const catalogKey = React.useMemo(() => [...knownTokens].join(' '), [knownTokens]);
     const examples = React.useMemo(() => exampleMap(catalog), [catalog]);
     const hasExamples = examples.size > 0;
+    const hasPreview = hasExamples || previewExtra != null;
 
     /** Replace the editor DOM with the render of `next`, then restore the caret. */
     const paint = React.useCallback(
@@ -414,7 +421,8 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
         ref={ref}
         data-slot="template-field"
         className={cn(
-          'flex w-full flex-col overflow-hidden rounded-md border border-border bg-surface-elevated',
+          'flex w-full flex-col overflow-hidden rounded-md border border-border',
+          code ? 'bg-background' : 'bg-surface-elevated',
           'focus-within:border-accent transition-colors',
           disabled && 'cursor-not-allowed opacity-40',
           className,
@@ -425,7 +433,10 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
             <span
               aria-hidden="true"
               data-slot="template-field-placeholder"
-              className="pointer-events-none absolute left-3 top-2 text-sm leading-[1.5] text-subtle"
+              className={cn(
+                'pointer-events-none absolute left-3 top-2 text-sm leading-[1.5] text-subtle',
+                code && 'font-mono text-[13px] leading-[21px]',
+              )}
             >
               {placeholder}
             </span>
@@ -464,6 +475,7 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
             className={cn(
               'w-full whitespace-pre-wrap break-words px-3 py-2',
               'caret-accent text-sm leading-[1.5] font-normal text-foreground',
+              code && 'font-mono text-[13px] leading-[21px]',
               'focus-visible:outline-none',
               disabled && 'pointer-events-none',
             )}
@@ -497,7 +509,7 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
             </PopoverContent>
           </Popover>
 
-          {hasExamples ? (
+          {hasPreview ? (
             <Button
               variant="ghost"
               size="xs"
@@ -513,15 +525,20 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
           ) : null}
         </div>
 
-        {hasExamples && previewOn ? (
+        {hasPreview && previewOn ? (
           <div
             data-slot="template-field-preview"
             className="flex flex-col gap-1 border-t border-border px-3 py-2"
           >
-            <SectionLabel>Example</SectionLabel>
-            <Text size="supporting" color="muted" className="whitespace-pre-wrap break-words">
-              {preview}
-            </Text>
+            {hasExamples ? (
+              <>
+                <SectionLabel>Example</SectionLabel>
+                <Text size="supporting" color="muted" className="whitespace-pre-wrap break-words">
+                  {preview}
+                </Text>
+              </>
+            ) : null}
+            {previewExtra}
           </div>
         ) : null}
       </div>

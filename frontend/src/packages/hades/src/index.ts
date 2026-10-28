@@ -83,6 +83,12 @@ export type { InputProps } from './components/input';
 export { Textarea } from './components/textarea';
 export type { TextareaProps } from './components/textarea';
 
+export { InlineToken, inlineTokenVariants } from './components/inline-token';
+export type { InlineTokenProps } from './components/inline-token';
+
+export { InlineSelect } from './components/inline-select';
+export type { InlineSelectProps, InlineSelectOption } from './components/inline-select';
+
 export { NativeSelect } from './components/native-select';
 export type { NativeSelectProps } from './components/native-select';
 

@@ -136,6 +136,9 @@ export interface ModalHeaderProps {
   titleAccessory?: React.ReactNode;
   /** Optional subtitle rendered below the title as muted supporting text. */
   description?: string;
+  /** Optional element rendered at the right edge, before the close button, such
+   *  as a save status. */
+  actions?: React.ReactNode;
   /** When `false`, the built-in close (×) button is hidden.
    *  Default: `true`. */
   showClose?: boolean;
@@ -161,6 +164,7 @@ const ModalHeader = ({
   title,
   titleAccessory,
   description,
+  actions,
   showClose = true,
   borderless = true,
 }: ModalHeaderProps) => (
@@ -192,21 +196,26 @@ const ModalHeader = ({
         </DialogPrimitive.Description>
       )}
     </div>
-    {showClose && (
-      <DialogPrimitive.Close asChild>
-        <button
-          type="button"
-          aria-label="Close"
-          className={cn(
-            'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
-            'border-transparent bg-transparent text-muted',
-            'transition-colors hover:bg-surface-overlay hover:text-foreground',
-            'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
-          )}
-        >
-          <Icon name="close" size="sm" />
-        </button>
-      </DialogPrimitive.Close>
+    {(actions != null || showClose) && (
+      <div className="flex shrink-0 items-center gap-3">
+        {actions}
+        {showClose && (
+          <DialogPrimitive.Close asChild>
+            <button
+              type="button"
+              aria-label="Close"
+              className={cn(
+                'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
+                'border-transparent bg-transparent text-muted',
+                'transition-colors hover:bg-surface-overlay hover:text-foreground',
+                'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+              )}
+            >
+              <Icon name="close" size="sm" />
+            </button>
+          </DialogPrimitive.Close>
+        )}
+      </div>
     )}
   </div>
 );

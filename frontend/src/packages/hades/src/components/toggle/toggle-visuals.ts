@@ -12,7 +12,11 @@ import { cva } from 'class-variance-authority';
  * `aria-checked` and the click handling.
  */
 
-/** The track carries the on/off signal. */
+/**
+ * The track carries the on/off signal. Off is a translucent wash of `foreground`
+ * rather than a surface token: the light surfaces are all near-white, so a
+ * surface fill disappears on some of them, while a wash stays distinct on any.
+ */
 const toggleTrackVariants = cva(
   [
     'relative',
@@ -29,7 +33,7 @@ const toggleTrackVariants = cva(
     variants: {
       checked: {
         true: 'bg-accent',
-        false: 'bg-surface-elevated',
+        false: 'bg-foreground/20',
       },
       disabled: {
         true: 'cursor-not-allowed opacity-40',
@@ -40,7 +44,7 @@ const toggleTrackVariants = cva(
   },
 );
 
-/** The knob only carries position. */
+/** The knob carries position; on it takes `accent-foreground` so it contrasts the accent track in both themes. */
 const toggleKnobVariants = cva(
   [
     'pointer-events-none',
@@ -48,15 +52,14 @@ const toggleKnobVariants = cva(
     'h-4',
     'w-4',
     'rounded-full',
-    'bg-foreground',
     'shadow',
     'transition-transform',
   ],
   {
     variants: {
       checked: {
-        true: 'translate-x-4',
-        false: 'translate-x-0',
+        true: 'translate-x-4 bg-accent-foreground',
+        false: 'translate-x-0 bg-foreground',
       },
     },
     defaultVariants: { checked: false },
