@@ -58,7 +58,7 @@ import { PrincipalBadge, ScopeChip, ScopeChipList, scopeColumnFilter } from '@or
 import { ScopePicker } from '@orbit/components';
 import { FilterChip } from './filter-chip';
 import { GrantDetailModal } from './grant-detail-modal';
-import { ViewToggle } from './view-toggle';
+import { ViewToggle } from '@orbit/hades';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 

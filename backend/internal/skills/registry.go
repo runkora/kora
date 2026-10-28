@@ -3,7 +3,6 @@ package skills
 import (
 	"context"
 	"fmt"
-	"github.com/fsnotify/fsnotify"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"sigs.k8s.io/yaml"
 
 	"github.com/clear-route/orbit/internal/platform/logging"

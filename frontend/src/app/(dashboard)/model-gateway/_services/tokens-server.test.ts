@@ -27,7 +27,7 @@ beforeAll(async () => {
   vi.stubEnv('POLICY_SERVICE_URL', 'http://policy-service.test');
   vi.stubEnv('ORBIT_AGENTS_URL', 'http://orbit-agents.test');
   vi.stubEnv('TOOL_GATEWAY_URL', 'http://tool-gateway.test');
-  vi.stubEnv('SKILLS_SERVICE_URL', 'http://skills-service.test');
+  vi.stubEnv('SKILLS_SERVICE_URL', 'http://skills-service.test/v1');
 
   ({ fetchAllTenantUsers } = await import('./tokens-server'));
 });

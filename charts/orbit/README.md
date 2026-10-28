@@ -156,6 +156,7 @@ Kubernetes: `>=1.34.0-0`
 | frontend.config.orbitTriggersUrl | string | `""` |  |
 | frontend.config.policyGatewayUrl | string | `""` |  |
 | frontend.config.policyServiceUrl | string | `""` |  |
+| frontend.config.skillsServiceUrl | string | `""` |  |
 | frontend.config.toolGatewayUrl | string | `""` |  |
 | frontend.existingSecret | string | `"orbit-frontend-secrets"` |  |
 | frontend.extraEnv | list | `[]` |  |
@@ -459,6 +460,31 @@ Kubernetes: `>=1.34.0-0`
 | sandboxMount.resources.requests.cpu | string | `"20m"` |  |
 | sandboxMount.resources.requests.memory | string | `"32Mi"` |  |
 | sandboxMount.tolerations | list | `[]` | Added to the tolerations of agents.workloads.sandbox and agents.workloads.sessionManager, which the agent always carries. |
+| skillsService.affinity | object | `{}` |  |
+| skillsService.configOverrides | object | `{}` |  |
+| skillsService.extraEnv | list | `[]` |  |
+| skillsService.extraVolumeMounts | list | `[]` |  |
+| skillsService.extraVolumes | list | `[]` |  |
+| skillsService.githubApps[0].mountPath | string | `"/var/run/secrets/skills/github-apps/default"` |  |
+| skillsService.githubApps[0].secretName | string | `"orbit-skills-github-app"` |  |
+| skillsService.image.digest | string | `""` |  |
+| skillsService.image.pullPolicy | string | `""` |  |
+| skillsService.image.registry | string | `""` |  |
+| skillsService.image.repository | string | `"orbit-skills-service"` |  |
+| skillsService.image.tag | string | `""` |  |
+| skillsService.nodeSelector | object | `{}` |  |
+| skillsService.podAnnotations | object | `{}` |  |
+| skillsService.podLabels | object | `{}` |  |
+| skillsService.priorityClassName | string | `""` |  |
+| skillsService.replicas | int | `1` |  |
+| skillsService.resources.limits.cpu | string | `"500m"` |  |
+| skillsService.resources.limits.memory | string | `"256Mi"` |  |
+| skillsService.resources.requests.cpu | string | `"100m"` |  |
+| skillsService.resources.requests.memory | string | `"64Mi"` |  |
+| skillsService.serviceAccount.annotations | object | `{}` |  |
+| skillsService.skillsMapping.tenants | list | `[]` | Approved GitHub repositories grouped by platform tenant ID. |
+| skillsService.tolerations | list | `[]` |  |
+| skillsService.topologySpreadConstraints | list | `[]` |  |
 | spire.className | string | `"spire-system-spire"` |  |
 | toolGateway.affinity | object | `{}` |  |
 | toolGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |

@@ -47,11 +47,11 @@ rules:
     verbs: ["get", "list", "watch", "create", "patch"]
   # Reconciliation inputs; read-only.
   - apiGroups: ["orbit.io"]
-    resources: ["orbittenants", "connections", "oauthclients", "mcpservers"]
+    resources: ["orbittenants", "connections", "oauthclients", "mcpservers", "skillmarketplacesources"]
     verbs: ["get", "list", "watch"]
   # Status conditions. Connection and OAuthClient have none.
   - apiGroups: ["orbit.io"]
-    resources: ["orbittenants/status", "mcpservers/status", "sandboximages/status"]
+    resources: ["orbittenants/status", "mcpservers/status", "sandboximages/status", "skillmarketplacesources/status"]
     verbs: ["get", "patch"]
   # The operator validates every SandboxImage, owns kora-base in each tenant
   # namespace, and deletes the bundled images that are disabled.
