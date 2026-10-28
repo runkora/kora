@@ -99,19 +99,20 @@ export default meta;
 type Story = StoryObj<typeof MarketplaceSkillDetail>;
 
 export const Default: Story = {
-  args: { skill: sampleSkill, marketplaceName: 'Platform Engineering' },
+  args: { skill: sampleSkill, repositoryUrl: 'https://github.com/anthropics/skills' },
 };
 
 export const WithoutResources: Story = {
   args: {
     skill: { ...sampleSkill, documents: [] },
-    marketplaceName: 'Platform Engineering',
+    repositoryUrl: 'https://github.com/anthropics/skills',
   },
 };
 
 export const LongText: Story = {
   args: {
     skill: longTextSkill,
-    marketplaceName: 'Platform Engineering and Application Reliability Reference Library',
+    repositoryUrl:
+      'https://github.com/platform-engineering-and-application-reliability/reference-library',
   },
 };

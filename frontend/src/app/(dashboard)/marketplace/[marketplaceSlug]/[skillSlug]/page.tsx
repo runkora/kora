@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { Alert, Button, EmptyState, Icon, Stack, Text } from '@orbit/hades';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES, skillSlugFromPath } from '@orbit/lib/routing';
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { loadSkillPage } from '../../_services/marketplace-server';
 import { MarketplaceSkillDetail } from './_components/marketplace-skill-detail';
@@ -30,7 +30,11 @@ export default async function SkillDetailPage({ params }: SkillDetailPageProps) 
     );
   }
 
-  const result = await loadSkillPage(session.accessToken, marketplaceSlug, skillSlug);
+  const result = await loadSkillPage(
+    session.accessToken,
+    marketplaceSlug,
+    skillSlugFromPath(marketplaceSlug, skillSlug),
+  );
 
   let content: React.ReactNode;
   if (!result.ok && result.status === 404) {
@@ -50,7 +54,7 @@ export default async function SkillDetailPage({ params }: SkillDetailPageProps) 
     content = <MarketplaceSkillLoadError />;
   } else {
     content = (
-      <MarketplaceSkillDetail skill={result.skill} marketplaceName={result.marketplaceName} />
+      <MarketplaceSkillDetail skill={result.skill} repositoryUrl={result.marketplaceLink} />
     );
   }
 

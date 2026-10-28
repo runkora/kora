@@ -370,7 +370,7 @@ If GitHub is unreachable on a miss and there is no cached value to fall back on,
 
 ### Repository Discovery
 
-The tree crawl walks every blob in the repository at `HEAD`. A `SKILL.md` at the repository root is skipped with a warning — a skill needs its own directory. A `SKILL.md` anywhere below the root defines a skill whose directory is the folder containing it. Resource documents are any `.md` files (not `SKILL.md`) that share a directory tree with a skill's folder; when directories nest, a file is assigned to the most specific (longest path) skill folder.
+The tree crawl walks every blob in the repository at `HEAD`. A `SKILL.md` at the repository root is skipped with a warning — a skill needs its own directory. A `SKILL.md` anywhere below the root defines a skill whose directory is the folder containing it. Resource documents are any files (not `SKILL.md`) that share a directory tree with a skill's folder; binary files (fonts, images, archives — anything that is not UTF-8 text or contains a NUL byte) are skipped after download, since a document's content is text; when directories nest, a file is assigned to the most specific (longest path) skill folder.
 
 ### SKILL.md Frontmatter Schema
 

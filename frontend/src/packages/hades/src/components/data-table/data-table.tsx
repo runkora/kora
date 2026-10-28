@@ -243,6 +243,11 @@ export interface DataTableProps<TData> {
   toolbarTitle?: React.ReactNode;
   /** Rendered right of center, before the columns button and search. */
   quickFilters?: React.ReactNode;
+  /**
+   * Leaves out the toolbar strip above the header. Use when the page puts
+   * search and filters outside the table, so the strip would stay empty.
+   */
+  hideToolbar?: boolean;
 
   // Empty / error states
   emptyMessage?: string;
@@ -431,6 +436,7 @@ export function DataTable<TData>({
   toolbarActions,
   toolbarTitle,
   quickFilters,
+  hideToolbar = false,
   emptyMessage = 'No records found.',
   filteredEmptyMessage = 'No records match your filters.',
   error,
@@ -456,9 +462,8 @@ export function DataTable<TData>({
     const vis: VisibilityState = {};
     columnDefs.forEach((col) => {
       if (!col.locked) {
-        const initial = initialColumnVisibility?.[col.id];
-        if (initial !== undefined) {
-          vis[col.id] = initial;
+        if (initialColumnVisibility && col.id in initialColumnVisibility) {
+          vis[col.id] = initialColumnVisibility[col.id] ?? true;
         } else {
           vis[col.id] = col.defaultVisible ?? true;
         }
@@ -545,7 +550,8 @@ export function DataTable<TData>({
       const entry = { id: columnId, desc: existing ? !existing.desc : false };
       const next: SortingState = [entry];
       setSorting(next);
-      onSortChange?.(entry.id, entry.desc ? 'desc' : 'asc');
+      const [first] = next;
+      if (first) onSortChange?.(first.id, first.desc ? 'desc' : 'asc');
     },
     [sorting, setSorting, onSortChange],
   );
@@ -686,23 +692,25 @@ export function DataTable<TData>({
     <DataTableCtx.Provider value={{ gridTemplateColumns }}>
       <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface">
         {/* Toolbar */}
-        <DataTableToolbar
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          searchPlaceholder={searchPlaceholder}
-          hasSearch={!!searchFn}
-          columnItems={toolbarColumnItems}
-          onColumnToggle={(id) => {
-            const col = table.getColumn(id);
-            if (!col) return;
-            const newVisible = !col.getIsVisible();
-            col.toggleVisibility();
-            onColumnVisibilityChange?.(id, newVisible);
-          }}
-          actions={toolbarActions}
-          quickFilters={quickFilters}
-          title={toolbarTitle}
-        />
+        {!hideToolbar && (
+          <DataTableToolbar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder={searchPlaceholder}
+            hasSearch={!!searchFn}
+            columnItems={toolbarColumnItems}
+            onColumnToggle={(id) => {
+              const col = table.getColumn(id);
+              if (!col) return;
+              const newVisible = !col.getIsVisible();
+              col.toggleVisibility();
+              onColumnVisibilityChange?.(id, newVisible);
+            }}
+            actions={toolbarActions}
+            quickFilters={quickFilters}
+            title={toolbarTitle}
+          />
+        )}
 
         {/* The header and body scroll together, horizontally, and only once the
             container is narrower than every column at its minimum width. The

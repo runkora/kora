@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
@@ -126,7 +127,7 @@ func (c *Crawler) findSkillFolders(ctx context.Context, source MarketplaceSource
 	return skills
 }
 
-	// Second pass: collect resource documents — any .md file (not SKILL.md)
+	// Second pass: collect resource documents — any file (not SKILL.md)
 	// inside a skill folder or its subfolders. When multiple skill folders
 	// nest, the file is assigned to the most specific (longest) match.
 	collectResourceDocs(files, skills)
@@ -140,9 +141,6 @@ func collectResourceDocs(
 ) {
 	for _, file := range files {
 		if file.Type != "blob" || path.Base(file.Path) == "SKILL.md" {
-			continue
-		}
-		if !strings.HasSuffix(file.Path, ".md") {
 			continue
 		}
 
@@ -233,7 +231,7 @@ func (c *Crawler) fetchSkillFull(ctx context.Context, token string, source Marke
 		return Skill{}, fmt.Errorf("skill name %q in %s slugifies to empty string", fm.Name, fp.skillPath)
 	}
 
-	docs := make([]SkillFile, len(fp.docPaths))
+	fetched := make([]*SkillFile, len(fp.docPaths))
 	g, gctx := errgroup.WithContext(ctx)
 	for i, docPath := range fp.docPaths {
 		g.Go(func() error {
@@ -241,7 +239,16 @@ func (c *Crawler) fetchSkillFull(ctx context.Context, token string, source Marke
 			if err != nil {
 				return err
 			}
-			docs[i] = SkillFile{
+			// Binary files (fonts, images, archives) cannot be carried in a
+			// text Content field, so they are left out of the skill.
+			if !isText(content) {
+				c.logger.Debug(gctx, "skipping binary resource document",
+					logging.Field{Key: "marketplace", Value: source.Name},
+					logging.Field{Key: "path", Value: docPath},
+				)
+				return nil
+			}
+			fetched[i] = &SkillFile{
 				Path:    docPath,
 				Name:    path.Base(docPath),
 				Content: content,
@@ -251,6 +258,13 @@ func (c *Crawler) fetchSkillFull(ctx context.Context, token string, source Marke
 	}
 	if err := g.Wait(); err != nil {
 		return Skill{}, err
+	}
+
+	docs := make([]SkillFile, 0, len(fetched))
+	for _, doc := range fetched {
+		if doc != nil {
+			docs = append(docs, *doc)
+		}
 	}
 
 	return Skill{
@@ -264,6 +278,11 @@ func (c *Crawler) fetchSkillFull(ctx context.Context, token string, source Marke
 		},
 		Documents: docs,
 	}, nil
+}
+
+// isText reports whether content is UTF-8 text with no NUL bytes.
+func isText(content string) bool {
+	return utf8.ValidString(content) && !strings.ContainsRune(content, 0)
 }
 
 // fetchRaw downloads one file, acquiring both the global and per-repo semaphores.

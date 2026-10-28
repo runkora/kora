@@ -50,14 +50,7 @@ function SkillCard({
     <Link href={href} aria-label={`Open ${skill.name}`} style={{ display: 'flex' }}>
       <Card interactive column style={{ width: '100%' }}>
         <Stack grow gap="none">
-          <CardHeader
-            title={skill.name}
-            description={
-              <Text mono size="caption" weight="emphasis" color="subtle" truncate>
-                {skill.skillSlug}
-              </Text>
-            }
-          />
+          <CardHeader title={skill.name} />
 
           {/* grow keeps the footers of the cards in one row aligned. */}
           <CardContent grow>

@@ -40,7 +40,7 @@ describe('MarketplaceSkillGrid rendering', () => {
     });
 
     expect(screen.getByText('React Expert')).toBeInTheDocument();
-    expect(screen.getByText('core/skills/react-expert')).toBeInTheDocument();
+    expect(screen.queryByText('core/skills/react-expert')).not.toBeInTheDocument();
     expect(screen.getByText('Senior React developer.')).toBeInTheDocument();
     expect(screen.getByText('Go Expert')).toBeInTheDocument();
   });

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MarketplaceSkillDetail } from './marketplace-skill-detail';
+import { repositoryName } from './skill-repository-card';
 import type { Skill } from '@orbit/shared/api';
 
 const resources: Skill['documents'] = [
@@ -15,9 +16,14 @@ const resources: Skill['documents'] = [
     content:
       '<h2>Resource heading</h2>\n<a href="https://example.test/resources">Resource link</a>\n<strong>Resource emphasis</strong>',
   },
+  {
+    path: 'skills/react-expert/references/guide.md',
+    name: 'guide.md',
+    content: '# Guide',
+  },
 ];
 
-const MARKETPLACE_NAME = 'Core';
+const REPO = 'https://github.com/anthropics/skills';
 
 function makeSkill(overrides: Partial<Skill> = {}): Skill {
   return {
@@ -34,36 +40,76 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
   };
 }
 
+/** The preview block, found by the filename in its header (the explorer lists the same name). */
 function fileBlock(filename: string) {
-  const block = screen.getByText(filename).closest('figure');
+  const block = screen
+    .getAllByRole('figure')
+    .find((figure) => within(figure).queryByText(filename) !== null);
   if (!block) throw new Error(`Missing content block for ${filename}`);
   return block;
 }
 
 describe('MarketplaceSkillDetail', () => {
-  it('renders the title, Marketplace, and description', () => {
-    render(<MarketplaceSkillDetail skill={makeSkill()} marketplaceName={MARKETPLACE_NAME} />);
-    expect(screen.getByRole('heading', { name: 'React Expert' })).toBeInTheDocument();
-    expect(screen.getAllByText('Core').length).toBeGreaterThan(0);
-    expect(screen.getByText('Senior React developer.')).toBeInTheDocument();
+  it('leaves out the title, description, and Source panel', () => {
+    render(<MarketplaceSkillDetail skill={makeSkill()} repositoryUrl={REPO} />);
+    expect(screen.queryByRole('heading', { name: 'React Expert' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Senior React developer.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Source' })).not.toBeInTheDocument();
   });
 
   it.each([
-    { count: '0 resources', files: [] },
-    { count: '1 resource', files: resources.slice(0, 1) },
-    { count: '2 resources', files: resources },
-  ])('renders SKILL.md and $count with their matching contents', ({ count, files }) => {
-    const skill = makeSkill({ documents: files });
-    render(<MarketplaceSkillDetail skill={skill} marketplaceName={MARKETPLACE_NAME} />);
+    { count: '1 file', files: [] },
+    { count: '2 files', files: resources.slice(0, 1) },
+    { count: '4 files', files: resources },
+  ])(
+    'counts SKILL.md and its resources as $count and previews SKILL.md first',
+    ({ count, files }) => {
+      const skill = makeSkill({ documents: files });
+      render(<MarketplaceSkillDetail skill={skill} repositoryUrl={REPO} />);
 
-    expect(screen.getByText(count)).toBeInTheDocument();
-    expect(screen.getAllByRole('figure')).toHaveLength(files.length + 1);
-    expect(fileBlock(skill.skill.name).querySelector('code')?.textContent).toBe(
-      skill.skill.content,
+      expect(screen.getByText(count)).toBeInTheDocument();
+      expect(screen.getAllByRole('figure')).toHaveLength(1);
+      expect(screen.getByRole('button', { name: /SKILL\.md/ })).toHaveAttribute(
+        'aria-current',
+        'true',
+      );
+      expect(fileBlock(skill.skill.name).querySelector('code')?.textContent).toBe(
+        skill.skill.content,
+      );
+    },
+  );
+
+  it('lists folders before files and shows sizes', () => {
+    render(
+      <MarketplaceSkillDetail skill={makeSkill({ documents: resources })} repositoryUrl={REPO} />,
     );
-    for (const resource of files) {
-      expect(fileBlock(resource.name).querySelector('code')?.textContent).toBe(resource.content);
-    }
+
+    const rows = screen
+      .getAllByRole('button')
+      .map((b) => b.textContent ?? '')
+      .filter((t) => /references|SKILL|notes|examples/.test(t));
+    expect(rows[0]).toContain('references');
+    expect(rows.slice(1).map((t) => t.replace(/\d.*$/, ''))).toEqual([
+      'examples.html',
+      'notes.md',
+      'SKILL.md',
+    ]);
+    expect(screen.getByRole('button', { name: /SKILL\.md/ })).toHaveTextContent(/\d+ B$/);
+  });
+
+  it('previews the file that is clicked, including files inside a folder', () => {
+    render(
+      <MarketplaceSkillDetail skill={makeSkill({ documents: resources })} repositoryUrl={REPO} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /notes\.md/ }));
+    expect(fileBlock('notes.md').querySelector('code')?.textContent).toBe(resources[0].content);
+    expect(screen.getAllByRole('figure')).toHaveLength(1);
+
+    expect(screen.queryByRole('button', { name: /guide\.md/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /references/ }));
+    fireEvent.click(screen.getByRole('button', { name: /guide\.md/ }));
+    expect(fileBlock('references/guide.md').querySelector('code')?.textContent).toBe('# Guide');
   });
 
   it('keeps Markdown and HTML-looking instructions and resources as literal text', () => {
@@ -76,33 +122,53 @@ describe('MarketplaceSkillDetail', () => {
       '<a href="https://example.test/instructions">HTML instruction link</a>',
       '<strong>HTML instruction emphasis</strong>',
     ].join('\n');
-    render(<MarketplaceSkillDetail skill={skill} marketplaceName={MARKETPLACE_NAME} />);
+    render(<MarketplaceSkillDetail skill={skill} repositoryUrl={REPO} />);
 
     expect(fileBlock(skill.skill.name).querySelector('code')?.textContent).toBe(
       skill.skill.content,
     );
-    for (const block of screen.getAllByRole('figure')) {
+    for (const name of ['SKILL.md', 'notes.md', 'examples.html']) {
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(name.replace('.', '\\.')) }));
+      const block = fileBlock(name);
       expect(within(block).queryAllByRole('heading')).toHaveLength(0);
       expect(within(block).queryAllByRole('link')).toHaveLength(0);
       expect(block.querySelector('strong, em')).toBeNull();
     }
   });
 
-  it('shows the Marketplace and path in the Source panel', () => {
-    const skill = makeSkill();
-    render(<MarketplaceSkillDetail skill={skill} marketplaceName={MARKETPLACE_NAME} />);
+  it('shows the source repository, with no link to GitHub', () => {
+    render(<MarketplaceSkillDetail skill={makeSkill()} repositoryUrl={REPO} />);
 
-    // Card has no landmark; scope to Source's nearest container with its metadata label.
-    let sourcePanel = screen.getByRole('heading', { name: 'Source' }).parentElement;
-    while (sourcePanel && !within(sourcePanel).queryByText('Marketplace')) {
-      sourcePanel = sourcePanel.parentElement;
-    }
-    if (!sourcePanel) throw new Error('Missing Source panel');
-    const source = within(sourcePanel);
+    expect(screen.getByText('anthropics')).toBeInTheDocument();
+    expect(screen.getByText('anthropics/skills')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /GitHub/ })).not.toBeInTheDocument();
+  });
 
-    expect(source.getByText('Marketplace')).toBeInTheDocument();
-    expect(source.getByText(MARKETPLACE_NAME)).toBeInTheDocument();
-    expect(source.getByText('Path')).toBeInTheDocument();
-    expect(source.getByText(skill.skill.path)).toBeInTheDocument();
+  it('collapses and expands the file list from the bar under it', () => {
+    render(
+      <MarketplaceSkillDetail skill={makeSkill({ documents: resources })} repositoryUrl={REPO} />,
+    );
+
+    expect(screen.getByRole('button', { name: /notes\.md/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Hide files' }));
+    expect(screen.queryByRole('button', { name: /notes\.md/ })).not.toBeInTheDocument();
+    // The preview stays, so the selected file is still shown.
+    expect(screen.getAllByRole('figure')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Show files' }));
+    expect(screen.getByRole('button', { name: /notes\.md/ })).toBeInTheDocument();
+  });
+});
+
+describe('repositoryName', () => {
+  it('reads the owner and owner/repo from a GitHub link', () => {
+    expect(repositoryName('https://github.com/anthropics/skills')).toEqual({
+      owner: 'anthropics',
+      fullName: 'anthropics/skills',
+    });
+    expect(repositoryName('https://github.com/a/b.git/')).toEqual({ owner: 'a', fullName: 'a/b' });
+  });
+
+  it('falls back to the raw link when it has no owner and repo', () => {
+    expect(repositoryName('not a url')).toEqual({ owner: 'not a url', fullName: 'not a url' });
   });
 });
