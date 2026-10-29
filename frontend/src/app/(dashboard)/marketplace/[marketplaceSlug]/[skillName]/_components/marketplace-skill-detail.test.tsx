@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { MarketplaceSkillDetail } from './marketplace-skill-detail';
-import { repositoryName } from './skill-repository-card';
+import { MarketplaceSkillDetail, repositoryName } from './marketplace-skill-detail';
 import type { Skill } from '@orbit/shared/api';
 
 const resources: Skill['documents'] = [
