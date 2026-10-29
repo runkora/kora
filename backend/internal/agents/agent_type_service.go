@@ -746,18 +746,38 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 		return nil, err
 	}
 
+	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
+
+	// A declared agent is applied again only while its stored generation differs,
+	// so a grant that failed after the row was saved would never be retried. Write
+	// the grant first and fail the update when the policy service refuses it, for
+	// example for another agent's scopes that are not in the vocabulary yet.
+	_, declared := declaredFromContext(ctx)
+	if declared && grantAffected(req) {
+		if err := s.k8s.EnsureAgentGrant(ctx, *at, namespace); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "reconcile agent grant")
+			return nil, fmt.Errorf("reconcile agent grant: %w", err)
+		}
+	}
+
 	if err := s.repo.UpdateAgentType(ctx, *at); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "update agent type")
 		return nil, fmt.Errorf("update agent type: %w", err)
 	}
 
-	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
-
-	s.reconcileGrantIfNeeded(ctx, at, req, namespace)
+	if !declared {
+		s.reconcileGrantIfNeeded(ctx, at, req, namespace)
+	}
 	s.rolloutIfPodBakedFieldsChanged(ctx, at, req, namespace, oldFramework, oldModelID)
 
 	return at, nil
+}
+
+// grantAffected reports whether req changes a field compiled into the grant.
+func grantAffected(req UpdateAgentTypeRequest) bool {
+	return req.GrantScopes != nil || req.ModelID != nil || req.Budget != nil || req.Connectivity != nil || req.Connectors != nil || req.MCPTools != nil || req.Environments != nil
 }
 
 // reconcileGrantIfNeeded re-reconciles the policy-service grant when grant
@@ -766,7 +786,7 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 // compiled into the grant via EffectiveGrantScopes). Runs in background so
 // the update response is not delayed by a policy-service round-trip.
 func (s *AgentTypeService) reconcileGrantIfNeeded(ctx context.Context, at *AgentType, req UpdateAgentTypeRequest, namespace string) {
-	if req.GrantScopes == nil && req.ModelID == nil && req.Budget == nil && req.Connectivity == nil && req.Connectors == nil && req.MCPTools == nil && req.Environments == nil {
+	if !grantAffected(req) {
 		return
 	}
 	detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
