@@ -6,9 +6,11 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/declarative/v1alpha1"
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -355,5 +357,36 @@ func TestAgentApplierDelete(t *testing.T) {
 	}
 	if _, err := repo.GetAgentType(ctx, "a2"); err != nil {
 		t.Errorf("dashboard-built agent = %v, want it kept", err)
+	}
+}
+
+// failingAgentWriter refuses every write with err.
+type failingAgentWriter struct {
+	agentWriter
+	err error
+}
+
+func (w failingAgentWriter) CreateAgentType(context.Context, CreateAgentTypeRequest) (*AgentType, error) {
+	return nil, w.err
+}
+
+// A scope the vocabulary lacks is pending, since another resource may publish it. Any other
+// refusal stays an error.
+func TestAgentApplierGrantRefusal(t *testing.T) {
+	ctx := context.Background()
+	a, repo, _ := newAgentApplier()
+	missing := &policyclient.ScopeNotInVocabularyError{Scope: "agents:runs:implementer:write"}
+	a.writer = failingAgentWriter{err: missing}
+	res, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs))
+	if err != nil || res.Outcome != declarative.OutcomePending || !strings.Contains(res.Message, missing.Scope) {
+		t.Errorf("missing scope = %+v, %v, want pending naming the scope", res, err)
+	}
+	if _, rowErr := repo.GetAgentTypeBySlug(ctx, applierTenant, "code-reviewer"); !errors.Is(rowErr, ErrNotFound) {
+		t.Errorf("row after pending = %v, want none", rowErr)
+	}
+
+	a.writer = failingAgentWriter{err: errors.New("policy service unavailable")}
+	if _, err := a.Apply(ctx, item(t, "code-reviewer", "uid-1", 1, agentSpec(), agentRefs)); err == nil {
+		t.Error("other refusal returned no error")
 	}
 }

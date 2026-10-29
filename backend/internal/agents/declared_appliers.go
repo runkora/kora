@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/declarative/v1alpha1"
 )
@@ -187,6 +188,9 @@ func (a *AgentApplier) Apply(ctx context.Context, item declarative.Item) (declar
 		return nameConflictResult("agent", item.Name), nil
 	case invalidAgentTypeField(err), errors.Is(err, ErrIdentityModeImmutable):
 		return invalidResult(err), nil
+	case errors.Is(err, policyclient.ErrScopeNotInVocabulary):
+		// Another resource may publish the scope later, so the operator applies this one again.
+		return declarative.Result{Outcome: declarative.OutcomePending, Message: err.Error()}, nil
 	case err != nil:
 		return declarative.Result{}, fmt.Errorf("apply agent %q: %w", item.Name, err)
 	}
