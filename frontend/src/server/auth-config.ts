@@ -132,8 +132,7 @@ export function getSessionOptions(refreshTokenExpiresIn?: number): SessionOption
     password,
     cookieOptions: {
       secure:
-        process.env.NODE_ENV === 'production' &&
-        !isInsecureLoopbackUrl(process.env.KORA_APP_URL),
+        process.env.NODE_ENV === 'production' && !isInsecureLoopbackUrl(process.env.KORA_APP_URL),
       httpOnly: true,
       // lax (not strict) so the cookie is sent after the cross-origin OIDC
       // redirect back from the IdP (strict blocks that first same-site navigation
