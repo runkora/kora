@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
@@ -146,12 +147,13 @@ func (s *execServer) Execute(req *execpb.ExecuteRequest, stream grpc.ServerStrea
 		return fmt.Errorf("start: %w", err)
 	}
 
-	// stream stdout and stderr concurrently into the response stream
+	// gRPC forbids concurrent Send on one stream, so both pipes share a lock
+	out := &lockedSender{send: stream.Send}
 	done := make(chan error, 2)
-	go streamPipe(stream, stdout, func(b []byte) *execpb.ExecuteResponse {
+	go streamPipe(out, stdout, func(b []byte) *execpb.ExecuteResponse {
 		return &execpb.ExecuteResponse{Output: &execpb.ExecuteResponse_Stdout{Stdout: b}}
 	}, done)
-	go streamPipe(stream, stderr, func(b []byte) *execpb.ExecuteResponse {
+	go streamPipe(out, stderr, func(b []byte) *execpb.ExecuteResponse {
 		return &execpb.ExecuteResponse{Output: &execpb.ExecuteResponse_Stderr{Stderr: b}}
 	}, done)
 
@@ -172,7 +174,7 @@ func (s *execServer) Execute(req *execpb.ExecuteRequest, stream grpc.ServerStrea
 		}
 	}
 
-	return stream.Send(&execpb.ExecuteResponse{
+	return out.Send(&execpb.ExecuteResponse{
 		Output: &execpb.ExecuteResponse_ExitCode{ExitCode: int32(exitCode)},
 	})
 }
@@ -238,7 +240,20 @@ func filterEnv(env []string) []string {
 	return filtered
 }
 
-func streamPipe(stream grpc.ServerStreamingServer[execpb.ExecuteResponse], r interface{ Read([]byte) (int, error) }, wrap func([]byte) *execpb.ExecuteResponse, done chan<- error) {
+// lockedSender serializes Send calls. Concurrent Send on a gRPC stream races on
+// the response headers and fails with "SendHeader called multiple times".
+type lockedSender struct {
+	mu   sync.Mutex
+	send func(*execpb.ExecuteResponse) error
+}
+
+func (l *lockedSender) Send(r *execpb.ExecuteResponse) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.send(r)
+}
+
+func streamPipe(stream *lockedSender, r interface{ Read([]byte) (int, error) }, wrap func([]byte) *execpb.ExecuteResponse, done chan<- error) {
 	buf := make([]byte, 4096)
 	for {
 		n, err := r.Read(buf)
