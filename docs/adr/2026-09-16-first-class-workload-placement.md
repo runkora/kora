@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-09-16-first-class-workload-placement.md  (decision date + slug; no sequential number) -->
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-10-29: Amendment 1)
 **Date:** 2026-09-16
 **Deciders:** Justin Wilkin, Tom Morelly
 **Technical Story:** Give the customisations every enterprise deployment needs a supported values surface, instead of requiring kustomize patches for them. Amends [2026-09-15: Config-Driven Kustomize Manifest Patches](2026-09-15-manifest-patches-configmap.md). Motivated by clear-route/orbit#309, #308 and #311.
@@ -272,4 +272,14 @@ Extending service account annotations to sandboxes was considered and rejected. 
 
 A sandbox that needs a cloud API should get a Connection, which provides scoped, short-lived, attributed access through the broker.
 
-**Last Updated:** 2026-09-16
+## Amendment 1 (2026-10-29): Agent ServiceAccount annotations removed
+
+`agents.workloads.sessionManager.serviceAccount.annotations` is removed from the chart, `WorkloadCustomization` and the builders, with the `runkora.io/service-account-hash` pod annotation that rolled pods when it changed. The other `agents.workloads.*` values are unchanged.
+
+[Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) limits agent pods to DNS, istiod, kora's own services, the sandbox and the collector. STS and cloud APIs are outside that list, so an SDK in the agent pod cannot use a role on its ServiceAccount. Model calls go through the inference gateway, which has its own Bedrock identity. Agents reach cloud APIs through a sandbox, the egress gateway and a Connection, with the credential injected at the edge. A role on the agent pod would be a standing credential outside that path.
+
+That STS and the EKS Pod Identity endpoint are unreachable from an agent pod follows from the lockdown allow-list. It has not been checked on a cluster.
+
+Operators who set the value must drop it from their overrides. The chart ignores the old key and the agent ServiceAccount is no longer annotated.
+
+**Last Updated:** 2026-10-29 (Amendment 1: agent ServiceAccount annotations removed)

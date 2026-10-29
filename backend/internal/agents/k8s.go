@@ -1652,9 +1652,6 @@ func (p *K8sProvisioner) buildServiceAccount(name, namespace string, labels map[
 			Name:      name,
 			Namespace: namespace,
 			Labels:    labels,
-			// Cloud identity for the session-manager, which is the only pod
-			// running under this account.
-			Annotations: cloneOrNil(p.cfg.Workloads.SessionManager.ServiceAccount.Annotations),
 		},
 	}
 }
@@ -1835,11 +1832,6 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 		// Only the sandbox exec port skips Envoy; the agent-egress NetworkPolicy
 		// limits it to the tenant's sandboxes.
 		"traffic.sidecar.istio.io/excludeOutboundPorts": "50051",
-	}
-	// Rolls the pods when the ServiceAccount's cloud identity changes, which
-	// they would otherwise pick up only on an unrelated restart.
-	if hash := serviceAccountAnnotationHash(p.cfg.Workloads.SessionManager.ServiceAccount.Annotations); hash != "" {
-		podAnnotations[serviceAccountHashAnnotation] = hash
 	}
 	inferenceURL := fmt.Sprintf("http://kora-inference-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)
 	ss := appsv1.StatefulSet{

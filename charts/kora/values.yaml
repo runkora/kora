@@ -690,11 +690,6 @@ agents:
       priorityClassName: ""
       podLabels: {}
       podAnnotations: {}
-      serviceAccount:
-        # Cloud identity for the agent (eks.amazonaws.com/role-arn,
-        # iam.gke.io/gcp-service-account). Sandbox pods run under the tenant's
-        # default ServiceAccount and never receive these.
-        annotations: {}
     # Sandbox pods are per-run, bursty, and execute the agent's own code. Giving
     # them their own pool keeps a heavy sandbox off the nodes serving live
     # sessions. A sandbox mounts its session-manager's workspace, so placing
