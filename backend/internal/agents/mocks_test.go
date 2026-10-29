@@ -687,6 +687,7 @@ type mockK8s struct {
 	noReadyPods bool
 
 	provisionAgentTypeErr   error
+	ensureAgentGrantErr     error
 	deprovisionAgentTypeErr error
 	// readyPods is how many pods ReadyOrdinals reports. Zero means one.
 	readyPods             int
@@ -823,7 +824,7 @@ func (m *mockK8s) GetAgentBudget(_ context.Context, _ AgentType, _ string) (*Age
 }
 
 func (m *mockK8s) EnsureAgentGrant(_ context.Context, _ AgentType, _ string) error {
-	return nil
+	return m.ensureAgentGrantErr
 }
 
 func (m *mockK8s) WaitForStatefulSetReady(_ context.Context, _, _ string) error {

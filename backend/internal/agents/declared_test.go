@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -204,5 +205,37 @@ func TestHandlersRefuseDeclaredWrites(t *testing.T) {
 	}
 	if got := list.AgentTypes[0]; got["source"] != "crd" || got["can_edit"] != false || got["can_delete"] != false {
 		t.Errorf("listed agent = source %v can_edit %v can_delete %v", got["source"], got["can_edit"], got["can_delete"])
+	}
+}
+
+// A declared update whose grant the policy service refuses fails and leaves the row unchanged,
+// so the operator applies the same generation again.
+func TestDeclaredAgentUpdateFailsWhenGrantRefused(t *testing.T) {
+	repo := newMockRepository()
+	k8s := &mockK8s{}
+	svc := NewAgentTypeService(repo, repo, k8s, NewAuthz(&scopedEvaluator{}), nil, lockedTenants{}, AgentTypeServiceConfig{
+		MaxConcurrentRunsPerPod: 5,
+		TenantNamespaceFn:       func(id string) string { return "kora-tenant-" + id },
+	}, logging.NewLoggerWithOutput(io.Discard))
+	svc.SetEnvironmentLookup(repo)
+
+	at, err := svc.CreateAgentType(declaredCtx(), declaredCreateRequest())
+	if err != nil {
+		t.Fatalf("declared create: %v", err)
+	}
+	waitActive(t, repo, at.ID)
+
+	k8s.ensureAgentGrantErr = errors.New("scope is not in the scope vocabulary")
+	scopes := []string{"connection:github:contents:read", "agents:runs:implementer:write"}
+	if _, err := svc.UpdateAgentType(declaredCtx(), UpdateAgentTypeRequest{ID: at.ID, GrantScopes: scopes}); !errors.Is(err, k8s.ensureAgentGrantErr) {
+		t.Fatalf("update with a refused grant = %v, want the grant error", err)
+	}
+	if got := repo.agentTypes[at.ID].GrantScopes; slices.Contains(got, "agents:runs:implementer:write") {
+		t.Errorf("stored scopes = %v, want the update not saved", got)
+	}
+
+	k8s.ensureAgentGrantErr = nil
+	if _, err := svc.UpdateAgentType(declaredCtx(), UpdateAgentTypeRequest{ID: at.ID, GrantScopes: scopes}); err != nil {
+		t.Fatalf("retry: %v", err)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/declarative/v1alpha1"
 )
@@ -182,13 +183,21 @@ func (a *AgentApplier) Apply(ctx context.Context, item declarative.Item) (declar
 	} else {
 		at, err = a.writer.UpdateAgentType(ctx, agentUpdateRequest(row.ID, create))
 	}
+	return agentWriteResult(item.Name, at, err)
+}
+
+// agentWriteResult maps the outcome of an agent create or update to the apply result.
+func agentWriteResult(name string, at *AgentType, err error) (declarative.Result, error) {
 	switch {
 	case errors.Is(err, ErrSlugTaken):
-		return nameConflictResult("agent", item.Name), nil
+		return nameConflictResult("agent", name), nil
 	case invalidAgentTypeField(err), errors.Is(err, ErrIdentityModeImmutable):
 		return invalidResult(err), nil
+	case errors.Is(err, policyclient.ErrScopeNotInVocabulary):
+		// Another resource may publish the scope later, so the operator applies this one again.
+		return declarative.Result{Outcome: declarative.OutcomePending, Message: err.Error()}, nil
 	case err != nil:
-		return declarative.Result{}, fmt.Errorf("apply agent %q: %w", item.Name, err)
+		return declarative.Result{}, fmt.Errorf("apply agent %q: %w", name, err)
 	}
 	return agentResult(at), nil
 }
