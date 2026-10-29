@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"reflect"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -22,9 +23,6 @@ func splitPoolConfig() K8sProvisionerConfig {
 			SessionManager: WorkloadCustomization{
 				NodeSelector:      map[string]string{"workload-tier": "kora"},
 				PriorityClassName: "kora-agents",
-				ServiceAccount: ServiceAccountCustomization{
-					Annotations: map[string]string{"eks.amazonaws.com/role-arn": "arn:aws:iam::1:role/agent"},
-				},
 			},
 			Sandbox: WorkloadCustomization{
 				NodeSelector: map[string]string{"workload-tier": "kora-sandbox"},
@@ -119,18 +117,6 @@ func TestBuildSandboxPod_AppliesSandboxCustomization(t *testing.T) {
 	// The sandbox's own podLabels win over the common value.
 	if pod.Labels["cost-centre"] != "sandboxes" {
 		t.Errorf("cost-centre: got %q, want the per-workload value", pod.Labels["cost-centre"])
-	}
-}
-
-// Cloud identity annotations land on the agent's ServiceAccount, which only the
-// session-manager uses.
-func TestBuildServiceAccount_AppliesAnnotations(t *testing.T) {
-	p := &K8sProvisioner{cfg: splitPoolConfig()}
-
-	sa := p.buildServiceAccount("coder", "tenant-example", map[string]string{"app": "coder"})
-
-	if sa.Annotations["eks.amazonaws.com/role-arn"] != "arn:aws:iam::1:role/agent" {
-		t.Errorf("serviceAccount annotations: got %v", sa.Annotations)
 	}
 }
 
@@ -241,27 +227,12 @@ func TestBuildSandboxPod_CoLocationKeepsConfiguredAffinity(t *testing.T) {
 	}
 }
 
-// Cloud identity attaches when a pod is created, so a changed ServiceAccount
-// annotation has to roll the StatefulSet or running agents never receive it.
-func TestBuildStatefulSet_ServiceAccountAnnotationsRollThePods(t *testing.T) {
-	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "example"}
-	hashOf := func(annotations map[string]string) string {
-		cfg := splitPoolConfig()
-		cfg.Workloads.SessionManager.ServiceAccount.Annotations = annotations
-		p := &K8sProvisioner{cfg: cfg}
-		return p.buildSessionManagerStatefulSet(at, "tenant-example", agentTypeLabels(at)).
-			Spec.Template.Annotations[serviceAccountHashAnnotation]
-	}
-
-	first := hashOf(map[string]string{"eks.amazonaws.com/role-arn": "arn:aws:iam::1:role/agent"})
-	if first == "" {
-		t.Fatal("expected a service account hash on the pod template")
-	}
-	if second := hashOf(map[string]string{"eks.amazonaws.com/role-arn": "arn:aws:iam::1:role/other"}); second == first {
-		t.Error("changing the annotation must change the hash, or the pods never roll")
-	}
-	if none := hashOf(nil); none != "" {
-		t.Errorf("no annotations should leave the pod template alone, got %q", none)
+// The agent pod has no route to a cloud API, so a ServiceAccount cloud identity
+// would be an unusable standing credential. See
+// docs/adr/2026-09-16-first-class-workload-placement.md, Amendment 1.
+func TestWorkloadCustomization_HasNoServiceAccountSetting(t *testing.T) {
+	if _, ok := reflect.TypeFor[WorkloadCustomization]().FieldByName("ServiceAccount"); ok {
+		t.Error("WorkloadCustomization must not carry ServiceAccount settings")
 	}
 }
 

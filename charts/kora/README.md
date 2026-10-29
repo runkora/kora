@@ -109,7 +109,6 @@ Kubernetes: `>=1.34.0-0`
 | agents.workloads.sessionManager.podAnnotations | object | `{}` |  |
 | agents.workloads.sessionManager.podLabels | object | `{}` |  |
 | agents.workloads.sessionManager.priorityClassName | string | `""` |  |
-| agents.workloads.sessionManager.serviceAccount.annotations | object | `{}` |  |
 | agents.workloads.sessionManager.tolerations | list | `[]` |  |
 | agents.workloads.sessionManager.topologySpreadConstraints | list | `[]` |  |
 | agents.workspace.accessModes[0] | string | `"ReadWriteOnce"` |  |

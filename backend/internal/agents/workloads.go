@@ -1,8 +1,6 @@
 package agents
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"maps"
 	"slices"
@@ -27,16 +25,6 @@ type WorkloadCustomization struct {
 	PriorityClassName         string                            `json:"priorityClassName,omitempty"`
 	PodLabels                 map[string]string                 `json:"podLabels,omitempty"`
 	PodAnnotations            map[string]string                 `json:"podAnnotations,omitempty"`
-	// ServiceAccount annotations carry cloud identity (IRSA, Workload Identity)
-	// and apply to the agent's ServiceAccount, which only session-manager pods
-	// use. Sandbox pods run under the tenant's default account.
-	ServiceAccount ServiceAccountCustomization `json:"serviceAccount"`
-}
-
-// ServiceAccountCustomization customizes the ServiceAccount provisioned per
-// agent type.
-type ServiceAccountCustomization struct {
-	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // WorkloadsConfig is the full set of workload customizations. Common applies to
@@ -77,7 +65,6 @@ var reservedAnnotations = []string{
 	"traffic.sidecar.istio.io/excludeOutboundPorts",
 	"sidecar.istio.io/inject",
 	"sidecar.istio.io/interceptionMode",
-	serviceAccountHashAnnotation,
 }
 
 // reservedLabels select a pod for SPIRE attestation, sidecar injection and its
@@ -207,38 +194,6 @@ func (w WorkloadsConfig) Validate() error {
 		}
 	}
 	return nil
-}
-
-// serviceAccountHashAnnotation carries a digest of the agent ServiceAccount's
-// annotations on the pod template.
-const serviceAccountHashAnnotation = "runkora.io/service-account-hash"
-
-// serviceAccountAnnotationHash digests the ServiceAccount annotations, empty
-// when there are none.
-//
-// Cloud identity attaches when a pod is created: the provider's webhook reads
-// the ServiceAccount then and mounts the token. Reconciling the annotation
-// alone would leave running agents without it, so the digest rides on the pod
-// template and a change rolls the StatefulSet.
-func serviceAccountAnnotationHash(annotations map[string]string) string {
-	if len(annotations) == 0 {
-		return ""
-	}
-	sum := sha256.New()
-	for _, k := range slices.Sorted(maps.Keys(annotations)) {
-		fmt.Fprintf(sum, "%s=%s\n", k, annotations[k])
-	}
-	return hex.EncodeToString(sum.Sum(nil))[:16]
-}
-
-// cloneOrNil copies m, returning nil when it is empty so an unset field stays
-// off the rendered manifest. The chart renders every key, so "unset" arrives
-// here as an empty map rather than a missing one.
-func cloneOrNil(m map[string]string) map[string]string {
-	if len(m) == 0 {
-		return nil
-	}
-	return maps.Clone(m)
 }
 
 // mergeMaps returns base overlaid with overrides, and nil when both are empty

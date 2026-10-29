@@ -140,8 +140,6 @@ const defaultChartWorkloads = `workloads:
     podAnnotations: {}
     podLabels: {}
     priorityClassName: ""
-    serviceAccount:
-      annotations: {}
     tolerations: []
     topologySpreadConstraints: []
 workspace:
