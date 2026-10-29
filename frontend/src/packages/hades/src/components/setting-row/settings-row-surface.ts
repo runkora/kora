@@ -35,6 +35,8 @@ const settingsRowSurfaceVariants = cva(['flex', 'items-center', 'rounded-md', 'b
        * to carry the warning, so the surface has to do it.
        */
       danger: 'border-status-error/30 bg-status-error/[0.07]',
+      /** The same tint in amber, for an action with consequences that is not irreversible. */
+      warning: 'border-status-degraded/30 bg-status-degraded/[0.07]',
     },
     /** The whole row is the control: it is a button, so it needs button chrome. */
     interactive: {
@@ -63,6 +65,7 @@ const settingsRowLabelVariants = cva(['text-xs', 'font-semibold'], {
     tone: {
       default: 'text-foreground',
       danger: 'text-status-error',
+      warning: 'text-status-degraded',
     },
   },
   defaultVariants: { tone: 'default' },

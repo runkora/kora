@@ -36,6 +36,20 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
    */
   startAdornment?: React.ReactNode;
   /**
+   * `inline` drops the box so the input reads as a word in a sentence: no
+   * border at rest, a soft fill on hover, a bordered field on focus; `filled` adds the fill at rest.
+   * Use it inside sentence-style builders, next to `InlineToken`.
+   */
+  variant?: 'default' | 'inline';
+  /** `accent` colours the text for values the user has chosen. Only applies to `variant="inline"`. */
+  tone?: 'default' | 'accent';
+  /**
+   * Fills the input at rest. `default` (inline variant only) uses the soft overlay fill, so an
+   * empty field still shows where it is, and strengthens it to the accent fill on hover. `danger` uses the error status tint, on any
+   * variant, to mark a field that failed validation.
+   */
+  filled?: 'default' | 'danger';
+  /**
    * Content pinned inside the input's right edge — a unit label such as
    * `/ 1M tokens`. Rendered in a non-interactive subtle mono span; the input
    * text is inset (`pr-16`) to clear it.
@@ -73,6 +87,9 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       hasError = false,
       mono = false,
       compact = false,
+      variant = 'default',
+      tone = 'default',
+      filled,
       startAdornment,
       endAdornment,
       type = 'text',
@@ -103,12 +120,34 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         aria-required={ariaRequired ?? field?.required ?? undefined}
         className={cn(
           // Layout & typography
-          compact ? 'flex h-8 w-full rounded-md px-3' : 'flex h-9 w-full rounded-md px-3 py-1',
-          mono ? 'text-sm text-foreground font-mono' : 'text-sm text-foreground font-normal',
-          'bg-surface border',
+          variant === 'inline'
+            ? 'flex w-full rounded-md px-1.5 py-0.5'
+            : compact
+              ? 'flex h-8 w-full rounded-md px-3'
+              : 'flex h-9 w-full rounded-md px-3 py-1',
+          mono ? 'text-sm font-mono' : 'text-sm font-normal',
+          variant === 'inline' && tone === 'accent' ? 'text-accent' : 'text-foreground',
+          variant === 'inline'
+            ? 'border bg-transparent transition-colors hover:bg-surface-overlay focus-visible:bg-surface'
+            : 'bg-surface border',
+          variant === 'inline' &&
+            filled === 'default' && [
+              'bg-surface-overlay enabled:hover:bg-accent enabled:hover:text-accent-foreground enabled:hover:placeholder:text-accent-foreground',
+              // Focused, the field is a plain editing surface again, so hovering it must not
+              // pair the dark engaged text with the dark focus background.
+              'enabled:focus-visible:hover:bg-surface enabled:focus-visible:hover:placeholder:text-subtle',
+              tone === 'accent'
+                ? 'enabled:focus-visible:hover:text-accent'
+                : 'enabled:focus-visible:hover:text-foreground',
+            ],
+          filled === 'danger' && 'bg-status-error/10 hover:bg-status-error/15',
           'placeholder:text-subtle',
           // Border colour — normal vs error
-          hasError ? 'border-status-error' : 'border-border',
+          hasError
+            ? 'border-status-error'
+            : variant === 'inline'
+              ? 'border-transparent focus-visible:border-accent'
+              : 'border-border',
           // Focus
           'focus-visible:outline-2 focus-visible:outline-offset-2',
           hasError ? 'focus-visible:outline-status-error' : 'focus-visible:outline-accent',

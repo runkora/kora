@@ -13,12 +13,14 @@ export interface PopoverContentProps extends React.ComponentPropsWithoutRef<
 > {
   /** Match the trigger's width, with an 18rem floor for narrow triggers. */
   matchTriggerWidth?: boolean | undefined;
+  /** A fixed 26rem panel, for a picker opened from a trigger too small to size it. */
+  wide?: boolean | undefined;
 }
 
 const PopoverContent = React.forwardRef<
   React.ComponentRef<typeof PopoverPrimitive.Content>,
   PopoverContentProps
->(({ className, align = 'start', sideOffset = 6, matchTriggerWidth, ...props }, ref) => (
+>(({ className, align = 'start', sideOffset = 6, matchTriggerWidth, wide, ...props }, ref) => (
   <PopoverPrimitive.Portal>
     <PopoverPrimitive.Content
       ref={ref}
@@ -32,6 +34,7 @@ const PopoverContent = React.forwardRef<
         'data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2',
         'data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2',
         matchTriggerWidth && 'w-[var(--radix-popover-trigger-width)] min-w-[18rem]',
+        wide && 'w-[26rem] max-w-[90vw]',
         className,
       )}
       {...props}
