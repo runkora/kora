@@ -18,6 +18,7 @@ const DELIVERIES = [
   makeDelivery({ id: 'd-bad', status: 'failed', runs: [run('failed')] }),
   makeDelivery({ id: 'd-skip', status: 'skipped', runs: [run('skipped')] }),
   makeDelivery({ id: 'd-old', status: 'dispatched', runs: [run('superseded')] }),
+  makeDelivery({ id: 'd-dup', status: 'duplicate' }),
 ];
 
 function renderList(props: Partial<React.ComponentProps<typeof DeliveryList>> = {}) {
@@ -56,6 +57,15 @@ describe('DeliveryList', () => {
     expect(within(group).getByRole('button', { name: /Superseded/ })).toHaveTextContent('1');
     fireEvent.click(within(group).getByRole('button', { name: /Superseded/ }));
     expect(screen.getByText('d-old')).toBeInTheDocument();
+    expect(screen.queryByText('d-ok')).toBeNull();
+  });
+
+  it("filters to duplicates, which carry no outcome of this trigger's own", () => {
+    renderList();
+    const group = screen.getByRole('group', { name: 'Filter deliveries by outcome' });
+    expect(within(group).getByRole('button', { name: /Duplicate/ })).toHaveTextContent('1');
+    fireEvent.click(within(group).getByRole('button', { name: /Duplicate/ }));
+    expect(screen.getByText('d-dup')).toBeInTheDocument();
     expect(screen.queryByText('d-ok')).toBeNull();
   });
 
