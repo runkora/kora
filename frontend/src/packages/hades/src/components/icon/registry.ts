@@ -48,10 +48,14 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  File,
   FileCheck2,
+  FileCode,
   FileText,
   Filter,
   FlaskConical,
+  Folder,
+  FolderOpen,
   Gauge,
   Globe,
   GripVertical,
@@ -155,10 +159,14 @@ export type IconName =
   | 'external-link'
   | 'eye'
   | 'eye-off'
+  | 'file'
   | 'file-check'
+  | 'file-code'
   | 'file-text'
   | 'filter'
   | 'flask'
+  | 'folder'
+  | 'folder-open'
   | 'gauge'
   | 'globe'
   | 'grip-vertical'
@@ -258,10 +266,14 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   'external-link': ExternalLink,
   eye: Eye,
   'eye-off': EyeOff,
+  file: File,
   'file-check': FileCheck2,
+  'file-code': FileCode,
   'file-text': FileText,
   filter: Filter,
   flask: FlaskConical,
+  folder: Folder,
+  'folder-open': FolderOpen,
   gauge: Gauge,
   globe: Globe,
   'grip-vertical': GripVertical,

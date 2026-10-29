@@ -259,7 +259,12 @@ describe('loadSkillPage', () => {
 
     const result = await loadSkillPage(ACCESS_TOKEN, 'team__repo', 'reviewer');
 
-    expect(result).toEqual({ ok: true, skill, marketplaceName: 'Team' });
+    expect(result).toEqual({
+      ok: true,
+      skill,
+      marketplaceName: 'Team',
+      marketplaceLink: 'https://example.com',
+    });
     expect(fetchSkillDetail).toHaveBeenCalledExactlyOnceWith(
       ACCESS_TOKEN,
       'team__repo',

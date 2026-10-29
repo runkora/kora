@@ -16,21 +16,18 @@ export function MarketplaceSkillList() {
     {
       id: 'skill',
       header: 'Skill',
-      gridWidth: 'minmax(220px, 1.5fr)',
+      gridWidth: 'minmax(180px, 1fr)',
       locked: true,
       cell: (skill) => (
         <Stack gap="none" style={{ minWidth: 0 }}>
           <Text truncate>{skill.name}</Text>
-          <Text as="span" mono size="caption" weight="emphasis" color="subtle" truncate>
-            {skill.skillSlug}
-          </Text>
         </Stack>
       ),
     },
     {
       id: 'description',
       header: 'Description',
-      gridWidth: 'minmax(280px, 2.1fr)',
+      gridWidth: 'minmax(280px, 3fr)',
       locked: true,
       cell: (skill) => (
         <Text
@@ -41,6 +38,8 @@ export function MarketplaceSkillList() {
             WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
+            // Keeps the truncated text clear of the Marketplace column.
+            paddingRight: '2rem',
           }}
         >
           {skill.description}
@@ -71,6 +70,7 @@ export function MarketplaceSkillList() {
       columns={columns}
       getRowKey={(skill) => skill.skillSlug}
       noun="skills"
+      hideToolbar
       emptyMessage="No skills to show."
       onRowClick={(skill) =>
         router.push(APP_ROUTES.marketplace.detail(browse.marketplace, skill.skillName))

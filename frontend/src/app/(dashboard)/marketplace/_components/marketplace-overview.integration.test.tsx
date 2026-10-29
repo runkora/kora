@@ -313,3 +313,24 @@ describe('later browse changes', () => {
     expect(screen.getByLabelText('Results per page')).toHaveValue('12');
   });
 });
+
+describe('rows per page', () => {
+  it('sits in the toolbar beside the Marketplace picker and requests a new page on change', async () => {
+    const data = overviewWith({ skills: [SKILL], total: 1 });
+    renderOverview(data);
+    expect(screen.getByLabelText('Results per page')).toHaveValue('24');
+
+    const reloaded = overviewWith({
+      skills: [SKILL],
+      total: 1,
+      requested: browseWith({ pageSize: 48 }),
+      browse: browseWith({ pageSize: 48 }),
+    });
+    server.use(http.get('/api/marketplace/skills', () => HttpResponse.json({ data: reloaded })));
+
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText('Results per page'), '48');
+
+    expect(await screen.findByLabelText('Results per page')).toHaveValue('48');
+  });
+});

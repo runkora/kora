@@ -93,6 +93,12 @@ async function reload(page: Page) {
 
 const budgetSkillPath = '/marketplace/platform-engineering__skills/budget-forecaster';
 
+/** The detail page has loaded: the file explorer is shown and the breadcrumb names the Skill. */
+async function expectSkillDetail(page: Page, name: string) {
+  await expect(page.getByRole('heading', { name: 'File Explorer', exact: true })).toBeVisible();
+  await expect(page.getByText(name, { exact: true })).toBeVisible();
+}
+
 async function expectCleanUrl(page: Page, pathname = '/marketplace') {
   await expect(page).toHaveURL((url) => url.pathname === pathname && url.search === '');
 }
@@ -196,13 +202,13 @@ test.describe('/marketplace — overview and Skill detail', () => {
         detailRequests.push(request.url());
     });
     await page.getByRole('row', { name: 'Open Budget Forecaster' }).click();
-    await expect(page.getByRole('heading', { name: 'Budget Forecaster' })).toBeVisible();
+    await expectSkillDetail(page, 'budget-forecaster');
     await expectCleanUrl(page, budgetSkillPath);
     expect(detailRequests).toEqual([]);
     expect(await page.evaluate(() => window.history.length)).toBe(initialHistoryLength + 1);
 
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Budget Forecaster' })).toBeVisible();
+    await expectSkillDetail(page, 'budget-forecaster');
     await expectCleanUrl(page, budgetSkillPath);
     await page.getByRole('link', { name: 'Skills', exact: true }).click();
     await expectDefaultOverview(page);
@@ -210,10 +216,10 @@ test.describe('/marketplace — overview and Skill detail', () => {
 
   test('a direct Skill address loads its details and survives refresh', async ({ page }) => {
     await page.goto(budgetSkillPath);
-    await expect(page.getByRole('heading', { name: 'Budget Forecaster' })).toBeVisible();
+    await expectSkillDetail(page, 'budget-forecaster');
     await expectCleanUrl(page, budgetSkillPath);
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Budget Forecaster' })).toBeVisible();
+    await expectSkillDetail(page, 'budget-forecaster');
     await expectCleanUrl(page, budgetSkillPath);
   });
 
@@ -614,34 +620,25 @@ test.describe('/marketplace — accessibility and layout', () => {
       });
     });
 
-    test(`detail Contents and Source fit at ${viewport.width}px`, async ({ page }, testInfo) => {
+    test(`detail File Explorer and preview fit at ${viewport.width}px`, async ({
+      page,
+    }, testInfo) => {
       await page.setViewportSize(viewport);
       await load(page);
       await choosePlatformEngineering(page);
       await page.getByRole('textbox', { name: 'Search Skills' }).fill('React Expert');
       await page.getByRole('row', { name: 'Open React Expert' }).click();
-      await expect(page.getByRole('heading', { name: 'React Expert', exact: true })).toBeVisible();
+      await expectSkillDetail(page, 'react-expert');
       await expectCleanUrl(page, '/marketplace/platform-engineering__skills/react-expert');
-      const contents = page
-        .getByRole('heading', { name: 'Contents', exact: true })
+      const explorer = page
+        .getByRole('heading', { name: 'File Explorer', exact: true })
         .locator('../..');
-      const source = page
-        .locator('div')
-        .filter({ has: page.getByRole('heading', { name: 'Source', exact: true }) })
-        .filter({ has: page.getByText('Path', { exact: true }) })
-        .last();
-      await expect(contents).toContainText('# React Expert');
-      await expect(source).toContainText('Platform Engineering');
-      await expect(source).toContainText('skills/react-expert/SKILL.md');
-      await expectControlsFit(page, [contents, source]);
-      const main = await bounds(contents);
-      const sidebar = await bounds(source);
-      if (viewport.width === 390) {
-        expect(sidebar.y).toBeGreaterThanOrEqual(main.y + main.height);
-      } else {
-        expect(sidebar.x).toBeGreaterThanOrEqual(main.x + main.width);
-        expect(Math.abs(sidebar.y - main.y)).toBeLessThan(1);
-      }
+      const preview = page.getByRole('figure');
+      await expect(preview).toContainText('# React Expert');
+      await expectControlsFit(page, [explorer, preview]);
+      const top = await bounds(explorer);
+      const below = await bounds(preview);
+      expect(below.y).toBeGreaterThanOrEqual(top.y + top.height);
       await expectNoPageOverflow(page);
       await testInfo.attach(`detail-${viewport.width}px`, {
         body: await page.screenshot({ fullPage: true }),

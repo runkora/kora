@@ -1,10 +1,9 @@
 'use client';
 
-/** @tier 3 — marketplace-scoped. Result range, rows-per-page and page controls. */
+/** @tier 3 — marketplace-scoped. Sticky bar with the result range and page controls. */
 
-import { Button, Icon, NativeSelect, Separator, Stack, Text } from '@orbit/hades';
+import { Button, Icon, Separator, Stack, Text } from '@orbit/hades';
 import { useMarketplaceContext } from '../_context/marketplace-context';
-import { PAGE_SIZES } from '../_types';
 
 /** The number of page buttons on each side of the current page. */
 const PAGE_WINDOW = 2;
@@ -13,7 +12,7 @@ const PAGE_WINDOW = 2;
 type PageItem = number | 'gap-before' | 'gap-after';
 
 export function MarketplacePagination() {
-  const { browse, total, goToPage, setPageSize } = useMarketplaceContext();
+  const { browse, total, goToPage } = useMarketplaceContext();
   const { page, pageSize } = browse;
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -27,8 +26,18 @@ export function MarketplacePagination() {
   }
   const last = Math.min(total, page * pageSize);
 
+  // Sticky so the page controls stay in view while the results scroll.
   return (
-    <Stack gap="none">
+    <Stack
+      gap="none"
+      style={{
+        position: 'sticky',
+        bottom: 0,
+        // Above the DataTable's sticky pinned column (z-10).
+        zIndex: 20,
+        background: 'var(--color-background)',
+      }}
+    >
       <Separator />
       <Stack
         direction="horizontal"
@@ -39,27 +48,9 @@ export function MarketplacePagination() {
         paddingBlock="cozy"
         paddingInline="comfortable"
       >
-        <Stack direction="horizontal" align="center" gap="comfortable">
-          <Text as="span" size="caption" color="subtle" tabular>
-            {first}–{last} of {total}
-          </Text>
-          <Stack direction="horizontal" align="center" gap="snug">
-            <Text as="span" size="caption" color="subtle">
-              Rows
-            </Text>
-            <NativeSelect
-              value={String(pageSize)}
-              onChange={(event) => setPageSize(Number(event.target.value))}
-              aria-label="Results per page"
-            >
-              {PAGE_SIZES.map((size) => (
-                <option key={size} value={size}>
-                  {size}
-                </option>
-              ))}
-            </NativeSelect>
-          </Stack>
-        </Stack>
+        <Text as="span" size="caption" color="subtle" tabular>
+          {first}–{last} of {total}
+        </Text>
 
         <Stack direction="horizontal" align="center" gap="snug" wrap maxWidth="full">
           <Button

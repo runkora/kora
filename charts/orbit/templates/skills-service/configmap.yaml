@@ -4,6 +4,15 @@ kind: ConfigMap
 metadata:
   name: orbit-skill-marketplace-sources
   namespace: {{ include "orbit.systemNamespace" . }}
+{{- /*
+The chart owns skills-mapping.yaml only when skillsMapping lists tenants. By
+default it creates an empty ConfigMap, so the mount exists, and leaves the key to
+the operator, which renders it from SkillMarketplaceSource resources. A key that
+Helm and the operator both write makes helm upgrade fail with a field conflict,
+or reset the operator's data.
+*/}}
+{{- if $mapping.tenants }}
 data:
   skills-mapping.yaml: |
     {{- dict "skillsMapping" $mapping | toYaml | nindent 4 }}
+{{- end }}
