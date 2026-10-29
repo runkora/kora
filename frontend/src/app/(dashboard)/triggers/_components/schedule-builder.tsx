@@ -9,14 +9,10 @@
  * through `useScheduleDraft`. Whatever changes here changes on both.
  */
 
-import { useId, useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import {
   Button,
-  Callout,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  FormField,
+  Card,
   Grid,
   Icon,
   Input,
@@ -24,30 +20,33 @@ import {
   RadioGroup,
   SectionLabel,
   SegmentedControl,
+  Separator,
   Stack,
   Text,
-  ToggleRow,
 } from '@runkora/hades';
 import {
+  FALLBACK_TIME,
   FREQS,
-  INTERVAL_PRESETS,
-  MINUTE_PRESETS,
   WEEKDAYS,
+  builderPatchFor,
+  cronBreakdown,
+  monthDayNote,
   cronFor,
+  fitsBuilder,
   humanFor,
-  isValidCron,
+  minuteMarks,
   resolveBrowserZone,
   specFromCron,
   timezoneOptions,
   toggleWeekday,
+  utcLabel,
 } from './trigger-wizard/cron';
 import type { CronSpec, Frequency } from './trigger-wizard/cron';
+import { PlainToggleRow } from './plain-toggle-row';
 import { useSchedulePreview } from './trigger-wizard/use-schedule-preview';
 
 /** Everything the builder edits. The wizard's state carries these fields, so it passes as is. */
 export interface ScheduleDraft extends CronSpec {
-  /** The raw cron expression is open under "Advanced". */
-  advancedOpen: boolean;
   timezone: string;
   catchUp: boolean;
 }
@@ -82,7 +81,6 @@ export function draftFromStored(stored: StoredSchedule): ScheduleDraft {
     dom: '1',
     ...spec,
     customCron: stored.cronExpression,
-    advancedOpen: false,
     timezone: stored.timezone,
     catchUp: stored.catchUp,
   };
@@ -122,12 +120,41 @@ export function useScheduleDraft(
   }
 }
 
-/** Cities are what a person recognises; the IANA name is what the platform stores. */
-const ZONE_CITY: Record<string, string> = {
-  UTC: 'Coordinated Universal Time',
-  'Europe/London': 'London · GMT/BST',
-  'Australia/Sydney': 'Sydney · AEST/AEDT',
+/** What each zone's card says under its name. */
+const ZONE_NOTE: Record<string, string> = {
+  UTC: 'No daylight saving',
+  'Europe/London': 'GMT / BST',
+  'Australia/Sydney': 'AEST / AEDT',
 };
+
+const MODES = { builder: 'builder', custom: 'custom' } as const;
+
+/** A short bold title over a line of help, above whatever it labels. */
+function Labelled({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Stack gap="snug">
+      <Stack gap="tight">
+        <Text as="span" size="supporting" weight="heavy">
+          {title}
+        </Text>
+        {hint && (
+          <Text size="caption" color="subtle">
+            {hint}
+          </Text>
+        )}
+      </Stack>
+      {children}
+    </Stack>
+  );
+}
 
 interface ScheduleBuilderProps {
   value: ScheduleDraft;
@@ -136,6 +163,90 @@ interface ScheduleBuilderProps {
   zones?: string[];
   /** Shows the schedule as read-only text, for a caller who may not change it. */
   disabled?: boolean;
+}
+
+/** When the schedule fires in words, then the scheduler's next fires beneath. */
+function Summary({
+  sentence,
+  zone,
+  fires,
+  note,
+  cron,
+}: {
+  sentence: string;
+  zone: string;
+  fires: { at: string; label: string }[];
+  /** Replaces the sentence when there is nothing sound to describe. */
+  note?: string;
+  /** The expression the builder produced, shown at the trailing edge of the sentence's line. */
+  cron?: string;
+}) {
+  const next = fires.slice(0, 3);
+  return (
+    <Stack gap="snug">
+      <SectionLabel>Summary</SectionLabel>
+      <Card subtle border="none">
+        <Stack gap="comfortable" padding="cozy">
+          <Stack direction="horizontal" gap="cozy" align="start">
+            <Icon name="clock" size="sm" color="muted" label="" shrink />
+            <Text size="supporting" color={note ? 'muted' : 'foreground'}>
+              {note ?? (
+                <>
+                  <Text as="span" size="supporting" weight="heavy">
+                    {sentence}
+                  </Text>
+                  <Text as="span" size="supporting" color="muted">
+                    {` · ${zone}`}
+                  </Text>
+                </>
+              )}
+            </Text>
+            {cron !== undefined && note === undefined && (
+              <Stack grow justify="end" direction="horizontal">
+                <Text as="span" mono size="supporting" color="muted">
+                  {cron}
+                </Text>
+              </Stack>
+            )}
+          </Stack>
+          {/* Only the scheduler can say when a run lands, so no fires are shown when it did not answer. */}
+          {next.length > 0 && (
+            <Stack gap="snug" paddingInline="comfortable">
+              <Text size="caption" weight="strong" transform="uppercase" color="subtle">
+                {`Next ${next.length} ${next.length === 1 ? 'run' : 'runs'}`}
+              </Text>
+              <Stack gap="none">
+                {next.map((fire, i) => {
+                  const utc = zone === 'UTC' ? null : utcLabel(fire.at);
+                  return (
+                    <Stack key={fire.at} gap="none">
+                      {i > 0 && <Separator />}
+                      <Stack
+                        direction="horizontal"
+                        justify="between"
+                        align="center"
+                        gap="comfortable"
+                        paddingBlock="snug"
+                      >
+                        <Text as="span" size="supporting">
+                          {fire.label}
+                        </Text>
+                        {utc && (
+                          <Text as="span" size="caption" color="subtle">
+                            {utc}
+                          </Text>
+                        )}
+                      </Stack>
+                    </Stack>
+                  );
+                })}
+              </Stack>
+            </Stack>
+          )}
+        </Stack>
+      </Card>
+    </Stack>
+  );
 }
 
 export function ScheduleBuilder({
@@ -149,51 +260,25 @@ export function ScheduleBuilder({
   const zoneOptions = zones ?? timezoneOptions(browserZone);
   const derivedCron = cronFor(state);
   const human = humanFor(state);
+  const custom = state.freq === 'custom';
+  const breakdown = cronBreakdown(derivedCron);
   // The exact times come from the scheduler, not from this builder: two cron
   // interpretations that could disagree is exactly the bug worth avoiding.
-  const preview = useSchedulePreview(derivedCron, state.timezone);
+  const preview = useSchedulePreview(derivedCron, state.timezone, breakdown.problem === undefined);
   const showTime = state.freq === 'daily' || state.freq === 'weekly' || state.freq === 'monthly';
 
   const summary = (
-    <Callout variant="info">
-      <Stack direction="horizontal" gap="cozy" align="start">
-        <Icon name="clock" size="sm" color="accent" label="" shrink />
-        <Stack gap="tight" minWidth="none">
-          {/* The scheduler's own answer leads when there is one. The builder's
-              sentence describes what was configured; only the platform can say
-              when it will actually fire, so it never gets the headline. */}
-          {preview.fires.length > 0 ? (
-            <>
-              <Text size="supporting" weight="heavy">
-                Next: {preview.fires[0]?.label}
-              </Text>
-              <Text size="caption" color="muted">
-                {human} · {state.timezone}
-              </Text>
-            </>
-          ) : (
-            <>
-              <Text size="supporting" weight="heavy">
-                {human}
-              </Text>
-              <Text size="caption" color="muted">
-                {state.timezone}
-              </Text>
-            </>
-          )}
-
-          {preview.fires.length > 1 && (
-            <Stack gap="none" paddingTop="tight">
-              {preview.fires.slice(1, 4).map((fire) => (
-                <Text key={fire.at} size="micro" color="subtle">
-                  then {fire.label}
-                </Text>
-              ))}
-            </Stack>
-          )}
-        </Stack>
-      </Stack>
-    </Callout>
+    <Summary
+      sentence={human}
+      zone={state.timezone}
+      fires={preview.fires}
+      cron={derivedCron}
+      note={
+        breakdown.problem !== undefined
+          ? 'Fix the expression above to see when this runs.'
+          : undefined
+      }
+    />
   );
 
   if (disabled) {
@@ -214,212 +299,259 @@ export function ScheduleBuilder({
     );
   }
 
+  // An expression typed by hand that the builder cannot show: going back replaces it.
+  const unshowable = custom && state.customCron.trim() !== '' && !fitsBuilder(state.customCron);
+
+  const chooseMode = (mode: string) => {
+    if (mode === MODES.custom) {
+      if (!custom) patch({ freq: 'custom', customCron: derivedCron });
+      return;
+    }
+    if (custom) patch(builderPatchFor(state.customCron, state));
+  };
+
+  const interval = parseInt(state.interval, 10);
+
   return (
     <Stack gap="relaxed">
-      <Stack gap="snug">
-        <SectionLabel>How often</SectionLabel>
-        <SegmentedControl
-          aria-label="Frequency"
-          value={state.freq}
-          onChange={(v) => patch({ freq: v as Frequency })}
-          options={FREQS.map((f) => ({ value: f.id, label: f.label }))}
-        />
+      <Labelled title="Set the schedule with">
+        <RadioGroup
+          value={custom ? MODES.custom : MODES.builder}
+          onValueChange={chooseMode}
+          aria-label="Set the schedule with"
+        >
+          <Grid cols={2} gap="cozy">
+            <RadioCard
+              value={MODES.builder}
+              selected={!custom}
+              onSelect={chooseMode}
+              title="Cron builder"
+              description={
+                unshowable
+                  ? `This expression can't be made with the cron builder. Switching replaces it with a daily run at ${FALLBACK_TIME}.`
+                  : 'Choose how often and when. Covers most schedules.'
+              }
+              transparent
+            />
+            <RadioCard
+              value={MODES.custom}
+              selected={custom}
+              onSelect={chooseMode}
+              title="Custom expression"
+              description="Write your own for full control, using standard cron syntax."
+              transparent
+            />
+          </Grid>
+        </RadioGroup>
+      </Labelled>
+
+      <Stack direction="horizontal" gap="cozy">
+        <Separator orientation="vertical" />
+        <Stack grow minWidth="none" gap="comfortable">
+          {custom ? (
+            <Labelled
+              title="Expression"
+              hint="Five fields separated by spaces. Each part is explained below as you type."
+            >
+              <Stack gap="snug">
+                <Input
+                  mono
+                  aria-label="Cron expression"
+                  value={state.customCron}
+                  onChange={(e) => patch({ customCron: e.target.value, freq: 'custom' })}
+                  placeholder="0 2 * * *"
+                  filled={breakdown.problem === undefined ? undefined : 'danger'}
+                />
+                {breakdown.problem !== undefined && (
+                  <Stack direction="horizontal" gap="snug" align="center">
+                    <Icon name="circle-alert" size="xs" color="status-error" label="" shrink />
+                    <Text size="caption" color="status-error">
+                      {breakdown.problem}
+                    </Text>
+                  </Stack>
+                )}
+                <Grid cols={5} gap="snug">
+                  {breakdown.fields.map((field) => (
+                    <Card key={field.label} subtle border="none">
+                      <Stack gap="none" align="center" padding="snug" textAlign="center">
+                        <Text
+                          as="span"
+                          mono
+                          weight="heavy"
+                          color={field.problem ? 'status-error' : 'foreground'}
+                        >
+                          {field.value || '·'}
+                        </Text>
+                        <Text
+                          as="span"
+                          size="caption"
+                          color={field.problem ? 'status-error' : 'subtle'}
+                        >
+                          {field.label}
+                        </Text>
+                      </Stack>
+                    </Card>
+                  ))}
+                </Grid>
+              </Stack>
+            </Labelled>
+          ) : (
+            <>
+              <Labelled title="Repeats">
+                <SegmentedControl
+                  aria-label="Frequency"
+                  value={state.freq}
+                  onChange={(v) => patch({ freq: v as Frequency })}
+                  options={FREQS.map((f) => ({ value: f.id, label: f.label }))}
+                />
+              </Labelled>
+
+              {state.freq === 'minutes' && (
+                <Labelled
+                  title="Every"
+                  hint={`Counted from the top of each hour: runs at ${minuteMarks(
+                    interval > 0 ? interval : 15,
+                  )}.`}
+                >
+                  <Stack maxWidth="form-field">
+                    <Input
+                      id={`${id}-interval`}
+                      aria-label="Run every"
+                      mono
+                      inputMode="numeric"
+                      value={state.interval}
+                      onChange={(e) => patch({ interval: e.target.value })}
+                      endAdornment={
+                        <Text as="span" size="caption" color="subtle">
+                          minutes
+                        </Text>
+                      }
+                    />
+                  </Stack>
+                </Labelled>
+              )}
+
+              {state.freq === 'hourly' && (
+                <Labelled
+                  title="At minute"
+                  hint={`Runs at 00:${state.atMinute.padStart(2, '0')}, 01:${state.atMinute.padStart(2, '0')}, 02:${state.atMinute.padStart(2, '0')} and so on.`}
+                >
+                  <Stack maxWidth="form-field">
+                    <Input
+                      id={`${id}-at-minute`}
+                      aria-label="Minutes past the hour"
+                      mono
+                      inputMode="numeric"
+                      value={state.atMinute}
+                      onChange={(e) => patch({ atMinute: e.target.value })}
+                      endAdornment={
+                        <Text as="span" size="caption" color="subtle">
+                          past the hour
+                        </Text>
+                      }
+                    />
+                  </Stack>
+                </Labelled>
+              )}
+
+              {state.freq === 'weekly' && (
+                <Labelled title="On" hint="Pick one or more days.">
+                  <Stack direction="horizontal" gap="snug" wrap>
+                    {WEEKDAYS.map((d) => {
+                      const on = state.weekdays.includes(d.n);
+                      return (
+                        <Button
+                          key={d.n}
+                          size="sm"
+                          variant={on ? 'accent-outline' : 'outline-muted'}
+                          aria-pressed={on}
+                          onClick={() => patch({ weekdays: toggleWeekday(state.weekdays, d.n) })}
+                        >
+                          {d.s}
+                        </Button>
+                      );
+                    })}
+                  </Stack>
+                </Labelled>
+              )}
+
+              {state.freq === 'monthly' && (
+                <Labelled title="On day" hint={monthDayNote(state.dom) ?? 'Day of the month.'}>
+                  <Stack maxWidth="form-field">
+                    <Input
+                      id={`${id}-dom`}
+                      aria-label="Day of month"
+                      mono
+                      inputMode="numeric"
+                      value={state.dom}
+                      onChange={(e) => patch({ dom: e.target.value })}
+                      endAdornment={
+                        <Text as="span" size="caption" color="subtle">
+                          of the month
+                        </Text>
+                      }
+                    />
+                  </Stack>
+                </Labelled>
+              )}
+
+              {showTime && (
+                <Labelled title="At" hint="24-hour clock.">
+                  <Stack maxWidth="form-field-sm">
+                    <Input
+                      id={`${id}-time`}
+                      aria-label="At"
+                      mono
+                      type="time"
+                      value={state.time}
+                      onChange={(e) => patch({ time: e.target.value })}
+                    />
+                  </Stack>
+                </Labelled>
+              )}
+            </>
+          )}
+        </Stack>
       </Stack>
 
-      {state.freq === 'minutes' && (
-        <Stack direction="horizontal" gap="comfortable" align="end">
-          <Stack grow minWidth="form-field">
-            <FormField label="Run every" id={`${id}-interval`} hint="Minutes between fires.">
-              <Input
-                id={`${id}-interval`}
-                mono
-                inputMode="numeric"
-                value={state.interval}
-                onChange={(e) => patch({ interval: e.target.value })}
-                endAdornment={
-                  <Text as="span" size="caption" color="subtle">
-                    minutes
-                  </Text>
-                }
-              />
-            </FormField>
-          </Stack>
-          <Stack direction="horizontal" gap="snug" shrink={false}>
-            {INTERVAL_PRESETS.map((v) => (
-              <Button
-                key={v}
-                size="sm"
-                variant={state.interval === v ? 'accent-outline' : 'outline-muted'}
-                aria-pressed={state.interval === v}
-                onClick={() => patch({ interval: v })}
-              >
-                {v}m
-              </Button>
-            ))}
-          </Stack>
-        </Stack>
-      )}
-
-      {state.freq === 'hourly' && (
-        <Stack direction="horizontal" gap="comfortable" align="end">
-          <Stack grow minWidth="form-field">
-            <FormField label="Minutes past the hour" id={`${id}-at-minute`}>
-              <Input
-                id={`${id}-at-minute`}
-                mono
-                inputMode="numeric"
-                value={state.atMinute}
-                onChange={(e) => patch({ atMinute: e.target.value })}
-              />
-            </FormField>
-          </Stack>
-          <Stack direction="horizontal" gap="snug" shrink={false}>
-            {MINUTE_PRESETS.map((v) => (
-              <Button
-                key={v}
-                size="sm"
-                variant={state.atMinute === v ? 'accent-outline' : 'outline-muted'}
-                aria-pressed={state.atMinute === v}
-                onClick={() => patch({ atMinute: v })}
-              >
-                {`:${v.padStart(2, '0')}`}
-              </Button>
-            ))}
-          </Stack>
-        </Stack>
-      )}
-
-      {state.freq === 'weekly' && (
-        <Stack gap="snug">
-          <SectionLabel>On these days</SectionLabel>
-          <Stack direction="horizontal" gap="snug" wrap>
-            {WEEKDAYS.map((d) => {
-              const on = state.weekdays.includes(d.n);
-              return (
-                <Button
-                  key={d.n}
-                  size="sm"
-                  variant={on ? 'accent-outline' : 'outline-muted'}
-                  aria-pressed={on}
-                  onClick={() => patch({ weekdays: toggleWeekday(state.weekdays, d.n) })}
-                >
-                  {d.s}
-                </Button>
-              );
-            })}
-          </Stack>
-        </Stack>
-      )}
-
-      {(state.freq === 'monthly' || showTime) && (
-        <Stack direction="horizontal" gap="comfortable">
-          {state.freq === 'monthly' && (
-            <Stack grow minWidth="form-field-sm">
-              <FormField label="Day of month" id={`${id}-dom`}>
-                <Input
-                  id={`${id}-dom`}
-                  mono
-                  inputMode="numeric"
-                  value={state.dom}
-                  onChange={(e) => patch({ dom: e.target.value })}
-                />
-              </FormField>
-            </Stack>
-          )}
-          {showTime && (
-            <Stack grow minWidth="form-field-sm">
-              <FormField label="At" id={`${id}-time`}>
-                <Input
-                  id={`${id}-time`}
-                  mono
-                  type="time"
-                  value={state.time}
-                  onChange={(e) => patch({ time: e.target.value })}
-                />
-              </FormField>
-            </Stack>
-          )}
-        </Stack>
-      )}
-
-      {summary}
-
-      <Collapsible open={state.advancedOpen} onOpenChange={(open) => patch({ advancedOpen: open })}>
-        <CollapsibleTrigger asChild>
-          <Button variant="outline" size="sm" fullWidth>
-            <Stack direction="horizontal" align="center" gap="snug" grow>
-              <Text as="span" size="caption" color="muted" weight="strong">
-                Advanced: cron expression
-              </Text>
-              <Stack grow />
-              <Text as="span" size="caption" mono color="accent">
-                {derivedCron}
-              </Text>
-              <Icon
-                name="chevron-down"
-                size="xs"
-                color="subtle"
-                rotate={state.advancedOpen ? 180 : 0}
-              />
-            </Stack>
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <Stack gap="snug" paddingTop="snug">
-            <Input
-              mono
-              aria-label="Cron expression"
-              value={state.freq === 'custom' ? state.customCron : derivedCron}
-              onChange={(e) => patch({ customCron: e.target.value, freq: 'custom' })}
-              placeholder="0 2 * * *"
-              filled={isValidCron(derivedCron) ? undefined : 'danger'}
-            />
-            <Stack direction="horizontal" align="center" gap="snug">
-              <Text size="caption" color="subtle">
-                Editing this switches the schedule to a custom expression.
-              </Text>
-              <Stack grow />
-              {state.freq === 'custom' && (
-                <Button size="xs" variant="secondary" onClick={() => patch({ freq: 'daily' })}>
-                  Use builder
-                </Button>
-              )}
-            </Stack>
-          </Stack>
-        </CollapsibleContent>
-      </Collapsible>
-
-      <Stack gap="snug">
-        <SectionLabel>Timezone</SectionLabel>
+      <Labelled
+        title="Timezone"
+        hint="Times above are read in this timezone, including daylight saving changes."
+      >
         <RadioGroup
           value={state.timezone}
           onValueChange={(v) => patch({ timezone: v })}
           aria-label="Timezone"
         >
-          <Grid cols={2} gap="cozy">
+          <Grid cols={3} gap="cozy">
             {zoneOptions.map((z) => (
               <RadioCard
                 key={z}
                 value={z}
                 selected={state.timezone === z}
                 onSelect={(v) => patch({ timezone: v })}
-                icon="globe"
                 title={z}
                 description={
-                  ZONE_CITY[z] ?? (z === browserZone ? 'Your browser timezone' : 'Saved timezone')
+                  ZONE_NOTE[z] ?? (z === browserZone ? 'Your browser timezone' : 'Saved timezone')
                 }
+                transparent
               />
             ))}
           </Grid>
         </RadioGroup>
-      </Stack>
+      </Labelled>
 
-      <ToggleRow
-        label="Catch up on missed runs"
-        description="Replay ticks skipped while the platform was unavailable. Off by default: running the work twice is usually worse than skipping it."
-        checked={state.catchUp}
-        onChange={(next) => patch({ catchUp: next })}
-      />
+      {summary}
+
+      <Stack gap="snug">
+        <SectionLabel>Missed runs</SectionLabel>
+        <PlainToggleRow
+          label="Catch up on missed runs"
+          description="Replay ticks skipped while the platform was unavailable. Off by default: running the work twice is usually worse than skipping it."
+          checked={state.catchUp}
+          onChange={(next) => patch({ catchUp: next })}
+        />
+      </Stack>
     </Stack>
   );
 }

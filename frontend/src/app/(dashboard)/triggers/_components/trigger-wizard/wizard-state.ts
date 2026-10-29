@@ -104,7 +104,6 @@ export function baseState(sources: readonly { id: string }[]): WizardState {
     weekdays: [1],
     dom: '1',
     customCron: '0 2 * * *',
-    advancedOpen: false,
     timezone: browserZone && zones.includes(browserZone) ? browserZone : 'UTC',
     catchUp: false,
 

@@ -190,6 +190,39 @@ export const ScheduledAgentConfigurationSchedule: Story = {
   play: openTrigger('scheduled-agent', 'Configuration', 'Schedule'),
 };
 
+/** Weekly: day buttons and a time, with the timezone and the scheduler's next runs in the summary. */
+export const ScheduledWeeklyConfigurationSchedule: Story = {
+  play: openTrigger('scheduled-weekly', 'Configuration', 'Schedule'),
+};
+
+/** Minutes: the interval, with the minutes past the hour it lands on. */
+export const ScheduledMinutesConfigurationSchedule: Story = {
+  play: openTrigger('scheduled-minutes', 'Configuration', 'Schedule'),
+};
+
+/** Monthly: a day of the month and a time. */
+export const ScheduledMonthlyConfigurationSchedule: Story = {
+  play: openTrigger('scheduled-monthly', 'Configuration', 'Schedule'),
+};
+
+/** A saved expression the builder cannot show opens on Custom expression, with its parts spelled out; the Cron builder card warns that going back replaces it. */
+export const ScheduledCustomConfigurationSchedule: Story = {
+  play: openTrigger('scheduled-custom', 'Configuration', 'Schedule'),
+};
+
+/** An out-of-range field is marked in the parts and named under the input; Save is blocked only for a malformed expression. */
+export const ScheduledCustomInvalidConfigurationSchedule: Story = {
+  play: openTrigger('scheduled-custom-invalid', 'Configuration', 'Schedule'),
+};
+
+/** Daily, switched to Hourly to see the other frequency's field. */
+export const ScheduledAgentConfigurationScheduleHourly: Story = {
+  play: async (ctx) => {
+    await openTrigger('scheduled-agent', 'Configuration', 'Schedule')?.(ctx);
+    await userEvent.click(await body().findByRole('radio', { name: 'Hourly' }));
+  },
+};
+
 /** No coalescing: that only exists for deliveries that arrive from outside. */
 export const ScheduledAgentConfigurationDelivery: Story = {
   play: openTrigger('scheduled-agent', 'Configuration', 'Delivery'),

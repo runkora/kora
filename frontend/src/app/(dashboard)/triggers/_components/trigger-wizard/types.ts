@@ -250,7 +250,6 @@ export interface WizardState {
   weekdays: number[];
   dom: string;
   customCron: string;
-  advancedOpen: boolean;
   timezone: string;
   catchUp: boolean;
 

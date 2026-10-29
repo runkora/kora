@@ -1080,6 +1080,33 @@ const SCHEDULED_AGENT = trigger({
   overflow: 'replace',
 });
 
+/** Scheduled triggers that put each shape of the Schedule screen on show. */
+function scheduledVariant(name: string, cronExpression: string, timezone: string) {
+  return trigger({
+    id: `trg_perm_${name.replace(/-/g, '_')}`,
+    name,
+    kind: 'scheduled',
+    agentSlug: 'coder',
+    scheduleConfig: { cronExpression, timezone, catchUp: false },
+    promptTemplate: 'Run the weekly security sweep and post the findings.',
+    maxParallel: 1,
+    overflow: 'replace',
+  });
+}
+const SCHEDULED_WEEKLY = scheduledVariant('scheduled-weekly', '0 6 * * 1', 'Australia/Sydney');
+const SCHEDULED_MINUTES = scheduledVariant('scheduled-minutes', '*/15 * * * *', 'UTC');
+const SCHEDULED_MONTHLY = scheduledVariant('scheduled-monthly', '0 6 31 * *', 'Australia/Sydney');
+const SCHEDULED_CUSTOM = scheduledVariant(
+  'scheduled-custom',
+  '*/30 9-17 * * 1-5',
+  'Australia/Sydney',
+);
+const SCHEDULED_CUSTOM_INVALID = scheduledVariant(
+  'scheduled-custom-invalid',
+  '0 25 * * 1',
+  'Australia/Sydney',
+);
+
 /** A trigger a person fires by hand, with a form of three inputs. */
 const MANUAL_AGENT = trigger({
   id: 'trg_perm_manual_agent',
@@ -1140,6 +1167,11 @@ export const PERMUTATION_TRIGGERS: TriggerRow[] = [
   CHAT_AGENT,
   CHAT_ROUTED,
   SCHEDULED_AGENT,
+  SCHEDULED_WEEKLY,
+  SCHEDULED_MINUTES,
+  SCHEDULED_MONTHLY,
+  SCHEDULED_CUSTOM,
+  SCHEDULED_CUSTOM_INVALID,
   MANUAL_AGENT,
   SCHEDULED_AGENT_AUTO_PAUSED,
   WEBHOOK_AGENT_SOURCE_DELETED,

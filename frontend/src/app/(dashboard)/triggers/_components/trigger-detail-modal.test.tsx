@@ -444,10 +444,22 @@ describe('schedule editing', () => {
   it('blocks an expression that is not five fields', async () => {
     renderDetailModal(scheduled);
     await openSection('Schedule');
-    fireEvent.click(screen.getByRole('button', { name: /Advanced: cron expression/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Custom expression/ }));
     fireEvent.change(screen.getByLabelText('Cron expression'), { target: { value: '0 2 * *' } });
 
-    expect(screen.getByText('Needs a five-field cron expression')).toBeTruthy();
+    expect(screen.getAllByText('Needs five fields separated by spaces.').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Save schedule' }).hasAttribute('disabled')).toBe(
+      true,
+    );
+  });
+
+  it('blocks an expression with a field out of range', async () => {
+    renderDetailModal(scheduled);
+    await openSection('Schedule');
+    fireEvent.click(screen.getByRole('radio', { name: /Custom expression/ }));
+    fireEvent.change(screen.getByLabelText('Cron expression'), { target: { value: '0 25 * * *' } });
+
+    expect(screen.getAllByText('Hour must be between 0 and 23.').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Save schedule' }).hasAttribute('disabled')).toBe(
       true,
     );
@@ -458,7 +470,6 @@ describe('schedule editing', () => {
     renderDetailModal(scheduled, onEdit);
     await openSection('Schedule');
     fireEvent.click(screen.getByText('Minutes'));
-    fireEvent.click(screen.getByRole('button', { name: '15m' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
 
     expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), {

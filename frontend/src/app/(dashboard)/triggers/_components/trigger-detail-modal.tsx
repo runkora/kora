@@ -80,7 +80,12 @@ import {
   splitIds,
   validateFilters,
 } from './trigger-wizard/wizard-state';
-import { isValidCron, resolveBrowserZone, timezoneOptions } from './trigger-wizard/cron';
+import {
+  cronBreakdown,
+  describeCron,
+  resolveBrowserZone,
+  timezoneOptions,
+} from './trigger-wizard/cron';
 import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
 import { ManagedSectionNotice, managedFooterMessage } from './managed-section-notice';
 import { useEditableSection } from './use-editable-section';
@@ -568,8 +573,7 @@ function TriggerDetailModalBody({
   const schedule = useEditableSection(storedSchedule, editKey, saveSchedule, {
     isEqual: (a, b) =>
       a.cronExpression === b.cronExpression && a.timezone === b.timezone && a.catchUp === b.catchUp,
-    validate: (value) =>
-      isValidCron(value.cronExpression) ? undefined : 'Needs a five-field cron expression',
+    validate: (value) => cronBreakdown(value.cronExpression).problem,
   });
   const [scheduleDraft, patchSchedule] = useScheduleDraft(schedule.value, schedule.setValue);
 
@@ -634,7 +638,7 @@ function TriggerDetailModalBody({
     trigger.kind === 'webhook'
       ? `${kind === 'chat' ? 'Chat command' : 'Webhook'} · ${source?.name ?? (trigger.sourceMissing ? 'no source' : trigger.sourceId)} · ${firesOn}`
       : trigger.kind === 'scheduled'
-        ? `Schedule · ${trigger.scheduleConfig?.cronExpression ?? ''}`
+        ? `Schedule · ${describeCron(trigger.scheduleConfig?.cronExpression ?? '')}`
         : 'Manual · run on demand';
 
   const managedMessage = managedFooterMessage(trigger.declared, trigger.repository);
@@ -683,7 +687,7 @@ function TriggerDetailModalBody({
             dirty: schedule.dirty,
             title: 'Schedule',
             sub: 'When it fires',
-            description: 'The cron expression and timezone this trigger fires on.',
+            description: 'When this trigger starts a run on its own.',
           },
         ]
       : []),
