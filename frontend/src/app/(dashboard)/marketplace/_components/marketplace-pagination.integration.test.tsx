@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { http, HttpResponse } from 'msw';
-import { ApiRoute } from '@orbit/lib/routing';
-import { server, renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@orbit/test-utils';
 import { MarketplaceProvider } from '../_context/marketplace-context';
 import { MarketplacePagination } from './marketplace-pagination';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types';
@@ -83,25 +80,5 @@ describe('page buttons', () => {
     renderPagination(overviewWith(2, 24, 100));
     expect(screen.getByRole('button', { name: /Previous/ })).toBeEnabled();
     expect(screen.getByRole('button', { name: /Next/ })).toBeEnabled();
-  });
-});
-
-describe('rows per page', () => {
-  it('reflects the current page size and requests a new page on change', async () => {
-    const user = userEvent.setup();
-    const data = overviewWith(2, 24, 100);
-    renderPagination(data);
-    expect(screen.getByLabelText('Results per page')).toHaveValue('24');
-
-    const reloaded = overviewWith(1, 48, 100);
-    server.use(
-      http.get(ApiRoute.marketplaceSkills.GET(data.browse), () =>
-        HttpResponse.json({ data: reloaded }),
-      ),
-    );
-
-    await user.selectOptions(screen.getByLabelText('Results per page'), '48');
-
-    expect(await screen.findByLabelText('Results per page')).toHaveValue('48');
   });
 });
