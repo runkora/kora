@@ -170,7 +170,7 @@ func initController(
 	// be registered has turned its own observability into an outage — but it is
 	// loud, because unmeasured is not the state anyone signed up for.
 	// RegisterDomain is the shared helper every service's main.go uses for this.
-	metrics := platformmetrics.RegisterDomain(ctx, logger, "orbit-triggers", func() (*triggers.Metrics, error) {
+	metrics := platformmetrics.RegisterDomain(ctx, logger, "kora-triggers", func() (*triggers.Metrics, error) {
 		return triggers.NewMetrics(meter, repo, logger)
 	})
 

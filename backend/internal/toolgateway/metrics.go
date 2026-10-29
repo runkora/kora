@@ -50,7 +50,7 @@ func NewMetrics(meter metric.Meter, snapshots snapshotReader) (*Metrics, error) 
 
 	var err error
 	if m.invocations, err = meter.Int64Counter(
-		"orbit.tool_gateway.invocations",
+		"kora.tool_gateway.invocations",
 		metric.WithDescription("MCP tools/call requests, by server, policy decision, and tenant"),
 		metric.WithUnit("{invocation}"),
 	); err != nil {
@@ -58,7 +58,7 @@ func NewMetrics(meter metric.Meter, snapshots snapshotReader) (*Metrics, error) 
 	}
 
 	if m.invocationDuration, err = meter.Float64Histogram(
-		"orbit.tool_gateway.invocation_duration",
+		"kora.tool_gateway.invocation_duration",
 		metric.WithDescription("Wall time of a tools/call request: for an allowed call, receipt through the completed upstream round trip; for a denied or errored call, receipt through the policy decision"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(buckets.Default...),
@@ -71,7 +71,7 @@ func NewMetrics(meter metric.Meter, snapshots snapshotReader) (*Metrics, error) 
 	}
 
 	serversGauge, err := meter.Int64ObservableGauge(
-		"orbit.tool_gateway.servers",
+		"kora.tool_gateway.servers",
 		metric.WithDescription("Mounted MCP servers by introspection state"),
 		metric.WithUnit("{server}"),
 	)

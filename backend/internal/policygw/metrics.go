@@ -34,7 +34,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 
 	var err error
 	if m.checks, err = meter.Int64Counter(
-		"orbit.policygw.checks",
+		"kora.policy_gateway.checks",
 		metric.WithDescription("Policy checks evaluated, by allow/deny and resource type"),
 		metric.WithUnit("{check}"),
 	); err != nil {
@@ -42,7 +42,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 
 	if m.checkDuration, err = meter.Float64Histogram(
-		"orbit.policygw.check_duration",
+		"kora.policy_gateway.check_duration",
 		metric.WithDescription("Wall time of one policy check evaluation"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(buckets.Fast...),
@@ -51,7 +51,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 
 	if m.denies, err = meter.Int64Counter(
-		"orbit.policygw.denies",
+		"kora.policy_gateway.denies",
 		metric.WithDescription("Policy checks denied, by classified reason"),
 		metric.WithUnit("{deny}"),
 	); err != nil {
@@ -92,7 +92,7 @@ func (m *Metrics) recordCheck(ctx context.Context, allow bool, resourceType, ten
 // decision at all: the evaluator itself failed (a broken bundle, an OPA
 // evaluation error, etc). Without this, an evaluator error returns before
 // recordCheck is ever reached, so a broken bundle or a run of OPA failures
-// would be invisible on orbit.policygw.checks. "error" widens the allow
+// would be invisible on kora.policy_gateway.checks. "error" widens the allow
 // label — normally "true"/"false" — to a third sentinel value, since an
 // evaluator error is neither an allow nor a deny decision.
 func (m *Metrics) recordCheckError(ctx context.Context, resourceType, tenantID string, took time.Duration) {
@@ -114,7 +114,7 @@ func (m *Metrics) addCheck(ctx context.Context, allow, resourceType, tenantID st
 
 // Known resource types in use across the platform today: the ResourceType
 // values declared in each service's ScopeDeclaration list (cmd/*/main.go —
-// inference-gateway, orbit-agents, orbit-triggers, policy-service),
+// inference-gateway, kora-agents, kora-triggers, policy-service),
 // internal/toolgateway's MCP scopes, and internal/egressgw, which calls
 // Check with ResourceType: "egress" (service.go) and also declares a
 // "connection" scope (doc.go's resourceType constant). This is the closed,

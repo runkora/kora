@@ -54,7 +54,7 @@ func NewMetrics(meter metric.Meter, reader snapshotReader, logger logging.Logger
 	m := &Metrics{}
 
 	grantsGauge, err := meter.Int64ObservableGauge(
-		"orbit.policyservice.grants",
+		"kora.policy_service.grants",
 		metric.WithDescription("Grants across all tenants, by principal type"),
 		metric.WithUnit("{grant}"),
 	)
@@ -63,7 +63,7 @@ func NewMetrics(meter metric.Meter, reader snapshotReader, logger logging.Logger
 	}
 
 	rolesGauge, err := meter.Int64ObservableGauge(
-		"orbit.policyservice.roles",
+		"kora.policy_service.roles",
 		metric.WithDescription("Roles across all tenants, by kind (reserved or custom)"),
 		metric.WithUnit("{role}"),
 	)
@@ -72,7 +72,7 @@ func NewMetrics(meter metric.Meter, reader snapshotReader, logger logging.Logger
 	}
 
 	staleBundles, err := meter.Int64ObservableGauge(
-		"orbit.policyservice.bundles_stale",
+		"kora.policy_service.bundles_stale",
 		metric.WithDescription("Count of known tenants whose compiled OPA bundle is stale"),
 		metric.WithUnit("{tenant}"),
 	)

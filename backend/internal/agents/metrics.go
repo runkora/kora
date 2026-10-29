@@ -17,7 +17,7 @@ import (
 // its own. Mirrors identity's activeSessionsQueryTimeout.
 const metricsQueryTimeout = 5 * time.Second
 
-// Metrics is the orbit-agents feature's instrument set
+// Metrics is the kora-agents feature's instrument set
 // (docs/adr/2026-10-07-domain-metrics-instrumentation.md).
 //
 // It is injected, never global: a package-level meter would make the feature
@@ -71,7 +71,7 @@ func NewMetrics(meter metric.Meter, runs runStateReader, sessions sessionCounter
 
 	var err error
 	if m.runTransitions, err = meter.Int64Counter(
-		"orbit.agents.run_transitions",
+		"kora.agents.run_transitions",
 		metric.WithDescription("Run state transitions, by origin state, destination state, and agent framework"),
 		metric.WithUnit("{transition}"),
 	); err != nil {
@@ -79,7 +79,7 @@ func NewMetrics(meter metric.Meter, runs runStateReader, sessions sessionCounter
 	}
 
 	if m.runDuration, err = meter.Float64Histogram(
-		"orbit.agents.run_duration",
+		"kora.agents.run_duration",
 		metric.WithDescription("Wall time of a run from start to a terminal state"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(buckets.Long...),
@@ -88,7 +88,7 @@ func NewMetrics(meter metric.Meter, runs runStateReader, sessions sessionCounter
 	}
 
 	if m.runsReaped, err = meter.Int64Counter(
-		"orbit.agents.runs_reaped",
+		"kora.agents.runs_reaped",
 		metric.WithDescription("Runs the stale-run reaper moved out of active/starting/idle, by terminal outcome"),
 		metric.WithUnit("{run}"),
 	); err != nil {
@@ -96,7 +96,7 @@ func NewMetrics(meter metric.Meter, runs runStateReader, sessions sessionCounter
 	}
 
 	if m.sessionDuration, err = meter.Float64Histogram(
-		"orbit.agents.session_duration",
+		"kora.agents.session_duration",
 		metric.WithDescription("Wall time of a browser's live SSE connection to a run"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(buckets.Long...),
@@ -105,7 +105,7 @@ func NewMetrics(meter metric.Meter, runs runStateReader, sessions sessionCounter
 	}
 
 	runsActive, err := meter.Int64ObservableGauge(
-		"orbit.agents.runs_active",
+		"kora.agents.runs_active",
 		metric.WithDescription("Runs currently occupying a pod, by state and agent framework"),
 		metric.WithUnit("{run}"),
 	)
@@ -114,7 +114,7 @@ func NewMetrics(meter metric.Meter, runs runStateReader, sessions sessionCounter
 	}
 
 	sessionsActive, err := meter.Int64ObservableGauge(
-		"orbit.agents.sessions_active",
+		"kora.agents.sessions_active",
 		metric.WithDescription("Browser SSE connections currently subscribed to a run"),
 		metric.WithUnit("{session}"),
 	)
@@ -123,7 +123,7 @@ func NewMetrics(meter metric.Meter, runs runStateReader, sessions sessionCounter
 	}
 
 	agentInfo, err := meter.Int64ObservableGauge(
-		"orbit.agents.agent_info",
+		"kora.agents.agent_info",
 		metric.WithDescription("Static info for each agent type (id, name, tenant, framework); value is always 1, the standard Prometheus info-metric pattern (e.g. kube_pod_info)"),
 		metric.WithUnit("{agent}"),
 	)

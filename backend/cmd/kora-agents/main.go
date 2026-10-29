@@ -133,7 +133,7 @@ func realMain() error {
 	// shutdown.
 	defer func() {
 		if err := agentsMetrics.Close(); err != nil {
-			logger.Error(ctx, "Error shutting down orbit-agents metrics", logging.Field{Key: "error", Value: err.Error()})
+			logger.Error(ctx, "Error shutting down kora-agents metrics", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
 
@@ -284,7 +284,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	// the narrow runStateReader and agentTypeLister interfaces structurally;
 	// pubsub satisfies sessionCounter the same way. Failing to build them is
 	// not fatal — see platformmetrics.RegisterDomain.
-	agentsMetrics := platformmetrics.RegisterDomain(ctx, logger, "orbit-agents", func() (*agents.Metrics, error) {
+	agentsMetrics := platformmetrics.RegisterDomain(ctx, logger, "kora-agents", func() (*agents.Metrics, error) {
 		return agents.NewMetrics(metrics.Meter(), repo, pubsub, repo, logger)
 	})
 	pubsub.SetMetrics(agentsMetrics)

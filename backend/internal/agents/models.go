@@ -543,7 +543,7 @@ func PodOccupyingRunStates() []RunState {
 }
 
 // RunStateFrameworkCount is one row of the runs-by-state-and-framework
-// aggregate the orbit_agents_runs_active gauge callback reads: how many
+// aggregate the kora_agents_runs_active gauge callback reads: how many
 // currently-active runs are in State, for agent types running Framework,
 // further broken down by TenantID and AgentTypeID
 // (docs/adr/2026-10-07-domain-metrics-instrumentation.md's 2026-10-20

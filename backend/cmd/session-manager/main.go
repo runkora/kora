@@ -83,10 +83,10 @@ func main() {
 }
 
 // registerSessionMetrics registers the observable gauge tracking the number
-// of currently active sessions on this pod (orbit.session_manager.sessions_active{tenant_id}),
+// of currently active sessions on this pod (kora.session_manager.sessions_active{tenant_id}),
 // backed by the existing Registry.ActiveCountByTenant(). The instrument name
 // is dotted, like every other service's (instrumentServiceName strips a
-// leading "orbit-" and the OTel/Prometheus bridge converts the dots to
+// leading "kora-" and the OTel/Prometheus bridge converts the dots to
 // underscores at export time), rather than a raw underscored string built by
 // hand. tenant_id is a safe label under the 2026-10-20 amendment to
 // docs/adr/2026-10-07-domain-metrics-instrumentation.md (bounded, slow-growing
@@ -97,7 +97,7 @@ func main() {
 // on shutdown, mirroring every other service's domain Metrics.Close.
 func registerSessionMetrics(meter metric.Meter, registry *sessionmanager.Registry) (metric.Registration, error) {
 	gauge, err := meter.Int64ObservableGauge(
-		"orbit.session_manager.sessions_active",
+		"kora.session_manager.sessions_active",
 		metric.WithDescription("Number of currently active sessions on this session-manager pod"),
 	)
 	if err != nil {
@@ -192,7 +192,7 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 	}
 	// Sandbox-provisioning and loop-guard domain metrics
 	// (docs/adr/2026-10-07-domain-metrics-instrumentation.md), filed under the
-	// orbit-agents row of that ADR's catalog even though this binary emits them:
+	// kora-agents row of that ADR's catalog even though this binary emits them:
 	// sandbox provisioning and the loop guard are both internal/agents/sessionmanager,
 	// the package this ADR's table names for them. RegisterDomain is the shared
 	// helper every service's main.go uses for this.

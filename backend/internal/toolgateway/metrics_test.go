@@ -65,7 +65,7 @@ func collect(t *testing.T, reader *sdkmetric.ManualReader) map[string]metricdata
 func TestMetrics_NilIsSafe(t *testing.T) {
 	var m *Metrics
 	ctx := context.Background()
-	m.recordInvocation(ctx, "orbit", "allow", "acme", time.Millisecond)
+	m.recordInvocation(ctx, "kora", "allow", "acme", time.Millisecond)
 	if err := m.Close(); err != nil {
 		t.Errorf("Close on nil = %v", err)
 	}
@@ -78,13 +78,13 @@ func TestMetrics_NilSnapshotReaderSkipsServerGauge(t *testing.T) {
 	m, reader := newTestMetrics(t, nil)
 	ctx := context.Background()
 
-	m.recordInvocation(ctx, "orbit", "allow", "acme", 10*time.Millisecond)
+	m.recordInvocation(ctx, "kora", "allow", "acme", 10*time.Millisecond)
 
 	got := collect(t, reader)
-	if _, exported := got["orbit.tool_gateway.servers"]; exported {
+	if _, exported := got["kora.tool_gateway.servers"]; exported {
 		t.Error("servers-by-state gauge must not be registered without a snapshotReader")
 	}
-	if _, exported := got["orbit.tool_gateway.invocations"]; !exported {
+	if _, exported := got["kora.tool_gateway.invocations"]; !exported {
 		t.Error("invocations counter must still be usable without a snapshotReader")
 	}
 }
@@ -99,16 +99,16 @@ func TestMetrics_InvocationCarriesServerAndDecision(t *testing.T) {
 	m, reader := newTestMetrics(t, nil)
 	ctx := context.Background()
 
-	m.recordInvocation(ctx, "orbit", "allow", "acme", 5*time.Millisecond)
-	m.recordInvocation(ctx, "orbit", "allow", "acme", 5*time.Millisecond)
-	m.recordInvocation(ctx, "orbit", "deny", "acme", 5*time.Millisecond)
+	m.recordInvocation(ctx, "kora", "allow", "acme", 5*time.Millisecond)
+	m.recordInvocation(ctx, "kora", "allow", "acme", 5*time.Millisecond)
+	m.recordInvocation(ctx, "kora", "deny", "acme", 5*time.Millisecond)
 	m.recordInvocation(ctx, "github", "error", "globex", 5*time.Millisecond)
 
 	metrics := collect(t, reader)
 
-	sum, ok := metrics["orbit.tool_gateway.invocations"].Data.(metricdata.Sum[int64])
+	sum, ok := metrics["kora.tool_gateway.invocations"].Data.(metricdata.Sum[int64])
 	if !ok {
-		t.Fatalf("invocations counter is %T, want a sum", metrics["orbit.tool_gateway.invocations"].Data)
+		t.Fatalf("invocations counter is %T, want a sum", metrics["kora.tool_gateway.invocations"].Data)
 	}
 	if len(sum.DataPoints) != 3 {
 		t.Fatalf("data points = %d, want one per (server,decision,tenant_id)", len(sum.DataPoints))
@@ -123,12 +123,12 @@ func TestMetrics_InvocationCarriesServerAndDecision(t *testing.T) {
 		if !hasTenant {
 			t.Errorf("invocations counter must carry tenant_id, got attrs %v", dp.Attributes)
 		}
-		if server.AsString() == "orbit" && decision.AsString() == "allow" {
+		if server.AsString() == "kora" && decision.AsString() == "allow" {
 			if dp.Value != 2 {
-				t.Errorf("orbit/allow = %d, want 2", dp.Value)
+				t.Errorf("kora/allow = %d, want 2", dp.Value)
 			}
 			if tenantID.AsString() != "acme" {
-				t.Errorf("orbit/allow tenant_id = %q, want acme", tenantID.AsString())
+				t.Errorf("kora/allow tenant_id = %q, want acme", tenantID.AsString())
 			}
 		}
 		if server.AsString() == "github" && tenantID.AsString() != "globex" {
@@ -136,10 +136,10 @@ func TestMetrics_InvocationCarriesServerAndDecision(t *testing.T) {
 		}
 	}
 
-	hist, ok := metrics["orbit.tool_gateway.invocation_duration"].Data.(metricdata.Histogram[float64])
+	hist, ok := metrics["kora.tool_gateway.invocation_duration"].Data.(metricdata.Histogram[float64])
 	if !ok || len(hist.DataPoints) != 3 {
 		t.Fatalf("invocation duration = %+v, want one series per (server,decision,tenant_id)",
-			metrics["orbit.tool_gateway.invocation_duration"].Data)
+			metrics["kora.tool_gateway.invocation_duration"].Data)
 	}
 }
 
@@ -165,14 +165,14 @@ func TestHandleToolsCall_RecordsInvocationMetric(t *testing.T) {
 	defer ts.Close()
 
 	reg := &Registry{
-		servers: []Server{{TenantID: "", Name: "orbit", Endpoint: ts.URL + "/mcp"}},
+		servers: []Server{{TenantID: "", Name: "kora", Endpoint: ts.URL + "/mcp"}},
 		loaded:  true,
 	}
-	cat := &memCatalog{tools: []CatalogTool{{ServerSlug: "orbit", ToolName: "agents.list", Scope: "mcp:orbit:agents:list:use"}}}
+	cat := &memCatalog{tools: []CatalogTool{{ServerSlug: "kora", ToolName: "agents.list", Scope: "mcp:kora:agents:list:use"}}}
 	eval := &fakeEval{checkOK: true}
 
 	m, reader := newTestMetrics(t, nil)
-	c := NewMCPController(nil, eval, cat, reg, NewProxy("test", logging.NewLogger()), nil, "/v1", m, logging.NewLogger())
+	c := NewMCPController(nil, eval, cat, reg, NewProxy(NewUpstreamCredentials(""), "test", logging.NewLogger()), nil, "/v1", m, logging.NewLogger())
 
 	claims := &platformtoken.PlatformClaims{}
 	claims.Kora.TenantID = "acme"
@@ -180,8 +180,8 @@ func TestHandleToolsCall_RecordsInvocationMetric(t *testing.T) {
 	ctx := platformtoken.WithClaims(context.Background(), claims)
 
 	call := func(body string) {
-		req := httptest.NewRequest(http.MethodPost, "/v1/mcp/orbit", strings.NewReader(body)).WithContext(ctx)
-		req.SetPathValue("server", "orbit")
+		req := httptest.NewRequest(http.MethodPost, "/v1/mcp/kora", strings.NewReader(body)).WithContext(ctx)
+		req.SetPathValue("server", "kora")
 		c.handleMCP(httptest.NewRecorder(), req)
 	}
 
@@ -192,9 +192,9 @@ func TestHandleToolsCall_RecordsInvocationMetric(t *testing.T) {
 	call(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":"bad"}`)                                 // malformed params
 
 	metrics := collect(t, reader)
-	sum, ok := metrics["orbit.tool_gateway.invocations"].Data.(metricdata.Sum[int64])
+	sum, ok := metrics["kora.tool_gateway.invocations"].Data.(metricdata.Sum[int64])
 	if !ok {
-		t.Fatalf("invocations counter is %T, want a sum", metrics["orbit.tool_gateway.invocations"].Data)
+		t.Fatalf("invocations counter is %T, want a sum", metrics["kora.tool_gateway.invocations"].Data)
 	}
 	counts := map[string]int64{}
 	for _, dp := range sum.DataPoints {
@@ -211,9 +211,9 @@ func TestHandleToolsCall_RecordsInvocationMetric(t *testing.T) {
 		t.Errorf("error invocations (missing tool name + malformed params) = %d, want 2", counts["error"])
 	}
 
-	hist, ok := metrics["orbit.tool_gateway.invocation_duration"].Data.(metricdata.Histogram[float64])
+	hist, ok := metrics["kora.tool_gateway.invocation_duration"].Data.(metricdata.Histogram[float64])
 	if !ok {
-		t.Fatalf("invocation duration is %T, want a histogram", metrics["orbit.tool_gateway.invocation_duration"].Data)
+		t.Fatalf("invocation duration is %T, want a histogram", metrics["kora.tool_gateway.invocation_duration"].Data)
 	}
 	var allowSum float64
 	var sawAllow bool
@@ -242,9 +242,9 @@ func TestMetrics_ServersByStateReportsEveryStateIncludingZero(t *testing.T) {
 	}}
 	_, reader := newTestMetrics(t, snapshots)
 
-	gauge, ok := collect(t, reader)["orbit.tool_gateway.servers"].Data.(metricdata.Gauge[int64])
+	gauge, ok := collect(t, reader)["kora.tool_gateway.servers"].Data.(metricdata.Gauge[int64])
 	if !ok {
-		t.Fatalf("servers gauge is %T, want a gauge", collect(t, reader)["orbit.tool_gateway.servers"].Data)
+		t.Fatalf("servers gauge is %T, want a gauge", collect(t, reader)["kora.tool_gateway.servers"].Data)
 	}
 	byState := map[string]int64{}
 	for _, dp := range gauge.DataPoints {

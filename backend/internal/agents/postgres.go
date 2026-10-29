@@ -669,7 +669,7 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 
 // runsActiveByStateFrameworkQuery aggregates every pod-occupying run by state,
 // its agent type's framework, tenant, and agent type, across all tenants, for
-// the orbit_agents_runs_active gauge. Scoped to the OccupiesPod states the
+// the kora_agents_runs_active gauge. Scoped to the OccupiesPod states the
 // same way activeRunsPerPodQuery is: a "runs active" gauge counting every run
 // that ever reached a terminal state would not be a gauge, it would be a
 // growing total. tenant_id/agent_type_id grouping added by the 2026-10-20
@@ -682,7 +682,7 @@ var runsActiveByStateFrameworkQuery = fmt.Sprintf(`
 	GROUP BY r.state, a.framework, r.tenant_id, r.agent_type_id`, podOccupancySQLList())
 
 // CountRunsByStateAndFramework aggregates currently-active runs by state and
-// agent framework. Read only by the orbit_agents_runs_active observable gauge
+// agent framework. Read only by the kora_agents_runs_active observable gauge
 // callback (internal/agents/metrics.go), not by any request path — deliberately
 // not part of the RunRepository interface, which every mock in this package's
 // tests would otherwise have to implement for a method they do not exercise.

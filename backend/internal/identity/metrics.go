@@ -43,7 +43,7 @@ type activeSessionsReader interface {
 	CountActiveSessions(ctx context.Context) (map[string]int64, error)
 }
 
-// Fixed, bounded reason labels for orbit_identity_auth_failures_total. Never
+// Fixed, bounded reason labels for kora_identity_auth_failures_total. Never
 // derived from an arbitrary string — only from the sentinel error the caller
 // already returns.
 const (
@@ -64,7 +64,7 @@ func NewMetrics(meter metric.Meter, repo activeSessionsReader, logger logging.Lo
 
 	var err error
 	if m.delegationsIssued, err = meter.Int64Counter(
-		"orbit.identity.delegations_issued",
+		"kora.identity.delegations_issued",
 		metric.WithDescription("Delegation issuances minted"),
 		metric.WithUnit("{delegation}"),
 	); err != nil {
@@ -72,7 +72,7 @@ func NewMetrics(meter metric.Meter, repo activeSessionsReader, logger logging.Lo
 	}
 
 	if m.delegationsRevoked, err = meter.Int64Counter(
-		"orbit.identity.delegations_revoked",
+		"kora.identity.delegations_revoked",
 		metric.WithDescription("Delegation issuances revoked"),
 		metric.WithUnit("{delegation}"),
 	); err != nil {
@@ -80,7 +80,7 @@ func NewMetrics(meter metric.Meter, repo activeSessionsReader, logger logging.Lo
 	}
 
 	if m.authFailures, err = meter.Int64Counter(
-		"orbit.identity.auth_failures",
+		"kora.identity.auth_failures",
 		metric.WithDescription("Authentication and token exchange failures, by reason"),
 		metric.WithUnit("{failure}"),
 	); err != nil {
@@ -88,7 +88,7 @@ func NewMetrics(meter metric.Meter, repo activeSessionsReader, logger logging.Lo
 	}
 
 	sessionsActive, err := meter.Int64ObservableGauge(
-		"orbit.identity.sessions.active",
+		"kora.identity.sessions.active",
 		metric.WithDescription("Sessions that are neither revoked nor expired"),
 		metric.WithUnit("{session}"),
 	)

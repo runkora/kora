@@ -64,7 +64,7 @@ func NewPubSub() *PubSub {
 func (ps *PubSub) SetMetrics(m *Metrics) { ps.metrics = m }
 
 // ActiveSubscriptions returns the number of live SSE subscriptions across
-// every run. Read by the orbit_agents_sessions_active gauge callback: a
+// every run. Read by the kora_agents_sessions_active gauge callback: a
 // subscription is the actual lifecycle of a browser's live connection to a
 // run (Subscribe = connect, the returned cancel = disconnect), which is what
 // "browser session" means in practice — there is no separate durable "browser

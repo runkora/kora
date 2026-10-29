@@ -70,7 +70,7 @@ func collect(t *testing.T, reader *sdkmetric.ManualReader) map[string]metricdata
 // pins that SetRunState stamps completed_at for budget_exhausted exactly as
 // it does for completed/failed, or a budget-exhausted run would look
 // perpetually in-flight and never contribute a sample to
-// orbit_agents_run_duration_seconds.
+// kora_agents_run_duration_seconds.
 func TestTransitionRunState_BudgetExhausted_StampsCompletedAtAndRecordsDuration(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)
 	started := time.Now().Add(-5 * time.Minute)
@@ -102,8 +102,8 @@ func TestTransitionRunState_BudgetExhausted_StampsCompletedAtAndRecordsDuration(
 	}
 
 	metrics := collect(t, reader)
-	hist, ok := metrics["orbit.agents.run_duration"].Data.(metricdata.Histogram[float64])
+	hist, ok := metrics["kora.agents.run_duration"].Data.(metricdata.Histogram[float64])
 	if !ok || len(hist.DataPoints) != 1 || hist.DataPoints[0].Count != 1 {
-		t.Fatalf("run duration = %+v, want one recorded sample", metrics["orbit.agents.run_duration"].Data)
+		t.Fatalf("run duration = %+v, want one recorded sample", metrics["kora.agents.run_duration"].Data)
 	}
 }

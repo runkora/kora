@@ -194,7 +194,7 @@ func TestSameNameServers_NotShadowed(t *testing.T) {
 		loaded: true,
 	}
 	c := NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg,
-		NewProxy(NewUpstreamCredentials(""), "test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
+		NewProxy(NewUpstreamCredentials(""), "test", logging.NewLogger()), nil, "/v1", nil, logging.NewLogger())
 
 	rec, _ := doRPC(t, c, "s", `{"jsonrpc":"2.0","id":1,"method":"initialize"}`)
 	if rec.Code == http.StatusNotFound {

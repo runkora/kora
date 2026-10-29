@@ -125,14 +125,14 @@ func TestAuthorize_UnregisteredHost_RecordsPassthroughNotMint(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodGet, "https://pypi.org/simple/", nil)
 	_, err := broker.Authorize(context.Background(),
-		claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-1"),
+		claimsFor("acme", "spiffe://kora.test/tenant/kora-tenant-acme/agent/coder", "run-1"),
 		FromHTTP(req))
 	if err != nil {
 		t.Fatalf("Authorize(unregistered host) = %v, want allow", err)
 	}
 
 	metrics := collect(t, reader)
-	decisions := sumPoints(t, metrics, "orbit.egress_gateway.decisions")
+	decisions := sumPoints(t, metrics, "kora.egress_gateway.decisions")
 	if len(decisions) != 1 {
 		t.Fatalf("decisions data points = %d, want 1: %+v", len(decisions), decisions)
 	}
@@ -143,11 +143,11 @@ func TestAuthorize_UnregisteredHost_RecordsPassthroughNotMint(t *testing.T) {
 		t.Errorf("decision tenant_id = %q, want acme", tenantID)
 	}
 
-	if pts := sumPoints(t, metrics, "orbit.egress_gateway.credentials_minted"); len(pts) != 0 {
+	if pts := sumPoints(t, metrics, "kora.egress_gateway.credentials_minted"); len(pts) != 0 {
 		t.Errorf("credentials_minted data points = %+v, want none: passthrough never mints", pts)
 	}
-	if _, exported := metrics["orbit.egress_gateway.mint_duration"]; exported {
-		if hist, ok := metrics["orbit.egress_gateway.mint_duration"].Data.(metricdata.Histogram[float64]); ok && len(hist.DataPoints) != 0 {
+	if _, exported := metrics["kora.egress_gateway.mint_duration"]; exported {
+		if hist, ok := metrics["kora.egress_gateway.mint_duration"].Data.(metricdata.Histogram[float64]); ok && len(hist.DataPoints) != 0 {
 			t.Errorf("mint_duration data points = %+v, want none: passthrough is not a mint attempt", hist.DataPoints)
 		}
 	}
@@ -174,14 +174,14 @@ func TestAuthorize_UnsupportedAdapter_RecordsDecisionErrorNotMintFailure(t *test
 
 	req, _ := http.NewRequest(http.MethodGet, "https://example.com/", nil)
 	_, err := broker.Authorize(context.Background(),
-		claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-1"),
+		claimsFor("acme", "spiffe://kora.test/tenant/kora-tenant-acme/agent/coder", "run-1"),
 		FromHTTP(req))
 	if !errors.Is(err, credentials.ErrUnsupportedAdapter) {
 		t.Fatalf("Authorize = %v, want ErrUnsupportedAdapter", err)
 	}
 
 	metrics := collect(t, reader)
-	decisions := sumPoints(t, metrics, "orbit.egress_gateway.decisions")
+	decisions := sumPoints(t, metrics, "kora.egress_gateway.decisions")
 	if len(decisions) != 1 {
 		t.Fatalf("decisions data points = %d, want 1: %+v", len(decisions), decisions)
 	}
@@ -189,7 +189,7 @@ func TestAuthorize_UnsupportedAdapter_RecordsDecisionErrorNotMintFailure(t *test
 		t.Errorf("decision = outcome=%q adapter=%q, want outcome=%q adapter=%q", outcome, adapter, decisionError, unknownAdapter)
 	}
 
-	if pts := sumPoints(t, metrics, "orbit.egress_gateway.mint_failures"); len(pts) != 0 {
+	if pts := sumPoints(t, metrics, "kora.egress_gateway.mint_failures"); len(pts) != 0 {
 		t.Errorf("mint_failures data points = %+v, want none: no Mint was attempted", pts)
 	}
 }
@@ -211,16 +211,16 @@ func TestAuthorize_UnreadableConnection_RecordsDecisionErrorNotMintFailure(t *te
 	registry.Register(badConfigAdapter{})
 	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger, m)
 
-	req, _ := http.NewRequest(http.MethodGet, "https://github.com/orbital/orbit", nil)
+	req, _ := http.NewRequest(http.MethodGet, "https://github.com/orbital/kora", nil)
 	_, err := broker.Authorize(context.Background(),
-		claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-1"),
+		claimsFor("acme", "spiffe://kora.test/tenant/kora-tenant-acme/agent/coder", "run-1"),
 		FromHTTP(req))
 	if !errors.Is(err, credentials.ErrInvalidConfig) {
 		t.Fatalf("Authorize = %v, want wrapped ErrInvalidConfig", err)
 	}
 
 	metrics := collect(t, reader)
-	decisions := sumPoints(t, metrics, "orbit.egress_gateway.decisions")
+	decisions := sumPoints(t, metrics, "kora.egress_gateway.decisions")
 	if len(decisions) != 1 {
 		t.Fatalf("decisions data points = %d, want 1: %+v", len(decisions), decisions)
 	}
@@ -228,7 +228,7 @@ func TestAuthorize_UnreadableConnection_RecordsDecisionErrorNotMintFailure(t *te
 		t.Errorf("decision = outcome=%q adapter=%q, want outcome=%q adapter=%q", outcome, adapter, decisionError, credentials.AdapterGitHubApp)
 	}
 
-	if pts := sumPoints(t, metrics, "orbit.egress_gateway.mint_failures"); len(pts) != 0 {
+	if pts := sumPoints(t, metrics, "kora.egress_gateway.mint_failures"); len(pts) != 0 {
 		t.Errorf("mint_failures data points = %+v, want none: no Mint was attempted", pts)
 	}
 }
@@ -279,13 +279,13 @@ func TestAuthorize_SuccessfulMint_RecordsAllowAndMint(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodGet, "https://svc.example.com/", nil)
 	if _, err := broker.Authorize(context.Background(),
-		claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-1"),
+		claimsFor("acme", "spiffe://kora.test/tenant/kora-tenant-acme/agent/coder", "run-1"),
 		FromHTTP(req)); err != nil {
 		t.Fatalf("Authorize = %v, want allow", err)
 	}
 
 	metrics := collect(t, reader)
-	decisions := sumPoints(t, metrics, "orbit.egress_gateway.decisions")
+	decisions := sumPoints(t, metrics, "kora.egress_gateway.decisions")
 	if len(decisions) != 1 {
 		t.Fatalf("decisions data points = %d, want 1: %+v", len(decisions), decisions)
 	}
@@ -293,13 +293,13 @@ func TestAuthorize_SuccessfulMint_RecordsAllowAndMint(t *testing.T) {
 		t.Errorf("decision = outcome=%q adapter=%q, want outcome=%q adapter=%q", outcome, adapter, decisionAllow, typ)
 	}
 
-	minted := sumPoints(t, metrics, "orbit.egress_gateway.credentials_minted")
+	minted := sumPoints(t, metrics, "kora.egress_gateway.credentials_minted")
 	if len(minted) != 1 || minted[0].Value != 1 {
 		t.Fatalf("credentials_minted data points = %+v, want exactly one sample of 1", minted)
 	}
-	hist, ok := metrics["orbit.egress_gateway.mint_duration"].Data.(metricdata.Histogram[float64])
+	hist, ok := metrics["kora.egress_gateway.mint_duration"].Data.(metricdata.Histogram[float64])
 	if !ok || len(hist.DataPoints) != 1 {
-		t.Fatalf("mint_duration = %+v, want exactly one data point", metrics["orbit.egress_gateway.mint_duration"].Data)
+		t.Fatalf("mint_duration = %+v, want exactly one data point", metrics["kora.egress_gateway.mint_duration"].Data)
 	}
 }
 
@@ -323,7 +323,7 @@ func TestAuthorize_MintScopeRejected_RecordsDenyAndMintFailure(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodGet, "https://svc.example.com/", nil)
 	_, err := broker.Authorize(context.Background(),
-		claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-1"),
+		claimsFor("acme", "spiffe://kora.test/tenant/kora-tenant-acme/agent/coder", "run-1"),
 		FromHTTP(req))
 	var d *Denial
 	if !errors.As(err, &d) || d.Reason != DenialCredentialRefused {
@@ -331,7 +331,7 @@ func TestAuthorize_MintScopeRejected_RecordsDenyAndMintFailure(t *testing.T) {
 	}
 
 	metrics := collect(t, reader)
-	decisions := sumPoints(t, metrics, "orbit.egress_gateway.decisions")
+	decisions := sumPoints(t, metrics, "kora.egress_gateway.decisions")
 	if len(decisions) != 1 {
 		t.Fatalf("decisions data points = %d, want 1: %+v", len(decisions), decisions)
 	}
@@ -339,7 +339,7 @@ func TestAuthorize_MintScopeRejected_RecordsDenyAndMintFailure(t *testing.T) {
 		t.Errorf("decision outcome = %q, want %q", outcome, decisionDeny)
 	}
 
-	failures := sumPoints(t, metrics, "orbit.egress_gateway.mint_failures")
+	failures := sumPoints(t, metrics, "kora.egress_gateway.mint_failures")
 	if len(failures) != 1 {
 		t.Fatalf("mint_failures data points = %d, want 1: %+v", len(failures), failures)
 	}
@@ -347,7 +347,7 @@ func TestAuthorize_MintScopeRejected_RecordsDenyAndMintFailure(t *testing.T) {
 		t.Errorf("mint_failures reason = %q, want scope_rejected", reason)
 	}
 
-	if pts := sumPoints(t, metrics, "orbit.egress_gateway.credentials_minted"); len(pts) != 0 {
+	if pts := sumPoints(t, metrics, "kora.egress_gateway.credentials_minted"); len(pts) != 0 {
 		t.Errorf("credentials_minted data points = %+v, want none on a failed mint", pts)
 	}
 }
@@ -370,21 +370,21 @@ func TestAuthorize_PolicyDenied_RecordsDenyDecision(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodGet, "https://svc.example.com/", nil)
 	_, err := broker.Authorize(context.Background(),
-		claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-1"),
+		claimsFor("acme", "spiffe://kora.test/tenant/kora-tenant-acme/agent/coder", "run-1"),
 		FromHTTP(req))
 	if !errors.Is(err, ErrForbidden) {
 		t.Fatalf("Authorize = %v, want ErrForbidden", err)
 	}
 
 	metrics := collect(t, reader)
-	decisions := sumPoints(t, metrics, "orbit.egress_gateway.decisions")
+	decisions := sumPoints(t, metrics, "kora.egress_gateway.decisions")
 	if len(decisions) != 1 {
 		t.Fatalf("decisions data points = %d, want 1: %+v", len(decisions), decisions)
 	}
 	if outcome, adapter := attr(decisions[0], "outcome"), attr(decisions[0], "adapter"); outcome != decisionDeny || adapter != string(typ) {
 		t.Errorf("decision = outcome=%q adapter=%q, want outcome=%q adapter=%q", outcome, adapter, decisionDeny, typ)
 	}
-	if pts := sumPoints(t, metrics, "orbit.egress_gateway.credentials_minted"); len(pts) != 0 {
+	if pts := sumPoints(t, metrics, "kora.egress_gateway.credentials_minted"); len(pts) != 0 {
 		t.Errorf("credentials_minted data points = %+v, want none on a denied call", pts)
 	}
 }

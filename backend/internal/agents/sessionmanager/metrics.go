@@ -29,7 +29,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 
 	var err error
 	if m.sandboxProvisionDuration, err = meter.Float64Histogram(
-		"orbit.agents.sandbox_provision_duration",
+		"kora.agents.sandbox_provision_duration",
 		metric.WithDescription("Elapsed time since a sandbox provision request started, reported at each phase"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(buckets.Default...),
@@ -38,7 +38,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 
 	if m.sandboxProvisionFailures, err = meter.Int64Counter(
-		"orbit.agents.sandbox_provision_failures",
+		"kora.agents.sandbox_provision_failures",
 		metric.WithDescription("Sandbox provision attempts that ended in the failed phase"),
 		metric.WithUnit("{attempt}"),
 	); err != nil {
@@ -46,7 +46,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 
 	if m.guardrailWarnings, err = meter.Int64Counter(
-		"orbit.agents.guardrail_warnings",
+		"kora.agents.guardrail_warnings",
 		metric.WithDescription("Loop-guard warnings sent to a run's agent"),
 		metric.WithUnit("{warning}"),
 	); err != nil {

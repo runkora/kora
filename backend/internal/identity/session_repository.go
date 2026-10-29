@@ -34,7 +34,7 @@ type SessionRepository interface {
 
 	// CountActiveSessions returns the number of sessions that are neither
 	// revoked nor expired, grouped by tenant. Backs the
-	// orbit_identity_sessions_active{tenant_id} gauge.
+	// kora_identity_sessions_active{tenant_id} gauge.
 	CountActiveSessions(ctx context.Context) (map[string]int64, error)
 }
 

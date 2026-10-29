@@ -161,7 +161,7 @@ func TestToolsCall_StaticCredentialFailsClosed(t *testing.T) {
 			var logs bytes.Buffer
 			logger := logging.NewLoggerWithOutput(&logs)
 			c := NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg,
-				NewProxy(NewUpstreamCredentials(secretsDir(t, tc.files)), "test", logger), nil, "/v1", logger)
+				NewProxy(NewUpstreamCredentials(secretsDir(t, tc.files)), "test", logger), nil, "/v1", nil, logger)
 
 			claims := &platformtoken.PlatformClaims{}
 			claims.Kora.TenantID = "acme"

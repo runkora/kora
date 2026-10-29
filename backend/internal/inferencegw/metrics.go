@@ -48,7 +48,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 
 	var err error
 	if m.usageTotal, err = meter.Int64Counter(
-		"orbit.inference_gateway.usage",
+		"kora.inference_gateway.usage",
 		metric.WithDescription("Completed inference requests, by outcome status"),
 		metric.WithUnit("{request}"),
 	); err != nil {
@@ -56,7 +56,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 
 	if m.tokensTotal, err = meter.Int64Counter(
-		"orbit.inference_gateway.tokens",
+		"kora.inference_gateway.tokens",
 		metric.WithDescription("Tokens consumed, by kind"),
 		metric.WithUnit("{token}"),
 	); err != nil {
@@ -64,7 +64,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 
 	if m.costTotal, err = meter.Float64Counter(
-		"orbit.inference_gateway.cost_usd",
+		"kora.inference_gateway.cost_usd",
 		metric.WithDescription("Estimated inference cost"),
 		metric.WithUnit("{USD}"),
 	); err != nil {
@@ -72,7 +72,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 
 	if m.requestDuration, err = meter.Float64Histogram(
-		"orbit.inference_gateway.request_duration",
+		"kora.inference_gateway.request_duration",
 		metric.WithDescription("Inference request latency"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(buckets.Default...),
@@ -86,7 +86,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	// (platform/policy/evaluator.go:255), so the gauge is set at each budget
 	// check call site instead (ADR, Negative consequences).
 	if m.budgetUtilization, err = meter.Float64Gauge(
-		"orbit.inference_gateway.budget_utilization_ratio",
+		"kora.inference_gateway.budget_utilization_ratio",
 		metric.WithDescription("Spend as a fraction of the applicable budget ceiling"),
 		metric.WithUnit("1"),
 	); err != nil {

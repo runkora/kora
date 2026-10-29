@@ -107,7 +107,7 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 	}
 
 	if m.deliveryOutcomes, err = meter.Int64Counter(
-		"orbit.triggers.delivery_outcomes",
+		"kora.triggers.delivery_outcomes",
 		metric.WithDescription("Deliveries finalized, by summary status"),
 		metric.WithUnit("{delivery}"),
 	); err != nil {
@@ -115,7 +115,7 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 	}
 
 	if m.admissionOutcomes, err = meter.Int64Counter(
-		"orbit.triggers.admission_outcomes",
+		"kora.triggers.admission_outcomes",
 		metric.WithDescription("Admission decisions made for a fire, by outcome"),
 		metric.WithUnit("{fire}"),
 	); err != nil {

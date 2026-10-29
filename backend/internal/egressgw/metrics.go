@@ -73,7 +73,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 
 	var err error
 	if m.decisions, err = meter.Int64Counter(
-		"orbit.egress_gateway.decisions",
+		"kora.egress_gateway.decisions",
 		metric.WithDescription("Egress authorization decisions, by outcome and adapter"),
 		metric.WithUnit("{decision}"),
 	); err != nil {
@@ -81,7 +81,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 
 	if m.minted, err = meter.Int64Counter(
-		"orbit.egress_gateway.credentials_minted",
+		"kora.egress_gateway.credentials_minted",
 		metric.WithDescription("Credentials minted by the egress gateway broker"),
 		metric.WithUnit("{credential}"),
 	); err != nil {
@@ -89,7 +89,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 
 	if m.mintDuration, err = meter.Float64Histogram(
-		"orbit.egress_gateway.mint_duration",
+		"kora.egress_gateway.mint_duration",
 		metric.WithDescription("Wall time of one connector.Mint call"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(buckets.Default...),
@@ -98,7 +98,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 
 	if m.mintFailures, err = meter.Int64Counter(
-		"orbit.egress_gateway.mint_failures",
+		"kora.egress_gateway.mint_failures",
 		metric.WithDescription("Mint attempts that failed, by reason"),
 		metric.WithUnit("{failure}"),
 	); err != nil {

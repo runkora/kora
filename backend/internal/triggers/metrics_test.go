@@ -284,7 +284,7 @@ func TestMetrics_AdmissionOutcomesCountedByResult(t *testing.T) {
 		t.Fatal("Admit (db error): want an error, got nil")
 	}
 
-	got, ok := collect(t, reader)["orbit.triggers.admission_outcomes"]
+	got, ok := collect(t, reader)["kora.triggers.admission_outcomes"]
 	if !ok {
 		t.Fatal("admission-outcomes counter not exported")
 	}
@@ -331,7 +331,7 @@ func TestMetrics_CoalescingDisplacementsAreCounted(t *testing.T) {
 	fire("d-3", "b") // a second key over a depth of 1 evicts the older waiting fire
 
 	byOutcome := map[string]int64{}
-	for _, dp := range collect(t, reader)["orbit.triggers.admission_outcomes"].Data.(metricdata.Sum[int64]).DataPoints {
+	for _, dp := range collect(t, reader)["kora.triggers.admission_outcomes"].Data.(metricdata.Sum[int64]).DataPoints {
 		outcome, _ := dp.Attributes.Value("outcome")
 		byOutcome[outcome.AsString()] += dp.Value
 	}
@@ -364,7 +364,7 @@ func TestMetrics_BacklogEvictionsAreCountedDropped(t *testing.T) {
 	}
 
 	byOutcome := map[string]int64{}
-	for _, dp := range collect(t, reader)["orbit.triggers.admission_outcomes"].Data.(metricdata.Sum[int64]).DataPoints {
+	for _, dp := range collect(t, reader)["kora.triggers.admission_outcomes"].Data.(metricdata.Sum[int64]).DataPoints {
 		outcome, _ := dp.Attributes.Value("outcome")
 		byOutcome[outcome.AsString()] += dp.Value
 	}
@@ -403,7 +403,7 @@ func TestMetrics_DeliveryOutcomeRecordsWhatDeriveWrote(t *testing.T) {
 	outcomeRecorder{repo: fakeOutcomeStore{status: ""}, logger: silentLogger(), metrics: m}.derive(ctx, "d-2", testTenant)
 	outcomeRecorder{repo: fakeOutcomeStore{status: StatusFailed, final: false}, logger: silentLogger(), metrics: m}.derive(ctx, "d-3", testTenant)
 
-	got, ok := collect(t, reader)["orbit.triggers.delivery_outcomes"]
+	got, ok := collect(t, reader)["kora.triggers.delivery_outcomes"]
 	if !ok {
 		t.Fatal("delivery-outcomes counter not exported")
 	}
@@ -422,12 +422,12 @@ func TestMetrics_DeliveryOutcomeRecordsWhatDeriveWrote(t *testing.T) {
 	}
 }
 
-// outcomeCounts collects "orbit.triggers.delivery_outcomes" into a map keyed by
+// outcomeCounts collects "kora.triggers.delivery_outcomes" into a map keyed by
 // its "outcome" attribute, summing across data points that share a label (e.g.
 // recorded from different collection cycles or call sites).
 func outcomeCounts(t *testing.T, reader *sdkmetric.ManualReader) map[string]int64 {
 	t.Helper()
-	got, ok := collect(t, reader)["orbit.triggers.delivery_outcomes"]
+	got, ok := collect(t, reader)["kora.triggers.delivery_outcomes"]
 	if !ok {
 		return nil
 	}

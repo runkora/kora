@@ -45,7 +45,7 @@ func collect(t *testing.T, reader *sdkmetric.ManualReader) map[string]metricdata
 // usage counter's data points.
 func modelLabels(t *testing.T, reader *sdkmetric.ManualReader) map[string]bool {
 	t.Helper()
-	got, ok := collect(t, reader)["orbit.inference_gateway.usage"]
+	got, ok := collect(t, reader)["kora.inference_gateway.usage"]
 	if !ok {
 		t.Fatal("usage counter not exported")
 	}

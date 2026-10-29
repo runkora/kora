@@ -108,8 +108,8 @@ type RunService struct {
 	frameworkCache sync.Map // runID string -> runMetricLabels
 }
 
-// runMetricLabels are the orbit_agents_run_transitions_total /
-// orbit_agents_run_duration_seconds label values that are fixed for a run's
+// runMetricLabels are the kora_agents_run_transitions_total /
+// kora_agents_run_duration_seconds label values that are fixed for a run's
 // entire lifetime, cached by RunService.frameworkCache so Transition's hot
 // path (the idle↔active turn boundary) never needs a database round trip to
 // populate them.
