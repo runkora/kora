@@ -87,6 +87,20 @@ export function tenantIdFromAccessToken(token: string): string | undefined {
 /** Name of the sealed iron-session cookie. */
 export const SESSION_COOKIE_NAME = 'kora_session';
 
+/**
+ * True when the console's public URL is http:// on localhost or *.localhost.
+ * Safari drops Secure cookies on that origin even though it is a secure context.
+ */
+function isInsecureLoopbackUrl(appUrl: string | undefined): boolean {
+  if (!appUrl) return false;
+  try {
+    const { protocol, hostname } = new URL(appUrl);
+    return protocol === 'http:' && (hostname === 'localhost' || hostname.endsWith('.localhost'));
+  } catch {
+    return false;
+  }
+}
+
 // ── Session options factory ───────────────────────────────────────────────────
 
 /**
@@ -115,7 +129,9 @@ export function getSessionOptions(refreshTokenExpiresIn?: number): SessionOption
     cookieName: SESSION_COOKIE_NAME,
     password,
     cookieOptions: {
-      secure: process.env.NODE_ENV === 'production',
+      secure:
+        process.env.NODE_ENV === 'production' &&
+        !isInsecureLoopbackUrl(process.env.NEXT_PUBLIC_APP_URL),
       httpOnly: true,
       // lax (not strict) so the cookie is sent after the cross-origin OIDC
       // redirect back from the IdP (strict blocks that first same-site navigation
