@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"golang.org/x/sync/singleflight"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -15,6 +17,11 @@ import (
 // serverCap is the maximum number of skills returned in one response.
 // Clients page beyond it with NextCursor; page size is a client concern.
 const serverCap = 200
+
+// crawlTimeout bounds one marketplace crawl. Large repositories (hundreds of
+// skills) take longer than a client is willing to wait, so a crawl is detached
+// from the request that started it and runs to completion under this limit.
+const crawlTimeout = 5 * time.Minute
 
 var slugSeparators = regexp.MustCompile(`[^a-z0-9]+`)
 
@@ -75,6 +82,7 @@ type Service struct {
 	cache    skillCache
 	crawler  skillCrawler
 	logger   logging.Logger
+	crawls   singleflight.Group
 }
 
 type ListSkillsResponse struct {
@@ -125,6 +133,43 @@ func (s *Service) resolveMarketplace(ctx context.Context, tenantID string, sourc
 		return sortedBySlug(entries), nil
 	}
 
+	skills, err := s.crawl(ctx, tenantID, source)
+	if err != nil {
+		return nil, err
+	}
+
+	entries = make([]SkillEntry, len(skills))
+	for i, sk := range skills {
+		entries[i] = skillToEntry(sk)
+	}
+	return sortedBySlug(entries), nil
+}
+
+// crawl returns every skill in a marketplace, crawling GitHub and warming both
+// caches. Concurrent callers for the same tenant marketplace share one crawl.
+// The crawl ignores the caller's cancellation, so a client that gives up (or
+// navigates away) does not throw away a partly finished crawl: it still lands
+// in the cache and the next request is served from there.
+func (s *Service) crawl(ctx context.Context, tenantID string, source MarketplaceSource) ([]Skill, error) {
+	ch := s.crawls.DoChan(tenantID+"/"+source.MarketplaceSlug, func() (any, error) {
+		crawlCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), crawlTimeout)
+		defer cancel()
+		return s.crawlAndCache(crawlCtx, tenantID, source)
+	})
+	select {
+	case res := <-ch:
+		if res.Err != nil {
+			return nil, res.Err
+		}
+		return res.Val.([]Skill), nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// crawlAndCache fetches the full marketplace from the crawler and warms the
+// marketplace list cache and the per-skill caches.
+func (s *Service) crawlAndCache(ctx context.Context, tenantID string, source MarketplaceSource) ([]Skill, error) {
 	skillPaths, err := s.crawler.FetchTree(ctx, source)
 	if err != nil {
 		return nil, fmt.Errorf("fetch tree: %w", err)
@@ -135,16 +180,12 @@ func (s *Service) resolveMarketplace(ctx context.Context, tenantID string, sourc
 		return nil, fmt.Errorf("fetch skills: %w", err)
 	}
 
-	// Project []Skill to []SkillEntry for the marketplace list cache.
-	entries = make([]SkillEntry, len(skills))
+	entries := make([]SkillEntry, len(skills))
 	for i, sk := range skills {
 		entries[i] = skillToEntry(sk)
 	}
-
 	// FetchTree returns a map, so crawl order is not stable. Sort before caching.
-	entries = sortedBySlug(entries)
-
-	if err := s.cache.SetMarketplace(ctx, tenantID, source.MarketplaceSlug, entries); err != nil {
+	if err := s.cache.SetMarketplace(ctx, tenantID, source.MarketplaceSlug, sortedBySlug(entries)); err != nil {
 		return nil, fmt.Errorf("write marketplace cache: %w", err)
 	}
 
@@ -158,7 +199,7 @@ func (s *Service) resolveMarketplace(ctx context.Context, tenantID string, sourc
 		}
 	}
 
-	return entries, nil
+	return skills, nil
 }
 
 // ListSkills returns up to serverCap skills whose name contains search
@@ -254,45 +295,19 @@ func (s *Service) GetSkill(ctx context.Context, tenantID, marketplaceSlug, skill
 	return s.crawlAndFind(ctx, tenantID, source, skillSlug)
 }
 
-// crawlAndFind fetches the full marketplace from the crawler, warms both the
-// marketplace list cache and per-skill caches, then returns the target skill.
+// crawlAndFind crawls the full marketplace (warming both caches) and returns
+// the target skill.
 func (s *Service) crawlAndFind(ctx context.Context, tenantID string, source MarketplaceSource, skillSlug string) (Skill, error) {
-	skillPaths, err := s.crawler.FetchTree(ctx, source)
+	skills, err := s.crawl(ctx, tenantID, source)
 	if err != nil {
-		return Skill{}, fmt.Errorf("fetch tree: %w", err)
+		return Skill{}, err
 	}
-
-	skills, err := s.crawler.FetchSkills(ctx, source, skillPaths)
-	if err != nil {
-		return Skill{}, fmt.Errorf("fetch skills: %w", err)
-	}
-
-	entries := make([]SkillEntry, len(skills))
-	for i, sk := range skills {
-		entries[i] = skillToEntry(sk)
-	}
-	if err := s.cache.SetMarketplace(ctx, tenantID, source.MarketplaceSlug, sortedBySlug(entries)); err != nil {
-		return Skill{}, fmt.Errorf("write marketplace cache: %w", err)
-	}
-
-	var result Skill
-	found := false
 	for _, sk := range skills {
-		if err := s.cache.SetSkill(ctx, sk.SkillSlug, sk); err != nil {
-			s.logger.Warn(ctx, "failed to cache skill",
-				logging.Field{Key: "skillSlug", Value: sk.SkillSlug},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
 		if sk.SkillSlug == skillSlug {
-			result = sk
-			found = true
+			return sk, nil
 		}
 	}
-	if !found {
-		return Skill{}, ErrSkillNotFound
-	}
-	return result, nil
+	return Skill{}, ErrSkillNotFound
 }
 
 func skillToEntry(sk Skill) SkillEntry {
