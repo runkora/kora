@@ -230,49 +230,51 @@ function SenderChoice({
                     Anyone with a ticked role can start a run.
                   </Text>
                 </Stack>
-                <Grid cols={3} gap="cozy">
-                  {roles.map((role) => {
-                    const checked = value.roles.includes(role.value);
-                    return (
-                      <Card
-                        key={role.value}
-                        interactive={!disabled}
-                        selected={checked}
-                        selectedVariant="outline"
-                      >
-                        <Stack
-                          direction="horizontal"
-                          align="start"
-                          justify="between"
-                          gap="cozy"
-                          padding="cozy"
-                          onClick={() => !disabled && toggle(role.value, !checked)}
+                <Stack disabled={disabled}>
+                  <Grid cols={3} gap="cozy">
+                    {roles.map((role) => {
+                      const checked = value.roles.includes(role.value);
+                      return (
+                        <Card
+                          key={role.value}
+                          interactive={!disabled}
+                          selected={checked}
+                          selectedVariant="outline"
                         >
-                          <Stack gap="none">
-                            <Text as="span" weight="strong">
-                              {role.label}
-                            </Text>
-                            {role.description && (
-                              <Text as="span" size="caption" color="subtle">
-                                {role.description}
+                          <Stack
+                            direction="horizontal"
+                            align="start"
+                            justify="between"
+                            gap="cozy"
+                            padding="cozy"
+                            onClick={() => !disabled && toggle(role.value, !checked)}
+                          >
+                            <Stack gap="none">
+                              <Text as="span" weight="strong">
+                                {role.label}
                               </Text>
-                            )}
+                              {role.description && (
+                                <Text as="span" size="caption" color="subtle">
+                                  {role.description}
+                                </Text>
+                              )}
+                            </Stack>
+                            {/* The card's click toggles; stop the checkbox's own click from toggling twice. */}
+                            <Stack onClick={(e) => e.stopPropagation()}>
+                              <Checkbox
+                                size="lg"
+                                checked={checked}
+                                disabled={disabled}
+                                onChange={(on) => toggle(role.value, on)}
+                                aria-label={role.label}
+                              />
+                            </Stack>
                           </Stack>
-                          {/* The card's click toggles; stop the checkbox's own click from toggling twice. */}
-                          <Stack onClick={(e) => e.stopPropagation()}>
-                            <Checkbox
-                              size="lg"
-                              checked={checked}
-                              disabled={disabled}
-                              onChange={(on) => toggle(role.value, on)}
-                              aria-label={role.label}
-                            />
-                          </Stack>
-                        </Stack>
-                      </Card>
-                    );
-                  })}
-                </Grid>
+                        </Card>
+                      );
+                    })}
+                  </Grid>
+                </Stack>
               </Stack>
             )}
             <Stack gap="snug">

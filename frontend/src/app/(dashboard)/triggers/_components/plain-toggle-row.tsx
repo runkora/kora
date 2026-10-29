@@ -22,36 +22,38 @@ export function PlainToggleRow({
   disabled?: boolean;
 }) {
   return (
-    <Card
-      subtle
-      border="subtle"
-      interactive={!disabled}
-      // The whole card is the hit target, like a label around a checkbox. The switch
-      // handles its own click, so a click that started on it is not toggled twice.
-      onClick={(e) => {
-        if (disabled || (e.target as HTMLElement).closest('[role="switch"]')) return;
-        onChange(!checked);
-      }}
-    >
-      <Stack
-        direction="horizontal"
-        align="center"
-        gap="comfortable"
-        paddingInline="comfortable"
-        paddingBlock="cozy"
+    <Stack disabled={disabled}>
+      <Card
+        subtle
+        border="subtle"
+        interactive={!disabled}
+        // The whole card is the hit target, like a label around a checkbox. The switch
+        // handles its own click, so a click that started on it is not toggled twice.
+        onClick={(e) => {
+          if (disabled || (e.target as HTMLElement).closest('[role="switch"]')) return;
+          onChange(!checked);
+        }}
       >
-        <Stack gap="tight" grow minWidth="none">
-          <Text as="span" size="supporting" weight="heavy">
-            {label}
-          </Text>
-          {description !== undefined && (
-            <Text size="caption" color="muted">
-              {description}
+        <Stack
+          direction="horizontal"
+          align="center"
+          gap="comfortable"
+          paddingInline="comfortable"
+          paddingBlock="cozy"
+        >
+          <Stack gap="tight" grow minWidth="none">
+            <Text as="span" size="supporting" weight="heavy">
+              {label}
             </Text>
-          )}
+            {description !== undefined && (
+              <Text size="caption" color="muted">
+                {description}
+              </Text>
+            )}
+          </Stack>
+          <Toggle checked={checked} onChange={onChange} disabled={disabled} aria-label={label} />
         </Stack>
-        <Toggle checked={checked} onChange={onChange} disabled={disabled} aria-label={label} />
-      </Stack>
-    </Card>
+      </Card>
+    </Stack>
   );
 }

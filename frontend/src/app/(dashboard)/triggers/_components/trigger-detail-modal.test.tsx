@@ -350,6 +350,52 @@ describe('coalesce editing', () => {
     );
   });
 
+  it('warns that Replace or Refuse turns coalescing off, until Wait is picked again', async () => {
+    const onEdit = vi.fn().mockResolvedValue(null);
+    renderDetailModal(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }), onEdit);
+    await openSection('Delivery');
+    expect(screen.queryByText(/Coalescing only works with Wait/)).toBeNull();
+
+    fireEvent.click(screen.getByRole('radio', { name: /Replace/ }));
+    expect(
+      screen.getByText('Coalescing only works with Wait. Saving with Replace turns it off.'),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: /Refuse/ }));
+    expect(
+      screen.getByText('Coalescing only works with Wait. Saving with Refuse turns it off.'),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('radio', { name: /Wait/ }));
+    expect(screen.queryByText(/Coalescing only works with Wait/)).toBeNull();
+    // The draft kept coalescing while the warning was up.
+    expect((screen.getByLabelText('Key') as HTMLInputElement).value).toBe('k');
+    fireEvent.click(screen.getByRole('radio', { name: /Replace/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Wait/ }));
+    fireEvent.click(screen.getByRole('switch', { name: /Coalesce events/ }));
+    fireEvent.click(screen.getByRole('switch', { name: /Coalesce events/ }));
+    fireEvent.change(screen.getByLabelText('Time to start'), { target: { value: '31' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save delivery' }));
+    expect(onEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't1' }),
+      expect.objectContaining({
+        overflow: 'wait',
+        coalesce: expect.objectContaining({ key: 'k' }),
+      }),
+    );
+  });
+
+  it('does not warn when coalescing is off under Replace', async () => {
+    renderDetailModal(trigger({ overflow: 'replace' }));
+    await openSection('Delivery');
+    expect(screen.queryByText(/Coalescing only works with Wait/)).toBeNull();
+  });
+
+  it('does not warn for a scheduled trigger under Replace', async () => {
+    renderDetailModal(trigger({ kind: 'scheduled', overflow: 'replace' }));
+    await openSection('Delivery');
+    expect(screen.queryByText(/Coalescing only works with Wait/)).toBeNull();
+  });
+
   it('is absent for a scheduled trigger', async () => {
     renderDetailModal(trigger({ kind: 'scheduled' }));
     await openSection('Delivery');
@@ -628,6 +674,44 @@ describe('managed in git', () => {
     await openDangerZone();
     expect(screen.getByRole('button', { name: 'Rotate' })).toBeEnabled();
   });
+
+  it.each(['Trigger', 'Event filters', 'Senders', 'Prompt', 'Delivery', 'Danger zone'])(
+    'heads the %s section with who manages the trigger',
+    async (section) => {
+      renderManaged(trigger({ declared: true, repository: 'acme/platform-config' }));
+      await openSection(section);
+      const notice = screen.getByLabelText('Managed in git');
+      expect(notice.textContent).toContain('Managed by acme/platform-config');
+      expect(notice.textContent).toContain('Changes made here are not saved.');
+    },
+  );
+
+  it('explains the disabled Delivery actions with the same message', async () => {
+    renderManaged(trigger({ declared: true, repository: 'acme/platform-config' }));
+    await openSection('Delivery');
+    expect(
+      screen.getByText(
+        'Managed by acme/platform-config. Edit it in acme/platform-config; changes made here are not saved.',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save delivery' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Discard' })).toBeDisabled();
+  });
+
+  it('names a locked tenant when the trigger is not declared', async () => {
+    renderManaged(trigger(), { apiAuthoring: false });
+    await openSection('Prompt');
+    expect(screen.getByLabelText('Managed in git').textContent).toContain('Managed in git');
+  });
+
+  it.each(['Trigger', 'Delivery', 'Danger zone'])(
+    'shows no managed notice on %s for an unmanaged trigger',
+    async (section) => {
+      renderManaged(trigger());
+      await openSection(section);
+      expect(screen.queryByLabelText('Managed in git')).toBeNull();
+    },
+  );
 
   it('offers no rotation for a declared source', async () => {
     renderManaged(trigger(), { sources: [{ ...SOURCES[0]!, declared: true }] });
@@ -1056,14 +1140,14 @@ describe('closing with unsaved edits', () => {
     expect(screen.queryByText('Discard unsaved changes?')).toBeNull();
   });
 
-  it('asks before Escape discards an edit, and keeps it on Keep editing', async () => {
+  it('asks before Escape discards an edit, and keeps it on Cancel', async () => {
     const onClose = renderClosable();
     await dirtyFilters();
     fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
     expect(await screen.findByText('Discard unsaved changes?')).toBeTruthy();
     expect(onClose).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.queryByText('Discard unsaved changes?')).toBeNull();
     expect((screen.getByLabelText('Filter 1 values') as HTMLInputElement).value).toBe('closed');

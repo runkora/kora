@@ -205,6 +205,31 @@ export const WebhookAgentManagedInGitConfigurationEventFilters: Story = {
   play: openTrigger('webhook-agent-managed-in-git', 'Configuration', 'Event filters'),
 };
 
+/** The Trigger section of a trigger managed in git: the notice leads, every control is dimmed. */
+export const WebhookAgentManagedInGitConfigurationTrigger: Story = {
+  play: openTrigger('webhook-agent-managed-in-git', 'Configuration', 'Trigger'),
+};
+
+/** The Senders section of a trigger managed in git: the notice leads, every control is dimmed. */
+export const WebhookAgentManagedInGitConfigurationSenders: Story = {
+  play: openTrigger('webhook-agent-managed-in-git', 'Configuration', 'Senders'),
+};
+
+/** The Prompt section of a trigger managed in git: the notice leads, every control is dimmed. */
+export const WebhookAgentManagedInGitConfigurationPrompt: Story = {
+  play: openTrigger('webhook-agent-managed-in-git', 'Configuration', 'Prompt'),
+};
+
+/** The Delivery section of a trigger managed in git: the notice leads, every control is dimmed. */
+export const WebhookAgentManagedInGitConfigurationDelivery: Story = {
+  play: openTrigger('webhook-agent-managed-in-git', 'Configuration', 'Delivery'),
+};
+
+/** The Danger zone section of a trigger managed in git: the notice leads, every control is dimmed. */
+export const WebhookAgentManagedInGitConfigurationDangerZone: Story = {
+  play: openTrigger('webhook-agent-managed-in-git', 'Configuration', 'Danger zone'),
+};
+
 // ── Danger zone: the last Configuration section ─────────────────────────────
 
 /** Rotating the signing secret, in amber, and deleting the trigger, in red. */

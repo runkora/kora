@@ -21,6 +21,7 @@ import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   Button,
+  Callout,
   Card,
   CardContent,
   Grid,
@@ -222,7 +223,13 @@ export function DeliverySection({
                 Maximum concurrency is {parallel.max}.
               </Text>
             </Stack>
-            <Stack direction="horizontal" align="center" gap="comfortable" shrink={false}>
+            <Stack
+              direction="horizontal"
+              align="center"
+              gap="comfortable"
+              shrink={false}
+              disabled={disabled}
+            >
               <Button
                 size="icon-sm"
                 variant="secondary"
@@ -266,21 +273,32 @@ export function DeliverySection({
             onValueChange={(v) => onChange({ overflow: v as TriggerOverflow })}
             aria-label="Overflow behaviour"
           >
-            <Grid cols={{ base: 1, md: 3 }} gap="cozy">
-              {OVERFLOW_OPTIONS.map((o) => (
-                <OverflowOptionCard
-                  key={o.id}
-                  value={o.id}
-                  selected={value.overflow === o.id}
-                  disabled={disabled}
-                  onSelect={(v) => onChange({ overflow: v as TriggerOverflow })}
-                  title={o.label}
-                  description={o.description}
-                  recommended={o.best.includes(kind)}
-                />
-              ))}
-            </Grid>
+            <Stack disabled={disabled}>
+              <Grid cols={{ base: 1, md: 3 }} gap="cozy">
+                {OVERFLOW_OPTIONS.map((o) => (
+                  <OverflowOptionCard
+                    key={o.id}
+                    value={o.id}
+                    selected={value.overflow === o.id}
+                    disabled={disabled}
+                    onSelect={(v) => onChange({ overflow: v as TriggerOverflow })}
+                    title={o.label}
+                    description={o.description}
+                    recommended={o.best.includes(kind)}
+                  />
+                ))}
+              </Grid>
+            </Stack>
           </RadioGroup>
+          {kind === 'webhook' && value.overflow !== 'wait' && value.coalesce.enabled && (
+            <Callout variant="warning">
+              <Text size="caption">
+                Coalescing only works with Wait. Saving with{' '}
+                {OVERFLOW_OPTIONS.find((o) => o.id === value.overflow)?.label ?? value.overflow}{' '}
+                turns it off.
+              </Text>
+            </Callout>
+          )}
           <RecommendationNote kind={kind} />
         </Stack>
 

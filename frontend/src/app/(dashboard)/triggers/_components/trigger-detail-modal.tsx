@@ -30,8 +30,6 @@ import {
   Input,
   SectionLabel,
   Modal,
-  ModalBody,
-  ModalFooter,
   ModalHeader,
   Stack,
   StatusDot,
@@ -84,6 +82,7 @@ import {
 } from './trigger-wizard/wizard-state';
 import { isValidCron, resolveBrowserZone, timezoneOptions } from './trigger-wizard/cron';
 import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
+import { ManagedSectionNotice, managedFooterMessage } from './managed-section-notice';
 import { useEditableSection } from './use-editable-section';
 import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
 import {
@@ -638,6 +637,7 @@ function TriggerDetailModalBody({
         ? `Schedule · ${trigger.scheduleConfig?.cronExpression ?? ''}`
         : 'Manual · run on demand';
 
+  const managedMessage = managedFooterMessage(trigger.declared, trigger.repository);
   // One notice covers every disabled edit control in the modal.
   const notice = managed ? (
     <Stack gap="snug">
@@ -801,7 +801,23 @@ function TriggerDetailModalBody({
                     {activeSection.description}
                   </Text>
                 </Stack>
-                {notice}
+                {managed ? (
+                  <ManagedSectionNotice
+                    declared={trigger.declared}
+                    repository={trigger.repository}
+                    extra={
+                      activeSection.id === 'danger'
+                        ? `Deleting this trigger is also done there.${
+                            onRotateSecret !== undefined && hasSigningSecret
+                              ? ' Rotating the signing secret still works here.'
+                              : ''
+                          }`
+                        : undefined
+                    }
+                  />
+                ) : (
+                  notice
+                )}
                 {activeSection.id === 'trigger' && (
                   <Stack gap="relaxed">
                     <Stack gap="snug">
@@ -969,9 +985,11 @@ function TriggerDetailModalBody({
                         alwaysShow
                         readOnly={!editable}
                         notice={
-                          canWrite
-                            ? undefined
-                            : "You don't have permission to change delivery settings."
+                          managed
+                            ? managedMessage
+                            : canWrite
+                              ? undefined
+                              : "You don't have permission to change delivery settings."
                         }
                         saveLabel="Save delivery"
                         onSave={delivery.save}
@@ -1293,24 +1311,14 @@ function TriggerDetailModalBody({
           </Stack>
         )}
       </Tabs>
-      {/* Hades' ConfirmDialog fixes its dismiss label to "Cancel"; this asks the question
-          in the modal's own terms, so it composes the same parts. */}
-      <Modal open={confirmingDiscard} onClose={() => setConfirmingDiscard(false)} size="sm">
-        <ModalHeader title="Discard unsaved changes?" />
-        <ModalBody flushY>
-          <Text size="caption" color="muted">
-            You have edits that have not been saved. Closing this trigger discards them.
-          </Text>
-        </ModalBody>
-        <ModalFooter>
-          <Button variant="outline" size="sm" onClick={() => setConfirmingDiscard(false)}>
-            Keep editing
-          </Button>
-          <Button variant="destructive" size="sm" onClick={discardAndClose}>
-            Discard changes
-          </Button>
-        </ModalFooter>
-      </Modal>
+      <ConfirmDialog
+        open={confirmingDiscard}
+        title="Discard unsaved changes?"
+        description="You have edits that have not been saved. Closing this trigger discards them."
+        confirmLabel="Discard changes"
+        onConfirm={discardAndClose}
+        onClose={() => setConfirmingDiscard(false)}
+      />
       <ConfirmDialog
         open={rotateOpen}
         title="Rotate signing secret"
