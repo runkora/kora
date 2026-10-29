@@ -1,9 +1,10 @@
 'use client';
 
-/** @tier 3 — triggers-scoped. The two fields every kind's first step renders:
- * the trigger name and the prompt. Each kind supplies only its own hint,
- * placeholder and catalog, so the field markup, ids and constraints exist once
- * and a new kind cannot render them differently by accident. */
+/** @tier 3 — triggers-scoped. The two fields every kind's first step renders and
+ * every stored trigger's Configuration tab edits: the trigger name and the
+ * prompt. Each kind supplies only its own hint, placeholder and catalog, so the
+ * field markup, ids and constraints exist once and a surface cannot render them
+ * differently by accident. */
 
 import { FormField, Input, TemplateField } from '@runkora/hades';
 import type { TemplateCatalogEntry } from '@runkora/hades';
@@ -14,18 +15,30 @@ interface TriggerNameFieldProps {
   /** Where this name shows up, in the kind's own vocabulary. */
   hint: string;
   placeholder: string;
+  disabled?: boolean;
+  /** Marks the field as failing validation. */
+  invalid?: boolean;
 }
 
-export function TriggerNameField({ value, onChange, hint, placeholder }: TriggerNameFieldProps) {
+export function TriggerNameField({
+  value,
+  onChange,
+  hint,
+  placeholder,
+  disabled,
+  invalid,
+}: TriggerNameFieldProps) {
   return (
-    <FormField label="Trigger name" id="wizard-name" hint={hint} required>
+    <FormField label="Trigger name" id="trigger-name" hint={hint} required>
       <Input
-        id="wizard-name"
+        id="trigger-name"
         mono
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         maxLength={128}
+        filled={invalid ? 'danger' : undefined}
       />
     </FormField>
   );
@@ -38,8 +51,9 @@ interface PromptFieldProps {
   hint: string;
   catalog: TemplateCatalogEntry[];
   /** Where the catalog's fields come from, shown above the token list. */
-  catalogLabel: string;
+  catalogLabel?: string;
   placeholder: string;
+  disabled?: boolean;
 }
 
 export function PromptField({
@@ -49,17 +63,20 @@ export function PromptField({
   catalog,
   catalogLabel,
   placeholder,
+  disabled,
 }: PromptFieldProps) {
   return (
-    <FormField label="Prompt" id="wizard-prompt" hint={hint} required>
+    <FormField label="Prompt" id="trigger-prompt" hint={hint} required>
       <TemplateField
-        id="wizard-prompt"
+        id="trigger-prompt"
+        code
         aria-label="Prompt"
         value={value}
         onChange={onChange}
         catalog={catalog}
         catalogLabel={catalogLabel}
         placeholder={placeholder}
+        disabled={disabled}
       />
     </FormField>
   );

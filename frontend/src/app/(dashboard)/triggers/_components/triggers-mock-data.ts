@@ -159,7 +159,7 @@ function trigger(
   };
 }
 
-/** The trigger the drawer stories open: a webhook with several filters, one on a long field path. */
+/** The trigger the modal stories open: a webhook with several filters, one on a long field path. */
 export const PR_REVIEW_TRIGGER = trigger({
   id: 'trg_1c8e04b2',
   name: 'review-opened-prs',
@@ -587,7 +587,7 @@ export const MANY_DELIVERIES: DeliveryRow[] = [
   }),
 ];
 
-// ── Catalog and preview answers the drawer and wizard fetch ──────────────────
+// ── Catalog and preview answers the modal and wizard fetch ──────────────────
 
 export const GITHUB_EVENT_TYPES: TriggerEventTypes = {
   declared: [
@@ -1005,3 +1005,170 @@ export function routedDelivery(c: RoutingCase): DeliveryRow {
   };
   return toDeliveryRow(wire);
 }
+
+// ── Detail modal permutations ────────────────────────────────────────────────
+//
+// A trigger's modal changes shape along a few axes, and each fixture below sits
+// at one point on them. The name says which: `<kind>-<target>[-<state>]`.
+//
+//   kind    webhook · chat · scheduled · manual
+//   target  agent (one fixed agent) · routed (kora chooses; webhook and chat only)
+//   state   unfiltered · auto-paused · source-deleted · waiting-for-secret ·
+//           managed-in-git
+//
+// Kind decides the Overview (endpoint and secret, run form, or neither) and the
+// Configuration sections (event filters and senders, schedule, or neither).
+// Target decides what the Overview's Target shows. State adds a notice or alert and changes
+// what can be edited. Combinations the product cannot produce are absent: only
+// a webhook or chat trigger can be routed, and only one with a source can lose it.
+//
+// Fixtures are separate from the fleet above so the fleet stays a realistic
+// list, while these stay easy to find from the name alone.
+
+const GITHUB_SOURCE = 'src_4d1f9a7c';
+const SLACK_SOURCE = 'src_7c3e51b9';
+
+/** A webhook trigger with filters, senders and coalescing set, on one agent. */
+const WEBHOOK_AGENT = {
+  ...PR_REVIEW_TRIGGER,
+  id: 'trg_perm_webhook_agent',
+  name: 'webhook-agent',
+};
+
+/** A webhook trigger with nothing narrowing it: every delivery of the event starts a run. */
+const WEBHOOK_AGENT_UNFILTERED = trigger({
+  id: 'trg_perm_webhook_unfiltered',
+  name: 'webhook-agent-unfiltered',
+  kind: 'webhook',
+  agentSlug: 'docs-writer',
+  sourceId: GITHUB_SOURCE,
+  eventType: 'release',
+  promptTemplate: 'Announce release {{payload.release.name}} of {{payload.repository.full_name}}.',
+});
+
+/** A webhook trigger where kora chooses the agent per delivery. */
+const WEBHOOK_ROUTED = { ...ROUTED_TRIGGER, id: 'trg_perm_webhook_routed', name: 'webhook-routed' };
+
+/** A chat command with a channel filter, two senders and coalescing, on one agent. */
+const CHAT_AGENT = { ...SLACK_MENTION_TRIGGER, id: 'trg_perm_chat_agent', name: 'chat-agent' };
+
+/** A chat command where kora chooses the agent, joining a Slack thread to its open run. */
+const CHAT_ROUTED = {
+  ...ROUTED_TRIGGER,
+  id: 'trg_perm_chat_routed',
+  name: 'chat-routed',
+  sourceId: SLACK_SOURCE,
+  eventType: 'mention',
+  matchCondition: {},
+  promptTemplate:
+    'Answer {{ text }} from {{ user.id }}. Reply in thread {{ thread.id }} of conversation {{ conversation.id }}.',
+  routing: ROUTED_TRIGGER.routing && {
+    ...ROUTED_TRIGGER.routing,
+    joinKey: '{{ conversation.id }}:{{ thread.id }}',
+  },
+};
+
+/** A trigger that fires on a cron schedule, with catch-up on. */
+const SCHEDULED_AGENT = trigger({
+  id: 'trg_perm_scheduled_agent',
+  name: 'scheduled-agent',
+  kind: 'scheduled',
+  agentSlug: 'coder',
+  scheduleConfig: { cronExpression: '0 2 * * *', timezone: 'UTC', catchUp: true },
+  promptTemplate: 'Audit dependencies and open a ticket for anything with a new advisory.',
+  maxParallel: 1,
+  overflow: 'replace',
+});
+
+/** A trigger a person fires by hand, with a form of three inputs. */
+const MANUAL_AGENT = trigger({
+  id: 'trg_perm_manual_agent',
+  name: 'manual-agent',
+  kind: 'manual',
+  agentSlug: 'coder',
+  manualInputs: [
+    { name: 'pattern', type: 'text', label: 'Test pattern', required: true },
+    { name: 'attempts', type: 'number', label: 'Attempts', default: '5' },
+    { name: 'verbose', type: 'boolean', label: 'Verbose output' },
+  ],
+  promptTemplate: 'Run tests matching {{pattern}} {{attempts}} times and report which are flaky.',
+});
+
+/** A scheduled trigger the platform disabled after repeated failures. */
+const SCHEDULED_AGENT_AUTO_PAUSED = trigger({
+  id: 'trg_perm_scheduled_paused',
+  name: 'scheduled-agent-auto-paused',
+  kind: 'scheduled',
+  agentSlug: 'coder',
+  scheduleConfig: { cronExpression: '*/15 * * * *', timezone: 'UTC', catchUp: false },
+  promptTemplate: 'Check the queue depth and open an incident if it is growing.',
+  consecutiveFailures: 10,
+  autoPausedAt: ago(3 * HOUR),
+  enabled: false,
+});
+
+/** A webhook trigger whose source was deleted: it cannot fire or be edited. */
+const WEBHOOK_AGENT_SOURCE_DELETED = {
+  ...WEBHOOK_AGENT_UNFILTERED,
+  id: 'trg_perm_webhook_orphaned',
+  name: 'webhook-agent-source-deleted',
+  sourceId: '',
+  sourceMissing: true,
+};
+
+/** A chat command on a source that is still waiting for the signing secret Slack issues. */
+const CHAT_AGENT_WAITING_FOR_SECRET = {
+  ...CHAT_AGENT,
+  id: 'trg_perm_chat_waiting',
+  name: 'chat-agent-waiting-for-secret',
+};
+
+/** A webhook trigger declared in the configuration repository: read-only here. */
+const WEBHOOK_AGENT_MANAGED_IN_GIT = {
+  ...WEBHOOK_AGENT,
+  id: 'trg_perm_webhook_managed',
+  name: 'webhook-agent-managed-in-git',
+  declared: true,
+  repository: 'acme/platform-config',
+};
+
+/** The triggers a permutation story opens, one per point on the axes above. */
+export const PERMUTATION_TRIGGERS: TriggerRow[] = [
+  WEBHOOK_AGENT,
+  WEBHOOK_AGENT_UNFILTERED,
+  WEBHOOK_ROUTED,
+  CHAT_AGENT,
+  CHAT_ROUTED,
+  SCHEDULED_AGENT,
+  MANUAL_AGENT,
+  SCHEDULED_AGENT_AUTO_PAUSED,
+  WEBHOOK_AGENT_SOURCE_DELETED,
+  CHAT_AGENT_WAITING_FOR_SECRET,
+  WEBHOOK_AGENT_MANAGED_IN_GIT,
+];
+
+/**
+ * Deliveries for the permutations that have history. The others have none, so
+ * their Deliveries tab shows the empty state.
+ */
+export const PERMUTATION_DELIVERIES: DeliveryRow[] = [
+  delivery(WEBHOOK_AGENT, 12 * MIN, 'dispatched', {
+    payloadExcerpt: PR_EXCERPT,
+    payloadBytes: 17_410,
+  }),
+  delivery(WEBHOOK_AGENT, 55 * MIN, 'failed', {
+    error: START_RUN_ERROR,
+    payloadExcerpt: PR_EXCERPT,
+    payloadBytes: 17_102,
+  }),
+  delivery(WEBHOOK_AGENT, 3 * HOUR, 'skipped', {
+    reason: 'pull request is a draft',
+    payloadExcerpt: PR_EXCERPT,
+    payloadBytes: 16_880,
+  }),
+  delivery(CHAT_AGENT, 20 * MIN, 'dispatched', {
+    payloadExcerpt: SLACK_EXCERPT,
+    payloadBytes: 1_284,
+  }),
+  delivery(SCHEDULED_AGENT, 7 * HOUR, 'dispatched', { scheduledAt: ago(7 * HOUR) }),
+];

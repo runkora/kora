@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@runkora/test-utils';
 
-// The drawer reads the source's schema catalogue from the API.
+// The modal reads the source's schema catalogue from the API.
 const api = vi.hoisted(() => ({
   fetchEventTypes: vi.fn(),
   fetchProviderEventTypes: vi.fn(),
@@ -37,11 +37,11 @@ beforeEach(() => {
   });
 });
 
-import { TriggerDrawer } from './trigger-drawer';
+import { TriggerDetailModal } from './trigger-detail-modal';
 import type { SourceRow, TriggerRow } from '../_types';
 import { makeTrigger } from '../_types/fixtures';
 
-/** The drawer tests want a stored condition and a template worth displaying. */
+/** The modal tests want a stored condition and a template worth displaying. */
 function trigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
   return makeTrigger({
     matchCondition: { action: ['opened'] },
@@ -66,9 +66,9 @@ const SOURCES: SourceRow[] = [
   },
 ];
 
-function renderDrawer(row: TriggerRow, onEdit?: () => Promise<string | null>) {
+function renderDetailModal(row: TriggerRow, onEdit?: () => Promise<string | null>) {
   return renderWithProviders(
-    <TriggerDrawer
+    <TriggerDetailModal
       canRunAgent
       trigger={row}
       sources={SOURCES}
@@ -82,26 +82,48 @@ function renderDrawer(row: TriggerRow, onEdit?: () => Promise<string | null>) {
   );
 }
 
+/**
+ * The editors live on the Configuration tab, which Tabs mounts only once selected. Radix
+ * switches tabs on mousedown, not click.
+ */
+function openConfiguration() {
+  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Configuration' }));
+}
+
+/** Rotation and delete are the last Configuration section. */
+async function openDangerZone() {
+  await openSection('Danger zone');
+}
+
+/** The Configuration tab shows one section at a time; pick one from its rail. */
+async function openSection(title: string) {
+  openConfiguration();
+  fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${title}`) }));
+}
+
 describe('prompt editing', () => {
-  it('shows the prompt, which the panel previously never displayed', () => {
-    renderDrawer(trigger());
-    expect(screen.getByText('Prompt')).toBeTruthy();
+  it('shows the prompt, which the panel previously never displayed', async () => {
+    renderDetailModal(trigger());
+    await openSection('Prompt');
+    expect(screen.getByRole('heading', { name: 'Prompt' })).toBeTruthy();
   });
 
   it('offers no save affordance until something changes', () => {
-    renderDrawer(trigger());
+    renderDetailModal(trigger());
     expect(screen.queryByRole('button', { name: 'Save prompt' })).toBeNull();
   });
 });
 
 describe('event and filter editing', () => {
-  it('seeds the rows from the stored match condition', () => {
-    renderDrawer(trigger());
+  it('seeds the rows from the stored match condition', async () => {
+    renderDetailModal(trigger());
+    await openSection('Event filters');
     expect((screen.getByLabelText('Filter 1 values') as HTMLInputElement).value).toBe('opened');
   });
 
-  it('grows a save row once a filter changes, and drops it on discard', () => {
-    renderDrawer(trigger());
+  it('grows a save row once a filter changes, and drops it on discard', async () => {
+    renderDetailModal(trigger());
+    await openSection('Event filters');
     fireEvent.change(screen.getByLabelText('Filter 1 values'), { target: { value: 'closed' } });
 
     expect(screen.getByRole('button', { name: 'Save filters' })).toBeTruthy();
@@ -111,8 +133,9 @@ describe('event and filter editing', () => {
     expect((screen.getByLabelText('Filter 1 values') as HTMLInputElement).value).toBe('opened');
   });
 
-  it('blocks the save on a half-written filter', () => {
-    renderDrawer(trigger());
+  it('blocks the save on a half-written filter', async () => {
+    renderDetailModal(trigger());
+    await openSection('Event filters');
     fireEvent.change(screen.getByLabelText('Filter 1 values'), { target: { value: '' } });
 
     expect(screen.getByText('Finish or remove the empty filter')).toBeTruthy();
@@ -123,7 +146,8 @@ describe('event and filter editing', () => {
 
   it('sends the event and the condition together', async () => {
     const onEdit = vi.fn().mockResolvedValue(null);
-    renderDrawer(trigger(), onEdit);
+    renderDetailModal(trigger(), onEdit);
+    await openSection('Event filters');
     fireEvent.change(screen.getByLabelText('Filter 1 values'), { target: { value: 'closed' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save filters' }));
 
@@ -136,8 +160,10 @@ describe('event and filter editing', () => {
 
   it('saves a contains row to match_contains', async () => {
     const onEdit = vi.fn().mockResolvedValue(null);
-    renderDrawer(trigger(), onEdit);
-    fireEvent.change(screen.getByLabelText('Filter 1 operator'), { target: { value: 'contains' } });
+    renderDetailModal(trigger(), onEdit);
+    await openSection('Event filters');
+    fireEvent.click(screen.getByLabelText('Filter 1 operator'));
+    fireEvent.click(screen.getByRole('option', { name: 'contains' }));
     fireEvent.change(screen.getByLabelText('Filter 1 values'), {
       target: { value: '@kora-agent' },
     });
@@ -152,7 +178,8 @@ describe('event and filter editing', () => {
 
   it('keeps the edit and shows the reason when the save fails', async () => {
     const onEdit = vi.fn().mockResolvedValue('event_type is not valid for this source');
-    renderDrawer(trigger(), onEdit);
+    renderDetailModal(trigger(), onEdit);
+    await openSection('Event filters');
     fireEvent.change(screen.getByLabelText('Filter 1 values'), { target: { value: 'closed' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save filters' }));
 
@@ -163,7 +190,8 @@ describe('event and filter editing', () => {
 
 describe('schema catalogue', () => {
   it("offers the source's schema and received event types, and the edited event's fields", async () => {
-    renderDrawer(trigger());
+    renderDetailModal(trigger());
+    await openSection('Event filters');
     fireEvent.click(screen.getByRole('button', { name: 'Event type' }));
     expect(await screen.findByText('issue_comment')).toBeTruthy();
     expect(screen.getByText('custom')).toBeTruthy();
@@ -175,19 +203,55 @@ describe('schema catalogue', () => {
     expect(screen.getByRole('button', { name: 'Save filters' })).toBeTruthy();
     expect(api.fetchProviderFields).toHaveBeenCalledWith('github', 'issue_comment');
   });
+});
 
-  it('previews the first message with the data block', () => {
-    renderDrawer(trigger());
+describe('prompt preview', () => {
+  it('shows the first message with the data block under Preview', async () => {
+    renderDetailModal(trigger());
+    await openSection('Prompt');
+    expect(screen.queryByText('First message')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     expect(screen.getByText('First message')).toBeTruthy();
     expect(screen.getByText(/"ref": ""/)).toBeTruthy();
+  });
+});
+
+describe('closing the modal', () => {
+  it('discards unsaved changes in every section', async () => {
+    const onClose = vi.fn();
+    renderWithProviders(
+      <TriggerDetailModal
+        canRunAgent
+        trigger={trigger()}
+        sources={SOURCES}
+        deliveries={[]}
+        ingestHost="local.runkora.io:8443"
+        onClose={onClose}
+        onToggleEnabled={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn().mockResolvedValue(null)}
+      />,
+    );
+    await openSection('Trigger');
+    const field = screen.getByLabelText(/Trigger name/) as HTMLInputElement;
+    const before = field.value;
+    fireEvent.change(field, { target: { value: `${before}-edited` } });
+    expect(field.value).toBe(`${before}-edited`);
+
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+
+    expect(onClose).toHaveBeenCalled();
+    expect((screen.getByLabelText(/Trigger name/) as HTMLInputElement).value).toBe(before);
   });
 });
 
 describe('sender restriction editing', () => {
   it('saves the ids and roles as the replacement restriction', async () => {
     const onEdit = vi.fn().mockResolvedValue(null);
-    renderDrawer(trigger(), onEdit);
-    fireEvent.change(await screen.findByLabelText('Allowed senders'), {
+    renderDetailModal(trigger(), onEdit);
+    await openSection('Senders');
+    fireEvent.click(await screen.findByRole('radio', { name: 'Specific senders' }));
+    fireEvent.change(await screen.findByLabelText('Additional senders'), {
       target: { value: 'octocat, hubot' },
     });
     fireEvent.click(screen.getByText('Member'));
@@ -199,10 +263,11 @@ describe('sender restriction editing', () => {
   });
 
   it('seeds from the stored restriction', async () => {
-    renderDrawer(trigger({ senderRestriction: { ids: ['octocat'], roles: ['OWNER'] } }));
-    expect(((await screen.findByLabelText('Allowed senders')) as HTMLInputElement).value).toBe(
-      'octocat',
-    );
+    renderDetailModal(trigger({ senderRestriction: { ids: ['octocat'], roles: ['OWNER'] } }));
+    await openSection('Senders');
+    expect(
+      ((await screen.findByLabelText('Additional senders')) as HTMLTextAreaElement).value,
+    ).toBe('octocat');
     expect(screen.getByRole('checkbox', { name: 'Owner' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Member' })).not.toBeChecked();
   });
@@ -212,96 +277,100 @@ describe('sender restriction editing', () => {
       eventTypes: { declared: ['alert.firing'], category: 'webhook' },
       error: null,
     });
-    renderDrawer(trigger());
+    renderDetailModal(trigger());
+    await openSection('Event filters');
     await screen.findByRole('button', { name: 'Event type' });
     expect(screen.queryByText('Senders')).toBeNull();
   });
 });
 
 describe('coalesce editing', () => {
-  it('saves a key and window as the new setting', () => {
+  it('saves a key and window as the new setting', async () => {
     const onEdit = vi.fn().mockResolvedValue(null);
-    renderDrawer(trigger(), onEdit);
+    renderDetailModal(trigger(), onEdit);
+    await openSection('Delivery');
     fireEvent.click(screen.getByRole('switch', { name: /Coalesce events/ }));
     fireEvent.change(screen.getByLabelText('Key'), { target: { value: '{{ pr.number }}' } });
     fireEvent.change(screen.getByLabelText('Window'), { target: { value: '30' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save coalescing' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save delivery' }));
 
-    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), {
-      coalesce: { key: '{{ pr.number }}', windowSeconds: 30 },
-    });
+    expect(onEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't1' }),
+      expect.objectContaining({ coalesce: { key: '{{ pr.number }}', windowSeconds: 30 } }),
+    );
   });
 
-  it('seeds from the stored setting', () => {
-    renderDrawer(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }));
+  it('seeds from the stored setting', async () => {
+    renderDetailModal(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }));
+    await openSection('Delivery');
     expect((screen.getByLabelText('Key') as HTMLInputElement).value).toBe('k');
     expect((screen.getByLabelText('Window') as HTMLInputElement).value).toBe('45');
   });
 
-  it('clears the setting with null when switched off', () => {
+  it('clears the setting with null when switched off', async () => {
     const onEdit = vi.fn().mockResolvedValue(null);
-    renderDrawer(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }), onEdit);
+    renderDetailModal(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }), onEdit);
+    await openSection('Delivery');
     fireEvent.click(screen.getByRole('switch', { name: /Coalesce events/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save coalescing' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save delivery' }));
 
-    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), { coalesce: null });
+    expect(onEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't1' }),
+      expect.objectContaining({ coalesce: null }),
+    );
   });
 
-  it('blocks saving when on without a window', () => {
-    renderDrawer(trigger());
+  it('blocks saving when on without a window', async () => {
+    renderDetailModal(trigger());
+    await openSection('Delivery');
     fireEvent.click(screen.getByRole('switch', { name: /Coalesce events/ }));
     fireEvent.change(screen.getByLabelText('Key'), { target: { value: 'k' } });
     expect(
-      (screen.getByRole('button', { name: 'Save coalescing' }) as HTMLButtonElement).disabled,
+      (screen.getByRole('button', { name: 'Save delivery' }) as HTMLButtonElement).disabled,
     ).toBe(true);
   });
 
-  it('is locked when overflow is not wait', () => {
-    renderDrawer(trigger({ overflow: 'replace' }));
-    expect(
-      (screen.getByRole('switch', { name: /Coalesce events/ }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-    expect(screen.getByText(/requires overflow set to wait/i)).toBeTruthy();
+  it('is hidden when overflow is not wait', async () => {
+    renderDetailModal(trigger({ overflow: 'replace' }));
+    await openSection('Delivery');
+    expect(screen.queryByRole('switch', { name: /Coalesce events/ })).toBeNull();
   });
 
-  it('offers only Wait for overflow while coalescing is on', () => {
-    renderDrawer(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }));
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Settings' }));
-    const overflow = within(screen.getByRole('group', { name: 'Overflow behaviour' }));
-    expect(overflow.getByText('Wait')).toBeTruthy();
-    expect(overflow.queryByText('Replace')).toBeNull();
-    expect(screen.getByText(/Coalescing requires Wait/)).toBeTruthy();
+  it('drops the setting when the overflow leaves wait', async () => {
+    const onEdit = vi.fn().mockResolvedValue(null);
+    renderDetailModal(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }), onEdit);
+    await openSection('Delivery');
+    fireEvent.click(screen.getByRole('radio', { name: /Replace/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save delivery' }));
+
+    expect(onEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't1' }),
+      expect.objectContaining({ overflow: 'replace', coalesce: null }),
+    );
   });
 
-  it('is absent for a scheduled trigger', () => {
-    renderDrawer(trigger({ kind: 'scheduled' }));
+  it('is absent for a scheduled trigger', async () => {
+    renderDetailModal(trigger({ kind: 'scheduled' }));
+    await openSection('Delivery');
     expect(screen.queryByText('Coalesce events')).toBeNull();
   });
 });
 
 describe('name editing', () => {
-  /**
-   * The name lives in Settings, which Tabs mounts only once selected. Radix
-   * switches tabs on mousedown, not click.
-   */
-  function openSettings() {
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Settings' }));
-  }
-
-  it('blocks an empty name', () => {
-    renderDrawer(trigger());
-    openSettings();
-    fireEvent.change(screen.getByLabelText('Trigger name'), { target: { value: '  ' } });
+  it('blocks an empty name', async () => {
+    renderDetailModal(trigger());
+    await openSection('Trigger');
+    fireEvent.change(screen.getByLabelText(/Trigger name/), { target: { value: '  ' } });
 
     expect(screen.getByText('Needs a name')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Save name' }).hasAttribute('disabled')).toBe(true);
   });
 
-  it('sends only the name, so a rename cannot disturb anything else', () => {
+  it('sends only the name, so a rename cannot disturb anything else', async () => {
     const onEdit = vi.fn().mockResolvedValue(null);
-    renderDrawer(trigger(), onEdit);
-    openSettings();
-    fireEvent.change(screen.getByLabelText('Trigger name'), { target: { value: ' renamed ' } });
+    renderDetailModal(trigger(), onEdit);
+    await openSection('Trigger');
+    fireEvent.change(screen.getByLabelText(/Trigger name/), { target: { value: ' renamed ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
 
     expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), {
@@ -316,18 +385,19 @@ describe('schedule editing', () => {
     scheduleConfig: { cronExpression: '0 2 * * *', timezone: 'UTC', catchUp: false },
   });
 
-  it('reads as a row until Edit is pressed', () => {
-    renderDrawer(scheduled);
-    expect(screen.queryByLabelText('Cron expression')).toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    expect(screen.getByLabelText('Cron expression')).toBeTruthy();
+  it('edits in place, with no Edit button to press first', async () => {
+    renderDetailModal(scheduled);
+    await openSection('Schedule');
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    expect(screen.getByLabelText('Frequency')).toBeTruthy();
     expect(screen.getByLabelText('Timezone')).toBeTruthy();
+    expect(screen.getByRole('switch', { name: /Catch up on missed runs/ })).toBeTruthy();
   });
 
-  it('blocks an expression that is not five fields', () => {
-    renderDrawer(scheduled);
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  it('blocks an expression that is not five fields', async () => {
+    renderDetailModal(scheduled);
+    await openSection('Schedule');
+    fireEvent.click(screen.getByRole('button', { name: /Advanced: cron expression/ }));
     fireEvent.change(screen.getByLabelText('Cron expression'), { target: { value: '0 2 * *' } });
 
     expect(screen.getByText('Needs a five-field cron expression')).toBeTruthy();
@@ -336,13 +406,12 @@ describe('schedule editing', () => {
     );
   });
 
-  it('sends the whole schedule, since the three settings only mean anything together', () => {
+  it('sends the whole schedule, since the three settings only mean anything together', async () => {
     const onEdit = vi.fn().mockResolvedValue(null);
-    renderDrawer(scheduled, onEdit);
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    fireEvent.change(screen.getByLabelText('Cron expression'), {
-      target: { value: '*/15 * * * *' },
-    });
+    renderDetailModal(scheduled, onEdit);
+    await openSection('Schedule');
+    fireEvent.click(screen.getByText('Minutes'));
+    fireEvent.click(screen.getByRole('button', { name: '15m' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
 
     expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), {
@@ -354,7 +423,7 @@ describe('schedule editing', () => {
 describe('read-only callers', () => {
   it('offers no edit affordances without onEdit', () => {
     renderWithProviders(
-      <TriggerDrawer
+      <TriggerDetailModal
         canRunAgent
         trigger={trigger({
           kind: 'scheduled',
@@ -377,7 +446,7 @@ describe('ephemeral state is scoped to the open trigger', () => {
   it('does not carry a rotated secret from one trigger into the next', async () => {
     const onRotateSecret = vi.fn().mockResolvedValue('secret-for-A');
     const { rerender } = renderWithProviders(
-      <TriggerDrawer
+      <TriggerDetailModal
         canRunAgent
         trigger={trigger({ id: 'trg-A', name: 'trigger-a' })}
         sources={SOURCES}
@@ -392,14 +461,15 @@ describe('ephemeral state is scoped to the open trigger', () => {
     );
 
     // Rotate A's secret: arm, then confirm. The revealed secret then shows.
+    await openDangerZone();
     fireEvent.click(screen.getByRole('button', { name: 'Rotate' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Break the old secret?' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Rotate secret' }));
     expect(await screen.findByText('secret-for-A')).toBeTruthy();
 
     // Reopening on a different trigger must not inherit A's revealed secret: B
-    // shows the placeholder and the Rotate button, never A's live secret.
+    // shows the Rotate button and no revealed secret, never A's live secret.
     rerender(
-      <TriggerDrawer
+      <TriggerDetailModal
         canRunAgent
         trigger={trigger({ id: 'trg-B', name: 'trigger-b' })}
         sources={SOURCES}
@@ -413,16 +483,46 @@ describe('ephemeral state is scoped to the open trigger', () => {
       />,
     );
 
+    // The tab is forgotten too, so B opens on Overview and the zone is reopened.
     expect(screen.queryByText('secret-for-A')).toBeNull();
-    expect(screen.getByText('shown once at creation')).toBeTruthy();
+    await openDangerZone();
     expect(screen.getByRole('button', { name: 'Rotate' })).toBeTruthy();
+    expect(screen.queryByText('secret-for-A')).toBeNull();
+  });
+
+  it('forgets the selected tab when the modal closes', async () => {
+    const props = {
+      canRunAgent: true,
+      sources: SOURCES,
+      deliveries: [],
+      ingestHost: 'local.runkora.io:8443',
+      onClose: vi.fn(),
+      onToggleEnabled: vi.fn(),
+      onDelete: vi.fn(),
+      onEdit: vi.fn().mockResolvedValue(null),
+    };
+    const { rerender } = renderWithProviders(
+      <TriggerDetailModal {...props} trigger={trigger({ id: 'trg-A' })} />,
+    );
+    await screen.findByRole('tab', { name: 'Configuration' });
+    openConfiguration();
+    expect(screen.getByRole('tab', { name: 'Configuration' }).getAttribute('data-state')).toBe(
+      'active',
+    );
+
+    rerender(<TriggerDetailModal {...props} trigger={null} />);
+    rerender(<TriggerDetailModal {...props} trigger={trigger({ id: 'trg-A' })} />);
+
+    expect((await screen.findByRole('tab', { name: 'Overview' })).getAttribute('data-state')).toBe(
+      'active',
+    );
   });
 });
 
 describe('permissions', () => {
   function renderWith(scopes: string[], row: TriggerRow, canRunAgent = true) {
     return renderWithProviders(
-      <TriggerDrawer
+      <TriggerDetailModal
         canRunAgent={canRunAgent}
         trigger={row}
         sources={SOURCES}
@@ -454,27 +554,38 @@ describe('permissions', () => {
     expect(screen.getByLabelText("You don't have permission to fire this trigger.")).toBeTruthy();
   });
 
-  it('disables the enable switch and edits for a read-only caller, under one notice', () => {
+  it('disables the enable switch and edits for a read-only caller, under one notice', async () => {
     renderWith(['triggers:read'], scheduled);
-    expect(screen.getByRole('switch')).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled();
+    await openSection('Schedule');
+    expect(screen.getByRole('switch', { name: /^(Enable|Disable)/ })).toBeDisabled();
+    expect(screen.queryByLabelText('Frequency')).toBeNull();
     expect(screen.getByText("You don't have permission to edit triggers.")).toBeTruthy();
   });
 
-  it('keeps the switch and edits for a caller with triggers:write', () => {
+  it('says why delivery is read only without triggers:write', async () => {
+    renderWith(['triggers:read'], trigger());
+    await openSection('Delivery');
+    expect(screen.getByText("You don't have permission to change delivery settings.")).toBeTruthy();
+    expect(screen.getByLabelText('Time to start')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save delivery' })).toBeDisabled();
+  });
+
+  it('keeps the switch and edits for a caller with triggers:write', async () => {
     renderWith(['triggers:read', 'triggers:write'], scheduled);
-    expect(screen.getByRole('switch')).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled();
+    await openSection('Schedule');
+    expect(screen.getByRole('switch', { name: /^(Enable|Disable)/ })).toBeEnabled();
+    expect(screen.getByLabelText('Frequency')).toBeTruthy();
     expect(screen.queryByText("You don't have permission to edit triggers.")).toBeNull();
   });
 
-  it('keeps run-shaping edits read only without run authority on the agent', () => {
+  it('keeps run-shaping edits read only without run authority on the agent', async () => {
     renderWith(['triggers:read', 'triggers:write'], scheduled, false);
+    await openSection('Schedule');
     expect(
       screen.getByText(/You don't have permission to run this trigger's agent\./),
     ).toBeTruthy();
-    expect(screen.getByRole('switch')).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled();
+    expect(screen.getByRole('switch', { name: /^(Enable|Disable)/ })).toBeDisabled();
+    expect(screen.queryByLabelText('Frequency')).toBeNull();
   });
 });
 
@@ -484,7 +595,7 @@ describe('managed in git', () => {
     opts: { apiAuthoring?: boolean; sources?: SourceRow[] } = {},
   ) {
     return renderWithProviders(
-      <TriggerDrawer
+      <TriggerDetailModal
         canRunAgent
         trigger={row}
         sources={opts.sources ?? SOURCES}
@@ -494,32 +605,33 @@ describe('managed in git', () => {
         onToggleEnabled={vi.fn()}
         onDelete={vi.fn()}
         onEdit={vi.fn().mockResolvedValue(null)}
-        onUpdateSafety={vi.fn()}
         onRotateSecret={vi.fn().mockResolvedValue('s')}
       />,
       { apiAuthoring: opts.apiAuthoring ?? true },
     );
   }
 
-  it('shows a declared trigger read-only with no delete', () => {
+  it('shows a declared trigger read-only with no delete', async () => {
     renderManaged(trigger({ declared: true }));
     expect(screen.getByText('Managed in git')).toBeTruthy();
     expect(screen.getByText(/item is managed in git/)).toBeTruthy();
     expect(screen.getByRole('switch', { name: /^(Enable|Disable) / })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Settings' }));
+    await openDangerZone();
     expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
   });
 
-  it('treats every trigger in a locked tenant as managed in git, keeping API source rotation', () => {
+  it('treats every trigger in a locked tenant as managed in git, keeping API source rotation', async () => {
     renderManaged(trigger(), { apiAuthoring: false });
     expect(screen.getByText(/tenant is managed in git/)).toBeTruthy();
+    await openDangerZone();
     expect(screen.getByRole('button', { name: 'Rotate' })).toBeEnabled();
   });
 
-  it('offers no rotation for a declared source', () => {
+  it('offers no rotation for a declared source', async () => {
     renderManaged(trigger(), { sources: [{ ...SOURCES[0]!, declared: true }] });
     expect(screen.getByText('Managed in git')).toBeTruthy();
+    await openDangerZone();
     expect(screen.getByRole('button', { name: 'Rotate' })).toBeDisabled();
   });
 });
@@ -529,9 +641,11 @@ describe('a source whose provider issues the secret', () => {
     { ...SOURCES[0]!, name: 'acme slack', provider: 'slack', category: 'chat' },
   ];
 
-  function renderSlack(onRotateSecret: (t: TriggerRow, secret?: string) => Promise<string | null>) {
+  async function renderSlack(
+    onRotateSecret: (t: TriggerRow, secret?: string) => Promise<string | null>,
+  ) {
     renderWithProviders(
-      <TriggerDrawer
+      <TriggerDetailModal
         canRunAgent
         trigger={trigger()}
         sources={SLACK}
@@ -544,11 +658,12 @@ describe('a source whose provider issues the secret', () => {
         onRotateSecret={onRotateSecret}
       />,
     );
+    await openDangerZone();
   }
 
   it('asks for the new secret instead of generating one', async () => {
     const onRotateSecret = vi.fn().mockResolvedValue('');
-    renderSlack(onRotateSecret);
+    await renderSlack(onRotateSecret);
     expect(screen.queryByRole('button', { name: 'Rotate' })).toBeNull();
 
     fireEvent.change(screen.getByLabelText(/Signing secret/), {
@@ -568,7 +683,7 @@ describe('a source whose provider issues the secret', () => {
   it('sets the first secret of a source that is waiting for one', async () => {
     const onRotateSecret = vi.fn().mockResolvedValue('');
     renderWithProviders(
-      <TriggerDrawer
+      <TriggerDetailModal
         canRunAgent
         trigger={trigger()}
         sources={[{ ...SLACK[0]!, signingSecretSet: false }]}
@@ -581,6 +696,7 @@ describe('a source whose provider issues the secret', () => {
         onRotateSecret={onRotateSecret}
       />,
     );
+    await openDangerZone();
     expect(screen.getByText('Waiting for signing secret')).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/Signing secret/), { target: { value: 'first' } });
     fireEvent.click(screen.getByRole('button', { name: 'Set secret' }));
@@ -593,13 +709,13 @@ describe('a source whose provider issues the secret', () => {
     expect(await screen.findByText(/The signing secret is stored/)).toBeTruthy();
   });
 
-  it('names the platform in the rotation hint', () => {
-    renderSlack(vi.fn());
+  it('names the platform in the rotation hint', async () => {
+    await renderSlack(vi.fn());
     expect(screen.getByText(/Regenerate it in your Slack app/)).toBeTruthy();
   });
 
   it('keeps the typed secret when the rotation fails', async () => {
-    renderSlack(vi.fn().mockResolvedValue(null));
+    await renderSlack(vi.fn().mockResolvedValue(null));
     fireEvent.change(screen.getByLabelText(/Signing secret/), { target: { value: 'new-secret' } });
     fireEvent.click(screen.getByRole('button', { name: 'Replace secret' }));
     expect(await screen.findByRole('button', { name: 'Replace secret' })).toBeTruthy();
@@ -626,7 +742,7 @@ describe('a chat command trigger', () => {
 
   function renderChat(row: TriggerRow, onEdit = vi.fn().mockResolvedValue(null)) {
     renderWithProviders(
-      <TriggerDrawer
+      <TriggerDetailModal
         canRunAgent
         trigger={row}
         sources={CHAT_SOURCES}
@@ -649,6 +765,7 @@ describe('a chat command trigger', () => {
 
   it('offers the chat events as cards and saves the chosen one', async () => {
     const onEdit = renderChat(trigger({ eventType: 'mention', matchCondition: {} }));
+    await openSection('Event filters');
     fireEvent.click(await screen.findByRole('radio', { name: /Direct message/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Save filters' }));
     expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), {
@@ -662,6 +779,7 @@ describe('a chat command trigger', () => {
     renderChat(
       trigger({ eventType: 'mention', senderRestriction: { ids: ['U012AB3CD'], roles: [] } }),
     );
+    await openSection('Senders');
     expect(((await screen.findByLabelText('Allowed senders')) as HTMLInputElement).value).toBe(
       'U012AB3CD',
     );
@@ -671,25 +789,137 @@ describe('a chat command trigger', () => {
 
 describe('source missing', () => {
   it('says the source was deleted and shows no endpoint', () => {
-    renderDrawer(trigger({ sourceId: '', sourceMissing: true }));
+    renderDetailModal(trigger({ sourceId: '', sourceMissing: true }));
     expect(screen.getByText(/The source of this trigger was deleted/)).toBeTruthy();
     expect(screen.queryByText(/\/api\/v1\/webhooks\//)).toBeNull();
   });
 
   it('can be turned off but not back on', () => {
-    const view = renderDrawer(trigger({ sourceId: '', sourceMissing: true, enabled: true }));
+    const view = renderDetailModal(trigger({ sourceId: '', sourceMissing: true, enabled: true }));
     expect(screen.getByRole('switch', { name: /^Disable/ }).hasAttribute('disabled')).toBe(false);
     view.unmount();
-    renderDrawer(trigger({ sourceId: '', sourceMissing: true, enabled: false }));
+    renderDetailModal(trigger({ sourceId: '', sourceMissing: true, enabled: false }));
     expect(screen.getByRole('switch', { name: /^Enable/ }).hasAttribute('disabled')).toBe(true);
   });
 });
 
+describe('the Configuration sections follow the wizard', () => {
+  it('lists the wizard sections in the wizard order for a webhook trigger', async () => {
+    renderDetailModal(trigger());
+    openConfiguration();
+    // Senders appears once the source's catalogue says its provider identifies senders.
+    await screen.findByRole('button', { name: /Senders/ });
+    const rail = document.querySelector('[data-slot="configuration-rail"]');
+    const titles = Array.from(rail?.querySelectorAll('button') ?? []).map(
+      (b) => b.textContent ?? '',
+    );
+    const order = ['Trigger', 'Event filters', 'Senders', 'Prompt', 'Delivery', 'Danger zone'];
+    expect(order.map((t) => titles.findIndex((x) => x.startsWith(t)))).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  it('shows the source as immutable, since a trigger cannot move to another source', async () => {
+    renderDetailModal(trigger());
+    await openSection('Trigger');
+    expect(screen.getByText('Read-only')).toBeTruthy();
+    expect(screen.getByLabelText('Source')).toBeDisabled();
+  });
+
+  it('links the target agent from the Overview, not the Configuration rail', async () => {
+    renderDetailModal(trigger());
+    expect(screen.getByRole('link', { name: /Open agent/ })).toBeTruthy();
+    openConfiguration();
+    await screen.findByRole('button', { name: /^Trigger/ });
+    expect(screen.queryByRole('button', { name: /^Target/ })).toBeNull();
+  });
+});
+
+describe('delivery editing', () => {
+  it('saves the whole section in one request, so the bounds are never split', async () => {
+    const onEdit = vi.fn().mockResolvedValue(null);
+    renderDetailModal(trigger(), onEdit);
+    await openSection('Delivery');
+    fireEvent.click(screen.getByRole('button', { name: 'More parallel runs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save delivery' }));
+
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(onEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't1' }),
+      expect.objectContaining({
+        maxParallel: expect.any(Number),
+        overflow: expect.any(String),
+        maxQueueDepth: expect.any(Number),
+        timeoutSeconds: expect.any(Number),
+        dedupeEnabled: expect.any(Boolean),
+        autopauseEnabled: expect.any(Boolean),
+      }),
+    );
+  });
+
+  it('keeps save disabled until something changes', async () => {
+    renderDetailModal(trigger());
+    await openSection('Delivery');
+    expect(
+      (screen.getByRole('button', { name: 'Save delivery' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'More parallel runs' }));
+    expect(
+      (screen.getByRole('button', { name: 'Save delivery' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it('marks the recommended behaviour for the kind and explains it', async () => {
+    renderDetailModal(trigger());
+    await openSection('Delivery');
+    expect(screen.getAllByText('Recommended')).toHaveLength(1);
+    expect(screen.getByText(/is recommended for webhook triggers/)).toBeTruthy();
+  });
+
+  it('recommends replace for a scheduled trigger', async () => {
+    renderDetailModal(trigger({ kind: 'scheduled' }));
+    await openSection('Delivery');
+    expect(screen.getByText(/is recommended for scheduled triggers/)).toBeTruthy();
+  });
+
+  it('states each invalid value under its field and counts them beside save', async () => {
+    renderDetailModal(trigger());
+    await openSection('Delivery');
+    fireEvent.change(screen.getByLabelText('Queue size'), { target: { value: '600' } });
+    fireEvent.change(screen.getByLabelText('Time to start'), { target: { value: '2' } });
+    expect(screen.getByText('Queue size must be between 1 and 500.')).toBeTruthy();
+    expect(screen.getByText('Time to start must be between 5 and 600 seconds.')).toBeTruthy();
+    expect(screen.getByText('Fix 2 values to save.')).toBeTruthy();
+    expect(screen.getByText('Fix the errors above to see what these settings do.')).toBeTruthy();
+    expect(
+      (screen.getByRole('button', { name: 'Save delivery' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('asks for a key when coalescing is switched on without one', async () => {
+    renderDetailModal(trigger());
+    await openSection('Delivery');
+    fireEvent.click(screen.getByRole('switch', { name: /Coalesce events/ }));
+    expect(screen.getByText('Key is required.')).toBeTruthy();
+    expect(screen.getByText('Window must be between 1 and 300 seconds.')).toBeTruthy();
+    expect(screen.getByText('Fix 2 values to save.')).toBeTruthy();
+  });
+});
+
+describe('the signing secret', () => {
+  it('is rotated in the Danger zone, and the Overview does not mention it', async () => {
+    renderDetailModal(trigger());
+    expect(screen.queryByText('Signing secret')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Rotate' })).toBeNull();
+    await openDangerZone();
+    expect(screen.getByRole('button', { name: 'Rotate' })).toBeTruthy();
+  });
+});
+
 describe('a generic webhook source', () => {
-  function renderGeneric(
+  async function renderGeneric(
     method: string,
     onRotateSecret: (t: TriggerRow, secret?: string) => Promise<string | null> = vi.fn(),
     eventTypesFail = false,
+    section = 'Danger zone',
   ) {
     api.fetchEventTypes.mockResolvedValue(
       eventTypesFail
@@ -707,7 +937,7 @@ describe('a generic webhook source', () => {
       config: { verification: { method } },
     };
     renderWithProviders(
-      <TriggerDrawer
+      <TriggerDetailModal
         canRunAgent
         trigger={trigger({ eventType: 'Issue', matchCondition: { 'data.state': ['open'] } })}
         sources={[generic]}
@@ -720,36 +950,41 @@ describe('a generic webhook source', () => {
         onRotateSecret={onRotateSecret}
       />,
     );
+    await openSection(section);
   }
 
   it('takes a typed event type and filter field, with no sender restriction', async () => {
-    renderGeneric('hmac_sha256');
+    await renderGeneric('hmac_sha256', vi.fn(), false, 'Event filters');
     const eventType = await screen.findByRole('textbox', { name: 'Event type' });
     expect(eventType).toHaveValue('Issue');
     expect(screen.getByRole('textbox', { name: 'Filter 1 field' })).toHaveValue('data.state');
 
     fireEvent.change(eventType, { target: { value: 'Comment' } });
     expect(screen.getByRole('button', { name: 'Save filters' })).toBeTruthy();
-    expect(screen.queryByText('Senders')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Senders/ })).toBeNull();
   });
 
   it('rotates to a generated secret or a pasted one', async () => {
     const onRotateSecret = vi.fn().mockResolvedValue('');
-    renderGeneric('standard_webhooks', onRotateSecret);
+    await renderGeneric('standard_webhooks', onRotateSecret);
     expect(screen.getByRole('button', { name: 'Rotate' })).toBeTruthy();
     expect(screen.getByText(/Standard Webhooks signature/)).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText(/Signing secret/), { target: { value: 'whsec_x' } });
     fireEvent.click(screen.getByRole('button', { name: 'Replace secret' }));
-    expect(onRotateSecret).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'whsec_x');
+    expect(onRotateSecret).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't1' }),
+      'whsec_x',
+      false,
+    );
     expect(await screen.findByText(/The new secret is stored/)).toBeTruthy();
   });
 
   it('drops a generated secret once a pasted one replaces it', async () => {
     const onRotateSecret = vi.fn().mockResolvedValueOnce('GENERATED123').mockResolvedValueOnce('');
-    renderGeneric('hmac_sha256', onRotateSecret);
+    await renderGeneric('hmac_sha256', onRotateSecret);
     fireEvent.click(screen.getByRole('button', { name: 'Rotate' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Break the old secret?' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate secret' }));
     expect(await screen.findByText('GENERATED123')).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText(/Signing secret/), { target: { value: 'pasted' } });
@@ -759,13 +994,13 @@ describe('a generic webhook source', () => {
   });
 
   it('takes a typed event type when the event types fail to load', async () => {
-    renderGeneric('bearer', vi.fn(), true);
+    await renderGeneric('bearer', vi.fn(), true, 'Event filters');
     await waitFor(() => expect(api.fetchEventTypes).toHaveBeenCalled());
     expect(screen.getByRole('textbox', { name: 'Event type' })).toHaveValue('Issue');
   });
 
   it('refuses to save an event type that is only whitespace', async () => {
-    renderGeneric('hmac_sha256');
+    await renderGeneric('hmac_sha256', vi.fn(), false, 'Event filters');
     fireEvent.change(await screen.findByRole('textbox', { name: 'Event type' }), {
       target: { value: '  ' },
     });
@@ -773,15 +1008,16 @@ describe('a generic webhook source', () => {
     expect(screen.getByRole('button', { name: 'Save filters' })).toBeDisabled();
   });
 
-  it('does not ask a schema source for an event type the picker sets', () => {
-    renderDrawer(trigger({ eventType: '' }));
+  it('does not ask a schema source for an event type the picker sets', async () => {
+    renderDetailModal(trigger({ eventType: '' }));
+    await openSection('Event filters');
     fireEvent.change(screen.getByLabelText('Filter 1 values'), { target: { value: 'closed' } });
     expect(screen.queryByText('Needs an event type')).toBeNull();
     expect(screen.getByRole('button', { name: 'Save filters' })).not.toBeDisabled();
   });
 
-  it('offers only a generated bearer token', () => {
-    renderGeneric('bearer');
+  it('offers only a generated bearer token', async () => {
+    await renderGeneric('bearer');
     expect(screen.getByRole('button', { name: 'Rotate' })).toBeTruthy();
     expect(screen.queryByLabelText(/Signing secret/)).toBeNull();
     expect(screen.getByText(/bearer token in the Authorization header/)).toBeTruthy();

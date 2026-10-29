@@ -39,12 +39,10 @@ import {
   validateFilters,
   validateNamedPromptStep,
 } from '../wizard-state';
-import { PromptField, TriggerNameField } from '../shared-fields';
-import { eventTypeCatalog, schemaCatalog } from '../field-catalog';
-import { CatalogPicker } from '../../catalog-picker';
-import { ChatEventPicker } from '../../chat-event-picker';
+import { PromptField, TriggerNameField } from '../../trigger-fields';
+import { schemaCatalog } from '../field-catalog';
+import { EventFiltersSection } from '../../event-filters-section';
 import { DataBlockPreview } from '../../data-block-preview';
-import { FilterRowsEditor } from '../../filter-rows-editor';
 import { SenderRestrictionEditor } from '../../sender-restriction-editor';
 import { useProviderCategories, useSourceCatalog } from '../../use-source-catalog';
 import { endpointFor } from '../../../_lib/endpoints';
@@ -374,61 +372,33 @@ function StepSource({ state, patch, context, definition }: StepComponentProps) {
         </Stack>
       )}
 
-      <Stack gap="snug">
-        <SectionLabel>Event</SectionLabel>
-        {category === 'chat' ? (
-          <>
-            <Text size="caption" color="subtle">
-              The message that starts a run. Messages from bots and apps never do.
-            </Text>
-            <ChatEventPicker
-              events={catalog.declared}
-              value={state.eventType}
-              onChange={(eventType) => {
-                // Picking the chosen event again keeps its loaded fields.
-                if (eventType === state.eventType) return;
-                patch({ eventType, eventFields: null, eventFieldsFailed: false, filters: [] });
-              }}
-            />
-          </>
-        ) : (
-          <>
-            <Text size="caption" color="subtle">
-              {schemaless
-                ? 'The event type this trigger listens for, as the sender names it. Types this source has received are suggested.'
-                : 'The event type this trigger listens for, from the provider’s published schema.'}
-            </Text>
-            <CatalogPicker
-              aria-label="Event type"
-              value={state.eventType}
-              placeholder={schemaless ? GENERIC_EVENT_TYPE : 'Choose an event'}
-              catalog={eventTypeCatalog(catalog.declared, catalog.observed)}
-              searchPlaceholder="Search events…"
-              freeText={schemaless}
-              // Typing keeps the filters: a schemaless source's fields do not depend on the event.
-              onSelect={(eventType) =>
-                patch(schemaless ? { eventType } : { eventType, filters: [] })
-              }
-            />
-          </>
-        )}
-      </Stack>
-
-      <Stack gap="snug">
-        <Stack gap="tight">
-          <SectionLabel>Filters</SectionLabel>
-          <Text size="caption" color="subtle">
-            {copy.filtersHelp}
-          </Text>
-        </Stack>
-
-        <FilterRowsEditor
-          rows={state.filters}
-          fields={fields}
-          freeText={schemaless}
-          onChange={(filters) => patch({ filters })}
-        />
-      </Stack>
+      <EventFiltersSection
+        title="Event filters"
+        category={category}
+        catalog={catalog}
+        eventType={state.eventType}
+        filters={state.filters}
+        schemaless={schemaless}
+        eventHelp={
+          category === 'chat'
+            ? 'The message that starts a run. Messages from bots and apps never do.'
+            : schemaless
+              ? 'The event type this trigger listens for, as the sender names it. Types this source has received are suggested.'
+              : "The event type this trigger listens for, from the provider's published schema."
+        }
+        filtersHelp={copy.filtersHelp}
+        onEventTypeChange={(eventType) => {
+          if (category === 'chat') {
+            // Picking the chosen event again keeps its loaded fields.
+            if (eventType === state.eventType) return;
+            patch({ eventType, eventFields: null, eventFieldsFailed: false, filters: [] });
+          } else {
+            // Typing keeps the filters: a schemaless source's fields do not depend on the event.
+            patch(schemaless ? { eventType } : { eventType, filters: [] });
+          }
+        }}
+        onFiltersChange={(filters) => patch({ filters })}
+      />
 
       <SenderRestrictionEditor
         identifiesSenders={catalog.identifiesSenders}

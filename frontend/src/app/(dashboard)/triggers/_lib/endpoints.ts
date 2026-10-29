@@ -7,7 +7,7 @@
  * Where inbound webhooks arrive.
  *
  * The inbound path is owned by the source, so every surface that shows an
- * endpoint (wizard step, success screen, drawer, created-trigger result) is
+ * endpoint (wizard step, success screen, modal, created-trigger result) is
  * showing the same derivation. Written once so a routing change is one edit
  * rather than four that drift.
  */

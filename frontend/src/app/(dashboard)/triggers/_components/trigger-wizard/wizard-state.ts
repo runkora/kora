@@ -472,28 +472,75 @@ export function parallelWord(n: number): string {
   return n === 1 ? 'One at a time' : `Up to ${n} at once`;
 }
 
+/** A run of the admission summary; `strong` marks the numbers and outcomes worth scanning for. */
+export interface SummarySegment {
+  text: string;
+  strong?: boolean;
+}
+
+/** The summary as plain text, for places that cannot bold. */
+export function summaryText(segments: SummarySegment[]): string {
+  return segments.map((s) => s.text).join('');
+}
+
 /**
- * All three admission bounds in one sentence.
+ * All three admission bounds in one sentence, as segments so the figures can be bold.
  *
  * Each overflow mode gets its own wording rather than a single template with
  * gaps: only `wait` has a queue to bound, so mentioning a queue depth under
  * `replace` or `refuse` would describe a limit that does not exist.
  *
- * Two claims are narrower than they look, and the wording says so. The timeout
- * bounds *starting* a run, never running it. And only a manual fire is refused
- * with a 429, because only a manual fire has a caller waiting on the response;
- * a webhook or scheduled arrival beyond the limit is recorded as dropped.
+ * Three claims are narrower than they look, and the wording says so. The timeout
+ * bounds *starting* a run, never running it. Under `refuse` the ceiling counts
+ * deliveries still waiting to start, not only running ones. And only a manual
+ * fire is refused with a 429, because only a manual fire has a caller waiting on
+ * the response; a webhook or scheduled arrival beyond the limit is recorded as dropped.
  */
-export function admissionSummary(state: WizardState, kind: TriggerKind): string {
-  const lead = `${parallelWord(state.maxParallel)}.`;
-  const toStart = `up to ${state.timeoutSeconds}s to start`;
+export function admissionSummary(
+  state: Pick<WizardState, 'maxParallel' | 'timeoutSeconds' | 'overflow' | 'maxQueueDepth'>,
+  kind: TriggerKind,
+): SummarySegment[] {
+  const n = state.maxParallel;
+  const timeout = { text: `${state.timeoutSeconds} seconds`, strong: true };
+  const count = { text: String(n), strong: true };
   if (state.overflow === 'wait') {
-    return `${lead} Further deliveries wait in order, up to ${state.maxQueueDepth} of them, and each has ${toStart} once it is admitted.`;
+    return [
+      ...(n === 1
+        ? [count, { text: ' run at a time. Up to ' }]
+        : [{ text: 'Up to ' }, count, { text: ' run at once. Up to ' }]),
+      { text: String(state.maxQueueDepth), strong: true },
+      { text: ' more wait in order, and each has ' },
+      timeout,
+      { text: ' to start once admitted.' },
+    ];
   }
   if (state.overflow === 'replace') {
-    return `${lead} While one runs, a newer delivery replaces the one waiting, and it has ${toStart}.`;
+    return [
+      ...(n === 1
+        ? [count, { text: " run at a time. While it's busy, one event waits and " }]
+        : [
+            { text: 'Up to ' },
+            count,
+            { text: " run at once. While they're busy, one event waits and " },
+          ]),
+      { text: 'a newer one replaces it', strong: true },
+      { text: '. Each admitted event has ' },
+      timeout,
+      { text: ' to start.' },
+    ];
   }
-  const refused =
-    kind === 'manual' ? 'a fire is refused with 429' : 'further deliveries are recorded as dropped';
-  return `${lead} Beyond that, ${refused}, and an admitted delivery has ${toStart}.`;
+  const manual = kind === 'manual';
+  return [
+    ...(n === 1
+      ? [count, { text: ' at a time' }]
+      : [{ text: 'Up to ' }, count, { text: ' at once' }]),
+    { text: ', counting any still waiting to start. Any more ' },
+    { text: manual ? 'fires are ' : 'are ' },
+    manual
+      ? { text: 'refused with an error (429)', strong: true }
+      : { text: 'turned away', strong: true },
+    { text: manual ? '. Each has ' : ' and recorded as dropped. Each has ' },
+    timeout,
+    { text: ' to start.' },
+  ];
 }

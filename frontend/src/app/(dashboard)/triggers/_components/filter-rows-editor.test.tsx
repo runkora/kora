@@ -35,47 +35,45 @@ describe('FilterRowsEditor', () => {
         ]}
       />,
     );
+    fireEvent.mouseEnter(screen.getByLabelText('Filter 1 values'));
     fireEvent.click(screen.getByRole('button', { name: 'Remove filter 1' }));
     expect((screen.getByLabelText('Filter 1 name') as HTMLInputElement).value).toBe('severity');
   });
 
-  it('defaults a row to is and switches it to contains', () => {
-    render(<Harness initial={[{ field: 'status', values: '' }]} />);
-    const operator = screen.getByLabelText('Filter 1 operator') as HTMLSelectElement;
-    expect(operator.value).toBe('is');
-    fireEvent.change(operator, { target: { value: 'contains' } });
-    expect((screen.getByLabelText('Filter 1 operator') as HTMLSelectElement).value).toBe(
-      'contains',
-    );
-  });
-
-  it('hints allowed values only on is rows', () => {
-    const fields: SchemaCatalogEntry[] = [
-      { token: 'action', description: '', group: 'event', enum: ['created', 'edited'] },
-    ];
+  it('offers the remove button only while the pointer is over the row', () => {
     render(
       <FilterRowsEditor
-        rows={[
-          { field: 'action', values: '' },
-          { field: 'action', operator: 'contains', values: '' },
-        ]}
-        fields={fields}
-        onChange={() => undefined}
+        rows={[{ field: 'status', values: 'firing' }]}
+        fields={FIELDS}
+        onChange={() => {}}
       />,
     );
-    expect(screen.getByLabelText('Filter 1 values')).toHaveAttribute(
-      'placeholder',
-      'created | edited',
-    );
-    expect(screen.getByLabelText('Filter 2 values')).toHaveAttribute('placeholder', 'text | other');
+    expect(screen.queryByRole('button', { name: 'Remove filter 1' })).toBeNull();
+    fireEvent.mouseEnter(screen.getByLabelText('Filter 1 values'));
+    expect(screen.getByRole('button', { name: 'Remove filter 1' })).toBeTruthy();
+    fireEvent.mouseLeave(screen.getByLabelText('Filter 1 values'));
+    expect(screen.queryByRole('button', { name: 'Remove filter 1' })).toBeNull();
   });
 
-  it('offers a neutral values hint for a field with no listed values', () => {
+  it('defaults a row to is and switches it to contains', () => {
     render(<Harness initial={[{ field: 'status', values: '' }]} />);
-    expect(screen.getByLabelText('Filter 1 values')).toHaveAttribute(
-      'placeholder',
-      'value | other',
+    expect(screen.getByLabelText('Filter 1 operator')).toHaveTextContent('is');
+    fireEvent.click(screen.getByLabelText('Filter 1 operator'));
+    fireEvent.click(screen.getByRole('option', { name: 'contains' }));
+    expect(screen.getByLabelText('Filter 1 operator')).toHaveTextContent('contains');
+  });
+
+  it('marks a row with a field and no value only when asked to', () => {
+    const rows = [{ field: 'status', values: '' }];
+    const { rerender } = render(
+      <FilterRowsEditor rows={rows} fields={FIELDS} onChange={() => undefined} />,
     );
+    expect(screen.queryByText(/choose at least one value/i)).toBeNull();
+    rerender(
+      <FilterRowsEditor rows={rows} fields={FIELDS} onChange={() => undefined} showIncomplete />,
+    );
+    expect(screen.getByText(/choose at least one value/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Filter 1 values')).toHaveAttribute('placeholder', 'Add a value');
   });
 
   it('disables every row and Add filter when disabled', () => {
@@ -89,7 +87,8 @@ describe('FilterRowsEditor', () => {
     );
     expect(screen.getByLabelText('Filter 1 values')).toBeDisabled();
     expect(screen.getByLabelText('Filter 1 operator')).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Remove filter 1' })).toBeDisabled();
+    fireEvent.mouseEnter(screen.getByLabelText('Filter 1 values'));
+    expect(screen.queryByRole('button', { name: 'Remove filter 1' })).toBeNull();
     expect(screen.getByRole('button', { name: /add filter/i })).toBeDisabled();
   });
 });

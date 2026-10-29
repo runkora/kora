@@ -3,7 +3,7 @@
 /**
  * @tier 3 · triggers-scoped. The event choice for a chat command trigger: one
  * card per chat event the API declares, with readable labels. Used by the
- * wizard and the drawer.
+ * wizard and the modal.
  */
 
 import { Grid, RadioCard, RadioGroup, Text } from '@runkora/hades';
@@ -38,6 +38,7 @@ export function ChatEventPicker({ events, value, onChange, disabled }: ChatEvent
             title={chatEventLabel(eventType)}
             description={chatEventDescription(eventType)}
             disabled={disabled}
+            transparent
           />
         ))}
       </Grid>

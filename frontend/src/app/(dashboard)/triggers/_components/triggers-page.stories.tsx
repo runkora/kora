@@ -2,20 +2,16 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, waitFor, within } from 'storybook/test';
 import type { TriggerRoutingCandidate } from '@runkora/shared/api';
 import { dashboardPage } from '@runkora/storybook/dashboard-frame';
-import type { MockRequest, MockRoutes } from '@runkora/storybook/mock-api';
+import type { MockRoutes } from '@runkora/storybook/mock-api';
+import { catalogRoutes } from './triggers-story-routes';
 import { TriggersShell } from './triggers-shell';
 import {
   AGENTS,
-  CHAT_FIELDS,
   DELIVERIES,
-  EVENT_TYPES_BY_PROVIDER,
   FAILED_DELIVERY,
-  GITHUB_EVENT_TYPES,
   MANY_DELIVERIES,
   MANY_TRIGGERS,
-  PULL_REQUEST_FIELDS,
   ROUTED_TRIGGER,
-  SCHEDULE_PREVIEW,
   SOURCES,
   TRIGGERS,
   modelCatalog,
@@ -23,63 +19,6 @@ import {
   routingCandidates,
 } from './triggers-mock-data';
 import type { RoutingCase } from './triggers-mock-data';
-
-/** The path segment after `after`, e.g. the provider in `/api/trigger-providers/slack/fields`. */
-function segmentAfter(req: MockRequest, after: string): string {
-  const parts = req.url.pathname.split('/');
-  return parts[parts.indexOf(after) + 1] ?? '';
-}
-
-/** Each provider answers with its own catalog, so chat and webhook kinds each see their own. */
-function providerEventTypes(provider: string) {
-  return { data: EVENT_TYPES_BY_PROVIDER[provider] ?? GITHUB_EVENT_TYPES };
-}
-
-/** The client-side calls the drawer and the wizard make while open. */
-const catalogRoutes: MockRoutes = {
-  'GET /api/triggers/routing/candidates': { data: routingCandidates(4) },
-  'GET /api/models': { data: modelCatalog(true) },
-  'GET /api/trigger-sources/:id/event-types': (req: MockRequest) => {
-    const id = segmentAfter(req, 'trigger-sources');
-    return providerEventTypes(SOURCES.find((s) => s.id === id)?.provider ?? 'github');
-  },
-  'GET /api/trigger-providers/:provider/event-types': (req: MockRequest) =>
-    providerEventTypes(segmentAfter(req, 'trigger-providers')),
-  'GET /api/trigger-providers/:provider/fields': (req: MockRequest) => {
-    const provider = segmentAfter(req, 'trigger-providers');
-    const fields =
-      EVENT_TYPES_BY_PROVIDER[provider]?.category === 'chat' ? CHAT_FIELDS : PULL_REQUEST_FIELDS;
-    // A generic source has only the meta fields.
-    return {
-      data: {
-        fields: provider === 'generic' ? fields.filter((f) => f.path.startsWith('meta.')) : fields,
-      },
-    };
-  },
-  'POST /api/triggers/schedule-preview': { data: SCHEDULE_PREVIEW },
-  'POST /api/triggers': (req: MockRequest) => ({
-    data: { id: 'trg_created01', ...(req.body as object) },
-  }),
-  // A provider that issues its own secret gets none back; the others get a generated one.
-  'POST /api/trigger-sources': (req: MockRequest) => {
-    const body = req.body as { name: string; provider: string };
-    const chat = EVENT_TYPES_BY_PROVIDER[body.provider]?.category === 'chat';
-    return {
-      data: {
-        id: 'src_created01',
-        name: body.name,
-        provider: body.provider,
-        category: chat ? 'chat' : 'webhook',
-        enabled: true,
-        webhook_path: '/api/v1/webhooks/src_created01',
-        ...(chat ? {} : { secret: 'whsec_9f2c41d8e7a0b3' }),
-      },
-    };
-  },
-  'PATCH /api/trigger-sources/:id': (req: MockRequest) => ({
-    data: { id: segmentAfter(req, 'trigger-sources'), webhook_path: '/x' },
-  }),
-};
 
 /** The Triggers page as an operator sees it, with a mock fleet and delivery history. */
 const meta: Meta<typeof TriggersShell> = {
@@ -141,30 +80,6 @@ export const DeliveriesTab: Story = {
   decorators: frame,
   play: async ({ canvasElement }) => {
     await userEvent.click(await within(canvasElement).findByRole('tab', { name: 'Deliveries' }));
-  },
-};
-
-/** An existing webhook trigger open in its drawer, with several filters and a long field path. */
-export const TriggerDrawerOpen: Story = {
-  decorators: frame,
-  play: async ({ canvasElement }) => {
-    await userEvent.click(await within(canvasElement).findByText('review-opened-prs'));
-  },
-};
-
-/** The drawer for a trigger the platform paused after sustained failure. */
-export const TriggerDrawerAutoPaused: Story = {
-  decorators: frame,
-  play: async ({ canvasElement }) => {
-    await userEvent.click(await within(canvasElement).findByText('queue-health-check'));
-  },
-};
-
-/** The drawer for a scheduled trigger. */
-export const TriggerDrawerScheduled: Story = {
-  decorators: frame,
-  play: async ({ canvasElement }) => {
-    await userEvent.click(await within(canvasElement).findByText('nightly-dependency-audit'));
   },
 };
 
@@ -435,17 +350,6 @@ export const WizardMissingScopes: Story = {
   },
 };
 
-/** The routed trigger open in its drawer: the candidates instead of one agent. */
-export const TriggerDrawerRouted: Story = {
-  decorators: frame,
-  args: { triggers: [ROUTED_TRIGGER, ...TRIGGERS] },
-  play: async ({ canvasElement }) => {
-    await userEvent.click(await within(canvasElement).findByText('route-github-work'));
-    const target = await within(document.body).findByText('kora chooses between 4 agents');
-    target.scrollIntoView({ block: 'start' });
-  },
-};
-
 /** The delivery panel for one routing outcome, opened from the Deliveries tab. */
 function deliveryStory(c: RoutingCase): Story {
   return {
@@ -572,43 +476,12 @@ export const WizardChatDone: Story = {
   },
 };
 
-/** A chat command trigger in its drawer, replacing the Slack signing secret. */
-export const DrawerChatTrigger: Story = {
-  decorators: frame,
-  play: async ({ canvasElement }) => {
-    await userEvent.click(await within(canvasElement).findByText('answer-platform-questions'));
-    const body = within(document.body);
-    await userEvent.type(
-      await body.findByLabelText(/Signing secret/),
-      'c9f0f895fb98ab9159f51fd0297e236d',
-    );
-    await userEvent.click(await body.findByRole('button', { name: 'Replace secret' }));
-    await body.findByText(/The new secret is stored/);
-  },
-};
-
 /** The triggers page with a chat source still waiting for its signing secret. */
 export const ChatSourceWaitingForSecret: Story = {
   decorators: frame,
   args: { sources: WAITING_SOURCES },
   play: async ({ canvasElement }) => {
     await within(canvasElement).findAllByText('Waiting for signing secret');
-  },
-};
-
-/** The drawer of a trigger on a waiting chat source, with the way to set its secret. */
-export const DrawerChatTriggerWaiting: Story = {
-  decorators: frame,
-  args: { sources: WAITING_SOURCES },
-  play: async ({ canvasElement }) => {
-    await userEvent.click(await within(canvasElement).findByText('answer-platform-questions'));
-    const body = within(document.body);
-    await userEvent.type(
-      await body.findByLabelText(/Signing secret/),
-      'c9f0f895fb98ab9159f51fd0297e236d',
-    );
-    await userEvent.click(await body.findByRole('button', { name: 'Set secret' }));
-    await body.findByText(/The signing secret is stored/);
   },
 };
 

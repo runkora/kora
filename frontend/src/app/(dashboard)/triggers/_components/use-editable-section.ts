@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * @tier 3 — triggers-scoped. Per-section edit state for the trigger drawer.
+ * @tier 3 — triggers-scoped. Per-section edit state for the trigger modal.
  *
  * Each editable section owns a draft that only exists while it differs from
  * what is stored. That keeps two things true at once: a section the person is

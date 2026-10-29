@@ -28,7 +28,7 @@ import { RunTriggerModal } from './run-trigger-modal';
 import { TriggerWizard } from './trigger-wizard';
 import type { TriggerCreateResult, TriggerDraft } from './trigger-wizard';
 import { FleetKpis } from './fleet-kpis';
-import { TriggerDrawer } from './trigger-drawer';
+import { TriggerDetailModal } from './trigger-detail-modal';
 import { TriggerList } from './trigger-list';
 import { DeliveryGrid } from './delivery-grid';
 import { consoleKindOf, matchesStatusFilter, runTargets } from '../_types';
@@ -127,9 +127,9 @@ export function TriggersPage({
 
   // ── Modal + dialog state ─────────────────────────────────────────────────────
   const [wizardOpen, setWizardOpen] = useState(false);
-  const [drawerTrigger, setDrawerTrigger] = useState<TriggerRow | null>(null);
+  const [modalTrigger, setModalTrigger] = useState<TriggerRow | null>(null);
   // The platform Deliveries tab is not scoped to one trigger, so a row opens
-  // its own panel rather than the owning trigger's drawer: the question being
+  // its own panel rather than the owning trigger's modal: the question being
   // asked is "what did this delivery do", not "how is that trigger set up".
   const [detailDelivery, setDetailDelivery] = useState<DeliveryRow | null>(null);
   const [kindFilter, setKindFilter] = useState<ConsoleKind | 'all'>('all');
@@ -163,14 +163,13 @@ export function TriggersPage({
   const [fireResult, setFireResult] = useState<TriggerNotice | null>(null);
 
   // Every mutation this page can perform, shared with the agent page's
-  // Triggers tab so the two surfaces drive the same drawer identically.
+  // Triggers tab so the two surfaces drive the same modal identically.
   const refresh = useCallback(() => router.refresh(), [router]);
   const {
     fireManualTrigger,
     startManualRun,
     rotateSecret,
     toggleTrigger,
-    updateSafety,
     saveTriggerEdit,
     redeliver,
     firingId,
@@ -199,13 +198,11 @@ export function TriggersPage({
   );
 
   // Read the open trigger back out of the live list rather than trusting the
-  // row captured when the drawer opened: saving a setting inside the panel
+  // row captured when the modal opened: saving a setting inside the panel
   // refreshes the page data, and a snapshot would leave the control showing
   // the value it had before the save.
-  const drawerRow =
-    drawerTrigger === null
-      ? null
-      : (triggers.find((t) => t.id === drawerTrigger.id) ?? drawerTrigger);
+  const modalRow =
+    modalTrigger === null ? null : (triggers.find((t) => t.id === modalTrigger.id) ?? modalTrigger);
 
   return (
     <Stack gap="comfortable">
@@ -229,7 +226,7 @@ export function TriggersPage({
       <FleetKpis triggers={triggers} deliveries={deliveries} />
 
       {/* Sources are not a headline surface: a webhook source is created
-          inside the New Trigger flow and managed from its trigger's drawer,
+          inside the New Trigger flow and managed from its trigger's modal,
           so the page stays about what starts work. */}
       <Tabs defaultValue="triggers">
         <TabsList>
@@ -295,7 +292,7 @@ export function TriggersPage({
               sourceName={sourceName}
               sourceCategory={sourceCategory}
               sourceWaiting={sourceWaiting}
-              onOpen={setDrawerTrigger}
+              onOpen={setModalTrigger}
               onToggle={(t) => void toggleTrigger(t)}
               canRunAgent={canRunAgent}
               emptyMessage={
@@ -338,7 +335,7 @@ export function TriggersPage({
       </Tabs>
 
       {/* One delivery's payload and outcome. Opening the trigger swaps the
-          panel for the owning trigger's drawer. */}
+          panel for the owning trigger's modal. */}
       {detailDelivery !== null && (
         <DeliveryDetailPanel
           delivery={detailDelivery}
@@ -349,35 +346,34 @@ export function TriggersPage({
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);
-            if (owner !== undefined) setDrawerTrigger(owner);
+            if (owner !== undefined) setModalTrigger(owner);
           }}
         />
       )}
 
       {/* Modals */}
-      <TriggerDrawer
-        trigger={drawerRow}
-        canRunAgent={drawerRow !== null && canRunTrigger(drawerRow)}
+      <TriggerDetailModal
+        trigger={modalRow}
+        canRunAgent={modalRow !== null && canRunTrigger(modalRow)}
         sources={sources}
         deliveries={deliveries}
         ingestHost={ingestHost}
-        onClose={() => setDrawerTrigger(null)}
+        onClose={() => setModalTrigger(null)}
         onToggleEnabled={(t) => {
-          setDrawerTrigger(null);
+          setModalTrigger(null);
           void toggleTrigger(t);
         }}
         onDelete={(t) => {
-          setDrawerTrigger(null);
+          setModalTrigger(null);
           setDeleteCandidate(t);
         }}
-        onUpdateSafety={(t, patch) => void updateSafety(t, patch)}
         onEdit={saveTriggerEdit}
         onRedeliver={redeliver}
         onRotateSecret={rotateSecret}
         onFire={startManualRun}
         // Scoped to the trigger on screen: firing one trigger must not make
         // another one's panel claim it is queueing.
-        firing={firingId === drawerRow?.id}
+        firing={firingId === modalRow?.id}
         agents={agents}
       />
 

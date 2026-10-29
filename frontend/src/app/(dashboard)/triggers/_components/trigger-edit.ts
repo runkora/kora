@@ -1,7 +1,7 @@
 /**
  * @tier 3 — triggers-scoped. Pure helpers for editing a trigger in place.
  *
- * The drawer edits a stored trigger rather than a draft, so it needs the
+ * The modal edits a stored trigger rather than a draft, so it needs the
  * inverse of the wizard's builders: stored filters back into editable rows, stored manual inputs into a template catalog, and a cron
  * expression checked before it is sent. Kept free of React so each rule is
  * unit-testable on its own.

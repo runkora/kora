@@ -223,7 +223,7 @@ export function specFromCron(expr: string): CronSpec | null {
 
 /**
  * One sentence for a stored expression, phrased exactly as the builder would
- * phrase it. Shared by the drawer and the wizard through humanFor, so the same
+ * phrase it. Shared by the modal and the wizard through humanFor, so the same
  * schedule can never read differently on two surfaces.
  */
 export function describeCron(expr: string): string {

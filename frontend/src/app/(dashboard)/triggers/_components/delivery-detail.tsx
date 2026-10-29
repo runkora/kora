@@ -4,6 +4,7 @@
  * there was one, the payload that arrived, and the run it started. */
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Button, Callout, CodeBlock, SectionLabel, Stack, Text } from '@runkora/hades';
 import {
   coalesceKeyText,
@@ -56,10 +57,12 @@ export interface DeliveryDetailProps {
   redeliverAllowed?: boolean;
   /** Names the agents a routing decision mentions. An agent missing here shows as its id. */
   agents?: RoutingAgentName[];
+  /** Where a run id links to. Without it the id is plain text. */
+  runHref?: (runId: string) => string;
 }
 
 /**
- * The detail body for one delivery, shared by the trigger drawer's inline
+ * The detail body for one delivery, shared by the trigger modal's inline
  * expansion and the platform Deliveries panel so the two cannot drift.
  */
 export function DeliveryDetail({
@@ -68,6 +71,7 @@ export function DeliveryDetail({
   onRedeliver,
   redeliverAllowed = true,
   agents = [],
+  runHref,
 }: DeliveryDetailProps) {
   const [redelivering, setRedelivering] = useState(false);
   const [redeliverError, setRedeliverError] = useState<string | null>(null);
@@ -214,7 +218,7 @@ export function DeliveryDetail({
           "there is none" was noise on every failed manual fire. */}
         {(delivery.payloadPurged || delivery.payloadExcerpt !== null) && (
           <Stack gap="snug">
-            <Stack direction="horizontal" align="center" justify="between">
+            <Stack direction="horizontal" align="baseline" gap="snug">
               <SectionLabel>Request payload</SectionLabel>
               <Text mono size="micro" color="subtle">
                 {formatBytes(delivery.payloadBytes)}
@@ -260,9 +264,18 @@ export function DeliveryDetail({
                 <Text mono size="micro" color="subtle">
                   run
                 </Text>
-                <Text mono size="caption" color="accent">
-                  {runId}
-                </Text>
+                {runHref !== undefined ? (
+                  <Link
+                    href={runHref(runId)}
+                    className="rounded-sm font-mono text-xs text-accent underline underline-offset-2 hover:text-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    {runId}
+                  </Link>
+                ) : (
+                  <Text mono size="caption" color="accent">
+                    {runId}
+                  </Text>
+                )}
               </Stack>
             ) : (
               <Text size="caption" color="subtle">
