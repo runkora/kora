@@ -37,15 +37,15 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   startAdornment?: React.ReactNode;
   /**
    * `inline` drops the box so the input reads as a word in a sentence: no
-   * fill or border at rest, a soft fill on hover, a bordered field on focus.
+   * border at rest, a soft fill on hover, a bordered field on focus; `filled` adds the fill at rest.
    * Use it inside sentence-style builders, next to `InlineToken`.
    */
   variant?: 'default' | 'inline';
   /** `accent` colours the text for values the user has chosen. Only applies to `variant="inline"`. */
   tone?: 'default' | 'accent';
   /**
-   * Fills the input at rest. `default` (inline variant only) uses the hover fill, so an
-   * empty field still shows where it is. `danger` uses the error status tint, on any
+   * Fills the input at rest. `default` (inline variant only) uses the soft overlay fill, so an
+   * empty field still shows where it is, and strengthens it to the accent fill on hover. `danger` uses the error status tint, on any
    * variant, to mark a field that failed validation.
    */
   filled?: 'default' | 'danger';
@@ -130,7 +130,16 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           variant === 'inline'
             ? 'border bg-transparent transition-colors hover:bg-surface-overlay focus-visible:bg-surface'
             : 'bg-surface border',
-          variant === 'inline' && filled === 'default' && 'bg-surface-overlay',
+          variant === 'inline' &&
+            filled === 'default' && [
+              'bg-surface-overlay enabled:hover:bg-accent enabled:hover:text-accent-foreground enabled:hover:placeholder:text-accent-foreground',
+              // Focused, the field is a plain editing surface again, so hovering it must not
+              // pair the dark engaged text with the dark focus background.
+              'enabled:focus-visible:hover:bg-surface enabled:focus-visible:hover:placeholder:text-subtle',
+              tone === 'accent'
+                ? 'enabled:focus-visible:hover:text-accent'
+                : 'enabled:focus-visible:hover:text-foreground',
+            ],
           filled === 'danger' && 'bg-status-error/10 hover:bg-status-error/15',
           'placeholder:text-subtle',
           // Border colour — normal vs error

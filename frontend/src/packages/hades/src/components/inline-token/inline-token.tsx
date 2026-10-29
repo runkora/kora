@@ -21,12 +21,32 @@ const inlineTokenVariants = cva(
       mono: { true: 'font-mono', false: '' },
       // A value that failed validation: the error tint at rest, a step stronger on hover.
       invalid: { true: 'bg-status-error/10 hover:bg-status-error/15', false: '' },
-      // The fill appears only while hovered, focused or open.
-      fill: {
-        true: 'hover:bg-surface-overlay focus-visible:bg-surface-overlay data-[state=open]:bg-surface-overlay',
-        false: '',
-      },
+      // Filled at rest, so it reads as something to press, and a step stronger when
+      // hovered, focused or open (the fill of a current step in a step rail).
+      fill: { true: '', false: '' },
     },
+    compoundVariants: [
+      {
+        fill: true,
+        invalid: false,
+        class: [
+          'bg-surface-overlay',
+          // Engaged states apply only while enabled, so a disabled token stays as it rests.
+          'enabled:hover:bg-accent enabled:focus-visible:bg-accent enabled:data-[state=open]:bg-accent',
+          // Children set their own colours (a muted path, a strong leaf), so the engaged
+          // text colour is applied to them too, and every word reads the same on the fill.
+          'enabled:hover:text-accent-foreground enabled:focus-visible:text-accent-foreground enabled:data-[state=open]:text-accent-foreground',
+          'enabled:hover:[&_*]:text-accent-foreground enabled:focus-visible:[&_*]:text-accent-foreground enabled:data-[state=open]:[&_*]:text-accent-foreground',
+        ],
+      },
+      // A failed value keeps its error tint, at rest and engaged, and is never the accent fill.
+      {
+        fill: true,
+        invalid: true,
+        class:
+          'enabled:focus-visible:bg-status-error/15 enabled:data-[state=open]:bg-status-error/15',
+      },
+    ],
     defaultVariants: { tone: 'foreground', mono: false, fill: true, invalid: false },
   },
 );
@@ -35,7 +55,7 @@ export interface InlineTokenProps
   extends
     Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'className'>,
     VariantProps<typeof inlineTokenVariants> {
-  /** Fills on hover, focus and open. Pass false when something else answers the hover. Defaults to true. */
+  /** Fills at rest and strengthens on hover, focus and open. Pass false when something else answers the hover. Defaults to true. */
   fill?: boolean | undefined;
   /** Marks the token as holding a value that failed validation. */
   invalid?: boolean | undefined;
@@ -49,8 +69,8 @@ export interface InlineTokenProps
 /**
  * InlineToken
  *
- * A button that reads as a word in a sentence: no fill or border at rest, a
- * soft fill on hover, focus or while its picker is open. Use it as the trigger
+ * A button that reads as a word in a sentence: a soft fill and no border at rest, the
+ * accent fill on hover, focus or while its picker is open. Use it as the trigger
  * of a `Popover`, for the fields of a sentence-style builder.
  *
  * ```tsx

@@ -5,7 +5,7 @@ import { InlineToken } from './inline-token';
 /**
  * InlineToken
  *
- * A button that reads as a word in a sentence. No fill at rest; a soft fill
+ * A button that reads as a word in a sentence. A soft fill at rest; the accent fill
  * on hover, focus, or while the picker it opens is showing.
  */
 const meta: Meta<typeof InlineToken> = {
