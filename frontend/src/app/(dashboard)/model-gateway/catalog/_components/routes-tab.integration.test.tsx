@@ -90,4 +90,17 @@ describe('RoutesTab', () => {
     expect(screen.getByText(/No providers are registered/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Add Route/ })).toBeDisabled();
   });
+
+  it('names each route toggle by its position', () => {
+    renderWithProviders(
+      <RoutesTab
+        model={virtualModel([route({ id: 'r1' }), route({ id: 'r2', priority: 2 })])}
+        onChange={vi.fn()}
+        providerModels={discovered}
+        providers={['compatible:openrouter']}
+      />,
+    );
+    expect(screen.getByRole('switch', { name: 'Enable route 1' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Enable route 2' })).toBeInTheDocument();
+  });
 });
