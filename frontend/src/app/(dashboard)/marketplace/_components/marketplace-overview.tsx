@@ -23,7 +23,7 @@ import {
   type ViewToggleProps,
 } from '@orbit/hades';
 import { useMarketplaceContext } from '../_context/marketplace-context';
-import { MIN_SEARCH_LENGTH, SORT_OPTIONS, type SkillSort } from '../_types';
+import { MIN_SEARCH_LENGTH, PAGE_SIZES, SORT_OPTIONS, type SkillSort } from '../_types';
 import { toResultState } from '../_utils/browse-params';
 import { MarketplacePagination } from './marketplace-pagination';
 import { MarketplaceResultsSkeleton } from './marketplace-results-skeleton';
@@ -120,6 +120,7 @@ function Toolbar({
     searchText,
     setSearchText,
     selectMarketplace,
+    setPageSize,
     setSort,
   } = useMarketplaceContext();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -177,6 +178,20 @@ function Toolbar({
               </RadioGroup>
             </PopoverContent>
           </Popover>
+        </Stack>
+
+        <Stack shrink>
+          <NativeSelect
+            value={String(browse.pageSize)}
+            onChange={(event) => setPageSize(Number(event.target.value))}
+            aria-label="Results per page"
+          >
+            {PAGE_SIZES.map((size) => (
+              <option key={size} value={size}>
+                Rows: {size}
+              </option>
+            ))}
+          </NativeSelect>
         </Stack>
 
         <Stack shrink>

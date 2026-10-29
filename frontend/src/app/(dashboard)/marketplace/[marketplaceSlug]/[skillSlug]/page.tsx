@@ -67,8 +67,18 @@ export default async function SkillDetailPage({ params }: SkillDetailPageProps) 
 }
 
 function BackToSkillsLink() {
+  // Sticky so the way back to the list stays in view while the Skill scrolls.
   return (
-    <Stack direction="horizontal">
+    <Stack
+      direction="horizontal"
+      paddingBlock="snug"
+      style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 20,
+        background: 'var(--color-background)',
+      }}
+    >
       <Button variant="ghost" size="sm" asChild>
         <Link href={APP_ROUTES.marketplace.overview}>
           <Icon name="arrow-left" size="xs" />

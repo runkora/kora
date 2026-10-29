@@ -55,7 +55,8 @@ export function MarketplaceSkillDetail({ skill, repositoryUrl }: MarketplaceSkil
         shrink
         minWidth="none"
         maxWidth={{ base: 'full', lg: 'detail-panel' }}
-        style={{ width: '100%', position: 'sticky', top: 0 }}
+        // Clears the sticky back-to-Skills bar (48px) plus the page gap.
+        style={{ width: '100%', position: 'sticky', top: 64 }}
       >
         <SkillRepositoryCard repositoryUrl={repositoryUrl} />
       </Stack>
