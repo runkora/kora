@@ -297,6 +297,21 @@ describe('POST /api/auth/session', () => {
       expect(typeof capturedSession.expiresAt).toBe('number');
     });
 
+    it('stores the tenant from the issued token, not the request', async () => {
+      const backendData = createBackendSessionResponse({}, createSessionUser(), 'kora');
+      server.use(
+        http.post('http://test-kora-api/identity/session', () => HttpResponse.json(backendData)),
+      );
+      const captured: Record<string, unknown> = { save: vi.fn().mockResolvedValue(undefined) };
+      vi.mocked(getIronSession).mockResolvedValue(
+        captured as unknown as IronSession<SessionPayload>,
+      );
+
+      await POST(makePostRequest({ id_token: 'tok', tenant_id: 'constellation' }));
+
+      expect(captured.tenantId).toBe('kora');
+    });
+
     it.each([
       [false, false],
       [true, true],

@@ -79,6 +79,7 @@ export function createSessionPayload(overrides: Partial<SessionPayload> = {}): S
 export function createBackendSessionResponse(
   overrides: Partial<BackendSessionResponse> = {},
   user: SessionUser = createSessionUser(),
+  tenantId?: string,
 ): BackendSessionResponse {
   const issuedAt = Math.floor(Date.now() / 1000);
   const expiresIn = 3600;
@@ -88,6 +89,7 @@ export function createBackendSessionResponse(
     sub: user.sub,
     exp: issuedAt + expiresIn,
     kora: {
+      ...(tenantId ? { tenant_id: tenantId } : {}),
       display_name: user.name,
       claims: { email: user.email },
     },

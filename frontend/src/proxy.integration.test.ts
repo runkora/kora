@@ -55,4 +55,28 @@ describe('proxy token refresh', () => {
     expect(resealed.save).toHaveBeenCalled();
     expect(resealed.apiAuthoring).toBe(false);
   });
+
+  it('takes the tenant from the refreshed token', async () => {
+    const stored = {
+      ...createSessionPayload({ tenantId: 'constellation' }),
+      expiresAt: Math.floor(Date.now() / 1000) + 60,
+      save: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const resealed = { save: vi.fn().mockResolvedValue(undefined) } as Partial<SessionPayload> & {
+      save: () => Promise<void>;
+    };
+    vi.mocked(getIronSession)
+      .mockResolvedValueOnce(stored as unknown as IronSession<SessionPayload>)
+      .mockResolvedValueOnce(resealed as unknown as IronSession<SessionPayload>);
+    server.use(
+      http.post('http://test-kora-api/identity/session', () =>
+        HttpResponse.json(createBackendSessionResponse({}, undefined, 'kora')),
+      ),
+    );
+
+    await proxy(new NextRequest('https://local.runkora.io/agents'));
+
+    expect(resealed.tenantId).toBe('kora');
+  });
 });
