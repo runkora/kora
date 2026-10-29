@@ -31,18 +31,27 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       targets: ${{ steps.list.outputs.targets }}
+      platforms: ${{ steps.list.outputs.platforms }}
+      # A multi-platform push pushes each platform by digest, and the merge job
+      # tags the manifest list that joins them.
+      by_digest: ${{ inputs.push && contains(inputs.platforms, ',') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: list
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
         run: |
           TARGETS=$(docker buildx bake --print -f docker-bake.hcl -f versions.hcl 2>/dev/null \
             | jq -c '[.target | keys[] | select(startswith("_") | not)]')
           echo "targets=${TARGETS}" >> "${GITHUB_OUTPUT}"
+          echo "platforms=$(jq -cn --arg p "${PLATFORMS}" '$p | split(",")')" >> "${GITHUB_OUTPUT}"
 
+  # Each platform builds on a runner of its own architecture. Emulating arm64
+  # under QEMU on an amd64 runner segfaulted Node during npm ci.
   build:
-    name: ${{ matrix.target }}
+    name: ${{ matrix.target }} (${{ matrix.platform }})
     needs: list-targets
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: write
@@ -50,10 +59,13 @@ jobs:
       fail-fast: false
       matrix:
         target: ${{ fromJson(needs.list-targets.outputs.targets) }}
+        platform: ${{ fromJson(needs.list-targets.outputs.platforms) }}
     env:
-      # A multi-arch build keeps its own cache. An amd64 build replaces the cache
-      # it writes, and a shared cache would never hold the arm64 layers.
-      CACHE_SUFFIX: ${{ contains(inputs.platforms, 'arm64') && '-multiarch' || '' }}
+      # Every platform keeps its own layer cache. amd64 keeps the unsuffixed
+      # cache that CI builds already write.
+      CACHE_SUFFIX: ${{ matrix.platform == 'linux/arm64' && '-arm64' || '' }}
+      ARCH: ${{ matrix.platform == 'linux/arm64' && 'arm64' || 'amd64' }}
+      BY_DIGEST: ${{ needs.list-targets.outputs.by_digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -61,10 +73,6 @@ jobs:
         uses: ./.github/actions/derive-version
         with:
           image_tag: ${{ inputs.image_tag }}
-
-      - name: Enable multi-arch emulation
-        if: contains(inputs.platforms, 'arm64')
-        run: docker run --rm --privileged tonistiigi/binfmt:qemu-v8.1.5 --install arm64
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -76,7 +84,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
+      - id: bake
+        uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
         # docker-bake.hcl tags every image with IMAGE_TAG, which defaults to latest.
         # A sandbox image job also builds kora-sandbox-base, so it reads the base cache too.
         env:
@@ -87,10 +96,11 @@ jobs:
             docker-bake.hcl
             versions.hcl
           targets: ${{ matrix.target }}
-          push: ${{ inputs.push }}
+          push: ${{ inputs.push && env.BY_DIGEST != 'true' }}
           load: ${{ !inputs.push }}
           set: |
-            *.platform=${{ inputs.platforms }}
+            *.platform=${{ matrix.platform }}
+            ${{ env.BY_DIGEST == 'true' && format('{0}.output=type=image,push-by-digest=true,name-canonical=true,push=true', matrix.target) || '' }}
             *.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/kora-buildcache:${{ matrix.target }}${{ env.CACHE_SUFFIX }}
             *.cache-to=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/kora-buildcache:${{ matrix.target }}${{ env.CACHE_SUFFIX }},mode=max,ignore-error=true
             kora-sandbox-base.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/kora-buildcache:kora-sandbox-base${{ env.CACHE_SUFFIX }}
@@ -99,3 +109,70 @@ jobs:
             *.labels.org.opencontainers.image.revision=${{ github.sha }}
             *.labels.org.opencontainers.image.version=${{ steps.version.outputs.tag }}
             *.labels.org.opencontainers.image.created=${{ steps.version.outputs.created }}
+
+      - name: Record the platform digest
+        if: env.BY_DIGEST == 'true'
+        env:
+          METADATA: ${{ steps.bake.outputs.metadata }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/digests"
+          DIGEST=$(jq -r --arg t "${TARGET}" '.[$t]["containerimage.digest"]' <<<"${METADATA}")
+          [[ "${DIGEST}" == sha256:* ]] || { echo "no digest for ${TARGET}: ${DIGEST}"; exit 1; }
+          echo "${DIGEST}" > "${RUNNER_TEMP}/digests/${ARCH}"
+
+      - if: env.BY_DIGEST == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.target }}-${{ env.ARCH }}
+          path: ${{ runner.temp }}/digests/${{ env.ARCH }}
+          retention-days: 1
+
+  merge:
+    name: ${{ matrix.target }}
+    needs: [list-targets, build]
+    if: needs.list-targets.outputs.by_digest == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.list-targets.outputs.targets) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: version
+        uses: ./.github/actions/derive-version
+        with:
+          image_tag: ${{ inputs.image_tag }}
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: digest-${{ matrix.target }}-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag the manifest list
+        env:
+          IMAGE_TAG: ${{ steps.version.outputs.tag }}
+          TARGET: ${{ matrix.target }}
+          EXPECTED: ${{ needs.list-targets.outputs.platforms }}
+        run: |
+          TAG=$(docker buildx bake --print -f docker-bake.hcl "${TARGET}" 2>/dev/null \
+            | jq -r --arg t "${TARGET}" '.target[$t].tags[0]')
+          NAME="${TAG%:*}"
+          SOURCES=()
+          for f in "${RUNNER_TEMP}"/digests/*; do SOURCES+=("${NAME}@$(cat "$f")"); done
+          [ "${#SOURCES[@]}" -eq "$(jq length <<<"${EXPECTED}")" ] || { echo "expected a digest per platform, got ${#SOURCES[@]}"; exit 1; }
+          docker buildx imagetools create -t "${TAG}" "${SOURCES[@]}"
+          docker buildx imagetools inspect "${TAG}"
