@@ -2,7 +2,7 @@
 
 ![Creating an agent in the kora console](https://assets.runkora.io/docs/guides/agent-create.gif)
 
-In kora, an agent is defined by its identity, its instructions and model, the tools and systems it may reach, and the limits kora enforces while it runs. Each agent gets a verified identity and its own workload in your tenant before it can touch a single tool. Open **Agents** and choose **New agent** to start the builder. The builder saves a draft as you go. Close it at any point and resume the draft from **Drafts** on the agents page.
+In runkora, an agent is defined by its identity, its instructions and model, the tools and systems it may reach, and the limits kora enforces while it runs. Each agent gets a verified identity and its own workload in your tenant before it can touch a single tool. Open **Agents** and choose **New agent** to start the builder. The builder saves a draft as you go. Close it at any point and resume the draft from **Drafts** on the agents page.
 
 ## Identity
 

@@ -1,6 +1,6 @@
 # Identity
 
-In kora, every agent has its own identity and is a first-class citizen of the platform. Agent and human identity follow fundamentally different shapes. Humans are bound to short lived login sessions whilst agents are often long running stable workloads with no login. Humans and agents get issued the same shaped platform tokens by kora, allowing [policy](../architecture/policy.md) to evaluate both in the same way. Every action on the platform can be traced back to who or what performed it. See [identity architecture](../architecture/identity.md) for how kora proves an agent's identity.
+In runkora, every agent has its own identity and is a first-class citizen of the platform. Agent and human identity follow fundamentally different shapes. Humans are bound to short lived login sessions whilst agents are often long running stable workloads with no login. Humans and agents get issued the same shaped platform tokens by kora, allowing [policy](../architecture/policy.md) to evaluate both in the same way. Every action on the platform can be traced back to who or what performed it. See [identity architecture](../architecture/identity.md) for how kora proves an agent's identity.
 
 ## Autonomous and delegated agents
 

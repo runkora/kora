@@ -1,6 +1,6 @@
 # White-labelling theme
 
-kora lets you customise your install to look and feel like your own brand. A theme sets the product name, colours, logo, favicon and fonts across the dashboard. Agents and tools use the same product name in the text they produce. A deployment has one theme.
+runkora lets you customise your install to look and feel like your own brand. A theme sets the product name, colours, logo, favicon and fonts across the dashboard. Agents and tools use the same product name in the text they produce. A deployment has one theme.
 
 The following guide assumes kora is already installed. See [Install runkora on Kubernetes](install-on-kubernetes.md) for the install.
 

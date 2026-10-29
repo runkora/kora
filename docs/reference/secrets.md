@@ -2,7 +2,7 @@
 
 Secrets are values that, if leaked, would require a security incident response: passwords, API keys, tokens, certificates, private keys. These never go in YAML config files or version control.
 
-kora reads secrets from environment variables at runtime.
+runkora reads secrets from environment variables at runtime.
 
 ---
 

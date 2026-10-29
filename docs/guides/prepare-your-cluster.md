@@ -1,6 +1,6 @@
 # Prepare your cluster
 
-kora installs onto a cluster that already runs Istio and SPIRE, with a PostgreSQL database and a Redis instance it can reach. SPIRE issues each workload its identity, and Istio carries traffic between workloads over mutual TLS.
+runkora installs onto a cluster that already runs Istio and SPIRE, with a PostgreSQL database and a Redis instance it can reach. SPIRE issues each workload its identity, and Istio carries traffic between workloads over mutual TLS.
 
 ## Kubernetes cluster
 

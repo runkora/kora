@@ -1,6 +1,6 @@
 # Runtime topology
 
-kora runs as a set of control-plane services in `kora-system` and per-tenant workloads in tenant-isolated namespaces, on a shared substrate of Postgres, Redis, SPIRE, and an Istio mesh.
+runkora runs as a set of control-plane services in `kora-system` and per-tenant workloads in tenant-isolated namespaces, on a shared substrate of Postgres, Redis, SPIRE, and an Istio mesh.
 
 ![Runtime topology](../diagrams/runtime-topology.svg)
 

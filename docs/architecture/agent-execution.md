@@ -1,6 +1,6 @@
 # Agent execution
 
-In kora, agents run as governed workloads on top of Kubernetes. Each agent process runs inside a shared runtime orchestrated by the `session-manager`. This session manager is responsible for the lifecycle of an agent's run. The session manager runs each agent process under `landlock` and provisions an isolated workspace for the agent to operate within, provisions the tools it has access to and triggers the agent startup. Every agent you create in the platform holds its own identity, these are known as `agent-types`, each agent-type gets its own agent pod with a running session-manager. 
+In runkora, agents run as governed workloads on top of Kubernetes. Each agent process runs inside a shared runtime orchestrated by the `session-manager`. This session manager is responsible for the lifecycle of an agent's run. The session manager runs each agent process under `landlock` and provisions an isolated workspace for the agent to operate within, provisions the tools it has access to and triggers the agent startup. Every agent you create in the platform holds its own identity, these are known as `agent-types`, each agent-type gets its own agent pod with a running session-manager. 
 
 Agents do not have access to credentials in their session or environment. An agent's access outside of its pod is governed by the control plane: tokens are injected on egress from an agent's pod for all requests and evaluated by policy before making a network hop.
 

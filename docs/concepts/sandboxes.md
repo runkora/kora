@@ -30,7 +30,7 @@ Environments are the composable definition that the platform uses to expose sand
 
 Platform teams can register custom sandbox images for their agents to use. These are registered as `SandboxImage` resources in a tenant namespace. 
 
-kora provides four sandbox images out of the box:
+runkora provides four sandbox images out of the box:
 
 | Image | Includes |
 | --- | --- |

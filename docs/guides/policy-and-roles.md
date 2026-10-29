@@ -1,6 +1,6 @@
 # Policy, Roles, and Access Control
 
-kora denies every request unless a grant or a role held by the caller covers the scope the request needs. This guide covers the scope format, the built-in roles, per-agent access, delegated runs, triggers, and the APIs that manage grants and roles.
+runkora denies every request unless a grant or a role held by the caller covers the scope the request needs. This guide covers the scope format, the built-in roles, per-agent access, delegated runs, triggers, and the APIs that manage grants and roles.
 
 ## Scopes
 

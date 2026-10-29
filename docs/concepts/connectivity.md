@@ -1,6 +1,6 @@
 # Connectivity
 
-In kora, agents reach models, tools and external systems without ever holding a credential. Every request leaves the agent's pod through its sidecars. The sidecars attach the agent's platform token and evaluate the request against policy before it reaches a kora gateway. The gateway holds the credential for the destination and injects it in flight. See [connectivity architecture](../architecture/connectivity.md) for the request path.
+In runkora, agents reach models, tools and external systems without ever holding a credential. Every request leaves the agent's pod through its sidecars. The sidecars attach the agent's platform token and evaluate the request against policy before it reaches a kora gateway. The gateway holds the credential for the destination and injects it in flight. See [connectivity architecture](../architecture/connectivity.md) for the request path.
 
 | Reaches | Through | Called from | Credential held by | Granted as |
 | --- | --- | --- | --- | --- |
