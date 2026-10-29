@@ -1,6 +1,6 @@
 # Register an inference provider
 
-Register each model provider with an `InferenceProvider` resource in the kora system namespace (`kora-system` by default). The provider's name is `<type>:<metadata.name>`, for example `compatible:openrouter`. Changes to the resource or its Secret apply without a restart.
+Register each model provider with an `InferenceProvider` resource in the runkora system namespace (`kora-system` by default). The provider's name is `<type>:<metadata.name>`, for example `compatible:openrouter`. Changes to the resource or its Secret apply without a restart.
 
 Store credentials in a Secret in the same namespace. Label it `runkora.io/inference-provider=true` and reference it from the resource.
 

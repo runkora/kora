@@ -1,6 +1,6 @@
 # Create an environment
 
-In kora, an environment defines the [sandbox](../concepts/sandboxes.md) an agent runs its commands, builds and tests in. Each environment has a sandbox image, a size, and the egress hosts and connections agents get with it. Platform teams register the images, then create environments for agents to use. Creating, editing and deleting environments needs `agents:environments:write`. Of the built-in roles, only `platform-admin` holds it.
+In runkora, an environment defines the [sandbox](../concepts/sandboxes.md) an agent runs its commands, builds and tests in. Each environment has a sandbox image, a size, and the egress hosts and connections agents get with it. Platform teams register the images, then create environments for agents to use. Creating, editing and deleting environments needs `agents:environments:write`. Of the built-in roles, only `platform-admin` holds it.
 
 ## Register a sandbox image
 

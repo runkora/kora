@@ -2,7 +2,7 @@
 
 ![Creating a trigger in the kora console](https://assets.runkora.io/docs/guides/trigger-create.gif)
 
-In kora, a trigger starts an agent's runs from the events your team already produces. A trigger listens for an event, decides whether it should start a run, and hands the agent a prompt built from the event. Open **Triggers** and choose **New trigger** to start the wizard.
+In runkora, a trigger starts an agent's runs from the events your team already produces. A trigger listens for an event, decides whether it should start a run, and hands the agent a prompt built from the event. Open **Triggers** and choose **New trigger** to start the wizard.
 
 A trigger can only start [autonomous agents](../concepts/identity.md#autonomous-agents). A delegated agent acts for the person who starts each of its runs. Creating a trigger needs `triggers:write` and authority to run the agent it starts.
 

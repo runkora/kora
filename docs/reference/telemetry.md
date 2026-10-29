@@ -122,7 +122,7 @@ Check a workload's rendered values with `kubectl -n kora-system get configmap ko
 **Solutions:**
 1. Verify TLS certificates are valid
 2. For a collector serving plaintext, use an `http://` endpoint
-3. Check that the endpoint uses the OTLP gRPC port, usually 4317. kora exports only over OTLP gRPC, and an OTLP HTTP endpoint on 4318 never connects.
+3. Check that the endpoint uses the OTLP gRPC port, usually 4317. runkora exports only over OTLP gRPC, and an OTLP HTTP endpoint on 4318 never connects.
 
 ### High overhead
 

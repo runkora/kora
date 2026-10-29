@@ -1,6 +1,6 @@
 # Runs and sessions
 
-In kora, a run is a single unit of work performed by an agent. Runs are durable and work in the background. A run can take minutes or hours, preserves its history as a durable log and can be observed by anyone with access while it completes its task. A session is the live agent working on a run. The session only exists while the agent is running, and everything it does is recorded against the run.
+In runkora, a run is a single unit of work performed by an agent. Runs are durable and work in the background. A run can take minutes or hours, preserves its history as a durable log and can be observed by anyone with access while it completes its task. A session is the live agent working on a run. The session only exists while the agent is running, and everything it does is recorded against the run.
 
 Agent runs in kora are started by triggers, from events like a pull request, an alert or a schedule, and can also be started through the API or manually by a user. A new run waits as `pending` until its agent has capacity, then moves through `starting` to `active` once its session is running. Agent runs can queue behind active sessions whilst capacity is freed, with configurable defaults for platform teams to customise this behaviour.
 

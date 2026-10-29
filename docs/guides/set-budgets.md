@@ -1,6 +1,6 @@
 # Set budgets
 
-In kora, budgets cap what people and agents spend on models. The inference gateway checks every budget that applies before a call reaches the model, and records the call's cost against the caller. Budgets are set in US dollars per week or per month on **Model Gateway** → **Budgets**. Setting them needs `platform:budgets:write`, held by the built-in `kora-finops` role.
+In runkora, budgets cap what people and agents spend on models. The inference gateway checks every budget that applies before a call reaches the model, and records the call's cost against the caller. Budgets are set in US dollars per week or per month on **Model Gateway** → **Budgets**. Setting them needs `platform:budgets:write`, held by the built-in `kora-finops` role.
 
 ## Where budgets apply
 

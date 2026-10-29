@@ -1,6 +1,6 @@
 # Policy plane
 
-kora authorizes every action against policy before it runs. policy-service compiles the policy into OPA bundles, and the enforcement points evaluate them locally.
+runkora authorizes every action against policy before it runs. policy-service compiles the policy into OPA bundles, and the enforcement points evaluate them locally.
 
 ![Policy plane](../diagrams/policy-plane.svg)
 

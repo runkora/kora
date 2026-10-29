@@ -1,6 +1,6 @@
 # Tenants
 
-A tenant is kora's unit of separation. It can be used to represent an organisation, a set of teams or a team. Each tenant comes with its own user, agent and resource separation. This allows for isolated deployments that let federated teams manage their own tenancy. Platform administrators can manage across tenant boundaries, whilst tenant admins will only be able to control their own tenancy.
+A tenant is runkora's unit of separation. It can be used to represent an organisation, a set of teams or a team. Each tenant comes with its own user, agent and resource separation. This allows for isolated deployments that let federated teams manage their own tenancy. Platform administrators can manage across tenant boundaries, whilst tenant admins will only be able to control their own tenancy.
 
 You do not have to run more than one. A single tenant is enough when you do not need separation between groups of users or workloads. Run several when you host distinct organisations, or teams that must not reach each other's agents, credentials and data. 
 

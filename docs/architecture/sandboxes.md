@@ -1,6 +1,6 @@
 # Sandboxes
 
-In kora, a sandbox is an isolated pod that an agent provisions for its run when its task needs compute or tooling, such as building and testing code. `kora-agents` creates the sandbox in the tenant namespace when the agent calls `provision_sandbox`, and deletes it when the run ends. See [sandboxes](../concepts/sandboxes.md) for environments, sandbox images and the tools an agent uses to manage its sandbox.
+In runkora, a sandbox is an isolated pod that an agent provisions for its run when its task needs compute or tooling, such as building and testing code. `kora-agents` creates the sandbox in the tenant namespace when the agent calls `provision_sandbox`, and deletes it when the run ends. See [sandboxes](../concepts/sandboxes.md) for environments, sandbox images and the tools an agent uses to manage its sandbox.
 
 The sandbox and the agent runtime pod mount the same run workspace. `kora-shell` runs every shell command the agent issues inside the sandbox, while the agent harness stays in the agent runtime pod.
 

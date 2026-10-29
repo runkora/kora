@@ -2,7 +2,7 @@
 
 Sandboxes run on the node of their agent runtime pod by default. For heavier workloads, you can move sandboxes to their own node pool, size them to that pool's nodes, and warm the pool so new sandboxes start quickly. The sandbox mount speeds up builds in either placement.
 
-The following guide assumes kora is already installed. See [Install runkora on Kubernetes](install-on-kubernetes.md) for the install.
+The following guide assumes runkora is already installed. See [Install runkora on Kubernetes](install-on-kubernetes.md) for the install.
 
 ## Choose a placement
 

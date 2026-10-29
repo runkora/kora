@@ -1,6 +1,6 @@
 # Connectivity
 
-Agents in the kora platform reach the outside world through MCP tools and through connectors. Each governs the egress from an agent in a different way and gives the agent a different mechanism to interact.
+Agents in the runkora platform reach the outside world through MCP tools and through connectors. Each governs the egress from an agent in a different way and gives the agent a different mechanism to interact.
 
 ## MCP tools
 

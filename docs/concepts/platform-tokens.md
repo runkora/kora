@@ -1,6 +1,6 @@
 # Platform tokens
 
-In kora, people, agents, triggers and personal access tokens all authenticate with the same kind of token: a JWT signed by kora's identity service. Every kora service verifies it. Policy evaluates a person's token and an agent's token in the same way. The token identifies its holder and carries no permissions. Policy looks up the holder's grants and roles on every request. See [identity](identity.md) for the identity models these tokens represent.
+In runkora, people, agents, triggers and personal access tokens all authenticate with the same kind of token: a JWT signed by kora's identity service. Every kora service verifies it. Policy evaluates a person's token and an agent's token in the same way. The token identifies its holder and carries no permissions. Policy looks up the holder's grants and roles on every request. See [identity](identity.md) for the identity models these tokens represent.
 
 ## The token
 

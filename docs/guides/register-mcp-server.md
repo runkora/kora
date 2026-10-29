@@ -1,6 +1,6 @@
 # Register an MCP server
 
-An MCP server exposes tools an agent can call. Registering it as an `MCPServer` places it behind the tool-gateway, the single entry point kora governs for MCP calls. The gateway introspects the server's tools into policy scopes that agents can be granted. The tool-gateway then checks every call against policy before it reaches the server.
+An MCP server exposes tools an agent can call. Registering it as an `MCPServer` places it behind the tool-gateway, the single entry point runkora governs for MCP calls. The gateway introspects the server's tools into policy scopes that agents can be granted. The tool-gateway then checks every call against policy before it reaches the server.
 
 An `MCPServer` in `kora-system` is registered as platform-global, its tools become available to every tenant, like the kora MCP. When registered in a tenant namespace, it belongs to that tenant alone.
 

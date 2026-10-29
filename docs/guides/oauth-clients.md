@@ -1,6 +1,6 @@
 # OAuth clients
 
-kora exposes an OAuth authorization server. A hosted application can send its users to kora to sign in and receive a token to act on their behalf against kora's APIs. An `OAuthClient` pre-registers that application: its client ID and the exact redirect URIs kora will return users to.
+runkora exposes an OAuth authorization server. A hosted application can send its users to kora to sign in and receive a token to act on their behalf against kora's APIs. An `OAuthClient` pre-registers that application: its client ID and the exact redirect URIs kora will return users to.
 
 Every client is public and uses PKCE. A platform owner registers an `OAuthClient` through a CR rather than the app self-registering at runtime. Unlike dynamically-registered clients, it may declare non-loopback HTTPS redirect URIs.
 

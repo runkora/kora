@@ -1,6 +1,6 @@
 # Identity
 
-Every principal in kora has one verifiable identity. Humans authenticate through their tenant's OIDC provider. An agent workload is attested by SPIRE and exchanges its SPIFFE SVID for a kora platform token, proving who it is without ever holding a long-lived secret.
+Every principal in runkora has one verifiable identity. Humans authenticate through their tenant's OIDC provider. An agent workload is attested by SPIRE and exchanges its SPIFFE SVID for a kora platform token, proving who it is without ever holding a long-lived secret.
 
 ![Identity](../diagrams/identity.svg)
 
