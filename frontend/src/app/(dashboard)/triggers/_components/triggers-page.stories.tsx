@@ -100,9 +100,7 @@ export const DeliveryDetailOpen: Story = {
 export const WizardOpen: Story = {
   decorators: frame,
   play: async ({ canvasElement }) => {
-    await userEvent.click(
-      await within(canvasElement).findByRole('button', { name: /New trigger/ }),
-    );
+    await openWizard(canvasElement);
   },
 };
 
@@ -110,11 +108,8 @@ export const WizardOpen: Story = {
 export const WizardReview: Story = {
   decorators: frame,
   play: async ({ canvasElement }) => {
-    await userEvent.click(
-      await within(canvasElement).findByRole('button', { name: /New trigger/ }),
-    );
+    await openKind(canvasElement, /Schedule/);
     const body = within(document.body);
-    await userEvent.click(await body.findByRole('radio', { name: /Schedule/ }));
     await userEvent.type(await body.findByLabelText(/Trigger name/), 'daily-standup-digest');
     await userEvent.type(
       await body.findByLabelText('Prompt'),
@@ -138,10 +133,7 @@ export const WizardReview: Story = {
 export const WizardWebhook: Story = {
   decorators: frame,
   play: async ({ canvasElement }) => {
-    await userEvent.click(
-      await within(canvasElement).findByRole('button', { name: /New trigger/ }),
-    );
-    await userEvent.click(await within(document.body).findByRole('radio', { name: /Webhook/ }));
+    await openKind(canvasElement, /Webhook/);
   },
 };
 
@@ -175,9 +167,8 @@ const withCandidates = (candidates: TriggerRoutingCandidate[]) => ({
 
 /** Takes a webhook trigger through its first step to Target. */
 async function openTargetStep(canvasElement: HTMLElement) {
-  await userEvent.click(await within(canvasElement).findByRole('button', { name: /New trigger/ }));
+  await openKind(canvasElement, /Webhook/);
   const body = within(document.body);
-  await userEvent.click(await body.findByRole('radio', { name: /Webhook/ }));
   await userEvent.type(await body.findByLabelText(/Trigger name/), 'route-github-work');
   await userEvent.click(await body.findByRole('button', { name: 'Event type' }));
   const options = await body.findAllByText('issue_comment');
@@ -384,8 +375,8 @@ export const DeliveryLowConfidenceNoRun = deliveryStory('no-run');
 /** The decision model did not answer: the fallback agent took it. */
 export const DeliveryModelFailed = deliveryStory('model-failed');
 
-/** Opens the wizard and picks a kind from the first phase. */
-async function openKind(canvasElement: HTMLElement, kind: RegExp) {
+/** Opens the wizard once the session's scopes have loaded and enabled the button. */
+async function openWizard(canvasElement: HTMLElement) {
   // Disabled until the session's scopes load, which renders a new button.
   const button = await waitFor(() => {
     const b = within(canvasElement).getByRole('button', { name: /New trigger/ });
@@ -393,6 +384,11 @@ async function openKind(canvasElement: HTMLElement, kind: RegExp) {
     return b;
   });
   await userEvent.click(button);
+}
+
+/** Opens the wizard and picks a kind from the first phase. */
+async function openKind(canvasElement: HTMLElement, kind: RegExp) {
+  await openWizard(canvasElement);
   await userEvent.click(await within(document.body).findByRole('radio', { name: kind }));
 }
 
@@ -439,7 +435,7 @@ export const WizardChatCommandSecretSaved: Story = {
   },
 };
 
-/** A chat command on the existing Slack source: the mention event, a channel filter and two senders. */
+/** A chat command on the existing Slack source: the mention event, a channel filter and two specific senders. */
 export const WizardChatEvent: Story = {
   decorators: frame,
   play: async ({ canvasElement }) => {
@@ -451,6 +447,7 @@ export const WizardChatEvent: Story = {
     await userEvent.click(await body.findByRole('button', { name: 'Filter 1 field' }));
     await userEvent.click(await body.findByText('conversation.id'));
     await userEvent.type(await body.findByLabelText('Filter 1 values'), 'C04PLATFORM | C07ONCALL');
+    await userEvent.click(await body.findByRole('radio', { name: /Specific senders/ }));
     await userEvent.type(await body.findByLabelText('Allowed senders'), 'U012AB3CD, U045EF6GH');
     (await body.findByText('Senders')).scrollIntoView({ block: 'center' });
   },
@@ -485,12 +482,13 @@ export const ChatSourceWaitingForSecret: Story = {
   },
 };
 
-/** The webhook kind on a GitHub source: role cards read from the labels GitHub declares. */
+/** The webhook kind on a GitHub source: choosing Specific senders shows role cards read from the labels GitHub declares. */
 export const WizardWebhookSenders: Story = {
   decorators: frame,
   play: async ({ canvasElement }) => {
     await openKind(canvasElement, /Webhook/);
     const body = within(document.body);
+    await userEvent.click(await body.findByRole('radio', { name: /Specific senders/ }));
     await body.findByText('Owns the repository');
     (await body.findByText('Senders')).scrollIntoView({ block: 'center' });
   },

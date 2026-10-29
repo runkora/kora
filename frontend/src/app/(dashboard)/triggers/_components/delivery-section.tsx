@@ -17,7 +17,7 @@
  * so it is shown only under that overflow and ignored under any other.
  */
 
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   Button,
@@ -40,7 +40,8 @@ import type { CoalesceDraft } from './coalesce-editor';
 import { admissionSummary } from './trigger-wizard/wizard-state';
 import type { TriggerKind, TriggerOverflow } from './trigger-wizard/types';
 
-/** Every setting of the Delivery section, as one draft. */
+/** Every setting of the Delivery section, as one draft. A count field the user has
+ * emptied is `NaN`: it is neither a valid number nor a silent 0, and reads as "required". */
 export interface DeliveryValue {
   maxParallel: number;
   overflow: TriggerOverflow;
@@ -62,14 +63,19 @@ export interface DeliveryErrors {
 export function deliveryErrors(value: DeliveryValue): DeliveryErrors {
   const { queueDepth, timeout } = LIMITS;
   const coalesce = value.overflow === 'wait' ? coalesceFieldErrors(value.coalesce) : {};
+  const outside = (n: number, min: number, max: number) => !(n >= min && n <= max);
   return {
     ...(value.overflow === 'wait' &&
-      (value.maxQueueDepth < queueDepth.min || value.maxQueueDepth > queueDepth.max) && {
-        queue: `Queue size must be between ${queueDepth.min} and ${queueDepth.max}.`,
+      outside(value.maxQueueDepth, queueDepth.min, queueDepth.max) && {
+        queue: Number.isNaN(value.maxQueueDepth)
+          ? 'Queue size is required.'
+          : `Queue size must be between ${queueDepth.min} and ${queueDepth.max}.`,
       }),
     ...coalesce,
-    ...((value.timeoutSeconds < timeout.min || value.timeoutSeconds > timeout.max) && {
-      timeout: `Time to start must be between ${timeout.min} and ${timeout.max} seconds.`,
+    ...(outside(value.timeoutSeconds, timeout.min, timeout.max) && {
+      timeout: Number.isNaN(value.timeoutSeconds)
+        ? 'Time to start is required.'
+        : `Time to start must be between ${timeout.min} and ${timeout.max} seconds.`,
     }),
   };
 }
@@ -86,8 +92,8 @@ export function sameDelivery(a: DeliveryValue, b: DeliveryValue): boolean {
   return (
     a.maxParallel === b.maxParallel &&
     a.overflow === b.overflow &&
-    a.maxQueueDepth === b.maxQueueDepth &&
-    a.timeoutSeconds === b.timeoutSeconds &&
+    Object.is(a.maxQueueDepth, b.maxQueueDepth) &&
+    Object.is(a.timeoutSeconds, b.timeoutSeconds) &&
     a.dedupeEnabled === b.dedupeEnabled &&
     a.autopauseEnabled === b.autopauseEnabled &&
     a.coalesce.enabled === b.coalesce.enabled &&
@@ -152,9 +158,25 @@ function RecommendationNote({ kind }: { kind: TriggerKind }) {
   );
 }
 
-/** Digits only: a decimal or exponent typed into a count would be sent as a non-integer. */
-function wholeNumber(text: string): number {
-  return Number(text.replace(/\D/g, '')) || 0;
+/**
+ * A whole-number field that holds what the user typed. The number is `NaN` while the
+ * text is empty, so the box can be cleared to type a new value; digits only, because a
+ * decimal or exponent typed into a count would be sent as a non-integer. The text
+ * re-syncs whenever the external value stops matching it (discard, save, another trigger).
+ */
+function useWholeNumberText(value: number, commit: (next: number) => void) {
+  const format = (n: number) => (Number.isNaN(n) ? '' : String(n));
+  const [text, setText] = useState(format(value));
+  const parse = (t: string) => (t === '' ? Number.NaN : Number(t));
+  const shown = Object.is(parse(text), value) ? text : format(value);
+  return {
+    text: shown,
+    onChange: (raw: string) => {
+      const digits = raw.replace(/\D/g, '');
+      setText(digits);
+      commit(parse(digits));
+    },
+  };
 }
 
 interface DeliverySectionProps {
@@ -179,6 +201,10 @@ export function DeliverySection({
   const queueId = useId();
   const timeoutId = useId();
   const errors = deliveryErrors(value);
+  const queueText = useWholeNumberText(value.maxQueueDepth, (n) => onChange({ maxQueueDepth: n }));
+  const timeoutText = useWholeNumberText(value.timeoutSeconds, (n) =>
+    onChange({ timeoutSeconds: n }),
+  );
   const invalid = Object.keys(errors).length > 0;
   const { parallel } = LIMITS;
   return (
@@ -240,7 +266,7 @@ export function DeliverySection({
             onValueChange={(v) => onChange({ overflow: v as TriggerOverflow })}
             aria-label="Overflow behaviour"
           >
-            <Grid cols={3} gap="cozy">
+            <Grid cols={{ base: 1, md: 3 }} gap="cozy">
               {OVERFLOW_OPTIONS.map((o) => (
                 <OverflowOptionCard
                   key={o.id}
@@ -272,11 +298,11 @@ export function DeliverySection({
                   mono
                   disabled={disabled}
                   inputMode="numeric"
-                  value={String(value.maxQueueDepth)}
+                  value={queueText.text}
                   filled={errors.queue ? 'danger' : undefined}
                   aria-invalid={errors.queue ? true : undefined}
                   aria-describedby={errors.queue ? `${queueId}-error` : undefined}
-                  onChange={(e) => onChange({ maxQueueDepth: wholeNumber(e.target.value) })}
+                  onChange={(e) => queueText.onChange(e.target.value)}
                   endAdornment={
                     <Text as="span" size="caption" color="subtle">
                       waiting
@@ -309,11 +335,11 @@ export function DeliverySection({
               mono
               disabled={disabled}
               inputMode="numeric"
-              value={String(value.timeoutSeconds)}
+              value={timeoutText.text}
               filled={errors.timeout ? 'danger' : undefined}
               aria-invalid={errors.timeout ? true : undefined}
               aria-describedby={errors.timeout ? `${timeoutId}-error` : undefined}
-              onChange={(e) => onChange({ timeoutSeconds: wholeNumber(e.target.value) })}
+              onChange={(e) => timeoutText.onChange(e.target.value)}
               endAdornment={
                 <Text as="span" size="caption" color="subtle">
                   seconds

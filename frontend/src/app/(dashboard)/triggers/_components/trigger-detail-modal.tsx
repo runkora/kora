@@ -30,6 +30,8 @@ import {
   Input,
   SectionLabel,
   Modal,
+  ModalBody,
+  ModalFooter,
   ModalHeader,
   Stack,
   StatusDot,
@@ -501,8 +503,8 @@ function TriggerDetailModalBody({
     () => ({
       maxParallel: trigger?.maxParallel ?? 1,
       overflow: trigger?.overflow ?? 'wait',
-      maxQueueDepth: trigger?.maxQueueDepth ?? 0,
-      timeoutSeconds: trigger?.timeoutSeconds ?? 0,
+      maxQueueDepth: trigger?.maxQueueDepth ?? 32,
+      timeoutSeconds: trigger?.timeoutSeconds ?? 30,
       dedupeEnabled: trigger?.dedupeEnabled ?? false,
       autopauseEnabled: trigger?.autopauseEnabled ?? false,
       coalesce: storedCoalesce,
@@ -574,9 +576,17 @@ function TriggerDetailModalBody({
 
   // Drafts are dropped explicitly as well, so a close never leaves unsaved edits behind
   // for anything that holds a section past the modal's own unmount.
-  const handleClose = () => {
+  const discardAndClose = () => {
     for (const section of [name, schedule, filters, senders, prompt, delivery]) section.discard();
+    setConfirmingDiscard(false);
     onClose();
+  };
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  // Escape, the overlay and × all land here; an edit is never thrown away without asking.
+  const handleClose = () => {
+    const dirty = [name, schedule, filters, senders, prompt, delivery].some((x) => x.dirty);
+    if (dirty) setConfirmingDiscard(true);
+    else discardAndClose();
   };
 
   const zones = useMemo(() => {
@@ -1111,7 +1121,10 @@ function TriggerDetailModalBody({
               <Stack gap="comfortable" padding="relaxed">
                 {notice}
                 {/* One row once the modal is wide enough; two columns below that. */}
-                <Grid cols={{ base: 2, md: trigger.pendingCount > 0 ? 5 : 4 }} gap="snug">
+                <Grid
+                  cols={trigger.pendingCount > 0 ? { base: 2, sm: 3, md: 5 } : { base: 2, md: 4 }}
+                  gap="snug"
+                >
                   <DetailStat label="Deliveries 24h" value={String(mine.length)} />
                   <DetailStat
                     label="Succeeded"
@@ -1258,10 +1271,9 @@ function TriggerDetailModalBody({
                 </Stack>
 
                 {/* Deliveries: what it has actually done. Honest about sampling:
-                  the count says how many of the total are shown. */}
+                  the count says how many of the most recent are shown. */}
                 <DeliveryList
                   deliveries={shown}
-                  total={mine.length}
                   triggerId={trigger.id}
                   expandedId={expanded}
                   onToggleExpanded={setExpanded}
@@ -1281,6 +1293,24 @@ function TriggerDetailModalBody({
           </Stack>
         )}
       </Tabs>
+      {/* Hades' ConfirmDialog fixes its dismiss label to "Cancel"; this asks the question
+          in the modal's own terms, so it composes the same parts. */}
+      <Modal open={confirmingDiscard} onClose={() => setConfirmingDiscard(false)} size="sm">
+        <ModalHeader title="Discard unsaved changes?" />
+        <ModalBody flushY>
+          <Text size="caption" color="muted">
+            You have edits that have not been saved. Closing this trigger discards them.
+          </Text>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="outline" size="sm" onClick={() => setConfirmingDiscard(false)}>
+            Keep editing
+          </Button>
+          <Button variant="destructive" size="sm" onClick={discardAndClose}>
+            Discard changes
+          </Button>
+        </ModalFooter>
+      </Modal>
       <ConfirmDialog
         open={rotateOpen}
         title="Rotate signing secret"

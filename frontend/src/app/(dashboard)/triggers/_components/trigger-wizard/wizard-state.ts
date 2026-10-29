@@ -388,13 +388,13 @@ export function validateDelivery(state: WizardState): StepValidation {
     };
   if (
     state.overflow === 'wait' &&
-    (state.maxQueueDepth < LIMITS.queueDepth.min || state.maxQueueDepth > LIMITS.queueDepth.max)
+    !(state.maxQueueDepth >= LIMITS.queueDepth.min && state.maxQueueDepth <= LIMITS.queueDepth.max)
   )
     return {
       valid: false,
       hint: `Max queued deliveries must be between ${LIMITS.queueDepth.min} and ${LIMITS.queueDepth.max}.`,
     };
-  if (state.timeoutSeconds < LIMITS.timeout.min || state.timeoutSeconds > LIMITS.timeout.max)
+  if (!(state.timeoutSeconds >= LIMITS.timeout.min && state.timeoutSeconds <= LIMITS.timeout.max))
     return {
       valid: false,
       hint: `Timeout must be between ${LIMITS.timeout.min} and ${LIMITS.timeout.max} seconds.`,

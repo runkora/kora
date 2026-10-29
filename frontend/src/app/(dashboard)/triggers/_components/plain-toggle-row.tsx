@@ -22,7 +22,17 @@ export function PlainToggleRow({
   disabled?: boolean;
 }) {
   return (
-    <Card subtle border="subtle" interactive={!disabled}>
+    <Card
+      subtle
+      border="subtle"
+      interactive={!disabled}
+      // The whole card is the hit target, like a label around a checkbox. The switch
+      // handles its own click, so a click that started on it is not toggled twice.
+      onClick={(e) => {
+        if (disabled || (e.target as HTMLElement).closest('[role="switch"]')) return;
+        onChange(!checked);
+      }}
+    >
       <Stack
         direction="horizontal"
         align="center"

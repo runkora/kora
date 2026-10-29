@@ -37,7 +37,7 @@ export interface DeliveryDetailPanelProps {
   redeliverAllowed?: boolean;
   /**
    * Jumps to the owning trigger's configuration. Offered only when the caller
-   * has somewhere to jump to: the platform page opens its drawer, the agent
+   * has somewhere to jump to: the platform page opens the trigger's detail modal, the agent
    * page navigates to Triggers.
    */
   onOpenTrigger?: (triggerId: string) => void;
@@ -47,7 +47,7 @@ export interface DeliveryDetailPanelProps {
 
 /**
  * The row was clicked to ask what this arrival did, not to configure anything,
- * so the panel is drawer-free: status, timestamp, the detail body, and at most
+ * so the panel carries no trigger settings: status, timestamp, the detail body, and at most
  * a pointer to the trigger that owns it.
  */
 export function DeliveryDetailPanel({

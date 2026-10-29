@@ -38,7 +38,8 @@ export function OverflowOptionCard({
     >
       <CardContent padded compact grow>
         <Stack gap="snug">
-          <Stack direction="horizontal" align="center" gap="snug">
+          {/* Top-aligned so the radio stays on the title's first line when the badge wraps. */}
+          <Stack direction="horizontal" align="start" gap="snug">
             <Stack direction="horizontal" align="center" gap="snug" grow minWidth="none" wrap>
               <Text as="span" size="supporting" weight="heavy">
                 {title}

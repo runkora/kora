@@ -239,6 +239,7 @@ describe('closing the modal', () => {
     expect(field.value).toBe(`${before}-edited`);
 
     fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard changes' }));
 
     expect(onClose).toHaveBeenCalled();
     expect((screen.getByLabelText(/Trigger name/) as HTMLInputElement).value).toBe(before);
@@ -899,7 +900,7 @@ describe('delivery editing', () => {
     await openSection('Delivery');
     fireEvent.click(screen.getByRole('switch', { name: /Coalesce events/ }));
     expect(screen.getByText('Key is required.')).toBeTruthy();
-    expect(screen.getByText('Window must be between 1 and 300 seconds.')).toBeTruthy();
+    expect(screen.getByText('Window is required.')).toBeTruthy();
     expect(screen.getByText('Fix 2 values to save.')).toBeTruthy();
   });
 });
@@ -1021,5 +1022,112 @@ describe('a generic webhook source', () => {
     expect(screen.getByRole('button', { name: 'Rotate' })).toBeTruthy();
     expect(screen.queryByLabelText(/Signing secret/)).toBeNull();
     expect(screen.getByText(/bearer token in the Authorization header/)).toBeTruthy();
+  });
+});
+
+describe('closing with unsaved edits', () => {
+  function renderClosable(row: TriggerRow = trigger()) {
+    const onClose = vi.fn();
+    renderWithProviders(
+      <TriggerDetailModal
+        canRunAgent
+        trigger={row}
+        sources={SOURCES}
+        deliveries={[]}
+        ingestHost="local.runkora.io:8443"
+        onClose={onClose}
+        onToggleEnabled={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn().mockResolvedValue(null)}
+      />,
+    );
+    return onClose;
+  }
+
+  async function dirtyFilters() {
+    await openSection('Event filters');
+    fireEvent.change(screen.getByLabelText('Filter 1 values'), { target: { value: 'closed' } });
+  }
+
+  it('closes at once when nothing is dirty', () => {
+    const onClose = renderClosable();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Discard unsaved changes?')).toBeNull();
+  });
+
+  it('asks before Escape discards an edit, and keeps it on Keep editing', async () => {
+    const onClose = renderClosable();
+    await dirtyFilters();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    expect(await screen.findByText('Discard unsaved changes?')).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByText('Discard unsaved changes?')).toBeNull();
+    expect((screen.getByLabelText('Filter 1 values') as HTMLInputElement).value).toBe('closed');
+  });
+
+  it('asks before the close button discards, and closes on Discard changes', async () => {
+    const onClose = renderClosable();
+    await dirtyFilters();
+    fireEvent.click(screen.getByRole('button', { name: /^close/i }));
+    expect(await screen.findByText('Discard unsaved changes?')).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('delivery defaults and number fields', () => {
+  it('does not flag a trigger row that lacks queue and timeout values', async () => {
+    renderDetailModal(
+      trigger({ maxQueueDepth: undefined, timeoutSeconds: undefined } as Partial<TriggerRow>),
+    );
+    await openSection('Delivery');
+    expect(screen.queryByText(/Fix \d+ values? to save/)).toBeNull();
+    expect((screen.getByLabelText('Queue size') as HTMLInputElement).value).toBe('32');
+    expect((screen.getByLabelText('Time to start') as HTMLInputElement).value).toBe('30');
+  });
+
+  it('lets Queue size be emptied, calls it required and blocks save', async () => {
+    renderDetailModal(trigger());
+    await openSection('Delivery');
+    const field = screen.getByLabelText('Queue size') as HTMLInputElement;
+    fireEvent.change(field, { target: { value: '' } });
+    expect(field.value).toBe('');
+    expect(screen.getByText('Queue size is required.')).toBeTruthy();
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByText('Fix 1 value to save.')).toBeTruthy();
+    expect(
+      (screen.getByRole('button', { name: 'Save delivery' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    fireEvent.change(field, { target: { value: '1a2' } });
+    expect(field.value).toBe('12');
+    expect(screen.queryByText('Queue size is required.')).toBeNull();
+  });
+
+  it('lets Time to start be emptied, calls it required, and restores it on Discard', async () => {
+    renderDetailModal(trigger());
+    await openSection('Delivery');
+    const field = screen.getByLabelText('Time to start') as HTMLInputElement;
+    const before = field.value;
+    fireEvent.change(field, { target: { value: '' } });
+    expect(field.value).toBe('');
+    expect(screen.getByText('Time to start is required.')).toBeTruthy();
+    expect(screen.getByText('Fix 1 value to save.')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect((screen.getByLabelText('Time to start') as HTMLInputElement).value).toBe(before);
+  });
+
+  it('calls an emptied coalesce Window required', async () => {
+    renderDetailModal(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }));
+    await openSection('Delivery');
+    fireEvent.change(screen.getByLabelText('Window'), { target: { value: '' } });
+    expect(screen.getByText('Window is required.')).toBeTruthy();
   });
 });

@@ -24,7 +24,9 @@ export function coalesceFieldErrors(c: CoalesceDraft): { key?: string; window?: 
       key: c.key.trim() ? raw.key : 'Key is required.',
     }),
     ...(raw.window !== undefined && {
-      window: `Window must be between ${min} and ${max} seconds.`,
+      window: !c.window.trim()
+        ? 'Window is required.'
+        : `Window must be between ${min} and ${max} seconds.`,
     }),
   };
 }

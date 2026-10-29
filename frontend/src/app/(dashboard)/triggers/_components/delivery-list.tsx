@@ -31,8 +31,6 @@ const FILTERS: { value: Filter; label: string }[] = [
 interface DeliveryListProps {
   /** Deliveries that reached this trigger, newest first. */
   deliveries: DeliveryRow[];
-  /** How many deliveries the trigger has in all, for the "Last n of N" count. */
-  total: number;
   /** The trigger whose outcome to read out of each delivery's fan-out. */
   triggerId: string;
   /** Which delivery's payload is open, if any. */
@@ -67,7 +65,6 @@ function shortAgo(iso: string): string {
 
 export function DeliveryList({
   deliveries,
-  total,
   triggerId,
   expandedId,
   onToggleExpanded,
@@ -131,7 +128,9 @@ export function DeliveryList({
           ))}
         </Stack>
         <Text size="caption" color="muted">
-          {filter === 'all' ? `Last ${rows.length}` : visible.length} of {total}
+          {filter === 'all'
+            ? `Showing the ${rows.length} most recent`
+            : `${visible.length} of the ${rows.length} most recent`}
         </Text>
       </Stack>
 
