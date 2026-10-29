@@ -24,18 +24,34 @@ export interface CopyFieldProps {
    * when `label` or `wrap` is set, which give the borderless detail-row look.
    */
   bordered?: boolean;
+  /**
+   * Draw a recessed surface (`bg-background`, as `FieldRow` does) with the same
+   * subtle border as the default field. Without it the field is transparent
+   * and takes the colour of whatever it sits on. Bordered by default; pass
+   * `bordered={false}` for the surface alone.
+   */
+  filled?: boolean;
   /** Let a long value wrap onto several lines, in emphasised weight, instead of truncating. */
   wrap?: boolean;
   /** Expand to fill the parent width. Defaults to true. */
   fullWidth?: boolean;
 }
 
-/** A read-only value that copies to the clipboard when the whole field is clicked. */
+/**
+ * A read-only value that copies to the clipboard when the whole field is clicked.
+ *
+ * Bare, it is a bordered, transparent field. Set `filled` to sit beside `Input`s
+ * and `FieldRow`s on a recessed surface.
+ */
 const CopyField = React.forwardRef<HTMLButtonElement, CopyFieldProps>(
-  ({ value, label, ariaLabel, mono, bordered, wrap, fullWidth = true }, ref) => {
+  ({ value, label, ariaLabel, mono, bordered, filled, wrap, fullWidth = true }, ref) => {
     const { status, copy } = useCopy(value);
-    const hasBorder = bordered ?? !(label || wrap);
-    const accessibleName = ariaLabel ?? (label ? `Copy ${label}` : 'Copy to clipboard');
+    // One answer to "is there a border": a filled field has one unless `bordered={false}`,
+    // a bare one follows `bordered` or the borderless detail-row look of `label` and `wrap`.
+    const showBorder = filled ? bordered !== false : (bordered ?? !(label || wrap));
+    const boxed = showBorder || filled;
+    // The name carries the value, so a screen reader hears what is being copied.
+    const accessibleName = ariaLabel ?? (label ? `Copy ${label}: ${value}` : `Copy ${value}`);
 
     return (
       <Button
@@ -49,8 +65,10 @@ const CopyField = React.forwardRef<HTMLButtonElement, CopyFieldProps>(
         aria-label={accessibleName}
         className={cn(
           !fullWidth && 'self-start',
-          hasBorder && 'rounded-md border border-border px-2.5',
-          hasBorder && !label && !wrap && 'h-9',
+          boxed && 'rounded-md',
+          showBorder && 'border border-border-subtle',
+          filled ? 'bg-background px-[13px]' : showBorder && 'px-2.5',
+          boxed && !label && !wrap && 'h-9',
           label && !wrap && 'h-auto min-h-9 py-1.5',
           wrap && 'h-auto min-h-8 whitespace-normal pt-2.5 pb-2',
         )}
