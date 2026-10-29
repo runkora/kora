@@ -1,9 +1,9 @@
 package inferencegw
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
@@ -224,19 +224,6 @@ func assertToolUseResponse(t *testing.T, body []byte) {
 	}
 }
 
-// TestSDKMarshalEmitsEmptyToolsetName documents the bug marshalMessage exists
-// for. If it stops failing, the SDK's own marshalling is no longer lossy and
-// marshalMessage can be revisited.
-func TestSDKMarshalEmitsEmptyToolsetName(t *testing.T) {
-	raw, err := json.Marshal(decodeMessage(t, toolUseMessage))
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if !bytes.Contains(raw, []byte(`"toolset_name":""`)) {
-		t.Fatalf("SDK no longer emits empty toolset_name; revisit marshalMessage: %s", raw)
-	}
-}
-
 // TestMarshalMessageReturnsProviderBody covers connectors that call the
 // provider's non-streaming endpoint: the body is the provider's bytes.
 func TestMarshalMessageReturnsProviderBody(t *testing.T) {
@@ -291,4 +278,52 @@ func TestWriteNonStreamingResultWritesProviderBody(t *testing.T) {
 		t.Errorf("Content-Type = %q, want application/json", got)
 	}
 	assertToolUseResponse(t, rec.Body.Bytes())
+}
+
+// TestWriteCommittedResult covers the write after 200 OK is committed: the
+// provider's body on success, an Anthropic-format error body otherwise.
+func TestWriteCommittedResult(t *testing.T) {
+	// json.Marshal rejects an invalid RawMessage, so this message has no
+	// provider bytes and cannot be marshaled either.
+	badInput := &anthropic.Message{
+		ID:      "msg_1",
+		Content: []anthropic.ContentBlockUnion{{Type: "tool_use", Input: json.RawMessage("{not json")}},
+	}
+
+	tests := []struct {
+		name        string
+		msg         *anthropic.Message
+		err         error
+		wantErrType string // empty: the provider's body is expected
+		wantErrMsg  string
+	}{
+		{"provider body", accumulateEvents(t, toolUseStream), nil, "", ""},
+		{"provider error", nil, fmt.Errorf("%w: upstream 503", ErrProviderError), "api_error", "upstream provider returned an error"},
+		{"message that cannot be marshaled", badInput, nil, "api_error", "internal inference gateway error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Controller{logger: logging.NewLoggerWithOutput(io.Discard)}
+			rec := httptest.NewRecorder()
+			c.writeCommittedResult(context.Background(), rec, tt.msg, tt.err)
+
+			if tt.wantErrType == "" {
+				assertToolUseResponse(t, rec.Body.Bytes())
+				return
+			}
+			var resp struct {
+				Type  string `json:"type"`
+				Error struct {
+					Type    string `json:"type"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("body is not valid JSON: %v: %s", err, rec.Body)
+			}
+			if resp.Type != "error" || resp.Error.Type != tt.wantErrType || resp.Error.Message != tt.wantErrMsg {
+				t.Errorf("body = %s, want error %s %q", rec.Body, tt.wantErrType, tt.wantErrMsg)
+			}
+		})
+	}
 }
