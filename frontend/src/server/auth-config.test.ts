@@ -55,8 +55,9 @@ describe('getSessionOptions', () => {
     const secureFor = (nodeEnv: string, appUrl: string | undefined) => {
       process.env.BFF_SESSION_SECRET = 'a'.repeat(32);
       Object.assign(process.env, { NODE_ENV: nodeEnv });
-      if (appUrl === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
-      else process.env.NEXT_PUBLIC_APP_URL = appUrl;
+      process.env.NEXT_PUBLIC_APP_URL = 'https://build.example';
+      if (appUrl === undefined) delete process.env.KORA_APP_URL;
+      else process.env.KORA_APP_URL = appUrl;
       return getSessionOptions().cookieOptions?.secure;
     };
 
