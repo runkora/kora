@@ -26,6 +26,8 @@ type fakeCache struct {
 	skills      map[string]Skill        // key = skillSlug
 	getErr      error
 	setErr      error
+	// marketplaceSet, when non-nil, is signalled after each SetMarketplace.
+	marketplaceSet chan struct{}
 }
 
 func (f *fakeCache) GetMarketplace(_ context.Context, _, slug string) ([]SkillEntry, bool, error) {
@@ -44,6 +46,9 @@ func (f *fakeCache) SetMarketplace(_ context.Context, _, slug string, entries []
 		f.marketplace = make(map[string][]SkillEntry)
 	}
 	f.marketplace[slug] = entries
+	if f.marketplaceSet != nil {
+		f.marketplaceSet <- struct{}{}
+	}
 	return nil
 }
 
@@ -70,13 +75,22 @@ type fakeCrawler struct {
 	skills    []Skill
 	treeErr   error
 	skillsErr error
+	// release, when non-nil, blocks FetchSkills until closed or ctx is done.
+	release chan struct{}
 }
 
 func (f *fakeCrawler) FetchTree(_ context.Context, _ MarketplaceSource) (map[string]skillFilePath, error) {
 	return map[string]skillFilePath{}, f.treeErr
 }
 
-func (f *fakeCrawler) FetchSkills(_ context.Context, _ MarketplaceSource, _ map[string]skillFilePath) ([]Skill, error) {
+func (f *fakeCrawler) FetchSkills(ctx context.Context, _ MarketplaceSource, _ map[string]skillFilePath) ([]Skill, error) {
+	if f.release != nil {
+		select {
+		case <-f.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	return f.skills, f.skillsErr
 }
 
@@ -200,6 +214,36 @@ func TestListSkills_CacheMiss_CrawlsAndCaches(t *testing.T) {
 	}
 	if _, ok := cache.marketplace["org__repo"]; !ok {
 		t.Error("skills were not written to cache after miss")
+	}
+}
+
+// A client that gives up on a slow crawl must not cancel it: the crawl finishes
+// in the background and the next request is served from the cache.
+func TestListSkills_CallerCancel_CrawlStillCaches(t *testing.T) {
+	cache := &fakeCache{marketplaceSet: make(chan struct{}, 1)}
+	crawler := &fakeCrawler{skills: makeSkills("alpha", "beta"), release: make(chan struct{})}
+	svc := newTestService(cache, crawler)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() {
+		_, err := svc.ListSkills(ctx, "tenant-a", "org__repo", "", "")
+		errc <- err
+	}()
+	cancel()
+	if err := <-errc; !errors.Is(err, context.Canceled) {
+		t.Fatalf("got err %v, want context.Canceled", err)
+	}
+
+	close(crawler.release)
+	<-cache.marketplaceSet
+
+	result, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Skills) != 2 {
+		t.Errorf("got %d skills, want 2", len(result.Skills))
 	}
 }
 
