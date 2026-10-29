@@ -59,7 +59,6 @@ import { SLACK_PROVIDER, slackAppManifest } from '../../../_lib/slack-app-manife
 import {
   defaultEventType,
   fixedEventType,
-  GENERIC_EVENT_TYPE,
   GENERIC_PROVIDER,
   genericConfigFrom,
   genericDraftHint,
