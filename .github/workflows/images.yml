@@ -33,7 +33,9 @@ jobs:
       targets: ${{ steps.list.outputs.targets }}
       platforms: ${{ steps.list.outputs.platforms }}
       # A multi-platform push pushes each platform by digest, and the merge job
-      # tags the manifest list that joins them.
+      # tags the manifest list that joins them. buildx refuses to push a tagged
+      # ref by digest, so the build clears the target's tags and names the image
+      # in the output.
       by_digest: ${{ inputs.push && contains(inputs.platforms, ',') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -100,7 +102,8 @@ jobs:
           load: ${{ !inputs.push }}
           set: |
             *.platform=${{ matrix.platform }}
-            ${{ env.BY_DIGEST == 'true' && format('{0}.output=type=image,push-by-digest=true,name-canonical=true,push=true', matrix.target) || '' }}
+            ${{ env.BY_DIGEST == 'true' && format('{0}.tags=', matrix.target) || '' }}
+            ${{ env.BY_DIGEST == 'true' && format('{0}.output=type=image,name=ghcr.io/{1}/{0},push-by-digest=true,name-canonical=true,push=true', matrix.target, env.IMAGE_NAMESPACE) || '' }}
             *.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/kora-buildcache:${{ matrix.target }}${{ env.CACHE_SUFFIX }}
             *.cache-to=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/kora-buildcache:${{ matrix.target }}${{ env.CACHE_SUFFIX }},mode=max,ignore-error=true
             kora-sandbox-base.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/kora-buildcache:kora-sandbox-base${{ env.CACHE_SUFFIX }}
