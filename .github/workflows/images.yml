@@ -33,7 +33,9 @@ jobs:
       targets: ${{ steps.list.outputs.targets }}
       platforms: ${{ steps.list.outputs.platforms }}
       # A multi-platform push pushes each platform by digest, and the merge job
-      # tags the manifest list that joins them.
+      # tags the manifest list that joins them. buildx refuses to push a tagged
+      # ref by digest, so the build clears the target's tags and names the image
+      # in the output.
       by_digest: ${{ inputs.push && contains(inputs.platforms, ',') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,6 +86,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The image name comes from docker-bake.hcl, the same source the merge job
+      # reads its tag from, so the digests land under the name the merge expects.
+      - id: image
+        if: env.BY_DIGEST == 'true'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          TAG=$(docker buildx bake --print -f docker-bake.hcl "${TARGET}" 2>/dev/null \
+            | jq -r --arg t "${TARGET}" '.target[$t].tags[0]')
+          echo "name=${TAG%:*}" >> "${GITHUB_OUTPUT}"
+
       - id: bake
         uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
         # docker-bake.hcl tags every image with IMAGE_TAG, which defaults to latest.
@@ -100,7 +113,8 @@ jobs:
           load: ${{ !inputs.push }}
           set: |
             *.platform=${{ matrix.platform }}
-            ${{ env.BY_DIGEST == 'true' && format('{0}.output=type=image,push-by-digest=true,name-canonical=true,push=true', matrix.target) || '' }}
+            ${{ env.BY_DIGEST == 'true' && format('{0}.tags=', matrix.target) || '' }}
+            ${{ env.BY_DIGEST == 'true' && format('{0}.output=type=image,name={1},push-by-digest=true,name-canonical=true,push=true', matrix.target, steps.image.outputs.name) || '' }}
             *.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/kora-buildcache:${{ matrix.target }}${{ env.CACHE_SUFFIX }}
             *.cache-to=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/kora-buildcache:${{ matrix.target }}${{ env.CACHE_SUFFIX }},mode=max,ignore-error=true
             kora-sandbox-base.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/kora-buildcache:kora-sandbox-base${{ env.CACHE_SUFFIX }}
