@@ -9,6 +9,7 @@ import {
   matchConditionFrom,
   matchContainsFrom,
   admissionSummary,
+  summaryText,
   parallelWord,
   previewBody,
   resolvedFields,
@@ -307,6 +308,20 @@ describe('matchConditionFrom', () => {
     expect(matchConditionFrom([{ field: '', values: 'opened' }])).toBeUndefined();
   });
 
+  it('treats a field named like an object member as an ordinary key', () => {
+    const condition = matchConditionFrom([{ field: '__proto__', values: 'x' }]);
+    expect(Object.keys(condition ?? {})).toEqual(['__proto__']);
+  });
+
+  it('drops a value repeated across rows for one field', () => {
+    expect(
+      matchConditionFrom([
+        { field: 'action', values: 'opened' },
+        { field: 'action', values: 'closed | opened' },
+      ]),
+    ).toEqual({ action: ['opened', 'closed'] });
+  });
+
   it('merges repeated fields, since a clause is a set of alternatives', () => {
     expect(
       matchConditionFrom([
@@ -372,35 +387,59 @@ describe('parallelWord', () => {
 });
 
 describe('admissionSummary', () => {
+  const text = (...args: Parameters<typeof admissionSummary>) =>
+    summaryText(admissionSummary(...args));
+
   it('names all three bounds when deliveries queue', () => {
     expect(
-      admissionSummary(
-        state({ maxParallel: 4, overflow: 'wait', maxQueueDepth: 32, timeoutSeconds: 30 }),
+      text(
+        state({ maxParallel: 6, overflow: 'wait', maxQueueDepth: 64, timeoutSeconds: 120 }),
         'webhook',
       ),
     ).toBe(
-      'Up to 4 at once. Further deliveries wait in order, up to 32 of them, and each has up to 30s to start once it is admitted.',
+      'Up to 6 run at once. Up to 64 more wait in order, and each has 120 seconds to start once admitted.',
     );
   });
 
+  it('bolds the figures', () => {
+    const strong = admissionSummary(
+      state({ maxParallel: 6, overflow: 'wait', maxQueueDepth: 64, timeoutSeconds: 120 }),
+      'webhook',
+    )
+      .filter((s) => s.strong)
+      .map((s) => s.text);
+    expect(strong).toEqual(['6', '64', '120 seconds']);
+  });
+
   it('does not claim a queue bound under replace, where nothing queues up', () => {
-    const sentence = admissionSummary(
-      state({ maxParallel: 1, overflow: 'replace', maxQueueDepth: 32, timeoutSeconds: 45 }),
-      'scheduled',
+    const sentence = text(
+      state({ maxParallel: 6, overflow: 'replace', maxQueueDepth: 32, timeoutSeconds: 120 }),
+      'webhook',
     );
     expect(sentence).toBe(
-      'One at a time. While one runs, a newer delivery replaces the one waiting, and it has up to 45s to start.',
+      "Up to 6 run at once. While they're busy, one event waits and a newer one replaces it. Each admitted event has 120 seconds to start.",
     );
     expect(sentence).not.toContain('32');
   });
 
-  it('does not claim a queue bound under refuse either', () => {
-    const sentence = admissionSummary(
-      state({ maxParallel: 8, overflow: 'refuse', maxQueueDepth: 32, timeoutSeconds: 30 }),
-      'manual',
+  it('reads in the singular at one run', () => {
+    expect(
+      text(
+        state({ maxParallel: 1, overflow: 'replace', maxQueueDepth: 32, timeoutSeconds: 120 }),
+        'scheduled',
+      ),
+    ).toBe(
+      "1 run at a time. While it's busy, one event waits and a newer one replaces it. Each admitted event has 120 seconds to start.",
+    );
+  });
+
+  it('counts waiting deliveries toward the ceiling under refuse, without a queue bound', () => {
+    const sentence = text(
+      state({ maxParallel: 6, overflow: 'refuse', maxQueueDepth: 32, timeoutSeconds: 120 }),
+      'webhook',
     );
     expect(sentence).toBe(
-      'Up to 8 at once. Beyond that, a fire is refused with 429, and an admitted delivery has up to 30s to start.',
+      'Up to 6 at once, counting any still waiting to start. Any more are turned away and recorded as dropped. Each has 120 seconds to start.',
     );
     expect(sentence).not.toContain('32');
   });
@@ -409,16 +448,19 @@ describe('admissionSummary', () => {
     // Only a manual fire is synchronous. A webhook or scheduled arrival beyond
     // the limit is recorded as dropped, so claiming a 429 would be a lie.
     for (const kind of ['webhook', 'scheduled'] as const) {
-      const sentence = admissionSummary(state({ overflow: 'refuse' }), kind);
+      const sentence = text(state({ overflow: 'refuse' }), kind);
       expect(sentence).not.toContain('429');
       expect(sentence).toContain('recorded as dropped');
     }
+    expect(text(state({ maxParallel: 6, overflow: 'refuse', timeoutSeconds: 120 }), 'manual')).toBe(
+      'Up to 6 at once, counting any still waiting to start. Any more fires are refused with an error (429). Each has 120 seconds to start.',
+    );
   });
 
   it('says the timeout bounds starting, not running', () => {
     for (const overflow of ['wait', 'replace', 'refuse'] as const) {
-      const sentence = admissionSummary(state({ overflow, timeoutSeconds: 90 }), 'webhook');
-      expect(sentence).toContain('up to 90s to start');
+      expect(text(state({ overflow, timeoutSeconds: 90 }), 'webhook')).toContain('90 seconds');
+      expect(text(state({ overflow, timeoutSeconds: 90 }), 'webhook')).toContain('to start');
     }
   });
 });

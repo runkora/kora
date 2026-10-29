@@ -203,10 +203,12 @@ export function specFromCron(expr: string): CronSpec | null {
   ) {
     return { ...base, freq: 'minutes', interval: min.slice(2) };
   }
-  if (NUMERIC.test(min) && hour === '*' && dom === '*' && dow === '*') {
+  if (NUMERIC.test(min) && Number(min) <= 59 && hour === '*' && dom === '*' && dow === '*') {
     return { ...base, freq: 'hourly', atMinute: min };
   }
   if (!NUMERIC.test(min) || !NUMERIC.test(hour)) return null;
+  // A time that does not exist is not one the builder can show; it stays a raw expression.
+  if (Number(min) > 59 || Number(hour) > 23) return null;
   if (dom === '*' && dow === '*') {
     return { ...base, freq: 'daily', time: time() };
   }
@@ -215,7 +217,7 @@ export function specFromCron(expr: string): CronSpec | null {
     if (!days.every((d) => NUMERIC.test(d) && Number(d) >= 0 && Number(d) <= 6)) return null;
     return { ...base, freq: 'weekly', time: time(), weekdays: days.map(Number) };
   }
-  if (dow === '*' && NUMERIC.test(dom)) {
+  if (dow === '*' && NUMERIC.test(dom) && Number(dom) >= 1 && Number(dom) <= 31) {
     return { ...base, freq: 'monthly', time: time(), dom };
   }
   return null;
@@ -223,10 +225,144 @@ export function specFromCron(expr: string): CronSpec | null {
 
 /**
  * One sentence for a stored expression, phrased exactly as the builder would
- * phrase it. Shared by the drawer and the wizard through humanFor, so the same
+ * phrase it. Shared by the modal and the wizard through humanFor, so the same
  * schedule can never read differently on two surfaces.
  */
 export function describeCron(expr: string): string {
   const spec = specFromCron(expr);
   return spec === null || spec.freq === 'custom' ? 'Custom schedule' : humanFor(spec);
+}
+
+interface CronFieldSpec {
+  label: string;
+  min: number;
+  max: number;
+}
+
+/** The five fields of an expression, in order, with the range a plain number may take. */
+const CRON_FIELD_SPECS: CronFieldSpec[] = [
+  { label: 'minute', min: 0, max: 59 },
+  { label: 'hour', min: 0, max: 23 },
+  { label: 'day of month', min: 1, max: 31 },
+  { label: 'month', min: 1, max: 12 },
+  { label: 'day of week', min: 0, max: 7 },
+];
+
+export interface CronFieldView {
+  /** What the field means: minute, hour, and so on. */
+  label: string;
+  /** The text typed for it, empty when the expression has fewer than five fields. */
+  value: string;
+  /** Why this field is out of range; undefined when it is fine or cannot be told. */
+  problem?: string;
+}
+
+export interface CronBreakdown {
+  fields: CronFieldView[];
+  /** The first thing wrong with the expression as a sentence; undefined when nothing is. */
+  problem?: string;
+}
+
+/**
+ * Splits an expression into its five labelled fields for display, and names
+ * what is wrong with it. The range check only judges plain numbers (`25`,
+ * `1-40`); names, `?` and step sizes are left to the scheduler, which stays the
+ * authority on what is accepted. This is guidance for the screen, not a gate.
+ */
+export function cronBreakdown(expr: string): CronBreakdown {
+  const parts = expr.trim().split(/\s+/).filter(Boolean);
+  const fields = CRON_FIELD_SPECS.map((spec, i): CronFieldView => {
+    const value = parts[i] ?? '';
+    const [list = ''] = value.split('/');
+    const bad = list
+      .split(/[,-]/)
+      .some(
+        (token) => NUMERIC.test(token) && (Number(token) < spec.min || Number(token) > spec.max),
+      );
+    if (!bad) return { label: spec.label, value };
+    const name = spec.label.charAt(0).toUpperCase() + spec.label.slice(1);
+    return {
+      label: spec.label,
+      value,
+      problem: `${name} must be between ${spec.min} and ${spec.max}.`,
+    };
+  });
+  const firstBad = fields.find((f) => f.problem);
+  if (parts.length !== 5) return { fields, problem: 'Needs five fields separated by spaces.' };
+  if (firstBad) return { fields, problem: firstBad.problem };
+  if (!isValidCron(expr)) return { fields, problem: 'Not a cron expression the scheduler reads.' };
+  return { fields };
+}
+
+/** "Sun 1 Nov, 19:00 UTC" for an ISO instant, so a fire can be read in both zones. */
+export function utcLabel(at: string): string | null {
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'UTC',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('weekday')} ${get('day')} ${get('month')}, ${get('hour')}:${get('minute')} UTC`;
+}
+
+/** What a person calls a zone's clock: "Sydney time", "UTC". */
+export function zoneClockName(zone: string): string {
+  if (zone === 'UTC') return 'UTC';
+  const city = (zone.split('/').pop() ?? zone).replace(/_/g, ' ');
+  return `${city} time`;
+}
+
+/** The minutes past the hour an every-N-minutes schedule fires on, as ":00, :15, :30 and :45". */
+export function minuteMarks(interval: number, limit = 4): string {
+  const marks: string[] = [];
+  for (let m = 0; m < 60; m += interval) marks.push(`:${String(m).padStart(2, '0')}`);
+  if (marks.length <= limit) {
+    const last = marks.pop();
+    return marks.length ? `${marks.join(', ')} and ${last}` : (last ?? ':00');
+  }
+  return `${marks.slice(0, limit).join(', ')} and so on`;
+}
+
+/** The builder's fallback when an expression it cannot show is swapped for one it can. */
+export const FALLBACK_TIME = '09:00';
+
+/** Whether the builder can show this expression. */
+export function fitsBuilder(expr: string): boolean {
+  const spec = specFromCron(expr);
+  return spec !== null && spec.freq !== 'custom';
+}
+
+/** The builder fields a stored expression fills, over the current ones where it names none. */
+export function builderPatchFor(expr: string, current: CronSpec): Partial<CronSpec> {
+  const spec = specFromCron(expr);
+  if (spec === null || spec.freq === 'custom') return { freq: 'daily', time: FALLBACK_TIME };
+  return {
+    freq: spec.freq,
+    interval: spec.interval || current.interval,
+    atMinute: spec.atMinute || current.atMinute,
+    time: spec.time || current.time || FALLBACK_TIME,
+    weekdays: spec.weekdays.length ? spec.weekdays : current.weekdays,
+    dom: spec.dom || current.dom,
+  };
+}
+
+/**
+ * What a day of the month past the 28th means, or undefined when every month has it. The
+ * scheduler only fires on days a month has, so the months that fall short are skipped.
+ */
+export function monthDayNote(dom: string): string | undefined {
+  if (!NUMERIC.test(dom.trim())) return undefined;
+  const day = Number(dom);
+  if (day === 29) {
+    return 'February is skipped except in leap years, so this runs 11 times a year (12 in a leap year).';
+  }
+  if (day === 30) return 'February is skipped, so this runs 11 times a year.';
+  if (day === 31) return 'Months with fewer days are skipped, so this runs 7 times a year.';
+  return undefined;
 }

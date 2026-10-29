@@ -254,10 +254,12 @@ export async function schedulePreview(
 
 export async function listDeliveries(
   accessToken: string,
-  opts: { sourceId?: string; limit?: number } = {},
+  opts: { sourceId?: string; triggerId?: string; receivedBefore?: string; limit?: number } = {},
 ): Promise<TriggerDelivery[]> {
   const qs = new URLSearchParams();
   if (opts.sourceId) qs.set('source_id', opts.sourceId);
+  if (opts.triggerId) qs.set('trigger_id', opts.triggerId);
+  if (opts.receivedBefore) qs.set('received_before', opts.receivedBefore);
   if (opts.limit) qs.set('limit', String(opts.limit));
   const q = qs.toString();
   const body = await request<{ deliveries?: TriggerDelivery[] }>(

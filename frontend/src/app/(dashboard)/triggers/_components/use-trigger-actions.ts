@@ -3,12 +3,12 @@
 /**
  * @tier 3 — triggers-owned, with two feature-area consumers: the Triggers page
  * and the agent detail page (`agents/[slug]/_components/agent-triggers-tab.tsx`).
- * Stays Tier 3 deliberately: the hook is glue between the drawer and the
+ * Stays Tier 3 deliberately: the hook is glue between the modal and the
  * triggers API, and moves with both.
  *
  * The mutation callbacks behind every trigger surface: fire, toggle, safety,
  * edit, rotate, redeliver, delete. Owned here once so the platform Triggers
- * page and the agent page drive the same drawer with the same behaviour,
+ * page and the agent page drive the same modal with the same behaviour,
  * differing only in how they refresh and where they put a page-level notice.
  */
 
@@ -22,7 +22,7 @@ import {
 } from '../_services/triggers-api';
 import { toTriggerUpdateRequest } from '../_types';
 import type { DeliveryRow, TriggerRow } from '../_types';
-import type { TriggerEditPatch } from './trigger-drawer';
+import type { TriggerEditPatch } from './trigger-detail-modal';
 
 export interface TriggerNotice {
   ok: boolean;
@@ -40,7 +40,7 @@ export interface TriggerActionsOptions {
  * Everything a trigger surface can do to a trigger, wired to the shared API
  * client. State that belongs to a single control flow (which trigger is
  * firing, which run form is open, the delete confirmation) lives here too, so
- * a caller mounts the drawer and the modals without re-deriving any of it.
+ * a caller mounts the details modal and the other modals without re-deriving any of it.
  */
 export function useTriggerActions({ refresh, notify }: TriggerActionsOptions) {
   const [firingId, setFiringId] = useState<string | null>(null);
@@ -88,7 +88,7 @@ export function useTriggerActions({ refresh, notify }: TriggerActionsOptions) {
   );
 
   /**
-   * Rotates a webhook trigger's source secret; the drawer shows it once. A
+   * Rotates a webhook trigger's source secret; the modal shows it once. A
    * provider that issues the secret takes `signingSecret` and returns none, so
    * success resolves with an empty string. `firstSecret` sets the first secret
    * of a source that is waiting for one, which needs no rotation.
@@ -110,7 +110,7 @@ export function useTriggerActions({ refresh, notify }: TriggerActionsOptions) {
         });
         return null;
       }
-      // Without this the row keeps signingSecretSet=false, so the drawer keeps
+      // Without this the row keeps signingSecretSet=false, so the modal keeps
       // waiting and a second save would omit rotate_secret and be rejected.
       refresh();
       return result.source?.secret ?? '';
@@ -131,29 +131,10 @@ export function useTriggerActions({ refresh, notify }: TriggerActionsOptions) {
   );
 
   /**
-   * Persists a safety setting from the drawer.
+   * Persists a correction made in the modal.
    *
-   * The drawer stays open: these are settings a reader adjusts while looking at
-   * the trigger, not an action that finishes with it, so closing the panel
-   * underneath them would lose their place.
-   */
-  const updateSafety = useCallback(
-    async (row: TriggerRow, patch: Partial<TriggerRow>) => {
-      const result = await updateTrigger(row.id, toTriggerUpdateRequest(patch));
-      if (result.error) {
-        notify({ ok: false, message: `${row.name}: ${result.error}` });
-        return;
-      }
-      refresh();
-    },
-    [refresh, notify],
-  );
-
-  /**
-   * Persists a correction made in the drawer.
-   *
-   * Unlike the safety controls, this resolves with the failure rather than
-   * raising a page-level notice: the drawer keeps the edit on screen next to
+   * This resolves with the failure rather than
+   * raising a page-level notice: the modal keeps the edit on screen next to
    * the reason, so nothing typed is lost to a rejected save.
    */
   const saveTriggerEdit = useCallback(
@@ -206,7 +187,6 @@ export function useTriggerActions({ refresh, notify }: TriggerActionsOptions) {
     startManualRun,
     rotateSecret,
     toggleTrigger,
-    updateSafety,
     saveTriggerEdit,
     redeliver,
     firingId,

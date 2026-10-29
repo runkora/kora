@@ -45,7 +45,7 @@ export interface CatalogInput {
 
 /**
  * The canonical input → catalog mapping, used by both the wizard (fields being
- * drafted) and the drawer (inputs already declared). One ladder of examples, so
+ * drafted) and the modal (inputs already declared). One ladder of examples, so
  * the two surfaces cannot describe the same input differently.
  */
 export function inputsToCatalog(inputs: CatalogInput[]): FieldCatalogEntry[] {

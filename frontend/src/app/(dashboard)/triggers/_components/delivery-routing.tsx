@@ -96,7 +96,7 @@ export function DeliveryRouting({ routing: d, runId, agents }: DeliveryRoutingPr
   return (
     <Stack gap="cozy">
       <SectionLabel>Routing</SectionLabel>
-      <Card inset>
+      <Card transparent>
         <CardContent padded compact>
           <Stack direction="horizontal" align="center" gap="cozy">
             <IconTile tone={agent === null ? 'muted' : 'accent'}>
