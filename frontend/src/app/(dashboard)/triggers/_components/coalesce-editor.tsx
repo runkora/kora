@@ -2,14 +2,14 @@
 
 /**
  * @tier 3 — triggers-scoped. Coalesce settings for a webhook trigger: a toggle card,
- * then, under a rail, a key template and a window. Used by the wizard's Delivery
+ * then a key template and a window. Used by the wizard's Delivery
  * step and the modal.
  */
 
 import { useId, type ReactNode } from 'react';
 import { Input, Stack, Text } from '@runkora/hades';
 import { LIMITS } from '../_types';
-import { DeliveryField, DeliveryRail } from './delivery-field';
+import { DeliveryField } from './delivery-field';
 import { PlainToggleRow } from './plain-toggle-row';
 import { coalesceErrors, type CoalesceDraft } from './trigger-wizard/wizard-state';
 
@@ -64,7 +64,7 @@ export function CoalesceEditor({
         disabled={disabled}
       />
       {value.enabled && (
-        <DeliveryRail>
+        <>
           <DeliveryField
             id={keyId}
             label="Key"
@@ -107,7 +107,7 @@ export function CoalesceEditor({
               />
             </Stack>
           </DeliveryField>
-        </DeliveryRail>
+        </>
       )}
       {note !== undefined && (
         <Text size="caption" color="subtle">

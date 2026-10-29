@@ -158,21 +158,22 @@ export function splitFilterValues(values: string): string[] {
  *
  * Returns undefined when nothing is set: an empty object would read as a
  * condition that happens to be satisfied, where the trigger genuinely has none.
- * Repeating a field merges its values, since a clause is a set of alternatives.
+ * Repeating a field merges its values, dropping repeats, since a clause is a set of alternatives.
  */
 function conditionFrom(
   filters: FilterRow[],
   operator: FilterOperator,
 ): Record<string, string[]> | undefined {
-  const condition: Record<string, string[]> = {};
+  // A Map, so a field named like an Object.prototype member (`__proto__`) is only a key.
+  const condition = new Map<string, string[]>();
   for (const row of filters) {
     if ((row.operator ?? 'is') !== operator) continue;
     const field = row.field.trim();
     const values = splitFilterValues(row.values);
     if (!field || values.length === 0) continue;
-    condition[field] = [...(condition[field] ?? []), ...values];
+    condition.set(field, [...new Set([...(condition.get(field) ?? []), ...values])]);
   }
-  return Object.keys(condition).length > 0 ? condition : undefined;
+  return condition.size > 0 ? Object.fromEntries(condition) : undefined;
 }
 
 /** The `is` rows as the backend's `match_condition`. */

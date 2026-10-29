@@ -83,7 +83,7 @@ function Summary({ roles, ids }: { roles: SenderRole[]; ids: string[] }) {
   return (
     <Card subtle border="none">
       <Stack direction="horizontal" gap="snug" align="start" padding="cozy">
-        <Icon name="user" size="xs" color="muted" />
+        <Icon name="sparkles" size="sm" color="muted" label="" shrink />
         <Text size="supporting" color="muted">
           {roles.length === 0 && ids.length === 0 ? (
             'Nothing chosen yet, so anyone can start a run.'

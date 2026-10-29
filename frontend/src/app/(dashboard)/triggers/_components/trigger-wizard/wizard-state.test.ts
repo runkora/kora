@@ -308,6 +308,20 @@ describe('matchConditionFrom', () => {
     expect(matchConditionFrom([{ field: '', values: 'opened' }])).toBeUndefined();
   });
 
+  it('treats a field named like an object member as an ordinary key', () => {
+    const condition = matchConditionFrom([{ field: '__proto__', values: 'x' }]);
+    expect(Object.keys(condition ?? {})).toEqual(['__proto__']);
+  });
+
+  it('drops a value repeated across rows for one field', () => {
+    expect(
+      matchConditionFrom([
+        { field: 'action', values: 'opened' },
+        { field: 'action', values: 'closed | opened' },
+      ]),
+    ).toEqual({ action: ['opened', 'closed'] });
+  });
+
   it('merges repeated fields, since a clause is a set of alternatives', () => {
     expect(
       matchConditionFrom([

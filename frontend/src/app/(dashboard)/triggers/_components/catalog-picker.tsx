@@ -96,7 +96,7 @@ export function CatalogPicker({
           <Input
             mono
             variant={inline ? 'inline' : undefined}
-            filled={inline && invalid ? 'danger' : undefined}
+            filled={inline ? (invalid ? 'danger' : 'default') : undefined}
             aria-label={ariaLabel}
             value={value}
             disabled={disabled}

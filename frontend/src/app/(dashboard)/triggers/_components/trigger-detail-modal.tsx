@@ -59,6 +59,7 @@ import type { ConfigurationSection } from './configuration-rail';
 import type { CoalesceDraft } from './coalesce-editor';
 import { DataBlockPreview } from './data-block-preview';
 import { DeliveryList } from './delivery-list';
+import { useTriggerDeliveries } from './use-trigger-deliveries';
 import type { RoutingAgentName } from './delivery-routing';
 import { PlainRow } from './plain-row';
 import { RoutedTarget } from './routed-target';
@@ -86,7 +87,12 @@ import {
   resolveBrowserZone,
   timezoneOptions,
 } from './trigger-wizard/cron';
-import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
+import {
+  filtersFromMatchCondition,
+  manualInputsCatalog,
+  normalizeFilters,
+  sameFilters,
+} from './trigger-edit';
 import { ManagedSectionNotice, managedFooterMessage } from './managed-section-notice';
 import { useEditableSection } from './use-editable-section';
 import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
@@ -169,9 +175,6 @@ interface TriggerDetailModalProps {
   /** Names a routed trigger's candidates and the agents its decisions mention. */
   agents?: RoutingAgentName[];
 }
-
-/** How many deliveries the tab shows before it stops. */
-const DELIVERY_SAMPLE = 8;
 
 /**
  * The save affordance a dirty section grows.
@@ -330,8 +333,11 @@ function SigningInfo({ note }: { note?: string }) {
         </Button>
       </TooltipTrigger>
       <TooltipContent>
-        {note ??
-          'Deliveries are verified with an HMAC signature over the raw body. Unsigned or stale requests are rejected before any run starts, and are counted on the source rather than recorded as deliveries.'}
+        {/* A long sentence would otherwise run the tooltip across the whole modal. */}
+        <Stack maxWidth="card">
+          {note ??
+            'Deliveries are verified with an HMAC signature over the raw body. Unsigned or stale requests are rejected before any run starts, and are counted on the source rather than recorded as deliveries.'}
+        </Stack>
       </TooltipContent>
     </Tooltip>
   );
@@ -408,6 +414,8 @@ function TriggerDetailModalBody({
   const onRotateSecret = canShapeRuns && !sourceDeclared ? rotateSecretAction : undefined;
   const canFire = !!trigger?.canFire;
   const [expanded, setExpanded] = useState<string | null>(null);
+  // This trigger's history, fetched in the background when the modal opens.
+  const history = useTriggerDeliveries(trigger?.id ?? '', trigger?.sourceId ?? '');
   // Rotation is destructive (the provider's configured secret stops working the
   // moment it lands), so the button opens a confirmation before doing it.
   const [rotateOpen, setRotateOpen] = useState(false);
@@ -475,6 +483,8 @@ function TriggerDetailModalBody({
     // one edit worth refusing rather than saving as-is. Same rule as the
     // wizard's, from the same function.
     validate: (value) => validateFilters(value.filters).hint,
+    // Rows for the same field are stored as one, so they are shown as one once saved.
+    normalize: normalizeFilters,
   });
 
   const storedSenders = useMemo(
@@ -613,7 +623,6 @@ function TriggerDetailModalBody({
       n + d.runs.filter((r) => r.triggerId === trigger.id && isStartedOutcome(r.status)).length,
     0,
   );
-  const shown = mine.slice(0, DELIVERY_SAMPLE);
   const endpoint = endpointFor(ingestHost, trigger.sourceId);
   // A webhook or chat trigger on a live source has a secret to rotate.
   const hasSigningSecret = trigger.kind === 'webhook' && !trigger.sourceMissing;
@@ -1292,10 +1301,15 @@ function TriggerDetailModalBody({
                   )}
                 </Stack>
 
-                {/* Deliveries: what it has actually done. Honest about sampling:
-                  the count says how many of the most recent are shown. */}
+                {/* Deliveries: what it has actually done, newest first, older on request. */}
                 <DeliveryList
-                  deliveries={shown}
+                  deliveries={history.deliveries}
+                  loading={history.loading}
+                  loadingMore={history.loadingMore}
+                  hasMore={history.hasMore}
+                  error={history.error}
+                  onLoadOlder={history.loadOlder}
+                  onRetry={history.retry}
                   triggerId={trigger.id}
                   expandedId={expanded}
                   onToggleExpanded={setExpanded}

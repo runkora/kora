@@ -47,7 +47,10 @@ export function ConfigurationRail({ label, sections, current, onSelect }: Config
   const steps = sections.filter((s) => s.tone !== 'danger');
   const warnings = sections.filter((s) => s.tone === 'danger');
 
-  const renderStep = (s: ConfigurationSection, connected: boolean) => {
+  // Steps sit flush and each pads itself, so the hover highlight clears the icon above
+  // and the connector below. A step with no connector on either side, the danger zone,
+  // has nothing to keep the highlight clear of but its own content, so it pads more.
+  const renderStep = (s: ConfigurationSection, connected: boolean, isolated = false) => {
     const isCurrent = s.id === current;
     const danger = s.tone === 'danger';
     return (
@@ -59,7 +62,12 @@ export function ConfigurationRail({ label, sections, current, onSelect }: Config
         onClick={() => onSelect(s.id)}
         aria-current={isCurrent ? 'step' : undefined}
       >
-        <Stack direction="horizontal" gap="cozy" paddingInline="snug">
+        <Stack
+          direction="horizontal"
+          gap="cozy"
+          paddingInline="snug"
+          paddingBlock={isolated ? 'snug' : 'tight'}
+        >
           <Stack align="center" gap="none" shrink={false}>
             <StepDot size="lg" state={isCurrent ? 'current' : 'pending'}>
               <Icon
@@ -106,16 +114,17 @@ export function ConfigurationRail({ label, sections, current, onSelect }: Config
             minWidth="compact"
             maxWidth="compact"
             shrink={false}
-            paddingBlock="relaxed"
+            paddingTop="relaxed"
+            paddingBottom="relaxed"
             paddingInline="comfortable"
             overflowY="auto"
           >
-            <Stack paddingInline="snug" paddingBottom="comfortable">
+            <Stack paddingInline="snug" paddingBottom="cozy">
               <Eyebrow>{label}</Eyebrow>
             </Stack>
-            <Stack>{steps.map((s, i) => renderStep(s, i < steps.length - 1))}</Stack>
+            <Stack gap="none">{steps.map((s, i) => renderStep(s, i < steps.length - 1))}</Stack>
             {warnings.length > 0 && (
-              <Stack paddingTop="comfortable">{warnings.map((s) => renderStep(s, false))}</Stack>
+              <Stack paddingTop="tight">{warnings.map((s) => renderStep(s, false, true))}</Stack>
             )}
           </Stack>
           <Separator orientation="vertical" />

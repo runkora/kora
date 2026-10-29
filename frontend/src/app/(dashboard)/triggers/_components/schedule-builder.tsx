@@ -40,9 +40,11 @@ import {
   timezoneOptions,
   toggleWeekday,
   utcLabel,
+  zoneClockName,
 } from './trigger-wizard/cron';
 import type { CronSpec, Frequency } from './trigger-wizard/cron';
 import { PlainToggleRow } from './plain-toggle-row';
+import { TimeField } from './time-field';
 import { useSchedulePreview } from './trigger-wizard/use-schedule-preview';
 
 /** Everything the builder edits. The wizard's state carries these fields, so it passes as is. */
@@ -188,7 +190,7 @@ function Summary({
       <Card subtle border="none">
         <Stack gap="comfortable" padding="cozy">
           <Stack direction="horizontal" gap="cozy" align="start">
-            <Icon name="clock" size="sm" color="muted" label="" shrink />
+            <Icon name="sparkles" size="sm" color="muted" label="" shrink />
             <Text size="supporting" color={note ? 'muted' : 'foreground'}>
               {note ?? (
                 <>
@@ -497,16 +499,12 @@ export function ScheduleBuilder({
 
               {showTime && (
                 <Labelled title="At" hint="24-hour clock.">
-                  <Stack maxWidth="form-field-sm">
-                    <Input
-                      id={`${id}-time`}
-                      aria-label="At"
-                      mono
-                      type="time"
-                      value={state.time}
-                      onChange={(e) => patch({ time: e.target.value })}
-                    />
-                  </Stack>
+                  <TimeField
+                    id={`${id}-time`}
+                    value={state.time}
+                    zoneLabel={zoneClockName(state.timezone)}
+                    onChange={(time) => patch({ time })}
+                  />
                 </Labelled>
               )}
             </>

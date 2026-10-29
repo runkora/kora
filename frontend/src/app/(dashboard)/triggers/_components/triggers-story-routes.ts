@@ -1,6 +1,9 @@
 import type { MockRequest, MockRoutes } from '@runkora/storybook/mock-api';
+import type { TriggerDelivery } from '@runkora/shared/api';
+import type { DeliveryRow } from '../_types';
 import {
   CHAT_FIELDS,
+  DELIVERIES,
   EVENT_TYPES_BY_PROVIDER,
   GITHUB_EVENT_TYPES,
   modelCatalog,
@@ -21,8 +24,75 @@ function providerEventTypes(provider: string) {
   return { data: EVENT_TYPES_BY_PROVIDER[provider] ?? GITHUB_EVENT_TYPES };
 }
 
+/**
+ * A delivery as the API returns it, from the row the stories already hold. A routed decision is
+ * left out: the modal's list only needs the outcome, and the routing stories seed the page.
+ */
+function toWireDelivery(d: DeliveryRow): TriggerDelivery {
+  return {
+    id: d.id,
+    tenant_id: 'tnt_acme',
+    kind: d.kind,
+    ...(d.sourceId !== '' && { source_id: d.sourceId }),
+    ...(d.triggerId !== null && { trigger_id: d.triggerId }),
+    ...(d.triggerName !== null && { trigger_name: d.triggerName }),
+    ...(d.eventType !== '' && { event_type: d.eventType }),
+    status: d.status,
+    ...(d.runId !== null && { run_id: d.runId }),
+    ...(d.error !== null && { error: d.error }),
+    ...(d.payloadExcerpt !== null && { payload_excerpt: d.payloadExcerpt }),
+    ...(d.payloadBytes !== null && { payload_bytes: d.payloadBytes }),
+    payload_purged: d.payloadPurged,
+    ...(d.reason !== null && { reason: d.reason }),
+    ...(d.firedBy !== null && { fired_by: d.firedBy }),
+    ...(d.scheduledAt !== null && { scheduled_at: d.scheduledAt }),
+    received_at: d.receivedAt,
+    runs: d.runs.map((r, i) => ({
+      id: `${d.id}_run${i}`,
+      delivery_id: d.id,
+      trigger_id: r.triggerId,
+      ...(r.triggerName !== null && { trigger_name: r.triggerName }),
+      ...(r.runId !== null && { run_id: r.runId }),
+      status: r.status,
+      ...(r.error !== null && { error: r.error }),
+      ...(r.supersededBy !== undefined && { superseded_by: r.supersededBy }),
+      created_at: r.createdAt ?? d.receivedAt,
+    })),
+    coalesce_keys: d.coalesceKeys.map((c) => ({
+      trigger_id: c.triggerId,
+      ...(c.key !== null && { key: c.key }),
+      key_too_long: c.keyTooLong,
+    })),
+  };
+}
+
+/**
+ * `GET /api/trigger-deliveries` over some deliveries, the way the API answers it: newest first,
+ * narrowed by `source_id` and `trigger_id`, paged back with `received_before`, cut at `limit`.
+ */
+export function deliveryRoutes(rows: DeliveryRow[]): MockRoutes {
+  return {
+    'GET /api/trigger-deliveries': (req: MockRequest) => {
+      const q = req.url.searchParams;
+      const sourceId = q.get('source_id');
+      const triggerId = q.get('trigger_id');
+      const before = q.get('received_before');
+      const limit = Number(q.get('limit')) || 100;
+      const data = rows
+        .filter((d) => sourceId === null || d.sourceId === sourceId)
+        .filter((d) => triggerId === null || d.triggerId === triggerId)
+        .filter((d) => before === null || Date.parse(d.receivedAt) < Date.parse(before))
+        .sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt))
+        .slice(0, limit)
+        .map(toWireDelivery);
+      return { data };
+    },
+  };
+}
+
 /** The client-side calls the modal and the wizard make while open. */
 export const catalogRoutes: MockRoutes = {
+  ...deliveryRoutes(DELIVERIES),
   'GET /api/triggers/routing/candidates': { data: routingCandidates(4) },
   'GET /api/models': { data: modelCatalog(true) },
   'GET /api/trigger-sources/:id/event-types': (req: MockRequest) => {

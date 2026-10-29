@@ -11,6 +11,7 @@ import type { InputField } from '@runkora/shared/api';
 import { inputsToCatalog } from './trigger-wizard/field-catalog';
 import type { FieldCatalogEntry } from './trigger-wizard/types';
 import type { FilterRow } from './filter-rows-editor';
+import { matchConditionFrom, matchContainsFrom } from './trigger-wizard/wizard-state';
 
 /**
  * Turns a stored `match_condition` and `match_contains` back into editable rows.
@@ -47,6 +48,20 @@ export function manualInputsCatalog(inputs: InputField[] | undefined): FieldCata
       ...(input.default !== undefined && { default: input.default }),
     })),
   );
+}
+
+/**
+ * A saved filter draft as the platform stores it: rows for one field folded into one, repeated
+ * values dropped, blank rows gone. The modal shows this once a save lands.
+ */
+export function normalizeFilters<T extends { filters: FilterRow[] }>(value: T): T {
+  return {
+    ...value,
+    filters: filtersFromMatchCondition(
+      matchConditionFrom(value.filters),
+      matchContainsFrom(value.filters),
+    ),
+  };
 }
 
 /** Whether two filter row lists carry the same content. */

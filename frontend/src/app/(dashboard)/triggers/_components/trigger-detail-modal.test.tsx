@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
   fetchEventTypes: vi.fn(),
   fetchProviderEventTypes: vi.fn(),
   fetchProviderFields: vi.fn(),
+  listDeliveryPage: vi.fn(),
 }));
 vi.mock('../_services/triggers-api', () => api);
 
@@ -23,6 +24,7 @@ const GITHUB = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  api.listDeliveryPage.mockResolvedValue({ deliveries: [], error: null });
   api.fetchProviderEventTypes.mockResolvedValue({
     eventTypes: GITHUB,
     error: null,

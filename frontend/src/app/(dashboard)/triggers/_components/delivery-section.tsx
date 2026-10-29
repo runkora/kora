@@ -375,7 +375,7 @@ export function DeliverySection({
         <Card subtle border="none">
           <CardContent padded compact>
             <Stack direction="horizontal" gap="cozy" align="start">
-              <Icon name="menu" size="sm" color="muted" label="" shrink />
+              <Icon name="sparkles" size="sm" color="muted" label="" shrink />
               <Text size="supporting">
                 {invalid
                   ? 'Fix the errors above to see what these settings do.'

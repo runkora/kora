@@ -53,6 +53,11 @@ export interface EditableSectionOptions<T> {
   isEqual?: (a: T, b: T) => boolean;
   /** Why the current value cannot be saved, if anything. */
   validate?: (value: T) => string | undefined;
+  /**
+   * The value as the platform will store it, for a save that changes what was sent (merged
+   * rows, trimmed text). The section shows it as soon as the save lands, not after the refresh.
+   */
+  normalize?: (value: T) => T;
 }
 
 export function useEditableSection<T>(
@@ -60,7 +65,7 @@ export function useEditableSection<T>(
   /** Resets the draft when it changes, e.g. the trigger's id. */
   resetKey: string,
   onSave: (value: T) => Promise<string | null>,
-  { isEqual = Object.is, validate }: EditableSectionOptions<T> = {},
+  { isEqual = Object.is, validate, normalize }: EditableSectionOptions<T> = {},
 ): EditableSection<T> {
   const [state, setState] = useState<DraftState<T>>({
     key: resetKey,
@@ -107,10 +112,15 @@ export function useEditableSection<T>(
         if (prev.draft !== null && !isEqual(prev.draft, draft)) {
           return { ...prev, error: null, awaiting: null };
         }
-        return { key: resetKey, draft: null, error: null, awaiting: { saved: draft, before } };
+        return {
+          key: resetKey,
+          draft: null,
+          error: null,
+          awaiting: { saved: normalize ? normalize(draft) : draft, before },
+        };
       });
     });
-  }, [current.draft, stored, onSave, resetKey, isEqual]);
+  }, [current.draft, stored, onSave, resetKey, isEqual, normalize]);
 
   return {
     value,

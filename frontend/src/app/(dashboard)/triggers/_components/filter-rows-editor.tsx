@@ -108,7 +108,7 @@ export function FilterRowsEditor({
         // place to type, and is dropped on save.
         const hasField = row.field.trim() !== '';
         const hasValues = splitFilterValues(row.values).length > 0;
-        const valuesFill = hasValues ? undefined : hasField ? 'danger' : 'default';
+        const valuesFill = !hasValues && hasField ? 'danger' : 'default';
         const fieldInvalid = !hasField && hasValues;
         const incomplete = showIncomplete && row.field !== '' && row.values.trim() === '';
         return (
@@ -162,7 +162,7 @@ export function FilterRowsEditor({
                         <Input
                           mono
                           variant="inline"
-                          filled={fieldInvalid ? 'danger' : undefined}
+                          filled={fieldInvalid ? 'danger' : 'default'}
                           aria-label={`Filter ${i + 1} name`}
                           disabled={disabled}
                           value={row.patternName ?? ''}
