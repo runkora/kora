@@ -66,6 +66,12 @@ export const Options: Story = {
           </div>
         </Option>
         <Option
+          name='tone="strong"'
+          use="The standard border colour instead of the subtle one. Use where the line is lost beside bordered controls."
+        >
+          <Separator tone="strong" />
+        </Option>
+        <Option
           name="decorative={false}"
           use="Tell screen readers this is a real divider. Leave it on for purely visual lines."
         >
