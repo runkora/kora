@@ -32,6 +32,9 @@ jobs:
     outputs:
       targets: ${{ steps.list.outputs.targets }}
       platforms: ${{ steps.list.outputs.platforms }}
+      # A multi-platform push pushes each platform by digest, and the merge job
+      # tags the manifest list that joins them.
+      by_digest: ${{ inputs.push && contains(inputs.platforms, ',') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: list
@@ -62,9 +65,7 @@ jobs:
       # cache that CI builds already write.
       CACHE_SUFFIX: ${{ matrix.platform == 'linux/arm64' && '-arm64' || '' }}
       ARCH: ${{ matrix.platform == 'linux/arm64' && 'arm64' || 'amd64' }}
-      # A multi-platform push pushes each platform by digest, and the merge job
-      # tags the manifest list that joins them.
-      BY_DIGEST: ${{ inputs.push && contains(inputs.platforms, ',') }}
+      BY_DIGEST: ${{ needs.list-targets.outputs.by_digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -130,7 +131,7 @@ jobs:
   merge:
     name: ${{ matrix.target }}
     needs: [list-targets, build]
-    if: inputs.push && contains(inputs.platforms, ',')
+    if: needs.list-targets.outputs.by_digest == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
