@@ -3,11 +3,10 @@
 /** @tier 3 — marketplace/[marketplaceSlug]/[skillName]-scoped. Read-only presentation of one Skill's details. */
 
 import { useMemo, useState } from 'react';
-import { CodeBlock, Stack } from '@orbit/hades';
+import { Card, CardContent, CodeBlock, IconTile, Stack, Text } from '@orbit/hades';
 import type { Skill } from '@orbit/shared/api';
 import { SkillFileExplorer } from './skill-file-explorer';
 import type { ExplorerFile } from './skill-file-explorer';
-import { SkillRepositoryCard } from './skill-repository-card';
 
 interface MarketplaceSkillDetailProps {
   skill: Skill;
@@ -20,7 +19,19 @@ function relativeTo(folder: string, path: string): string {
   return folder && path.startsWith(`${folder}/`) ? path.slice(folder.length + 1) : path;
 }
 
+/** The `owner` and `owner/repo` of a GitHub repository link, or the raw link when it has no such path. */
+export function repositoryName(link: string): { owner: string; fullName: string } {
+  try {
+    const [owner, repo] = new URL(link).pathname.split('/').filter(Boolean);
+    if (owner && repo) return { owner, fullName: `${owner}/${repo.replace(/\.git$/, '')}` };
+  } catch {
+    // Not a URL; fall through to the raw link.
+  }
+  return { owner: link, fullName: link };
+}
+
 export function MarketplaceSkillDetail({ skill, repositoryUrl }: MarketplaceSkillDetailProps) {
+  const { owner, fullName } = repositoryName(repositoryUrl);
   const slash = skill.skill.path.lastIndexOf('/');
   const folder = slash >= 0 ? skill.skill.path.slice(0, slash) : '';
   const files = useMemo<ExplorerFile[]>(
@@ -58,7 +69,25 @@ export function MarketplaceSkillDetail({ skill, repositoryUrl }: MarketplaceSkil
         // Clears the sticky back-to-Skills bar (48px) plus the page gap.
         style={{ width: '100%', position: 'sticky', top: 64 }}
       >
-        <SkillRepositoryCard repositoryUrl={repositoryUrl} />
+        <Card column>
+          <CardContent padded>
+            <Stack direction="horizontal" align="center" gap="cozy">
+              <IconTile size="lg" aria-hidden>
+                <Text as="span" size="supporting" weight="heavy">
+                  {owner.charAt(0).toUpperCase()}
+                </Text>
+              </IconTile>
+              <Stack grow minWidth="none" gap="none">
+                <Text as="span" size="supporting" weight="heavy" truncate>
+                  {owner}
+                </Text>
+                <Text as="span" size="caption" color="subtle" truncate>
+                  {fullName}
+                </Text>
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
       </Stack>
     </Stack>
   );
