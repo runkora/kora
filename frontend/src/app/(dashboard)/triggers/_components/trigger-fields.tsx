@@ -1,10 +1,11 @@
 'use client';
 
-/** @tier 3 — triggers-scoped. The two fields every kind's first step renders and
- * every stored trigger's Configuration tab edits: the trigger name and the
- * prompt. Each kind supplies only its own hint, placeholder and catalog, so the
- * field markup, ids and constraints exist once and a surface cannot render them
- * differently by accident. */
+/** @tier 3 — triggers-scoped. The two fields every kind's first step renders: the
+ * trigger name and the prompt. Each kind supplies only its own hint, placeholder
+ * and catalog, so the field markup, ids and constraints exist once and a surface
+ * cannot render them differently by accident. The trigger detail modal uses the
+ * name field too; its Prompt section renders `TemplateField` directly, because
+ * the rail section is already titled "Prompt" and a second label would repeat it. */
 
 import { FormField, Input, TemplateField } from '@runkora/hades';
 import type { TemplateCatalogEntry } from '@runkora/hades';
