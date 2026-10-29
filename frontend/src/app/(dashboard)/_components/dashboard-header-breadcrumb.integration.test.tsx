@@ -45,6 +45,12 @@ describe('DashboardHeader in the Marketplace', () => {
     expect(screen.queryByRole('link', { name: 'Back' })).not.toBeInTheDocument();
   });
 
+  it('selected overview: shows Marketplace and the slug from the path', () => {
+    renderHeader('/marketplace/team__repo');
+    expect(screen.getByText('Marketplace')).toBeInTheDocument();
+    expect(screen.getByText('team__repo')).toBeInTheDocument();
+  });
+
   it('detail: shows the Skill identifier as the breadcrumb label', () => {
     const skillName = 'react-expert';
     renderHeader(APP_ROUTES.marketplace.detail('platform-engineering__skills', skillName));

@@ -39,12 +39,13 @@ vi.mock('next/link', () => ({
     href,
     onClick,
     children,
+    ...props
   }: {
     href: string;
     onClick?: () => void;
     children: React.ReactNode;
-  }) => (
-    <a href={href} onClick={onClick} data-testid="next-link">
+  } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a href={href} onClick={onClick} data-testid="next-link" {...props}>
       {children}
     </a>
   ),
@@ -174,6 +175,16 @@ describe('DashboardSidebar', () => {
   });
 
   describe('active state', () => {
+    it('keeps Marketplace active on a selected overview path', () => {
+      vi.mocked(usePathname).mockReturnValue('/marketplace/team__repo');
+      renderSidebar();
+      expect(screen.getByRole('link', { name: 'Marketplace' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      expect(screen.getByRole('link', { name: 'Agents' })).not.toHaveAttribute('aria-current');
+    });
+
     it('Dashboard link has the correct href when pathname is /', () => {
       vi.mocked(usePathname).mockReturnValue(APP_ROUTES.home);
       renderSidebar();

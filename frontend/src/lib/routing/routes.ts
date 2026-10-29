@@ -47,6 +47,8 @@ export const APP_ROUTES = {
   },
   marketplace: {
     overview: '/marketplace',
+    browse: (marketplaceSlug: string) =>
+      `/marketplace/${encodeURIComponent(marketplaceSlug)}` as const,
     detail: (marketplaceSlug: string, skillName: string) =>
       `/marketplace/${encodeURIComponent(marketplaceSlug)}/${encodeURIComponent(skillName)}` as const,
   },

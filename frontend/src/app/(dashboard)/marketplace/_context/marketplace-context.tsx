@@ -9,7 +9,7 @@
 //
 // The provider also saves the Marketplace that the user picks in the picker in
 // the user preferences (`marketplace.lastSelected`). The overview's initial
-// server load uses that saved Marketplace, falling back to the first source.
+// server load uses it when the overview path does not name a Marketplace.
 //
 // A preferences PUT replaces the whole document. So the provider saves only
 // after an explicit pick that loads successfully, and never after a failed

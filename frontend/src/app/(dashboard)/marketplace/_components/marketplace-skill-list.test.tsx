@@ -6,6 +6,7 @@ import { MarketplaceSkillList } from './marketplace-skill-list';
 import type { MarketplaceOverviewData } from '../_types';
 
 vi.mock('next/navigation', () => ({
+  usePathname: () => window.location.pathname,
   useRouter: () => ({ push: vi.fn() }),
 }));
 

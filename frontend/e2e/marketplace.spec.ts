@@ -92,6 +92,7 @@ async function reload(page: Page) {
 }
 
 const budgetSkillPath = '/marketplace/platform-engineering__skills/budget-forecaster';
+const platformOverviewPath = '/marketplace/platform-engineering__skills';
 
 /** The detail page has loaded: the file explorer is shown and the breadcrumb names the Skill. */
 async function expectSkillDetail(page: Page, name: string) {
@@ -99,12 +100,12 @@ async function expectSkillDetail(page: Page, name: string) {
   await expect(page.getByText(name, { exact: true })).toBeVisible();
 }
 
-async function expectCleanUrl(page: Page, pathname = '/marketplace') {
+async function expectCleanUrl(page: Page, pathname = '/marketplace/clearroute__core-skills') {
   await expect(page).toHaveURL((url) => url.pathname === pathname && url.search === '');
 }
 
 async function expectChosenOverview(page: Page) {
-  await expectCleanUrl(page);
+  await expectCleanUrl(page, platformOverviewPath);
   await expect(
     page.getByRole('button', { name: `Marketplace: ${chosenMarketplace.name}`, exact: true }),
   ).toBeVisible();
@@ -143,11 +144,22 @@ async function expectDefaultOverview(page: Page) {
   );
 }
 
+async function expectPlatformOverviewDefaults(page: Page) {
+  await expectCleanUrl(page, platformOverviewPath);
+  await expect(
+    page.getByRole('button', { name: 'Marketplace: Platform Engineering', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Search Skills' })).toHaveValue('');
+  await expect(page.getByRole('combobox', { name: 'Sort skills' })).toHaveValue('name-asc');
+  await expect(page.getByRole('combobox', { name: 'Results per page' })).toHaveValue('24');
+  await expect(page.getByRole('main').getByText('1–24 of 61', { exact: true })).toBeVisible();
+}
+
 async function choosePlatformEngineering(page: Page) {
   await page.getByRole('button', { name: 'Marketplace: ClearRoute Core', exact: true }).click();
   await page.getByRole('radio', { name: 'Platform Engineering' }).click();
   await expect(page.getByRole('row', { name: 'Open Airflow Access Review' })).toBeVisible();
-  await expectCleanUrl(page);
+  await expectCleanUrl(page, platformOverviewPath);
 }
 
 async function chooseOverviewState(page: Page) {
@@ -172,7 +184,7 @@ test.describe('/marketplace — overview and Skill detail', () => {
     await mockMarketplaceRoutes(page);
   });
 
-  test('browsing keeps a clean address, opens a Skill by name and returns to defaults', async ({
+  test('browsing reflects the Marketplace path and returns from a Skill to that Marketplace', async ({
     page,
   }) => {
     const browseRequests: URL[] = [];
@@ -211,7 +223,7 @@ test.describe('/marketplace — overview and Skill detail', () => {
     await expectSkillDetail(page, 'budget-forecaster');
     await expectCleanUrl(page, budgetSkillPath);
     await page.getByRole('link', { name: 'Skills', exact: true }).click();
-    await expectDefaultOverview(page);
+    await expectPlatformOverviewDefaults(page);
   });
 
   test('a direct Skill address loads its details and survives refresh', async ({ page }) => {
@@ -223,15 +235,38 @@ test.describe('/marketplace — overview and Skill detail', () => {
     await expectCleanUrl(page, budgetSkillPath);
   });
 
+  test('a direct Marketplace overview uses the path selection and survives refresh', async ({
+    page,
+  }) => {
+    await load(page, platformOverviewPath);
+    await expectPlatformOverviewDefaults(page);
+    await page.reload();
+    await expectPlatformOverviewDefaults(page);
+  });
+
+  test('browser Back from a Skill keeps the Marketplace selected in the overview path', async ({
+    page,
+  }) => {
+    await load(page);
+    await choosePlatformEngineering(page);
+    await page.getByRole('row', { name: 'Open Airflow Access Review' }).click();
+    await expectSkillDetail(page, 'airflow-access-review');
+    await page.goBack();
+    await expectCleanUrl(page, platformOverviewPath);
+    await expect(
+      page.getByRole('button', { name: 'Marketplace: Platform Engineering', exact: true }),
+    ).toBeVisible();
+  });
+
   test('an existing full-slug Skill address still loads its details', async ({ page }) => {
     const path =
       '/marketplace/platform-engineering__skills/platform-engineering__skills__budget-forecaster';
     await page.goto(path);
-    await expect(page.getByRole('heading', { name: 'Budget Forecaster' })).toBeVisible();
+    await expectSkillDetail(page, 'platform-engineering__skills__budget-forecaster');
     await expectCleanUrl(page, path);
   });
 
-  test('old browse queries are ignored and a refresh resets in-memory browse values', async ({
+  test('legacy browse queries are ignored and refresh keeps the path selection with default controls', async ({
     page,
   }) => {
     await load(
@@ -243,7 +278,7 @@ test.describe('/marketplace — overview and Skill detail', () => {
 
     await reload(page);
 
-    await expectDefaultOverview(page);
+    await expectPlatformOverviewDefaults(page);
   });
 
   test('a Skill that no longer exists shows a not-found message with a way back', async ({
@@ -255,8 +290,8 @@ test.describe('/marketplace — overview and Skill detail', () => {
     await expectDefaultOverview(page);
   });
 
-  for (const path of ['/marketplace/old-address', '/marketplace/too/many/segments']) {
-    test(`an address with the wrong number of segments returns 404: ${path}`, async ({ page }) => {
+  for (const path of ['/marketplaces/old-address', '/marketplace/too/many/segments']) {
+    test(`an unsupported Marketplace address returns 404: ${path}`, async ({ page }) => {
       const response = await page.goto(path);
       expect(response?.status()).toBe(404);
       await expect(page.getByRole('heading', { name: '404', exact: true })).toBeVisible();
@@ -273,7 +308,7 @@ test.describe('/marketplace — overview and Skill detail', () => {
     await expectCleanUrl(page, path);
     await expect(page.getByRole('link', { name: 'Skills', exact: true })).toHaveAttribute(
       'href',
-      '/marketplace',
+      '/marketplace/clearroute__core-skills',
     );
   });
 
@@ -585,7 +620,7 @@ test.describe('/marketplace — accessibility and layout', () => {
       await expect(page.getByText('1–12 of 61', { exact: true })).toBeVisible();
       await page.getByRole('button', { name: 'Page 3', exact: true }).click();
       await expect(page.getByText('25–36 of 61', { exact: true })).toBeVisible();
-      await expectCleanUrl(page);
+      await expectCleanUrl(page, platformOverviewPath);
       await expect(page.getByRole('row', { name: /^Open / })).toHaveCount(12);
       const controls = [
         ...overviewControls(page),

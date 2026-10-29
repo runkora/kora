@@ -45,7 +45,10 @@ describe('Skill detail Server Component', () => {
     expect(loadSkillPage).toHaveBeenCalledExactlyOnceWith('token', 'team__repo', 'reviewer');
     expect(screen.getByRole('heading', { name: 'File Explorer' })).toBeVisible();
     expect(screen.getByText('# Instructions')).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Skills' })).toHaveAttribute('href', '/marketplace');
+    expect(screen.getByRole('link', { name: 'Skills' })).toHaveAttribute(
+      'href',
+      '/marketplace/team__repo',
+    );
   });
 
   it('still loads an older link whose segment carries the full skillSlug', async () => {
@@ -70,7 +73,7 @@ describe('Skill detail Server Component', () => {
     expect(screen.getByText('Skill not found')).toBeVisible();
     expect(screen.getByRole('link', { name: 'Back to Skills' })).toHaveAttribute(
       'href',
-      '/marketplace',
+      '/marketplace/team__repo',
     );
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
   });

@@ -7,7 +7,10 @@ import { MarketplaceOverview } from './marketplace-overview';
 import type { MarketplaceOverviewData } from '../_types';
 
 const { push } = vi.hoisted(() => ({ push: vi.fn() }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push }),
+  usePathname: () => window.location.pathname,
+}));
 
 const browse = {
   marketplace: 'team__repo',
