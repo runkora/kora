@@ -49,7 +49,8 @@ type Connection struct {
 // repos/permissions the token can reach are owned by other authorities and are
 // deliberately not restated here.
 //
-// +kubebuilder:validation:XValidation:rule=`self.adapter != 'kubernetes' || size(self.baseHost) == 0 || !(self.baseHost.matches('^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+(:[0-9]+)?$') || self.baseHost.matches('^\\[[0-9a-fA-F:]+\\](:[0-9]+)?$') || (self.baseHost.matches('^[0-9a-fA-F:]+$') && self.baseHost.split(':').size() > 2))`,message="kubernetes connections must use a DNS hostname as baseHost, not a bare IPv4 address. TLS to an IP literal carries no SNI; the sandbox's transparent-egress interception can never authorize it."
+// +kubebuilder:validation:XValidation:rule=`self.adapter != 'kubernetes' || (has(self.baseHost) && size(self.baseHost) > 0)`,message="kubernetes connections require a non-empty baseHost."
+// +kubebuilder:validation:XValidation:rule=`self.adapter != 'kubernetes' || !has(self.baseHost) || size(self.baseHost) == 0 || !(self.baseHost.matches('^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+(:[0-9]+)?$') || self.baseHost.matches('^\\[[0-9a-fA-F:]+\\](:[0-9]+)?$') || (self.baseHost.matches('^[0-9a-fA-F:]+$') && self.baseHost.split(':').size() > 2))`,message="kubernetes connections must use a DNS hostname as baseHost, not a bare IPv4 address. TLS to an IP literal carries no SNI; the sandbox's transparent-egress interception can never authorize it."
 // +kubebuilder:object:generate=true
 type ConnectionSpec struct {
 	// Adapter selects the credential mechanism (e.g. "github_app",
