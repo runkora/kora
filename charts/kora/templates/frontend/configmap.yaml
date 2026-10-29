@@ -1,6 +1,7 @@
 # In-cluster URLs the Next.js BFF calls server-side; frontend.config.*
 # overrides the release-namespace defaults. Only NEXT_PUBLIC_APP_URL reaches
-# the browser, and it must match the build-time value.
+# the browser, and it must match the build-time value. KORA_APP_URL carries the
+# same value for server code, which cannot read the build-inlined NEXT_PUBLIC one.
 {{- $ns := include "kora.systemNamespace" . }}
 {{- $c := .Values.frontend.config }}
 apiVersion: v1
@@ -19,3 +20,4 @@ data:
   KORA_AGENTS_URL: {{ $c.koraAgentsUrl | default (printf "http://kora-agents.%s.svc.cluster.local" $ns) | quote }}
   TOOL_GATEWAY_URL: {{ $c.toolGatewayUrl | default (printf "http://kora-tool-gateway.%s.svc.cluster.local" $ns) | quote }}
   NEXT_PUBLIC_APP_URL: {{ $c.nextPublicAppUrl | default (printf "https://%s" (include "kora.frontendHost" .)) | quote }}
+  KORA_APP_URL: {{ $c.nextPublicAppUrl | default (printf "https://%s" (include "kora.frontendHost" .)) | quote }}
