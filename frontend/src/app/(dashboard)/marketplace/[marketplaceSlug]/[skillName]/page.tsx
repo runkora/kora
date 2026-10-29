@@ -19,7 +19,7 @@ export default async function SkillDetailPage({ params }: SkillDetailPageProps) 
   if (!isSessionValid(session)) {
     return (
       <Stack gap="comfortable">
-        <BackToSkillsLink />
+        <BackToSkillsLink marketplaceSlug={marketplaceSlug} />
         <Alert variant="error">
           <Icon name="lock" color="status-error" />
           <Text size="caption" color="status-error">
@@ -41,7 +41,7 @@ export default async function SkillDetailPage({ params }: SkillDetailPageProps) 
         description="No Skill in this Marketplace matches this address."
         action={
           <Button asChild>
-            <Link href={APP_ROUTES.marketplace.overview}>Back to Skills</Link>
+            <Link href={APP_ROUTES.marketplace.browse(marketplaceSlug)}>Back to Skills</Link>
           </Button>
         }
       />
@@ -56,13 +56,13 @@ export default async function SkillDetailPage({ params }: SkillDetailPageProps) 
 
   return (
     <Stack gap="comfortable">
-      <BackToSkillsLink />
+      <BackToSkillsLink marketplaceSlug={marketplaceSlug} />
       {content}
     </Stack>
   );
 }
 
-function BackToSkillsLink() {
+function BackToSkillsLink({ marketplaceSlug }: { marketplaceSlug: string }) {
   // Sticky so the way back to the list stays in view while the Skill scrolls.
   return (
     <Stack
@@ -76,7 +76,7 @@ function BackToSkillsLink() {
       }}
     >
       <Button variant="ghost" size="sm" asChild>
-        <Link href={APP_ROUTES.marketplace.overview}>
+        <Link href={APP_ROUTES.marketplace.browse(marketplaceSlug)}>
           <Icon name="arrow-left" size="xs" />
           Skills
         </Link>

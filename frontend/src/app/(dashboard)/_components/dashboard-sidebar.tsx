@@ -3,8 +3,9 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
-import { Icon, NavItem, Navigation, Stack, Text } from '@runkora/hades';
-import { hasScopeCovering, hasScopeWithin } from '@runkora/lib/permissions';
+import { Icon, NavItem, Navigation, Stack, Text } from '@orbit/hades';
+import { hasScope } from '@orbit/lib/permissions';
+import { APP_ROUTES } from '@orbit/lib/routing';
 import { NAV_GROUPS } from '../_utils';
 import { useSession } from './permissions-provider';
 
@@ -21,6 +22,9 @@ import { useSession } from './permissions-provider';
  */
 export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const activePathname = /^\/marketplace\/[^/]+\/?$/.test(pathname)
+    ? APP_ROUTES.marketplace.overview
+    : pathname;
   const { scopes } = useSession();
 
   return (
@@ -58,7 +62,8 @@ export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
                 ) : (
                   <NavItem
                     key={itemLabel}
-                    state={pathname === href ? 'active' : 'default'}
+                    state={activePathname === href ? 'active' : 'default'}
+                    aria-current={activePathname === href ? 'page' : undefined}
                     icon={<Icon name={icon} />}
                     badge={badge}
                     asChild

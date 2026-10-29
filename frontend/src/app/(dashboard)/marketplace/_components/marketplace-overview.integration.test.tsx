@@ -11,6 +11,7 @@ import { MarketplaceProvider } from '../_context/marketplace-context';
 import type { MarketplaceOverviewData } from '../_types';
 
 vi.mock('next/navigation', () => ({
+  usePathname: () => window.location.pathname,
   useRouter: () => ({ push: vi.fn() }),
 }));
 

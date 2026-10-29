@@ -12,6 +12,13 @@ describe('APP_ROUTES', () => {
     expect(APP_ROUTES.marketplace.overview).toBe('/marketplace');
   });
 
+  it('encodes the selected Marketplace as one overview path segment', () => {
+    const url = new URL(APP_ROUTES.marketplace.browse('team/repo ?#'), 'http://localhost');
+    expect(url.pathname).toBe('/marketplace/team%2Frepo%20%3F%23');
+    expect(url.search).toBe('');
+    expect(url.hash).toBe('');
+  });
+
   it('keeps both Skill identifiers in encoded path segments without browse parameters', () => {
     const path = APP_ROUTES.marketplace.detail('team/repo ?#', 'skill/50% ?#');
     const url = new URL(path, 'http://localhost');

@@ -12,13 +12,15 @@
 //   4. On success, show the new results. On error, keep the current results
 //      and show a warning.
 //
-// Browse values stay in client state. The address identifies the Marketplace
-// screen; initial server loads use defaults and the saved Marketplace.
+// The address identifies the selected Marketplace. Other browse values stay
+// in client state; a server load uses their defaults.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
+import { usePathname } from 'next/navigation';
+import { APP_ROUTES } from '@orbit/lib/routing';
 import type { Marketplace, SkillSummary } from '@orbit/shared/api';
 import { fetchMarketplaceOverview } from '../_services/marketplace-api';
-import { cleanBrowseUrl, toSearchQuery } from '../_utils/browse-params';
+import { cleanBrowseUrl, parseBrowseParams, toSearchQuery } from '../_utils/browse-params';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData, SkillSort } from '../_types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -76,6 +78,7 @@ export function useMarketplace(
   initialError: string | null = null,
   onMarketplacePicked?: (marketplaceSlug: string) => void,
 ): MarketplaceStateShape {
+  const routePathname = usePathname();
   const [overview, setOverview] = useState<MarketplaceOverviewData>(initialData);
   const [status, setStatus] = useState<LoadStatus>(() => toInitialStatus(initialError));
   const [error, setError] = useState<string | null>(initialError);
@@ -172,13 +175,44 @@ export function useMarketplace(
     return committedRef.current;
   }, []);
 
-  // Old browse links must not put view state back into the address bar.
+  // Back can restore the default entry's cached data under a named path.
+  // Load that path's Marketplace unless the server already resolved it.
   useEffect(() => {
-    const url = cleanBrowseUrl(window.location.pathname, window.location.search);
-    if (url !== window.location.pathname + window.location.search) {
-      window.history.replaceState(window.history.state, '', url + window.location.hash);
+    const marketplace = marketplaceFromPath(routePathname);
+    if (
+      marketplace &&
+      marketplace !== committedRef.current.marketplace &&
+      marketplace !== initialData.requested.marketplace
+    ) {
+      startTransition(() => {
+        void load({ browse: parseBrowseParams(new URLSearchParams({ marketplace })) });
+      });
     }
-  }, []);
+  }, [routePathname, initialData.requested.marketplace, load]);
+
+  // Keep the path aligned with the Marketplace whose results are on screen.
+  // Storybook preview paths stay in Storybook; old browse query values are removed.
+  useEffect(() => {
+    if (
+      pendingRef.current &&
+      pendingRef.current.browse.marketplace !== overview.browse.marketplace
+    ) {
+      return;
+    }
+    const currentPath = window.location.pathname;
+    const isOverview =
+      currentPath === APP_ROUTES.marketplace.overview || marketplaceFromPath(currentPath) !== null;
+    if (!isOverview || (routePathname && routePathname !== currentPath)) return;
+    const marketplace = overview.browse.marketplace;
+    const pathname = marketplace
+      ? APP_ROUTES.marketplace.browse(marketplace)
+      : APP_ROUTES.marketplace.overview;
+    const url = cleanBrowseUrl(pathname, window.location.search);
+    if (url !== window.location.pathname + window.location.search) {
+      // Next.js copies its own history state and updates usePathname for this call.
+      window.history.replaceState(null, '', url + window.location.hash);
+    }
+  }, [overview.browse.marketplace, routePathname, status]);
 
   // On unmount, stop the search timer and the request in flight.
   useEffect(() => {
@@ -276,6 +310,16 @@ export function useMarketplace(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function marketplaceFromPath(pathname: string | null): string | null {
+  const match = pathname?.match(/^\/marketplace\/([^/]+)\/?$/);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
 
 function toInitialStatus(initialError: string | null): LoadStatus {
   if (initialError !== null) {

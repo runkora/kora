@@ -1,5 +1,5 @@
 // Validates Marketplace browse values for API requests and initial defaults.
-// Navigation URLs carry only the route, without the overview's browse state.
+// The overview path carries the selected Marketplace; other browse values stay in memory.
 
 import {
   DEFAULT_PAGE_SIZE,
