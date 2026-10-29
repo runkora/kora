@@ -126,12 +126,14 @@ jobs:
 
       - name: Record the platform digest
         if: env.BY_DIGEST == 'true'
+        # The digest is read in the expression. The full bake metadata of a target
+        # with build contexts, such as kora-sandbox-dev, is too large to pass as an
+        # environment variable.
         env:
-          METADATA: ${{ steps.bake.outputs.metadata }}
+          DIGEST: ${{ fromJSON(steps.bake.outputs.metadata)[matrix.target]['containerimage.digest'] }}
           TARGET: ${{ matrix.target }}
         run: |
           mkdir -p "${RUNNER_TEMP}/digests"
-          DIGEST=$(jq -r --arg t "${TARGET}" '.[$t]["containerimage.digest"]' <<<"${METADATA}")
           [[ "${DIGEST}" == sha256:* ]] || { echo "no digest for ${TARGET}: ${DIGEST}"; exit 1; }
           echo "${DIGEST}" > "${RUNNER_TEMP}/digests/${ARCH}"
 
