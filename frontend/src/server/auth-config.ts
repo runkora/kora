@@ -61,6 +61,27 @@ export interface BackendSessionResponse {
   api_authoring?: boolean;
 }
 
+/**
+ * Reads the tenant a kora access token was issued for (`kora.tenant_id`).
+ * The token is authoritative: a claim binding can move the person to another
+ * tenant than the one the request named. The payload is not verified; the token
+ * comes straight from the identity service. Returns undefined when absent.
+ */
+export function tenantIdFromAccessToken(token: string): string | undefined {
+  try {
+    const segment = token.split('.')[1] ?? '';
+    const base64 = segment
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+      .padEnd(Math.ceil(segment.length / 4) * 4, '=');
+    const payload = JSON.parse(atob(base64)) as { kora?: { tenant_id?: unknown } };
+    const id = payload.kora?.tenant_id;
+    return typeof id === 'string' && id ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // ── Cookie names ──────────────────────────────────────────────────────────────
 
 /** Name of the sealed iron-session cookie. */

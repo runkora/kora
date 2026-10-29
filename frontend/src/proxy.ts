@@ -21,6 +21,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 
 import {
   getSessionOptions,
+  tenantIdFromAccessToken,
   SESSION_COOKIE_NAME,
   type SessionPayload,
   type BackendSessionResponse,
@@ -129,7 +130,8 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       getSessionOptions(refreshed.refresh_token_expires_in),
     );
     refreshedSession.user = session.user;
-    refreshedSession.tenantId = session.tenantId;
+    refreshedSession.tenantId =
+      tenantIdFromAccessToken(refreshed.access_token) ?? session.tenantId;
     refreshedSession.apiAuthoring = refreshed.api_authoring ?? true;
     refreshedSession.accessToken = refreshed.access_token;
     refreshedSession.refreshToken = refreshed.refresh_token;

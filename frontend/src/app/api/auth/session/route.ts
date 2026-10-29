@@ -29,7 +29,7 @@ import 'server-only';
 import { getIronSession } from 'iron-session';
 import { cookies } from 'next/headers';
 
-import { getSessionOptions } from '@runkora/server/auth-config';
+import { getSessionOptions, tenantIdFromAccessToken } from '@runkora/server/auth-config';
 import type {
   SessionPayload,
   SessionUser,
@@ -214,7 +214,9 @@ export async function POST(request: Request): Promise<Response> {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     expiresAt: data.issued_at + data.expires_in,
-    tenantId: tenantId as string,
+    // The token's tenant wins: a claim binding can move the person off the
+    // tenant Home Realm Discovery picked, which is only a hint.
+    tenantId: tenantIdFromAccessToken(data.access_token) ?? tenantId,
     apiAuthoring: data.api_authoring ?? true,
   };
 
