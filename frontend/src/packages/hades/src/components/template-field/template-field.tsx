@@ -422,7 +422,9 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
         data-slot="template-field"
         className={cn(
           'flex w-full flex-col overflow-hidden rounded-md border border-border',
-          code ? 'bg-background' : 'bg-surface-elevated',
+          // A code field takes the CodeBlock surface (elevated fill, standard border), so the
+          // editor and the CodeBlock previews beneath it read as one family.
+          'bg-surface-elevated',
           'focus-within:border-accent transition-colors',
           disabled && 'cursor-not-allowed opacity-40',
           className,
@@ -500,7 +502,12 @@ export const TemplateField = React.forwardRef<HTMLDivElement, TemplateFieldProps
                 Insert field
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-96 p-1.5">
+            <PopoverContent
+              side="bottom"
+              align="start"
+              avoidCollisions={false}
+              className="w-96 p-1.5"
+            >
               <TemplateCatalogList
                 catalog={catalog}
                 catalogLabel={catalogLabel}

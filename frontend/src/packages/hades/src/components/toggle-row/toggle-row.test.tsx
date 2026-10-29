@@ -78,7 +78,7 @@ describe('ToggleRow (switch form)', () => {
     const knob = () => track()?.firstElementChild;
 
     // The shared toggle-visuals recipe, the same one `Toggle` draws.
-    expect(track()).toHaveClass('bg-foreground/20', 'h-5', 'w-9');
+    expect(track()).toHaveClass('bg-foreground/45', 'h-5', 'w-9');
     expect(knob()).toHaveClass('translate-x-0', 'transition-transform');
 
     rerender(<ToggleRow checked onChange={vi.fn()} label="Streaming" />);

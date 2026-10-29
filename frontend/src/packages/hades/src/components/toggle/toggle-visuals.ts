@@ -33,7 +33,7 @@ const toggleTrackVariants = cva(
     variants: {
       checked: {
         true: 'bg-accent',
-        false: 'bg-foreground/20',
+        false: 'bg-foreground/45',
       },
       disabled: {
         true: 'cursor-not-allowed opacity-40',
