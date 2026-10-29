@@ -183,3 +183,36 @@ func TestEveryCELRuleHasACase(t *testing.T) {
 		}
 	}
 }
+
+// TestConnectionBaseHostRules covers the kubernetes baseHost rules, which need
+// more than one accepted and rejected object each.
+func TestConnectionBaseHostRules(t *testing.T) {
+	const file = "generated/runkora.io_connections.yaml"
+	const (
+		missing = "kubernetes connections require a non-empty baseHost."
+		ipLit   = "kubernetes connections must use a DNS hostname as baseHost"
+	)
+	s, all := structural(t, file)
+	msgs := map[string]apiextensionsv1.ValidationRule{}
+	for _, r := range all {
+		msgs[r.Message] = r
+	}
+	for _, c := range []struct {
+		name, obj, refusal string
+	}{
+		{"absent", `{metadata: {name: c}, spec: {adapter: kubernetes}}`, missing},
+		{"empty", `{metadata: {name: c}, spec: {adapter: kubernetes, baseHost: ""}}`, missing},
+		{"ip literal", `{metadata: {name: c}, spec: {adapter: kubernetes, baseHost: 10.0.0.1}}`, ipLit},
+		{"dns name", `{metadata: {name: c}, spec: {adapter: kubernetes, baseHost: api.example.com}}`, ""},
+		{"other adapter without baseHost", `{metadata: {name: c}, spec: {adapter: github_app}}`, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			for msg, rule := range msgs {
+				want := c.refusal != "" && strings.HasPrefix(msg, c.refusal)
+				if got := refusedBy(t, s, rule, c.obj, ""); got != want {
+					t.Errorf("rule %q refused=%v, want %v", msg, got, want)
+				}
+			}
+		})
+	}
+}
