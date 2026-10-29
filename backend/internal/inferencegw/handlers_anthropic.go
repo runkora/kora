@@ -236,6 +236,29 @@ func normalizeSystemPrompt(b []byte) []byte {
 	return result
 }
 
+// ─── Response serialization ──────────────────────────────────────────────────
+
+// marshalMessage returns the provider's own bytes for msg. The SDK's response
+// types carry no omitempty, so json.Marshal emits every field of every union
+// variant as a zero value: toolset_name:"" on a tool_use block,
+// stop_details.type:"refusal" on every message, "" where the provider sent
+// null. Clients replay those blocks as conversation history and Bedrock
+// rejects them with a 400. RawJSON() is the body the provider sent, and the
+// SDK keeps it current through stream accumulation (content_block_stop and
+// message_stop fold the deltas back in), so it is also right for connectors
+// that assemble the message from a stream. The marshal fallback is only
+// reachable for a message built by hand.
+func marshalMessage(msg *anthropic.Message) (json.RawMessage, error) {
+	if raw := msg.RawJSON(); raw != "" {
+		return json.RawMessage(raw), nil
+	}
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return nil, fmt.Errorf("marshal message: %w", err)
+	}
+	return b, nil
+}
+
 // ─── Anthropic-format error helpers ──────────────────────────────────────────
 
 // writeAnthropicError writes an error in the Anthropic Messages API wire format:
@@ -358,7 +381,54 @@ func (c *Controller) writeNonStreamingResult(
 		c.writeAnthropicError(ctx, w, inferenceErrorResponse(err), err)
 		return
 	}
-	api.JSON(ctx, w, c.logger, http.StatusOK, msg)
+	body, err := marshalMessage(msg)
+	if err != nil {
+		c.writeAnthropicError(ctx, w, inferenceErrorResponse(err), err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, body)
+}
+
+// writeCommittedResult writes a result that arrived after 200 OK was
+// committed. The status cannot change, so a provider error is written as an
+// Anthropic-format error body with the 200 status (better than a timeout).
+func (c *Controller) writeCommittedResult(
+	ctx context.Context,
+	w http.ResponseWriter,
+	msg *anthropic.Message,
+	err error,
+) {
+	if err != nil {
+		apiErr := inferenceErrorResponse(err)
+		span := trace.SpanFromContext(ctx)
+		span.RecordError(err)
+		span.SetAttributes(
+			attribute.Bool("app.error", true),
+			attribute.String("app.error.code", apiErr.Code),
+			attribute.String("app.error.message", apiErr.Message),
+		)
+		c.logger.Error(ctx, "anthropic non-streaming: provider error after 200 OK committed",
+			logging.Field{Key: "code", Value: apiErr.Code},
+			logging.Field{Key: "message", Value: apiErr.Message},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		body, _ := json.Marshal(map[string]any{
+			"type": "error",
+			"error": map[string]string{
+				"type":    anthropicErrorType(apiErr.Code),
+				"message": apiErr.Message,
+			},
+		})
+		_, _ = w.Write(body)
+		return
+	}
+	body, err := marshalMessage(msg)
+	if err != nil {
+		c.logger.Error(ctx, "anthropic non-streaming: marshal message",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+	_, _ = w.Write(body)
 }
 
 // handleMessagesNonStreaming handles the non-streaming POST /v1/messages path.
@@ -440,32 +510,7 @@ func (c *Controller) handleMessagesNonStreaming(
 		select {
 		case res := <-ch:
 			cancelGen()
-			if res.err != nil {
-				apiErr := inferenceErrorResponse(res.err)
-				span := trace.SpanFromContext(ctx)
-				span.RecordError(res.err)
-				span.SetAttributes(
-					attribute.Bool("app.error", true),
-					attribute.String("app.error.code", apiErr.Code),
-					attribute.String("app.error.message", apiErr.Message),
-				)
-				c.logger.Error(ctx, "anthropic non-streaming: provider error after 200 OK committed",
-					logging.Field{Key: "code", Value: apiErr.Code},
-					logging.Field{Key: "message", Value: apiErr.Message},
-					logging.Field{Key: "error", Value: res.err.Error()},
-				)
-				body, _ := json.Marshal(map[string]any{
-					"type": "error",
-					"error": map[string]string{
-						"type":    anthropicErrorType(apiErr.Code),
-						"message": apiErr.Message,
-					},
-				})
-				_, _ = w.Write(body)
-			} else {
-				body, _ := json.Marshal(res.msg)
-				_, _ = w.Write(body)
-			}
+			c.writeCommittedResult(ctx, w, res.msg, res.err)
 			if canFlush {
 				flusher.Flush()
 			}
