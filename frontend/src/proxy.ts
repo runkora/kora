@@ -130,8 +130,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       getSessionOptions(refreshed.refresh_token_expires_in),
     );
     refreshedSession.user = session.user;
-    refreshedSession.tenantId =
-      tenantIdFromAccessToken(refreshed.access_token) ?? session.tenantId;
+    refreshedSession.tenantId = tenantIdFromAccessToken(refreshed.access_token) ?? session.tenantId;
     refreshedSession.apiAuthoring = refreshed.api_authoring ?? true;
     refreshedSession.accessToken = refreshed.access_token;
     refreshedSession.refreshToken = refreshed.refresh_token;
