@@ -21,6 +21,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 	"github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/policyservice"
 	"github.com/runkora/kora/backend/internal/policyservice/api"
 	"github.com/runkora/kora/backend/internal/policyservice/bundle"
 	"github.com/runkora/kora/backend/internal/policyservice/grants"
@@ -115,6 +116,20 @@ func realMain() error {
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	svc := api.NewService(grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, bundleSrv, routeStore, logger)
+
+	// Failing to register these gauges is not fatal — a service that refuses
+	// to start because a gauge could not be registered has turned its own
+	// observability into an outage — but it is loud, because unmeasured is
+	// not the state anyone signed up for. RegisterDomain is the shared helper
+	// every service's main.go uses for this.
+	policyMetrics := platformmetrics.RegisterDomain(ctx, logger, "policy-service", func() (*policyservice.Metrics, error) {
+		return policyservice.NewMetrics(metrics.Meter(), svc, logger)
+	})
+	defer func() {
+		if err := policyMetrics.Close(); err != nil {
+			logger.Error(ctx, "Error shutting down policy-service metrics", logging.Field{Key: "error", Value: err.Error()})
+		}
+	}()
 
 	// Self-register the policy service's own routes and platform scope
 	// vocabulary, and keep re-registering.

@@ -82,19 +82,11 @@ func realMain() error {
 	logger := initLogger()
 	logger.Info(ctx, "Egress gateway starting", logging.Field{Key: "version", Value: egc.Current.App.Version})
 
-	metrics, err := platformmetrics.Setup(ctx, egc.Current.Metrics, observability.Config{
-		ServiceName:    egc.Current.Observability.ServiceName,
-		ServiceVersion: egc.Current.App.Version,
-		Environment:    config.Environment(),
-	}, egc.Current.Observability.ServiceName, logger)
+	metrics, egressMetrics, shutdownMetrics, err := initMetrics(ctx, logger)
 	if err != nil {
 		return fmt.Errorf("setup metrics: %w", err)
 	}
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), egc.Current.Metrics.ShutdownTimeout())
-		defer cancel()
-		metrics.Shutdown(shutdownCtx, logger)
-	}()
+	defer shutdownMetrics()
 
 	// ── Policy evaluator ─────────────────────────────────────────────────────
 	eval := policy.NewEvaluator(egc.Current.Policy.BundleEndpoint, egc.Current.BundlePollInterval(), logger)
@@ -137,7 +129,7 @@ func realMain() error {
 	// The passthrough adapter is passed to the broker rather than registered,
 	// so a Connection CR cannot name it. It serves hosts with no connection,
 	// which the egress whitelist alone authorizes.
-	broker := egressgw.NewBroker(eval, connRegistry, registry, passthrough.New(), logger)
+	broker := egressgw.NewBroker(eval, connRegistry, registry, passthrough.New(), logger, egressMetrics)
 	forward, err := upstreamTransport()
 	if err != nil {
 		return fmt.Errorf("build upstream transport: %w", err)
@@ -300,6 +292,41 @@ func upstreamTransport() (*http.Transport, error) {
 	// own loopback and link-local targets. Timeouts match http.DefaultTransport.
 	t.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second, Control: egressgw.RefuseLocalTarget}).DialContext
 	return t, nil
+}
+
+// initMetrics builds the platform metrics bootstrap plus this service's
+// domain instruments, and returns one combined shutdown closure covering
+// both. Failing to register the domain instruments is not fatal — a service
+// that refuses to start because a counter could not be registered has
+// turned its own observability into an outage — but it is loud, because
+// unmeasured is not the state anyone signed up for. RegisterDomain is the
+// shared helper every service's main.go uses for this; Close is nil-safe
+// (see (*egressgw.Metrics).Close), so the returned closure runs it
+// unconditionally.
+func initMetrics(ctx context.Context, logger logging.Logger) (*platformmetrics.Bootstrap, *egressgw.Metrics, func(), error) {
+	metrics, err := platformmetrics.Setup(ctx, egc.Current.Metrics, observability.Config{
+		ServiceName:    egc.Current.Observability.ServiceName,
+		ServiceVersion: egc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, egc.Current.Observability.ServiceName, logger)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	egressMetrics := platformmetrics.RegisterDomain(ctx, logger, "egress-gateway", func() (*egressgw.Metrics, error) {
+		return egressgw.NewMetrics(metrics.Meter())
+	})
+
+	shutdown := func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), egc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+
+		if closeErr := egressMetrics.Close(); closeErr != nil {
+			logger.Error(ctx, "Error shutting down egress-gateway metrics", logging.Field{Key: "error", Value: closeErr.Error()})
+		}
+	}
+	return metrics, egressMetrics, shutdown, nil
 }
 
 func initObservability(ctx context.Context) (func(), error) {

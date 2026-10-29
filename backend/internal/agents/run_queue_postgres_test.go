@@ -228,6 +228,32 @@ func TestPostgres_AssignPodFencedByClaim(t *testing.T) {
 	}
 }
 
+// SetRunState stamps completed_at for every terminal state, budget_exhausted
+// included — not just completed/failed (PR #418 review, Finding 4). Covered
+// by mocks_test.go's mockRepository already (see metrics_test.go); this
+// proves the real SQL does the same, since the mock can only agree with
+// whatever its author believed the UPDATE does.
+func TestPostgres_SetRunStateBudgetExhaustedStampsCompletedAt(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	id := queueRun(t, r, tenant, at.ID, time.Now().UTC(), nil)
+
+	if err := r.SetRunState(ctx, id, RunStatePending, RunStateBudgetExhausted); err != nil {
+		t.Fatalf("SetRunState: %v", err)
+	}
+	run, err := r.GetRun(ctx, id)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.State != RunStateBudgetExhausted {
+		t.Fatalf("state = %s, want %s", run.State, RunStateBudgetExhausted)
+	}
+	if run.CompletedAt == nil {
+		t.Fatal("expected CompletedAt to be stamped for budget_exhausted, got nil")
+	}
+}
+
 // The reaper fails a run that stayed pending past the stale window.
 func TestPostgres_ReapStalePendingRun(t *testing.T) {
 	r, tenant := testRunRepo(t)

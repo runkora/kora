@@ -60,6 +60,12 @@ const (
 	AdmitDropped
 	// AdmitPaused means the trigger was auto-paused when this fire arrived.
 	AdmitPaused
+	// AdmitError means a database or infrastructure failure kept admission
+	// from deciding at all — distinct from AdmitDropped, which is a
+	// legitimate ceiling/ceiling-full refusal. Conflating the two would make
+	// a database outage look identical to normal overflow handling on the
+	// admission-outcomes metric.
+	AdmitError
 )
 
 // RunStatus maps an admission outcome to the per-trigger outcome recorded
@@ -72,8 +78,28 @@ func (r AdmissionResult) RunStatus() string {
 		return RunStatusDropped
 	case AdmitPaused:
 		return RunStatusPaused
+	case AdmitError:
+		return RunStatusFailed
 	default:
 		return RunStatusDispatched
+	}
+}
+
+// metricOutcome is the label value recorded on the admission-outcomes
+// counter — distinct from RunStatus, which names the per-trigger delivery
+// outcome, not the metric's own vocabulary.
+func (r AdmissionResult) metricOutcome() string {
+	switch r {
+	case AdmitSuperseded:
+		return "superseded"
+	case AdmitDropped:
+		return "dropped"
+	case AdmitPaused:
+		return "paused"
+	case AdmitError:
+		return "error"
+	default:
+		return "enqueued"
 	}
 }
 
@@ -144,6 +170,7 @@ type Admission struct {
 	repo     admissionStore
 	logger   logging.Logger
 	outcomes outcomeRecorder
+	metrics  *Metrics // nil records nothing
 }
 
 // admissionStore is what admission touches: the queue it manages, the two
@@ -156,11 +183,16 @@ type admissionStore interface {
 }
 
 // NewAdmission constructs the admission controller.
-func NewAdmission(repo admissionStore, logger logging.Logger) *Admission {
+//
+// metrics may be nil, in which case nothing is recorded: instrumentation is
+// injected rather than reached for globally, so a caller that has not wired a
+// meter gets exactly the behavior it had before.
+func NewAdmission(repo admissionStore, logger logging.Logger, metrics *Metrics) *Admission {
 	return &Admission{
 		repo:     repo,
 		logger:   logger,
-		outcomes: outcomeRecorder{repo: repo, logger: logger},
+		outcomes: outcomeRecorder{repo: repo, logger: logger, metrics: metrics},
+		metrics:  metrics,
 	}
 }
 
@@ -172,7 +204,15 @@ func NewAdmission(repo admissionStore, logger logging.Logger) *Admission {
 // the process dies between recording the delivery and starting the run, which
 // leaves a durable record of a start that never happened. The extra latency is
 // on no caller's path: the sender was acknowledged before this is reached.
-func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) (AdmissionResult, error) {
+func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) (result AdmissionResult, err error) {
+	// Recorded once, regardless of which branch below decided it: a named
+	// return plus a defer means every exit path — including the error ones,
+	// which still carry a meaningful AdmissionResult — is counted exactly
+	// once, without repeating the call at each return statement.
+	defer func() {
+		a.metrics.recordAdmissionOutcome(ctx, result, t.TenantID)
+	}()
+
 	if t.AutoPausedAt != nil {
 		return AdmitPaused, nil
 	}
@@ -195,10 +235,16 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 		// replacement it stands in for.
 		superseded, err := a.repo.SupersedeAndEnqueue(ctx, pending)
 		if err != nil {
-			return AdmitDropped, fmt.Errorf("supersede and enqueue: %w", err)
+			return AdmitError, fmt.Errorf("supersede and enqueue: %w", err)
 		}
 		for _, s := range superseded {
 			a.recordSuperseded(ctx, t, s.DeliveryID, deliveryID, "replaced by a newer fire")
+			// Admit's own return value describes the outcome for the NEW fire
+			// (AdmitEnqueued here), never the displaced one's. Each displaced
+			// fire gets its own admission-outcome count at the point it is
+			// displaced, or "superseded" would be part of the outcome set and
+			// never observed.
+			a.metrics.recordAdmissionOutcome(ctx, AdmitSuperseded, t.TenantID)
 		}
 		return AdmitEnqueued, nil
 
@@ -215,7 +261,7 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 		// difference from a stall.
 		admitted, err := a.repo.EnqueueWithinCeiling(ctx, pending, int(t.MaxParallel))
 		if err != nil {
-			return AdmitDropped, fmt.Errorf("admit within ceiling: %w", err)
+			return AdmitError, fmt.Errorf("admit within ceiling: %w", err)
 		}
 		if !admitted {
 			return AdmitDropped, nil
@@ -232,7 +278,7 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 		// ones still worth acting on.
 		evicted, err := a.repo.TrimPending(ctx, t.ID, int(t.MaxQueueDepth))
 		if err != nil {
-			return AdmitDropped, fmt.Errorf("trim pending: %w", err)
+			return AdmitError, fmt.Errorf("trim pending: %w", err)
 		}
 		for _, e := range evicted {
 			a.recordEviction(ctx, t, e.DeliveryID)
@@ -240,7 +286,7 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 	}
 
 	if err := a.repo.EnqueuePending(ctx, pending); err != nil {
-		return AdmitDropped, fmt.Errorf("enqueue pending: %w", err)
+		return AdmitError, fmt.Errorf("enqueue pending: %w", err)
 	}
 	return AdmitEnqueued, nil
 }
@@ -254,6 +300,10 @@ func (a *Admission) recordEviction(ctx context.Context, t Trigger, deliveryID st
 		logging.Field{Key: "max_queue_depth", Value: t.MaxQueueDepth},
 	)
 	a.recordOutcome(ctx, t, deliveryID, RunStatusDropped, "evicted: the trigger's backlog is full")
+	// An eviction happens while a DIFFERENT, newer fire is being admitted, so
+	// Admit's own result never describes it; count it here, once, for every
+	// path that evicts.
+	a.metrics.recordAdmissionOutcome(ctx, AdmitDropped, t.TenantID)
 }
 
 // coalesceKey renders the fire's coalescing key and records it against the
@@ -286,10 +336,13 @@ func (a *Admission) coalesceKey(ctx context.Context, t Trigger, deliveryID strin
 func (a *Admission) admitCoalescing(ctx context.Context, t Trigger, pending *PendingDelivery) (AdmissionResult, error) {
 	replaced, err := a.repo.EnqueueCoalescing(ctx, pending, t.Coalesce.Window())
 	if err != nil {
-		return AdmitDropped, fmt.Errorf("enqueue coalescing: %w", err)
+		return AdmitError, fmt.Errorf("enqueue coalescing: %w", err)
 	}
 	if replaced != "" {
 		a.recordSuperseded(ctx, t, replaced, pending.DeliveryID, "replaced by a newer fire with the same coalescing key")
+		// Same as the replace overflow: the displaced fire is not what Admit
+		// returns, so it needs its own admission-outcome count.
+		a.metrics.recordAdmissionOutcome(ctx, AdmitSuperseded, t.TenantID)
 	}
 
 	// Trimmed after the enqueue, to the full depth: a replacement does not grow
@@ -322,6 +375,11 @@ func (a *Admission) Drain(ctx context.Context, t Trigger, reason string) (int, e
 	}
 	for _, p := range pending {
 		a.recordOutcome(ctx, t, p.DeliveryID, RunStatusDropped, reason)
+		// Drain evicts fires outside the normal Admit return path (triggered
+		// by a trigger delete/disable, not a new fire arriving), so each
+		// drained fire needs its own admission-outcomes count or it would
+		// never be observed.
+		a.metrics.recordAdmissionOutcome(ctx, AdmitDropped, t.TenantID)
 	}
 	if len(pending) > 0 {
 		a.logger.Info(ctx, "dropped waiting fires",

@@ -236,7 +236,7 @@ func TestAuthorize_DenyLogsMethodAndPathOnly(t *testing.T) {
 				tc.setup(f)
 			}
 			var logs bytes.Buffer
-			broker := NewBroker(f.eval, f.repo, f.registry, passthrough.New(), logging.NewLoggerWithOutput(&logs))
+			broker := NewBroker(f.eval, f.repo, f.registry, passthrough.New(), logging.NewLoggerWithOutput(&logs), nil)
 
 			r := httptest.NewRequest(tc.method, "https://"+f.connectionHost+tc.path+"?access_token=query-secret", nil)
 			r.Header.Set("Authorization", "Bearer header-secret")
@@ -288,7 +288,7 @@ func TestAuthorize_CredentialRefusedLogsPrincipal(t *testing.T) {
 	registry := NewAdapterRegistry()
 	registry.Register(refusingAdapter{})
 	var logs bytes.Buffer
-	broker := NewBroker(f.eval, f.repo, registry, passthrough.New(), logging.NewLoggerWithOutput(&logs))
+	broker := NewBroker(f.eval, f.repo, registry, passthrough.New(), logging.NewLoggerWithOutput(&logs), nil)
 
 	r := httptest.NewRequest(http.MethodGet, "https://"+f.connectionHost+"/anything", nil)
 	_, err := broker.Authorize(context.Background(), claimsFor("acme", "agent", "run-1"), FromHTTP(r))

@@ -29,7 +29,7 @@ func TestAuthorize_PassthroughNotRegistrable(t *testing.T) {
 		t.Fatalf("seed connection: %v", err)
 	}
 
-	broker := NewBroker(&stubEvaluator{allow: true}, repo, NewAdapterRegistry(), passthrough.New(), logger)
+	broker := NewBroker(&stubEvaluator{allow: true}, repo, NewAdapterRegistry(), passthrough.New(), logger, nil)
 	req, _ := http.NewRequest(http.MethodGet, "https://example.com/", nil)
 	_, err := broker.Authorize(context.Background(),
 		claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", "run-1"),
@@ -46,7 +46,7 @@ func TestAuthorize_UnregisteredHostUsesPassthrough(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	eval := &stubEvaluator{allow: false} // any connection-scope check would deny
 
-	broker := NewBroker(eval, &memConnRepo{items: map[string]*credentials.Connection{}}, NewAdapterRegistry(), passthrough.New(), logger)
+	broker := NewBroker(eval, &memConnRepo{items: map[string]*credentials.Connection{}}, NewAdapterRegistry(), passthrough.New(), logger, nil)
 	req, _ := http.NewRequest(http.MethodGet, "https://pypi.org/simple/", nil)
 	d, err := broker.Authorize(context.Background(),
 		claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", "run-1"),

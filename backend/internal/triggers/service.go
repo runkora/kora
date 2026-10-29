@@ -158,7 +158,7 @@ func NewService(
 		minter:    minter,
 		admission: admission,
 		brand:     b,
-		outcomes:  outcomeRecorder{repo: repo, logger: logger},
+		outcomes:  outcomeRecorder{repo: repo, logger: logger, metrics: metrics},
 		logger:    logger,
 	}
 }
@@ -641,5 +641,9 @@ func (s *Service) RecordMissedTick(ctx context.Context, t Trigger, scheduledAt t
 			logging.Field{Key: "trigger_id", Value: t.ID},
 			logging.Field{Key: "scheduled_at", Value: minute},
 		)
+		// Like a duplicate, a missed tick is arrival-level and never reaches
+		// derive(), so this successful insertion is the only place its
+		// outcome is recorded.
+		s.metrics.recordDeliveryOutcome(ctx, StatusMissed, t.TenantID)
 	}
 }

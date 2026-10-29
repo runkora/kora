@@ -310,6 +310,17 @@ func (b *Broker) unresolvedConnection(ctx context.Context, span trace.Span, clai
 	if d.ambiguous || d.Reason != DenialConnectionUnresolved {
 		span.SetStatus(codes.Error, ErrForbidden.Error())
 		b.logDenial(ctx, claims, req, d)
+		// DenialPolicyUnavailable here means reading the caller's scopes
+		// failed outright (heldCandidates): an operational problem, not a
+		// legitimate ambiguous-ownership deny.
+		outcome, adapter := decisionDeny, unknownAdapter
+		switch {
+		case d.Reason == DenialPolicyUnavailable:
+			outcome = decisionError
+		case d.adapter != "":
+			adapter = string(d.adapter)
+		}
+		b.metrics.recordDecision(ctx, outcome, adapter, claims.Kora.TenantID)
 		return Decision{}, d
 	}
 	conn := &credentials.Connection{

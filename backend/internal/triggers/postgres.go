@@ -1002,32 +1002,68 @@ func scheduledAtMinute(t time.Time) time.Time {
 //
 // Deliveries that never reached matching (duplicate, missed) have no runs and
 // are left untouched: their status describes the arrival, not a fan-out.
-func (r *postgresRepository) DeriveDeliveryStatus(ctx context.Context, deliveryID string) error {
+//
+// final is true on exactly one call per delivery: the first that finds nothing
+// outstanding in trigger_pending_deliveries, tracked by outcome_counted rather
+// than inferred from a status change, because the dispatch paths pre-write the
+// delivery's status before deriving. excludePendingID discounts the caller's
+// own pending-queue row from that check — see the Repository interface doc.
+func (r *postgresRepository) DeriveDeliveryStatus(ctx context.Context, deliveryID, excludePendingID string) (status string, final bool, err error) {
 	// 'filtered' is deliberately not a failure. A trigger that declined an event
 	// via its own match_condition worked exactly as configured, so a delivery
 	// whose only outcomes are filtered is 'skipped' — nothing was ever going to
 	// run — not 'failed'.
-	_, err := r.pool.Exec(ctx, `
+	// computed is the status this delivery's outcomes resolve to today, worked
+	// out once in a CTE so the UPDATE below can both apply it and compare
+	// against it without repeating the CASE expression.
+	queryErr := r.pool.QueryRow(ctx, `
+		WITH computed AS (
+			SELECT CASE
+					WHEN EXISTS (
+						SELECT 1 FROM trigger_delivery_runs
+						WHERE delivery_id = $1 AND status IN ('dispatched', 'joined')
+					) THEN 'dispatched'
+					WHEN EXISTS (
+						SELECT 1 FROM trigger_delivery_runs
+						WHERE delivery_id = $1
+						  AND status IN ('failed', 'denied', 'dropped')
+					) THEN 'failed'
+					ELSE 'skipped'
+				END AS status
+		),
+		-- Locked so two concurrent derives cannot both read counted = false and
+		-- both report the delivery as newly final.
+		prior AS (
+			SELECT outcome_counted FROM trigger_deliveries WHERE id = $1 FOR UPDATE
+		),
+		settled AS (
+			SELECT NOT EXISTS (
+				SELECT 1 FROM trigger_pending_deliveries p
+				WHERE p.delivery_id = $1 AND p.id <> $2
+			) AS final
+		)
 		UPDATE trigger_deliveries d
-		SET status = CASE
-				WHEN EXISTS (
-					SELECT 1 FROM trigger_delivery_runs
-					WHERE delivery_id = d.id AND status IN ('dispatched', 'joined')
-				) THEN 'dispatched'
-				WHEN EXISTS (
-					SELECT 1 FROM trigger_delivery_runs
-					WHERE delivery_id = d.id
-					  AND status IN ('failed', 'denied', 'dropped')
-				) THEN 'failed'
-				ELSE 'skipped'
-			END
+		SET status = computed.status,
+		    outcome_counted = d.outcome_counted OR settled.final
+		FROM computed, prior, settled
 		WHERE d.id = $1
 		  AND d.status NOT IN ('duplicate', 'missed')
-	`, deliveryID)
-	if err != nil {
-		return fmt.Errorf("derive delivery status: %w", err)
+		  AND (d.status IS DISTINCT FROM computed.status
+		       OR (settled.final AND NOT prior.outcome_counted))
+		RETURNING d.status, settled.final AND NOT prior.outcome_counted
+	`, deliveryID, excludePendingID).Scan(&status, &final)
+	if queryErr != nil {
+		if errors.Is(queryErr, pgx.ErrNoRows) {
+			// Nothing to derive: the delivery is already arrival-level
+			// ('duplicate'/'missed') or does not exist, or the computed status
+			// matches what is already stored and the delivery is not newly
+			// final — a repeat derive must not recount it. Not an error —
+			// the caller's metric simply has nothing to attribute.
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("derive delivery status: %w", queryErr)
 	}
-	return nil
+	return status, final, nil
 }
 
 // RecordSourceRejection counts a request that failed authentication against its

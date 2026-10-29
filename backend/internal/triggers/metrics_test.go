@@ -243,6 +243,252 @@ type errTest string
 
 func (e errTest) Error() string { return string(e) }
 
+// Admission's outcome counter has to reflect what Admit actually decided, not
+// merely exist: an enqueued fire and one refused at the ceiling must land on
+// distinct label values of the same counter.
+func TestMetrics_AdmissionOutcomesCountedByResult(t *testing.T) {
+	repo := newMockRepository()
+	m, reader := newTestMetrics(t, repo)
+	admission := NewAdmission(repo, silentLogger(), m)
+	ctx := context.Background()
+
+	trig := Trigger{ID: "t-1", TenantID: testTenant, Overflow: OverflowRefuse, MaxParallel: 1}
+
+	if _, err := admission.Admit(ctx, trig, "d-1", nil); err != nil {
+		t.Fatalf("Admit (enqueued): %v", err)
+	}
+	repo.refuseAdmission = true
+	if _, err := admission.Admit(ctx, trig, "d-2", nil); err != nil {
+		t.Fatalf("Admit (dropped): %v", err)
+	}
+
+	// The replace path's own return value describes the newest fire
+	// (AdmitEnqueued), never the one it displaces. Without a separate record at
+	// the point of displacement, "superseded" is part of the outcome set
+	// (AdmissionResult.metricOutcome) but never actually observed.
+	replaceTrig := Trigger{ID: "t-2", TenantID: testTenant, Overflow: OverflowReplace, MaxParallel: 1}
+	if _, err := admission.Admit(ctx, replaceTrig, "d-3", nil); err != nil {
+		t.Fatalf("Admit (replace, first): %v", err)
+	}
+	if _, err := admission.Admit(ctx, replaceTrig, "d-4", nil); err != nil {
+		t.Fatalf("Admit (replace, displaces d-3): %v", err)
+	}
+
+	// A database fault must not read as a normal ceiling refusal: the two
+	// have the same caller-visible shape (EnqueueWithinCeiling returns
+	// false-ish), but one is "nothing is wrong, the trigger is just full"
+	// and the other is "admission couldn't even decide."
+	repo.refuseAdmission = false
+	repo.admissionErr = errTest("db exploded")
+	if _, err := admission.Admit(ctx, trig, "d-5", nil); err == nil {
+		t.Fatal("Admit (db error): want an error, got nil")
+	}
+
+	got, ok := collect(t, reader)["kora.triggers.admission_outcomes"]
+	if !ok {
+		t.Fatal("admission-outcomes counter not exported")
+	}
+	sum, ok := got.Data.(metricdata.Sum[int64])
+	if !ok {
+		t.Fatalf("admission-outcomes counter is %T, want a sum", got.Data)
+	}
+	byOutcome := map[string]int64{}
+	for _, dp := range sum.DataPoints {
+		outcome, present := dp.Attributes.Value("outcome")
+		if !present {
+			t.Fatal("admission-outcomes data point has no outcome attribute")
+		}
+		byOutcome[outcome.AsString()] += dp.Value
+	}
+	// enqueued: d-1, d-3, and d-4 (the replacement that stays enqueued).
+	if byOutcome["enqueued"] != 3 || byOutcome["dropped"] != 1 || byOutcome["superseded"] != 1 || byOutcome["error"] != 1 {
+		t.Errorf("admission outcomes = %v, want enqueued:3 dropped:1 superseded:1 error:1", byOutcome)
+	}
+}
+
+// The coalescing path displaces fires too: a same-key replacement supersedes
+// the waiting fire, and the post-enqueue trim evicts the oldest over the depth.
+// Neither is Admit's own return value, so each needs its own count or enabling
+// coalescing would hide those outcomes.
+func TestMetrics_CoalescingDisplacementsAreCounted(t *testing.T) {
+	repo := newMockRepository()
+	m, reader := newTestMetrics(t, repo)
+	admission := NewAdmission(repo, silentLogger(), m)
+	ctx := context.Background()
+
+	trig := Trigger{
+		ID: "t-coalesce", TenantID: testTenant, Overflow: OverflowWait, MaxQueueDepth: 1,
+		Coalesce: &CoalesceConfig{Key: "{{ subject }}", WindowSeconds: 60},
+	}
+	fire := func(deliveryID, subject string) {
+		t.Helper()
+		if _, err := admission.Admit(ctx, trig, deliveryID, map[string]string{"subject": subject}); err != nil {
+			t.Fatalf("Admit %s: %v", deliveryID, err)
+		}
+	}
+	fire("d-1", "a")
+	fire("d-2", "a") // replaces d-1 under the same key
+	fire("d-3", "b") // a second key over a depth of 1 evicts the older waiting fire
+
+	byOutcome := map[string]int64{}
+	for _, dp := range collect(t, reader)["kora.triggers.admission_outcomes"].Data.(metricdata.Sum[int64]).DataPoints {
+		outcome, _ := dp.Attributes.Value("outcome")
+		byOutcome[outcome.AsString()] += dp.Value
+	}
+	if byOutcome["enqueued"] != 3 || byOutcome["superseded"] != 1 || byOutcome["dropped"] != 1 {
+		t.Errorf("admission outcomes = %v, want enqueued:3 superseded:1 dropped:1", byOutcome)
+	}
+}
+
+// TrimPending and Drain evict fires outside Admit's own return path (the
+// return value describes the fire being admitted, never one displaced to
+// make room for it), so each eviction needs its own recorded outcome or it
+// would never show up on the counter at all.
+func TestMetrics_BacklogEvictionsAreCountedDropped(t *testing.T) {
+	repo := newMockRepository()
+	m, reader := newTestMetrics(t, repo)
+	admission := NewAdmission(repo, silentLogger(), m)
+	ctx := context.Background()
+
+	trig := Trigger{ID: "t-trim", TenantID: testTenant, Overflow: OverflowWait, MaxQueueDepth: 1}
+	if _, err := admission.Admit(ctx, trig, "d-1", nil); err != nil {
+		t.Fatalf("Admit (first, nothing to trim): %v", err)
+	}
+	// MaxQueueDepth=1 trims everything already waiting before this one enqueues.
+	if _, err := admission.Admit(ctx, trig, "d-2", nil); err != nil {
+		t.Fatalf("Admit (second, trims d-1): %v", err)
+	}
+
+	if _, err := admission.Drain(ctx, trig, "trigger disabled"); err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+
+	byOutcome := map[string]int64{}
+	for _, dp := range collect(t, reader)["kora.triggers.admission_outcomes"].Data.(metricdata.Sum[int64]).DataPoints {
+		outcome, _ := dp.Attributes.Value("outcome")
+		byOutcome[outcome.AsString()] += dp.Value
+	}
+	// enqueued: d-1, d-2. dropped: d-1 (trimmed) + d-2 (drained).
+	if byOutcome["enqueued"] != 2 || byOutcome["dropped"] != 2 {
+		t.Errorf("admission outcomes = %v, want enqueued:2 dropped:2", byOutcome)
+	}
+}
+
+// fakeOutcomeStore reports a fixed DeriveDeliveryStatus result without
+// reimplementing its SQL CASE precedence: that precedence is
+// TestPostgres_DeriveDeliveryStatus's job, and repeating it here would only
+// show this file agrees with itself. What this pins is narrower: that derive
+// forwards exactly what the store wrote to the metric, and nothing when the
+// store wrote nothing or said the delivery is not yet final.
+type fakeOutcomeStore struct {
+	status string
+	final  bool
+}
+
+func (f fakeOutcomeStore) InsertDeliveryRun(context.Context, *DeliveryRun) error { return nil }
+func (f fakeOutcomeStore) DeriveDeliveryStatus(context.Context, string, string) (string, bool, error) {
+	return f.status, f.final, nil
+}
+
+// The delivery-outcomes counter attributes to whatever DeriveDeliveryStatus
+// actually wrote, not to a status the caller merely requested — it must stay
+// silent when nothing was written (already arrival-level, or no such row) or
+// when the delivery changed status but is not yet final (a sibling trigger's
+// fire is still outstanding).
+func TestMetrics_DeliveryOutcomeRecordsWhatDeriveWrote(t *testing.T) {
+	m, reader := newTestMetrics(t, newMockRepository())
+	ctx := context.Background()
+
+	outcomeRecorder{repo: fakeOutcomeStore{status: StatusDispatched, final: true}, logger: silentLogger(), metrics: m}.derive(ctx, "d-1", testTenant)
+	outcomeRecorder{repo: fakeOutcomeStore{status: ""}, logger: silentLogger(), metrics: m}.derive(ctx, "d-2", testTenant)
+	outcomeRecorder{repo: fakeOutcomeStore{status: StatusFailed, final: false}, logger: silentLogger(), metrics: m}.derive(ctx, "d-3", testTenant)
+
+	got, ok := collect(t, reader)["kora.triggers.delivery_outcomes"]
+	if !ok {
+		t.Fatal("delivery-outcomes counter not exported")
+	}
+	sum, ok := got.Data.(metricdata.Sum[int64])
+	if !ok {
+		t.Fatalf("delivery-outcomes counter is %T, want a sum", got.Data)
+	}
+	if len(sum.DataPoints) != 1 {
+		t.Fatalf("data points = %d, want 1 (the untouched derive and the non-final derive must not count)", len(sum.DataPoints))
+	}
+	if outcome, present := sum.DataPoints[0].Attributes.Value("outcome"); !present || outcome.AsString() != StatusDispatched {
+		t.Errorf("outcome = %v, want %q", outcome, StatusDispatched)
+	}
+	if sum.DataPoints[0].Value != 1 {
+		t.Errorf("count = %d, want 1", sum.DataPoints[0].Value)
+	}
+}
+
+// outcomeCounts collects "kora.triggers.delivery_outcomes" into a map keyed by
+// its "outcome" attribute, summing across data points that share a label (e.g.
+// recorded from different collection cycles or call sites).
+func outcomeCounts(t *testing.T, reader *sdkmetric.ManualReader) map[string]int64 {
+	t.Helper()
+	got, ok := collect(t, reader)["kora.triggers.delivery_outcomes"]
+	if !ok {
+		return nil
+	}
+	sum, ok := got.Data.(metricdata.Sum[int64])
+	if !ok {
+		t.Fatalf("delivery-outcomes counter is %T, want a sum", got.Data)
+	}
+	byOutcome := map[string]int64{}
+	for _, dp := range sum.DataPoints {
+		outcome, present := dp.Attributes.Value("outcome")
+		if !present {
+			t.Fatal("delivery-outcomes data point has no outcome attribute")
+		}
+		byOutcome[outcome.AsString()] += dp.Value
+	}
+	return byOutcome
+}
+
+// A duplicate delivery is arrival-level: its status is set directly by
+// recordDuplicate and it never reaches derive(), so recordDuplicate's own
+// successful insertion is the only place its outcome can ever be counted. This
+// pins that call site rather than relying on derive(), which would never see it.
+func TestMetrics_DuplicateDeliveryRecordsOutcome(t *testing.T) {
+	svc, deps := newTestService(t)
+	m, reader := newTestMetrics(t, deps.repo)
+	svc.metrics = m
+
+	src := mustSource(t, deps.sources)
+	body := prBody("opened", "main")
+	h := sign(src.Secret, body)
+
+	if out, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil || out.Outcome != IngestAccepted {
+		t.Fatalf("first delivery: out=%v err=%v", out, err)
+	}
+	if out, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil || out.Outcome != IngestDuplicate {
+		t.Fatalf("duplicate delivery: out=%v err=%v", out, err)
+	}
+
+	if got := outcomeCounts(t, reader)[StatusDuplicate]; got != 1 {
+		t.Errorf("duplicate outcome count = %d, want 1", got)
+	}
+}
+
+// A missed tick is likewise arrival-level and never reaches derive(), so
+// RecordMissedTick's own successful insertion is the only place its outcome
+// can ever be counted.
+func TestMetrics_MissedTickRecordsOutcome(t *testing.T) {
+	svc, _ := newTestService(t)
+	m, reader := newTestMetrics(t, newMockRepository())
+	svc.metrics = m
+
+	trig := Trigger{ID: "trig-sched", TenantID: testTenant, Kind: KindScheduled}
+	due := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Minute)
+
+	svc.RecordMissedTick(context.Background(), trig, due)
+
+	if got := outcomeCounts(t, reader)[StatusMissed]; got != 1 {
+		t.Errorf("missed outcome count = %d, want 1", got)
+	}
+}
+
 // A tick that quietly takes longer than the minute between ticks has stopped
 // being a minutely schedule, and nothing else in the system would say so.
 func TestMetrics_SchedulerTickRecordsDurationAndScanned(t *testing.T) {

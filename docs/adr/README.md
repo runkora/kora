@@ -20,6 +20,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Multi-Service Backend Deployment Structure](2026-03-19-multi-service-backend-deployment-structure.md) — `Accepted` · 2026-03-19
 - [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) — `Accepted` · 2026-03-21
 - [Prometheus Metrics Endpoints for Backend Services](2026-10-06-prometheus-metrics-endpoints.md) — `Accepted` · 2026-10-06
+- [Domain Metrics Instrumentation per Backend Service](2026-10-07-domain-metrics-instrumentation.md) — `Accepted` · 2026-10-07
 - [Local Development Environment](2026-03-10-local-development-environment.md) — `Superseded` · 2026-03-10
 - [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) — `Accepted` · 2026-07-10
 - [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) — `Proposed` · 2026-07-21

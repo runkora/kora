@@ -64,6 +64,21 @@ func TestPubSub_UnsubscribeClosesChannel(t *testing.T) {
 	}
 }
 
+func TestPubSub_CancelTwice_IsSafeNoOp(t *testing.T) {
+	ps := NewPubSub()
+	ch, cancel := ps.Subscribe("run-1")
+
+	cancel()
+	// A second call must not panic (closing ch twice) or double-record the
+	// session duration metric — see pubsub.go's sync.Once guard.
+	cancel()
+
+	_, open := <-ch
+	if open {
+		t.Error("channel should be closed after cancel()")
+	}
+}
+
 func TestPubSub_UnsubscribeRemovesMapEntry(t *testing.T) {
 	ps := NewPubSub()
 	_, cancel := ps.Subscribe("run-1")
