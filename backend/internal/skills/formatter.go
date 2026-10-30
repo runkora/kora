@@ -18,6 +18,21 @@ type skillFrontmatter struct {
 	Description string `json:"description"`
 }
 
+// skillBody omits frontmatter so metadata is not indexed again as instructions.
+func skillBody(content string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return content
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			return strings.Join(lines[i+1:], "\n")
+		}
+	}
+	return content
+}
+
 // ParseSkillFrontmatter parses the YAML frontmatter of a SKILL.md: the block
 // between an opening "---" line and the next "---" line. It is parsed as YAML,
 // so folded (>) and literal (|) block scalars, quoted values and values

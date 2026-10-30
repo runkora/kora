@@ -1,5 +1,5 @@
 // Browser browse requests go through /api/marketplace/skills. Skill details
-// load in the [marketplaceSlug]/[skillSlug] Server Component through marketplace-server instead.
+// load in the [marketplaceSlug]/[skillName] Server Component through marketplace-server instead.
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types';

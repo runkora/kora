@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath, skillSlugFromPath } from './routes';
+import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from './routes';
 import { ApiRoute } from './api-routes';
 
 /**
@@ -12,27 +12,19 @@ describe('APP_ROUTES', () => {
     expect(APP_ROUTES.marketplace.overview).toBe('/marketplace');
   });
 
+  it('encodes the selected Marketplace as one overview path segment', () => {
+    const url = new URL(APP_ROUTES.marketplace.browse('team/repo ?#'), 'http://localhost');
+    expect(url.pathname).toBe('/marketplace/team%2Frepo%20%3F%23');
+    expect(url.search).toBe('');
+    expect(url.hash).toBe('');
+  });
+
   it('keeps both Skill identifiers in encoded path segments without browse parameters', () => {
     const path = APP_ROUTES.marketplace.detail('team/repo ?#', 'skill/50% ?#');
     const url = new URL(path, 'http://localhost');
     expect(url.pathname).toBe('/marketplace/team%2Frepo%20%3F%23/skill%2F50%25%20%3F%23');
     expect(url.search).toBe('');
     expect(url.hash).toBe('');
-  });
-
-  it('leaves the repeated Marketplace prefix out of the Skill segment', () => {
-    expect(
-      APP_ROUTES.marketplace.detail('anthropics__skills', 'anthropics__skills__academy-guide'),
-    ).toBe('/marketplace/anthropics__skills/academy-guide');
-  });
-
-  it('restores the full skillSlug from a short or an older full segment', () => {
-    expect(skillSlugFromPath('anthropics__skills', 'academy-guide')).toBe(
-      'anthropics__skills__academy-guide',
-    );
-    expect(skillSlugFromPath('anthropics__skills', 'anthropics__skills__academy-guide')).toBe(
-      'anthropics__skills__academy-guide',
-    );
   });
   // APP_ROUTES is `as const` — TypeScript enforces value types at every call
   // site, so asserting individual string values against themselves adds no

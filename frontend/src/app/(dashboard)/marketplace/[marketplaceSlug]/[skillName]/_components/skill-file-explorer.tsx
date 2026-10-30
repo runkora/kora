@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — marketplace/[marketplaceSlug]/[skillSlug]-scoped. Folder tree of a Skill's files; picking a file selects it for the preview. */
+/** @tier 3 — marketplace/[marketplaceSlug]/[skillName]-scoped. Folder tree of a Skill's files; picking a file selects it for the preview. */
 
 import { useMemo, useState } from 'react';
 import {

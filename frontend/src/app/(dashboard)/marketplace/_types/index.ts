@@ -1,21 +1,21 @@
 import type { Marketplace, SkillSummary } from '@orbit/shared/api';
 
 /**
- * Sort order of a Skill list, by Skill name. The skills-service does not sort
- * by name, so the server service sorts before it cuts the page.
+ * Search can preserve backend relevance; alphabetical sorting happens in the BFF.
  */
-export type SkillSort = 'name-asc' | 'name-desc';
+export type SkillSort = 'name-asc' | 'name-desc' | 'relevance';
 
-/** Rows-per-page options accepted by the browse controls and BFF request parser. */
-export const PAGE_SIZES = [12, 24, 48] as const;
-
-export const DEFAULT_PAGE_SIZE = 24;
+/** Every Marketplace result page contains at most 24 Skills. */
+export const PAGE_SIZE = 24;
 
 /** Sort options accepted by the browse controls and BFF request parser. */
-export const SORT_OPTIONS: readonly SkillSort[] = ['name-asc', 'name-desc'];
+export const SORT_OPTIONS: readonly SkillSort[] = ['name-asc', 'name-desc', 'relevance'];
 
 /** The default sort order: A to Z by Skill name. */
 export const DEFAULT_SORT: SkillSort = 'name-asc';
+
+/** Active searches keep the relevance order returned by skills-service. */
+export const DEFAULT_SEARCH_SORT: SkillSort = 'relevance';
 
 /** A search shorter than this counts as no search. */
 export const MIN_SEARCH_LENGTH = 3;
@@ -29,7 +29,7 @@ export interface MarketplaceBrowseParams {
   /** Page number, from 1. */
   page: number;
   pageSize: number;
-  /** Sort order of the skills, by skill name. */
+  /** Alphabetical order, or backend relevance during search. */
   sort: SkillSort;
 }
 

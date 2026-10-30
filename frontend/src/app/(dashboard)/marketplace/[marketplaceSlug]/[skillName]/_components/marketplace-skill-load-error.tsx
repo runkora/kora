@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — marketplace/[marketplaceSlug]/[skillSlug]-scoped. Retries the failed server render. */
+/** @tier 3 — marketplace/[marketplaceSlug]/[skillName]-scoped. Retries the failed server render. */
 
 import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';

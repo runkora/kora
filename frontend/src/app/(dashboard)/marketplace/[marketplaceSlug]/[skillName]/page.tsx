@@ -2,24 +2,24 @@
 
 import Link from 'next/link';
 import { Alert, Button, EmptyState, Icon, Stack, Text } from '@orbit/hades';
-import { APP_ROUTES, skillSlugFromPath } from '@orbit/lib/routing';
+import { APP_ROUTES } from '@orbit/lib/routing';
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { loadSkillPage } from '../../_services/marketplace-server';
 import { MarketplaceSkillDetail } from './_components/marketplace-skill-detail';
 import { MarketplaceSkillLoadError } from './_components/marketplace-skill-load-error';
 
 interface SkillDetailPageProps {
-  params: Promise<{ marketplaceSlug: string; skillSlug: string }>;
+  params: Promise<{ marketplaceSlug: string; skillName: string }>;
 }
 
 export default async function SkillDetailPage({ params }: SkillDetailPageProps) {
-  const { marketplaceSlug, skillSlug } = await params;
+  const { marketplaceSlug, skillName } = await params;
   const session = await getSession();
 
   if (!isSessionValid(session)) {
     return (
       <Stack gap="comfortable">
-        <BackToSkillsLink />
+        <BackToSkillsLink marketplaceSlug={marketplaceSlug} />
         <Alert variant="error">
           <Icon name="lock" color="status-error" />
           <Text size="caption" color="status-error">
@@ -30,11 +30,7 @@ export default async function SkillDetailPage({ params }: SkillDetailPageProps) 
     );
   }
 
-  const result = await loadSkillPage(
-    session.accessToken,
-    marketplaceSlug,
-    skillSlugFromPath(marketplaceSlug, skillSlug),
-  );
+  const result = await loadSkillPage(session.accessToken, marketplaceSlug, skillName);
 
   let content: React.ReactNode;
   if (!result.ok && result.status === 404) {
@@ -45,7 +41,7 @@ export default async function SkillDetailPage({ params }: SkillDetailPageProps) 
         description="No Skill in this Marketplace matches this address."
         action={
           <Button asChild>
-            <Link href={APP_ROUTES.marketplace.overview}>Back to Skills</Link>
+            <Link href={APP_ROUTES.marketplace.browse(marketplaceSlug)}>Back to Skills</Link>
           </Button>
         }
       />
@@ -60,13 +56,13 @@ export default async function SkillDetailPage({ params }: SkillDetailPageProps) 
 
   return (
     <Stack gap="comfortable">
-      <BackToSkillsLink />
+      <BackToSkillsLink marketplaceSlug={marketplaceSlug} />
       {content}
     </Stack>
   );
 }
 
-function BackToSkillsLink() {
+function BackToSkillsLink({ marketplaceSlug }: { marketplaceSlug: string }) {
   // Sticky so the way back to the list stays in view while the Skill scrolls.
   return (
     <Stack
@@ -80,7 +76,7 @@ function BackToSkillsLink() {
       }}
     >
       <Button variant="ghost" size="sm" asChild>
-        <Link href={APP_ROUTES.marketplace.overview}>
+        <Link href={APP_ROUTES.marketplace.browse(marketplaceSlug)}>
           <Icon name="arrow-left" size="xs" />
           Skills
         </Link>

@@ -9,7 +9,7 @@ import { PREFERENCE_DEFAULTS } from '../../_preferences/preferences.schema';
 import { MarketplaceProvider } from '../_context/marketplace-context';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types';
 import { parseBrowseParams } from '../_utils/browse-params';
-import { MarketplaceOverview } from './marketplace-overview';
+import { MarketplacePage } from './marketplace-page';
 import {
   marketplaceStoryPlatform,
   marketplaceStoryCore,
@@ -22,6 +22,7 @@ const platformSkills: SkillSummary[] = [
     const number = String(index + 1).padStart(2, '0');
     return {
       skillSlug: `platform-engineering__skills__platform-review-${number}`,
+      skillName: `platform-review-${number}`,
       name: `Platform Review ${number}`,
       description: 'Checks a platform configuration and explains proposed changes.',
     };
@@ -40,16 +41,19 @@ const sources: StorySource[] = [
     skills: [
       {
         skillSlug: 'clearroute__core-skills__architecture-review',
+        skillName: 'architecture-review',
         name: 'Architecture Review',
         description: 'Reviews component responsibilities and dependency boundaries.',
       },
       {
         skillSlug: 'clearroute__core-skills__code-review',
+        skillName: 'code-review',
         name: 'Code Review',
         description: 'Reviews a change for correctness and maintainability.',
       },
       {
         skillSlug: 'clearroute__core-skills__release-notes',
+        skillName: 'release-notes',
         name: 'Release Notes',
         description: 'Summarizes changes for a release.',
       },
@@ -75,9 +79,14 @@ function createOverview(
 
   const query = requested.query.toLowerCase();
   const direction = requested.sort === 'name-desc' ? -1 : 1;
-  const skills = source.skills
-    .filter((skill) => skill.name.toLowerCase().includes(query))
-    .sort((a, b) => direction * a.name.localeCompare(b.name, 'en'));
+  const matches = source.skills.filter((skill) =>
+    `${skill.name} ${skill.description}`.toLowerCase().includes(query),
+  );
+  // Fixture order stands in for the backend's ranking; Redis owns relevance.
+  const skills =
+    query && requested.sort === 'relevance'
+      ? matches
+      : matches.sort((a, b) => direction * a.name.localeCompare(b.name, 'en'));
   const pageCount = Math.max(1, Math.ceil(skills.length / requested.pageSize));
   const browse = {
     ...requested,
@@ -104,9 +113,9 @@ const unavailableOverview = createOverview(defaultBrowse, []);
 const initialError = 'The Marketplace catalogue is temporarily unavailable.';
 const refreshError = 'Could not refresh Skills.';
 
-const meta: Meta<typeof MarketplaceOverview> = {
+const meta: Meta<typeof MarketplacePage> = {
   title: 'Pages/Marketplace/Overview',
-  component: MarketplaceOverview,
+  component: MarketplacePage,
   tags: ['autodocs'],
   parameters: {
     layout: 'padded',
@@ -116,7 +125,7 @@ const meta: Meta<typeof MarketplaceOverview> = {
   },
 };
 export default meta;
-type Story = StoryObj<typeof MarketplaceOverview>;
+type Story = StoryObj<typeof MarketplacePage>;
 
 interface OverviewStoryOptions {
   catalogue?: StorySource[];
@@ -168,6 +177,19 @@ function createOverviewStory({
 export const Default: Story = createOverviewStory();
 
 export const ListView: Story = createOverviewStory();
+
+export const RelevanceSearch: Story = {
+  ...createOverviewStory({
+    initialData: createOverview(parseBrowseParams(new URLSearchParams('query=review'))),
+  }),
+  parameters: {
+    docs: {
+      description: {
+        story: 'Search keeps the backend relevance order. Alphabetical sorting remains available.',
+      },
+    },
+  },
+};
 
 export const CardView: Story = {
   ...createOverviewStory(),

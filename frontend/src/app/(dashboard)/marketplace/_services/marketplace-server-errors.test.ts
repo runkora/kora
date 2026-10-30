@@ -16,7 +16,7 @@ vi.mock('../../_preferences/preferences-server', () => ({
   getPreferences: vi.fn(),
 }));
 
-import { loadMarketplaceOverview, loadSkillPage } from './marketplace-server';
+import { loadMarketplaceOverview, loadMarketplacePage, loadSkillPage } from './marketplace-server';
 import { fetchMarketplaces, fetchSkillDetail, fetchSkills } from '@orbit/server/marketplace-client';
 import { getPreferences } from '../../_preferences/preferences-server';
 import { ApiError } from '@orbit/server/api-error';
@@ -41,6 +41,90 @@ beforeEach(() => {
   vi.mocked(getPreferences).mockReset();
   vi.mocked(getPreferences).mockResolvedValue(preferencesWith(''));
   vi.mocked(fetchSkills).mockResolvedValue({ skills: [] });
+});
+
+describe('initial Marketplace page data', () => {
+  it.each(['', 'Solo'])(
+    'keeps the requested %s selection when the session expires',
+    async (slug) => {
+      const result = await loadMarketplacePage(null, slug);
+
+      expect(result).toMatchObject({
+        ok: false,
+        status: 401,
+        message: 'Session expired. Please sign in again.',
+      });
+      expect(result.overview).toEqual({
+        marketplaces: [],
+        requested: browse({ marketplace: slug }),
+        browse: browse({ marketplace: slug }),
+        skills: [],
+        total: 0,
+      });
+      expect(fetchMarketplaces).not.toHaveBeenCalled();
+      expect(fetchSkills).not.toHaveBeenCalled();
+      expect(getPreferences).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { slug: '', selected: 'Solo' },
+    { slug: 'Core', selected: 'Core' },
+  ])('loads the initial $slug selection with fixed browse defaults', async ({ slug, selected }) => {
+    vi.mocked(fetchMarketplaces).mockResolvedValue({
+      marketplaces: [
+        { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+        { name: 'Solo', marketplaceSlug: 'Solo', link: 'https://github.com/example/solo' },
+      ],
+    });
+    vi.mocked(getPreferences).mockResolvedValue(preferencesWith('Solo'));
+
+    const result = await loadMarketplacePage(ACCESS_TOKEN, slug);
+
+    expect(result.ok).toBe(true);
+    expect(result.overview.requested).toEqual(browse({ marketplace: slug }));
+    expect(result.overview.browse).toEqual(browse({ marketplace: selected }));
+    expect(fetchMarketplaces).toHaveBeenCalledWith(ACCESS_TOKEN, undefined);
+    expect(fetchSkills).toHaveBeenCalledWith(ACCESS_TOKEN, selected, '', undefined);
+  });
+
+  it('keeps the Marketplace list available after the first Skills request fails', async () => {
+    const marketplaces = [
+      { name: 'Solo', marketplaceSlug: 'Solo', link: 'https://github.com/example/solo' },
+    ];
+    vi.mocked(fetchMarketplaces).mockResolvedValue({ marketplaces });
+    vi.mocked(fetchSkills).mockRejectedValue(
+      new ApiError(503, 'unavailable', 'Skills temporarily unavailable'),
+    );
+
+    const result = await loadMarketplacePage(ACCESS_TOKEN, 'Solo');
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 503,
+      message: 'Skills temporarily unavailable',
+    });
+    expect(result.overview.marketplaces).toEqual(marketplaces);
+    expect(result.overview.browse.marketplace).toBe('Solo');
+    expect(result.overview.skills).toEqual([]);
+  });
+
+  it('keeps the requested selection and error after the Marketplace list fails', async () => {
+    vi.mocked(fetchMarketplaces).mockRejectedValue(
+      new ApiError(503, 'unavailable', 'Marketplaces temporarily unavailable'),
+    );
+
+    const result = await loadMarketplacePage(ACCESS_TOKEN, 'Solo');
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 503,
+      message: 'Marketplaces temporarily unavailable',
+    });
+    expect(result.overview.marketplaces).toEqual([]);
+    expect(result.overview.browse).toEqual(browse({ marketplace: 'Solo' }));
+    expect(fetchSkills).not.toHaveBeenCalled();
+  });
 });
 
 describe('zero Marketplaces', () => {
@@ -103,6 +187,7 @@ describe('Skills page', () => {
         name,
         description: '',
         skillSlug: `solo__${name.toLowerCase()}`,
+        skillName: `${name.toLowerCase()}`,
       })),
     });
 
@@ -132,6 +217,7 @@ describe('Skills page', () => {
         name: `Skill ${String(index).padStart(2, '0')}`,
         description: '',
         skillSlug: `solo__skill-${index}`,
+        skillName: `skill-${index}`,
       })),
     });
 
@@ -255,7 +341,7 @@ describe('loadSkillPage', () => {
     vi.mocked(getPreferences).mockResolvedValue(preferencesWith('another__marketplace'));
     vi.mocked(fetchSkillDetail).mockResolvedValue(skill);
 
-    const result = await loadSkillPage(ACCESS_TOKEN, 'team__repo', skill.skillSlug);
+    const result = await loadSkillPage(ACCESS_TOKEN, 'team__repo', 'reviewer');
 
     expect(result).toEqual({
       ok: true,
@@ -266,7 +352,7 @@ describe('loadSkillPage', () => {
     expect(fetchSkillDetail).toHaveBeenCalledExactlyOnceWith(
       ACCESS_TOKEN,
       'team__repo',
-      skill.skillSlug,
+      'reviewer',
     );
     expect(getPreferences).not.toHaveBeenCalled();
     expect(fetchSkills).not.toHaveBeenCalled();
@@ -274,7 +360,7 @@ describe('loadSkillPage', () => {
 
   it('does not query a Skill under an unknown Marketplace', async () => {
     vi.mocked(fetchMarketplaces).mockResolvedValue({ marketplaces: [] });
-    expect(await loadSkillPage(ACCESS_TOKEN, 'unknown', skill.skillSlug)).toEqual({
+    expect(await loadSkillPage(ACCESS_TOKEN, 'unknown', 'reviewer')).toEqual({
       ok: false,
       status: 404,
       message: 'Marketplace not found',
@@ -284,7 +370,7 @@ describe('loadSkillPage', () => {
 
   it('preserves an authorization refusal while loading Marketplace metadata', async () => {
     vi.mocked(fetchMarketplaces).mockRejectedValue(new ApiError(403, 'forbidden', 'No access'));
-    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', skill.skillSlug)).toEqual({
+    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', 'reviewer')).toEqual({
       ok: false,
       status: 403,
       message: 'No access',
@@ -296,7 +382,7 @@ describe('loadSkillPage', () => {
     vi.mocked(fetchMarketplaces).mockResolvedValue(teamMarketplaces);
     vi.mocked(fetchSkillDetail).mockResolvedValue(null);
 
-    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', 'team__repo__does-not-exist')).toEqual({
+    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', 'does-not-exist')).toEqual({
       ok: false,
       status: 404,
       message: 'Skill not found',
@@ -309,7 +395,7 @@ describe('loadSkillPage', () => {
       new ApiError(500, 'internal', 'Upstream failure'),
     );
 
-    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', skill.skillSlug)).toEqual({
+    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', 'reviewer')).toEqual({
       ok: false,
       status: 500,
       message: 'Upstream failure',
@@ -320,7 +406,7 @@ describe('loadSkillPage', () => {
     vi.mocked(fetchMarketplaces).mockResolvedValue(teamMarketplaces);
     vi.mocked(fetchSkillDetail).mockRejectedValue(new Error('boom'));
 
-    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', skill.skillSlug)).toEqual({
+    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', 'reviewer')).toEqual({
       ok: false,
       status: 502,
       message: 'Failed to load the Skill',

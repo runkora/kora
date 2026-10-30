@@ -47,16 +47,10 @@ export const APP_ROUTES = {
   },
   marketplace: {
     overview: '/marketplace',
-    /**
-     * The Skill's detail path. A skillSlug is `<marketplaceSlug>__<name>`, so
-     * the repeated Marketplace prefix is left out of the path; use
-     * `skillSlugFromPath` to restore it.
-     */
-    detail: (marketplaceSlug: string, skillSlug: string) => {
-      const prefix = `${marketplaceSlug}__`;
-      const name = skillSlug.startsWith(prefix) ? skillSlug.slice(prefix.length) : skillSlug;
-      return `/marketplace/${encodeURIComponent(marketplaceSlug)}/${encodeURIComponent(name)}` as const;
-    },
+    browse: (marketplaceSlug: string) =>
+      `/marketplace/${encodeURIComponent(marketplaceSlug)}` as const,
+    detail: (marketplaceSlug: string, skillName: string) =>
+      `/marketplace/${encodeURIComponent(marketplaceSlug)}/${encodeURIComponent(skillName)}` as const,
   },
 
   // ── Policy ───────────────────────────────────────────────────────────────
@@ -92,16 +86,6 @@ export const APP_ROUTES = {
     setup: '/model-gateway/setup',
   },
 } as const;
-
-/**
- * The full skillSlug for the Skill segment of a detail path. The path leaves
- * out the `<marketplaceSlug>__` prefix (see `APP_ROUTES.marketplace.detail`);
- * a segment that still carries it, from an older link, is returned as is.
- */
-export function skillSlugFromPath(marketplaceSlug: string, segment: string): string {
-  const prefix = `${marketplaceSlug}__`;
-  return segment.startsWith(prefix) ? segment : `${prefix}${segment}`;
-}
 
 /**
  * Recursively extracts every leaf string value from a nested const object.

@@ -110,7 +110,7 @@ func newTestService(cache *fakeCache, crawler *fakeCrawler) *Service {
 			"tenant-a": {svcTestSource},
 		},
 	}
-	return NewService(reg, cache, crawler, logging.NewDevelopmentLogger())
+	return NewService(reg, cache, crawler, &fakeSearch{}, logging.NewDevelopmentLogger())
 }
 
 // makeEntries builds SkillEntry values with slugs prefixed by the test source.
@@ -193,7 +193,10 @@ func TestListSkills_CacheHit(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(result.Skills) != 2 {
-		t.Errorf("got %d skills, want 2", len(result.Skills))
+		t.Fatalf("got %d skills, want 2", len(result.Skills))
+	}
+	if got := result.Skills[0]; got.SkillSlug != "org__repo__alpha" || got.SkillName != "alpha" {
+		t.Errorf("got slug %q name %q, want org__repo__alpha / alpha", got.SkillSlug, got.SkillName)
 	}
 	if result.NextCursor != "" {
 		t.Errorf("NextCursor = %q, want empty", result.NextCursor)
@@ -295,6 +298,14 @@ func TestListSkills_Search(t *testing.T) {
 	entries := makeEntries("react-expert", "go-expert", "react-beginner")
 	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": entries}}
 	svc := newTestService(cache, &fakeCrawler{})
+	svc.search = &fakeSearch{searchFn: func(call searchCall) (ListSkillsResponse, error) {
+		if call != (searchCall{"tenant-a", "org__repo", "react", ""}) {
+			t.Fatalf("unexpected search: %+v", call)
+		}
+		return ListSkillsResponse{Skills: []SkillSummary{
+			{Name: "react-expert"}, {Name: "react-beginner"},
+		}}, nil
+	}}
 
 	result, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "react", "")
 	if err != nil {
@@ -371,32 +382,17 @@ func TestListSkills_CursorWalksAllSkillsOnce(t *testing.T) {
 	}
 }
 
-func TestListSkills_CursorWithSearch_CoversWholeMarketplace(t *testing.T) {
-	// 500 skills, every other one matches → 250 matches spread across the set.
-	names := make([]string, 500)
-	for i := range names {
-		if i%2 == 0 {
-			names[i] = fmt.Sprintf("react-%03d", i)
-		} else {
-			names[i] = fmt.Sprintf("go-%03d", i)
+func TestListSkills_ForwardsRankedSearchCursor(t *testing.T) {
+	svc := newTestService(&fakeCache{getErr: errors.New("must not read listing cache")}, &fakeCrawler{})
+	svc.search = &fakeSearch{searchFn: func(call searchCall) (ListSkillsResponse, error) {
+		if call.query != "REACT" || call.cursor != "ranked-snapshot-cursor" {
+			t.Fatalf("search cursor was changed: %+v", call)
 		}
-	}
-	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": makeEntries(names...)}}
-	svc := newTestService(cache, &fakeCrawler{})
-
-	pages := listAllPages(t, svc, "REACT")
-
-	total := 0
-	for _, p := range pages {
-		for _, s := range p {
-			if !strings.Contains(s.Name, "react") {
-				t.Fatalf("non-matching skill returned: %s", s.Name)
-			}
-		}
-		total += len(p)
-	}
-	if len(pages) != 2 || total != 250 {
-		t.Errorf("got %d pages / %d skills, want 2 / 250", len(pages), total)
+		return ListSkillsResponse{Skills: []SkillSummary{{Name: "ranked match"}}}, nil
+	}}
+	got, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "REACT", "ranked-snapshot-cursor")
+	if err != nil || len(got.Skills) != 1 {
+		t.Fatalf("ranked search cursor: %+v, %v", got, err)
 	}
 }
 
@@ -425,14 +421,53 @@ func TestListSkills_CursorForRemovedSkill_ResumesAtNext(t *testing.T) {
 	}
 }
 
+// --- GetMarketplace ---
+
+func TestGetMarketplace_ReturnsSourceAndSkills(t *testing.T) {
+	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": makeEntries("alpha", "beta")}}
+	svc := newTestService(cache, &fakeCrawler{})
+
+	got, err := svc.GetMarketplace(context.Background(), "tenant-a", "org__repo", "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != svcTestSource.Name || got.MarketplaceSlug != "org__repo" || got.Link != svcTestSource.Link {
+		t.Errorf("wrong marketplace fields: %+v", got)
+	}
+	if len(got.Skills) != 2 || got.Skills[0].SkillName != "alpha" {
+		t.Errorf("got skills %+v, want alpha, beta", got.Skills)
+	}
+}
+
+func TestGetMarketplace_WrongTenantNotFound(t *testing.T) {
+	svc := newTestService(&fakeCache{}, &fakeCrawler{})
+
+	_, err := svc.GetMarketplace(context.Background(), "tenant-b", "org__repo", "", "")
+	if !errors.Is(err, ErrMarketplaceNotFound) {
+		t.Errorf("got %v, want ErrMarketplaceNotFound", err)
+	}
+}
+
+func TestGetMarketplace_InvalidCursor(t *testing.T) {
+	svc := newTestService(&fakeCache{}, &fakeCrawler{})
+
+	_, err := svc.GetMarketplace(context.Background(), "tenant-a", "org__repo", "", "!!!")
+	if !errors.Is(err, ErrInvalidCursor) {
+		t.Errorf("got %v, want ErrInvalidCursor", err)
+	}
+}
+
 // --- GetSkill ---
 
 func TestGetSkill_SkillCacheHit(t *testing.T) {
 	slug := "org__repo__react-expert"
-	cache := &fakeCache{skills: map[string]Skill{slug: {Name: "React Expert", SkillSlug: slug, File: SkillFile{Content: "body"}}}}
+	cache := &fakeCache{
+		marketplace: map[string][]SkillEntry{"org__repo": makeEntries("react-expert")},
+		skills:      map[string]Skill{slug: {Name: "React Expert", SkillSlug: slug, File: SkillFile{Content: "body"}}},
+	}
 	svc := newTestService(cache, &fakeCrawler{})
 
-	skill, err := svc.GetSkill(context.Background(), "tenant-a", "org__repo", slug)
+	skill, err := svc.GetSkill(context.Background(), "tenant-a", "org__repo", "react-expert")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -450,7 +485,7 @@ func TestGetSkill_MarketplaceCacheHit_SkillCacheMiss(t *testing.T) {
 	crawler := &fakeCrawler{skills: []Skill{skill}}
 	svc := newTestService(cache, crawler)
 
-	got, err := svc.GetSkill(context.Background(), "tenant-a", "org__repo", slug)
+	got, err := svc.GetSkill(context.Background(), "tenant-a", "org__repo", "react-expert")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -463,30 +498,68 @@ func TestGetSkill_MarketplaceCacheHit_SkillCacheMiss(t *testing.T) {
 	}
 }
 
-func TestGetSkill_NotFound(t *testing.T) {
-	entries := makeEntries("react-expert")
-	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": entries}}
+func TestGetSkill_MarketplaceCacheMiss_CrawlsAndCaches(t *testing.T) {
+	cache := &fakeCache{}
+	svc := newTestService(cache, &fakeCrawler{skills: makeSkills("go-expert", "react-expert")})
+
+	got, err := svc.GetSkill(context.Background(), "tenant-a", "org__repo", "go-expert")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.SkillSlug != "org__repo__go-expert" || got.File.Content != "go-expert content" {
+		t.Errorf("got %+v, want go-expert", got)
+	}
+	if len(cache.marketplace["org__repo"]) != 2 {
+		t.Errorf("marketplace cache = %+v, want 2 entries", cache.marketplace["org__repo"])
+	}
+}
+
+func TestGetSkill_NotInCachedMarketplace(t *testing.T) {
+	// A skill cached under its slug is still not found when the tenant's
+	// marketplace list does not contain it.
+	slug := "org__repo__nonexistent"
+	cache := &fakeCache{
+		marketplace: map[string][]SkillEntry{"org__repo": makeEntries("react-expert")},
+		skills:      map[string]Skill{slug: {Name: "Stale", SkillSlug: slug}},
+	}
 	svc := newTestService(cache, &fakeCrawler{})
 
-	_, err := svc.GetSkill(context.Background(), "tenant-a", "org__repo", "org__repo__nonexistent")
+	_, err := svc.GetSkill(context.Background(), "tenant-a", "org__repo", "nonexistent")
 	if !errors.Is(err, ErrSkillNotFound) {
 		t.Errorf("got %v, want ErrSkillNotFound", err)
 	}
 }
 
-func TestGetSkill_WrongPrefixRejected(t *testing.T) {
-	svc := newTestService(&fakeCache{}, &fakeCrawler{})
+func TestGetSkill_SkillFromOtherMarketplaceNotFound(t *testing.T) {
+	// The skill cache holds other__repo__react-expert, but the request names
+	// org__repo, so the composed slug is org__repo__react-expert.
+	cache := &fakeCache{
+		marketplace: map[string][]SkillEntry{"org__repo": makeEntries("go-expert")},
+		skills:      map[string]Skill{"other__repo__react-expert": {Name: "Other"}},
+	}
+	svc := newTestService(cache, &fakeCrawler{})
 
-	_, err := svc.GetSkill(context.Background(), "tenant-a", "org__repo", "other__repo__react-expert")
+	_, err := svc.GetSkill(context.Background(), "tenant-a", "org__repo", "react-expert")
 	if !errors.Is(err, ErrSkillNotFound) {
-		t.Errorf("got %v, want ErrSkillNotFound for wrong prefix", err)
+		t.Errorf("got %v, want ErrSkillNotFound", err)
 	}
 }
 
 func TestGetSkill_MarketplaceNotFound(t *testing.T) {
 	svc := newTestService(&fakeCache{}, &fakeCrawler{})
 
-	_, err := svc.GetSkill(context.Background(), "tenant-a", "unknown__slug", "unknown__slug__any")
+	_, err := svc.GetSkill(context.Background(), "tenant-a", "unknown__slug", "any")
+	if !errors.Is(err, ErrMarketplaceNotFound) {
+		t.Errorf("got %v, want ErrMarketplaceNotFound", err)
+	}
+}
+
+func TestGetSkill_WrongTenantNotFound(t *testing.T) {
+	svc := newTestService(&fakeCache{
+		marketplace: map[string][]SkillEntry{"org__repo": makeEntries("react-expert")},
+	}, &fakeCrawler{})
+
+	_, err := svc.GetSkill(context.Background(), "tenant-b", "org__repo", "react-expert")
 	if !errors.Is(err, ErrMarketplaceNotFound) {
 		t.Errorf("got %v, want ErrMarketplaceNotFound", err)
 	}

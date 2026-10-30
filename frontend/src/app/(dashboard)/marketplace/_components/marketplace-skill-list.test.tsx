@@ -6,6 +6,7 @@ import { MarketplaceSkillList } from './marketplace-skill-list';
 import type { MarketplaceOverviewData } from '../_types';
 
 vi.mock('next/navigation', () => ({
+  usePathname: () => window.location.pathname,
   useRouter: () => ({ push: vi.fn() }),
 }));
 
@@ -31,11 +32,13 @@ describe('MarketplaceSkillList rendering', () => {
       skills: [
         {
           skillSlug: 'core/skills/react-expert',
+          skillName: 'react-expert',
           name: 'React Expert',
           description: 'Senior React developer.',
         },
         {
           skillSlug: 'core/skills/go-expert',
+          skillName: 'go-expert',
           name: 'Go Expert',
           description: 'Senior Go developer.',
         },
@@ -56,7 +59,9 @@ describe('MarketplaceSkillList rendering', () => {
       ],
       requested: BROWSE,
       browse: BROWSE,
-      skills: [{ skillSlug: 'core/skills/blank', name: 'Blank', description: '' }],
+      skills: [
+        { skillSlug: 'core/skills/blank', skillName: 'blank', name: 'Blank', description: '' },
+      ],
       total: 1,
     });
 
@@ -71,7 +76,14 @@ describe('MarketplaceSkillList rendering', () => {
       ],
       requested: BROWSE,
       browse: BROWSE,
-      skills: [{ skillSlug: 'core/skills/long', name: 'Long', description: longDescription }],
+      skills: [
+        {
+          skillSlug: 'core/skills/long',
+          skillName: 'long',
+          name: 'Long',
+          description: longDescription,
+        },
+      ],
       total: 1,
     });
 
@@ -86,8 +98,8 @@ describe('MarketplaceSkillList rendering', () => {
       requested: BROWSE,
       browse: BROWSE,
       skills: [
-        { skillSlug: 'core/skills/a', name: 'A', description: '' },
-        { skillSlug: 'core/skills/b', name: 'B', description: '' },
+        { skillSlug: 'core/skills/a', skillName: 'a', name: 'A', description: '' },
+        { skillSlug: 'core/skills/b', skillName: 'b', name: 'B', description: '' },
       ],
       total: 2,
     });

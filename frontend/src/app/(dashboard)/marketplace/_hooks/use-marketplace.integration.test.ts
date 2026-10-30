@@ -1,8 +1,8 @@
 /**
  * Integration tests for useMarketplace's state and BFF requests.
  *
- * Browsing stays in React state. Old browse query values are removed on mount;
- * they cannot override the initial server data or create pagination history.
+ * The selected Marketplace is reflected in the overview path. Other browse
+ * values stay in React state and cannot create pagination history.
  *
  * Strategy:
  * - Each test sets the jsdom URL before it renders the hook.
@@ -16,6 +16,8 @@ import { MIN_SEARCH_LENGTH } from '../_types';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types';
 import { parseBrowseParams } from '../_utils/browse-params';
 import { useMarketplace } from './use-marketplace';
+
+vi.mock('next/navigation', () => ({ usePathname: () => window.location.pathname }));
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -46,7 +48,7 @@ const FIRST_RENDER: MarketplaceOverviewData = {
   marketplaces: MARKETPLACES,
   requested: DEFAULT_BROWSE,
   browse: { ...DEFAULT_BROWSE, marketplace: 'ClearRoute Core' },
-  skills: [{ skillSlug: 'core/skills/first', name: 'First', description: '' }],
+  skills: [{ skillSlug: 'core/skills/first', skillName: 'first', name: 'First', description: '' }],
   total: 1,
 };
 
@@ -61,7 +63,14 @@ const PLATFORM_PAGE_2: MarketplaceOverviewData = {
   marketplaces: MARKETPLACES,
   requested: PLATFORM_PAGE_2_BROWSE,
   browse: PLATFORM_PAGE_2_BROWSE,
-  skills: [{ skillSlug: 'platform/skills/twenty-five', name: 'Twenty-five', description: '' }],
+  skills: [
+    {
+      skillSlug: 'platform/skills/twenty-five',
+      skillName: 'twenty-five',
+      name: 'Twenty-five',
+      description: '',
+    },
+  ],
   total: 30,
 };
 
@@ -101,8 +110,8 @@ afterEach(() => {
 
 describe('useMarketplace initial state', () => {
   it('removes old browse parameters without overriding server data or refetching', () => {
-    const historyState = { __NA: true, tree: ['marketplace'] };
-    window.history.replaceState(historyState, '', `${PLATFORM_PAGE_2_URL}#results`);
+    window.history.replaceState(null, '', `${PLATFORM_PAGE_2_URL}#results`);
+    const historyLength = window.history.length;
     const requests: URL[] = [];
     server.use(
       http.get('/api/marketplace/skills', ({ request }) => {
@@ -117,12 +126,14 @@ describe('useMarketplace initial state', () => {
     expect(result.current.status).toBe('success');
     expect(result.current.skills).toEqual(FIRST_RENDER.skills);
     expect(requests).toHaveLength(0);
-    expect(window.location.pathname + window.location.search).toBe('/marketplace');
+    expect(window.location.pathname + window.location.search).toBe(
+      '/marketplace/ClearRoute%20Core',
+    );
     expect(window.location.hash).toBe('#results');
-    expect(window.history.state).toEqual(historyState);
+    expect(window.history.length).toBe(historyLength);
   });
 
-  it('keeps a server-selected Marketplace without adding it to the URL', () => {
+  it('puts the server-selected Marketplace in the overview path without refetching', () => {
     setLocation();
     const savedMarketplace = { ...PLATFORM_PAGE_2_BROWSE, page: 1 };
     const initial = { ...PLATFORM_PAGE_2, requested: savedMarketplace, browse: savedMarketplace };
@@ -139,7 +150,69 @@ describe('useMarketplace initial state', () => {
     expect(requests).toHaveLength(0);
     expect(result.current.status).toBe('success');
     expect(result.current.browse).toEqual(savedMarketplace);
-    expect(window.location.pathname + window.location.search).toBe('/marketplace');
+    expect(window.location.pathname + window.location.search).toBe(
+      '/marketplace/Platform%20Engineering',
+    );
+  });
+
+  it('preserves unrelated query parameters and the fragment when setting the path', () => {
+    window.history.replaceState(null, '', '/marketplace?agent=123&page=3#results');
+    renderHook(() => useMarketplace(FIRST_RENDER));
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(
+      '/marketplace/ClearRoute%20Core?agent=123#results',
+    );
+  });
+
+  it('keeps the Storybook preview path when rendering its Marketplace fixture', () => {
+    window.history.replaceState(null, '', '/iframe.html?id=pages-marketplace--default');
+    renderHook(() => useMarketplace(FIRST_RENDER));
+    expect(window.location.pathname + window.location.search).toBe(
+      '/iframe.html?id=pages-marketplace--default',
+    );
+  });
+
+  it('does not rewrite a Skill detail address while the overview is still mounted', () => {
+    const path = '/marketplace/team__repo/reviewer';
+    window.history.replaceState(null, '', path);
+    renderHook(() => useMarketplace(FIRST_RENDER));
+    expect(window.location.pathname).toBe(path);
+  });
+
+  it('reloads the path selection when Back restores a cached overview from another Marketplace', async () => {
+    const path = '/marketplace/Platform%20Engineering';
+    window.history.replaceState(null, '', path);
+    const requests: URL[] = [];
+    const restoredBrowse = { ...PLATFORM_PAGE_2_BROWSE, page: 1 };
+    server.use(
+      http.get('/api/marketplace/skills', ({ request }) => {
+        requests.push(new URL(request.url));
+        return HttpResponse.json({
+          data: { ...PLATFORM_PAGE_2, requested: restoredBrowse, browse: restoredBrowse },
+        });
+      }),
+    );
+
+    const { result } = renderHook(() => useMarketplace(FIRST_RENDER));
+    expect(window.location.pathname).toBe(path);
+    await waitFor(() => expect(result.current.browse.marketplace).toBe('Platform Engineering'));
+    expect(requests).toHaveLength(1);
+    expect(requests[0].searchParams.get('marketplace')).toBe('Platform Engineering');
+    expect(window.location.pathname).toBe(path);
+  });
+
+  it('keeps the server fallback for an unknown path selection without refetching', () => {
+    window.history.replaceState(null, '', '/marketplace/missing');
+    const initial = { ...FIRST_RENDER, requested: { ...DEFAULT_BROWSE, marketplace: 'missing' } };
+    const requests: URL[] = [];
+    server.use(
+      http.get('/api/marketplace/skills', ({ request }) => {
+        requests.push(new URL(request.url));
+        return HttpResponse.json({ data: FIRST_RENDER });
+      }),
+    );
+    renderHook(() => useMarketplace(initial));
+    expect(requests).toHaveLength(0);
+    expect(window.location.pathname).toBe('/marketplace/ClearRoute%20Core');
   });
 
   it('keeps an initial error retryable using server browse values and a clean address', async () => {
@@ -156,7 +229,9 @@ describe('useMarketplace initial state', () => {
 
     expect(result.current.status).toBe('error');
     expect(result.current.error).toBe('Failed to load Skills');
-    expect(window.location.pathname + window.location.search).toBe('/marketplace');
+    expect(window.location.pathname + window.location.search).toBe(
+      '/marketplace/ClearRoute%20Core',
+    );
     expect(requests).toHaveLength(0);
 
     act(() => result.current.retry());
@@ -166,7 +241,9 @@ describe('useMarketplace initial state', () => {
     expect(requests[0].searchParams.get('marketplace')).toBe('ClearRoute Core');
     expect(requests[0].searchParams.get('page')).toBe('1');
     expect(result.current.browse).toEqual(FIRST_RENDER.browse);
-    expect(window.location.pathname + window.location.search).toBe('/marketplace');
+    expect(window.location.pathname + window.location.search).toBe(
+      '/marketplace/ClearRoute%20Core',
+    );
   });
 
   it('starts a fresh mount from server defaults instead of remembering the previous page', async () => {
@@ -178,12 +255,15 @@ describe('useMarketplace initial state', () => {
     act(() => firstMount.result.current.goToPage(2));
     await waitFor(() => expect(firstMount.result.current.browse.page).toBe(2));
     firstMount.unmount();
+    setLocation();
 
     const freshMount = renderHook(() => useMarketplace(FIRST_RENDER));
 
     expect(freshMount.result.current.browse).toEqual(FIRST_RENDER.browse);
     expect(freshMount.result.current.searchText).toBe('');
-    expect(window.location.pathname + window.location.search).toBe('/marketplace');
+    expect(window.location.pathname + window.location.search).toBe(
+      '/marketplace/ClearRoute%20Core',
+    );
   });
 });
 
@@ -209,7 +289,7 @@ describe('request lifecycle', () => {
 
   it('keeps the current results on screen while a later request is loading', async () => {
     const data = overviewData({
-      skills: [{ skillSlug: 'core/skills/a', name: 'A', description: '' }],
+      skills: [{ skillSlug: 'core/skills/a', skillName: 'a', name: 'A', description: '' }],
       total: 1,
     });
     setLocation();
@@ -220,7 +300,7 @@ describe('request lifecycle', () => {
           data: overviewData({
             browse: { ...data.browse, page: 2 },
             requested: { ...data.browse, page: 2 },
-            skills: [{ skillSlug: 'core/skills/b', name: 'B', description: '' }],
+            skills: [{ skillSlug: 'core/skills/b', skillName: 'b', name: 'B', description: '' }],
             total: 1,
           }),
         });
@@ -254,12 +334,14 @@ describe('request lifecycle', () => {
 
     const { result } = renderHook(() => useMarketplace(data));
     act(() => {
-      result.current.goToPage(2);
+      result.current.selectMarketplace('Platform Engineering');
     });
 
     await waitFor(() => expect(result.current.status).toBe('error'));
     expect(result.current.browse).toEqual(data.browse);
-    expect(window.location.pathname + window.location.search).toBe('/marketplace');
+    expect(window.location.pathname + window.location.search).toBe(
+      '/marketplace/ClearRoute%20Core',
+    );
   });
 
   it('retry repeats the failed browse request', async () => {
@@ -300,6 +382,29 @@ describe('request lifecycle', () => {
 });
 
 describe('search debounce and request races', () => {
+  it('starts a search in relevance order and restores the previous browse sort on clear', async () => {
+    const initialBrowse = browse({ sort: 'name-desc', page: 3 });
+    const data = overviewData({ browse: initialBrowse, requested: initialBrowse });
+    setLocation();
+    const requests: MarketplaceBrowseParams[] = [];
+    server.use(
+      http.get('/api/marketplace/skills', ({ request }) => {
+        const next = parseBrowseParams(new URL(request.url).searchParams);
+        requests.push(next);
+        return HttpResponse.json({ data: overviewData({ browse: next, requested: next }) });
+      }),
+    );
+    const { result } = renderHook(() => useMarketplace(data));
+    act(() => result.current.setSearchText('validation'));
+    await waitFor(() => expect(result.current.browse.query).toBe('validation'));
+    expect(result.current.browse.sort).toBe('relevance');
+    expect(result.current.browse.page).toBe(1);
+    act(() => result.current.clearSearch());
+    await waitFor(() => expect(result.current.browse.query).toBe(''));
+    expect(result.current.browse.sort).toBe('name-desc');
+    expect(requests.map(({ sort }) => sort)).toEqual(['relevance', 'name-desc']);
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -505,9 +610,9 @@ describe('search debounce and request races', () => {
   });
 });
 
-describe('browse actions with a clean address', () => {
+describe('browse actions with a Marketplace path', () => {
   it('a page change sends all browse values to the API without changing address or history', async () => {
-    const currentBrowse = browse({ query: 'react', pageSize: 12, sort: 'name-desc' });
+    const currentBrowse = browse({ query: 'react', sort: 'name-desc' });
     const data = overviewData({ requested: currentBrowse, browse: currentBrowse });
     setLocation();
     const requests: URL[] = [];
@@ -537,10 +642,12 @@ describe('browse actions with a clean address', () => {
       marketplace: 'ClearRoute Core',
       query: 'react',
       page: '2',
-      pageSize: '12',
+      pageSize: '24',
       sort: 'name-desc',
     });
-    expect(window.location.pathname + window.location.search).toBe('/marketplace');
+    expect(window.location.pathname + window.location.search).toBe(
+      '/marketplace/ClearRoute%20Core',
+    );
     expect(window.history.length).toBe(historyLength);
     expect(pushSpy).not.toHaveBeenCalled();
     expect(replaceSpy).not.toHaveBeenCalled();
@@ -548,7 +655,7 @@ describe('browse actions with a clean address', () => {
     replaceSpy.mockRestore();
   });
 
-  it('Marketplace, page-size, sort, search and clear actions update only state and API requests', async () => {
+  it('updates the Marketplace path once while keeping other browse actions out of the URL', async () => {
     const data = overviewData();
     setLocation();
     const requests: URL[] = [];
@@ -566,33 +673,33 @@ describe('browse actions with a clean address', () => {
     const replaceSpy = vi.spyOn(window.history, 'replaceState');
     act(() => result.current.selectMarketplace('Platform Engineering'));
     await waitFor(() => expect(result.current.browse.marketplace).toBe('Platform Engineering'));
-    act(() => result.current.setPageSize(12));
-    await waitFor(() => expect(result.current.browse.pageSize).toBe(12));
     act(() => result.current.setSort('name-desc'));
     await waitFor(() => expect(result.current.browse.sort).toBe('name-desc'));
     act(() => result.current.setSearchText('react'));
     await waitFor(() => expect(result.current.browse.query).toBe('react'));
 
-    expect(requests).toHaveLength(4);
-    expect(Object.fromEntries(requests[3].searchParams)).toEqual({
+    expect(requests).toHaveLength(3);
+    expect(Object.fromEntries(requests[2].searchParams)).toEqual({
       marketplace: 'Platform Engineering',
       query: 'react',
       page: '1',
-      pageSize: '12',
-      sort: 'name-desc',
+      pageSize: '24',
+      sort: 'relevance',
     });
     act(() => result.current.clearSearch());
     await waitFor(() => expect(result.current.browse.query).toBe(''));
-    expect(requests).toHaveLength(5);
-    expect(requests[4].searchParams.has('query')).toBe(false);
-    expect(window.location.pathname + window.location.search).toBe('/marketplace');
-    expect(replaceSpy).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(4);
+    expect(requests[3].searchParams.has('query')).toBe(false);
+    expect(window.location.pathname + window.location.search).toBe(
+      '/marketplace/Platform%20Engineering',
+    );
+    expect(replaceSpy).toHaveBeenCalledTimes(1);
     expect(pushSpy).not.toHaveBeenCalled();
     pushSpy.mockRestore();
     replaceSpy.mockRestore();
   });
 
-  it.each(['Marketplace', 'sort', 'page size'])('changing %s resets to page 1', async (change) => {
+  it.each(['Marketplace', 'sort'])('changing %s resets to page 1', async (change) => {
     const data = overviewData({
       browse: browse({ page: 3 }),
       requested: browse({ page: 3 }),
@@ -615,10 +722,8 @@ describe('browse actions with a clean address', () => {
     act(() => {
       if (change === 'Marketplace') {
         result.current.selectMarketplace('Platform Engineering');
-      } else if (change === 'sort') {
-        result.current.setSort('name-desc');
       } else {
-        result.current.setPageSize(12);
+        result.current.setSort('name-desc');
       }
     });
     await waitFor(() => expect(result.current.status).toBe('success'));

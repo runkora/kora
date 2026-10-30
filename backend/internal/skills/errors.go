@@ -22,4 +22,13 @@ var (
 	// ErrInvalidCursor is returned when the pagination cursor sent by the
 	// client cannot be decoded. It means HTTP 400.
 	ErrInvalidCursor = errors.New("invalid cursor")
+
+	// ErrSearchIndexMissing asks the service to rebuild a cold search projection.
+	ErrSearchIndexMissing = errors.New("skill search index is not ready")
+
+	// ErrSearchUnavailable is a search-storage failure (HTTP 503).
+	ErrSearchUnavailable = errors.New("skill search unavailable")
+
+	// ErrInvalidSearch reports a query exceeding the supported limits (HTTP 400).
+	ErrInvalidSearch = errors.New("search exceeds 256 characters or 32 words")
 )

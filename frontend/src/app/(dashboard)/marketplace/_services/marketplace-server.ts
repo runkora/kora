@@ -4,6 +4,7 @@ import type { Marketplace, Skill, SkillSummary } from '@orbit/shared/api';
 import { ApiError } from '@orbit/server/api-error';
 import { fetchMarketplaces, fetchSkillDetail, fetchSkills } from '@orbit/server/marketplace-client';
 import { getPreferences } from '../../_preferences/preferences-server';
+import { parseBrowseParams } from '../_utils/browse-params';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData, SkillSort } from '../_types';
 
 export type MarketplaceOverviewResult =
@@ -15,6 +16,8 @@ export type MarketplaceOverviewResult =
       /** Successfully loaded list, retained when only the Skills request fails. */
       overview?: MarketplaceOverviewData;
     };
+
+type MarketplacePageResult = MarketplaceOverviewResult & { overview: MarketplaceOverviewData };
 
 type SkillDetailResult =
   { ok: true; skill: Skill } | { ok: false; status: number; message: string };
@@ -28,6 +31,33 @@ const CANCELLED_STATUS = 499;
 
 type SkillListResult =
   { ok: true; skills: SkillSummary[] } | { ok: false; status: number; message: string };
+
+/** Loads the initial overview for either route. A null token means the session is invalid. */
+export async function loadMarketplacePage(
+  accessToken: string | null,
+  marketplaceSlug = '',
+): Promise<MarketplacePageResult> {
+  const browse = parseBrowseParams(new URLSearchParams({ marketplace: marketplaceSlug }));
+  const emptyOverview: MarketplaceOverviewData = {
+    marketplaces: [],
+    requested: browse,
+    browse,
+    skills: [],
+    total: 0,
+  };
+
+  if (accessToken === null) {
+    return {
+      ok: false,
+      status: 401,
+      message: 'Session expired. Please sign in again.',
+      overview: emptyOverview,
+    };
+  }
+
+  const result = await loadMarketplaceOverview(accessToken, browse);
+  return result.ok ? result : { ...result, overview: result.overview ?? emptyOverview };
+}
 
 /**
  * Loads one result page of the overview. The browse values must come from
@@ -81,7 +111,10 @@ export async function loadMarketplaceOverview(
   const result = await loadSkillList(accessToken, marketplace, browse.query, signal);
   if (!result.ok) return { ...result, overview: partialOverview };
 
-  const ordered = sortByName(result.skills, browse.sort);
+  const ordered =
+    browse.query && browse.sort === 'relevance'
+      ? result.skills
+      : sortByName(result.skills, browse.sort);
   const lastPage = Math.max(1, Math.ceil(ordered.length / browse.pageSize));
   let page = browse.page;
   if (page > lastPage) {
@@ -106,7 +139,7 @@ export async function loadMarketplaceOverview(
 export async function loadSkillPage(
   accessToken: string,
   marketplaceSlug: string,
-  skillSlug: string,
+  skillName: string,
 ): Promise<SkillPageResult> {
   let marketplaces: Marketplace[];
   try {
@@ -122,7 +155,7 @@ export async function loadSkillPage(
     return { ok: false, status: 404, message: 'Marketplace not found' };
   }
 
-  const result = await loadSkillDetail(accessToken, marketplaceSlug, skillSlug);
+  const result = await loadSkillDetail(accessToken, marketplaceSlug, skillName);
   return result.ok
     ? { ...result, marketplaceName: marketplace.name, marketplaceLink: marketplace.link }
     : result;
@@ -132,11 +165,11 @@ export async function loadSkillPage(
 async function loadSkillDetail(
   accessToken: string,
   marketplaceSlug: string,
-  skillSlug: string,
+  skillName: string,
 ): Promise<SkillDetailResult> {
   let skill: Skill | null;
   try {
-    skill = await fetchSkillDetail(accessToken, marketplaceSlug, skillSlug);
+    skill = await fetchSkillDetail(accessToken, marketplaceSlug, skillName);
   } catch (err) {
     console.error('[loadSkillDetail] failed to load the Skill:', err);
     return fromApiError(err, 'Failed to load the Skill');

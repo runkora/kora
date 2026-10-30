@@ -87,6 +87,38 @@ beforeEach(() => {
 });
 
 describe('loadMarketplaceOverview Marketplace choice', () => {
+  it.each([
+    { sort: 'relevance' as const, expected: ['Zulu', 'Alpha'] },
+    { sort: 'name-asc' as const, expected: ['Alpha', 'Zulu'] },
+    { sort: 'name-desc' as const, expected: ['Zulu', 'Alpha'] },
+  ])('keeps the selected $sort order for search results', async ({ sort, expected }) => {
+    fetchSkills.mockResolvedValue({
+      skills: [
+        {
+          name: 'Zulu',
+          description: 'Strong body match',
+          skillSlug: `${CORE}__zulu`,
+          skillName: 'zulu',
+        },
+        {
+          name: 'Alpha',
+          description: 'Weaker match',
+          skillSlug: `${CORE}__alpha`,
+          skillName: 'alpha',
+        },
+      ],
+    });
+    const overview = await loadOverview({
+      ...DEFAULT_BROWSE,
+      marketplace: CORE,
+      query: 'validation',
+      sort,
+    });
+    expect(overview.skills.map((skill) => skill.name)).toEqual(expected);
+    expect(overview.total).toBe(2);
+    expect(fetchSkills).toHaveBeenCalledWith('test-token', CORE, 'validation', undefined);
+  });
+
   it('uses the first Marketplace on a first visit', async () => {
     saveMarketplace('');
 

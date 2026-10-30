@@ -19,7 +19,7 @@ const skill = {
 async function renderPage(skillSegment = 'reviewer') {
   render(
     await SkillDetailPage({
-      params: Promise.resolve({ marketplaceSlug: 'team__repo', skillSlug: skillSegment }),
+      params: Promise.resolve({ marketplaceSlug: 'team__repo', skillName: skillSegment }),
     }),
   );
 }
@@ -40,11 +40,15 @@ beforeEach(() => {
 });
 
 describe('Skill detail Server Component', () => {
-  it('restores the full skillSlug from the short path segment and renders details with a clean return link', async () => {
+  it('loads the skillName from the path and renders details with a clean return link', async () => {
     await renderPage();
-    expect(loadSkillPage).toHaveBeenCalledExactlyOnceWith('token', 'team__repo', skill.skillSlug);
+    expect(loadSkillPage).toHaveBeenCalledExactlyOnceWith('token', 'team__repo', 'reviewer');
+    expect(screen.getByRole('heading', { name: 'File Explorer' })).toBeVisible();
     expect(screen.getByText('# Instructions')).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Skills' })).toHaveAttribute('href', '/marketplace');
+    expect(screen.getByRole('link', { name: 'Skills' })).toHaveAttribute(
+      'href',
+      '/marketplace/team__repo',
+    );
   });
 
   it('still loads an older link whose segment carries the full skillSlug', async () => {
@@ -69,7 +73,7 @@ describe('Skill detail Server Component', () => {
     expect(screen.getByText('Skill not found')).toBeVisible();
     expect(screen.getByRole('link', { name: 'Back to Skills' })).toHaveAttribute(
       'href',
-      '/marketplace',
+      '/marketplace/team__repo',
     );
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
   });

@@ -4,7 +4,7 @@
 
 `marketplace.spec.ts` exercises the actual Next.js overview and dedicated Skill detail routes in Chromium. Playwright starts the test-only `marketplace-upstream.mjs` HTTP server for Server Component requests. Browser browse calls and preference writes use route mocks. Both layers use `marketplace-fixtures.ts`; no live Go backend, database, Redis, or production fixture path is required.
 
-The overview keeps browse settings out of the address. Opening a row or card navigates to `/marketplace/{marketplaceSlug}/{skillSlug}`. Detail refresh reloads the same Skill, and the Skills link returns to `/marketplace`.
+The selected Marketplace overview is `/marketplace/{marketplaceSlug}`; other browse settings stay out of the address. Opening a row or card navigates to `/marketplace/{marketplaceSlug}/{skillName}`. Detail refresh reloads the same Skill, and the Skills link returns to that Marketplace's overview. The bare `/marketplace` entry resolves the saved or first Marketplace.
 
 | Scenario                         | Behavioral assertions                                                                                                                                                                                                                                                                                    |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

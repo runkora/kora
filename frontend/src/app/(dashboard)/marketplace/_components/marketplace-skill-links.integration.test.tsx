@@ -3,17 +3,20 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@orbit/test-utils';
 import { MarketplaceProvider } from '../_context/marketplace-context';
-import { MarketplaceOverview } from './marketplace-overview';
+import { MarketplacePage } from './marketplace-page';
 import type { MarketplaceOverviewData } from '../_types';
 
 const { push } = vi.hoisted(() => ({ push: vi.fn() }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push }),
+  usePathname: () => window.location.pathname,
+}));
 
 const browse = {
-  marketplace: 'team/repo ?#',
+  marketplace: 'team__repo',
   query: 'review',
-  page: 3,
-  pageSize: 12,
+  page: 2,
+  pageSize: 24,
   sort: 'name-desc' as const,
 };
 const overview: MarketplaceOverviewData = {
@@ -22,17 +25,24 @@ const overview: MarketplaceOverviewData = {
   ],
   requested: browse,
   browse,
-  skills: [{ name: 'Reviewer', description: 'Reviews code.', skillSlug: 'review/50% ?#' }],
+  skills: [
+    {
+      name: 'Reviewer',
+      description: 'Reviews code.',
+      skillSlug: 'team__repo__reviewer',
+      skillName: 'reviewer',
+    },
+  ],
   total: 30,
 };
-const detailHref = '/marketplace/team%2Frepo%20%3F%23/review%2F50%25%20%3F%23';
+const detailHref = '/marketplace/team__repo/reviewer';
 
 beforeEach(() => {
   push.mockReset();
   window.history.replaceState(null, '', '/marketplace');
   renderWithProviders(
     <MarketplaceProvider initialData={overview} initialError={null}>
-      <MarketplaceOverview />
+      <MarketplacePage />
     </MarketplaceProvider>,
   );
 });

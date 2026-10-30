@@ -1063,8 +1063,8 @@ export interface AgentTypeGuardrails {
 
 // ── Marketplace ─────────────────────────────────────────────────────────
 // Mirrors the skills-service (backend/internal/skills) JSON: GET
-// /v1/marketplaces, /v1/marketplaces/{marketplaceSlug}/skills and
-// /v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}.
+// /v1/marketplaces, /v1/marketplaces/{marketplaceSlug} and
+// /v1/marketplaces/{marketplaceSlug}/{skillName}.
 
 export interface Marketplace {
   /** Display name. The backend uses the repository name, so it is not unique. */
@@ -1085,13 +1085,15 @@ export interface SkillSummary {
   description: string;
   /** Identifier: `{marketplaceSlug}__{slugified name}`. */
   skillSlug: string;
+  /** URL-safe name returned by the backend for detail navigation. */
+  skillName: string;
 }
 
 /**
- * One cursor batch of a Marketplace's Skills: at most 200 items in skillSlug
- * order, with no name sort or total. The server client follows nextCursor.
+ * The selected Marketplace with one cursor batch of its Skills: at most 200
+ * items in skillSlug order, with no name sort or total.
  */
-export interface ListSkillsResponse {
+export interface MarketplaceDetail extends Marketplace {
   skills: SkillSummary[];
   /** Omitted when there are no further results. */
   nextCursor?: string;
