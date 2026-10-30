@@ -6,11 +6,7 @@ import { mockApi, type MockRequest } from '@orbit/storybook/mock-api';
 import { PreferencesProvider } from '../../_preferences/preferences-context';
 import { PREFERENCE_DEFAULTS } from '../../_preferences/preferences.schema';
 import { MarketplaceProvider } from '../_context/marketplace-context';
-import {
-  DEFAULT_PAGE_SIZE,
-  type MarketplaceBrowseParams,
-  type MarketplaceOverviewData,
-} from '../_types';
+import { PAGE_SIZE, type MarketplaceBrowseParams, type MarketplaceOverviewData } from '../_types';
 import { parseBrowseParams } from '../_utils/browse-params';
 import { MarketplacePagination } from './marketplace-pagination';
 import { marketplaceStoryPlatform } from './marketplace-story-fixtures';
@@ -80,6 +76,6 @@ export const FirstPage: Story = createPageStory(1);
 
 export const MiddlePage: Story = createPageStory(5);
 
-export const LastPage: Story = createPageStory(Math.ceil(sampleSkills.length / DEFAULT_PAGE_SIZE));
+export const LastPage: Story = createPageStory(Math.ceil(sampleSkills.length / PAGE_SIZE));
 
 export const ZeroResults: Story = createPageStory(1, []);

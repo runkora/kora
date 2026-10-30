@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — marketplace-scoped. Overview: header, toolbar, request notices, and Skill results. */
+/** @tier 3 — marketplace-scoped. Main overview UI: header, toolbar, request notices, and Skill results. */
 
 import { useState } from 'react';
 import {
@@ -23,7 +23,7 @@ import {
   type ViewToggleProps,
 } from '@orbit/hades';
 import { useMarketplaceContext } from '../_context/marketplace-context';
-import { MIN_SEARCH_LENGTH, PAGE_SIZES, SORT_OPTIONS, type SkillSort } from '../_types';
+import { MIN_SEARCH_LENGTH, SORT_OPTIONS, type SkillSort } from '../_types';
 import { toResultState } from '../_utils/browse-params';
 import { MarketplacePagination } from './marketplace-pagination';
 import { MarketplaceResultsSkeleton } from './marketplace-results-skeleton';
@@ -36,9 +36,10 @@ type ViewMode = ViewToggleProps['viewMode'];
 const SORT_LABELS: Record<SkillSort, string> = {
   'name-asc': 'Sort: A–Z',
   'name-desc': 'Sort: Z–A',
+  relevance: 'Sort: Relevance',
 };
 
-export function MarketplaceOverview() {
+export function MarketplacePage() {
   const { marketplaces } = useMarketplaceContext();
   const [view, setView] = useState<ViewMode>('list');
 
@@ -120,7 +121,6 @@ function Toolbar({
     searchText,
     setSearchText,
     selectMarketplace,
-    setPageSize,
     setSort,
   } = useMarketplaceContext();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -146,7 +146,7 @@ function Toolbar({
       <Stack direction={{ base: 'vertical', lg: 'horizontal' }} align="center" gap="snug">
         <Stack grow style={{ minWidth: 0 }}>
           <Input
-            placeholder="Search Skills by name"
+            placeholder="Search Skills"
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
             aria-label="Search Skills"
@@ -182,29 +182,17 @@ function Toolbar({
 
         <Stack shrink>
           <NativeSelect
-            value={String(browse.pageSize)}
-            onChange={(event) => setPageSize(Number(event.target.value))}
-            aria-label="Results per page"
-          >
-            {PAGE_SIZES.map((size) => (
-              <option key={size} value={size}>
-                Rows: {size}
-              </option>
-            ))}
-          </NativeSelect>
-        </Stack>
-
-        <Stack shrink>
-          <NativeSelect
             value={browse.sort}
             onChange={(event) => handleSortChange(event.target.value)}
             aria-label="Sort skills"
           >
-            {SORT_OPTIONS.map((sort) => (
-              <option key={sort} value={sort}>
-                {SORT_LABELS[sort]}
-              </option>
-            ))}
+            {SORT_OPTIONS.filter((sort) => sort !== 'relevance' || browse.query !== '').map(
+              (sort) => (
+                <option key={sort} value={sort}>
+                  {SORT_LABELS[sort]}
+                </option>
+              ),
+            )}
           </NativeSelect>
         </Stack>
 

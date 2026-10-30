@@ -14,7 +14,8 @@ import { SidebarStateProvider } from './_components/sidebar-state';
 import { PreferencesProvider } from './_preferences/preferences-context';
 import { getPreferences, readPreferences } from './_preferences/preferences-server';
 import { mergeWithDefaults } from './_preferences/preferences.schema';
-import { getSession, isSessionValid } from '@runkora/server/session';
+import { MarketplaceBrowseStateProvider } from './marketplace/_context/marketplace-browse-state';
+import { getSession, isSessionValid } from '@orbit/server/session';
 
 /**
  * Dashboard shell layout — sidebar + header + scrollable main.
@@ -64,7 +65,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
             header={<DashboardHeader />}
             mobileDrawer={<MobileSidebarDrawer />}
           >
-            <PageGutter>{children}</PageGutter>
+            <MarketplaceBrowseStateProvider>
+              <PageGutter>{children}</PageGutter>
+            </MarketplaceBrowseStateProvider>
             {/* The agent builder opens over any dashboard route via ?agent=
                 (docs/adr/2026-07-17-agent-builder.md §1). useSearchParams
                 requires the Suspense boundary. */}

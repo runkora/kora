@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@orbit/test-utils';
 import { MarketplaceProvider } from '../_context/marketplace-context';
-import { MarketplaceOverview } from './marketplace-overview';
+import { MarketplacePage } from './marketplace-page';
 import type { MarketplaceOverviewData } from '../_types';
 
 const { push } = vi.hoisted(() => ({ push: vi.fn() }));
@@ -15,8 +15,8 @@ vi.mock('next/navigation', () => ({
 const browse = {
   marketplace: 'team__repo',
   query: 'review',
-  page: 3,
-  pageSize: 12,
+  page: 2,
+  pageSize: 24,
   sort: 'name-desc' as const,
 };
 const overview: MarketplaceOverviewData = {
@@ -42,7 +42,7 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/marketplace');
   renderWithProviders(
     <MarketplaceProvider initialData={overview} initialError={null}>
-      <MarketplaceOverview />
+      <MarketplacePage />
     </MarketplaceProvider>,
   );
 });

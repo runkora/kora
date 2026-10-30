@@ -2,10 +2,10 @@
 // The overview path carries the selected Marketplace; other browse values stay in memory.
 
 import {
-  DEFAULT_PAGE_SIZE,
+  PAGE_SIZE,
   DEFAULT_SORT,
+  DEFAULT_SEARCH_SORT,
   MIN_SEARCH_LENGTH,
-  PAGE_SIZES,
   SORT_OPTIONS,
   type MarketplaceBrowseParams,
   type ResultState,
@@ -21,6 +21,7 @@ const BROWSE_KEYS = ['marketplace', 'query', 'page', 'pageSize', 'sort'];
  * because only the server has the Marketplace list.
  */
 export function parseBrowseParams(search: URLSearchParams): MarketplaceBrowseParams {
+  const query = toSearchQuery(search.get('query'));
   let marketplace: string;
   const marketplaceFromUrl = search.get('marketplace');
   if (marketplaceFromUrl) {
@@ -33,10 +34,10 @@ export function parseBrowseParams(search: URLSearchParams): MarketplaceBrowsePar
 
   return {
     marketplace,
-    query: toSearchQuery(search.get('query')),
+    query,
     page: toPage(search.get('page')),
-    pageSize: toPageSize(search.get('pageSize')),
-    sort: toSort(search.get('sort')),
+    pageSize: PAGE_SIZE,
+    sort: toSort(search.get('sort'), query !== ''),
   };
 }
 
@@ -71,25 +72,14 @@ function toPage(value: string | null): number {
   return 1;
 }
 
-function toPageSize(value: string | null): number {
-  const size = Number(value);
-  const allowedSizes: readonly number[] = PAGE_SIZES;
-  if (allowedSizes.includes(size)) {
-    // One of the rows-per-page options.
-    return size;
-  }
-  // No size, or a size that is not an option. Use the default size.
-  return DEFAULT_PAGE_SIZE;
-}
-
-function toSort(value: string | null): SkillSort {
+function toSort(value: string | null, searching: boolean): SkillSort {
   const option = SORT_OPTIONS.find((sort) => sort === value);
-  if (option) {
+  if (option && (option !== 'relevance' || searching)) {
     // One of the sort options.
     return option;
   }
   // No sort, or a value that is not an option. Use the default sort.
-  return DEFAULT_SORT;
+  return searching ? DEFAULT_SEARCH_SORT : DEFAULT_SORT;
 }
 
 /**

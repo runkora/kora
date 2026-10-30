@@ -4,7 +4,7 @@
 
 import { MarketplaceProvider } from '../_context/marketplace-context';
 import type { MarketplaceOverviewData } from '../_types';
-import { MarketplaceOverview } from './marketplace-overview';
+import { MarketplacePage } from './marketplace-page';
 
 interface MarketplaceShellProps {
   initialOverview: MarketplaceOverviewData;
@@ -21,7 +21,7 @@ interface MarketplaceShellProps {
 export function MarketplaceShell({ initialOverview, initialError }: MarketplaceShellProps) {
   return (
     <MarketplaceProvider initialData={initialOverview} initialError={initialError}>
-      <MarketplaceOverview />
+      <MarketplacePage />
     </MarketplaceProvider>
   );
 }

@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_PAGE_SIZE,
+  PAGE_SIZE,
   DEFAULT_SORT,
   MIN_SEARCH_LENGTH,
   type MarketplaceBrowseParams,
@@ -23,7 +23,7 @@ const PAGE_3_BROWSE: MarketplaceBrowseParams = {
   marketplace: 'Platform Engineering',
   query: 'review',
   page: 3,
-  pageSize: 12,
+  pageSize: 24,
   sort: 'name-desc',
 };
 
@@ -46,7 +46,7 @@ describe('parseBrowseParams', () => {
       marketplace: '',
       query: '',
       page: 1,
-      pageSize: DEFAULT_PAGE_SIZE,
+      pageSize: PAGE_SIZE,
       sort: DEFAULT_SORT,
     });
   });
@@ -89,27 +89,39 @@ describe('parseBrowseParams', () => {
 
   describe('pageSize', () => {
     it('defaults when the URL has no pageSize', () => {
-      expect(parseBrowseParams(params('')).pageSize).toBe(DEFAULT_PAGE_SIZE);
+      expect(parseBrowseParams(params('')).pageSize).toBe(PAGE_SIZE);
     });
 
     it('defaults for a size that is not one of the options', () => {
-      expect(parseBrowseParams(params('pageSize=10')).pageSize).toBe(DEFAULT_PAGE_SIZE);
+      expect(parseBrowseParams(params('pageSize=10')).pageSize).toBe(PAGE_SIZE);
     });
 
     it('defaults for a non-numeric value', () => {
-      expect(parseBrowseParams(params('pageSize=abc')).pageSize).toBe(DEFAULT_PAGE_SIZE);
+      expect(parseBrowseParams(params('pageSize=abc')).pageSize).toBe(PAGE_SIZE);
     });
 
-    it('accepts the smallest allowed size', () => {
-      expect(parseBrowseParams(params('pageSize=12')).pageSize).toBe(12);
+    it('keeps 24 rows when an older link requests 12', () => {
+      expect(parseBrowseParams(params('pageSize=12')).pageSize).toBe(24);
     });
 
-    it('accepts the largest allowed size', () => {
-      expect(parseBrowseParams(params('pageSize=48')).pageSize).toBe(48);
+    it('keeps 24 rows when an older link requests 48', () => {
+      expect(parseBrowseParams(params('pageSize=48')).pageSize).toBe(24);
     });
   });
 
   describe('sort', () => {
+    it('defaults an active search to relevance', () => {
+      expect(parseBrowseParams(params('query=validation')).sort).toBe('relevance');
+    });
+
+    it('accepts explicit alphabetical sorting during search', () => {
+      expect(parseBrowseParams(params('query=validation&sort=name-desc')).sort).toBe('name-desc');
+    });
+
+    it('uses normal browsing order when relevance has no valid search', () => {
+      expect(parseBrowseParams(params('query=ab&sort=relevance')).sort).toBe(DEFAULT_SORT);
+    });
+
     it('defaults when the URL has no sort', () => {
       expect(parseBrowseParams(params('')).sort).toBe(DEFAULT_SORT);
     });

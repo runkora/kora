@@ -146,7 +146,13 @@ func newHandlerController(cached bool) *handlerFixture {
 	}
 	crawler := &handlerCrawler{skills: handlerSkills()}
 	logger := logging.NewDevelopmentLogger()
-	svc := NewService(reg, cache, crawler, logger)
+	search := &fakeSearch{searchFn: func(searchCall) (ListSkillsResponse, error) {
+		return ListSkillsResponse{Skills: []SkillSummary{
+			{Name: "React Expert", Description: "React development", SkillSlug: handlerSource.MarketplaceSlug + "__react-expert", SkillName: "react-expert"},
+			{Name: "React Testing", Description: "React tests", SkillSlug: handlerSource.MarketplaceSlug + "__react-testing", SkillName: "react-testing"},
+		}}, nil
+	}}
+	svc := NewService(reg, cache, crawler, search, logger)
 	c := &Controller{service: svc, registry: reg, logger: logger}
 	return &handlerFixture{Controller: c, registry: reg, cache: cache, crawler: crawler}
 }
@@ -256,6 +262,28 @@ func TestControllerServerCap(t *testing.T) {
 	}
 	if body.NextCursor == "" {
 		t.Fatal("nextCursor missing when more than serverCap skills exist")
+	}
+}
+
+func TestControllerSearchFailures(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		code int
+	}{
+		{"invalid query", ErrInvalidSearch, http.StatusBadRequest},
+		{"search unavailable", fmt.Errorf("private search details: %w", ErrSearchUnavailable), http.StatusServiceUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fix := newHandlerController(true)
+			fix.service.search = &fakeSearch{searchFn: func(searchCall) (ListSkillsResponse, error) {
+				return ListSkillsResponse{}, test.err
+			}}
+			response := handlerRequest(fix, "/marketplaces/"+handlerSource.MarketplaceSlug+"?search=needle", "tenant-a")
+			if response.Code != test.code || strings.Contains(response.Body.String(), "private search details") {
+				t.Fatalf("search failure: %d %s", response.Code, response.Body.String())
+			}
+		})
 	}
 }
 
@@ -535,6 +563,7 @@ func TestControllerAuthorization(t *testing.T) {
 	targets := []string{
 		"/marketplaces",
 		"/marketplaces/" + slug,
+		"/marketplaces/" + slug + "?search=react",
 		"/marketplaces/" + slug + "/react-expert",
 	}
 
@@ -556,7 +585,7 @@ func TestControllerAuthorization(t *testing.T) {
 			t.Run(tc.name+target, func(t *testing.T) {
 				fixture := newHandlerController(true)
 				eval := &handlerEvaluator{allow: tc.allow, err: tc.policyErr}
-				svc := NewService(fixture.registry, fixture.cache, fixture.crawler, logger)
+				svc := NewService(fixture.registry, fixture.cache, fixture.crawler, &fakeSearch{}, logger)
 				c := NewController(logger, svc, fixture.registry, verifier, eval, "/v1", "")
 				server := api.NewAPI(context.Background(), logger).Server(context.Background(), 0, "/v1", nil, c)
 				r := httptest.NewRequest(http.MethodGet, "/v1"+target, nil)

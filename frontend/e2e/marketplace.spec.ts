@@ -14,15 +14,16 @@ const chosenMarketplace = { name: 'Platform Engineering', slug: 'platform-engine
 const chosenBrowse = {
   marketplace: chosenMarketplace.slug,
   query: 'ter',
-  page: 2,
-  pageSize: 12,
+  page: 1,
+  pageSize: 24,
   sort: 'name-desc',
 };
 
 // ── Marketplace route mocks ──────────────────────────────────────────────────
 //
 // Mirrors marketplace-server.ts's loadMarketplaceOverview: pick the requested
-// Marketplace, falling back to the first one; filter by search; sort by name;
+// Marketplace, falling back to the first one; filter by search; preserve supplied
+// relevance order or sort by name;
 // cut the page; count the total.
 
 function resolveOverview(query: {
@@ -37,9 +38,12 @@ function resolveOverview(query: {
   const all = SKILL_FIXTURES_BY_MARKETPLACE[marketplaceSlug] ?? [];
   const needle = query.query.toLowerCase();
   const matched = needle ? all.filter((skill) => skill.name.toLowerCase().includes(needle)) : all;
-  const ordered = [...matched].sort((a, b) =>
-    query.sort === 'name-desc' ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name),
-  );
+  const ordered =
+    needle && query.sort === 'relevance'
+      ? matched
+      : [...matched].sort((a, b) =>
+          query.sort === 'name-desc' ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name),
+        );
   const lastPage = Math.max(1, Math.ceil(ordered.length / query.pageSize));
   const page = Math.min(Math.max(1, query.page), lastPage);
   const start = (page - 1) * query.pageSize;
@@ -113,16 +117,16 @@ async function expectChosenOverview(page: Page) {
     chosenBrowse.query,
   );
   await expect(page.getByRole('combobox', { name: 'Sort skills' })).toHaveValue(chosenBrowse.sort);
-  await expect(page.getByRole('combobox', { name: 'Results per page' })).toHaveValue('12');
-  await expect(page.getByRole('button', { name: 'Page 2', exact: true })).toHaveAttribute(
+  await expect(page.getByRole('combobox', { name: 'Results per page' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Page 1', exact: true })).toHaveAttribute(
     'aria-current',
     'page',
   );
-  await expect(page.getByText('13–14 of 14', { exact: true })).toBeVisible();
+  await expect(page.getByText('1–14 of 14', { exact: true })).toBeVisible();
   const results = page.getByRole('row', { name: /^Open / });
-  await expect(results).toHaveCount(2);
-  await expect(results.nth(0)).toHaveAccessibleName('Open Budget Forecaster');
-  await expect(results.nth(1)).toHaveAccessibleName('Open Bicep Linter');
+  await expect(results).toHaveCount(14);
+  await expect(results.first()).toHaveAccessibleName('Open Terraform Module Reviewer');
+  await expect(results.last()).toHaveAccessibleName('Open Bicep Linter');
 }
 
 async function expectDefaultOverview(page: Page) {
@@ -132,7 +136,7 @@ async function expectDefaultOverview(page: Page) {
   ).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Search Skills' })).toHaveValue('');
   await expect(page.getByRole('combobox', { name: 'Sort skills' })).toHaveValue('name-asc');
-  await expect(page.getByRole('combobox', { name: 'Results per page' })).toHaveValue('24');
+  await expect(page.getByRole('combobox', { name: 'Results per page' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Page 1', exact: true })).toHaveAttribute(
     'aria-current',
     'page',
@@ -151,7 +155,7 @@ async function expectPlatformOverviewDefaults(page: Page) {
   ).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Search Skills' })).toHaveValue('');
   await expect(page.getByRole('combobox', { name: 'Sort skills' })).toHaveValue('name-asc');
-  await expect(page.getByRole('combobox', { name: 'Results per page' })).toHaveValue('24');
+  await expect(page.getByRole('combobox', { name: 'Results per page' })).toHaveCount(0);
   await expect(page.getByRole('main').getByText('1–24 of 61', { exact: true })).toBeVisible();
 }
 
@@ -164,16 +168,13 @@ async function choosePlatformEngineering(page: Page) {
 
 async function chooseOverviewState(page: Page) {
   await choosePlatformEngineering(page);
-  await page.getByRole('combobox', { name: 'Results per page' }).selectOption('12');
-  await expect(page.getByText('1–12 of 61', { exact: true })).toBeVisible();
-  // This search matches fourteen Skills, so all five browse values can be non-default.
+  // This search matches fourteen Skills within the fixed 24-row page.
   await page.getByRole('textbox', { name: 'Search Skills' }).fill(chosenBrowse.query);
-  await expect(page.getByText('1–12 of 14', { exact: true })).toBeVisible();
+  await expect(page.getByText('1–14 of 14', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Sort skills' }).selectOption(chosenBrowse.sort);
   await expect(page.getByRole('row', { name: /^Open / }).first()).toHaveAccessibleName(
     'Open Terraform Module Reviewer',
   );
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
   await expectChosenOverview(page);
 }
 
@@ -203,8 +204,8 @@ test.describe('/marketplace — overview and Skill detail', () => {
     expect(finalRequest && Object.fromEntries(finalRequest.searchParams)).toEqual({
       marketplace: chosenBrowse.marketplace,
       query: chosenBrowse.query,
-      page: '2',
-      pageSize: '12',
+      page: '1',
+      pageSize: '24',
       sort: chosenBrowse.sort,
     });
 
@@ -244,19 +245,49 @@ test.describe('/marketplace — overview and Skill detail', () => {
     await expectPlatformOverviewDefaults(page);
   });
 
-  test('browser Back from a Skill keeps the Marketplace selected in the overview path', async ({
-    page,
-  }) => {
-    await load(page);
-    await choosePlatformEngineering(page);
-    await page.getByRole('row', { name: 'Open Airflow Access Review' }).click();
-    await expectSkillDetail(page, 'airflow-access-review');
-    await page.goBack();
-    await expectCleanUrl(page, platformOverviewPath);
-    await expect(
-      page.getByRole('button', { name: 'Marketplace: Platform Engineering', exact: true }),
-    ).toBeVisible();
-  });
+  for (const returnVia of ['browser Back', 'Skills link']) {
+    test(`${returnVia} from a Skill restores the selected Marketplace and browse controls`, async ({
+      page,
+    }) => {
+      await load(page);
+      await chooseOverviewState(page);
+      await page.getByRole('row', { name: 'Open Budget Forecaster' }).click();
+      await expectSkillDetail(page, 'budget-forecaster');
+      if (returnVia === 'browser Back') {
+        await page.goBack();
+      } else {
+        await page.getByRole('link', { name: 'Skills', exact: true }).click();
+      }
+      await expectChosenOverview(page);
+    });
+
+    test(`${returnVia} from a Skill keeps the second 24-row page`, async ({ page }) => {
+      await load(page, platformOverviewPath);
+      await page.getByRole('button', { name: 'Next', exact: true }).click();
+      await expect(page.getByText('25–48 of 61', { exact: true })).toBeVisible();
+      const selected = resolveOverview({
+        marketplace: chosenMarketplace.slug,
+        query: '',
+        page: 2,
+        pageSize: 24,
+        sort: 'name-asc',
+      }).skills[0];
+      if (!selected) throw new Error('Expected the second fixture page to contain Skills');
+      await page.getByRole('row', { name: `Open ${selected.name}`, exact: true }).click();
+      await expectSkillDetail(page, selected.skillName);
+      if (returnVia === 'browser Back') {
+        await page.goBack();
+      } else {
+        await page.getByRole('link', { name: 'Skills', exact: true }).click();
+      }
+      await expect(page.getByText('25–48 of 61', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Page 2', exact: true })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      await expect(page.getByRole('row', { name: /^Open / })).toHaveCount(24);
+    });
+  }
 
   test('an existing full-slug Skill address still loads its details', async ({ page }) => {
     const path =
@@ -378,7 +409,6 @@ function overviewControls(page: Page) {
     page.getByRole('combobox', { name: 'Sort skills' }),
     page.getByRole('button', { name: 'Card view' }),
     page.getByRole('button', { name: 'List view' }),
-    page.getByRole('combobox', { name: 'Results per page' }),
   ];
 }
 
@@ -464,7 +494,7 @@ test.describe('/marketplace — accessibility and layout', () => {
     await expect(rows.first()).toHaveAccessibleName('Open React Expert');
 
     await tabTo(page, sort);
-    await page.keyboard.press('End');
+    await page.keyboard.press('ArrowUp');
     await page.keyboard.press('Enter');
     await expect(sort).toHaveValue('name-desc');
     await expect(rows.first()).toHaveAccessibleName('Open React Reviewer');
@@ -487,18 +517,16 @@ test.describe('/marketplace — accessibility and layout', () => {
     await expect(cards).toBeFocused();
   });
 
-  test('page controls and results per page operate through the keyboard', async ({ page }) => {
+  test('page controls use fixed 24-row pages through the keyboard', async ({ page }) => {
     await load(page);
     await choosePlatformEngineering(page);
-    await page.getByRole('combobox', { name: 'Results per page' }).selectOption('12');
-    await expect(page.getByText('1–12 of 61', { exact: true })).toBeVisible();
-    const size = page.getByRole('combobox', { name: 'Results per page' });
+    await expect(page.getByText('1–24 of 61', { exact: true })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Results per page' })).toHaveCount(0);
     const previous = page.getByRole('button', { name: 'Previous', exact: true });
     const next = page.getByRole('button', { name: 'Next', exact: true });
 
-    await tabTo(page, size);
     await expect(previous).toBeDisabled();
-    await page.keyboard.press('Tab');
+    await tabTo(page, page.getByRole('button', { name: 'Page 1', exact: true }));
     await expect(page.getByRole('button', { name: 'Page 1', exact: true })).toBeFocused();
     await expect(page.getByRole('button', { name: 'Page 1', exact: true })).toHaveAttribute(
       'aria-current',
@@ -507,24 +535,22 @@ test.describe('/marketplace — accessibility and layout', () => {
 
     await tabTo(page, next);
     await page.keyboard.press('Enter');
-    await expect(page.getByText('13–24 of 61', { exact: true })).toBeVisible();
+    await expect(page.getByText('25–48 of 61', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Page 2', exact: true })).toHaveAttribute(
       'aria-current',
       'page',
     );
     await tabTo(page, previous);
     await page.keyboard.press('Space');
-    await expect(page.getByText('1–12 of 61', { exact: true })).toBeVisible();
+    await expect(page.getByText('1–24 of 61', { exact: true })).toBeVisible();
 
-    await tabTo(page, page.getByRole('button', { name: 'Page 6', exact: true }));
+    await tabTo(page, page.getByRole('button', { name: 'Page 3', exact: true }));
     await page.keyboard.press('Enter');
-    await expect(page.getByText('61–61 of 61', { exact: true })).toBeVisible();
+    await expect(page.getByText('49–61 of 61', { exact: true })).toBeVisible();
     await expect(next).toBeDisabled();
 
-    await tabTo(page, size);
-    await page.keyboard.press('ArrowDown');
+    await tabTo(page, page.getByRole('button', { name: 'Page 1', exact: true }));
     await page.keyboard.press('Enter');
-    await expect(size).toHaveValue('24');
     await expect(page.getByText('1–24 of 61', { exact: true })).toBeVisible();
     await expect(previous).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Page 1', exact: true })).toHaveAttribute(
@@ -616,12 +642,10 @@ test.describe('/marketplace — accessibility and layout', () => {
       await page.setViewportSize(viewport);
       await load(page);
       await choosePlatformEngineering(page);
-      await page.getByRole('combobox', { name: 'Results per page' }).selectOption('12');
-      await expect(page.getByText('1–12 of 61', { exact: true })).toBeVisible();
-      await page.getByRole('button', { name: 'Page 3', exact: true }).click();
-      await expect(page.getByText('25–36 of 61', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Page 2', exact: true }).click();
+      await expect(page.getByText('25–48 of 61', { exact: true })).toBeVisible();
       await expectCleanUrl(page, platformOverviewPath);
-      await expect(page.getByRole('row', { name: /^Open / })).toHaveCount(12);
+      await expect(page.getByRole('row', { name: /^Open / })).toHaveCount(24);
       const controls = [
         ...overviewControls(page),
         page.getByRole('button', { name: 'Previous', exact: true }),
@@ -638,7 +662,7 @@ test.describe('/marketplace — accessibility and layout', () => {
       await tabTo(page, page.getByRole('button', { name: 'Card view' }));
       await page.keyboard.press('Enter');
       const cards = page.getByRole('main').getByRole('link', { name: /^Open / });
-      await expect(cards).toHaveCount(12);
+      await expect(cards).toHaveCount(24);
       const first = await bounds(cards.nth(0));
       const second = await bounds(cards.nth(1));
       if (viewport.width === 390) {
