@@ -137,7 +137,7 @@ func (c *Controller) handleListMarketplaces(w http.ResponseWriter, r *http.Reque
 
 // handleGetMarketplace returns the selected marketplace and up to serverCap of
 // its skills. Clients pass the previous response's nextCursor as ?cursor= to
-// fetch the next batch, and ?search= to filter by skill name.
+// fetch the next batch, and ?search= for full-text search ordered by relevance.
 func (c *Controller) handleGetMarketplace(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -223,6 +223,9 @@ func (c *Controller) respondError(w http.ResponseWriter, r *http.Request, err er
 	case errors.Is(err, ErrInvalidCursor):
 		apiErr = api.ValidationError(api.ErrCodeInvalidField, "cursor is invalid", nil)
 
+	case errors.Is(err, ErrInvalidSearch):
+		apiErr = api.ValidationError(api.ErrCodeInvalidField, ErrInvalidSearch.Error(), nil)
+
 	case errors.Is(err, ErrMarketplaceNotFound):
 		apiErr = api.NotFoundError(api.ErrCodeResourceNotFound, "marketplace not found", nil)
 
@@ -230,6 +233,7 @@ func (c *Controller) respondError(w http.ResponseWriter, r *http.Request, err er
 		apiErr = api.NotFoundError(api.ErrCodeResourceNotFound, "skill not found", nil)
 
 	case errors.Is(err, ErrRedisUnavailable),
+		errors.Is(err, ErrSearchUnavailable),
 		errors.Is(err, ghclient.ErrUnavailable),
 		errors.Is(err, context.Canceled),
 		errors.Is(err, context.DeadlineExceeded):

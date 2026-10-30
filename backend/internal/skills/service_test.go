@@ -96,7 +96,7 @@ func newTestService(cache *fakeCache, crawler *fakeCrawler) *Service {
 			"tenant-a": {svcTestSource},
 		},
 	}
-	return NewService(reg, cache, crawler, logging.NewDevelopmentLogger())
+	return NewService(reg, cache, crawler, &fakeSearch{}, logging.NewDevelopmentLogger())
 }
 
 // makeEntries builds SkillEntry values with slugs prefixed by the test source.
@@ -254,6 +254,14 @@ func TestListSkills_Search(t *testing.T) {
 	entries := makeEntries("react-expert", "go-expert", "react-beginner")
 	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": entries}}
 	svc := newTestService(cache, &fakeCrawler{})
+	svc.search = &fakeSearch{searchFn: func(call searchCall) (ListSkillsResponse, error) {
+		if call != (searchCall{"tenant-a", "org__repo", "react", ""}) {
+			t.Fatalf("unexpected search: %+v", call)
+		}
+		return ListSkillsResponse{Skills: []SkillSummary{
+			{Name: "react-expert"}, {Name: "react-beginner"},
+		}}, nil
+	}}
 
 	result, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "react", "")
 	if err != nil {
@@ -330,32 +338,17 @@ func TestListSkills_CursorWalksAllSkillsOnce(t *testing.T) {
 	}
 }
 
-func TestListSkills_CursorWithSearch_CoversWholeMarketplace(t *testing.T) {
-	// 500 skills, every other one matches → 250 matches spread across the set.
-	names := make([]string, 500)
-	for i := range names {
-		if i%2 == 0 {
-			names[i] = fmt.Sprintf("react-%03d", i)
-		} else {
-			names[i] = fmt.Sprintf("go-%03d", i)
+func TestListSkills_ForwardsRankedSearchCursor(t *testing.T) {
+	svc := newTestService(&fakeCache{getErr: errors.New("must not read listing cache")}, &fakeCrawler{})
+	svc.search = &fakeSearch{searchFn: func(call searchCall) (ListSkillsResponse, error) {
+		if call.query != "REACT" || call.cursor != "ranked-snapshot-cursor" {
+			t.Fatalf("search cursor was changed: %+v", call)
 		}
-	}
-	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": makeEntries(names...)}}
-	svc := newTestService(cache, &fakeCrawler{})
-
-	pages := listAllPages(t, svc, "REACT")
-
-	total := 0
-	for _, p := range pages {
-		for _, s := range p {
-			if !strings.Contains(s.Name, "react") {
-				t.Fatalf("non-matching skill returned: %s", s.Name)
-			}
-		}
-		total += len(p)
-	}
-	if len(pages) != 2 || total != 250 {
-		t.Errorf("got %d pages / %d skills, want 2 / 250", len(pages), total)
+		return ListSkillsResponse{Skills: []SkillSummary{{Name: "ranked match"}}}, nil
+	}}
+	got, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "REACT", "ranked-snapshot-cursor")
+	if err != nil || len(got.Skills) != 1 {
+		t.Fatalf("ranked search cursor: %+v, %v", got, err)
 	}
 }
 

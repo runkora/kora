@@ -382,6 +382,29 @@ describe('request lifecycle', () => {
 });
 
 describe('search debounce and request races', () => {
+  it('starts a search in relevance order and restores the previous browse sort on clear', async () => {
+    const initialBrowse = browse({ sort: 'name-desc', page: 3 });
+    const data = overviewData({ browse: initialBrowse, requested: initialBrowse });
+    setLocation();
+    const requests: MarketplaceBrowseParams[] = [];
+    server.use(
+      http.get('/api/marketplace/skills', ({ request }) => {
+        const next = parseBrowseParams(new URL(request.url).searchParams);
+        requests.push(next);
+        return HttpResponse.json({ data: overviewData({ browse: next, requested: next }) });
+      }),
+    );
+    const { result } = renderHook(() => useMarketplace(data));
+    act(() => result.current.setSearchText('validation'));
+    await waitFor(() => expect(result.current.browse.query).toBe('validation'));
+    expect(result.current.browse.sort).toBe('relevance');
+    expect(result.current.browse.page).toBe(1);
+    act(() => result.current.clearSearch());
+    await waitFor(() => expect(result.current.browse.query).toBe(''));
+    expect(result.current.browse.sort).toBe('name-desc');
+    expect(requests.map(({ sort }) => sort)).toEqual(['relevance', 'name-desc']);
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -589,7 +612,7 @@ describe('search debounce and request races', () => {
 
 describe('browse actions with a Marketplace path', () => {
   it('a page change sends all browse values to the API without changing address or history', async () => {
-    const currentBrowse = browse({ query: 'react', pageSize: 12, sort: 'name-desc' });
+    const currentBrowse = browse({ query: 'react', sort: 'name-desc' });
     const data = overviewData({ requested: currentBrowse, browse: currentBrowse });
     setLocation();
     const requests: URL[] = [];
@@ -619,7 +642,7 @@ describe('browse actions with a Marketplace path', () => {
       marketplace: 'ClearRoute Core',
       query: 'react',
       page: '2',
-      pageSize: '12',
+      pageSize: '24',
       sort: 'name-desc',
     });
     expect(window.location.pathname + window.location.search).toBe(
@@ -650,25 +673,23 @@ describe('browse actions with a Marketplace path', () => {
     const replaceSpy = vi.spyOn(window.history, 'replaceState');
     act(() => result.current.selectMarketplace('Platform Engineering'));
     await waitFor(() => expect(result.current.browse.marketplace).toBe('Platform Engineering'));
-    act(() => result.current.setPageSize(12));
-    await waitFor(() => expect(result.current.browse.pageSize).toBe(12));
     act(() => result.current.setSort('name-desc'));
     await waitFor(() => expect(result.current.browse.sort).toBe('name-desc'));
     act(() => result.current.setSearchText('react'));
     await waitFor(() => expect(result.current.browse.query).toBe('react'));
 
-    expect(requests).toHaveLength(4);
-    expect(Object.fromEntries(requests[3].searchParams)).toEqual({
+    expect(requests).toHaveLength(3);
+    expect(Object.fromEntries(requests[2].searchParams)).toEqual({
       marketplace: 'Platform Engineering',
       query: 'react',
       page: '1',
-      pageSize: '12',
-      sort: 'name-desc',
+      pageSize: '24',
+      sort: 'relevance',
     });
     act(() => result.current.clearSearch());
     await waitFor(() => expect(result.current.browse.query).toBe(''));
-    expect(requests).toHaveLength(5);
-    expect(requests[4].searchParams.has('query')).toBe(false);
+    expect(requests).toHaveLength(4);
+    expect(requests[3].searchParams.has('query')).toBe(false);
     expect(window.location.pathname + window.location.search).toBe(
       '/marketplace/Platform%20Engineering',
     );
@@ -678,7 +699,7 @@ describe('browse actions with a Marketplace path', () => {
     replaceSpy.mockRestore();
   });
 
-  it.each(['Marketplace', 'sort', 'page size'])('changing %s resets to page 1', async (change) => {
+  it.each(['Marketplace', 'sort'])('changing %s resets to page 1', async (change) => {
     const data = overviewData({
       browse: browse({ page: 3 }),
       requested: browse({ page: 3 }),
@@ -701,10 +722,8 @@ describe('browse actions with a Marketplace path', () => {
     act(() => {
       if (change === 'Marketplace') {
         result.current.selectMarketplace('Platform Engineering');
-      } else if (change === 'sort') {
-        result.current.setSort('name-desc');
       } else {
-        result.current.setPageSize(12);
+        result.current.setSort('name-desc');
       }
     });
     await waitFor(() => expect(result.current.status).toBe('success'));

@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -81,10 +82,16 @@ type sourceRegistry interface {
 	ListSources(tenantID string) []MarketplaceSource
 }
 
+type skillSearcher interface {
+	ReplaceMarketplace(ctx context.Context, tenantID, marketplaceSlug string, skills []Skill) error
+	Search(ctx context.Context, tenantID, marketplaceSlug, query, cursor string) (ListSkillsResponse, error)
+}
+
 type Service struct {
 	registry sourceRegistry
 	cache    skillCache
 	crawler  skillCrawler
+	search   skillSearcher
 	logger   logging.Logger
 }
 
@@ -93,11 +100,12 @@ type ListSkillsResponse struct {
 	NextCursor string         `json:"nextCursor,omitempty"` // empty = no more results
 }
 
-func NewService(registry sourceRegistry, cache skillCache, crawler skillCrawler, logger logging.Logger) *Service {
+func NewService(registry sourceRegistry, cache skillCache, crawler skillCrawler, search skillSearcher, logger logging.Logger) *Service {
 	return &Service{
 		registry: registry,
 		cache:    cache,
 		crawler:  crawler,
+		search:   search,
 		logger:   logger,
 	}
 }
@@ -136,6 +144,20 @@ func (s *Service) resolveMarketplace(ctx context.Context, tenantID string, sourc
 		return sortedBySlug(entries), nil
 	}
 
+	skills, err := s.crawlMarketplace(ctx, tenantID, source)
+	if err != nil {
+		return nil, err
+	}
+	entries = make([]SkillEntry, len(skills))
+	for i, skill := range skills {
+		entries[i] = skillToEntry(skill)
+	}
+	return sortedBySlug(entries), nil
+}
+
+// crawlMarketplace is the shared refresh path for list and detail cache misses.
+// Full records are still available here for body indexing.
+func (s *Service) crawlMarketplace(ctx context.Context, tenantID string, source MarketplaceSource) ([]Skill, error) {
 	skillPaths, err := s.crawler.FetchTree(ctx, source)
 	if err != nil {
 		return nil, fmt.Errorf("fetch tree: %w", err)
@@ -147,7 +169,7 @@ func (s *Service) resolveMarketplace(ctx context.Context, tenantID string, sourc
 	}
 
 	// Project []Skill to []SkillEntry for the marketplace list cache.
-	entries = make([]SkillEntry, len(skills))
+	entries := make([]SkillEntry, len(skills))
 	for i, sk := range skills {
 		entries[i] = skillToEntry(sk)
 	}
@@ -169,19 +191,27 @@ func (s *Service) resolveMarketplace(ctx context.Context, tenantID string, sourc
 		}
 	}
 
-	return entries, nil
+	if err := s.search.ReplaceMarketplace(ctx, tenantID, source.MarketplaceSlug, skills); err != nil {
+		s.logger.Warn(ctx, "failed to index marketplace",
+			logging.Field{Key: "marketplace", Value: source.MarketplaceSlug},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+	return skills, nil
 }
 
-// ListSkills returns up to serverCap skills whose name contains search
-// (case-insensitive), starting after cursor. NextCursor is set when more
-// matches exist. Search runs over the whole marketplace, not just one batch.
+// ListSkills uses the existing slug-ordered list for browsing and full-text
+// relevance with a query-bound snapshot cursor for nonempty searches.
 func (s *Service) ListSkills(ctx context.Context, tenantID, marketplaceSlug, search, cursor string) (ListSkillsResponse, error) {
-	after, err := decodeCursor(cursor)
+	source, err := s.findSource(tenantID, marketplaceSlug)
 	if err != nil {
 		return ListSkillsResponse{}, err
 	}
 
-	source, err := s.findSource(tenantID, marketplaceSlug)
+	if strings.TrimSpace(search) != "" {
+		return s.searchMarketplace(ctx, tenantID, source, search, cursor)
+	}
+	after, err := decodeCursor(cursor)
 	if err != nil {
 		return ListSkillsResponse{}, err
 	}
@@ -199,14 +229,10 @@ func (s *Service) ListSkills(ctx context.Context, tenantID, marketplaceSlug, sea
 		})
 	}
 
-	needle := strings.ToLower(search)
 	summaries := make([]SkillSummary, 0, min(serverCap, len(entries)-start))
 	var next string
 
 	for _, e := range entries[start:] {
-		if needle != "" && !strings.Contains(strings.ToLower(e.Name), needle) {
-			continue
-		}
 		if len(summaries) == serverCap {
 			// At least one more match exists beyond this batch.
 			next = encodeCursor(summaries[len(summaries)-1].SkillSlug)
@@ -221,6 +247,46 @@ func (s *Service) ListSkills(ctx context.Context, tenantID, marketplaceSlug, sea
 	}
 
 	return ListSkillsResponse{Skills: summaries, NextCursor: next}, nil
+}
+
+func (s *Service) searchMarketplace(ctx context.Context, tenantID string, source MarketplaceSource, query, cursor string) (ListSkillsResponse, error) {
+	result, err := s.search.Search(ctx, tenantID, source.MarketplaceSlug, query, cursor)
+	if !errors.Is(err, ErrSearchIndexMissing) || cursor != "" {
+		return result, err
+	}
+	if err = s.rebuildSearch(ctx, tenantID, source); err != nil {
+		return ListSkillsResponse{}, err
+	}
+	result, err = s.search.Search(ctx, tenantID, source.MarketplaceSlug, query, "")
+	if errors.Is(err, ErrSearchIndexMissing) {
+		return ListSkillsResponse{}, fmt.Errorf("skill search rebuild incomplete: %w: %w", ErrSearchUnavailable, err)
+	}
+	return result, err
+}
+
+func (s *Service) rebuildSearch(ctx context.Context, tenantID string, source MarketplaceSource) error {
+	entries, hit, err := s.cache.GetMarketplace(ctx, tenantID, source.MarketplaceSlug)
+	if err != nil {
+		return fmt.Errorf("read marketplace for search: %w", err)
+	}
+	if hit {
+		skills := make([]Skill, 0, len(entries))
+		for _, entry := range entries {
+			skill, found, readErr := s.cache.GetSkill(ctx, entry.SkillSlug)
+			if readErr != nil {
+				return fmt.Errorf("read skill for search: %w", readErr)
+			}
+			if !found {
+				break
+			}
+			skills = append(skills, skill)
+		}
+		if len(skills) == len(entries) {
+			return s.search.ReplaceMarketplace(ctx, tenantID, source.MarketplaceSlug, skills)
+		}
+	}
+	_, err = s.crawlMarketplace(ctx, tenantID, source)
+	return err
 }
 
 // GetMarketplace returns the selected marketplace with one batch of its
@@ -285,42 +351,17 @@ func (s *Service) GetSkill(ctx context.Context, tenantID, marketplaceSlug, skill
 // crawlAndFind fetches the full marketplace from the crawler, warms both the
 // marketplace list cache and per-skill caches, then returns the target skill.
 func (s *Service) crawlAndFind(ctx context.Context, tenantID string, source MarketplaceSource, skillSlug string) (Skill, error) {
-	skillPaths, err := s.crawler.FetchTree(ctx, source)
+	skills, err := s.crawlMarketplace(ctx, tenantID, source)
 	if err != nil {
-		return Skill{}, fmt.Errorf("fetch tree: %w", err)
+		return Skill{}, err
 	}
 
-	skills, err := s.crawler.FetchSkills(ctx, source, skillPaths)
-	if err != nil {
-		return Skill{}, fmt.Errorf("fetch skills: %w", err)
-	}
-
-	entries := make([]SkillEntry, len(skills))
-	for i, sk := range skills {
-		entries[i] = skillToEntry(sk)
-	}
-	if err := s.cache.SetMarketplace(ctx, tenantID, source.MarketplaceSlug, sortedBySlug(entries)); err != nil {
-		return Skill{}, fmt.Errorf("write marketplace cache: %w", err)
-	}
-
-	var result Skill
-	found := false
 	for _, sk := range skills {
-		if err := s.cache.SetSkill(ctx, sk.SkillSlug, sk); err != nil {
-			s.logger.Warn(ctx, "failed to cache skill",
-				logging.Field{Key: "skillSlug", Value: sk.SkillSlug},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
 		if sk.SkillSlug == skillSlug {
-			result = sk
-			found = true
+			return sk, nil
 		}
 	}
-	if !found {
-		return Skill{}, ErrSkillNotFound
-	}
-	return result, nil
+	return Skill{}, ErrSkillNotFound
 }
 
 func skillToEntry(sk Skill) SkillEntry {

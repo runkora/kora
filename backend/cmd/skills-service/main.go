@@ -165,6 +165,11 @@ func initControllers(ctx context.Context, logger logging.Logger, redis *storage.
 
 	crawler := skills.NewCrawler(gh, defaultTokens, logger)
 	cache := skills.NewCache(redis, sc.Current.CacheTTL())
+	search := skills.NewSearchIndex(redis, sc.Current.CacheTTL())
+	if err := search.EnsureIndex(ctx); err != nil {
+		// Browsing remains available; a search retries index creation on rebuild.
+		logger.Warn(ctx, "skill search index initialization failed", logging.Field{Key: "error", Value: err.Error()})
+	}
 
 	pol := policy.NewEvaluator(
 		sc.Current.Policy.BundleEndpoint,
@@ -174,7 +179,7 @@ func initControllers(ctx context.Context, logger logging.Logger, redis *storage.
 	pol.Start(ctx)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
-	svc := skills.NewService(registry, cache, crawler, logger)
+	svc := skills.NewService(registry, cache, crawler, search, logger)
 
 	controller := skills.NewController(
 		logger,

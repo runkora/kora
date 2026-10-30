@@ -6,7 +6,7 @@ import { renderWithProviders, server } from '@orbit/test-utils';
 import { PreferencesProvider } from '../../_preferences/preferences-context';
 import { PREFERENCE_DEFAULTS } from '../../_preferences/preferences.schema';
 import { MarketplaceShell } from './marketplace-shell';
-import { MarketplaceOverview } from './marketplace-overview';
+import { MarketplacePage } from './marketplace-page';
 import { MarketplaceProvider } from '../_context/marketplace-context';
 import type { MarketplaceOverviewData } from '../_types';
 
@@ -97,7 +97,7 @@ describe('Marketplace initial failure recovery', () => {
   });
 });
 
-// ── MarketplaceOverview (rendered directly via MarketplaceProvider) ────────────
+// ── MarketplacePage (rendered directly via MarketplaceProvider) ────────────────
 
 function browseWith(overrides: Partial<MarketplaceOverviewData['browse']> = {}) {
   return { ...browse, ...overrides };
@@ -128,7 +128,7 @@ function renderOverview(data: MarketplaceOverviewData, initialError: string | nu
   window.history.replaceState(null, '', '/marketplace');
   return renderWithProviders(
     <MarketplaceProvider initialData={data} initialError={initialError}>
-      <MarketplaceOverview />
+      <MarketplacePage />
     </MarketplaceProvider>,
   );
 }
@@ -287,10 +287,10 @@ describe('later browse changes', () => {
     );
   });
 
-  it('preserves the Marketplace, page size, and chosen view when Clear search runs', async () => {
+  it('preserves the Marketplace and chosen view when Clear search runs', async () => {
     const searching = overviewWith({
-      requested: browseWith({ query: 'react', pageSize: 12 }),
-      browse: browseWith({ query: 'react', pageSize: 12 }),
+      requested: browseWith({ query: 'react' }),
+      browse: browseWith({ query: 'react' }),
       skills: [],
       total: 0,
     });
@@ -302,8 +302,6 @@ describe('later browse changes', () => {
     const cleared = overviewWith({
       skills: [SKILL],
       total: 1,
-      requested: browseWith({ pageSize: 12 }),
-      browse: browseWith({ pageSize: 12 }),
     });
     server.use(http.get('/api/marketplace/skills', () => HttpResponse.json({ data: cleared })));
 
@@ -311,27 +309,26 @@ describe('later browse changes', () => {
 
     expect(await screen.findByRole('link', { name: 'Open React Expert' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Marketplace: Core' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Results per page')).toHaveValue('12');
+    expect(screen.queryByRole('combobox', { name: 'Results per page' })).not.toBeInTheDocument();
   });
 });
 
 describe('rows per page', () => {
-  it('sits in the toolbar beside the Marketplace picker and requests a new page on change', async () => {
-    const data = overviewWith({ skills: [SKILL], total: 1 });
-    renderOverview(data);
-    expect(screen.getByLabelText('Results per page')).toHaveValue('24');
+  it('shows 24 results per page without a rows selector', () => {
+    renderOverview(
+      overviewWith({
+        skills: Array.from({ length: 24 }, (_, index) => ({
+          ...SKILL,
+          skillSlug: `Core__skill-${index + 1}`,
+          skillName: `skill-${index + 1}`,
+          name: `Skill ${index + 1}`,
+        })),
+        total: 50,
+      }),
+    );
 
-    const reloaded = overviewWith({
-      skills: [SKILL],
-      total: 1,
-      requested: browseWith({ pageSize: 48 }),
-      browse: browseWith({ pageSize: 48 }),
-    });
-    server.use(http.get('/api/marketplace/skills', () => HttpResponse.json({ data: reloaded })));
-
-    const user = userEvent.setup();
-    await user.selectOptions(screen.getByLabelText('Results per page'), '48');
-
-    expect(await screen.findByLabelText('Results per page')).toHaveValue('48');
+    expect(screen.getAllByRole('row', { name: /^Open Skill / })).toHaveLength(24);
+    expect(screen.getByText('1–24 of 50')).toBeVisible();
+    expect(screen.queryByRole('combobox', { name: 'Results per page' })).not.toBeInTheDocument();
   });
 });
