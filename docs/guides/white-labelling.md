@@ -7,7 +7,7 @@ The following guide assumes kora is already installed. See [Install runkora on K
 ## Write the theme document
 
 ```yaml
-koraVersion: "1.4.0"
+koraVersion: "0.11.0"
 productName: Northwind Agents
 tokens:
   --hades-raw-100:
@@ -21,9 +21,10 @@ slots:
     dark: https://assets.northwind.example/brand/2026-10/favicon-dark.svg
     light: https://assets.northwind.example/brand/2026-10/favicon-light.svg
   font.sans: https://assets.northwind.example/brand/2026-10/inter.woff2
+  font.mono: https://assets.northwind.example/brand/2026-10/northwind-mono.woff2
 ```
 
-- **`koraVersion`:** the release the theme is written against. It is required. Write it as a quoted `MAJOR.MINOR.PATCH`, such as `"1.4.0"`. kora accepts a theme written against its own major version.
+- **`koraVersion`:** the release the theme is written against. It is required. Write it as a quoted `MAJOR.MINOR.PATCH`, such as `"0.11.0"`. kora currently only guarantees a theme's compatibility with the exact release it was written against. A theme written for a different release may require edits.
 - **`productName`:** the name shown in place of kora. It takes up to 40 letters, digits, spaces and `. - & '`.
 - **`tokens`:** design tokens, each with a `dark` and a `light` value. The `manifest.json` on each GitHub release lists every token and its format. A mode you leave out uses the kora default.
 - **`slots`:** the asset URLs. `logo` and `favicon` take a `dark` and a `light` URL. `font.sans` and `font.mono` take one URL each.
@@ -52,7 +53,7 @@ The chart fails to render a document that is not valid YAML or has an invalid `p
 
 A theme change rolls out like any other values change. Revert the change to roll it back.
 
-The frontend validates the theme in a `validate-theme` init container before it starts. An invalid theme stops the new frontend pod. The previous pods keep serving until the theme is fixed. Services that use `productName` roll out with the new name whether or not the frontend accepts the theme.
+The frontend validates the theme in a `validate-theme` init container before it starts. An invalid theme stops the new frontend pod. The previous pods keep serving until the theme is fixed. Backend services that use `productName` roll out with the new name whether or not the frontend accepts the theme.
 
 Read the validation output on the new pod:
 
