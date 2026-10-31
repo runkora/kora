@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-09-18-agent-runtime-trace-propagation.md  (decision date + slug; no sequential number) -->
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-10-31 by [One Trace per Agent Run](2026-10-31-one-trace-per-run.md))
 **Date:** 2026-09-18
 **Deciders:** Justin Wilkin
 **Technical Story:** Show a run as one trace, from the run start in `kora-agents` through the Claude Code subprocess to the inference and tool gateway calls it makes. Builds on [2026-03-21: OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md).
