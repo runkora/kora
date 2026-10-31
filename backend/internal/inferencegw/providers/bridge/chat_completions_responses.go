@@ -53,7 +53,7 @@ func (b *ChatCompletionsResponsesBridge) Execute(ctx context.Context, params res
 		return nil, convert.MapOpenAIError(b.provider, err)
 	}
 
-	resp := convert.ChatCompletionToResponsesResponse(completion)
+	resp := convert.ChatCompletionToResponsesResponse(completion, convert.ResponsesToolNames(params.Tools))
 	b.logger.Debug(ctx, "bridge: chat completions responses execute done",
 		logging.Field{Key: "status", Value: string(resp.Status)},
 	)
@@ -85,7 +85,7 @@ func (b *ChatCompletionsResponsesBridge) ExecuteStream(ctx context.Context, para
 		defer close(ch)
 		defer stream.Close()
 
-		state := convert.NewChatCompletionsStreamState()
+		state := convert.NewChatCompletionsStreamState(convert.ResponsesToolNames(params.Tools))
 		var completed bool
 		for stream.Next() {
 			for _, ev := range convert.ChatCompletionChunkToResponsesEvents(stream.Current(), state) {
