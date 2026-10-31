@@ -58,7 +58,7 @@ The trace exporter is chosen at startup, in priority order:
 
 ### Automatic HTTP Tracing
 
-All HTTP requests are automatically traced via middleware:
+All HTTP requests are automatically traced via middleware, except those a `TraceFilter` passed to `TracingMiddleware` rejects:
 
 ```go
 // In cmd/identity/main.go
