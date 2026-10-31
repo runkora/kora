@@ -48,6 +48,10 @@ const (
 // binary in the image.
 var platformBinaries = []string{"kora-shell", "kora-runtime-mcp"}
 
+// harnessBinaries are image binaries a harness execs itself, by the harness's
+// command name. OpenCode runs ripgrep for its grep, glob and list tools.
+var harnessBinaries = map[string][]string{"opencode": {"/usr/bin/rg"}}
+
 // procFiles are the /proc files the agent may read. None describes a process:
 // runtimes read them for CPU and memory totals and kernel settings.
 var procFiles = []string{
@@ -82,7 +86,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "kora-session-runner: %v\n", err)
 		os.Exit(1)
 	}
-	applyLandlock(workDir, executables(resolved))
+	applyLandlock(workDir, executables(binary, resolved))
 	if err = syscall.Exec(resolved, argv, os.Environ()); err != nil {
 		fmt.Fprintf(os.Stderr, "kora-session-runner: exec %q: %v\n", resolved, err)
 		os.Exit(1)
@@ -99,10 +103,11 @@ func checkKernel(mode string, abi int) error {
 }
 
 // executables returns the files the agent may execute: the harness, the
-// platform binaries beside this one, and the ELF interpreter each one needs.
-// The run's PATH also holds directories the agent writes, so it is not searched.
-func executables(harness string) []string {
-	files := []string{harness}
+// platform binaries beside this one, the harness's own image binaries, and the
+// ELF interpreter each one needs. The run's PATH also holds directories the
+// agent writes, so it is not searched.
+func executables(name, harness string) []string {
+	files := append([]string{harness}, harnessBinaries[filepath.Base(name)]...)
 	if self, err := os.Executable(); err == nil {
 		for _, name := range platformBinaries {
 			files = append(files, filepath.Join(filepath.Dir(self), name))

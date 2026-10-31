@@ -76,7 +76,7 @@ COPY cmd/session-manager/agent-clis/claude-managed-settings.json /etc/claude-cod
 # Install the claude and opencode CLIs from the lockfile in cmd/session-manager/agent-clis,
 # so every build gets the same versions. Validate the opencode ACP protocol on upgrade.
 # kora-session-runner lets a run execute only its harness binary, kora-shell,
-# kora-runtime-mcp and their ELF interpreter.
+# kora-runtime-mcp, their ELF interpreter and, for OpenCode, ripgrep.
 COPY cmd/session-manager/agent-clis/package.json cmd/session-manager/agent-clis/package-lock.json /usr/local/lib/agent-clis/
 RUN cd /usr/local/lib/agent-clis && \
     npm ci --omit=dev && \

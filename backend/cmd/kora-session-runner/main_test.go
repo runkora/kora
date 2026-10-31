@@ -49,3 +49,21 @@ func TestCheckKernel(t *testing.T) {
 		}
 	}
 }
+
+// OpenCode, and only OpenCode, may execute the image's ripgrep.
+func TestExecutablesHarnessBinaries(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		wantRg bool
+	}{
+		{"opencode", true},
+		{"/usr/local/bin/opencode", true},
+		{"claude", false},
+		{"codex", false},
+	} {
+		got := executables(tc.name, "/harness/"+filepath.Base(tc.name))
+		if slices.Contains(got, "/usr/bin/rg") != tc.wantRg {
+			t.Errorf("executables(%q) = %v, want rg allowed %v", tc.name, got, tc.wantRg)
+		}
+	}
+}
