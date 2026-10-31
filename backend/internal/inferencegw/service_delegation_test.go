@@ -93,7 +93,7 @@ func TestCheckBudget_DelegationThreadedIntoBudgetInput(t *testing.T) {
 	}}
 	svc := newBudgetService(eval, counter)
 
-	if _, err := svc.checkBudget(delegatedAgentCtx("user-1"), principal{
+	if err := svc.checkBudget(delegatedAgentCtx("user-1"), principal{
 		TenantID:      "tenant-1",
 		PrincipalID:   "spiffe://runkora.test/tenant/tenant-1/agent/reviewer",
 		PrincipalType: "AGENT",
@@ -123,7 +123,7 @@ func TestCheckBudget_NoDelegation_NoDelegatorInput(t *testing.T) {
 	counter := &mockSpendCounter{}
 	svc := newBudgetService(eval, counter)
 
-	if _, err := svc.checkBudget(ctxWithClaims(t), principal{
+	if err := svc.checkBudget(ctxWithClaims(t), principal{
 		TenantID: "tenant-1", PrincipalID: "user-1", PrincipalType: "HUMAN",
 	}); err != nil {
 		t.Fatalf("checkBudget: %v", err)

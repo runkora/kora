@@ -29,6 +29,10 @@ type Mux struct {
 	logger     logging.Logger
 	ctx        context.Context
 
+	// mountPath is the server base path http.StripPrefix removes before this
+	// Mux routes, so span names can carry the route the client called.
+	mountPath string
+
 	// metricsMiddleware is applied per-route, inside RoutePattern, so it can
 	// actually read the route the request matched. See HandleWithMiddleware.
 	// Nil when the binary has no meter wired (metrics disabled).
@@ -133,7 +137,7 @@ func (m *Mux) HandleWithMiddleware(
 		finalHandler = m.middleware(finalHandler)
 	}
 
-	finalHandler = mw.SpanRouteName(finalHandler)
+	finalHandler = mw.SpanRouteName(m.mountPath)(finalHandler)
 
 	// Between SpanRouteName and RoutePattern (not in the global chain a
 	// binary builds in main.go), so it executes after RoutePattern has set
@@ -156,12 +160,18 @@ func (m *Mux) HandleWithMiddleware(
 	m.ServeMux.Handle(joinedRoute, finalHandler)
 }
 
+// HandleFileServer mounts handler at route without controller middleware. It
+// still names the request's span after the route.
 func (m *Mux) HandleFileServer(
 	route string,
 	handler http.Handler,
 ) {
+	path := route
+	if _, p, ok := strings.Cut(route, " "); ok {
+		path = p
+	}
 	m.ServeMux.Handle(
 		route,
-		handler,
+		mw.RoutePattern(path)(mw.SpanRouteName(m.mountPath)(handler)),
 	)
 }

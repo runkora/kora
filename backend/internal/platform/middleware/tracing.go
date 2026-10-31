@@ -35,8 +35,8 @@ func TracingMiddleware(serviceName string) Middleware {
 			}
 
 			// Extract trace context from incoming request headers (W3C TraceContext format)
-			// Then start a new span for this HTTP request
-			// The span name follows OpenTelemetry semantic conventions: "HTTP {method}"
+			// Then start a new span for this HTTP request, named "{method} {route}"
+			// per the HTTP semantic conventions; SpanRouteName renames it once a route matches.
 			propagatedCtx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
 
 			// Build span attributes following OpenTelemetry semantic conventions

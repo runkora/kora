@@ -21,7 +21,7 @@ func RoutePattern(pattern string) MiddlewareHandler {
 }
 
 // RoutePatternFromContext returns the matched route pattern, and false when the
-// request was served outside the Mux (the health endpoint, file servers).
+// request was served outside the Mux (the health endpoint).
 func RoutePatternFromContext(ctx context.Context) (string, bool) {
 	pattern, ok := ctx.Value(routePatternContextKey{}).(string)
 	return pattern, ok
