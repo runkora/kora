@@ -4,19 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-	"time"
-
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
@@ -312,7 +311,7 @@ func (s *EnvironmentService) Sizes() EnvironmentSizes {
 // of the agents it is attached to.
 func (s *EnvironmentService) UpdateEnvironment(ctx context.Context, req EnvironmentRequest) (*Environment, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.UpdateEnvironment",
-		trace.WithAttributes(attribute.String("environment_id", req.ID)))
+		trace.WithAttributes(observability.EnvironmentIDKey.String(req.ID)))
 	defer span.End()
 
 	tenantID := tenantFromContext(ctx)
@@ -361,7 +360,7 @@ func (s *EnvironmentService) UpdateEnvironment(ctx context.Context, req Environm
 // DeleteEnvironment removes an environment no agent has attached.
 func (s *EnvironmentService) DeleteEnvironment(ctx context.Context, id string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.DeleteEnvironment",
-		trace.WithAttributes(attribute.String("environment_id", id)))
+		trace.WithAttributes(observability.EnvironmentIDKey.String(id)))
 	defer span.End()
 
 	tenantID := tenantFromContext(ctx)

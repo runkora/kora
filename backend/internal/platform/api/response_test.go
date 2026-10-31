@@ -15,6 +15,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
 
 func TestJSON(t *testing.T) {
@@ -162,12 +163,12 @@ func TestErrorResponse(t *testing.T) {
 
 			var gotAppError bool
 			for _, attr := range recorder.Ended()[0].Attributes() {
-				if attr.Key == "app.error" {
-					gotAppError = attr.Value.AsBool()
+				if attr.Key == semconv.ErrorTypeKey {
+					gotAppError = true
 				}
 			}
 			if gotAppError != tt.wantAppError {
-				t.Errorf("app.error = %v, want %v", gotAppError, tt.wantAppError)
+				t.Errorf("error.type set = %v, want %v", gotAppError, tt.wantAppError)
 			}
 
 			// Check status code

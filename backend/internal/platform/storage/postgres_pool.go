@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,7 +11,10 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // BuildPoolConfig creates a pgxpool.Config with all pool settings and the
@@ -82,19 +84,11 @@ func (t *otelQueryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data p
 	if data.Err != nil {
 		span.RecordError(data.Err)
 		span.SetStatus(codes.Error, errQueryFailed.Error())
-		span.SetAttributes(attribute.Bool("db.error", true))
+		span.SetAttributes(semconv.ErrorTypeKey.String(errQueryFailed.Error()))
 		return
 	}
 
-	commandTag := data.CommandTag.String()
-	if commandTag != "" {
-		operation := commandTag
-		if idx := strings.Index(commandTag, " "); idx > 0 {
-			operation = commandTag[:idx]
-		}
-		span.SetAttributes(
-			attribute.String("db.operation", operation),
-			attribute.Int64("db.rows_affected", data.CommandTag.RowsAffected()),
-		)
+	if data.CommandTag.String() != "" {
+		span.SetAttributes(observability.DBRowsAffectedKey.Int64(data.CommandTag.RowsAffected()))
 	}
 }

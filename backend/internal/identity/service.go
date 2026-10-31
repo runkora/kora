@@ -27,8 +27,8 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
@@ -36,6 +36,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -339,8 +340,8 @@ func parseDeviceTokenError(body []byte) error {
 func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.PollDeviceAuth",
 		trace.WithAttributes(
-			attribute.String("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-			attribute.String("tenant_id", req.TenantID),
+			observability.OAuthGrantTypeKey.String("urn:ietf:params:oauth:grant-type:device_code"),
+			observability.TenantIDKey.String(req.TenantID),
 		),
 	)
 	defer span.End()
@@ -376,7 +377,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 
 	// OAuth2 error responses use 4xx status codes.
 	if resp.StatusCode != http.StatusOK {
-		span.SetAttributes(attribute.Int("http.status_code", resp.StatusCode))
+		span.SetAttributes(semconv.HTTPResponseStatusCodeKey.Int(resp.StatusCode))
 		if sentinelErr := parseDeviceTokenError(body); sentinelErr != nil {
 			recordDeviceAuthError(span, sentinelErr)
 			return nil, sentinelErr
@@ -422,9 +423,9 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 	}
 
 	span.SetAttributes(
-		attribute.String("principal.id", claims.Sub),
-		attribute.String("principal.type", string(PrincipalTypeHuman)),
-		attribute.String("identity.source", string(IdentitySourceFederated)),
+		observability.PrincipalIDKey.String(claims.Sub),
+		observability.PrincipalTypeKey.String(string(PrincipalTypeHuman)),
+		observability.PrincipalIdentitySourceKey.String(string(IdentitySourceFederated)),
 	)
 
 	tenantID, err := s.bindTenant(ts, req.TenantID, idToken)
@@ -485,8 +486,8 @@ func resolveDisplayName(name, preferredUsername, email, sub string) string {
 func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.ExchangeIDToken",
 		trace.WithAttributes(
-			attribute.String("grant_type", "oidc_id_token"),
-			attribute.String("tenant_id", req.TenantID),
+			observability.OAuthGrantTypeKey.String("oidc_id_token"),
+			observability.TenantIDKey.String(req.TenantID),
 		),
 	)
 	defer span.End()
@@ -523,9 +524,9 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 	}
 
 	span.SetAttributes(
-		attribute.String("principal.id", claims.Sub),
-		attribute.String("principal.type", string(PrincipalTypeHuman)),
-		attribute.String("identity.source", string(IdentitySourceFederated)),
+		observability.PrincipalIDKey.String(claims.Sub),
+		observability.PrincipalTypeKey.String(string(PrincipalTypeHuman)),
+		observability.PrincipalIdentitySourceKey.String(string(IdentitySourceFederated)),
 	)
 
 	tenantID, err := s.bindTenant(tenant, req.TenantID, idToken)
@@ -566,7 +567,7 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.RefreshSession",
 		trace.WithAttributes(
-			attribute.String("grant_type", "refresh_token"),
+			observability.OAuthGrantTypeKey.String("refresh_token"),
 		),
 	)
 	defer span.End()
@@ -621,11 +622,11 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 	}
 
 	span.SetAttributes(
-		attribute.String("session.id", session.ID),
-		attribute.String("principal.id", session.PrincipalID),
-		attribute.String("principal.type", string(session.PrincipalType)),
-		attribute.String("tenant_id", session.TenantID),
-		attribute.String("identity.source", string(session.IdentitySource)),
+		observability.SessionIDKey.String(session.ID),
+		observability.PrincipalIDKey.String(session.PrincipalID),
+		observability.PrincipalTypeKey.String(string(session.PrincipalType)),
+		observability.TenantIDKey.String(session.TenantID),
+		observability.PrincipalIdentitySourceKey.String(string(session.IdentitySource)),
 	)
 
 	// Revoke the used refresh token (rotation).
@@ -668,10 +669,10 @@ func (s *Service) ExchangeSVID(ctx context.Context, r *http.Request) (*SessionRe
 	}
 
 	span.SetAttributes(
-		attribute.String("principal.id", principal.ID),
-		attribute.String("principal.type", string(principal.Type)),
-		attribute.String("tenant_id", principal.TenantID),
-		attribute.String("identity.source", string(principal.IdentitySource)),
+		observability.PrincipalIDKey.String(principal.ID),
+		observability.PrincipalTypeKey.String(string(principal.Type)),
+		observability.TenantIDKey.String(principal.TenantID),
+		observability.PrincipalIdentitySourceKey.String(string(principal.IdentitySource)),
 	)
 
 	// tenant_id is extracted exclusively from the SPIFFE URI in the XFCC header —
@@ -690,7 +691,7 @@ func (s *Service) ExchangeSVID(ctx context.Context, r *http.Request) (*SessionRe
 func (s *Service) RevokeToken(ctx context.Context, req RevokeRequest) error {
 	ctx, span := s.tracer.Start(ctx, "identity.RevokeToken",
 		trace.WithAttributes(
-			attribute.String("token_type", req.TokenType),
+			observability.OAuthTokenTypeKey.String(req.TokenType),
 		),
 	)
 	defer span.End()
@@ -740,7 +741,7 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 		return ErrInvalidToken
 	}
 
-	span.SetAttributes(attribute.String("jti", jti))
+	span.SetAttributes(observability.TokenJTIKey.String(jti))
 
 	expiry, err := claims.GetExpirationTime()
 	if err == nil && expiry != nil {
@@ -751,7 +752,7 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 				span.SetStatus(codes.Error, "blocklist operation failed")
 				return fmt.Errorf("block jti: %w", blockErr)
 			}
-			span.SetAttributes(attribute.Int64("jti.ttl_seconds", int64(ttl.Seconds())))
+			span.SetAttributes(observability.TokenTTLSecondsKey.Int64(int64(ttl.Seconds())))
 		}
 	}
 
@@ -768,7 +769,7 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 		return fmt.Errorf("get session by jti: %w", err)
 	}
 
-	span.SetAttributes(attribute.String("session.id", session.ID))
+	span.SetAttributes(observability.SessionIDKey.String(session.ID))
 
 	now := time.Now()
 	if rErr := s.refreshTokens.RevokeAllForSession(ctx, session.ID, now); rErr != nil {
@@ -806,7 +807,7 @@ func (s *Service) revokeRefreshToken(ctx context.Context, token string) error {
 		return fmt.Errorf("get refresh token for revocation: %w", err)
 	}
 
-	span.SetAttributes(attribute.String("refresh_token.id", rt.ID))
+	span.SetAttributes(observability.RefreshTokenIDKey.String(rt.ID))
 
 	if err := s.refreshTokens.RevokeRefreshToken(ctx, rt.ID, time.Now()); err != nil {
 		if errors.Is(err, ErrRefreshTokenNotFound) {
@@ -839,10 +840,10 @@ func (s *Service) JWKSJSON() []byte {
 func (s *Service) buildAndPersistSession(ctx context.Context, principal *Principal) (sessionID, accessToken string, now time.Time, ttl time.Duration, err error) {
 	ctx, span := s.tracer.Start(ctx, "identity.buildAndPersistSession",
 		trace.WithAttributes(
-			attribute.String("principal.id", principal.ID),
-			attribute.String("principal.type", string(principal.Type)),
-			attribute.String("tenant_id", principal.TenantID),
-			attribute.String("identity.source", string(principal.IdentitySource)),
+			observability.PrincipalIDKey.String(principal.ID),
+			observability.PrincipalTypeKey.String(string(principal.Type)),
+			observability.TenantIDKey.String(principal.TenantID),
+			observability.PrincipalIdentitySourceKey.String(string(principal.IdentitySource)),
 		),
 	)
 	defer span.End()
@@ -854,9 +855,9 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 	ttl = time.Duration(s.cfg.Token.AccessTokenTTLMinutes) * time.Minute
 
 	span.SetAttributes(
-		attribute.String("session.id", sessionID),
-		attribute.String("jti", jti),
-		attribute.Int64("ttl_minutes", int64(s.cfg.Token.AccessTokenTTLMinutes)),
+		observability.SessionIDKey.String(sessionID),
+		observability.TokenJTIKey.String(jti),
+		observability.TokenTTLMinutesKey.Int64(int64(s.cfg.Token.AccessTokenTTLMinutes)),
 	)
 
 	// Sign before persisting — if signing fails nothing is written to the DB.
@@ -897,7 +898,7 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 func (s *Service) createSession(ctx context.Context, principal *Principal) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.createSession",
 		trace.WithAttributes(
-			attribute.String("principal.type", string(principal.Type)),
+			observability.PrincipalTypeKey.String(string(principal.Type)),
 		),
 	)
 	defer span.End()
@@ -944,8 +945,8 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 	}
 
 	span.SetAttributes(
-		attribute.String("refresh_token.id", rt.ID),
-		attribute.Int64("refresh_token.ttl_days", int64(s.cfg.Token.RefreshTokenTTLDays)),
+		observability.RefreshTokenIDKey.String(rt.ID),
+		observability.RefreshTokenTTLDaysKey.Int64(int64(s.cfg.Token.RefreshTokenTTLDays)),
 	)
 	span.SetStatus(codes.Ok, "session with refresh token created")
 
@@ -966,7 +967,7 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 func (s *Service) createAgentSession(ctx context.Context, principal *Principal) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.createAgentSession",
 		trace.WithAttributes(
-			attribute.String("principal.type", string(principal.Type)),
+			observability.PrincipalTypeKey.String(string(principal.Type)),
 		),
 	)
 	defer span.End()
@@ -1361,7 +1362,7 @@ func recordDeviceAuthError(span trace.Span, err error) {
 	default:
 		var oe *OAuthError
 		if errors.As(err, &oe) {
-			span.SetAttributes(attribute.String("oauth.error", oe.Code))
+			span.SetAttributes(observability.OAuthErrorKey.String(oe.Code))
 			span.SetStatus(codes.Error, oe.Code)
 		}
 	}
