@@ -238,7 +238,7 @@ A run executes commands only in its sandbox. A run with no sandbox executes none
 
 ### Operating `agents.landlock`
 
-*   **Failure:** An agent pod on a node without Landlock ABI v2 stays not ready, and no run lands on it. `kubectl -n <tenant namespace> logs <agent pod> -c session-manager` shows `Agents cannot run on this node` with the node's ABI.
+*   **Failure:** An agent pod on a node without Landlock ABI v2 stays not ready, and no run lands on it. `kubectl -n <tenant namespace> logs <agent pod> -c session-manager` shows `Agents cannot run on this node` with the node's ABI. A seccomp profile that blocks the Landlock syscalls reads as a kernel without Landlock.
 *   **When to set `bestEffort`:** Set it only for nodes whose kernel lacks Landlock ABI v2 (Linux 5.19) or boots without Landlock in its LSM list. Agents on those nodes run without filesystem and execute confinement.
 
 ### Consequences
