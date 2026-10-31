@@ -11,11 +11,13 @@ import (
 
 // provisionSandbox is the tool call that gives a run its sandbox. Without the
 // run token the session-manager refuses it, so the header is part of the
-// request's contract rather than an optimisation.
+// request's contract rather than an optimisation. The traceparent keeps the call
+// in the run's trace.
 func TestProvisionSandbox_SendsTheRunToken(t *testing.T) {
-	var gotHeader, gotPath string
+	var gotHeader, gotPath, gotTrace string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotHeader = r.Header.Get("X-Kora-Run-Token")
+		gotTrace = r.Header.Get("traceparent")
 		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"endpoint":"10.0.0.5:50051"}`)) //nolint:errcheck
@@ -23,6 +25,7 @@ func TestProvisionSandbox_SendsTheRunToken(t *testing.T) {
 	defer srv.Close()
 
 	t.Setenv("KORA_RUN_TOKEN", "run-token-abc")
+	t.Setenv("TRACEPARENT", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
 
 	s := &mcpServer{sessionManagerURL: srv.URL, runID: "run-1", httpClient: srv.Client()}
 	if err := s.post("provision-sandbox", ""); err != nil {
@@ -31,6 +34,9 @@ func TestProvisionSandbox_SendsTheRunToken(t *testing.T) {
 
 	if gotHeader != "run-token-abc" {
 		t.Errorf("X-Kora-Run-Token = %q, want the run token", gotHeader)
+	}
+	if gotTrace != "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" {
+		t.Errorf("traceparent = %q, want the run's TRACEPARENT", gotTrace)
 	}
 	if gotPath != "/internal/session/run-1/provision-sandbox" {
 		t.Errorf("path = %q", gotPath)

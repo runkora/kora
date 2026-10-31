@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"google.golang.org/grpc/metadata"
 )
 
 // readSandbox reads both halves: an endpoint without its token is unusable.
@@ -186,9 +188,10 @@ func TestSandboxCallbacks_SendTheRunToken(t *testing.T) {
 		{name: "reprovisionSandbox", body: `{}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var gotHeader string
+			var gotHeader, gotTrace string
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotHeader = r.Header.Get(runTokenHeader)
+				gotTrace = r.Header.Get("traceparent")
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(tc.body)) //nolint:errcheck
 			}))
@@ -202,6 +205,7 @@ func TestSandboxCallbacks_SendTheRunToken(t *testing.T) {
 			t.Setenv("KORA_SESSION_MANAGER_URL", srv.URL)
 			t.Setenv("KORA_RUN_ID", "run-1")
 			t.Setenv("KORA_RUN_TOKEN", "run-token-abc")
+			t.Setenv("TRACEPARENT", testTraceParent)
 
 			switch tc.name {
 			case "fetchSandbox":
@@ -217,6 +221,20 @@ func TestSandboxCallbacks_SendTheRunToken(t *testing.T) {
 			if gotHeader != "run-token-abc" {
 				t.Errorf("%s = %q, want the run token", runTokenHeader, gotHeader)
 			}
+			if gotTrace != testTraceParent {
+				t.Errorf("traceparent = %q, want the run's", gotTrace)
+			}
 		})
+	}
+}
+
+const testTraceParent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+// The sandbox exec call carries the run's trace next to its token.
+func TestExecContext_CarriesTheRunTrace(t *testing.T) {
+	t.Setenv("TRACEPARENT", testTraceParent)
+	md, _ := metadata.FromOutgoingContext(execContext("tok-1"))
+	if got := md.Get("traceparent"); len(got) != 1 || got[0] != testTraceParent {
+		t.Errorf("traceparent metadata = %v, want the run's", got)
 	}
 }
