@@ -729,6 +729,21 @@ func TestClaudeBuildRunEnv_Offline(t *testing.T) {
 	}
 }
 
+// Tool search is off: its tool_reference blocks fail the next model call with a 400 through the gateway on Bedrock.
+func TestClaudeBuildRunEnv_ToolSearchOff(t *testing.T) {
+	r := NewClaudeRunner(ClaudeRunnerConfig{})
+	env := r.buildRunEnv([]string{"ENABLE_TOOL_SEARCH=true"}, "/run/home", "/run/tmp")
+	var vals []string
+	for _, e := range env {
+		if strings.HasPrefix(e, "ENABLE_TOOL_SEARCH=") {
+			vals = append(vals, e)
+		}
+	}
+	if len(vals) != 1 || vals[0] != "ENABLE_TOOL_SEARCH=false" {
+		t.Errorf("ENABLE_TOOL_SEARCH entries = %v, want [ENABLE_TOOL_SEARCH=false]", vals)
+	}
+}
+
 // An interrupted empty turn emits nothing. The stop is recorded when the
 // process exits, and the empty-turn guard does not see a turn end.
 func TestDispatch_Result_InterruptedEmptyEndTurnEmitsNothing(t *testing.T) {

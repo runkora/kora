@@ -836,6 +836,8 @@ var claudeOfflineEnv = []string{
 	"DISABLE_FEEDBACK_COMMAND=1",
 	"CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1",
 	"CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1",
+	// Tool search returns tool_reference blocks that the gateway on Bedrock rejects with a 400 on the next call.
+	"ENABLE_TOOL_SEARCH=false",
 }
 
 // ── Claude Code JSON wire types ──────────────────────────────────────────────
