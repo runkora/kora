@@ -47,16 +47,6 @@ func TestLocalOverlay_KeepsLocalRegistryAndTrustDomain(t *testing.T) {
 	}
 }
 
-func TestValidate_NodeMaxOldSpaceMB(t *testing.T) {
-	for mb, valid := range map[int]bool{512: true, 0: true, -5: false} {
-		cfg := &Config{}
-		cfg.Agents.SessionManager.NodeMaxOldSpaceMB = mb
-		if err := Validate(cfg); (err == nil) != valid {
-			t.Errorf("Validate(nodeMaxOldSpaceMB=%d) error = %v, want valid %v", mb, err, valid)
-		}
-	}
-}
-
 func TestValidate_Landlock(t *testing.T) {
 	for mode, valid := range map[string]bool{"enforce": true, "bestEffort": true, "": true, "off": false} {
 		cfg := &Config{}

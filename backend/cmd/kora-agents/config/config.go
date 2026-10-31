@@ -141,10 +141,6 @@ type Config struct {
 			// chart sets it from platform.spiffe.enabled AND
 			// agents.authorizationPolicy.enabled.
 			AuthorizationPolicyEnabled bool `yaml:"authorizationPolicyEnabled"`
-			// NodeMaxOldSpaceMB caps the V8 heap of Node processes a run starts
-			// on its agent pod, so one runaway run cannot OOM-kill the pod's
-			// other runs. Zero disables the cap.
-			NodeMaxOldSpaceMB int `yaml:"nodeMaxOldSpaceMB"`
 			// Landlock is enforce or bestEffort. enforce keeps agents off a node
 			// whose kernel cannot confine them; the chart sets it from agents.landlock.
 			Landlock string `yaml:"landlock"`
@@ -226,9 +222,6 @@ var Current = config.MustLoadService[Config]("cmd/kora-agents", config.Environme
 func Validate(cfg *Config) error {
 	if cfg.Kubernetes.InCluster && cfg.Platform.TrustDomain == "" {
 		return errors.New("platform.trustDomain must be set when kubernetes.inCluster is true")
-	}
-	if cfg.Agents.SessionManager.NodeMaxOldSpaceMB < 0 {
-		return errors.New("agents.sessionManager.nodeMaxOldSpaceMB must be a non-negative integer")
 	}
 	if _, err := landlockmode.Parse(cfg.Agents.SessionManager.Landlock); err != nil {
 		return err

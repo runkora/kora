@@ -129,9 +129,6 @@ type K8sProvisionerConfig struct {
 	// no source matches the rule and every call is denied, so the chart gates
 	// this on platform.spiffe.enabled (charts/kora/templates/agents/deployment.yaml).
 	AuthorizationPolicyEnabled bool
-	// NodeMaxOldSpaceMB is passed to each session-manager, which caps the heap
-	// of Node processes its runs start. Zero disables the cap.
-	NodeMaxOldSpaceMB int
 	// Landlock is the session-manager's KORA_LANDLOCK: enforce or bestEffort.
 	Landlock string
 	// MinReplicas is the session-manager pod count each agent starts with and the HPA minimum.
@@ -1886,7 +1883,6 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								// injected on every outbound request by the Envoy ext_proc filter.
 								// Claude Code requires a non-empty value to start in --bare mode.
 								{Name: "ANTHROPIC_API_KEY", Value: "kora-managed"},
-								{Name: "KORA_NODE_MAX_OLD_SPACE_MB", Value: strconv.Itoa(p.cfg.NodeMaxOldSpaceMB)},
 								{Name: landlockmode.EnvVar, Value: p.cfg.Landlock},
 								// The session-manager ends its drain before the kubelet stops the pod.
 								{Name: "KORA_TERMINATION_GRACE_PERIOD_SECS", Value: strconv.FormatInt(p.cfg.DrainGracePeriodSecs, 10)},
