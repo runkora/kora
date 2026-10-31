@@ -29,7 +29,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `sandbox-exec` | gRPC exec server inside a sandbox pod: streams stdout/stderr/exit for commands | gRPC `50051` | none |
 | `kora-runtime-mcp` | MCP server (stdio) spawned by the agent CLI: exposes the `list_environments`, `provision_sandbox` and `replace_environment` tools | stdio | none |
 | `kora-shell` | `$SHELL` shim in the agent container: streams `-c` commands to the sandbox pod and refuses them when the run has no sandbox | none | none |
-| `kora-session-runner` | Wrapper that applies Landlock, then `exec()`s the agent CLI. The agent can execute only its CLI, `kora-shell` and `kora-runtime-mcp` | none | none |
+| `kora-session-runner` | Wrapper that applies Landlock, then `exec()`s the agent CLI. The agent can execute only its CLI and the CLI's helper binaries, `kora-shell` and `kora-runtime-mcp` | none | none |
 | `sandbox-mount` | Privileged node agent (DaemonSet): exports each sandbox's local working folder with the kernel NFS server and mounts it into the session-manager pod at `/workspaces/<run>/sandbox` | NFS `20490` (host network, `sandboxMount.port`) | none |
 | `migrate` | Schema migrations: embeds every service's `migrations/` and runs them as the chart's pre-install/pre-upgrade hook Job | none | none |
 | `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |

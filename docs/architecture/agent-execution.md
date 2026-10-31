@@ -18,7 +18,7 @@ Each agent type gets a long-lived StatefulSet. Runs are multiplexed onto the `ag
 
 This enables agent runs that do not require a sandbox to run barebones inside their `agent-type` pod, requiring no further compute to complete their tasks. This is typical of agentic use cases that only utilise MCPs to complete their tasks and do not require code-ready environments for build and test like activities.
 
-The `session-manager` container hosts each agent run. `kora-session-runner` wraps the agent harness and confines it with Landlock in its own workspace. The session-manager also hosts a local `kora-runtime-mcp` which provides the harness the tools required to provision sandboxes, and manage its environment. `kora-shell` is the harness's shell. It runs every command inside the run's sandbox and refuses commands until the agent provisions one. Landlock lets the harness execute only its own binary, `kora-shell` and `kora-runtime-mcp`, so no command runs in the agent runtime pod.
+The `session-manager` container hosts each agent run. `kora-session-runner` wraps the agent harness and confines it with Landlock in its own workspace. The session-manager also hosts a local `kora-runtime-mcp` which provides the harness the tools required to provision sandboxes, and manage its environment. `kora-shell` is the harness's shell. It runs every command inside the run's sandbox and refuses commands until the agent provisions one. Landlock lets the harness execute only its own binaries, `kora-shell` and `kora-runtime-mcp`, so no command runs in the agent runtime pod.
 
 | Component | Runs in | Job |
 | --- | --- | --- |

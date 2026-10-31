@@ -225,7 +225,7 @@ A run executes commands only in its sandbox. A run with no sandbox executes none
 ### Decision
 
 *   `kora-shell` refuses a command when the run has no sandbox and refuses an interactive shell in every case. The refusal tells the agent to call `provision_sandbox` and run the command again.
-*   `kora-session-runner` grants the Landlock execute right only on the harness binary, `kora-shell`, `kora-runtime-mcp` and the ELF interpreter each one names. It resolves the two platform binaries next to its own binary. The run's PATH holds directories the agent writes.
+*   `kora-session-runner` grants the Landlock execute right only on the harness binary, `kora-shell`, `kora-runtime-mcp` and the ELF interpreter each one names. It resolves the two platform binaries next to its own binary. The run's PATH holds directories the agent writes. OpenCode can also execute the image's `/usr/bin/rg`. Its search tools pass the model's input to `rg` after `--` or inside `--glob=`.
 *   The workspace, TMPDIR, local dir, `/dev` and the system directories keep their read and write rights without execute.
 *   Each harness ignores the configuration the agent can write wherever that configuration starts a process or loads code:
     *   Claude Code runs with `--strict-mcp-config` and reads project and local settings only. Its user settings live in the agent-writable HOME. Image-managed settings pin `CLAUDE_CODE_SHELL` to `kora-shell`, allow managed hooks only and refuse every plugin marketplace.
