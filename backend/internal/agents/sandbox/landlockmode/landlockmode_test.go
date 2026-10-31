@@ -51,7 +51,7 @@ func TestCheck(t *testing.T) {
 }
 
 func TestMissing(t *testing.T) {
-	for abi, want := range map[int]int{0: 3, 2: 2, 3: 1, 4: 1, 6: 0} {
+	for abi, want := range map[int]int{0: 3, 1: 3, 2: 2, 3: 1, 4: 1, 6: 0} {
 		if got := Missing(abi); len(got) != want {
 			t.Errorf("Missing(%d) = %v, want %d entries", abi, got, want)
 		}

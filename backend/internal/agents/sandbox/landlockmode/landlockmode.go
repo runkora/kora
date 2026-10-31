@@ -3,7 +3,11 @@
 // in KORA_LANDLOCK (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 package landlockmode
 
-import "fmt"
+import (
+	"fmt"
+
+	llsyscall "github.com/landlock-lsm/go-landlock/landlock/syscall"
+)
 
 // Mode is enforce or bestEffort.
 type Mode string
@@ -18,9 +22,23 @@ const (
 // EnvVar carries the mode to the session-manager and to kora-session-runner.
 const EnvVar = "KORA_LANDLOCK"
 
-// RequiredABI is the oldest Landlock ABI enforce accepts. It confines writes and
-// execution and lets an agent move files between its own directories.
-const RequiredABI = 2
+// Landlock ABIs that add confinement kora-session-runner uses. ABI v1 confines
+// writes and execution. v2 lets an agent move and link files between its own
+// directories, which enforce requires.
+const (
+	RequiredABI = 2
+	truncateABI = 3
+	scopeABI    = 6
+)
+
+// KernelABI is the kernel's Landlock ABI, or 0 without Landlock.
+func KernelABI() int {
+	abi, err := llsyscall.LandlockGetABIVersion()
+	if err != nil {
+		return 0
+	}
+	return abi
+}
 
 // Parse reads a mode. Empty is Enforce.
 func Parse(s string) (Mode, error) {
@@ -46,13 +64,16 @@ func (m Mode) Check(abi int) error {
 // Missing lists the confinement a kernel with Landlock ABI abi does not apply.
 func Missing(abi int) []string {
 	var out []string
-	if abi < RequiredABI {
-		out = append(out, "filesystem write and execute confinement (ABI v2)")
+	switch {
+	case abi < 1:
+		out = append(out, "all Landlock confinement")
+	case abi < RequiredABI:
+		out = append(out, "moving and linking files between directories (ABI v2)")
 	}
-	if abi < 3 {
+	if abi < truncateABI {
 		out = append(out, "file truncation (ABI v3)")
 	}
-	if abi < 6 {
+	if abi < scopeABI {
 		out = append(out, "signal and abstract socket scoping (ABI v6)")
 	}
 	return out

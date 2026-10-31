@@ -10,7 +10,6 @@ import (
 
 	"time"
 
-	llsyscall "github.com/landlock-lsm/go-landlock/landlock/syscall"
 	smConfig "github.com/runkora/kora/backend/cmd/session-manager/config"
 	"github.com/runkora/kora/backend/internal/agents/sandbox/landlockmode"
 	"github.com/runkora/kora/backend/internal/agents/sessionmanager"
@@ -161,10 +160,7 @@ func checkIsolation(ctx context.Context, logger logging.Logger, wrapperPath, mod
 	if err != nil || wrapperPath == "" {
 		return m, err
 	}
-	abi, err := llsyscall.LandlockGetABIVersion()
-	if err != nil {
-		abi = 0
-	}
+	abi := landlockmode.KernelABI()
 	if err := m.Check(abi); err != nil {
 		logger.Error(ctx, "Agents cannot run on this node", logging.Field{Key: "error", Value: err.Error()})
 		return m, err

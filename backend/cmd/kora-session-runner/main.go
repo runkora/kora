@@ -78,7 +78,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = checkKernel(os.Getenv(landlockmode.EnvVar), kernelABI()); err != nil {
+	if err = checkKernel(os.Getenv(landlockmode.EnvVar), landlockmode.KernelABI()); err != nil {
 		fmt.Fprintf(os.Stderr, "kora-session-runner: %v\n", err)
 		os.Exit(1)
 	}
@@ -96,15 +96,6 @@ func checkKernel(mode string, abi int) error {
 		return err
 	}
 	return m.Check(abi)
-}
-
-// kernelABI is the kernel's Landlock ABI, or 0 without Landlock.
-func kernelABI() int {
-	abi, err := llsyscall.LandlockGetABIVersion()
-	if err != nil {
-		return 0
-	}
-	return abi
 }
 
 // executables returns the files the agent may execute: the harness, the
