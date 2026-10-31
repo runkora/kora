@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-09-18-sandbox-exec-trust-boundary.md  (decision date + slug; no sequential number) -->
 
-**Status:** Proposed (Amended 2026-10-31: Amendment 1 Accepted, the sandbox is the only place a run executes commands)
+**Status:** Accepted (Amended 2026-10-31: Amendment 1 Accepted, the sandbox is the only place a run executes commands)
 **Date:** 2026-09-18
 **Deciders:** Justin Wilkin
 **Technical Story:** Establish who may execute commands in a run's sandbox, and give every agent framework the same confinement. Resolves clear-route/orbit#202, #217 and #200.
@@ -229,7 +229,7 @@ A run executes commands only in its sandbox. A run with no sandbox executes none
 *   The workspace, TMPDIR, local dir, `/dev` and the system directories keep their read and write rights without execute.
 *   Each harness ignores the configuration the agent can write wherever that configuration starts a process or loads code:
     *   Claude Code runs with `--strict-mcp-config` and reads project and local settings only. Its user settings live in the agent-writable HOME. Image-managed settings pin `CLAUDE_CODE_SHELL` to `kora-shell`, allow managed hooks only and refuse every plugin marketplace.
-    *   OpenCode runs with project config disabled. Its HOME and config home are the run's config dir. The agent can only read that dir, and its sandbox does not mount it.
+    *   OpenCode runs with project config disabled and reads the workspace `AGENTS.md` as instructions. Its HOME and config home are the run's config dir. The agent can only read that dir, and its sandbox does not mount it.
     *   Codex is a static binary, and its allowlist holds no interpreter.
 *   The `agents.landlock` chart value is `enforce` or `bestEffort`, and `enforce` is the default. kora-agents passes it to each agent pod, and the session-manager passes it to `kora-session-runner`.
 *   In `enforce`, the session-manager reads the node's Landlock ABI at start. Below ABI v2 the pod fails readiness and logs an error that cites `agents.landlock`. `kora-session-runner` also refuses to start a harness below ABI v2.
@@ -253,7 +253,7 @@ A run executes commands only in its sandbox. A run with no sandbox executes none
 *   A run's first command fails until the agent provisions a sandbox, and then waits for the sandbox to start.
 *   The ELF interpreter is executable for Claude Code and OpenCode. The kernel checks execute on the interpreter of a dynamically linked binary. Run directly, the interpreter loads any binary the agent can read. The boundary holds only while no harness starts a process with arguments the agent controls. Each harness upgrade needs that check repeated.
 *   Landlock does not restrict code a harness loads into its own process. A harness that loads plugins or tools from a path the agent writes runs them in the agent pod.
-*   OpenCode no longer reads `AGENTS.md` or other project config from the workspace.
+*   OpenCode ignores the project config in the workspace. It still reads the workspace `AGENTS.md` as instructions.
 *   Each harness needs its own configuration lock, verified against the pinned CLI version.
 
 #### Neutral
