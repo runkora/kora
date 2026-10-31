@@ -14,8 +14,10 @@ import (
 func TestSpanRouteName(t *testing.T) {
 	tests := []struct {
 		name      string
+		mountPath string
 		pattern   string
 		hasRoute  bool
+		runPrefix bool
 		wantName  string
 		wantRoute string
 	}{
@@ -25,6 +27,23 @@ func TestSpanRouteName(t *testing.T) {
 			hasRoute:  true,
 			wantName:  "GET /api/v1/pats/{id}",
 			wantRoute: "/api/v1/pats/{id}",
+		},
+		{
+			name:      "adds back the stripped server base path",
+			mountPath: "/api/v1",
+			pattern:   "/policy/bundles/{tenant_id}",
+			hasRoute:  true,
+			wantName:  "GET /api/v1/policy/bundles/{tenant_id}",
+			wantRoute: "/api/v1/policy/bundles/{tenant_id}",
+		},
+		{
+			name:      "adds back a stripped run prefix as a template",
+			mountPath: "/v1",
+			pattern:   "/messages",
+			hasRoute:  true,
+			runPrefix: true,
+			wantName:  "GET /run/{run_id}/v1/messages",
+			wantRoute: "/run/{run_id}/v1/messages",
 		},
 		{
 			name:     "leaves the span alone when no route matched",
@@ -39,7 +58,7 @@ func TestSpanRouteName(t *testing.T) {
 			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 			t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 
-			handler := SpanRouteName(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			handler := SpanRouteName(tt.mountPath)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
 
@@ -47,6 +66,9 @@ func TestSpanRouteName(t *testing.T) {
 			ctx, span := provider.Tracer("test").Start(context.Background(), "GET /")
 			if tt.hasRoute {
 				ctx = context.WithValue(ctx, routePatternContextKey{}, tt.pattern)
+			}
+			if tt.runPrefix {
+				ctx = context.WithValue(ctx, runIDContextKey{}, "run-123")
 			}
 			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/pats/abc123", nil).WithContext(ctx))
 			span.End()
