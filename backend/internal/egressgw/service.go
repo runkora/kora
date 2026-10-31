@@ -4,17 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
-
 	"github.com/runkora/kora/backend/internal/credentials"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -82,7 +81,7 @@ func NewBroker(
 // them to the right HTTP status. The broker never logs the minted credential
 // value, only its expiry and metadata.
 func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, req EgressRequest) (Decision, error) {
-	ctx, span := tracer.Start(ctx, "egress.authorize", trace.WithSpanKind(trace.SpanKindInternal))
+	ctx, span := tracer.Start(ctx, "egressgw.Broker.Authorize", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 
 	if err := b.validateCaller(ctx, span, claims, req); err != nil {
@@ -102,9 +101,9 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		return Decision{}, err
 	}
 	span.SetAttributes(
-		attribute.String("kora.connection", conn.Name),
-		attribute.String("kora.adapter", string(conn.Adapter)),
-		attribute.Bool("kora.connection.registered", registered),
+		observability.ConnectionNameKey.String(conn.Name),
+		observability.ConnectionAdapterKey.String(string(conn.Adapter)),
+		observability.ConnectionRegisteredKey.Bool(registered),
 	)
 	if conn.TenantID != tenantID {
 		return Decision{}, ErrTenantMismatch
@@ -137,8 +136,8 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, deny(DenialUnclassified, req.Host, conn, credentials.Classification{}, err))
 	}
 	span.SetAttributes(
-		attribute.String("kora.action", cls.Action),
-		attribute.String("kora.qualifier", cls.Qualifier),
+		observability.EgressActionKey.String(cls.Action),
+		observability.EgressQualifierKey.String(cls.Qualifier),
 	)
 
 	// A passthrough host has no connection scope to check against. Its
@@ -153,9 +152,9 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		action, also = authorized[0], authorized[1:]
 	}
 	span.SetAttributes(
-		attribute.Bool("kora.allowed", true),
-		attribute.String("kora.action", action),
-		attribute.StringSlice("kora.also_authorized", also),
+		observability.EgressAllowedKey.Bool(true),
+		observability.EgressActionKey.String(action),
+		observability.EgressAlsoAuthorizedKey.StringSlice(also),
 	)
 
 	// Mint.
@@ -231,7 +230,7 @@ func (b *Broker) validateCaller(ctx context.Context, span trace.Span, claims *to
 // policyDenied handles a policy refusal. A denial the grant could explain may
 // still be served by the anonymous fallback; a failed evaluation never is.
 func (b *Broker) policyDenied(ctx context.Context, span trace.Span, claims *token.PlatformClaims, conn *credentials.Connection, req EgressRequest, perr error) (Decision, error) {
-	span.SetAttributes(attribute.Bool("kora.allowed", false))
+	span.SetAttributes(observability.EgressAllowedKey.Bool(false))
 	span.RecordError(perr)
 	var denial *Denial
 	if errors.As(perr, &denial) && denial.Reason != DenialPolicyUnavailable {
@@ -263,8 +262,8 @@ func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claim
 	}
 
 	span.SetAttributes(
-		attribute.Bool("kora.allowed", true),
-		attribute.String("kora.action", anonymousReadAction),
+		observability.EgressAllowedKey.Bool(true),
+		observability.EgressActionKey.String(anonymousReadAction),
 	)
 	b.logger.Info(ctx, "egress authorized: anonymous read",
 		logging.Field{Key: "decision", Value: anonymousReadAction},

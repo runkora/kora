@@ -18,6 +18,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/token"
 	"go.opentelemetry.io/otel/propagation"
 )
@@ -789,7 +790,7 @@ func claudeTelemetryEnv(ctx context.Context, endpoint, runID, tenantID string) [
 		// ANTHROPIC_BASE_URL points at the inference gateway, and Claude Code
 		// only sends traceparent to a non-Anthropic base URL when told to.
 		"CLAUDE_CODE_PROPAGATE_TRACEPARENT=1",
-		"OTEL_RESOURCE_ATTRIBUTES=kora.run_id=" + runID + ",kora.tenant_id=" + tenantID,
+		"OTEL_RESOURCE_ATTRIBUTES=" + string(observability.RunIDKey) + "=" + runID + "," + string(observability.TenantIDKey) + "=" + tenantID,
 	}
 	carrier := propagation.MapCarrier{}
 	propagation.TraceContext{}.Inject(ctx, carrier)

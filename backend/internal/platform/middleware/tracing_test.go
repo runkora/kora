@@ -23,7 +23,7 @@ func TestTracingMiddleware(t *testing.T) {
 	otel.SetTracerProvider(tp)
 	defer otel.SetTracerProvider(nil)
 
-	mw := TracingMiddleware("test-service")
+	mw := TracingMiddleware()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -51,7 +51,7 @@ func TestTracingMiddlewareSpanAttributes(t *testing.T) {
 	otel.SetTracerProvider(tp)
 	defer otel.SetTracerProvider(nil)
 
-	mw := TracingMiddleware("test-service")
+	mw := TracingMiddleware()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -136,7 +136,7 @@ func TestTracingMiddlewareSpanName(t *testing.T) {
 			otel.SetTracerProvider(tp)
 			defer otel.SetTracerProvider(nil)
 
-			mw := TracingMiddleware("test-service")
+			mw := TracingMiddleware()
 
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
@@ -182,7 +182,7 @@ func TestTracingMiddlewareStatusCodes(t *testing.T) {
 			otel.SetTracerProvider(tp)
 			defer otel.SetTracerProvider(nil)
 
-			mw := TracingMiddleware("test-service")
+			mw := TracingMiddleware()
 
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.statusCode)
@@ -238,7 +238,7 @@ func TestTracingMiddlewareW3CPropagation(t *testing.T) {
 
 	parentSpanContext := parentSpan.SpanContext()
 
-	mw := TracingMiddleware("test-service")
+	mw := TracingMiddleware()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify span context was propagated
@@ -290,7 +290,7 @@ func TestTracingMiddlewareContextPropagation(t *testing.T) {
 	otel.SetTracerProvider(tp)
 	defer otel.SetTracerProvider(nil)
 
-	mw := TracingMiddleware("test-service")
+	mw := TracingMiddleware()
 
 	var handlerSpan oteltrace.Span
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -322,7 +322,7 @@ func TestTracingMiddlewareErrorStatus(t *testing.T) {
 	otel.SetTracerProvider(tp)
 	defer otel.SetTracerProvider(nil)
 
-	mw := TracingMiddleware("test-service")
+	mw := TracingMiddleware()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -370,7 +370,7 @@ func TestTracingMiddlewareNoPropagatorSet(t *testing.T) {
 	// Don't set propagator - should still work
 	defer otel.SetTracerProvider(nil)
 
-	mw := TracingMiddleware("test-service")
+	mw := TracingMiddleware()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -398,7 +398,7 @@ func TestTracingMiddlewareHTTPSScheme(t *testing.T) {
 	otel.SetTracerProvider(tp)
 	defer otel.SetTracerProvider(nil)
 
-	mw := TracingMiddleware("test-service")
+	mw := TracingMiddleware()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -438,7 +438,7 @@ func TestTracingMiddlewareSpanEnding(t *testing.T) {
 	otel.SetTracerProvider(tp)
 	defer otel.SetTracerProvider(nil)
 
-	mw := TracingMiddleware("test-service")
+	mw := TracingMiddleware()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

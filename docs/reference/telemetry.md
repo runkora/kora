@@ -14,7 +14,7 @@ observability:
   serviceName: kora-identity # → service.name resource attribute
 ```
 
-`APP_ENV` selects the config overlay and sets the `deployment.environment` resource attribute. It is `local` or `production`, and defaults to `production` when unset.
+`APP_ENV` selects the config overlay and sets the `deployment.environment.name` resource attribute. It is `local` or `production`, and defaults to `production` when unset.
 
 ## Config Keys
 

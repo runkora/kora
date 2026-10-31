@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
-
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -190,7 +189,7 @@ func (s *DraftService) ListDrafts(ctx context.Context) ([]AgentTypeDraft, error)
 // caller; anyone else's draft surfaces as ErrDraftNotFound.
 func (s *DraftService) UpdateDraft(ctx context.Context, id string, req UpdateDraftRequest) (*AgentTypeDraft, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.UpdateDraft",
-		trace.WithAttributes(attribute.String("draft_id", id)))
+		trace.WithAttributes(observability.DraftIDKey.String(id)))
 	defer span.End()
 
 	if err := s.authz.checkAnyAgentTypeWrite(ctx); err != nil {
@@ -221,7 +220,7 @@ func (s *DraftService) UpdateDraft(ctx context.Context, id string, req UpdateDra
 // else's draft surfaces as ErrDraftNotFound.
 func (s *DraftService) DeleteDraft(ctx context.Context, id string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.DeleteDraft",
-		trace.WithAttributes(attribute.String("draft_id", id)))
+		trace.WithAttributes(observability.DraftIDKey.String(id)))
 	defer span.End()
 
 	if err := s.authz.checkAnyAgentTypeWrite(ctx); err != nil {

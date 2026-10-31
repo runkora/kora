@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -44,20 +46,19 @@ const decisionsModality = "decisions"
 
 // decisionQuery asks an endpoint that supports it for its decision models only.
 // OpenRouter's default listing leaves them out.
-const decisionQuery = "?output_modalities=" + decisionsModality
+var decisionQuery = url.Values{"output_modalities": {decisionsModality}}
 
-// getModels reads GET <baseURL>/models<query> in either list shape and returns its raw entries.
-func (c *Connector) getModels(ctx context.Context, query string) ([]json.RawMessage, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/models"+query, http.NoBody)
-	if err != nil {
-		return nil, fmt.Errorf("%s: list models: %w", c.name, err)
-	}
-	req.Header.Set("Accept", "application/json")
+// getModels reads GET <baseURL>/models?<query> in either list shape and returns its raw entries.
+func (c *Connector) getModels(ctx context.Context, query url.Values) ([]json.RawMessage, error) {
+	header := http.Header{}
+	header.Set("Accept", "application/json")
 	if c.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
-	_, span, resp, err := c.http.Do(ctx, "compatible.Connector.ListModels", req)
+	_, span, resp, err := c.http.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/models", Query: query, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return nil, fmt.Errorf("%s: list models: %w", c.name, err)
@@ -76,7 +77,7 @@ func (c *Connector) getModels(ctx context.Context, query string) ([]json.RawMess
 // listDecisionModels lists a systemone-only endpoint's models. The OpenAI and
 // Anthropic SDKs are not involved: the endpoint declares neither API.
 func (c *Connector) listDecisionModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
-	entries, err := c.getModels(ctx, "")
+	entries, err := c.getModels(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +103,7 @@ func (c *Connector) listDecisionModels(ctx context.Context) ([]inferencegw.Provi
 
 // allModalitiesQuery asks an endpoint that supports it for every model,
 // whatever its output modality. OpenRouter's default listing is text only.
-const allModalitiesQuery = "?output_modalities=all"
+var allModalitiesQuery = url.Values{"output_modalities": {"all"}}
 
 // Output modalities OpenRouter declares for the models classified here.
 const (

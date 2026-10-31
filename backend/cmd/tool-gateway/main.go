@@ -168,7 +168,7 @@ func realMain() error {
 		tgc.Current.Server.HTTPPort,
 		tgc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(tgc.Current.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 			// Rewrites /run/{run_id}/v1/mcp/… → /v1/mcp/… with the run identity
 			// in context — the same mechanism the inference gateway mounts, so

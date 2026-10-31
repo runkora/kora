@@ -20,7 +20,7 @@ func TestEmptyTwoxxBodyIsSuccessAck(t *testing.T) {
 		backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(status)
 		}))
-		got, err := NewClient(logging.NewLogger()).Post(context.Background(), Caller{Bearer: "tok"}, backend.URL, map[string]string{"x": "y"})
+		got, err := NewClient(logging.NewLogger()).Post(context.Background(), Caller{Bearer: "tok"}, backend.URL, "", map[string]string{"x": "y"})
 		backend.Close()
 		if err != nil {
 			t.Errorf("status %d: unexpected error: %v", status, err)
@@ -54,7 +54,7 @@ func TestSendAttachesCaller(t *testing.T) {
 			}))
 			defer backend.Close()
 
-			if _, err := NewClient(logging.NewLogger()).Get(context.Background(), tc.caller, backend.URL, nil); err != nil {
+			if _, err := NewClient(logging.NewLogger()).Get(context.Background(), tc.caller, backend.URL, "", nil); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if gotAuth != tc.wantAuth {
@@ -85,7 +85,7 @@ func TestStatusSentinels(t *testing.T) {
 			w.WriteHeader(tc.status)
 			_, _ = w.Write([]byte(tc.body))
 		}))
-		_, err := NewClient(logging.NewLogger()).Get(context.Background(), Caller{Bearer: "t"}, backend.URL, nil)
+		_, err := NewClient(logging.NewLogger()).Get(context.Background(), Caller{Bearer: "t"}, backend.URL, "", nil)
 		backend.Close()
 		if !errors.Is(err, tc.want) || errors.Is(err, tc.notWant) {
 			t.Errorf("status %d: err = %v, want %v and not %v", tc.status, err, tc.want, tc.notWant)

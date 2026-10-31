@@ -274,7 +274,7 @@ func NewServer(
 		exchanger:  exchanger,
 		refresher:  refresher,
 		logger:     logger,
-		tracer:     otel.Tracer("kora.identity-proxy"),
+		tracer:     otel.Tracer("github.com/runkora/kora/backend/internal/identityproxy"),
 		cfg:        cfg,
 		envoyReady: envoyReady,
 	}

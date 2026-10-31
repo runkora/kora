@@ -54,7 +54,7 @@ Every HTTP request automatically creates a span via the tracing middleware:
 // From: backend/internal/platform/middleware/tracing.go
 
 // Get the global tracer for this service
-tracer := otel.Tracer(serviceName)
+tracer := otel.Tracer("github.com/runkora/kora/backend/internal/platform/middleware")
 
 // Extract trace context from headers, then start span
 propagatedCtx := otel.GetTextMapPropagator().Extract(
@@ -155,13 +155,13 @@ func MyHandler(w http.ResponseWriter, r *http.Request) {
     
     // Add custom attributes
     span.SetAttributes(
-        attribute.String("agent.id", agentID),
-        attribute.String("policy.decision", "allow"),
+        observability.AgentIDKey.String(agentID),
+        observability.MCPDecisionKey.String("allow"),
     )
     
     // Add events
     span.AddEvent("policy_evaluated", trace.WithAttributes(
-        attribute.String("result", "allowed"),
+        observability.EgressAllowedKey.Bool(true),
     ))
 }
 ```
@@ -172,14 +172,14 @@ For long-running operations or complex workflows:
 
 ```go
 func ProcessAgentRequest(ctx context.Context, req *AgentRequest) error {
-    tracer := otel.Tracer("kora")
+    tracer := otel.Tracer("github.com/runkora/kora/backend/internal/agents")
     
     // Create child span
-    ctx, span := tracer.Start(ctx, "process_agent_request")
+    ctx, span := tracer.Start(ctx, "agents.ProcessAgentRequest")
     defer span.End()
     
     // Step 1: Authenticate
-    ctx, authSpan := tracer.Start(ctx, "authenticate_agent")
+    ctx, authSpan := tracer.Start(ctx, "agents.authenticate")
     err := authenticate(ctx, req.AgentID)
     authSpan.End()
     if err != nil {
@@ -188,10 +188,10 @@ func ProcessAgentRequest(ctx context.Context, req *AgentRequest) error {
     }
     
     // Step 2: Evaluate policy
-    ctx, policySpan := tracer.Start(ctx, "evaluate_policy")
+    ctx, policySpan := tracer.Start(ctx, "agents.evaluatePolicy")
     decision, err := evaluatePolicy(ctx, req)
     policySpan.SetAttributes(
-        attribute.String("decision", decision),
+        observability.MCPDecisionKey.String(decision),
     )
     policySpan.End()
     
@@ -204,7 +204,7 @@ func ProcessAgentRequest(ctx context.Context, req *AgentRequest) error {
 **Never manually inject trace headers or construct `http.Client{}`.** All service-to-service calls must use a typed client in `internal/platform/clients/{service}/client.go` that embeds `httpclient.Base`. The base client automatically:
 - Injects `traceparent` / `tracestate` W3C headers via `otel.GetTextMapPropagator().Inject(...)`
 - Opens a `SpanKindClient` child span with the correct OTel HTTP semantic convention attributes
-- Records upstream error bodies in the `error.upstream_body` span attribute
+- Records upstream error bodies in the `kora.error.upstream_body` span attribute
 
 ```go
 // CORRECT — use a typed platform client
@@ -214,11 +214,9 @@ type MyServiceClient struct {
 }
 
 func (c *MyServiceClient) Fetch(ctx context.Context, id string) (*Result, error) {
-    req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/resource/"+id, nil)
-    if err != nil {
-        return nil, fmt.Errorf("build request: %w", err)
-    }
-    _, span, resp, err := c.base.Do(ctx, "myservice.fetch", req)
+    _, span, resp, err := c.base.Do(ctx, httpclient.Request{
+        Method: http.MethodGet, BaseURL: c.baseURL, Path: "/resource/{id}", Params: []string{id},
+    })
     defer span.End()
     if err != nil {
         return nil, err
@@ -249,9 +247,9 @@ Trace ID: 2482aff647d2da4b929d57bc10bcfa74
 │
 └─ GET /api/v1/agents/execute [200ms]
    │
-   ├─ authenticate_agent [5ms]
+   ├─ agents.authenticate [5ms]
    │
-   ├─ evaluate_policy [10ms]
+   ├─ agents.evaluatePolicy [10ms]
    │  ├─ load_policy [3ms]
    │  └─ opa_evaluate [7ms]
    │
@@ -266,17 +264,17 @@ Trace ID: 2482aff647d2da4b929d57bc10bcfa74
 
 **Find slow requests:**
 ```
-http.status_code:200 AND duration > 1s
+http.response.status_code:200 AND duration > 1s
 ```
 
 **Find policy denials:**
 ```
-policy.decision:deny
+kora.mcp.decision:deny
 ```
 
 **Find agent-specific traces:**
 ```
-agent.id:agent-xyz
+kora.agent.id:agent-xyz
 ```
 
 **Find errors:**
@@ -315,7 +313,7 @@ Spans are batched before export:
 ✅ **W3C TraceContext**: Standard `traceparent`/`tracestate` propagation on all inbound and outbound calls
 ✅ **Service-to-service clients**: `httpclient.Base.Do()` opens a `SpanKindClient` child span and injects W3C headers automatically
 ✅ **Upstream error bodies**: Non-2xx responses from upstream services are captured in the `error.upstream_body` span attribute
-✅ **Database queries**: A `db.query` span per query that runs under a parent span. A query with no parent, such as an idle poll, records no span, and client spans from `httpclient.Base.Do` and the tracing transport follow the same rule
+✅ **Database queries**: A `postgresql` span per query that runs under a parent span. A query with no parent, such as an idle poll, records no span, and client spans from `httpclient.Base.Do` and the tracing transport follow the same rule
 
 ### Planned
 

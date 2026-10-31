@@ -20,16 +20,15 @@
 //
 //	func NewClient(baseURL string, logger logging.Logger) *Client {
 //	    return &Client{
-//	        Base:    httpclient.New("kora.my-service-client", logger, 10*time.Second),
+//	        Base:    httpclient.New("github.com/runkora/kora/backend/internal/platform/clients/myservice", logger, 10*time.Second),
 //	        baseURL: baseURL,
 //	    }
 //	}
 //
-//	func (c *Client) SomeMethod(ctx context.Context) error {
-//	    req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/path", http.NoBody)
-//	    if err != nil { return err }
-//
-//	    ctx, span, resp, err := c.Do(ctx, "my-service.Client.SomeMethod", req)
+//	func (c *Client) GetThing(ctx context.Context, id string) error {
+//	    ctx, span, resp, err := c.Do(ctx, httpclient.Request{
+//	        Method: http.MethodGet, BaseURL: c.baseURL, Path: "/things/{id}", Params: []string{id},
+//	    })
 //	    defer span.End()
 //	    if err != nil { return err }
 //	    defer resp.Body.Close()
@@ -37,9 +36,9 @@
 //	    // record domain-specific attributes, decode body, handle errors, etc.
 //	}
 //
-// Base.Do gives you: a named OTel span (SpanKindClient), W3C traceparent
-// injection, HTTP semantic attributes, and helper methods (DecodeJSON,
-// HandleErrorResponse, RecordError) — all without per-client boilerplate.
+// Base.Do gives you: a client span named "{METHOD} {url.template}", W3C
+// traceparent injection, HTTP semantic attributes, and helper methods
+// (DecodeJSON, HandleErrorResponse, RecordError) without per-client boilerplate.
 //
 // ## Pattern 2 — NewHTTPClient + NewTracingTransport (third-party SDK calls)
 //
@@ -50,12 +49,12 @@
 //
 //	// SDK handles auth; tracing transport wraps http.DefaultTransport:
 //	httpclient.NewHTTPClient(30*time.Second,
-//	    httpclient.NewTracingTransport("kora.bedrock-anthropic", nil),
+//	    httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/bedrock", "", nil),
 //	)
 //
 //	// Tracing transport wraps a custom auth transport (e.g. SigV4):
 //	httpclient.NewHTTPClient(30*time.Second,
-//	    httpclient.NewTracingTransport("kora.bedrock-openai", sigV4Transport),
+//	    httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/bedrock", "", sigV4Transport),
 //	)
 //
 // NewTracingTransport provides the same per-call OTel coverage as Base.Do:
@@ -69,17 +68,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // See transport.go for NewHTTPClient and NewTracingTransport — the constructors
@@ -95,6 +97,11 @@ var (
 	// ErrEncodeBody is returned by EncodeJSON when the request body cannot
 	// be marshaled to JSON.
 	ErrEncodeBody = errors.New("failed to encode request body")
+
+	// ErrBuildRequest is returned by Do when the method or URL is invalid.
+	ErrBuildRequest = errors.New("failed to build request")
+
+	errTransport = errors.New("transport failure")
 )
 
 // Base is the shared foundation for all kora service-to-service HTTP clients.
@@ -109,9 +116,8 @@ type Base struct {
 
 // New constructs a Base with a configured HTTP client, tracer, and logger.
 //
-// tracerName should uniquely identify the consuming client,
-// e.g. "kora.identity-client". It appears as the instrumentation scope name
-// in OTel traces.
+// tracerName is the Go import path of the consuming client's package, the
+// instrumentation scope name in OTel traces.
 //
 // timeout is applied to every outbound HTTP call made via Do.
 func New(tracerName string, logger logging.Logger, timeout time.Duration) *Base {
@@ -170,8 +176,7 @@ func (b *Base) EncodeJSON(body any) (io.Reader, error) {
 func (b *Base) DecodeJSON(span trace.Span, resp *http.Response, dest any) error {
 	if err := json.NewDecoder(resp.Body).Decode(dest); err != nil {
 		wrapped := fmt.Errorf("%w: %w", ErrDecodeBody, err)
-		span.RecordError(wrapped)
-		span.SetStatus(codes.Error, ErrDecodeBody.Error())
+		recordFailure(span, wrapped, ErrDecodeBody)
 		return wrapped
 	}
 	return nil
@@ -180,7 +185,7 @@ func (b *Base) DecodeJSON(span trace.Span, resp *http.Response, dest any) error 
 // HandleErrorResponse centralizes the entire non-2xx response path so service
 // clients never hand-roll it. In a single call it:
 //   - Reads up to 512 bytes from resp.Body (via ReadErrorBody)
-//   - Sets the error.upstream_body span attribute
+//   - Sets the kora.error.upstream_body span attribute
 //   - Constructs a wrapped error embedding sentinel, HTTP status, and upstream body
 //   - Records the full error event on the span
 //   - Sets the span status to codes.Error using the sentinel's static message
@@ -199,8 +204,7 @@ func (b *Base) DecodeJSON(span trace.Span, resp *http.Response, dest any) error 
 func (b *Base) HandleErrorResponse(span trace.Span, resp *http.Response, sentinel error) error {
 	upstream := b.ReadErrorBody(span, resp)
 	err := fmt.Errorf("%w: status %d: %s", sentinel, resp.StatusCode, upstream)
-	span.RecordError(err)
-	span.SetStatus(codes.Error, sentinel.Error())
+	recordFailure(span, err, sentinel)
 	return err
 }
 
@@ -218,9 +222,16 @@ func (b *Base) HandleErrorResponse(span trace.Span, resp *http.Response, sentine
 //	    return c.RecordError(span, ErrMissingToken)
 //	}
 func (b *Base) RecordError(span trace.Span, sentinel error) error {
-	span.RecordError(sentinel)
-	span.SetStatus(codes.Error, sentinel.Error())
+	recordFailure(span, sentinel, sentinel)
 	return sentinel
+}
+
+// recordFailure records err on span with the sentinel as both the static
+// status and error.type.
+func recordFailure(span trace.Span, err, sentinel error) {
+	span.RecordError(err)
+	span.SetStatus(codes.Error, sentinel.Error())
+	span.SetAttributes(semconv.ErrorTypeKey.String(sentinel.Error()))
 }
 
 // SpanSince records a span that began at start for work that ran untraced and
@@ -231,13 +242,12 @@ func (b *Base) SpanSince(ctx context.Context, spanName string, start time.Time, 
 	_, span := b.tracer.Start(ctx, spanName, trace.WithTimestamp(start))
 	defer span.End()
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, sentinel.Error())
+		recordFailure(span, err, sentinel)
 	}
 }
 
 // ReadErrorBody reads up to 512 bytes from resp.Body, records the trimmed
-// content as the error.upstream_body span attribute, and returns the string so
+// content as the kora.error.upstream_body span attribute, and returns the string so
 // callers can embed it in their error.
 //
 // Body ownership: ReadErrorBody reads but does not close resp.Body. The caller
@@ -260,78 +270,85 @@ func (b *Base) SpanSince(ctx context.Context, spanName string, start time.Time, 
 func (b *Base) ReadErrorBody(span trace.Span, resp *http.Response) string {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 	upstream := strings.TrimSpace(string(body))
-	span.SetAttributes(attribute.String("error.upstream_body", upstream))
+	span.SetAttributes(observability.ErrorUpstreamBodyKey.String(upstream))
 	return upstream
 }
 
-// Do is the core transport method for service-to-service calls. For each call it:
+// Request is one call through Do. Path is a template such as
+// "/session/{runID}/messages", and Params fill its placeholders in order, so
+// the span name stays low-cardinality while the URL carries the values.
+type Request struct {
+	Method  string
+	BaseURL string
+	Path    string
+	Params  []string
+	Query   url.Values
+	Header  http.Header
+	Body    io.Reader
+}
+
+// Do builds the request from r and sends it. Under a parent span it opens a
+// client span named "{METHOD} {url.template}" with the HTTP client semantic
+// convention attributes and injects traceparent. A call with no parent span,
+// such as a loop tick, records no span and returns a no-op one.
 //
-//  1. Opens a child OTel span named spanName with SpanKindClient.
-//  2. Records standard HTTP semantic convention attributes (method, url, status).
-//  3. Attaches the span context to req so cancellation/deadline propagates.
-//  4. Injects W3C traceparent and tracestate headers so the remote service's
-//     tracing middleware can attach its server span as a child of this span.
-//  5. Executes the HTTP request via the configured http.Client.
-//  6. Records transport errors on the span and returns them.
-//
-// Span attributes set by Do:
-//   - http.request.method  — HTTP verb (GET, POST, …)
-//   - url.full             — fully qualified request URL
-//   - http.response.status_code — set on success; absent on transport error
-//
-// The caller receives the span and is responsible for:
-//   - Deferring span.End() immediately after the call.
-//   - Recording application-level errors (non-2xx status codes).
-//   - Adding domain-specific span attributes (e.g. token TTL, entity IDs).
-//   - Reading and closing resp.Body.
-//
-// On transport error, resp is nil and the error is already recorded on the span.
-// The caller must still defer span.End() even on error.
-func (b *Base) Do(
-	ctx context.Context,
-	spanName string,
-	req *http.Request,
-) (context.Context, trace.Span, *http.Response, error) {
-	// A call with no parent span, such as a loop tick, records no span. The
-	// returned span is then a no-op, so callers handle it the same way.
-	if !trace.SpanContextFromContext(ctx).IsValid() {
-		resp, err := b.httpClient.Do(req.WithContext(ctx))
-		return ctx, trace.SpanFromContext(ctx), resp, err
+// The caller defers span.End() even on error, records non-2xx outcomes, and
+// reads and closes resp.Body. On error resp is nil.
+func (b *Base) Do(ctx context.Context, r Request) (context.Context, trace.Span, *http.Response, error) {
+	target := r.BaseURL + expandPath(r.Path, r.Params)
+	if len(r.Query) > 0 {
+		target += "?" + r.Query.Encode()
 	}
-	ctx, span := b.tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
+	req, err := http.NewRequestWithContext(ctx, r.Method, target, r.Body)
+	if err != nil {
+		// A no-op span, never the parent, since the caller ends what Do returns.
+		return ctx, trace.SpanFromContext(context.Background()), nil, fmt.Errorf("%w: %w", ErrBuildRequest, err)
+	}
+	maps.Copy(req.Header, r.Header)
 
-	// Standard OTel HTTP client semantic conventions.
-	// These are set unconditionally so every client span is queryable by
-	// method and URL in the trace backend without per-client boilerplate.
-	span.SetAttributes(
-		attribute.String("http.request.method", req.Method),
-		attribute.String("url.full", redactURL(req.URL)),
-	)
-
-	// Re-attach the span context to the request so that deadline/cancellation
-	// from the span-bearing context propagates through the HTTP stack.
+	if !trace.SpanContextFromContext(ctx).IsValid() {
+		resp, doErr := b.httpClient.Do(req)
+		return ctx, trace.SpanFromContext(ctx), resp, doErr
+	}
+	ctx, span := startClientSpan(ctx, b.tracer, req, urlTemplate(r.BaseURL, r.Path))
 	req = req.WithContext(ctx)
-
-	// Inject W3C traceparent (and tracestate) into the outbound request headers.
-	// The remote service's tracing middleware extracts these and attaches its
-	// server span as a child of this client span, forming a single end-to-end trace.
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
 	resp, err := b.httpClient.Do(req)
 	if err != nil {
-		// RecordError captures the full error event (message + stack trace if
-		// available). SetStatus uses a static description so raw network error
-		// strings — which may contain internal hostnames or addresses — are
-		// kept out of span string fields (see docs/adr/2026-03-03-database-infrastructure-layer.md).
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "transport failure")
+		// The static status keeps network error text, which can name internal
+		// hosts, out of span string fields.
+		recordFailure(span, err, errTransport)
 		return ctx, span, nil, err
 	}
-
-	// Record the HTTP status code on every successful transport response so
-	// callers do not need to do this themselves. Application-level errors
-	// (non-2xx) are still the caller's responsibility to record on the span.
-	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
-
+	span.SetAttributes(semconv.HTTPResponseStatusCode(resp.StatusCode))
 	return ctx, span, resp, nil
+}
+
+// expandPath fills each {name} placeholder in template with the next param,
+// path-escaped.
+func expandPath(template string, params []string) string {
+	var b strings.Builder
+	rest := template
+	for _, p := range params {
+		start, end := strings.IndexByte(rest, '{'), strings.IndexByte(rest, '}')
+		if start < 0 || end < start {
+			break
+		}
+		b.WriteString(rest[:start])
+		b.WriteString(url.PathEscape(p))
+		rest = rest[end+1:]
+	}
+	b.WriteString(rest)
+	return b.String()
+}
+
+// urlTemplate prefixes the path template with the base URL's own path, so
+// url.template is the full path the server sees.
+func urlTemplate(baseURL, path string) string {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return path
+	}
+	return strings.TrimSuffix(u.Path, "/") + path
 }

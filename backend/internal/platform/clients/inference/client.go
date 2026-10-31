@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	tracerName = "kora.inference-client"
+	tracerName = "github.com/runkora/kora/backend/internal/platform/clients/inference"
 	// clientTimeout matches the gateway's per-attempt decision timeout.
 	clientTimeout = 15 * time.Second
 )
@@ -111,14 +111,13 @@ func (c *Client) SystemOne(ctx context.Context, bearer string, req SystemOneRequ
 	if err != nil {
 		return SystemOneResponse{}, fmt.Errorf("encode systemone request: %w", err)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/systemone", body)
-	if err != nil {
-		return SystemOneResponse{}, fmt.Errorf("build systemone request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	header.Set("Authorization", "Bearer "+bearer)
 
-	_, span, resp, err := c.Do(ctx, "inference.Client.SystemOne", httpReq)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/v1/systemone", Header: header, Body: body,
+	})
 	defer span.End()
 	if err != nil {
 		return SystemOneResponse{}, fmt.Errorf("%w: %w", ErrUpstreamUnavailable, err)

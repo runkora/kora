@@ -377,6 +377,14 @@ linters:
           - gocritic
         text: "instead of json\\.NewDecoder"
 
+      # spanAttrKeyVocabulary governs span attribute keys. Metric labels
+      # (method, route, status, state) are a public interface that dashboards
+      # query, and they keep their names.
+      - path: "internal/(platform/middleware|triggers)/metrics\\.go"
+        linters:
+          - gocritic
+        text: "is a literal\\. Use a semconv constant"
+
       # httpclient/base.go is the sole legitimate owner of &http.Client{}.
       # It is explicitly excluded from the noRawHttpClientLiteral rule because
       # it IS the abstraction layer that all other clients must go through.

@@ -146,6 +146,31 @@ func spanAttrStringCtxErr(m dsl.Matcher) {
 			`See docs/adr/2026-03-21-opentelemetry-observability-discipline.md`)
 }
 
+// spanAttrKeyVocabulary flags a string literal used as an attribute key. Keys
+// come from the semconv package or the constants in
+// internal/platform/observability, so one value has one key in every service.
+//
+// Enforces: docs/adr/2026-03-21-opentelemetry-observability-discipline.md, Amendment 1.
+//
+// Bad:
+//
+//	span.SetAttributes(attribute.String("run_id", runID))
+//
+// Good:
+//
+//	span.SetAttributes(observability.RunIDKey.String(runID))
+func spanAttrKeyVocabulary(m dsl.Matcher) {
+	m.Import("go.opentelemetry.io/otel/attribute")
+	m.Match(
+		`attribute.String($k, $_)`, `attribute.Int($k, $_)`, `attribute.Int64($k, $_)`,
+		`attribute.Bool($k, $_)`, `attribute.Float64($k, $_)`, `attribute.StringSlice($k, $_)`,
+		`attribute.Key($k)`,
+	).
+		Where(m["k"].Text.Matches(`^"`)).
+		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: attribute key $k is a literal. ` +
+			`Use a semconv constant or a key constant from internal/platform/observability.`)
+}
+
 // noRawJsonDecodeRequest flags direct use of json.NewDecoder(r.Body).Decode
 // inside HTTP handlers, where api.DecodeJSON must be used instead.
 //

@@ -67,7 +67,7 @@ func TestNotTimerPoll_LeavesTimerPollsUntraced(t *testing.T) {
 	otel.SetTracerProvider(provider)
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 
-	chain := mw.MiddlewareChain(mw.TracingMiddleware("policy-service", notTimerPoll("/api/v1")))
+	chain := mw.MiddlewareChain(mw.TracingMiddleware(notTimerPoll("/api/v1")))
 	handler := chain(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 
 	tests := []struct {

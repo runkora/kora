@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
@@ -20,7 +19,7 @@ import (
 )
 
 const (
-	tracerName    = "kora.declared-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/declared"
 	clientTimeout = 30 * time.Second
 )
 
@@ -51,14 +50,13 @@ func (c *Client) Apply(ctx context.Context, kind string, item declarative.Item) 
 		return declarative.Result{}, fmt.Errorf("encode declared item: %w", err)
 	}
 	var res declarative.Result
-	err = c.call(ctx, "declared.Client.Apply", http.MethodPost, "/internal/declared/"+url.PathEscape(kind), body, http.StatusOK, &res)
+	err = c.call(ctx, http.MethodPost, "/internal/declared/{kind}", []string{kind}, body, http.StatusOK, &res)
 	return res, err
 }
 
 // Delete asks the service to delete the declared item name in tenantID.
 func (c *Client) Delete(ctx context.Context, kind, tenantID, name string) error {
-	path := "/internal/declared/" + url.PathEscape(kind) + "/" + url.PathEscape(tenantID) + "/" + url.PathEscape(name)
-	return c.call(ctx, "declared.Client.Delete", http.MethodDelete, path, nil, http.StatusNoContent, nil)
+	return c.call(ctx, http.MethodDelete, "/internal/declared/{kind}/{tenantID}/{name}", []string{kind, tenantID, name}, nil, http.StatusNoContent, nil)
 }
 
 // List returns the declared items of kind the service holds for tenantID.
@@ -66,27 +64,25 @@ func (c *Client) List(ctx context.Context, kind, tenantID string) ([]declarative
 	var out struct {
 		Items []declarative.Declared `json:"items"`
 	}
-	path := "/internal/declared/" + url.PathEscape(kind) + "/" + url.PathEscape(tenantID)
-	err := c.call(ctx, "declared.Client.List", http.MethodGet, path, nil, http.StatusOK, &out)
+	err := c.call(ctx, http.MethodGet, "/internal/declared/{kind}/{tenantID}", []string{kind, tenantID}, nil, http.StatusOK, &out)
 	return out.Items, err
 }
 
-// call sends one request and decodes a want-status response into dest.
-func (c *Client) call(ctx context.Context, spanName, method, path string, body io.Reader, want int, dest any) error {
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
-	if err != nil {
-		return fmt.Errorf("build %s request: %w", spanName, err)
-	}
+// call sends one request to the path template filled with params and decodes
+// a want-status response into dest.
+func (c *Client) call(ctx context.Context, method, path string, params []string, body io.Reader, want int, dest any) error {
 	tok, err := c.token(ctx)
 	if err != nil {
 		return fmt.Errorf("get platform token: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+tok)
+	header := http.Header{"Authorization": {"Bearer " + tok}}
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		header.Set("Content-Type", "application/json")
 	}
 
-	_, span, resp, err := c.Do(ctx, spanName, req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: method, BaseURL: c.baseURL, Path: path, Params: params, Header: header, Body: body,
+	})
 	defer span.End()
 	if err != nil {
 		return err

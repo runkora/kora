@@ -335,7 +335,7 @@ Ships as a single PR covering the Go package, the Helm chart and the ADR set. Th
 ### Monitoring
 
 - The startup log records the loaded patch count; a drop to zero after a chart change points at a mis-mounted ConfigMap.
-- Provisioning failures surface as structured errors on the `agents.k8s.*` spans.
+- Provisioning failures surface as structured errors on the `agents.K8sProvisioner.*` spans.
 
 ---
 

@@ -9,11 +9,11 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -65,9 +65,9 @@ func (s *Service) delegationTokenTTL() time.Duration {
 func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, req CreateDelegationRequest) (*DelegationIssuance, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.MintDelegation",
 		trace.WithAttributes(
-			attribute.String("principal.type", string(claims.Kora.PrincipalType)),
-			attribute.String("tenant_id", claims.Kora.TenantID),
-			attribute.String("run_id", req.RunID),
+			observability.PrincipalTypeKey.String(string(claims.Kora.PrincipalType)),
+			observability.TenantIDKey.String(claims.Kora.TenantID),
+			observability.RunIDKey.String(req.RunID),
 		),
 	)
 	defer span.End()
@@ -159,7 +159,7 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 		return nil, fmt.Errorf("persist delegation issuance: %w", err)
 	}
 
-	span.SetAttributes(attribute.String("jti", issuance.JTI))
+	span.SetAttributes(observability.TokenJTIKey.String(issuance.JTI))
 	span.SetStatus(codes.Ok, "delegation issuance created")
 	return issuance, nil
 }
@@ -175,8 +175,8 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 func (s *Service) RevokeDelegation(ctx context.Context, claims *PlatformClaims, jti string) error {
 	ctx, span := s.tracer.Start(ctx, "identity.RevokeDelegation",
 		trace.WithAttributes(
-			attribute.String("jti", jti),
-			attribute.String("principal.type", string(claims.Kora.PrincipalType)),
+			observability.TokenJTIKey.String(jti),
+			observability.PrincipalTypeKey.String(string(claims.Kora.PrincipalType)),
 		),
 	)
 	defer span.End()
@@ -244,7 +244,7 @@ func (s *Service) RevokeDelegation(ctx context.Context, claims *PlatformClaims, 
 // as "autonomous, none".
 func (s *Service) DelegationTokenForRun(ctx context.Context, r *http.Request, runID string) (*DelegationTokenResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.DelegationTokenForRun",
-		trace.WithAttributes(attribute.String("run_id", runID)),
+		trace.WithAttributes(observability.RunIDKey.String(runID)),
 	)
 	defer span.End()
 
@@ -254,7 +254,7 @@ func (s *Service) DelegationTokenForRun(ctx context.Context, r *http.Request, ru
 		span.SetStatus(codes.Error, "principal extraction failed")
 		return nil, fmt.Errorf("extract principal: %w", err)
 	}
-	span.SetAttributes(attribute.String("principal.id", principal.ID))
+	span.SetAttributes(observability.PrincipalIDKey.String(principal.ID))
 
 	issuance, err := s.delegations.GetActiveByRunID(ctx, runID)
 	if err != nil {
@@ -284,7 +284,7 @@ func (s *Service) DelegationTokenForRun(ctx context.Context, r *http.Request, ru
 		return nil, fmt.Errorf("sign delegation token: %w", err)
 	}
 
-	span.SetAttributes(attribute.String("jti", issuance.JTI))
+	span.SetAttributes(observability.TokenJTIKey.String(issuance.JTI))
 	span.SetStatus(codes.Ok, "delegation token released")
 	return &DelegationTokenResponse{
 		DelegationToken: signed,

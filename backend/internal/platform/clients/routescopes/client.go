@@ -59,7 +59,7 @@ var ErrRegistrationFailed = errors.New("route scope registration rejected by pol
 // errRegisterFailed is the static span status for a registration that failed.
 var errRegisterFailed = errors.New("route scope registration failed")
 
-const registerSpan = "routescopes.Client.Register"
+const registerSpan = "routescopes.Client.register"
 
 // RouteScope maps an HTTP path prefix and method to the scope required to access it.
 type RouteScope struct {
@@ -115,7 +115,7 @@ type Client struct {
 }
 
 const (
-	tracerName    = "kora.routescopes-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	clientTimeout = 10 * time.Second
 )
 
@@ -195,18 +195,17 @@ func (c *Client) doRegister(ctx context.Context, reg registrationRequest) error 
 		return fmt.Errorf("encode registration: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.serviceURL+"/api/v1/policy/routes/register", body)
-	if err != nil {
-		return fmt.Errorf("build registration request: %w", err)
-	}
+	header := http.Header{}
 	tok, err := c.token(ctx)
 	if err != nil {
 		return fmt.Errorf("get platform token for registration: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+tok)
+	header.Set("Content-Type", "application/json")
+	header.Set("Authorization", "Bearer "+tok)
 
-	_, span, resp, err := c.Do(ctx, registerSpan, req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.serviceURL, Path: "/api/v1/policy/routes/register", Header: header, Body: body,
+	})
 	defer span.End()
 	if err != nil {
 		return err

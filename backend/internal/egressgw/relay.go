@@ -3,6 +3,9 @@ package egressgw
 import (
 	"context"
 	"errors"
+	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"go.opentelemetry.io/otel/trace"
 	"io"
 	"net"
 	"net/http"
@@ -10,12 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
-
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -34,13 +34,13 @@ const relayIdleTimeout = 10 * time.Minute
 func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, claims *token.PlatformClaims, host, port string) {
 	// parseConnectAuthority has already checked port is numeric.
 	portNum, _ := strconv.Atoi(port)
-	ctx, span := tracer.Start(ctx, "egress.relay "+host,
+	ctx, span := tracer.Start(ctx, "egressgw.ConnectHandler.serveRelay",
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
-			attribute.String("server.address", host),
-			attribute.Int("server.port", portNum),
-			attribute.String("kora.tenant_id", claims.Kora.TenantID),
-			attribute.String("kora.principal_id", claims.Subject),
+			semconv.ServerAddressKey.String(host),
+			semconv.ServerPortKey.Int(portNum),
+			observability.TenantIDKey.String(claims.Kora.TenantID),
+			observability.PrincipalIDKey.String(claims.Subject),
 		))
 	defer span.End()
 
@@ -110,8 +110,8 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 	sent, recv := relayTCP(clientConn, upstream, relayIdleTimeout)
 
 	span.SetAttributes(
-		attribute.Int64("kora.relay.bytes_sent", sent),
-		attribute.Int64("kora.relay.bytes_received", recv),
+		observability.RelayBytesSentKey.Int64(sent),
+		observability.RelayBytesReceivedKey.Int64(recv),
 	)
 	h.logger.Info(ctx, "egress relay closed",
 		logging.Field{Key: "host", Value: host},

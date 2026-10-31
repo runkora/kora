@@ -27,7 +27,7 @@ var ErrBundleUnexpectedStatus = errors.New("bundle endpoint returned unexpected 
 // errBundleRefresh is the static span status for a periodic refresh that failed.
 var errBundleRefresh = errors.New("bundle refresh failed")
 
-const loadBundleSpan = "policy-engine.Engine.LoadBundle"
+const loadBundleSpan = "policy.engine.refresh"
 
 const decisionQuery = "x := {\"allow\": data.kora.authz.allow, \"reason\": data.kora.authz.reason}"
 const scopesQuery = "x := data.kora.authz.principal_all_scopes"
@@ -74,7 +74,7 @@ type engine struct {
 
 func newEngine(bundleEndpoint string, pollInterval time.Duration, logger logging.Logger) *engine {
 	return &engine{
-		Base:           httpclient.New("kora.policy-engine-bundle-client", logger, 10*time.Second),
+		Base:           httpclient.New("github.com/runkora/kora/backend/internal/platform/policy", logger, 10*time.Second),
 		bundles:        make(map[string]*tenantBundle),
 		bundleEndpoint: bundleEndpoint,
 		pollInterval:   pollInterval,
@@ -131,14 +131,9 @@ func (e *engine) refresh(ctx context.Context, tenantID string) {
 // loadBundle fetches and compiles a tenant's bundle. It reports whether the
 // cached bundle changed: an identical bundle is not recompiled.
 func (e *engine) loadBundle(ctx context.Context, tenantID string) (bool, error) {
-	url := e.bundleEndpoint + "/" + tenantID
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return false, fmt.Errorf("create bundle request: %w", err)
-	}
-
-	_, span, resp, err := e.Do(ctx, loadBundleSpan, req)
+	_, span, resp, err := e.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: e.bundleEndpoint, Path: "/{tenant_id}", Params: []string{tenantID},
+	})
 	defer span.End()
 	if err != nil {
 		return false, fmt.Errorf("fetch bundle for tenant %s: %w", tenantID, err)

@@ -168,7 +168,7 @@ func TestClaudeTelemetryEnv_ParentsToRequestSpan(t *testing.T) {
 		"OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317",
 		"OTEL_EXPORTER_OTLP_PROTOCOL=grpc",
 		"CLAUDE_CODE_PROPAGATE_TRACEPARENT=1",
-		"OTEL_RESOURCE_ATTRIBUTES=kora.run_id=run-1,kora.tenant_id=tenant-1",
+		"OTEL_RESOURCE_ATTRIBUTES=kora.run.id=run-1,kora.tenant.id=tenant-1",
 	} {
 		if !slices.Contains(env, want) {
 			t.Errorf("env missing %q: %v", want, env)

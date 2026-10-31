@@ -24,14 +24,13 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 const (
-	tracerName    = "kora.identity-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/identity"
 	clientTimeout = 10 * time.Second
 )
 
@@ -123,13 +122,9 @@ func NewClient(baseURL string, logger logging.Logger) *Client {
 //
 // Returns the platform token string and its absolute expiry time.
 func (c *Client) Exchange(ctx context.Context) (token string, expiry time.Time, err error) {
-	endpoint := c.baseURL + "/api/v1/identity/exchange"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, http.NoBody)
-	if err != nil {
-		return "", time.Time{}, fmt.Errorf("build exchange request: %w", err)
-	}
-
-	ctx, span, resp, err := c.Do(ctx, "identity.Client.Exchange", req)
+	ctx, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/api/v1/identity/exchange",
+	})
 	defer span.End()
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("exchange call: %w", err)
@@ -160,8 +155,8 @@ func (c *Client) Exchange(ctx context.Context) (token string, expiry time.Time, 
 	tokenExpiry := issuedAt.Add(time.Duration(parsed.ExpiresIn) * time.Second)
 
 	span.SetAttributes(
-		attribute.Int("token.expires_in", parsed.ExpiresIn),
-		attribute.String("token.expiry", tokenExpiry.UTC().Format(time.RFC3339)),
+		observability.TokenExpiresInKey.Int(parsed.ExpiresIn),
+		observability.TokenExpiryKey.String(tokenExpiry.UTC().Format(time.RFC3339)),
 	)
 
 	c.Logger().Info(ctx, "platform token exchanged",
@@ -256,15 +251,13 @@ func (c *Client) CreateDelegation(ctx context.Context, bearer string, req Create
 	if err != nil {
 		return nil, fmt.Errorf("build delegation request: %w", err)
 	}
-	endpoint := c.baseURL + "/api/v1/identity/delegation"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, body)
-	if err != nil {
-		return nil, fmt.Errorf("build delegation request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	header.Set("Authorization", "Bearer "+bearer)
 
-	ctx, span, resp, err := c.Do(ctx, "identity.Client.CreateDelegation", httpReq)
+	ctx, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/api/v1/identity/delegation", Header: header, Body: body,
+	})
 	defer span.End()
 	if err != nil {
 		return nil, fmt.Errorf("create delegation call: %w", err)
@@ -299,14 +292,12 @@ func (c *Client) CreateDelegation(ctx context.Context, bearer string, req Create
 // missing issuance is treated as success (the tombstone is the desired end
 // state), so terminal-state cleanup is idempotent.
 func (c *Client) RevokeDelegation(ctx context.Context, bearer, jti string) error {
-	endpoint := c.baseURL + "/api/v1/identity/delegation/" + jti
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, http.NoBody)
-	if err != nil {
-		return fmt.Errorf("build delegation revoke request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+bearer)
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+bearer)
 
-	ctx, span, resp, err := c.Do(ctx, "identity.Client.RevokeDelegation", req)
+	ctx, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodDelete, BaseURL: c.baseURL, Path: "/api/v1/identity/delegation/{jti}", Params: []string{jti}, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return fmt.Errorf("revoke delegation call: %w", err)
@@ -337,14 +328,11 @@ func (c *Client) RevokeDelegation(ctx context.Context, bearer, jti string) error
 // Returns ErrDelegationNotFound when the run has no active delegation — the
 // identity-proxy caches this as "autonomous, none".
 func (c *Client) GetDelegationForRun(ctx context.Context, runID string) (*DelegationToken, error) {
-	endpoint := c.baseURL + "/api/v1/identity/delegation/run/" + runID
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
-	if err != nil {
-		return nil, fmt.Errorf("build delegation retrieval request: %w", err)
-	}
-
-	_, span, resp, err := c.Do(ctx, "identity.Client.GetDelegationForRun", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/api/v1/identity/delegation/run/{runID}", Params: []string{runID},
+	})
 	defer span.End()
+	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return nil, fmt.Errorf("get delegation for run call: %w", err)
 	}
@@ -359,7 +347,7 @@ func (c *Client) GetDelegationForRun(ctx context.Context, runID string) (*Delega
 		// service's explicit delegation_not_found is a negative result.
 		var eb errorBody
 		if decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 512)).Decode(&eb); decodeErr == nil && eb.Code == "delegation_not_found" {
-			span.SetAttributes(attribute.String("delegation.result", "none"))
+			span.SetAttributes(observability.DelegationResultKey.String("none"))
 			return nil, ErrDelegationNotFound
 		}
 		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
@@ -411,8 +399,6 @@ type mintServiceTokenResponse struct {
 // This satisfies the triggers package's TokenMinter interface, which
 // kora-triggers uses in place of the in-process identity service.
 func (c *Client) MintServiceToken(ctx context.Context, tenantID, principalID, displayName string, ttl time.Duration) (string, error) {
-	endpoint := c.baseURL + "/api/v1/identity/internal/service-token"
-
 	body, err := json.Marshal(mintServiceTokenRequest{
 		TenantID:    tenantID,
 		PrincipalID: principalID,
@@ -423,13 +409,12 @@ func (c *Client) MintServiceToken(ctx context.Context, tenantID, principalID, di
 		return "", fmt.Errorf("marshal mint request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("build mint request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
 
-	_, span, resp, err := c.Do(ctx, "identity.Client.MintServiceToken", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/api/v1/identity/internal/service-token", Header: header, Body: bytes.NewReader(body),
+	})
 	defer span.End()
 	if err != nil {
 		return "", fmt.Errorf("mint call: %w", err)
@@ -452,7 +437,7 @@ func (c *Client) MintServiceToken(ctx context.Context, tenantID, principalID, di
 		return "", c.RecordError(span, ErrMissingToken)
 	}
 
-	span.SetAttributes(attribute.Int("token.expires_in", parsed.ExpiresIn))
+	span.SetAttributes(observability.TokenExpiresInKey.Int(parsed.ExpiresIn))
 
 	return parsed.AccessToken, nil
 }
