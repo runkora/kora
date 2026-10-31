@@ -17,7 +17,6 @@ import (
 	"github.com/open-policy-agent/opa/v1/rego"
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
-	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -111,11 +110,12 @@ func (e *engine) refreshAll(ctx context.Context) {
 	}
 }
 
-// refresh polls one tenant's bundle untraced and records a span only when the
-// bundle changed or the poll failed. The policy service counts every poll.
+// refresh polls one tenant's bundle with no parent span, so the poll itself
+// records none. A summary span marks a changed bundle or a failed poll; the
+// policy service counts every poll.
 func (e *engine) refresh(ctx context.Context, tenantID string) {
 	start := time.Now()
-	changed, err := e.loadBundle(observability.Untraced(ctx), tenantID)
+	changed, err := e.loadBundle(ctx, tenantID)
 	if !changed && err == nil {
 		return
 	}
