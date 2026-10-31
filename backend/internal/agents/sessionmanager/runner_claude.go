@@ -76,6 +76,7 @@ type ClaudeRunnerConfig struct {
 //	claude --print --output-format stream-json --input-format stream-json
 //	       --verbose --include-partial-messages --dangerously-skip-permissions
 //	       --settings <claudeAttributionSettings> --strict-mcp-config
+//	       --setting-sources project,local
 //	       [--resume ID] [--bare] [--model M]
 //	       --disallowedTools <claudeExcludedTools> [--append-system-prompt P]
 //
@@ -130,9 +131,12 @@ func (r *ClaudeRunner) buildFlags() []string {
 		"--include-partial-messages",
 		"--dangerously-skip-permissions",
 		"--settings", claudeAttributionSettings,
-		// Only the platform's --mcp-config. A workspace .mcp.json would start
-		// its servers in the agent pod.
+		// Only the platform's --mcp-config. A workspace .mcp.json or a plugin
+		// would start its servers in the agent pod.
 		"--strict-mcp-config",
+		// User settings live in the run's HOME, which the agent writes. Their env
+		// can load plugins whose servers run in the agent pod.
+		"--setting-sources", "project,local",
 	}
 	if r.cfg.ResumeSessionID != "" {
 		args = append(args, "--resume", r.cfg.ResumeSessionID)

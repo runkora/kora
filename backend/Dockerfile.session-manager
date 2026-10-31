@@ -69,8 +69,9 @@ RUN apk add --no-cache ca-certificates bash git curl ripgrep
 # them when the run has no sandbox.
 ENV SHELL=/opt/kora/shell/bash
 ENV CLAUDE_CODE_SHELL=/opt/kora/shell/bash
-# Managed settings outrank the user and project settings an agent can write in its
-# workspace. They pin the shell to kora-shell and drop hooks from those files.
+# Managed settings outrank the project settings an agent can write in its workspace.
+# They pin the shell to kora-shell, drop hooks from those files and refuse every
+# plugin marketplace.
 COPY cmd/session-manager/agent-clis/claude-managed-settings.json /etc/claude-code/managed-settings.json
 
 # Install the claude and opencode CLIs from the lockfile in cmd/session-manager/agent-clis,
