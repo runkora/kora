@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -40,6 +41,10 @@ func (c *PostgresConfig) BuildPoolConfig() (*pgxpool.Config, error) {
 	return poolConfig, nil
 }
 
+// errQueryFailed is the static span status for a failed query; the driver error
+// itself goes on the span through RecordError.
+var errQueryFailed = errors.New("database query failed")
+
 // otelQueryTracer implements pgx.QueryTracer to emit OpenTelemetry spans for
 // every database operation. SQL statement text is only captured when
 // CaptureQueryText is true (disabled in production for security).
@@ -72,7 +77,7 @@ func (t *otelQueryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data p
 
 	if data.Err != nil {
 		span.RecordError(data.Err)
-		span.SetStatus(codes.Error, data.Err.Error())
+		span.SetStatus(codes.Error, errQueryFailed.Error())
 		span.SetAttributes(attribute.Bool("db.error", true))
 		return
 	}
