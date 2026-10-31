@@ -126,7 +126,7 @@ This decision touches none of the three questions. Trace context is observabilit
 
 ### Negative
 
-- A long or busy session can exceed Tempo's per-trace size limit, and Tempo drops the spans past it. The local stack (Tempo 3.1.1 in the `lgtm` pod, all defaults) runs with these effective values:
+- Spans of one trace that arrive within one ingest window past `max_bytes_per_trace` are dropped. A trace that grows past it across windows is stored whole; Tempo's v1 trace-by-ID API then answers 422 and the v2 API and Grafana return it marked partial. The local stack (Tempo 3.1.1 in the `lgtm` pod, all defaults) runs with these effective values:
   - `max_bytes_per_trace`: 5,000,000 bytes.
   - Live store `max_trace_live`: 30 s, `max_trace_idle`: 5 s, `max_block_duration`: 30 s, `complete_block_timeout`: 20 m.
   - Query frontend `search.max_duration`: 168 h, and `metrics.max_duration`: 24 h.
