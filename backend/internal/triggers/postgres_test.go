@@ -2563,3 +2563,46 @@ func TestPostgres_TriggerNameAcrossSources(t *testing.T) {
 		t.Errorf("rename onto a declared name: err = %v", err)
 	}
 }
+
+// The claim hands the worker the fire's traceparent, and a coalesced replacement carries the newest fire's.
+func TestPostgres_PendingTraceParent(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	plain := seedPendingTrigger(t, r, tenant, s.ID, "plain", 4)
+	coalesced := seedPendingTrigger(t, r, tenant, s.ID, "coalesced", 4)
+	const first = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	const second = "00-5bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+	p := newPending(tenant, plain.ID)
+	p.TraceParent = first
+	if err := r.EnqueuePending(ctx, p); err != nil {
+		t.Fatalf("EnqueuePending: %v", err)
+	}
+	c1 := coalescePending(tenant, coalesced.ID, "k", "first")
+	c1.TraceParent = first
+	if _, err := r.EnqueueCoalescing(ctx, c1, time.Millisecond*500); err != nil {
+		t.Fatalf("first coalescing fire: %v", err)
+	}
+	c2 := coalescePending(tenant, coalesced.ID, "k", "second")
+	c2.TraceParent = second
+	if _, err := r.EnqueueCoalescing(ctx, c2, time.Hour); err != nil {
+		t.Fatalf("second coalescing fire: %v", err)
+	}
+	time.Sleep(time.Second)
+
+	claimed, err := r.ClaimPending(ctx, 100)
+	if err != nil {
+		t.Fatalf("ClaimPending: %v", err)
+	}
+	want := map[string]string{plain.ID: first, coalesced.ID: second}
+	got := map[string]string{}
+	for _, c := range claimed {
+		if _, ok := want[c.TriggerID]; ok {
+			got[c.TriggerID] = c.TraceParent
+		}
+	}
+	if len(got) != 2 || got[plain.ID] != first || got[coalesced.ID] != second {
+		t.Errorf("claimed traceparents = %v, want %v", got, want)
+	}
+}

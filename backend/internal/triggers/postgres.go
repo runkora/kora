@@ -1225,7 +1225,7 @@ func (r *postgresRepository) EnqueueWithinCeiling(ctx context.Context, p *Pendin
 		}
 
 		if _, err := tx.Exec(ctx, pendingInsertSQL,
-			p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON); err != nil {
+			p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON, storage.NullIfZero(p.TraceParent)); err != nil {
 			return fmt.Errorf("enqueue pending delivery: %w", err)
 		}
 		admitted = true
@@ -1242,8 +1242,8 @@ func (r *postgresRepository) EnqueueWithinCeiling(ctx context.Context, p *Pendin
 // to one and forgotten in the other (the failure deliveryInsertColumns exists
 // to prevent for deliveries).
 const pendingInsertSQL = `
-	INSERT INTO trigger_pending_deliveries (id, tenant_id, trigger_id, delivery_id, fields)
-	VALUES ($1, $2, $3, $4, $5)
+	INSERT INTO trigger_pending_deliveries (id, tenant_id, trigger_id, delivery_id, fields, trace_parent)
+	VALUES ($1, $2, $3, $4, $5, $6)
 `
 
 func (r *postgresRepository) EnqueuePending(ctx context.Context, p *PendingDelivery) error {
@@ -1252,7 +1252,7 @@ func (r *postgresRepository) EnqueuePending(ctx context.Context, p *PendingDeliv
 		return fmt.Errorf("marshal pending fields: %w", err)
 	}
 	if _, err := r.pool.Exec(ctx, pendingInsertSQL,
-		p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON); err != nil {
+		p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON, storage.NullIfZero(p.TraceParent)); err != nil {
 		return fmt.Errorf("enqueue pending delivery: %w", err)
 	}
 	return nil
@@ -1325,7 +1325,7 @@ func (r *postgresRepository) ClaimPending(ctx context.Context, limit int) ([]Pen
 		SET    claimed_at = now()
 		FROM   claimable c
 		WHERE  p.id = c.id AND p.claimed_at IS NULL
-		RETURNING p.id, p.tenant_id, p.trigger_id, p.delivery_id, p.fields, p.enqueued_at, p.hold_count
+		RETURNING p.id, p.tenant_id, p.trigger_id, p.delivery_id, p.fields, p.enqueued_at, p.hold_count, p.trace_parent
 	`, limit, StaleClaimWindow.Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("claim pending deliveries: %w", err)
@@ -1460,7 +1460,7 @@ func (r *postgresRepository) SupersedeAndEnqueue(ctx context.Context, p *Pending
 		rows, err := tx.Query(ctx, `
 			DELETE FROM trigger_pending_deliveries
 			WHERE  trigger_id = $1 AND claimed_at IS NULL
-			RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at, hold_count
+			RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at, hold_count, trace_parent
 		`, p.TriggerID)
 		if err != nil {
 			return fmt.Errorf("supersede pending deliveries: %w", err)
@@ -1474,7 +1474,7 @@ func (r *postgresRepository) SupersedeAndEnqueue(ctx context.Context, p *Pending
 		}
 
 		if _, err := tx.Exec(ctx, pendingInsertSQL,
-			p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON); err != nil {
+			p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON, storage.NullIfZero(p.TraceParent)); err != nil {
 			return fmt.Errorf("enqueue replacement: %w", err)
 		}
 		return nil
@@ -1523,11 +1523,11 @@ func (r *postgresRepository) EnqueueCoalescing(ctx context.Context, p *PendingDe
 			    FOR UPDATE
 			)
 			UPDATE trigger_pending_deliveries p
-			SET    delivery_id = $3, fields = $4, enqueued_at = now()
+			SET    delivery_id = $3, fields = $4, enqueued_at = now(), trace_parent = $5
 			FROM   open
 			WHERE  p.id = open.id AND p.claimed_at IS NULL
 			RETURNING open.delivery_id
-		`, p.TriggerID, p.CoalesceKey, p.DeliveryID, fieldsJSON).Scan(&replaced)
+		`, p.TriggerID, p.CoalesceKey, p.DeliveryID, fieldsJSON, storage.NullIfZero(p.TraceParent)).Scan(&replaced)
 		if err == nil {
 			return nil
 		}
@@ -1537,9 +1537,9 @@ func (r *postgresRepository) EnqueueCoalescing(ctx context.Context, p *PendingDe
 
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO trigger_pending_deliveries
-				(id, tenant_id, trigger_id, delivery_id, fields, coalesce_key, dispatch_after)
-			VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(secs => $7))
-		`, p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON, p.CoalesceKey, window.Seconds()); err != nil {
+				(id, tenant_id, trigger_id, delivery_id, fields, coalesce_key, dispatch_after, trace_parent)
+			VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(secs => $7), $8)
+		`, p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON, p.CoalesceKey, window.Seconds(), storage.NullIfZero(p.TraceParent)); err != nil {
 			return fmt.Errorf("enqueue coalescing fire: %w", err)
 		}
 		return nil
@@ -1582,7 +1582,7 @@ func (r *postgresRepository) TrimPending(ctx context.Context, triggerID string, 
 		    ORDER  BY enqueued_at DESC
 		    OFFSET $2
 		)
-		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at, hold_count
+		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at, hold_count, trace_parent
 	`, triggerID, offset)
 	if err != nil {
 		return nil, fmt.Errorf("trim pending deliveries: %w", err)
@@ -1611,7 +1611,7 @@ func (r *postgresRepository) deleteUnclaimedPending(ctx context.Context, trigger
 	rows, err := r.pool.Query(ctx, `
 		DELETE FROM trigger_pending_deliveries
 		WHERE  trigger_id = $1 AND claimed_at IS NULL
-		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at, hold_count
+		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at, hold_count, trace_parent
 	`, triggerID)
 	if err != nil {
 		return nil, fmt.Errorf("%s pending deliveries: %w", what, err)
@@ -1720,9 +1720,11 @@ func scanPending(rows pgx.Rows) ([]PendingDelivery, error) {
 	for rows.Next() {
 		var p PendingDelivery
 		var fieldsJSON []byte
-		if err := rows.Scan(&p.ID, &p.TenantID, &p.TriggerID, &p.DeliveryID, &fieldsJSON, &p.EnqueuedAt, &p.HoldCount); err != nil {
+		var traceParent *string
+		if err := rows.Scan(&p.ID, &p.TenantID, &p.TriggerID, &p.DeliveryID, &fieldsJSON, &p.EnqueuedAt, &p.HoldCount, &traceParent); err != nil {
 			return nil, fmt.Errorf("scan pending delivery: %w", err)
 		}
+		p.TraceParent = storage.Deref(traceParent)
 		if len(fieldsJSON) > 0 {
 			if err := json.Unmarshal(fieldsJSON, &p.Fields); err != nil {
 				return nil, fmt.Errorf("unmarshal pending fields: %w", err)

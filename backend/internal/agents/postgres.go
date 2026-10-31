@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
@@ -308,10 +309,10 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO runs
 			(id, tenant_id, agent_type_id, state, pod_ordinal, created_by, created_at, updated_at,
-			 trigger_id, trigger_name, delivery_id, initial_message)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+			 trigger_id, trigger_name, delivery_id, initial_message, trace_parent)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
 		run.ID, run.TenantID, run.AgentTypeID, string(RunStatePending), -1, run.CreatedBy, now, now,
-		triggerID, triggerName, deliveryID, run.InitialMessage,
+		triggerID, triggerName, deliveryID, run.InitialMessage, storage.NullIfZero(run.TraceParent),
 	)
 	if err != nil {
 		return fmt.Errorf("insert run: %w", err)
@@ -325,7 +326,7 @@ const selectRun = `SELECT ` + runColumns + ` FROM runs r JOIN agent_types at ON 
 
 const runColumns = `
 	r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode, at.slug, at.name,
-	r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id`
+	r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id, r.trace_parent`
 
 func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error) {
 	row := r.pool.QueryRow(ctx, selectRun+` WHERE r.id=$1`, id)
@@ -843,12 +844,12 @@ func scanAgentType(s scanner) (*AgentType, error) {
 func scanRun(s scanner, extra ...any) (*Run, error) {
 	var r Run
 	var state, identityMode string
-	var triggerID, triggerName, deliveryID *string
+	var triggerID, triggerName, deliveryID, traceParent *string
 	err := s.Scan(append([]any{
 		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 		&r.Summary, &r.DelegationJTI, &identityMode, &r.AgentSlug, &r.AgentName,
-		&triggerID, &triggerName, &deliveryID, &r.EnvironmentID,
+		&triggerID, &triggerName, &deliveryID, &r.EnvironmentID, &traceParent,
 	}, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -858,6 +859,8 @@ func scanRun(s scanner, extra ...any) (*Run, error) {
 	}
 	r.State = RunState(state)
 	r.IdentityMode = IdentityMode(identityMode).OrDefault()
+	r.TraceParent = storage.Deref(traceParent)
+	r.TraceID = observability.SampledTraceID(r.TraceParent)
 	// The trigger id is what makes the attribution real; a name or delivery
 	// without one would be a run claiming automation without naming what
 	// automated it, so the whole block hangs off the id being present.

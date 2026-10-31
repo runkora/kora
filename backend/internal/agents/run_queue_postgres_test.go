@@ -246,3 +246,41 @@ func TestPostgres_ReapStalePendingRun(t *testing.T) {
 		t.Errorf("reaped %v, state %s, want %s failed", failed, run.State, id)
 	}
 }
+
+// The claim hands the scheduler the traceparent StartRun stored, and reads derive trace_id from it.
+func TestPostgres_RunTraceParent(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	const sampled = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	const unsampled = "00-5bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"
+
+	ids := map[string]string{}
+	for _, tp := range []string{sampled, unsampled, ""} {
+		run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, TraceParent: tp}
+		if err := r.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun: %v", err)
+		}
+		if err := r.QueueRun(ctx, run.ID, time.Now().UTC()); err != nil {
+			t.Fatalf("QueueRun: %v", err)
+		}
+		ids[run.ID] = tp
+	}
+	claimed := claimOwn(t, r, tenant, time.Now().UTC().Add(time.Second))
+	if len(claimed) != len(ids) {
+		t.Fatalf("claimed %d runs, want %d", len(claimed), len(ids))
+	}
+	for _, run := range claimed {
+		if run.TraceParent != ids[run.ID] {
+			t.Errorf("claimed TraceParent = %q, want %q", run.TraceParent, ids[run.ID])
+		}
+		got, err := r.GetRun(ctx, run.ID)
+		if err != nil {
+			t.Fatalf("GetRun: %v", err)
+		}
+		wantID := ids[run.ID] == sampled
+		if (got.TraceID != nil) != wantID || (wantID && *got.TraceID != "4bf92f3577b34da6a3ce929d0e0e4736") {
+			t.Errorf("run with traceparent %q: TraceID = %v", ids[run.ID], got.TraceID)
+		}
+	}
+}
