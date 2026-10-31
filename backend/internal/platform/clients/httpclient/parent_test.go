@@ -31,11 +31,10 @@ func TestClientSpans_OnlyUnderAParent(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	base := httpclient.New("test", logging.NewLoggerWithOutput(io.Discard), 0)
-	sdk := httpclient.NewHTTPClient(0, httpclient.NewTracingTransport("test", nil))
+	sdk := httpclient.NewHTTPClient(0, httpclient.NewTracingTransport("test", "", nil))
 	calls := map[string]func(ctx context.Context) error{
 		"Base.Do": func(ctx context.Context) error {
-			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
-			_, span, resp, err := base.Do(ctx, "test.Call", req)
+			_, span, resp, err := base.Do(ctx, httpclient.Request{Method: http.MethodGet, BaseURL: srv.URL})
 			defer span.End()
 			if err == nil {
 				_ = resp.Body.Close()

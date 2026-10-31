@@ -26,6 +26,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // ErrCodeSandboxUnschedulable marks kora-agents' 503 for a sandbox pod that no node could place.
@@ -33,7 +34,7 @@ import (
 const ErrCodeSandboxUnschedulable = "sandbox_unschedulable"
 
 const (
-	tracerName    = "kora.sessionmanager-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	clientTimeout = 30 * time.Second
 	podPort       = 8090
 )
@@ -83,13 +84,13 @@ func NewClient(logger logging.Logger, tokenFunc TokenFunc) *Client {
 }
 
 // authorize attaches the caller's platform token to the outbound request.
-func (c *Client) authorize(ctx context.Context, req *http.Request) error {
+func (c *Client) authorize(ctx context.Context, header http.Header) (http.Header, error) {
 	tok, err := c.tokenFunc(ctx)
 	if err != nil {
-		return fmt.Errorf("obtain platform token for session-manager call: %w", err)
+		return nil, fmt.Errorf("obtain platform token for session-manager call: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+tok)
-	return nil
+	header.Set("Authorization", "Bearer "+tok)
+	return header, nil
 }
 
 // PodURL returns the base URL for a specific session-manager pod.
@@ -145,17 +146,16 @@ func (c *Client) CreateSession(ctx context.Context, podURL string, req CreateSes
 		return fmt.Errorf("encode create session: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, podURL+"/session", body)
+	header, err := c.authorize(ctx, http.Header{"Content-Type": {"application/json"}})
 	if err != nil {
-		return fmt.Errorf("build create session request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if err = c.authorize(ctx, httpReq); err != nil {
 		return err
 	}
 
-	_, span, resp, err := c.Do(ctx, "sessionmanager.Client.CreateSession", httpReq)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: podURL, Path: "/session", Header: header, Body: body,
+	})
 	defer span.End()
+	span.SetAttributes(observability.RunIDKey.String(req.RunID), observability.TenantIDKey.String(req.TenantID))
 	if err != nil {
 		return err
 	}
@@ -188,17 +188,17 @@ func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string,
 		return fmt.Errorf("encode send message: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, podURL+"/session/"+runID+"/messages", body)
+	header, err := c.authorize(ctx, http.Header{"Content-Type": {"application/json"}})
 	if err != nil {
-		return fmt.Errorf("build send message request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if err = c.authorize(ctx, httpReq); err != nil {
 		return err
 	}
 
-	_, span, resp, err := c.Do(ctx, "sessionmanager.Client.SendMessage", httpReq)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: podURL, Path: "/session/{runID}/messages", Params: []string{runID},
+		Header: header, Body: body,
+	})
 	defer span.End()
+	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return err
 	}
@@ -218,16 +218,16 @@ func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string,
 // stopping the current in-progress turn without killing the session.
 // Returns ErrSessionNotFound if no session exists for the given run ID.
 func (c *Client) InterruptSession(ctx context.Context, podURL, runID string) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, podURL+"/session/"+runID+"/interrupt", http.NoBody)
+	header, err := c.authorize(ctx, http.Header{})
 	if err != nil {
-		return fmt.Errorf("build interrupt session request: %w", err)
-	}
-	if err = c.authorize(ctx, httpReq); err != nil {
 		return err
 	}
 
-	_, span, resp, err := c.Do(ctx, "sessionmanager.Client.InterruptSession", httpReq)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: podURL, Path: "/session/{runID}/interrupt", Params: []string{runID}, Header: header,
+	})
 	defer span.End()
+	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return err
 	}
@@ -246,16 +246,16 @@ func (c *Client) InterruptSession(ctx context.Context, podURL, runID string) err
 // CloseSession terminates the session and stops the Claude subprocess on the target pod.
 // Returns ErrSessionNotFound if no session exists for the given run ID.
 func (c *Client) CloseSession(ctx context.Context, podURL, runID string) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, podURL+"/session/"+runID, http.NoBody)
+	header, err := c.authorize(ctx, http.Header{})
 	if err != nil {
-		return fmt.Errorf("build close session request: %w", err)
-	}
-	if err = c.authorize(ctx, httpReq); err != nil {
 		return err
 	}
 
-	_, span, resp, err := c.Do(ctx, "sessionmanager.Client.CloseSession", httpReq)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodDelete, BaseURL: podURL, Path: "/session/{runID}", Params: []string{runID}, Header: header,
+	})
 	defer span.End()
+	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return err
 	}

@@ -121,18 +121,17 @@ type Caller struct {
 // Triggers feature uses this to confirm a trigger's target exists in-tenant and
 // to derive the canonical slug the run grant must be keyed on.
 func (c *Client) GetAgentType(ctx context.Context, caller Caller, id string) (AgentType, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/agent-types/"+url.PathEscape(id), nil)
-	if err != nil {
-		return AgentType{}, fmt.Errorf("build get agent type request: %w", err)
-	}
+	header := http.Header{}
 	if caller.Bearer != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+caller.Bearer)
+		header.Set("Authorization", "Bearer "+caller.Bearer)
 	}
 	if caller.Delegation != "" {
-		httpReq.Header.Set(mw.DelegationTokenHeader, caller.Delegation)
+		header.Set(mw.DelegationTokenHeader, caller.Delegation)
 	}
 
-	_, span, resp, err := c.Do(ctx, "agents.Client.GetAgentType", httpReq)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/api/v1/agent-types/{id}", Params: []string{id}, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return AgentType{}, err
@@ -158,27 +157,25 @@ func (c *Client) GetAgentType(ctx context.Context, caller Caller, id string) (Ag
 // ListAgentTypes returns the agent types the caller may read in its tenant,
 // each with the caller's can_run. A delegation travels with the bearer.
 func (c *Client) ListAgentTypes(ctx context.Context, caller Caller) ([]AgentType, error) {
-	return c.listAgentTypes(ctx, caller, "agents.Client.ListAgentTypes", "")
+	return c.listAgentTypes(ctx, caller, nil)
 }
 
 // ListAgentTypesByIDs returns the listed agent types the caller may read, each with its effective
 // connectors, in one call. A type the caller cannot read is left out.
 func (c *Client) ListAgentTypesByIDs(ctx context.Context, caller Caller, ids []string) ([]AgentType, error) {
-	query := url.Values{"ids": {strings.Join(ids, ",")}, "include": {"effective_access"}}
-	return c.listAgentTypes(ctx, caller, "agents.Client.ListAgentTypesByIDs", "?"+query.Encode())
+	return c.listAgentTypes(ctx, caller, url.Values{"ids": {strings.Join(ids, ",")}, "include": {"effective_access"}})
 }
 
-func (c *Client) listAgentTypes(ctx context.Context, caller Caller, op, query string) ([]AgentType, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/agent-types"+query, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build list agent types request: %w", err)
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+caller.Bearer)
+func (c *Client) listAgentTypes(ctx context.Context, caller Caller, query url.Values) ([]AgentType, error) {
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+caller.Bearer)
 	if caller.Delegation != "" {
-		httpReq.Header.Set(mw.DelegationTokenHeader, caller.Delegation)
+		header.Set(mw.DelegationTokenHeader, caller.Delegation)
 	}
 
-	_, span, resp, err := c.Do(ctx, op, httpReq)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/api/v1/agent-types", Query: query, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return nil, err
@@ -239,14 +236,13 @@ func (c *Client) StartRun(ctx context.Context, bearer string, req StartRunReques
 		return StartRunResponse{}, fmt.Errorf("encode start run: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/runs", body)
-	if err != nil {
-		return StartRunResponse{}, fmt.Errorf("build start run request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	header.Set("Authorization", "Bearer "+bearer)
 
-	_, span, resp, err := c.Do(ctx, "agents.Client.StartRun", httpReq)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/api/v1/runs", Header: header, Body: body,
+	})
 	defer span.End()
 	if err != nil {
 		return StartRunResponse{}, err
@@ -278,17 +274,16 @@ func (c *Client) StartRun(ctx context.Context, bearer string, req StartRunReques
 // run is not in the caller's tenant. A delegated caller's delegation token is
 // forwarded so kora-agents applies the delegated rules.
 func (c *Client) CanReadRun(ctx context.Context, bearer, delegation, runID string) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/runs/"+url.PathEscape(runID), nil)
-	if err != nil {
-		return fmt.Errorf("build get run request: %w", err)
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+bearer)
-	httpReq.Header.Set("Accept", "application/json")
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+bearer)
+	header.Set("Accept", "application/json")
 	if delegation != "" {
-		httpReq.Header.Set(mw.DelegationTokenHeader, delegation)
+		header.Set(mw.DelegationTokenHeader, delegation)
 	}
 
-	_, span, resp, err := c.Do(ctx, "agents.Client.CanReadRun", httpReq)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/api/v1/runs/{runID}", Params: []string{runID}, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return err
@@ -328,14 +323,13 @@ func (c *Client) SendRunMessage(ctx context.Context, bearer, runID string, req S
 	if err != nil {
 		return fmt.Errorf("encode send run message: %w", err)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/runs/"+url.PathEscape(runID)+"/messages", body)
-	if err != nil {
-		return fmt.Errorf("build send run message request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	header.Set("Authorization", "Bearer "+bearer)
 
-	_, span, resp, err := c.Do(ctx, "agents.Client.SendRunMessage", httpReq)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/api/v1/runs/{runID}/messages", Params: []string{runID}, Header: header, Body: body,
+	})
 	defer span.End()
 	if err != nil {
 		return err
@@ -420,17 +414,12 @@ func (c *Client) ListRuns(ctx context.Context, bearer string, q ListRunsQuery) (
 	if q.Limit > 0 {
 		params.Set("limit", strconv.Itoa(q.Limit))
 	}
-	target := c.baseURL + "/api/v1/runs"
-	if len(params) > 0 {
-		target += "?" + params.Encode()
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build list runs request: %w", err)
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+bearer)
 
-	_, span, resp, err := c.Do(ctx, "agents.Client.ListRuns", httpReq)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/api/v1/runs", Query: params, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return nil, err

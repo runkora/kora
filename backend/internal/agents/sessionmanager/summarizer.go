@@ -11,12 +11,13 @@ import (
 
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 const (
-	summarizerTracerName = "kora.run-summarizer"
-	summarizerTimeout    = 15 * time.Second
-	summaryMaxTokens     = 60
+	tracerName        = "github.com/runkora/kora/backend/internal/agents/sessionmanager"
+	summarizerTimeout = 15 * time.Second
+	summaryMaxTokens  = 60
 	// summaryThinkingMaxTokens is the limit when the request may let the model
 	// think. The thinking block shares max_tokens with the label.
 	summaryThinkingMaxTokens = 1024
@@ -56,7 +57,7 @@ type summarizer struct {
 }
 
 func newSummarizer(logger logging.Logger) *summarizer {
-	return &summarizer{Base: httpclient.New(summarizerTracerName, logger, summarizerTimeout)}
+	return &summarizer{Base: httpclient.New(tracerName, logger, summarizerTimeout)}
 }
 
 // anthropic Messages API request/response shapes — the dialect the agent uses.
@@ -156,14 +157,21 @@ func (s *summarizer) send(ctx context.Context, baseURL, model, initialMessage st
 		return result, false, fmt.Errorf("encode summarize request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/messages", body)
-	if err != nil {
-		return result, false, fmt.Errorf("build summarize request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
 
-	_, span, resp, err := s.Do(ctx, "summarizer.Summarize", req)
+	// The run ID in the per-run base goes in as a parameter so the span name
+	// stays a template.
+	req := httpclient.Request{Method: http.MethodPost, BaseURL: baseURL, Path: "/v1/messages", Header: header, Body: body}
+	gateway, runID, perRun := strings.Cut(baseURL, "/run/")
+	if perRun {
+		req.BaseURL, req.Path, req.Params = gateway, "/run/{run_id}/v1/messages", []string{runID}
+	}
+	_, span, resp, err := s.Do(ctx, req)
 	defer span.End()
+	if perRun {
+		span.SetAttributes(observability.RunIDKey.String(runID))
+	}
 	if err != nil {
 		return result, false, err
 	}

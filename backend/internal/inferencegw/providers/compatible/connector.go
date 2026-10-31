@@ -77,7 +77,7 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 	if cfg.BaseURL == "" || len(cfg.APIs) == 0 {
 		return nil, fmt.Errorf("compatible: a base URL and at least one API are required")
 	}
-	transport := httpclient.NewTracingTransport("kora.compatible", nil)
+	transport := httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/compatible", "", nil)
 	c := &Connector{name: name, serves: map[ip.API]bool{}, logger: logger}
 	for _, api := range cfg.APIs {
 		c.serves[api] = true

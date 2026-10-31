@@ -30,7 +30,7 @@ func registerIdentityTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.Limit > 0 {
 				q.Set("limit", strconv.Itoa(a.Limit))
 			}
-			return jsonResult(jc.Get(ctx, caller(ctx), base, q))
+			return jsonResult(jc.Get(ctx, caller(ctx), base, "", q))
 		})
 
 	addTool(srv, "identity.users.get",
@@ -39,7 +39,7 @@ func registerIdentityTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
 			}
-			return jsonResult(jc.Get(ctx, caller(ctx), base+"/"+url.PathEscape(a.ID), nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base, "/{id}", nil, a.ID))
 		})
 }
 

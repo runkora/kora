@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
+
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 )
 
 // RepoOwners resolves numeric repository ids to the login of the account that
@@ -27,14 +28,13 @@ func (c *Client) RepoOwners(ctx context.Context, installationToken string, ids [
 }
 
 func (c *Client) repoOwner(ctx context.Context, installationToken, id string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/repositories/"+url.PathEscape(id), nil)
-	if err != nil {
-		return "", fmt.Errorf("build repository owner lookup: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+installationToken)
-	req.Header.Set("Accept", acceptHeader)
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+installationToken)
+	header.Set("Accept", acceptHeader)
 
-	_, span, resp, err := c.Do(ctx, "github.Client.RepoOwners", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/repositories/{id}", Params: []string{id}, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return "", fmt.Errorf("repository owner lookup call: %w", err)

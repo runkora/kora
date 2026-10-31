@@ -118,7 +118,7 @@ func New(cfg *Config, providerName inferencegw.ProviderName, logger logging.Logg
 	openaiClient := openai.NewClient(
 		openaiopt.WithBaseURL(openaiEndpoint),
 		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("kora.bedrock-openai", newSigV4Transport(awsCfg)),
+			httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/bedrock", "", newSigV4Transport(awsCfg)),
 		)),
 	)
 
@@ -128,7 +128,7 @@ func New(cfg *Config, providerName inferencegw.ProviderName, logger logging.Logg
 	mantleClient := openai.NewClient(
 		openaiopt.WithBaseURL(mantleEndpoint),
 		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("kora.bedrock-mantle", newSigV4Transport(awsCfg)),
+			httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/bedrock", "", newSigV4Transport(awsCfg)),
 		)),
 	)
 
@@ -140,7 +140,7 @@ func New(cfg *Config, providerName inferencegw.ProviderName, logger logging.Logg
 	mantleOpenAIV1Client := openai.NewClient(
 		openaiopt.WithBaseURL(mantleOpenAIV1Endpoint),
 		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("kora.bedrock-mantle-openai-v1", newSigV4Transport(awsCfg)),
+			httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/bedrock", "", newSigV4Transport(awsCfg)),
 		)),
 	)
 
@@ -151,7 +151,7 @@ func New(cfg *Config, providerName inferencegw.ProviderName, logger logging.Logg
 	anthropicClient := anthropic.NewClient(
 		awsbedrock.WithConfig(awsCfg),
 		anthropicOption.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("kora.bedrock-anthropic", nil),
+			httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/bedrock", "", nil),
 		)),
 	)
 
