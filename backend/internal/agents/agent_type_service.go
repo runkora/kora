@@ -4,16 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
-	"strings"
-
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
@@ -152,7 +151,7 @@ func (s *AgentTypeService) checkEnvironmentEdit(ctx context.Context, at AgentTyp
 // Tenant-scoped and authz-read-checked like GetAgentType.
 func (s *AgentTypeService) GetEffectiveAccess(ctx context.Context, id string) (*EffectiveAccess, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.GetEffectiveAccess",
-		trace.WithAttributes(attribute.String("agent_type_id", id)))
+		trace.WithAttributes(observability.AgentIDKey.String(id)))
 	defer span.End()
 
 	at, err := s.repo.GetAgentType(ctx, id)
@@ -339,8 +338,8 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	req.TenantID = tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.CreateAgentType",
 		trace.WithAttributes(
-			attribute.String("tenant_id", req.TenantID),
-			attribute.String("slug", req.Slug),
+			observability.TenantIDKey.String(req.TenantID),
+			observability.AgentSlugKey.String(req.Slug),
 		),
 	)
 	defer span.End()
@@ -422,7 +421,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		span.SetStatus(codes.Error, "create agent type")
 		return nil, fmt.Errorf("create agent type: %w", err)
 	}
-	span.SetAttributes(attribute.String("agent_type_id", at.ID))
+	span.SetAttributes(observability.AgentIDKey.String(at.ID))
 
 	// Publish the new slug's scopes now. A trigger bound seconds after create
 	// needs agents:runs:<slug>:* in the vocabulary before provisioning ends.
@@ -477,9 +476,9 @@ func (s *AgentTypeService) ApplyAll(ctx context.Context, lister activeAgentTypeL
 func (s *AgentTypeService) provisionAgentTypeAsync(detachedCtx context.Context, at AgentType) {
 	ctx, span := agentsTracer.Start(detachedCtx, "agents.provisionAgentTypeAsync",
 		trace.WithAttributes(
-			attribute.String("agent_type_id", at.ID),
-			attribute.String("tenant_id", at.TenantID),
-			attribute.String("slug", at.Slug),
+			observability.AgentIDKey.String(at.ID),
+			observability.TenantIDKey.String(at.TenantID),
+			observability.AgentSlugKey.String(at.Slug),
 		),
 	)
 	defer span.End()
@@ -546,7 +545,7 @@ func (s *AgentTypeService) provisionAgentTypeAsync(detachedCtx context.Context, 
 // mismatch or scope deny (existence is itself information).
 func (s *AgentTypeService) GetAgentType(ctx context.Context, id string) (*AgentType, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.GetAgentType",
-		trace.WithAttributes(attribute.String("agent_type_id", id)),
+		trace.WithAttributes(observability.AgentIDKey.String(id)),
 	)
 	defer span.End()
 	at, err := s.repo.GetAgentType(ctx, id)
@@ -591,7 +590,7 @@ func (s *AgentTypeService) GetAgentType(ctx context.Context, id string) (*AgentT
 func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListAgentTypes",
-		trace.WithAttributes(attribute.String("tenant_id", tenantID)),
+		trace.WithAttributes(observability.TenantIDKey.String(tenantID)),
 	)
 	defer span.End()
 	types, err := s.repo.ListAgentTypes(ctx, tenantID)
@@ -614,7 +613,7 @@ func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, err
 func (s *AgentTypeService) ListAgentTypesByIDs(ctx context.Context, ids []string, withAccess bool) ([]AgentType, error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListAgentTypesByIDs",
-		trace.WithAttributes(attribute.String("tenant_id", tenantID), attribute.Int("ids", len(ids))),
+		trace.WithAttributes(observability.TenantIDKey.String(tenantID), observability.AgentIDCountKey.Int(len(ids))),
 	)
 	defer span.End()
 	all, err := s.repo.ListAgentTypes(ctx, tenantID)
@@ -707,7 +706,7 @@ func (s *AgentTypeService) withinCeiling(ctx context.Context, at AgentType, call
 // mismatch returns ErrNotFound to avoid existence leak.
 func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentTypeRequest) (*AgentType, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.UpdateAgentType",
-		trace.WithAttributes(attribute.String("agent_type_id", req.ID)),
+		trace.WithAttributes(observability.AgentIDKey.String(req.ID)),
 	)
 	defer span.End()
 
@@ -897,7 +896,7 @@ func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
 // agents:types:{storedMode}:write (delegated-agent-identity ADR, Decision 1).
 func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.DeleteAgentType",
-		trace.WithAttributes(attribute.String("agent_type_id", id)),
+		trace.WithAttributes(observability.AgentIDKey.String(id)),
 	)
 	defer span.End()
 
@@ -919,7 +918,7 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 	if err = refuseDelegatedAutonomousWrite(ctx, *at); err != nil {
 		return err
 	}
-	span.SetAttributes(attribute.String("slug", at.Slug))
+	span.SetAttributes(observability.AgentSlugKey.String(at.Slug))
 
 	// Allow retrying a stuck deletion; skip state transition if already deleting.
 	// Also accept provisioning state — partially-created agent types must be deletable.

@@ -66,7 +66,7 @@ When the platform OTLP endpoint (`KORA_OTLP_ENDPOINT`) is set, the session-manag
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | Matches the platform endpoint, which is a gRPC URL |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `KORA_OTLP_ENDPOINT` | Same collector as the platform services |
 | `CLAUDE_CODE_PROPAGATE_TRACEPARENT` | `1` | Sends `traceparent` to the inference and tool gateways |
-| `OTEL_RESOURCE_ATTRIBUTES` | `orbit.run_id`, `orbit.tenant_id` | Finds a run's telemetry without the trace |
+| `OTEL_RESOURCE_ATTRIBUTES` | `kora.run.id`, `kora.tenant.id` | Finds a run's telemetry without the trace |
 
 With no endpoint set, none of these are added and Claude Code exports nothing, matching the platform services.
 
@@ -92,7 +92,7 @@ Content capture keeps Claude Code's defaults: prompt text, tool inputs and tool 
 
 ### Neutral
 
-- `orbit.run_id` and `orbit.tenant_id` add no metric cardinality beyond Claude Code's own `session.id`, which is already one per run.
+- `kora.run.id` and `kora.tenant.id` add no metric cardinality beyond Claude Code's own `session.id`, which is already one per run.
 - Claude Code reports under its own `service.name`, `claude-code`.
 
 ---

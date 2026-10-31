@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -26,9 +26,9 @@ import (
 func (s *Service) CreatePAT(ctx context.Context, tenantID, userID string, userClaims *PlatformClaims, req CreatePATRequest) (*CreatePATResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.CreatePAT",
 		trace.WithAttributes(
-			attribute.String("tenant_id", tenantID),
-			attribute.String("user_id", userID),
-			attribute.String("pat.name", req.Name),
+			observability.TenantIDKey.String(tenantID),
+			observability.PrincipalIDKey.String(userID),
+			observability.PATNameKey.String(req.Name),
 		),
 	)
 	defer span.End()
@@ -109,9 +109,9 @@ func (s *Service) CreatePAT(ctx context.Context, tenantID, userID string, userCl
 	}
 
 	span.SetAttributes(
-		attribute.String("pat.id", id),
-		attribute.String("jti", jti),
-		attribute.Int64("pat.ttl_days", int64(ttlDays)),
+		observability.PATIDKey.String(id),
+		observability.TokenJTIKey.String(jti),
+		observability.PATTTLDaysKey.Int64(int64(ttlDays)),
 	)
 	span.SetStatus(codes.Ok, "PAT created")
 
@@ -135,8 +135,8 @@ func (s *Service) CreatePAT(ctx context.Context, tenantID, userID string, userCl
 func (s *Service) ListPATs(ctx context.Context, tenantID, userID string) (*ListPATsResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.ListPATs",
 		trace.WithAttributes(
-			attribute.String("tenant_id", tenantID),
-			attribute.String("user_id", userID),
+			observability.TenantIDKey.String(tenantID),
+			observability.PrincipalIDKey.String(userID),
 		),
 	)
 	defer span.End()
@@ -181,9 +181,9 @@ func (s *Service) ListPATs(ctx context.Context, tenantID, userID string) (*ListP
 func (s *Service) UpdatePATScopes(ctx context.Context, tenantID, userID, patID string, userClaims *PlatformClaims, req UpdatePATScopesRequest) error {
 	ctx, span := s.tracer.Start(ctx, "identity.UpdatePATScopes",
 		trace.WithAttributes(
-			attribute.String("tenant_id", tenantID),
-			attribute.String("user_id", userID),
-			attribute.String("pat.id", patID),
+			observability.TenantIDKey.String(tenantID),
+			observability.PrincipalIDKey.String(userID),
+			observability.PATIDKey.String(patID),
 		),
 	)
 	defer span.End()
@@ -261,9 +261,9 @@ func (s *Service) UpdatePATScopes(ctx context.Context, tenantID, userID, patID s
 func (s *Service) RevokePAT(ctx context.Context, tenantID, userID, patID string) error {
 	ctx, span := s.tracer.Start(ctx, "identity.RevokePAT",
 		trace.WithAttributes(
-			attribute.String("tenant_id", tenantID),
-			attribute.String("user_id", userID),
-			attribute.String("pat.id", patID),
+			observability.TenantIDKey.String(tenantID),
+			observability.PrincipalIDKey.String(userID),
+			observability.PATIDKey.String(patID),
 		),
 	)
 	defer span.End()

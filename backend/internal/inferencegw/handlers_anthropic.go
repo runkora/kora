@@ -9,11 +9,12 @@ import (
 	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
-	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // ─── Request envelope ─────────────────────────────────────────────────────────
@@ -264,11 +265,13 @@ func marshalMessage(msg *anthropic.Message) (json.RawMessage, error) {
 func (c *Controller) writeAnthropicError(ctx context.Context, w http.ResponseWriter, apiErr *api.APIError, underlying error) {
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(
-		attribute.Bool("app.error", apiErr.StatusCode >= 500),
-		attribute.String("app.error.code", apiErr.Code),
-		attribute.Int("app.error.status", apiErr.StatusCode),
-		attribute.String("app.error.message", apiErr.Message),
+		observability.ErrorCodeKey.String(apiErr.Code),
+		observability.ErrorMessageKey.String(apiErr.Message),
+		semconv.HTTPResponseStatusCode(apiErr.StatusCode),
 	)
+	if apiErr.StatusCode >= 500 {
+		span.SetAttributes(semconv.ErrorTypeKey.String(apiErr.Code))
+	}
 	if underlying != nil {
 		span.RecordError(underlying)
 	}
@@ -400,9 +403,9 @@ func (c *Controller) writeCommittedResult(
 		span := trace.SpanFromContext(ctx)
 		span.RecordError(err)
 		span.SetAttributes(
-			attribute.Bool("app.error", true),
-			attribute.String("app.error.code", apiErr.Code),
-			attribute.String("app.error.message", apiErr.Message),
+			semconv.ErrorTypeKey.String(apiErr.Code),
+			observability.ErrorCodeKey.String(apiErr.Code),
+			observability.ErrorMessageKey.String(apiErr.Message),
 		)
 		c.logger.Error(ctx, "anthropic non-streaming: error after 200 OK committed",
 			logging.Field{Key: "code", Value: apiErr.Code},

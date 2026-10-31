@@ -85,12 +85,12 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 	if c.serves[ip.APISystemOne] || c.serves[ip.APIEmbeddings] {
 		c.baseURL = strings.TrimSuffix(cfg.BaseURL, "/")
 		c.apiKey = cfg.APIKey
-		c.http = httpclient.New("kora.compatible-list", logger, discoveryTimeout)
+		c.http = httpclient.New("github.com/runkora/kora/backend/internal/inferencegw/providers/compatible", logger, discoveryTimeout)
 	}
 	if c.serves[ip.APISystemOne] {
 		c.decisionOnly = len(c.serves) == 1
 		c.decisionModels = slices.Clone(cfg.DecisionModels)
-		c.decide = httpclient.New("kora.compatible-systemone", logger, decisionTimeout)
+		c.decide = httpclient.New("github.com/runkora/kora/backend/internal/inferencegw/providers/compatible", logger, decisionTimeout)
 	}
 
 	openaiOpts := []openaiopt.RequestOption{

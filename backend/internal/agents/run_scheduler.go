@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
-
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 const (
@@ -141,7 +140,7 @@ func (s *RunService) pollInterval() time.Duration {
 // A transient failure returns the run to the queue, and a run past its start or provisioning budget fails.
 func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.Time) {
 	ctx, span := agentsTracer.Start(ctx, "agents.startClaimed",
-		trace.WithAttributes(attribute.String("run_id", run.ID), attribute.String("agent_type_id", run.AgentTypeID)),
+		trace.WithAttributes(observability.RunIDKey.String(run.ID), observability.AgentIDKey.String(run.AgentTypeID)),
 	)
 	defer span.End()
 
