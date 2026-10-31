@@ -131,7 +131,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — `Accepted` · 2026-07-23
 - [Hades Wizard Component](2026-08-03-terra-wizard-component.md) — `Proposed` · 2026-08-03
 - [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) — `Proposed` · 2026-09-06
-- [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) — `Proposed` · 2026-09-18
+- [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) — `Accepted (Amended 2026-10-31: Amendment 1 Accepted)` · 2026-09-18
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) — `Accepted` · 2026-09-28
 - [Agent Run Guardrails](2026-09-29-agent-run-guardrails.md) — `Accepted (Amended 2026-09-30)` · 2026-09-29
 - [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) — `Accepted` · 2026-10-13
@@ -296,7 +296,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-15 | [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) | Accepted | — |
 | 2026-09-16 | [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md) | Accepted (Amended 2026-10-29) | — |
 | 2026-09-17 | [Tenant MCP Servers as a Recognised Workload Class](2026-09-17-mcp-workload-class.md) | Proposed | — |
-| 2026-09-18 | [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) | Proposed | — |
+| 2026-09-18 | [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) | Accepted (Amended 2026-10-31: Amendment 1 Accepted) | — |
 | 2026-09-18 | [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) | Accepted | — |
 | 2026-09-18 | [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) | Accepted | — |
 | 2026-09-28 | [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) | Accepted | — |
