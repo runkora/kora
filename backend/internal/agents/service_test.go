@@ -13,6 +13,10 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 // waitFor polls check every 5 ms until it returns true or the timeout elapses.
@@ -792,13 +796,41 @@ func TestTransitionRunState_DeprovisionsSandboxOnFailed(t *testing.T) {
 }
 
 func TestTransitionRunState_Conflict(t *testing.T) {
-	svc, repo, _, _ := newTestService(t)
-	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 
-	// Wrong `from` state — CAS mismatch.
-	err := svc.TransitionRunState(context.Background(), "run-1", RunStatePending, RunStateActive)
-	if err == nil {
-		t.Fatal("expected conflict error")
+	tests := []struct {
+		name       string
+		repoErr    error
+		wantStatus codes.Code
+	}{
+		// Wrong `from` state: a CAS miss another writer won, not a failure.
+		{name: "conflict leaves the span unset", wantStatus: codes.Unset},
+		{name: "write failure marks the span", repoErr: errors.New("connection reset"), wantStatus: codes.Error},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, repo, _, _ := newTestService(t)
+			seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+			repo.setRunStateErr = tt.repoErr
+			recorder.Reset()
+
+			if err := svc.TransitionRunState(context.Background(), "run-1", RunStatePending, RunStateActive); err == nil {
+				t.Fatal("expected an error")
+			}
+
+			var status sdktrace.Status
+			for _, s := range recorder.Ended() {
+				if s.Name() == "agents.Transition" {
+					status = s.Status()
+				}
+			}
+			if status.Code != tt.wantStatus {
+				t.Errorf("agents.Transition status = %v, want %v", status.Code, tt.wantStatus)
+			}
+		})
 	}
 }
 

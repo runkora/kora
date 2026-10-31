@@ -516,6 +516,9 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 	return nil
 }
 
+// errSetRunState is the static span status for a run state write that failed.
+var errSetRunState = errors.New("set run state")
+
 // Transition is the canonical state machine authority for run state changes.
 // It updates DB state via CAS, publishes a run_state SSE event, and on terminal
 // states (completed/failed) deprovisions the sandbox pod.
@@ -530,8 +533,12 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 	defer span.End()
 
 	if err := s.repo.SetRunState(ctx, runID, from, to); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "set run state")
+		// A conflict means another writer moved the run first, which callers
+		// expect and handle, so only other failures mark the span.
+		if !errors.Is(err, ErrConflict) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, errSetRunState.Error())
+		}
 		return fmt.Errorf("transition run state %s→%s: %w", from, to, err)
 	}
 	s.logger.Info(ctx, "Run state transition",
