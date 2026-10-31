@@ -3,7 +3,6 @@ package koramcp
 import (
 	"context"
 	"errors"
-	"net/url"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
@@ -18,7 +17,7 @@ func registerEnvironmentTools(srv *sdk.Server, b Backends, jc *korajson.Client, 
 	addTool(srv, "agents.environments.list",
 		"List the sandbox environments in the caller's tenant. Use the ids in environments for agents.create and agents.update.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, caller(ctx), base, nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base, "", nil))
 		})
 
 	addTool(srv, "agents.environments.get",
@@ -27,7 +26,7 @@ func registerEnvironmentTools(srv *sdk.Server, b Backends, jc *korajson.Client, 
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
 			}
-			return jsonResult(jc.Get(ctx, caller(ctx), base+"/"+url.PathEscape(a.ID), nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base, "/{id}", nil, a.ID))
 		})
 
 	addTool(srv, "agents.environments.create",
@@ -38,7 +37,7 @@ func registerEnvironmentTools(srv *sdk.Server, b Backends, jc *korajson.Client, 
 			if a.Name == "" {
 				return toolError(errors.New("name is required")), nil
 			}
-			return jsonResult(jc.Post(ctx, caller(ctx), base, a))
+			return jsonResult(jc.Post(ctx, caller(ctx), base, "", a))
 		})
 
 	addTool(srv, "agents.environments.replace",
@@ -48,7 +47,7 @@ func registerEnvironmentTools(srv *sdk.Server, b Backends, jc *korajson.Client, 
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
 			}
-			return jsonResult(jc.Put(ctx, caller(ctx), base+"/"+url.PathEscape(a.ID), a.environmentArgs))
+			return jsonResult(jc.Put(ctx, caller(ctx), base, "/{id}", a.environmentArgs, a.ID))
 		})
 
 	addTool(srv, "agents.environments.delete",
@@ -57,20 +56,20 @@ func registerEnvironmentTools(srv *sdk.Server, b Backends, jc *korajson.Client, 
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
 			}
-			return jsonResult(jc.Delete(ctx, caller(ctx), base+"/"+url.PathEscape(a.ID)))
+			return jsonResult(jc.Delete(ctx, caller(ctx), base, "/{id}", nil, a.ID))
 		})
 
 	addTool(srv, "agents.environments.sizes",
 		"Get the default and maximum environment sizes (CPU, memory and local disk). An environment cannot ask for more than the maximum.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, caller(ctx), b.Agents+"/api/v1/environment-sizes", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), b.Agents, "/api/v1/environment-sizes", nil))
 		})
 
 	addTool(srv, "agents.sandbox_images.list",
 		"List the sandbox images registered in the caller's tenant, with whether each is valid and why not. "+
 			"An environment names one by name; "+si.BaseName+" is the "+product+" base image.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, caller(ctx), b.Agents+"/api/v1/sandbox-images", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), b.Agents, "/api/v1/sandbox-images", nil))
 		})
 }
 

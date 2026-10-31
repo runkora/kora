@@ -85,7 +85,7 @@ func New(cfg *Config, name inferencegw.ProviderName, logger logging.Logger) (*Co
 		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
 			&oauth2.Transport{
 				Source: tokenSource,
-				Base:   httpclient.NewTracingTransport("kora.vertexai-openai", nil),
+				Base:   httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/vertexai", "", nil),
 			},
 		)),
 	)
@@ -103,7 +103,7 @@ func New(cfg *Config, name inferencegw.ProviderName, logger logging.Logger) (*Co
 		anthropicopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
 			&oauth2.Transport{
 				Source: tokenSource,
-				Base:   httpclient.NewTracingTransport("kora.vertexai-anthropic", nil),
+				Base:   httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/vertexai", "", nil),
 			},
 		)),
 	)
@@ -113,7 +113,7 @@ func New(cfg *Config, name inferencegw.ProviderName, logger logging.Logger) (*Co
 	listHTTPClient := httpclient.NewHTTPClient(10*time.Second,
 		&oauth2.Transport{
 			Source: tokenSource,
-			Base:   httpclient.NewTracingTransport("kora.vertexai-list", nil),
+			Base:   httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/vertexai", "", nil),
 		},
 	)
 

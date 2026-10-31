@@ -14,6 +14,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	smclient "github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // errNotifierUnexpectedStatus is the stable sentinel recorded on the notifier
@@ -107,9 +108,9 @@ type HTTPNotifier struct {
 func NewHTTPNotifier(baseURL string, logger logging.Logger) *HTTPNotifier {
 	return &HTTPNotifier{
 		baseURL:         baseURL,
-		client:          httpclient.New("kora.sessionmanager-notifier", logger, 2*time.Second),
-		lifecycleClient: httpclient.New("kora.sessionmanager-notifier-lifecycle", logger, 15*time.Second),
-		sandboxClient:   httpclient.New("kora.sessionmanager-notifier-sandbox", logger, 720*time.Second),
+		client:          httpclient.New(tracerName, logger, 2*time.Second),
+		lifecycleClient: httpclient.New(tracerName, logger, 15*time.Second),
+		sandboxClient:   httpclient.New(tracerName, logger, 720*time.Second),
 	}
 }
 
@@ -118,12 +119,8 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 	if err != nil {
 		return fmt.Errorf("marshal event: %w", err)
 	}
-	url := fmt.Sprintf("%s/internal/runs/%s/events", n.baseURL, runID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
 	// Durable events take the longer timeout: they are the only record of what
 	// the agent did. Delta events are superseded in milliseconds and are better
 	// dropped than left to stall the drain loop.
@@ -131,8 +128,11 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 	if isDurableEvent(ev.Type) {
 		client = n.lifecycleClient
 	}
-	_, span, resp, err := client.Do(ctx, "sessionmanager.Notifier.Notify", req)
+	_, span, resp, err := client.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: n.baseURL, Path: "/internal/runs/{runID}/events", Params: []string{runID}, Header: header, Body: bytes.NewReader(body),
+	})
 	defer span.End()
+	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return fmt.Errorf("post event: %w", err)
 	}
@@ -147,13 +147,11 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 // ok is false when the run has none, which kora-agents reports as 404 and this
 // pod must not confuse with a lookup failure.
 func (n *HTTPNotifier) GetSandbox(ctx context.Context, runID string) (Sandbox, bool, error) {
-	url := fmt.Sprintf("%s/internal/runs/%s/sandbox", n.baseURL, runID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return Sandbox{}, false, fmt.Errorf("build request: %w", err)
-	}
-	_, span, resp, err := n.sandboxClient.Do(ctx, "sessionmanager.Notifier.GetSandbox", req)
+	_, span, resp, err := n.sandboxClient.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: n.baseURL, Path: "/internal/runs/{runID}/sandbox", Params: []string{runID},
+	})
 	defer span.End()
+	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return Sandbox{}, false, fmt.Errorf("get sandbox: %w", err)
 	}
@@ -195,15 +193,14 @@ func (n *HTTPNotifier) GetSandbox(ctx context.Context, runID string) (Sandbox, b
 }
 
 func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, environment string, replace bool) (Sandbox, error) {
-	target := fmt.Sprintf("%s/internal/runs/%s/provision-sandbox", n.baseURL, runID)
 	body, _ := json.Marshal(map[string]any{"environment": environment, "replace": replace})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
-	if err != nil {
-		return Sandbox{}, fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	_, span, resp, err := n.sandboxClient.Do(ctx, "sessionmanager.Notifier.ProvisionSandbox", req)
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	_, span, resp, err := n.sandboxClient.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: n.baseURL, Path: "/internal/runs/{runID}/provision-sandbox", Params: []string{runID}, Header: header, Body: bytes.NewReader(body),
+	})
 	defer span.End()
+	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return Sandbox{}, fmt.Errorf("call kora-agents: %w", err)
 	}
@@ -234,13 +231,11 @@ func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, envir
 }
 
 func (n *HTTPNotifier) ListEnvironments(ctx context.Context, runID string) (json.RawMessage, error) {
-	target := fmt.Sprintf("%s/internal/runs/%s/environments", n.baseURL, runID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-	_, span, resp, err := n.lifecycleClient.Do(ctx, "sessionmanager.Notifier.ListEnvironments", req)
+	_, span, resp, err := n.lifecycleClient.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: n.baseURL, Path: "/internal/runs/{runID}/environments", Params: []string{runID},
+	})
 	defer span.End()
+	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return nil, fmt.Errorf("list environments: %w", err)
 	}
@@ -260,14 +255,13 @@ func (n *HTTPNotifier) SetSummary(ctx context.Context, runID, summary string) er
 	if err != nil {
 		return fmt.Errorf("marshal summary: %w", err)
 	}
-	url := fmt.Sprintf("%s/internal/runs/%s/summary", n.baseURL, runID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	_, span, resp, err := n.lifecycleClient.Do(ctx, "sessionmanager.Notifier.SetSummary", req)
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	_, span, resp, err := n.lifecycleClient.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: n.baseURL, Path: "/internal/runs/{runID}/summary", Params: []string{runID}, Header: header, Body: bytes.NewReader(body),
+	})
 	defer span.End()
+	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return fmt.Errorf("post summary: %w", err)
 	}
@@ -303,14 +297,13 @@ func (n *HTTPNotifier) postRunState(ctx context.Context, runID, from, to string)
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	url := fmt.Sprintf("%s/internal/runs/%s/state", n.baseURL, runID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	_, span, resp, err := n.lifecycleClient.Do(ctx, "sessionmanager.Notifier.postRunState", req)
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	_, span, resp, err := n.lifecycleClient.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: n.baseURL, Path: "/internal/runs/{runID}/state", Params: []string{runID}, Header: header, Body: bytes.NewReader(body),
+	})
 	defer span.End()
+	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return fmt.Errorf("post state: %w", err)
 	}

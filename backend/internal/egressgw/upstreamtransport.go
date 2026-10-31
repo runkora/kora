@@ -46,7 +46,7 @@ type TransportCache struct {
 func NewTransportCache(base *http.Transport) *TransportCache {
 	return &TransportCache{
 		base:   base,
-		shared: httpclient.NewTracingTransport(upstreamTracer, base),
+		shared: httpclient.NewTracingTransport(upstreamTracer, "", base),
 		byConn: make(map[string]http.RoundTripper),
 	}
 }
@@ -69,7 +69,7 @@ func (c *TransportCache) For(conn *credentials.Connection) (http.RoundTripper, e
 	if err != nil {
 		return nil, err
 	}
-	traced := httpclient.NewTracingTransport(upstreamTracer, clone)
+	traced := httpclient.NewTracingTransport(upstreamTracer, "", clone)
 
 	c.mu.Lock()
 	c.byConn[conn.ID] = traced
