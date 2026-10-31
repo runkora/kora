@@ -459,6 +459,9 @@ func (r *OpenCodeRunner) openCodeConfig(workDir string) ([]byte, error) {
 		"permission": map[string]string{"webfetch": "deny", "websearch": "deny"},
 		"mcp":        r.mcpConfig(),
 	}
+	// Project config is off, which also drops the workspace AGENTS.md. Read as
+	// instructions it is text only. A missing file is skipped.
+	instructions := []string{filepath.Join(workDir, "AGENTS.md")}
 	if r.cfg.SystemPrompt != "" {
 		// In the run's config dir, which the agent can read but not change.
 		path := filepath.Join(runfs.ConfigDir(workDir), "instructions.md")
@@ -468,8 +471,9 @@ func (r *OpenCodeRunner) openCodeConfig(workDir string) ([]byte, error) {
 		if err := os.WriteFile(path, []byte(r.cfg.SystemPrompt), 0o600); err != nil {
 			return nil, err
 		}
-		cfg["instructions"] = []string{path}
+		instructions = append([]string{path}, instructions...)
 	}
+	cfg["instructions"] = instructions
 	// "shell" is the binary OpenCode's shell tool runs commands with. Pointing it
 	// at kora-shell routes them to the run's sandbox.
 	if r.cfg.ShellPath != "" {

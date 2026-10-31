@@ -613,7 +613,8 @@ func TestOpenCodeWriteConfig(t *testing.T) {
 }
 
 // OpenCode's ACP has no system prompt field, so the agent's prompt, which
-// carries the capabilities brief, reaches it as an instructions file.
+// carries the capabilities brief, reaches it as an instructions file. The
+// workspace AGENTS.md follows it, since project config is off.
 func TestOpenCodeWriteConfig_SystemPromptAsInstructions(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -636,15 +637,19 @@ func TestOpenCodeWriteConfig_SystemPromptAsInstructions(t *testing.T) {
 			if err := json.Unmarshal(data, &cfg); err != nil {
 				t.Fatal(err)
 			}
+			agentsMD := filepath.Join(dir, "AGENTS.md")
+			if n := len(cfg.Instructions); n == 0 || cfg.Instructions[n-1] != agentsMD {
+				t.Fatalf("instructions = %v, want %s last", cfg.Instructions, agentsMD)
+			}
 			if tc.prompt == "" {
-				if len(cfg.Instructions) != 0 {
-					t.Errorf("instructions = %v, want none", cfg.Instructions)
+				if len(cfg.Instructions) != 1 {
+					t.Errorf("instructions = %v, want only %s", cfg.Instructions, agentsMD)
 				}
 				return
 			}
 			// Outside the workspace, in the config dir the agent can read but not change.
-			if len(cfg.Instructions) != 1 || filepath.Dir(cfg.Instructions[0]) != runfs.ConfigDir(dir) {
-				t.Fatalf("instructions = %v, want one file in %s", cfg.Instructions, runfs.ConfigDir(dir))
+			if len(cfg.Instructions) != 2 || filepath.Dir(cfg.Instructions[0]) != runfs.ConfigDir(dir) {
+				t.Fatalf("instructions = %v, want the prompt file in %s then AGENTS.md", cfg.Instructions, runfs.ConfigDir(dir))
 			}
 			got, err := os.ReadFile(cfg.Instructions[0])
 			if err != nil || string(got) != tc.prompt {
