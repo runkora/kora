@@ -200,7 +200,7 @@ func TestHTTPNotifier_ProvisionSandbox_NoAheadQuery(t *testing.T) {
 }
 
 // GetSandbox must tell "this run has no sandbox" (404) apart from a failed
-// lookup. Collapsing them sends the agent's command to a local shell whenever
+// lookup. Collapsing them tells the agent to provision a sandbox whenever
 // kora-agents is briefly unreachable.
 func TestHTTPNotifier_GetSandbox(t *testing.T) {
 	for _, tc := range []struct {
@@ -245,7 +245,7 @@ func TestHTTPNotifier_GetSandbox(t *testing.T) {
 
 // Only kora-agents' own 404 means "this run has no sandbox". A stale route
 // during a rolling deploy answers 404 too, and reading that as no sandbox
-// hands the agent a local shell.
+// tells the agent to provision one it may already have.
 func TestHTTPNotifier_GetSandbox_UnlabelledNotFoundIsAnError(t *testing.T) {
 	for _, tc := range []struct {
 		name string

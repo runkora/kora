@@ -613,7 +613,8 @@ func TestOpenCodeWriteConfig(t *testing.T) {
 }
 
 // OpenCode's ACP has no system prompt field, so the agent's prompt, which
-// carries the capabilities brief, reaches it as an instructions file.
+// carries the capabilities brief, reaches it as an instructions file. The
+// workspace AGENTS.md follows it, since project config is off.
 func TestOpenCodeWriteConfig_SystemPromptAsInstructions(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -636,15 +637,19 @@ func TestOpenCodeWriteConfig_SystemPromptAsInstructions(t *testing.T) {
 			if err := json.Unmarshal(data, &cfg); err != nil {
 				t.Fatal(err)
 			}
+			agentsMD := filepath.Join(dir, "AGENTS.md")
+			if n := len(cfg.Instructions); n == 0 || cfg.Instructions[n-1] != agentsMD {
+				t.Fatalf("instructions = %v, want %s last", cfg.Instructions, agentsMD)
+			}
 			if tc.prompt == "" {
-				if len(cfg.Instructions) != 0 {
-					t.Errorf("instructions = %v, want none", cfg.Instructions)
+				if len(cfg.Instructions) != 1 {
+					t.Errorf("instructions = %v, want only %s", cfg.Instructions, agentsMD)
 				}
 				return
 			}
 			// Outside the workspace, in the config dir the agent can read but not change.
-			if len(cfg.Instructions) != 1 || filepath.Dir(cfg.Instructions[0]) != runfs.ConfigDir(dir) {
-				t.Fatalf("instructions = %v, want one file in %s", cfg.Instructions, runfs.ConfigDir(dir))
+			if len(cfg.Instructions) != 2 || filepath.Dir(cfg.Instructions[0]) != runfs.ConfigDir(dir) {
+				t.Fatalf("instructions = %v, want the prompt file in %s then AGENTS.md", cfg.Instructions, runfs.ConfigDir(dir))
 			}
 			got, err := os.ReadFile(cfg.Instructions[0])
 			if err != nil || string(got) != tc.prompt {
@@ -688,7 +693,7 @@ func TestOpenCodePrepareEnv(t *testing.T) {
 		k, v, _ := strings.Cut(e, "=")
 		got[k] = v
 	}
-	for _, e := range openCodeOfflineEnv {
+	for _, e := range append(openCodeOfflineEnv, openCodeWorkspaceEnv...) {
 		k, v, _ := strings.Cut(e, "=")
 		if got[k] != v {
 			t.Errorf("%s = %q, want %q", k, got[k], v)
@@ -704,8 +709,19 @@ func TestOpenCodePrepareEnv(t *testing.T) {
 	if got["OPENCODE_CONFIG_CONTENT"] != string(want) {
 		t.Errorf("OPENCODE_CONFIG_CONTENT = %q, want the run config", got["OPENCODE_CONFIG_CONTENT"])
 	}
-	if got["HOME"] != runfs.HomeDir(workDir) {
-		t.Errorf("HOME = %q, want %q", got["HOME"], runfs.HomeDir(workDir))
+	// OpenCode loads code from HOME and its config home. The agent cannot write either.
+	for _, k := range []string{"HOME", "XDG_CONFIG_HOME"} {
+		if got[k] != runfs.ConfigDir(workDir) {
+			t.Errorf("%s = %q, want the run's config dir %q", k, got[k], runfs.ConfigDir(workDir))
+		}
+	}
+	if _, err := os.Stat(filepath.Join(runfs.ConfigDir(workDir), "opencode")); err != nil {
+		t.Errorf("config home not created: %v", err)
+	}
+	for _, k := range []string{"XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		if !strings.HasPrefix(got[k], runfs.HomeDir(workDir)) {
+			t.Errorf("%s = %q, want it under the writable run home", k, got[k])
+		}
 	}
 	if _, err := os.Stat(filepath.Join(workDir, "opencode.json")); !os.IsNotExist(err) {
 		t.Errorf("opencode.json in the workspace: %v; want none", err)
@@ -971,22 +987,5 @@ func TestOpenCodeSessionUpdate_ToolCallCompletedUnquotesOutput(t *testing.T) {
 	}
 	if payload.Content != "file contents here" {
 		t.Errorf("content = %q, want 'file contents here' (no extra quotes)", payload.Content)
-	}
-}
-
-// A writable global config dir makes OpenCode install a package from npm at start.
-func TestLockOpenCodeGlobalConfig(t *testing.T) {
-	workDir := t.TempDir()
-	for range 2 { // a resumed run locks the same dir again
-		if err := lockOpenCodeGlobalConfig(workDir); err != nil {
-			t.Fatalf("lockOpenCodeGlobalConfig: %v", err)
-		}
-	}
-	info, err := os.Stat(filepath.Join(runfs.HomeDir(workDir), ".config", "opencode"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if perm := info.Mode().Perm(); perm&0o222 != 0 {
-		t.Errorf("global config dir mode = %v, want no write bits", perm)
 	}
 }
