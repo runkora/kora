@@ -29,3 +29,23 @@ func TestExisting(t *testing.T) {
 		}
 	}
 }
+
+// enforce refuses a kernel below the required ABI and an unknown mode; bestEffort
+// runs on any kernel.
+func TestCheckKernel(t *testing.T) {
+	for _, tc := range []struct {
+		mode    string
+		abi     int
+		wantErr bool
+	}{
+		{"", 0, true},
+		{"enforce", 1, true},
+		{"enforce", 2, false},
+		{"bestEffort", 0, false},
+		{"off", 6, true},
+	} {
+		if err := checkKernel(tc.mode, tc.abi); (err != nil) != tc.wantErr {
+			t.Errorf("checkKernel(%q, %d) = %v, want error %v", tc.mode, tc.abi, err, tc.wantErr)
+		}
+	}
+}

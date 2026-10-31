@@ -121,6 +121,17 @@ func TestHandleHealth_Draining(t *testing.T) {
 	}
 }
 
+// A pod that cannot confine agents fails readiness and says why.
+func TestHandleHealth_IsolationUnavailable(t *testing.T) {
+	c, _ := sandboxTestController(t)
+	c.cfg.IsolationErr = errors.New("agents.landlock is enforce and this node's kernel has Landlock ABI v0")
+	w := httptest.NewRecorder()
+	c.handleHealth(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "agents.landlock") {
+		t.Errorf("status = %d, body = %s; want 503 naming agents.landlock", w.Code, w.Body.String())
+	}
+}
+
 // The served /health route reaches the drain-aware handler, not the platform default.
 func TestServedHealth_Draining(t *testing.T) {
 	c, _ := sandboxTestController(t)

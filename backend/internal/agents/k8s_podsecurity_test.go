@@ -232,6 +232,23 @@ func TestSessionManagerStatefulSet_PassesNodeHeapCap(t *testing.T) {
 	t.Error("session-manager env is missing KORA_NODE_MAX_OLD_SPACE_MB")
 }
 
+// The install's Landlock mode must reach every agent pod.
+func TestSessionManagerStatefulSet_PassesLandlockMode(t *testing.T) {
+	p := podSecurityProvisioner()
+	p.cfg.Landlock = "bestEffort"
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ss := p.buildSessionManagerStatefulSet(at, "ns", podLabels(at))
+	for _, e := range ss.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "KORA_LANDLOCK" {
+			if e.Value != "bestEffort" {
+				t.Errorf("KORA_LANDLOCK = %q, want bestEffort", e.Value)
+			}
+			return
+		}
+	}
+	t.Error("session-manager env is missing KORA_LANDLOCK")
+}
+
 func TestRuntimePods_NoPullSecretsWhenUnconfigured(t *testing.T) {
 	p := podSecurityProvisioner()
 	p.cfg.ImagePullSecrets = nil

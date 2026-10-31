@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/runkora/kora/backend/internal/agents/sandbox/landlockmode"
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/brand"
@@ -62,6 +63,13 @@ type ControllerConfig struct {
 	// NodeMaxOldSpaceMB caps the heap of Node processes a run starts on the agent
 	// pod, which shares one memory limit across every run. Zero disables the cap.
 	NodeMaxOldSpaceMB int
+
+	// Landlock is the mode kora-session-runner applies to every run.
+	Landlock landlockmode.Mode
+
+	// IsolationErr, when set, is why this pod cannot confine agents. The pod
+	// fails readiness with it, so no run lands here.
+	IsolationErr error
 
 	// Brand names the product where a runner shows the agent a provider name.
 	Brand brand.Brand
@@ -224,9 +232,17 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /internal/session/{runID}/sandbox", c.handleGetSandbox)
 }
 
-// handleHealth is the readiness probe with the active session count. A draining pod answers 503.
+// handleHealth is the readiness probe with the active session count. A draining
+// pod, or one that cannot confine agents, answers 503.
 func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if c.cfg.IsolationErr != nil {
+		api.JSON(ctx, w, c.logger, http.StatusServiceUnavailable, map[string]any{
+			"status":  "isolation_unavailable",
+			"message": c.cfg.IsolationErr.Error(),
+		})
+		return
+	}
 	// A draining pod fails readiness so new runs go to another pod.
 	if c.registry.Draining() {
 		api.JSON(ctx, w, c.logger, http.StatusServiceUnavailable, map[string]any{
@@ -478,6 +494,9 @@ func (c *Controller) runEnv(runID, runToken string) []string {
 		fmt.Sprintf("KORA_SESSION_MANAGER_URL=http://localhost:%d", c.cfg.SelfPort),
 		"KORA_RUN_ID=" + runID,
 		"KORA_RUN_TOKEN=" + runToken,
+	}
+	if c.cfg.Landlock != "" {
+		env = append(env, landlockmode.EnvVar+"="+string(c.cfg.Landlock))
 	}
 	if c.cfg.NodeMaxOldSpaceMB > 0 {
 		env = append(env, fmt.Sprintf("NODE_OPTIONS=--max-old-space-size=%d", c.cfg.NodeMaxOldSpaceMB))

@@ -38,6 +38,8 @@ opaGateway:
     tag: 1.21.0-envoy-static
 
 agents:
+  # Local VM kernels may lack Landlock. Agents run with what the kernel supports.
+  landlock: bestEffort
   sandboxImages:
     warmBase: true
     # make up does not build the bundled images. Run make redeploy-sandbox-images

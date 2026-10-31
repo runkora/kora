@@ -40,6 +40,31 @@ func TestApplyEnvOverrides_NodeMaxOldSpaceMB(t *testing.T) {
 	}
 }
 
+func TestApplyEnvOverrides_Landlock(t *testing.T) {
+	for _, tc := range []struct {
+		yaml, env, want string
+		wantErr         bool
+	}{
+		{yaml: "enforce", env: "", want: "enforce"},
+		{yaml: "enforce", env: "bestEffort", want: "bestEffort"},
+		{yaml: "", env: "", want: ""},
+		{yaml: "enforce", env: "off", wantErr: true},
+		{yaml: "loose", env: "", wantErr: true},
+	} {
+		cfg := &Config{}
+		cfg.Runner.Landlock = tc.yaml
+		err := applyEnvOverrides(cfg, func(k string) string {
+			if k == "KORA_LANDLOCK" {
+				return tc.env
+			}
+			return ""
+		})
+		if (err != nil) != tc.wantErr || (err == nil && cfg.Runner.Landlock != tc.want) {
+			t.Errorf("yaml %q env %q: Landlock = %q, err = %v; want %q, error %v", tc.yaml, tc.env, cfg.Runner.Landlock, err, tc.want, tc.wantErr)
+		}
+	}
+}
+
 func TestApplyEnvOverrides_GatewayURLs(t *testing.T) {
 	cfg := &Config{}
 	cfg.InferenceGateway.URL = "http://yaml-inference"
