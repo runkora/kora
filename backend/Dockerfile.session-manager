@@ -49,8 +49,8 @@ FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec
 
 WORKDIR /app
 
-# bash: the REAL /bin/bash — used for shell-snapshot generation and as kora-shell's
-#       local fallback. It is deliberately left untouched (never replaced by the proxy).
+# bash: the real /bin/bash, left untouched by the proxy. kora-session-runner does not
+#       let an agent execute it.
 # git:  required by Claude Code for git operations inside workspaces.
 # curl: used to download the Codex musl binary below.
 # ripgrep: OpenCode's grep, glob and list tools; it downloads rg from GitHub when none is on PATH,
@@ -65,11 +65,13 @@ RUN apk add --no-cache ca-certificates bash git curl ripgrep
 #     /bin/bash. Verified empirically — see kora-shell's package doc.
 #   - So kora-shell (the sandbox-routing Bash proxy) is exposed under a "bash"
 #     basename via the symlink created below, and CLAUDE_CODE_SHELL points at it.
-# kora-shell routes `-c` commands to the sandbox pod's gRPC exec server when
-# $WORKSPACE/.sandbox-exec/endpoint exists, and otherwise execs the real /bin/bash
-# (snapshot generation and any pre-provision commands run locally).
+# kora-shell routes `-c` commands to the sandbox pod's gRPC exec server and refuses
+# them when the run has no sandbox.
 ENV SHELL=/opt/kora/shell/bash
 ENV CLAUDE_CODE_SHELL=/opt/kora/shell/bash
+# Managed settings outrank the user and project settings an agent can write in its
+# workspace. They pin the shell to kora-shell and drop hooks from those files.
+COPY cmd/session-manager/agent-clis/claude-managed-settings.json /etc/claude-code/managed-settings.json
 
 # Install the claude and opencode CLIs from the lockfile in cmd/session-manager/agent-clis,
 # so every build gets the same versions. Validate the opencode ACP protocol on upgrade.

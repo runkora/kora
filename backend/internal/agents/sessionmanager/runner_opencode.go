@@ -372,6 +372,13 @@ var openCodeOfflineEnv = []string{
 	"OPENCODE_DISABLE_LSP_DOWNLOAD=1",
 }
 
+// openCodeWorkspaceEnv stops OpenCode loading config and plugins the agent can
+// write. Their commands and plugin code would run in the agent pod.
+var openCodeWorkspaceEnv = []string{
+	"OPENCODE_DISABLE_PROJECT_CONFIG=1",
+	"OPENCODE_PURE=1",
+}
+
 // prepare validates the config, writes the run's OpenCode files and returns the
 // subprocess environment.
 func (r *OpenCodeRunner) prepare(workDir string) ([]string, error) {
@@ -395,7 +402,7 @@ func (r *OpenCodeRunner) prepare(workDir string) ([]string, error) {
 	}
 	// The platform's values last, so ExtraEnv cannot override them. HOME and
 	// TMPDIR keep the agent on the only directory Landlock makes writable.
-	env := append(append([]string{}, r.cfg.ExtraEnv...), openCodeOfflineEnv...)
+	env := append(append(append([]string{}, r.cfg.ExtraEnv...), openCodeOfflineEnv...), openCodeWorkspaceEnv...)
 	env = append(env, "OPENCODE_CONFIG_CONTENT="+string(config))
 	return withRunEnv(os.Environ(), append(env, homeEnv...)), nil
 }

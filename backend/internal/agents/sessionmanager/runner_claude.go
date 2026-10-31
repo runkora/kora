@@ -75,7 +75,7 @@ type ClaudeRunnerConfig struct {
 //
 //	claude --print --output-format stream-json --input-format stream-json
 //	       --verbose --include-partial-messages --dangerously-skip-permissions
-//	       --settings <claudeAttributionSettings>
+//	       --settings <claudeAttributionSettings> --strict-mcp-config
 //	       [--resume ID] [--bare] [--model M]
 //	       --disallowedTools <claudeExcludedTools> [--append-system-prompt P]
 //
@@ -130,6 +130,9 @@ func (r *ClaudeRunner) buildFlags() []string {
 		"--include-partial-messages",
 		"--dangerously-skip-permissions",
 		"--settings", claudeAttributionSettings,
+		// Only the platform's --mcp-config. A workspace .mcp.json would start
+		// its servers in the agent pod.
+		"--strict-mcp-config",
 	}
 	if r.cfg.ResumeSessionID != "" {
 		args = append(args, "--resume", r.cfg.ResumeSessionID)

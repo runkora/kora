@@ -10,10 +10,9 @@ package main
 // "bash" basename symlink (/opt/kora/shell/bash) and sets CLAUDE_CODE_SHELL to it.
 // This was validated empirically against the real claude binary.
 //
-// It checks $WORKSPACE/.sandbox-exec/endpoint on every invocation:
-//   - absent  → exec the real local /bin/bash with the given args (snapshot generation
-//     and any pre-provision commands run in-pod)
-//   - present → dial the gRPC exec server in the sandbox pod and stream the command
+// It checks $WORKSPACE/.sandbox-exec/endpoint on every invocation and streams the
+// command to the gRPC exec server in the run's sandbox pod. Without a sandbox it
+// refuses the command. Nothing runs in the agent container.
 
 import (
 	"bytes"
@@ -25,10 +24,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
@@ -47,15 +44,9 @@ func main() {
 		fresh, provisioned, err := fetchSandbox()
 		switch {
 		case err != nil:
-			// Fail closed. Running locally would execute the agent's command in
-			// this container.
 			log.Fatalf("kora-shell: cannot determine this run's sandbox: %v", err)
 		case !provisioned:
-			// No sandbox yet: shell snapshots and anything before the agent asks
-			// for one run here. Provisioning a pod for every run would defeat the
-			// point of provisioning on demand.
-			runLocal()
-			return
+			refuse(errNoSandbox)
 		default:
 			sb = fresh
 		}
@@ -104,24 +95,23 @@ func readTrimmed(path string) string {
 	return strings.TrimSpace(string(data))
 }
 
-// runLocal execs the real bash in place of this process, preserving all args.
-func runLocal() {
-	bash, err := exec.LookPath("bash")
-	if err != nil {
-		log.Fatalf("kora-shell: bash not found: %v", err)
-	}
-	// Replace this process with bash — exit code propagates naturally.
-	if err := syscall.Exec(bash, append([]string{"bash"}, os.Args[1:]...), os.Environ()); err != nil { //nolint:gosec
-		log.Fatalf("kora-shell: exec bash: %v", err)
-	}
+// The agent reads these as the command's output. They tell it what to do next.
+const (
+	errNoSandbox   = "kora-shell: this run has no sandbox. Commands run only in a sandbox. Call the provision_sandbox tool, then run the command again."
+	errInteractive = "kora-shell: interactive shells are not supported. Pass the command with -c."
+)
+
+// refuse reports why the command did not run and exits non-zero.
+func refuse(reason string) {
+	fmt.Fprintln(os.Stderr, reason)
+	os.Exit(1)
 }
 
 // runRemote streams the command to the sandbox gRPC exec server.
 //
 // If the sandbox is unreachable (the pod died/was evicted, leaving a stale
 // endpoint), execOne returns an infra error. Rather than failing the command —
-// which would wedge the run, since the local-bash fallback only applies when no
-// sandbox is expected — we ask the session-manager to re-provision the sandbox,
+// which would wedge the run — we ask the session-manager to re-provision the sandbox,
 // re-read the freshly written endpoint, and retry once. The endpoint workspace
 // files survive on the shared volume, so a replacement sandbox resumes against
 // the same workspace. A normal non-zero command exit is NOT an infra error and
@@ -129,9 +119,7 @@ func runLocal() {
 func runRemote(sb sandbox) {
 	command := parseCommand()
 	if command == "" {
-		// No -c flag: interactive shell — fall back to local bash.
-		runLocal()
-		return
+		refuse(errInteractive)
 	}
 
 	exitCode, err := execOne(sb, command)
@@ -199,9 +187,7 @@ func execOne(sb sandbox, command string) (exitCode int, err error) {
 // whether the run has one at all, which is false for a run that never asked.
 //
 // A missing KORA_SESSION_MANAGER_URL or KORA_RUN_ID is an error, not an
-// absent sandbox. Read as the latter it routes the agent's command to a local
-// shell in this container, for an environment bug rather than anything the run
-// asked for. reprovisionSandbox treats the same condition as fatal.
+// absent sandbox. reprovisionSandbox treats the same condition as fatal.
 func fetchSandbox() (sandbox, bool, error) {
 	smURL := os.Getenv("KORA_SESSION_MANAGER_URL")
 	runID := os.Getenv("KORA_RUN_ID")
@@ -298,8 +284,8 @@ func reprovisionSandbox() (sandbox, error) {
 // immediately after `-c`, which is the `-l` flag. Getting this wrong shipped "-l" to the
 // sandbox and produced `/bin/bash: -c: option requires an argument`.
 //
-// Returns "" when there is no `-c` (interactive or non-command invocation) so the caller
-// falls back to local bash.
+// Returns "" when there is no `-c` (interactive or non-command invocation), which the
+// caller refuses.
 func parseCommand() string {
 	return parseCommandArgs(os.Args[1:])
 }

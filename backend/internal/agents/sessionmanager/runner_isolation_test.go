@@ -30,6 +30,7 @@ func TestBuildFlags_BaseFlags(t *testing.T) {
 		"--verbose",
 		"--include-partial-messages",
 		"--dangerously-skip-permissions",
+		"--strict-mcp-config",
 	}
 	for _, want := range always {
 		if !containsFlag(flags, want) {

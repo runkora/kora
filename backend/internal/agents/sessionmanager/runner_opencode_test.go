@@ -688,7 +688,7 @@ func TestOpenCodePrepareEnv(t *testing.T) {
 		k, v, _ := strings.Cut(e, "=")
 		got[k] = v
 	}
-	for _, e := range openCodeOfflineEnv {
+	for _, e := range append(openCodeOfflineEnv, openCodeWorkspaceEnv...) {
 		k, v, _ := strings.Cut(e, "=")
 		if got[k] != v {
 			t.Errorf("%s = %q, want %q", k, got[k], v)

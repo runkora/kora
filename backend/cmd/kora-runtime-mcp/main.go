@@ -160,7 +160,7 @@ func (s *mcpServer) handleToolsList(req jsonRPCRequest) jsonRPCResponse {
 				},
 				{
 					"name":        "provision_sandbox",
-					"description": "Starts a sandbox with network access and the build toolchain for this session, and Bash commands then run in it. Provision only when a command needs network access or a build. `environment` selects one from list_environments, and the agent's default applies when it is omitted.",
+					"description": "Starts a sandbox with network access and the build toolchain for this session. Commands run only in a sandbox, so provision one before the first command. `environment` selects one from list_environments, and the agent's default applies when it is omitted.",
 					"inputSchema": map[string]any{
 						"type":       "object",
 						"properties": map[string]any{"environment": environmentProperty},

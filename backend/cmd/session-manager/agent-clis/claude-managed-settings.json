@@ -1,0 +1,6 @@
+{
+  "env": {
+    "CLAUDE_CODE_SHELL": "/opt/kora/shell/bash"
+  },
+  "allowManagedHooksOnly": true
+}
