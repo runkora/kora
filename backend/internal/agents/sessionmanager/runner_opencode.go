@@ -372,12 +372,9 @@ var openCodeOfflineEnv = []string{
 	"OPENCODE_DISABLE_LSP_DOWNLOAD=1",
 }
 
-// openCodeWorkspaceEnv stops OpenCode loading config and plugins the agent can
-// write. Their commands and plugin code would run in the agent pod.
-var openCodeWorkspaceEnv = []string{
-	"OPENCODE_DISABLE_PROJECT_CONFIG=1",
-	"OPENCODE_PURE=1",
-}
+// openCodeWorkspaceEnv stops OpenCode loading config, plugins and tools from the
+// workspace. Their commands and code would run in the agent pod.
+var openCodeWorkspaceEnv = []string{"OPENCODE_DISABLE_PROJECT_CONFIG=1"}
 
 // prepare validates the config, writes the run's OpenCode files and returns the
 // subprocess environment.
@@ -393,32 +390,38 @@ func (r *OpenCodeRunner) prepare(workDir string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build config: %w", err)
 	}
-	if err = lockOpenCodeGlobalConfig(workDir); err != nil {
+	if _, err = runHomeDirs(workDir); err != nil {
 		return nil, err
 	}
-	homeEnv, err := runHomeDirs(workDir)
+	homeEnv, err := openCodeHomeEnv(workDir)
 	if err != nil {
 		return nil, err
 	}
-	// The platform's values last, so ExtraEnv cannot override them. HOME and
-	// TMPDIR keep the agent on the only directory Landlock makes writable.
+	// The platform's values last, so ExtraEnv cannot override them.
 	env := append(append(append([]string{}, r.cfg.ExtraEnv...), openCodeOfflineEnv...), openCodeWorkspaceEnv...)
 	env = append(env, "OPENCODE_CONFIG_CONTENT="+string(config))
 	return withRunEnv(os.Environ(), append(env, homeEnv...)), nil
 }
 
-// lockOpenCodeGlobalConfig makes OpenCode's global config directory read-only.
-// At start OpenCode installs @opencode-ai/plugin from npm into every config
-// directory it can write, and skips one it cannot.
-func lockOpenCodeGlobalConfig(workDir string) error {
-	dir := filepath.Join(runfs.HomeDir(workDir), ".config", "opencode")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create global config dir: %w", err)
+// openCodeHomeEnv puts OpenCode's HOME and config home in the run's config dir.
+// OpenCode loads config, plugins and custom tools from both and runs their code.
+// The agent can only read that dir and its sandbox does not mount it. Data, state,
+// cache and TMPDIR stay in the run's writable dirs.
+func openCodeHomeEnv(workDir string) ([]string, error) {
+	configDir := runfs.ConfigDir(workDir)
+	// OpenCode creates its global config dir at start and exits when it cannot.
+	if err := os.MkdirAll(filepath.Join(configDir, "opencode"), 0o700); err != nil {
+		return nil, fmt.Errorf("create opencode config home: %w", err)
 	}
-	if err := os.Chmod(dir, 0o500); err != nil {
-		return fmt.Errorf("lock global config dir: %w", err)
-	}
-	return nil
+	home := runfs.HomeDir(workDir)
+	return []string{
+		"HOME=" + configDir,
+		"XDG_CONFIG_HOME=" + configDir,
+		"XDG_DATA_HOME=" + filepath.Join(home, ".local", "share"),
+		"XDG_STATE_HOME=" + filepath.Join(home, ".local", "state"),
+		"XDG_CACHE_HOME=" + filepath.Join(home, ".cache"),
+		"TMPDIR=" + runfs.TmpDir(workDir),
+	}, nil
 }
 
 // openCodeProvider is the only provider OpenCode may load: the inference gateway.

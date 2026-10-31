@@ -704,8 +704,19 @@ func TestOpenCodePrepareEnv(t *testing.T) {
 	if got["OPENCODE_CONFIG_CONTENT"] != string(want) {
 		t.Errorf("OPENCODE_CONFIG_CONTENT = %q, want the run config", got["OPENCODE_CONFIG_CONTENT"])
 	}
-	if got["HOME"] != runfs.HomeDir(workDir) {
-		t.Errorf("HOME = %q, want %q", got["HOME"], runfs.HomeDir(workDir))
+	// OpenCode loads code from HOME and its config home. The agent cannot write either.
+	for _, k := range []string{"HOME", "XDG_CONFIG_HOME"} {
+		if got[k] != runfs.ConfigDir(workDir) {
+			t.Errorf("%s = %q, want the run's config dir %q", k, got[k], runfs.ConfigDir(workDir))
+		}
+	}
+	if _, err := os.Stat(filepath.Join(runfs.ConfigDir(workDir), "opencode")); err != nil {
+		t.Errorf("config home not created: %v", err)
+	}
+	for _, k := range []string{"XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		if !strings.HasPrefix(got[k], runfs.HomeDir(workDir)) {
+			t.Errorf("%s = %q, want it under the writable run home", k, got[k])
+		}
 	}
 	if _, err := os.Stat(filepath.Join(workDir, "opencode.json")); !os.IsNotExist(err) {
 		t.Errorf("opencode.json in the workspace: %v; want none", err)
@@ -971,22 +982,5 @@ func TestOpenCodeSessionUpdate_ToolCallCompletedUnquotesOutput(t *testing.T) {
 	}
 	if payload.Content != "file contents here" {
 		t.Errorf("content = %q, want 'file contents here' (no extra quotes)", payload.Content)
-	}
-}
-
-// A writable global config dir makes OpenCode install a package from npm at start.
-func TestLockOpenCodeGlobalConfig(t *testing.T) {
-	workDir := t.TempDir()
-	for range 2 { // a resumed run locks the same dir again
-		if err := lockOpenCodeGlobalConfig(workDir); err != nil {
-			t.Fatalf("lockOpenCodeGlobalConfig: %v", err)
-		}
-	}
-	info, err := os.Stat(filepath.Join(runfs.HomeDir(workDir), ".config", "opencode"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if perm := info.Mode().Perm(); perm&0o222 != 0 {
-		t.Errorf("global config dir mode = %v, want no write bits", perm)
 	}
 }
