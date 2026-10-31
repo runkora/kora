@@ -53,8 +53,10 @@ WORKDIR /app
 #       local fallback. It is deliberately left untouched (never replaced by the proxy).
 # git:  required by Claude Code for git operations inside workspaces.
 # curl: used to download the Codex musl binary below.
+# ripgrep: OpenCode's grep, glob and list tools; it downloads rg from GitHub when none is on PATH,
+#          and the agent pod cannot reach GitHub.
 # Toolchains (Go and the rest) live only in the sandbox image, where commands run.
-RUN apk add --no-cache ca-certificates bash git curl
+RUN apk add --no-cache ca-certificates bash git curl ripgrep
 
 # How Claude Code's Bash tool is routed into the sandbox:
 #   - Claude Code IGNORES $SHELL; it resolves its shell from CLAUDE_CODE_SHELL.
