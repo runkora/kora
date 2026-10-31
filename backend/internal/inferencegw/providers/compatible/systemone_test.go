@@ -328,7 +328,10 @@ func TestSystemOneClientSpanStatus(t *testing.T) {
 
 			up := &sysOneUpstream{status: tc.status, body: tc.body}
 			c := newSysOne(t, up.serve(t), "k", ip.APISystemOne)
-			res, err := c.SystemOne(context.Background(), inferencegw.SystemOneRequest{Body: []byte(`{"model":"m"}`), Model: "m"})
+			// Client spans need a parent, as under a gateway request.
+			ctx, parent := tp.Tracer("test").Start(context.Background(), "request")
+			defer parent.End()
+			res, err := c.SystemOne(ctx, inferencegw.SystemOneRequest{Body: []byte(`{"model":"m"}`), Model: "m"})
 
 			spans := exporter.GetSpans()
 			if len(spans) != 1 {
