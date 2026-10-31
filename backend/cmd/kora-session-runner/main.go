@@ -78,7 +78,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := checkKernel(os.Getenv(landlockmode.EnvVar), kernelABI()); err != nil {
+	if err = checkKernel(os.Getenv(landlockmode.EnvVar), kernelABI()); err != nil {
 		fmt.Fprintf(os.Stderr, "kora-session-runner: %v\n", err)
 		os.Exit(1)
 	}
@@ -132,7 +132,7 @@ func elfInterpreter(path string) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close() //nolint:errcheck
+	defer func() { _ = f.Close() }()
 	for _, p := range f.Progs {
 		if p.Type != elf.PT_INTERP {
 			continue
