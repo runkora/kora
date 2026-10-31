@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Delivery listing bounds. An out-of-range ask gets the default page rather
@@ -166,6 +168,10 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 // its cron tick. It creates a delivery record (with dedup) and starts the run.
 func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 	t := tick.Trigger
+	// The root of a scheduled run's trace, as the request span is for the other fires.
+	ctx, span := triggersTracer.Start(ctx, "triggers.Service.TickScheduled",
+		trace.WithAttributes(observability.TriggerIDKey.String(t.ID), observability.TenantIDKey.String(t.TenantID)))
+	defer span.End()
 	scheduledAt := scheduledAtMinute(tick.ScheduledAt)
 
 	deliveryID := uuid.NewString()

@@ -253,7 +253,9 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		// everywhere downstream.
 		StartedBy:      startedBy,
 		InitialMessage: req.InitialMessage,
+		TraceParent:    observability.TraceParent(ctx),
 	}
+	run.TraceID = observability.SampledTraceID(run.TraceParent)
 	span.SetAttributes(observability.RunIDKey.String(run.ID))
 	if startedBy != nil {
 		span.SetAttributes(observability.TriggerIDKey.String(startedBy.TriggerID))

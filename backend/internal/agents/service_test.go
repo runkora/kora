@@ -13,10 +13,8 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/logging"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 // waitFor polls check every 5 ms until it returns true or the timeout elapses.
@@ -796,10 +794,7 @@ func TestTransitionRunState_DeprovisionsSandboxOnFailed(t *testing.T) {
 }
 
 func TestTransitionRunState_Conflict(t *testing.T) {
-	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
-	otel.SetTracerProvider(provider)
-	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+	recorder := spanRecorder()
 
 	tests := []struct {
 		name       string

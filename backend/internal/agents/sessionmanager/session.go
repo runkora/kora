@@ -21,6 +21,7 @@ import (
 	execpb "github.com/runkora/kora/backend/internal/agents/sandbox/proto"
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -221,7 +222,8 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 		return fmt.Errorf("create workspace %s: %w", workDir, err)
 	}
 
-	runCtx, cancel := context.WithCancel(context.Background())
+	// The session outlives the create request but stays in its trace (docs/adr/2026-10-31-one-trace-per-run.md).
+	runCtx, cancel := context.WithCancel(trace.ContextWithSpanContext(context.Background(), trace.SpanContextFromContext(ctx)))
 
 	s := &session{
 		runID:        cfg.RunID,
@@ -326,15 +328,15 @@ func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 		if s.inferenceURL == "" || s.model == "" {
 			return
 		}
-		go reg.summarizeRun(s.runID, s.inferenceURL, s.model, text)
+		go reg.summarizeRun(s.traceCtx(), s.runID, s.inferenceURL, s.model, text)
 	})
 	return nil
 }
 
 // summarizeRun generates the run's task summary and reports it to kora-agents.
 // Detached and best-effort: failures are logged at WARN and never affect the run.
-func (reg *Registry) summarizeRun(runID, inferenceURL, model, initialMessage string) {
-	ctx, cancel := context.WithTimeout(context.Background(), summarizerTimeout)
+func (reg *Registry) summarizeRun(ctx context.Context, runID, inferenceURL, model, initialMessage string) {
+	ctx, cancel := context.WithTimeout(ctx, summarizerTimeout)
 	defer cancel()
 
 	summary, err := reg.summarizer.Summarize(ctx, inferenceURL, model, initialMessage)
@@ -1013,6 +1015,14 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, s
 	}
 }
 
+// traceCtx carries the session's trace without its cancellation, for work that outlives the session.
+func (s *session) traceCtx() context.Context {
+	if s.runCtx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(s.runCtx)
+}
+
 // endedFailed reports whether the run of a session that ended failed: it was not
 // closed on purpose, or a pod drain cut it off.
 func (s *session) endedFailed() bool {
@@ -1022,7 +1032,7 @@ func (s *session) endedFailed() bool {
 // completeDrain removes the session from the registry, notifies kora-agents of
 // the final run state, and closes the done channel. Called from the drain defer.
 func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
-	bgCtx := context.Background()
+	bgCtx := s.traceCtx()
 	// The process is gone: stop work still bound to this session, such as a
 	// sandbox retry, before a resumed session takes over or the run ends.
 	s.cancel()
@@ -1051,7 +1061,7 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 			)
 		} else {
 			newRunner := s.runner.NewResumeRunner()
-			newCtx, newCancel := context.WithCancel(context.Background())
+			newCtx, newCancel := context.WithCancel(s.traceCtx())
 			workDir := filepath.Join(reg.workspaces, s.runID)
 			if startErr := newRunner.Start(newCtx, workDir); startErr != nil {
 				newCancel()
