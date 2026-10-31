@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -266,11 +267,20 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 		psc.Current.Server.Port,
 		psc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(psc.Current.Observability.ServiceName),
+			mw.TracingMiddleware(psc.Current.Observability.ServiceName, notBundlePoll(psc.Current.Server.BasePath)),
 			mw.LoggingMiddleware(logger),
 		),
 		controllers...,
 	)
+}
+
+// notBundlePoll leaves the OPA bundle polls untraced. Every OPA sidecar and
+// the gateway poll them on a timer; the route metrics still count each one.
+func notBundlePoll(basePath string) mw.TraceFilter {
+	prefix := strings.TrimSuffix(basePath, "/") + "/policy/bundles/"
+	return func(r *http.Request) bool {
+		return r.Method != http.MethodGet || !strings.HasPrefix(r.URL.Path, prefix)
+	}
 }
 
 func run(ctx context.Context, logger logging.Logger, server *http.Server, metrics *platformmetrics.Bootstrap) {

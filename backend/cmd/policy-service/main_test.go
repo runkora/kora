@@ -1,6 +1,16 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+)
 
 // TestSelfRegisteredRoutesDeclareTheirScopes guards the two halves of the
 // policy service's own registration against drifting apart: a route whose
@@ -48,5 +58,34 @@ func TestPolicyServiceRoutesCoverTheRegisteredTable(t *testing.T) {
 		if got != r.RequiredScope {
 			t.Errorf("route %q: registered scope %q, locally enforced scope %q", key, r.RequiredScope, got)
 		}
+	}
+}
+
+func TestNotBundlePoll_LeavesBundlePollsUntraced(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	chain := mw.MiddlewareChain(mw.TracingMiddleware("policy-service", notBundlePoll("/api/v1")))
+	handler := chain(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+
+	tests := []struct {
+		method, path string
+		wantSpans    int
+	}{
+		{http.MethodGet, "/api/v1/policy/bundles/tenant-1", 0},
+		{http.MethodGet, "/api/v1/policy/bundles/gateway", 0},
+		{http.MethodGet, "/api/v1/policy/grants", 1},
+		{http.MethodPost, "/api/v1/policy/bundles/tenant-1", 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			before := len(recorder.Ended())
+			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(tt.method, tt.path, nil))
+			if got := len(recorder.Ended()) - before; got != tt.wantSpans {
+				t.Errorf("spans = %d, want %d", got, tt.wantSpans)
+			}
+		})
 	}
 }
