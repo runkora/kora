@@ -66,6 +66,8 @@ require (
 	sigs.k8s.io/yaml v1.6.0
 )
 
+require go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.71.0
+
 require (
 	cel.dev/expr v0.25.2 // indirect
 	cloud.google.com/go/auth v0.23.2 // indirect
@@ -184,7 +186,6 @@ require (
 	github.com/yashtewari/glob-intersection v0.2.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.71.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0 // indirect
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect

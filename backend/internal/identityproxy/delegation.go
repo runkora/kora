@@ -100,8 +100,8 @@ type DelegationManager struct {
 
 	// fetchTimeout bounds a single background delegation fetch. Fetches run OFF
 	// the ext_proc request context (which Envoy cancels at the ~200ms
-	// message_timeout) — on a fresh context.Background() — so they can actually
-	// complete; fetchTimeout is their only deadline.
+	// message_timeout) — on a context detached from its cancellation — so they can
+	// actually complete; fetchTimeout is their only deadline.
 	fetchTimeout time.Duration
 
 	now func() time.Time // test seam
@@ -167,7 +167,7 @@ func (m *DelegationManager) SetSandboxRunID(ctx context.Context, runID string) {
 		// cached — the ~200ms ext_proc budget is far too small to fetch it inline.
 		e := m.entry(runID)
 		e.mu.Lock()
-		m.startFetchLocked(runID, e, m.now())
+		m.startFetchLocked(ctx, runID, e, m.now())
 		e.mu.Unlock()
 	}
 }
@@ -205,7 +205,7 @@ func (m *DelegationManager) entry(runID string) *delegationEntry {
 // surfacing as intermittent "connection reset by peer" on git clone. The
 // Authorization header is attached by handleRequestHeaders regardless of what we
 // return here, so a not-yet-cached delegation never costs the platform token.
-func (m *DelegationManager) tokenForRun(_ context.Context, runID string) (string, bool) {
+func (m *DelegationManager) tokenForRun(ctx context.Context, runID string) (string, bool) {
 	e := m.entry(runID)
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -219,7 +219,7 @@ func (m *DelegationManager) tokenForRun(_ context.Context, runID string) (string
 		lifetime := e.exp.Sub(e.fetchedAt)
 		remaining := e.exp.Sub(now)
 		if lifetime > 0 && float64(remaining) < float64(lifetime)*refreshFraction {
-			m.startFetchLocked(runID, e, now)
+			m.startFetchLocked(ctx, runID, e, now)
 		}
 		return e.token, true
 	}
@@ -231,21 +231,21 @@ func (m *DelegationManager) tokenForRun(_ context.Context, runID string) (string
 
 	// No usable cache: kick a background fetch (deduped + backoff-gated) and
 	// attach nothing this request.
-	m.startFetchLocked(runID, e, now)
+	m.startFetchLocked(ctx, runID, e, now)
 	return "", false
 }
 
 // startFetchLocked launches a single background delegation fetch for the run
 // unless one is already in flight or the post-error backoff gate is still
-// closed. The entry mutex is held by the caller. The fetch runs on the manager's
-// base context (NOT the request context, which Envoy cancels at the ext_proc
-// deadline) so it can complete and populate the cache.
-func (m *DelegationManager) startFetchLocked(runID string, e *delegationEntry, now time.Time) {
+// closed. The entry mutex is held by the caller. The fetch keeps the request's
+// trace but not its cancellation, which Envoy fires at the ext_proc deadline, so
+// it can complete and populate the cache.
+func (m *DelegationManager) startFetchLocked(ctx context.Context, runID string, e *delegationEntry, now time.Time) {
 	if e.fetching || now.Before(e.nextRetry) {
 		return
 	}
 	e.fetching = true
-	go m.fetchAsync(runID, e, now)
+	go m.fetchAsync(context.WithoutCancel(ctx), runID, e, now)
 }
 
 // fetchAsync performs the delegation retrieval off the request path and records
@@ -255,8 +255,8 @@ func (m *DelegationManager) startFetchLocked(runID string, e *delegationEntry, n
 // again here, so the recorded expiry/backoff is deterministic and does not race
 // a test clock advanced while the fetch is in flight. Real fetches complete in
 // well under a token lifetime, so anchoring to spawn time is immaterial.
-func (m *DelegationManager) fetchAsync(runID string, e *delegationEntry, now time.Time) {
-	ctx, cancel := context.WithTimeout(context.Background(), m.fetchTimeout)
+func (m *DelegationManager) fetchAsync(ctx context.Context, runID string, e *delegationEntry, now time.Time) {
+	ctx, cancel := context.WithTimeout(ctx, m.fetchTimeout)
 	defer cancel()
 	tok, err := m.fetcher.GetDelegationForRun(ctx, runID)
 
