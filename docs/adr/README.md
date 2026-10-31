@@ -18,7 +18,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [YAML File-Based Configuration with Typed Generic Loader](2026-02-18-yaml-file-based-configuration.md) — `Accepted (Amended 2026-10-06)` · 2026-02-18
 - [Database Infrastructure Layer](2026-03-03-database-infrastructure-layer.md) — `Accepted` · 2026-03-03
 - [Multi-Service Backend Deployment Structure](2026-03-19-multi-service-backend-deployment-structure.md) — `Accepted` · 2026-03-19
-- [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) — `Accepted` · 2026-03-21
+- [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) — `Accepted (Amended 2026-10-31)` · 2026-03-21
 - [Prometheus Metrics Endpoints for Backend Services](2026-10-06-prometheus-metrics-endpoints.md) — `Accepted` · 2026-10-06
 - [Local Development Environment](2026-03-10-local-development-environment.md) — `Superseded` · 2026-03-10
 - [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) — `Accepted` · 2026-07-10
@@ -203,7 +203,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-03-17 | [Frontend Scaffolding and Toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md) | Accepted | 0019 |
 | 2026-03-19 | [Multi-Service Backend Deployment Structure](2026-03-19-multi-service-backend-deployment-structure.md) | Accepted | 0020 |
 | 2026-03-21 | [Envoy ext_proc Sidecar for Transparent Platform Token Injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md) | Accepted | 0021 |
-| 2026-03-21 | [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) | Accepted | 0022 |
+| 2026-03-21 | [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) | Accepted (Amended 2026-10-31) | 0022 |
 | 2026-03-25 | [Hades Frontend Design System](2026-03-25-terra-frontend-design-system.md) | Accepted | 0021 |
 | 2026-03-31 | [Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) | Accepted | 0027 |
 | 2026-03-31 | [OIDC Client Secret Projection for Confidential Tenants](2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md) | Accepted | 0029 |
