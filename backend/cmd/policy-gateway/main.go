@@ -89,7 +89,7 @@ func realMain() error {
 		pgc.Current.Server.HTTPPort,
 		pgc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(pgc.Current.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 		),
 		controller,

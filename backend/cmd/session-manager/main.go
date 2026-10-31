@@ -140,7 +140,7 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 		cfg.Server.Port,
 		cfg.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(cfg.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 		),
 		controller,

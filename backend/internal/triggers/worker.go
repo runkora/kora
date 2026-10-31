@@ -5,12 +5,12 @@ import (
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
-var triggersTracer = otel.Tracer("kora.triggers")
+var triggersTracer = otel.Tracer("github.com/runkora/kora/backend/internal/triggers")
 
 // Worker drains the pending-delivery queue.
 //
@@ -199,8 +199,8 @@ func (w *Worker) drain(ctx context.Context) {
 // it records no span.
 func (w *Worker) dispatch(ctx context.Context, p PendingDelivery, remaining []string) {
 	ctx, span := triggersTracer.Start(ctx, "triggers.Worker.dispatch", trace.WithAttributes(
-		attribute.String("kora.trigger.id", p.TriggerID),
-		attribute.String("kora.trigger.delivery.id", p.DeliveryID),
+		observability.TriggerIDKey.String(p.TriggerID),
+		observability.TriggerDeliveryIDKey.String(p.DeliveryID),
 	))
 	defer span.End()
 

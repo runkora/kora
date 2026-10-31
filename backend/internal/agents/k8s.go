@@ -21,6 +21,9 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 	"github.com/runkora/kora/backend/internal/platform/brand"
 
+	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"go.opentelemetry.io/otel/trace"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
@@ -40,19 +43,13 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
-
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/ports"
 	"github.com/runkora/kora/backend/internal/platform/probes"
 	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
-
-var k8sTracer = otel.Tracer("kora.agents.k8s")
 
 var destinationRuleGVR = schema.GroupVersionResource{
 	Group:    "networking.istio.io",
@@ -213,15 +210,15 @@ func (p *K8sProvisioner) ProvisionMissing(ctx context.Context, at AgentType, nam
 }
 
 func (p *K8sProvisioner) provision(ctx context.Context, at AgentType, namespace string, update bool) error {
-	spanName := "agents.k8s.ProvisionMissing"
+	spanName := "agents.K8sProvisioner.ProvisionMissing"
 	if update {
-		spanName = "agents.k8s.ProvisionAgentType"
+		spanName = "agents.K8sProvisioner.ProvisionAgentType"
 	}
-	ctx, span := k8sTracer.Start(ctx, spanName,
+	ctx, span := agentsTracer.Start(ctx, spanName,
 		trace.WithAttributes(
-			attribute.String("slug", at.Slug),
-			attribute.String("namespace", namespace),
-			attribute.Bool("update", update),
+			observability.AgentSlugKey.String(at.Slug),
+			semconv.K8SNamespaceNameKey.String(namespace),
+			observability.AgentUpdateKey.Bool(update),
 		),
 	)
 	defer span.End()
@@ -291,10 +288,10 @@ func (p *K8sProvisioner) provision(ctx context.Context, at AgentType, namespace 
 // DeprovisionAgentType deletes all k8s resources created by ProvisionAgentType.
 // Missing resources are silently ignored.
 func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType, namespace string) error {
-	ctx, span := k8sTracer.Start(ctx, "agents.k8s.DeprovisionAgentType",
+	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.DeprovisionAgentType",
 		trace.WithAttributes(
-			attribute.String("slug", at.Slug),
-			attribute.String("namespace", namespace),
+			observability.AgentSlugKey.String(at.Slug),
+			semconv.K8SNamespaceNameKey.String(namespace),
 		),
 	)
 	defer span.End()
@@ -414,10 +411,10 @@ func (p *K8sProvisioner) WaitForStatefulSetReady(ctx context.Context, slug, name
 // ensures that pods pick up new configuration (e.g. a changed framework or
 // model_id) without requiring a manual recycle.
 func (p *K8sProvisioner) RolloutStatefulSet(ctx context.Context, slug, namespace string) error {
-	ctx, span := k8sTracer.Start(ctx, "agents.k8s.RolloutStatefulSet",
+	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.RolloutStatefulSet",
 		trace.WithAttributes(
-			attribute.String("slug", slug),
-			attribute.String("namespace", namespace),
+			observability.AgentSlugKey.String(slug),
+			semconv.K8SNamespaceNameKey.String(namespace),
 		),
 	)
 	defer span.End()
@@ -503,11 +500,11 @@ const (
 // sandbox pod only ever has its own {runID} directory mounted, never a
 // sibling run's. See https://github.com/runkora/kora/issues/134.
 func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error) {
-	ctx, span := k8sTracer.Start(ctx, "agents.k8s.ProvisionSandbox",
+	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.ProvisionSandbox",
 		trace.WithAttributes(
-			attribute.String("run_id", run.ID),
-			attribute.String("agent_type_slug", agentTypeSlug),
-			attribute.String("namespace", namespace),
+			observability.RunIDKey.String(run.ID),
+			observability.AgentSlugKey.String(agentTypeSlug),
+			semconv.K8SNamespaceNameKey.String(namespace),
 		),
 	)
 	defer span.End()
@@ -587,7 +584,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	}
 
 	endpoint := fmt.Sprintf("%s:%d", ready.Status.PodIP, p.cfg.SandboxGRPCPort)
-	span.SetAttributes(attribute.String("endpoint", endpoint))
+	span.SetAttributes(observability.SandboxEndpointKey.String(endpoint))
 	p.logger.Info(ctx, "Sandbox pod ready",
 		logging.Field{Key: "run_id", Value: run.ID},
 		logging.Field{Key: "pod", Value: podName},
@@ -618,10 +615,10 @@ var errSandboxUnusable = errors.New("sandbox pod unusable")
 // anything the agent can delete from its workspace. A pod that is not ready has
 // no usable endpoint yet, so it reports no sandbox rather than a half one.
 func (p *K8sProvisioner) LookupSandbox(ctx context.Context, runID, namespace string) (Sandbox, bool, error) {
-	ctx, span := k8sTracer.Start(ctx, "agents.k8s.LookupSandbox",
+	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.LookupSandbox",
 		trace.WithAttributes(
-			attribute.String("run_id", runID),
-			attribute.String("namespace", namespace),
+			observability.RunIDKey.String(runID),
+			semconv.K8SNamespaceNameKey.String(namespace),
 		),
 	)
 	defer span.End()
@@ -899,10 +896,10 @@ func (p *K8sProvisioner) waitForPodGone(ctx context.Context, name, namespace str
 
 // DeleteSandbox removes the sandbox pod for a run. Missing pod is silently ignored.
 func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace string) error {
-	ctx, span := k8sTracer.Start(ctx, "agents.k8s.DeleteSandbox",
+	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.DeleteSandbox",
 		trace.WithAttributes(
-			attribute.String("run_id", runID),
-			attribute.String("namespace", namespace),
+			observability.RunIDKey.String(runID),
+			semconv.K8SNamespaceNameKey.String(namespace),
 		),
 	)
 	defer span.End()
@@ -1403,10 +1400,10 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 	principalID := p.agentSpiffeID(at, namespace)
 	grantTenantID := at.TenantID
 
-	ctx, span := k8sTracer.Start(ctx, "agents.k8s.EnsureAgentGrant",
+	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.ensureAgentGrant",
 		trace.WithAttributes(
-			attribute.String("principal_id", principalID),
-			attribute.String("tenant_id", grantTenantID),
+			observability.PrincipalIDKey.String(principalID),
+			observability.TenantIDKey.String(grantTenantID),
 		),
 	)
 	defer span.End()

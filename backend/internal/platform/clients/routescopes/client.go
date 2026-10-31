@@ -59,7 +59,7 @@ var ErrRegistrationFailed = errors.New("route scope registration rejected by pol
 // errRegisterFailed is the static span status for a registration that failed.
 var errRegisterFailed = errors.New("route scope registration failed")
 
-const registerSpan = "routescopes.Client.Register"
+const registerSpan = "routescopes.Client.register"
 
 // RouteScope maps an HTTP path prefix and method to the scope required to access it.
 type RouteScope struct {
@@ -115,7 +115,7 @@ type Client struct {
 }
 
 const (
-	tracerName    = "kora.routescopes-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	clientTimeout = 10 * time.Second
 )
 

@@ -18,7 +18,7 @@ import (
 func (c *Controller) handleListBudgetPrincipals(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	ctx, span := tracer.Start(ctx, "handleListBudgetPrincipals")
+	ctx, span := tracer.Start(ctx, "inferencegw.Controller.handleListBudgetPrincipals")
 	defer span.End()
 
 	p, err := principalFromClaims(ctx)
