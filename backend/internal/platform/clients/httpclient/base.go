@@ -223,6 +223,18 @@ func (b *Base) RecordError(span trace.Span, sentinel error) error {
 	return sentinel
 }
 
+// SpanSince records a span that began at start for work that ran untraced and
+// turned out worth tracing, such as a periodic call that changed something or
+// failed. A non-nil err is recorded with sentinel as the static status.
+func (b *Base) SpanSince(ctx context.Context, spanName string, start time.Time, err, sentinel error) {
+	_, span := b.tracer.Start(ctx, spanName, trace.WithTimestamp(start))
+	defer span.End()
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, sentinel.Error())
+	}
+}
+
 // ReadErrorBody reads up to 512 bytes from resp.Body, records the trimmed
 // content as the error.upstream_body span attribute, and returns the string so
 // callers can embed it in their error.

@@ -3,6 +3,7 @@ package policy
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,12 +17,18 @@ import (
 	"github.com/open-policy-agent/opa/v1/rego"
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ErrBundleUnexpectedStatus is returned when the bundle endpoint responds
 // with a non-200 status code.
 var ErrBundleUnexpectedStatus = errors.New("bundle endpoint returned unexpected status")
+
+// errBundleRefresh is the static span status for a periodic refresh that failed.
+var errBundleRefresh = errors.New("bundle refresh failed")
+
+const loadBundleSpan = "policy-engine.Engine.LoadBundle"
 
 const decisionQuery = "x := {\"allow\": data.kora.authz.allow, \"reason\": data.kora.authz.reason}"
 const scopesQuery = "x := data.kora.authz.principal_all_scopes"
@@ -52,6 +59,7 @@ type tenantBundle struct {
 	tenantBudgetQuery rego.PreparedEvalQuery
 	loadedAt          time.Time
 	revision          string
+	digest            [sha256.Size]byte
 }
 
 // engine manages per-tenant OPA bundle loading and policy evaluation.
@@ -99,27 +107,41 @@ func (e *engine) refreshAll(ctx context.Context) {
 	e.mu.RUnlock()
 
 	for _, tenantID := range tenants {
-		if err := e.loadBundle(ctx, tenantID); err != nil {
-			e.Logger().Error(ctx, "bundle poll failed",
-				logging.Field{Key: "tenant_id", Value: tenantID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
+		e.refresh(ctx, tenantID)
 	}
 }
 
-func (e *engine) loadBundle(ctx context.Context, tenantID string) error {
+// refresh polls one tenant's bundle untraced and records a span only when the
+// bundle changed or the poll failed. The policy service counts every poll.
+func (e *engine) refresh(ctx context.Context, tenantID string) {
+	start := time.Now()
+	changed, err := e.loadBundle(observability.Untraced(ctx), tenantID)
+	if !changed && err == nil {
+		return
+	}
+	e.SpanSince(ctx, loadBundleSpan, start, err, errBundleRefresh)
+	if err != nil {
+		e.Logger().Error(ctx, "bundle poll failed",
+			logging.Field{Key: "tenant_id", Value: tenantID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+}
+
+// loadBundle fetches and compiles a tenant's bundle. It reports whether the
+// cached bundle changed: an identical bundle is not recompiled.
+func (e *engine) loadBundle(ctx context.Context, tenantID string) (bool, error) {
 	url := e.bundleEndpoint + "/" + tenantID
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return fmt.Errorf("create bundle request: %w", err)
+		return false, fmt.Errorf("create bundle request: %w", err)
 	}
 
-	_, span, resp, err := e.Do(ctx, "policy-engine.Engine.LoadBundle", req)
+	_, span, resp, err := e.Do(ctx, loadBundleSpan, req)
 	defer span.End()
 	if err != nil {
-		return fmt.Errorf("fetch bundle for tenant %s: %w", tenantID, err)
+		return false, fmt.Errorf("fetch bundle for tenant %s: %w", tenantID, err)
 	}
 	defer resp.Body.Close()
 
@@ -130,29 +152,36 @@ func (e *engine) loadBundle(ctx context.Context, tenantID string) error {
 		e.Logger().Info(ctx, "bundle evicted for tenant (no grants configured)",
 			logging.Field{Key: "tenant_id", Value: tenantID},
 		)
-		return nil
+		return true, nil
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return e.HandleErrorResponse(span, resp, ErrBundleUnexpectedStatus)
+		return false, e.HandleErrorResponse(span, resp, ErrBundleUnexpectedStatus)
 	}
 
 	bundleBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("read bundle for tenant %s: %w", tenantID, err)
+		return false, fmt.Errorf("read bundle for tenant %s: %w", tenantID, err)
+	}
+
+	e.mu.RLock()
+	cached := e.bundles[tenantID]
+	e.mu.RUnlock()
+	if cached != nil && cached.digest == sha256.Sum256(bundleBytes) {
+		return false, nil
 	}
 
 	revision := resp.Header.Get("ETag")
 
 	if err := e.compileBundle(ctx, tenantID, bundleBytes, revision); err != nil {
-		return fmt.Errorf("compile bundle for tenant %s: %w", tenantID, err)
+		return false, fmt.Errorf("compile bundle for tenant %s: %w", tenantID, err)
 	}
 
 	e.Logger().Info(ctx, "bundle loaded",
 		logging.Field{Key: "tenant_id", Value: tenantID},
 		logging.Field{Key: "revision", Value: revision},
 	)
-	return nil
+	return true, nil
 }
 
 func (e *engine) compileBundle(ctx context.Context, tenantID string, bundleBytes []byte, revision string) error {
@@ -256,6 +285,7 @@ func (e *engine) compileBundle(ctx context.Context, tenantID string, bundleBytes
 		tenantBudgetQuery: tbq,
 		loadedAt:          time.Now().UTC(),
 		revision:          revision,
+		digest:            sha256.Sum256(bundleBytes),
 	}
 	e.mu.Unlock()
 
@@ -884,7 +914,7 @@ func (e *engine) bundleForTenant(ctx context.Context, tenantID string) (*tenantB
 	}
 
 	// Lazy load on first request for this tenant.
-	if err := e.loadBundle(ctx, tenantID); err != nil {
+	if _, err := e.loadBundle(ctx, tenantID); err != nil {
 		return nil, fmt.Errorf("no bundle loaded for tenant %s: %w", tenantID, err)
 	}
 	e.mu.RLock()
