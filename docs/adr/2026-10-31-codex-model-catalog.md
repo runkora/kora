@@ -1,6 +1,6 @@
 # Codex Model Catalog for Gateway Models
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-10-31
 **Deciders:** kora maintainers
 **Technical Story:** [#868](https://github.com/runkora/kora/issues/868)
