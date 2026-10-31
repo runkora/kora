@@ -51,14 +51,13 @@ import (
 
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
-	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // ErrRegistrationFailed is returned when the policy service rejects a registration.
 var ErrRegistrationFailed = errors.New("route scope registration rejected by policy service")
 
-// errRepeatFailed is the static span status for a repeated registration that failed.
-var errRepeatFailed = errors.New("repeated route scope registration failed")
+// errRegisterFailed is the static span status for a registration that failed.
+var errRegisterFailed = errors.New("route scope registration failed")
 
 const registerSpan = "routescopes.Client.Register"
 
@@ -158,8 +157,9 @@ func (c *Client) RegisterWithPrune(ctx context.Context, service string, routes [
 // register makes exactly one registration call. Failure is returned to the
 // caller, which owns whatever retry policy it wants.
 //
-// A registration identical to the last accepted one is a heartbeat, so it runs
-// untraced and records a span only if it fails.
+// Registrations run from loops and hooks with no parent span, so Base.Do
+// records none. A changed or failed registration gets a summary span instead;
+// a repeat of the last accepted one is a heartbeat and gets none.
 func (c *Client) register(ctx context.Context, reg registrationRequest) error {
 	raw, err := json.Marshal(reg)
 	if err != nil {
@@ -170,14 +170,12 @@ func (c *Client) register(ctx context.Context, reg registrationRequest) error {
 	repeat := c.sent[reg.Service] == sum
 	c.mu.Unlock()
 
-	callCtx, start := ctx, time.Now()
-	if repeat {
-		callCtx = observability.Untraced(ctx)
+	start := time.Now()
+	err = c.doRegister(ctx, reg)
+	if !repeat || err != nil {
+		c.SpanSince(ctx, registerSpan, start, err, errRegisterFailed)
 	}
-	if err := c.doRegister(callCtx, reg); err != nil {
-		if repeat {
-			c.SpanSince(ctx, registerSpan, start, err, errRepeatFailed)
-		}
+	if err != nil {
 		return err
 	}
 	c.mu.Lock()
