@@ -8,8 +8,11 @@ global:
   postgres:
     sslMode: disable
     captureQueryText: true
+  # The LGTM stack in deploy/local/observability, applied by make up.
   observability:
-    otlpEndpoint: ""
+    otlpEndpoint: http://lgtm.observability.svc.cluster.local:4317
+    samplingRate: 1.0
+    collectorNamespace: observability
 
 frontendHost: local.runkora.io
 
