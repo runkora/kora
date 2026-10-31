@@ -381,7 +381,7 @@ func initServer(ctx context.Context, logger logging.Logger, controllers []platfo
 		tc.Current.Server.Port,
 		tc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(tc.Current.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 		),
 		controllers...,

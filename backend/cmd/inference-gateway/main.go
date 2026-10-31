@@ -338,7 +338,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 		igc.Current.Server.Port,
 		igc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(igc.Current.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 			// Rewrites /run/{run_id}/v1/... -> /v1/... with the run identity in
 			// context, ahead of all routing and enforcement. See

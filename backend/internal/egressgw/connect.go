@@ -14,13 +14,14 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/credentials"
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -31,7 +32,7 @@ var interceptIdleTimeout = 5 * time.Minute
 
 // tracer instruments the CONNECT path. The listener carries no tracing
 // middleware, so this package starts the server span itself.
-var tracer = otel.Tracer("kora.egress-gateway")
+var tracer = otel.Tracer("github.com/runkora/kora/backend/internal/egressgw")
 
 // Span status descriptions are package-level sentinels: the raw error text can
 // carry hostnames and addresses, which must not land in a span string field.
@@ -252,14 +253,14 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.Conn, claims *token.PlatformClaims, host, port string) {
 	// parseConnectAuthority has already checked port is numeric.
 	portNum, _ := strconv.Atoi(port)
-	ctx, span := tracer.Start(ctx, "egress "+host,
+	ctx, span := tracer.Start(ctx, http.MethodConnect,
 		trace.WithSpanKind(trace.SpanKindServer),
 		trace.WithAttributes(
-			attribute.String("server.address", host),
-			attribute.Int("server.port", portNum),
-			attribute.String("kora.tenant_id", claims.Kora.TenantID),
-			attribute.String("kora.principal_id", claims.Subject),
-			attribute.String("kora.run_id", claims.Kora.Claims["run_id"]),
+			semconv.ServerAddressKey.String(host),
+			semconv.ServerPortKey.Int(portNum),
+			observability.TenantIDKey.String(claims.Kora.TenantID),
+			observability.PrincipalIDKey.String(claims.Subject),
+			observability.RunIDKey.String(claims.Kora.Claims["run_id"]),
 		))
 	defer span.End()
 
@@ -276,7 +277,7 @@ func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.
 		)
 		return
 	}
-	span.SetAttributes(attribute.String("http.request.method", innerReq.Method))
+	span.SetAttributes(semconv.HTTPRequestMethodKey.String(innerReq.Method))
 
 	// Pin the inner request to the CONNECT target the OPA posture authorized. The
 	// inner Host header is attacker-controlled, since a sandbox can put any
@@ -298,7 +299,7 @@ func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.
 	// headers into the body; the response writer goes back through tlsConn.
 	rw := newConnectResponseWriter(tlsConn)
 	h.inner.ServeHTTP(rw, innerReq)
-	span.SetAttributes(attribute.Int("http.response.status_code", rw.statusCode))
+	span.SetAttributes(semconv.HTTPResponseStatusCodeKey.Int(rw.statusCode))
 	if rw.statusCode >= http.StatusBadRequest {
 		span.SetStatus(codes.Error, errInnerRequestFailed.Error())
 	}

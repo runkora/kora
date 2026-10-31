@@ -67,7 +67,7 @@ server := apiServer.Server(
     port,
     basePath,
     mw.MiddlewareChain(
-        mw.TracingMiddleware("kora"),      // Creates spans
+        mw.TracingMiddleware(),           // Creates spans
         mw.LoggingMiddleware(logger),       // Logs with trace context
     ),
     controllers...,
@@ -98,14 +98,14 @@ For detailed tracing within services:
 import "go.opentelemetry.io/otel"
 
 func (s *Service) ProcessData(ctx context.Context, data Data) error {
-    tracer := otel.Tracer("kora")
-    ctx, span := tracer.Start(ctx, "Service.ProcessData")
+    tracer := otel.Tracer("github.com/runkora/kora/backend/internal/myfeature")
+    ctx, span := tracer.Start(ctx, "myfeature.Service.ProcessData")
     defer span.End()
     
     // Add custom attributes
     span.SetAttributes(
-        attribute.String("data.type", data.Type),
-        attribute.Int("data.size", len(data.Items)),
+        observability.RunIDKey.String(data.RunID),
+        observability.TenantIDKey.String(data.TenantID),
     )
     
     // Your business logic here

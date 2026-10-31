@@ -81,7 +81,7 @@ func NewBroker(
 // them to the right HTTP status. The broker never logs the minted credential
 // value, only its expiry and metadata.
 func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, req EgressRequest) (Decision, error) {
-	ctx, span := tracer.Start(ctx, "egress.authorize", trace.WithSpanKind(trace.SpanKindInternal))
+	ctx, span := tracer.Start(ctx, "egressgw.Broker.Authorize", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 
 	if err := b.validateCaller(ctx, span, claims, req); err != nil {

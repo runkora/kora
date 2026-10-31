@@ -21,12 +21,12 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -63,7 +63,7 @@ func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, c
 		proxy:     proxy,
 		basePath:  basePath,
 		logger:    logger,
-		tracer:    otel.Tracer("kora.tool-gateway"),
+		tracer:    otel.Tracer("github.com/runkora/kora/backend/internal/toolgateway"),
 	}
 }
 
@@ -253,13 +253,14 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 		return
 	}
 
-	ctx, span := c.tracer.Start(ctx, "mcp.tools.call")
+	ctx, span := c.tracer.Start(ctx, "tools/call "+tool)
 	defer span.End()
 	span.SetAttributes(
-		attribute.String("mcp.server", server),
-		attribute.String("mcp.tool", tool),
-		attribute.String("kora.tenant_id", claims.Kora.TenantID),
-		attribute.String("kora.principal", claims.Subject),
+		observability.MCPMethodNameKey.String("tools/call"),
+		observability.MCPServerKey.String(server),
+		observability.GenAIToolNameKey.String(tool),
+		observability.TenantIDKey.String(claims.Kora.TenantID),
+		observability.PrincipalIDKey.String(claims.Subject),
 	)
 
 	res, err := c.eval.Check(ctx, policy.CheckInput{
@@ -271,12 +272,12 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 		RunID:        mw.RunIDFromContext(ctx),
 	})
 	if err != nil {
-		span.SetAttributes(attribute.String("mcp.decision", "error"))
+		span.SetAttributes(observability.MCPDecisionKey.String("error"))
 		c.writeRPCError(ctx, w, req.ID, -32603, "policy check failed")
 		return
 	}
 	if !res.Allow {
-		span.SetAttributes(attribute.String("mcp.decision", "deny"))
+		span.SetAttributes(observability.MCPDecisionKey.String("deny"))
 		c.logger.Info(ctx, "tools/call denied",
 			logging.Field{Key: "server", Value: server},
 			logging.Field{Key: "tool", Value: tool},
@@ -291,7 +292,7 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 		c.writeRPCError(ctx, w, req.ID, -32001, "tool not permitted ("+res.Reason+")")
 		return
 	}
-	span.SetAttributes(attribute.String("mcp.decision", "allow"))
+	span.SetAttributes(observability.MCPDecisionKey.String("allow"))
 	c.logger.Info(ctx, "tools/call allowed",
 		logging.Field{Key: "server", Value: server},
 		logging.Field{Key: "tool", Value: tool},

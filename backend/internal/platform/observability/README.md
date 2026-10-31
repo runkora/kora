@@ -30,8 +30,8 @@ func main() {
     defer shutdown(ctx)
     
     // Now use OTEL tracers and loggers normally
-    tracer := otel.Tracer("my-service")
-    ctx, span := tracer.Start(ctx, "operation")
+    tracer := otel.Tracer("github.com/runkora/kora/backend/cmd/my-service")
+    ctx, span := tracer.Start(ctx, "main.run")
     defer span.End()
     
     logger.Info(ctx, "Processing request") // Automatically includes trace_id
@@ -40,7 +40,7 @@ func main() {
 
 ## Configuration
 
-The package loads the `internal/platform/observability` config module: `config/base.yaml`, the `{APP_ENV}.yaml` overlay and the file the chart renders at `/etc/kora/config/internal/platform/observability.yaml`. `APP_ENV` defaults to `production` and also sets the `deployment.environment` attribute.
+The package loads the `internal/platform/observability` config module: `config/base.yaml`, the `{APP_ENV}.yaml` overlay and the file the chart renders at `/etc/kora/config/internal/platform/observability.yaml`. `APP_ENV` defaults to `production` and also sets the `deployment.environment.name` attribute.
 
 *   **`otlpEndpoint`:** The OTLP collector URL (e.g., `http://localhost:4317`). The scheme sets plaintext or TLS.
 *   **`samplingRate`:** The fraction of root spans sampled (0.0 to 1.0).
@@ -118,8 +118,8 @@ func main() {
     logger := logging.NewLogger()
     
     // Create span
-    tracer := otel.Tracer("kora")
-    ctx, span := tracer.Start(ctx, "handle-request")
+    tracer := otel.Tracer("github.com/runkora/kora/backend/internal/myfeature")
+    ctx, span := tracer.Start(ctx, "myfeature.HandleRequest")
     defer span.End()
     
     // Logger sees span in context, adds trace_id automatically

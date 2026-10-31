@@ -24,7 +24,7 @@ import (
 // A request any filter rejects is served without a span, like otelhttp.WithFilter.
 // Services use it to drop high-rate polls that carry no signal, the same way
 // health checks skip tracing.
-func TracingMiddleware(serviceName string, filters ...TraceFilter) Middleware {
+func TracingMiddleware(filters ...TraceFilter) Middleware {
 	return NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			for _, traced := range filters {
@@ -34,7 +34,7 @@ func TracingMiddleware(serviceName string, filters ...TraceFilter) Middleware {
 				}
 			}
 			// Get the global tracer for this service
-			tracer := otel.Tracer(serviceName)
+			tracer := otel.Tracer("github.com/runkora/kora/backend/internal/platform/middleware")
 
 			// Extract the route pattern from the request context
 			// Go 1.22+ ServeMux stores the matched pattern in the request context

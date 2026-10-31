@@ -90,7 +90,7 @@ func realMain() error {
 		omc.Current.Server.HTTPPort,
 		omc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(omc.Current.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 		),
 		controller,

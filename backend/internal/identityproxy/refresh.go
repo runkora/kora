@@ -45,7 +45,7 @@ func NewRefresher(cache *TokenCache, exchanger tokenExchanger, logger logging.Lo
 		cache:     cache,
 		exchanger: exchanger,
 		logger:    logger,
-		tracer:    otel.Tracer("kora.identity-proxy"),
+		tracer:    otel.Tracer("github.com/runkora/kora/backend/internal/identityproxy"),
 		cfg:       cfg,
 	}
 }

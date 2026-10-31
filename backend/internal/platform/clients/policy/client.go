@@ -42,7 +42,7 @@ func (e *ScopeNotInVocabularyError) Is(target error) bool { return target == Err
 var errGrantRejected = errors.New("create grant rejected")
 
 const (
-	tracerName    = "kora.policy-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	clientTimeout = 10 * time.Second
 )
 
