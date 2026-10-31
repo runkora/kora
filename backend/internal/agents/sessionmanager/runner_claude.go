@@ -134,8 +134,9 @@ func (r *ClaudeRunner) buildFlags() []string {
 		// Only the platform's --mcp-config. A workspace .mcp.json or a plugin
 		// would start its servers in the agent pod.
 		"--strict-mcp-config",
-		// User settings live in the run's HOME, which the agent writes. Their env
-		// can load plugins whose servers run in the agent pod.
+		// User settings live in the run's HOME, which the agent writes. Unlike
+		// project settings, their env can load a plugin directory, and a
+		// plugin's LSP servers start in the agent pod.
 		"--setting-sources", "project,local",
 	}
 	if r.cfg.ResumeSessionID != "" {
