@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
 	execpb "github.com/runkora/kora/backend/internal/agents/sandbox/proto"
@@ -141,5 +143,36 @@ func TestExecute_CommandEnvOmitsServerSettings(t *testing.T) {
 	}
 	if !strings.Contains(env, "WORKSPACE_PROBE=kept") {
 		t.Error("command env lost the pod environment")
+	}
+}
+
+// raceExecStream fails a Send that overlaps another, as gRPC does with
+// "SendHeader called multiple times".
+type raceExecStream struct {
+	grpc.ServerStream
+	active atomic.Int32
+	raced  atomic.Bool
+}
+
+func (r *raceExecStream) Context() context.Context { return context.Background() }
+
+func (r *raceExecStream) Send(*execpb.ExecuteResponse) error {
+	if r.active.Add(1) > 1 {
+		r.raced.Store(true)
+	}
+	time.Sleep(50 * time.Microsecond)
+	r.active.Add(-1)
+	return nil
+}
+
+func TestExecute_SerializesConcurrentSends(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	stream := &raceExecStream{}
+	cmd := "i=0; while [ $i -lt 200 ]; do echo out; echo err >&2; i=$((i+1)); done"
+	if err := (&execServer{}).Execute(&execpb.ExecuteRequest{Command: cmd}, stream); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if stream.raced.Load() {
+		t.Error("Send was called concurrently on one stream")
 	}
 }
