@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
 	"github.com/openai/openai-go/v3/shared/constant"
@@ -150,7 +151,7 @@ func convertResponsesItemsToChatMessages(items []responses.ResponseInputItemUnio
 				OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
 					ID: fc.CallID,
 					Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
-						Name:      fc.Name,
+						Name:      joinToolName(fc.Namespace.Value, fc.Name),
 						Arguments: fc.Arguments,
 					},
 				},
@@ -206,31 +207,42 @@ func convertInputMessageParamToChat(m *responses.ResponseInputItemMessageParam) 
 }
 
 // convertResponsesToolsToChatCompletion translates Responses API function tools
-// to ChatCompletion tool params. Built-in tools (file_search, web_search, etc.)
+// to ChatCompletion tool params. A namespace tool's functions become tools
+// named joinToolName(namespace, name): Chat Completions has no namespaces, and
+// Codex puts MCP tools in one. Built-in tools (file_search, web_search, etc.)
 // are silently dropped — they are not supported via Chat Completions.
 func convertResponsesToolsToChatCompletion(tools []responses.ToolUnionParam) []openai.ChatCompletionToolUnionParam {
 	out := make([]openai.ChatCompletionToolUnionParam, 0, len(tools))
 	for _, t := range tools {
-		if t.OfFunction == nil {
-			continue
+		switch {
+		case t.OfFunction != nil:
+			out = append(out, chatCompletionTool(t.OfFunction.Name, t.OfFunction.Description, t.OfFunction.Parameters))
+		case t.OfNamespace != nil:
+			for _, inner := range t.OfNamespace.Tools {
+				if fn := inner.OfFunction; fn != nil {
+					out = append(out, chatCompletionTool(joinToolName(t.OfNamespace.Name, fn.Name), fn.Description, namespaceParams(fn.Parameters)))
+				}
+			}
 		}
-		fn := t.OfFunction
-		def := openai.FunctionDefinitionParam{
-			Name:       fn.Name,
-			Parameters: fn.Parameters,
-		}
-		if fn.Description.Valid() {
-			def.Description = openai.String(fn.Description.Value)
-		}
-		out = append(out, openai.ChatCompletionFunctionTool(def))
 	}
 	return out
+}
+
+func chatCompletionTool(name string, description param.Opt[string], parameters map[string]any) openai.ChatCompletionToolUnionParam {
+	def := openai.FunctionDefinitionParam{
+		Name:       name,
+		Parameters: parameters,
+	}
+	if description.Valid() {
+		def.Description = openai.String(description.Value)
+	}
+	return openai.ChatCompletionFunctionTool(def)
 }
 
 // ChatCompletionToResponsesResponse converts an openai.ChatCompletion to a
 // responses.Response. Used by the ChatCompletionsResponsesBridge to return
 // Chat Completions model responses in the Responses API wire format.
-func ChatCompletionToResponsesResponse(completion *openai.ChatCompletion) *responses.Response {
+func ChatCompletionToResponsesResponse(completion *openai.ChatCompletion, names ToolNames) *responses.Response {
 	var outputItems []responses.ResponseOutputItemUnion
 
 	if len(completion.Choices) > 0 {
@@ -244,8 +256,9 @@ func ChatCompletionToResponsesResponse(completion *openai.ChatCompletion) *respo
 		outputItems = append(outputItems, newMessageItem(completion.ID, "completed", content))
 
 		for _, tc := range msg.ToolCalls {
+			namespace, name := names.split(tc.Function.Name)
 			outputItems = append(outputItems, newFunctionCallItem(
-				tc.ID, tc.ID, tc.Function.Name, tc.Function.Arguments,
+				tc.ID, tc.ID, namespace, name, tc.Function.Arguments,
 			))
 		}
 	}
@@ -288,11 +301,12 @@ type ChatCompletionsStreamState struct {
 	seqNum               int64
 	started              bool
 	pendingCompletedResp *responses.Response // deferred until the usage chunk arrives
+	names                ToolNames
 }
 
 // NewChatCompletionsStreamState initializes state for a new stream.
-func NewChatCompletionsStreamState() *ChatCompletionsStreamState {
-	return &ChatCompletionsStreamState{toolCalls: map[int64]*pendingChatToolCall{}}
+func NewChatCompletionsStreamState(names ToolNames) *ChatCompletionsStreamState {
+	return &ChatCompletionsStreamState{toolCalls: map[int64]*pendingChatToolCall{}, names: names}
 }
 
 func (s *ChatCompletionsStreamState) nextSeq() int64 {
@@ -317,7 +331,8 @@ func (s *ChatCompletionsStreamState) completedToolItems() []responses.ResponseOu
 		if args == "" {
 			args = "{}"
 		}
-		out = append(out, newFunctionCallItem(t.id, t.id, t.name, args))
+		namespace, name := s.names.split(t.name)
+		out = append(out, newFunctionCallItem(t.id, t.id, namespace, name, args))
 	}
 	return out
 }
@@ -476,4 +491,11 @@ func ChatCompletionChunkToResponsesEvents(chunk openai.ChatCompletionChunk, s *C
 	}
 
 	return events
+}
+
+// namespaceParams returns a namespaced function's JSON schema, or nil when it
+// is not an object.
+func namespaceParams(v any) map[string]any {
+	m, _ := v.(map[string]any)
+	return m
 }

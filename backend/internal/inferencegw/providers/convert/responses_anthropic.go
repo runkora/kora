@@ -23,10 +23,11 @@ const blockTypeToolUse = "tool_use"
 // plain string fields and a constant, so failure is a runtime fault, not a
 // recoverable condition. A silent error here would leave JSON.raw empty and
 // reintroduce the wire-format regression this helper exists to prevent.
-func newFunctionCallItem(id, callID, name, arguments string) responses.ResponseOutputItemUnion {
+func newFunctionCallItem(id, callID, namespace, name, arguments string) responses.ResponseOutputItemUnion {
 	ftc := responses.ResponseFunctionToolCall{
 		ID:        id,
 		CallID:    callID,
+		Namespace: namespace,
 		Name:      name,
 		Arguments: arguments,
 		Status:    responses.ResponseFunctionToolCallStatusCompleted,
@@ -543,7 +544,7 @@ func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Resp
 			textBuf.WriteString(block.Text)
 		case blockTypeToolUse:
 			toolItems = append(toolItems, newFunctionCallItem(
-				block.ID, block.ID, block.Name, string(block.Input),
+				block.ID, block.ID, "", block.Name, string(block.Input),
 			))
 		}
 	}
@@ -632,7 +633,7 @@ func (s *AnthropicResponsesStreamState) completedToolItems() []responses.Respons
 		if args == "" {
 			args = "{}"
 		}
-		out = append(out, newFunctionCallItem(t.id, t.id, t.name, args))
+		out = append(out, newFunctionCallItem(t.id, t.id, "", t.name, args))
 	}
 	return out
 }
@@ -758,7 +759,7 @@ func (s *AnthropicResponsesStreamState) handleContentBlockStop(event anthropic.M
 		args = "{}"
 	}
 	outputIdx := s.toolOutputIndex(event.Index)
-	completed := newFunctionCallItem(t.id, t.id, t.name, args)
+	completed := newFunctionCallItem(t.id, t.id, "", t.name, args)
 	return []responses.ResponseStreamEventUnion{
 		{
 			Type:           "response.function_call_arguments.done",
@@ -850,4 +851,41 @@ func (s *AnthropicResponsesStreamState) toolOutputIndex(blockIdx int64) int64 {
 		}
 	}
 	return base + int64(len(s.toolOrder)) - 1
+}
+
+// joinToolName is the tool name for a function in a Responses namespace, or
+// the function's own name outside one.
+func joinToolName(namespace, name string) string {
+	if namespace == "" {
+		return name
+	}
+	return namespace + "__" + name
+}
+
+// ToolNames maps the joined name of each namespaced function back to its
+// Responses namespace and name, which a function_call must carry.
+type ToolNames map[string][2]string
+
+// ResponsesToolNames builds the ToolNames for a request's tools.
+func ResponsesToolNames(tools []responses.ToolUnionParam) ToolNames {
+	names := ToolNames{}
+	for _, t := range tools {
+		if t.OfNamespace == nil {
+			continue
+		}
+		for _, inner := range t.OfNamespace.Tools {
+			if fn := inner.OfFunction; fn != nil {
+				names[joinToolName(t.OfNamespace.Name, fn.Name)] = [2]string{t.OfNamespace.Name, fn.Name}
+			}
+		}
+	}
+	return names
+}
+
+// split returns the namespace and name for a joined tool name.
+func (n ToolNames) split(joined string) (namespace, name string) {
+	if v, ok := n[joined]; ok {
+		return v[0], v[1]
+	}
+	return "", joined
 }
