@@ -1277,8 +1277,7 @@ func (s *Service) DiscoverTenantByEmail(ctx context.Context, email string) (*Ten
 		}, nil
 	}
 
-	span.RecordError(ErrTenantNotFound)
-	span.SetStatus(codes.Error, ErrTenantNotFound.Error())
+	// An unclaimed domain is an expected outcome and leaves the status unset.
 	return nil, ErrTenantNotFound
 }
 

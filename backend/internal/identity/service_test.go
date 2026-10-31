@@ -10,6 +10,10 @@ import (
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 // ── hashToken ─────────────────────────────────────────────────────────────────
@@ -870,12 +874,21 @@ func TestDiscoverTenantByEmail_CaseInsensitive(t *testing.T) {
 }
 
 func TestDiscoverTenantByEmail_UnknownDomain(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
 	issuer, _ := newOIDCTestServer(t)
 	svc := newTestServiceWithDomains(t, issuer, []string{"acme.com"})
 
 	_, err := svc.DiscoverTenantByEmail(context.Background(), "bob@other.com")
 	if !errors.Is(err, ErrTenantNotFound) {
 		t.Errorf("expected ErrTenantNotFound, got %v", err)
+	}
+	spans := recorder.Ended()
+	if len(spans) != 1 || spans[0].Status().Code != codes.Unset {
+		t.Fatalf("want one span with Unset status, got %d spans", len(spans))
 	}
 }
 
