@@ -13,6 +13,8 @@ global:
     otlpEndpoint: http://lgtm.observability.svc.cluster.local:4317
     samplingRate: 1.0
     collectorNamespace: observability
+    # Grafana Explore on the port that make grafana forwards.
+    traceUrlTemplate: 'http://localhost:3000/explore?schemaVersion=1&panes=%7B%22a%22:%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22datasource%22:%7B%22type%22:%22tempo%22,%22uid%22:%22tempo%22%7D,%22queryType%22:%22traceql%22,%22query%22:%22{trace_id}%22%7D%5D%7D%7D'
 
 frontendHost: local.runkora.io
 

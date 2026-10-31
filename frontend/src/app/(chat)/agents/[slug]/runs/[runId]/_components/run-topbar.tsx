@@ -7,7 +7,7 @@
 
 import Link from 'next/link';
 import { APP_ROUTES } from '@runkora/lib/routing';
-import { Stack, Text, Button, Badge, StatusDot, Toggle } from '@runkora/hades';
+import { Anchor, Stack, Text, Button, Badge, StatusDot, Toggle } from '@runkora/hades';
 import { fmtUsd, fmtTokens } from '@runkora/utils';
 import { RUN_STATE_DISPLAY, type RunStateDisplay } from '@runkora/components';
 import { useRunContext } from '../_context/run-context';
@@ -66,6 +66,7 @@ export function RunTopbar() {
     tokensUsed,
     showAllCalls,
     setShowAllCalls,
+    traceUrl,
   } = useRunContext();
 
   const canvasIsOpen = canvasState.isOpen;
@@ -276,6 +277,12 @@ export function RunTopbar() {
           {tokensUsed > 0 ? `${fmtTokens(tokensUsed)} tok` : '—'}
         </Text>
       </Stack>
+
+      {traceUrl && (
+        <Anchor href={traceUrl} target="_blank" rel="noopener noreferrer">
+          Trace
+        </Anchor>
+      )}
 
       {/* Full transparency on demand: every tool call, ungrouped */}
       <Stack direction="horizontal" align="center" style={{ gap: 6 }}>
