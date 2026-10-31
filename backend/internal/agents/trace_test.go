@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -62,5 +63,24 @@ func TestStartClaimed_ContinuesStartRunTrace(t *testing.T) {
 	}
 	if attempt == nil || attempt.Parent().SpanID() != start.SpanContext().SpanID() {
 		t.Fatal("no startClaimed span parented to the run's StartRun span")
+	}
+}
+
+// A message to a running run is its own trace with a link to the run's.
+func TestSendMessage_LinksToRunTrace(t *testing.T) {
+	rec := spanRecorder()
+	svc, repo, _, _ := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+	const runTrace = "4bf92f3577b34da6a3ce929d0e0e4736"
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive,
+		TraceParent: "00-" + runTrace + "-00f067aa0ba902b7-01"})
+
+	if err := svc.SendMessage(context.Background(), "run-1", "hello"); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	span := endedSpan(t, rec, "agents.SendMessage")
+	links := span.Links()
+	if span.SpanContext().TraceID().String() == runTrace || len(links) != 1 || links[0].SpanContext.TraceID().String() != runTrace {
+		t.Fatalf("trace %s links %v, want its own trace linked to %s", span.SpanContext().TraceID(), links, runTrace)
 	}
 }
