@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	tracerName    = "kora.github-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/github"
 	clientTimeout = 10 * time.Second
 
 	// DefaultBaseURL is GitHub.com's REST API root. GitHub Enterprise Server

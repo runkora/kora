@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	tracerName = "kora.inference-client"
+	tracerName = "github.com/runkora/kora/backend/internal/platform/clients/inference"
 	// clientTimeout matches the gateway's per-attempt decision timeout.
 	clientTimeout = 15 * time.Second
 )

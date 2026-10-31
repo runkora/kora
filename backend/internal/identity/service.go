@@ -175,7 +175,7 @@ func NewService(
 		policyEval:    policyEval,
 		extractor:     extractor,
 		logger:        logger,
-		tracer:        otel.Tracer("kora.identity"),
+		tracer:        otel.Tracer("github.com/runkora/kora/backend/internal/identity"),
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		oidcTenants:   make(map[string]*tenantOIDCState),
 		authoring:     declarative.NewRegistry(cfg.Registry.TenantsPath),
@@ -1239,7 +1239,7 @@ func (s *Service) tenantOIDC(tenantID string) (*tenantOIDCState, error) {
 // Returns ErrTenantNotFound if no tenant claims the domain.
 // The returned TenantDiscovery intentionally excludes the client secret.
 func (s *Service) DiscoverTenantByEmail(ctx context.Context, email string) (*TenantDiscovery, error) {
-	_, span := otel.Tracer("identity").Start(ctx, "identity.DiscoverTenantByEmail")
+	_, span := s.tracer.Start(ctx, "identity.DiscoverTenantByEmail")
 	defer span.End()
 
 	at := strings.LastIndex(email, "@")

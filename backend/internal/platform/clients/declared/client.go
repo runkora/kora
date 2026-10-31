@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	tracerName    = "kora.declared-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/declared"
 	clientTimeout = 30 * time.Second
 )
 

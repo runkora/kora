@@ -191,7 +191,7 @@ A human points Claude Desktop / Cursor at the gateway URL; the client performs t
 
 ### Audit
 
-Each decision emits an OTel span (`mcp.tools.call`, attributes: principal, tenant, server, tool, decision) and a structured log line, riding the existing observability discipline. No dependency on the (still-stub) event spine; spine emission is additive when it ships.
+Each decision emits an OTel span (`tools/call {tool}`, attributes: principal, tenant, server, tool, decision) and a structured log line, riding the existing observability discipline. No dependency on the (still-stub) event spine; spine emission is additive when it ships.
 
 ### Failure & performance
 

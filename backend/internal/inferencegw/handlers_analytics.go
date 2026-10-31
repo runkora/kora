@@ -21,7 +21,7 @@ import (
 func (c *Controller) handleAnalyticsMe(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	ctx, span := tracer.Start(ctx, "handleAnalyticsMe")
+	ctx, span := tracer.Start(ctx, "inferencegw.Controller.handleAnalyticsMe")
 	defer span.End()
 
 	filter, apiErr, parseErr := parseAnalyticsFilter(r.URL.Query())
@@ -54,7 +54,7 @@ func (c *Controller) handleAnalyticsMe(w http.ResponseWriter, r *http.Request) {
 func (c *Controller) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	ctx, span := tracer.Start(ctx, "handleAnalytics")
+	ctx, span := tracer.Start(ctx, "inferencegw.Controller.handleAnalytics")
 	defer span.End()
 
 	filter, apiErr, parseErr := parseAnalyticsFilter(r.URL.Query())
@@ -94,7 +94,7 @@ func (c *Controller) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 func (c *Controller) handleAnalyticsPrincipals(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	ctx, span := tracer.Start(ctx, "handleAnalyticsPrincipals")
+	ctx, span := tracer.Start(ctx, "inferencegw.Controller.handleAnalyticsPrincipals")
 	defer span.End()
 
 	filter, apiErr, parseErr := parseAnalyticsPrincipalsFilter(r.URL.Query())
@@ -132,7 +132,7 @@ func (c *Controller) handleAnalyticsPrincipals(w http.ResponseWriter, r *http.Re
 func (c *Controller) handleAnalyticsPrincipalByID(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	ctx, span := tracer.Start(ctx, "handleAnalyticsPrincipalByID")
+	ctx, span := tracer.Start(ctx, "inferencegw.Controller.handleAnalyticsPrincipalByID")
 	defer span.End()
 
 	principalID := r.PathValue("id")

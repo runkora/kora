@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	tracerName    = "kora.agents-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	clientTimeout = 30 * time.Second
 )
 

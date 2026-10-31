@@ -17,14 +17,14 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
-var tracer = otel.Tracer("inferencegw")
+var tracer = otel.Tracer("github.com/runkora/kora/backend/internal/inferencegw")
 
 // principal carries the extracted identity context for a single request.
 // Populated from the verified PlatformClaims stored in context by AuthMiddleware.
@@ -151,10 +151,11 @@ func (s *Service) ChatCompletion(
 	ctx context.Context,
 	params openai.ChatCompletionNewParams,
 ) (*openai.ChatCompletion, error) {
-	ctx, span := tracer.Start(ctx, "inferencegw.ChatCompletion",
+	ctx, span := tracer.Start(ctx, "chat "+params.Model,
 		trace.WithAttributes(
-			attribute.String("model", params.Model),
-			attribute.Bool("stream", false),
+			observability.GenAIOperationNameKey.String("chat"),
+			observability.GenAIRequestModelKey.String(params.Model),
+			observability.InferenceRequestStreamKey.Bool(false),
 		),
 	)
 	defer span.End()
@@ -170,8 +171,8 @@ func (s *Service) ChatCompletion(
 	}
 
 	span.SetAttributes(
-		attribute.String("tenant_id", p.TenantID),
-		attribute.String("principal_type", p.PrincipalType),
+		observability.TenantIDKey.String(p.TenantID),
+		observability.PrincipalTypeKey.String(p.PrincipalType),
 	)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
@@ -302,10 +303,11 @@ func (s *Service) ChatCompletionStream(
 ) (<-chan OpenAIStreamResult, error) {
 	// Span must be ended manually (not via defer) because it outlives the
 	// function — it is closed inside the goroutine once the stream drains.
-	ctx, span := tracer.Start(ctx, "inferencegw.ChatCompletionStream",
+	ctx, span := tracer.Start(ctx, "chat "+params.Model,
 		trace.WithAttributes(
-			attribute.String("model", params.Model),
-			attribute.Bool("stream", true),
+			observability.GenAIOperationNameKey.String("chat"),
+			observability.GenAIRequestModelKey.String(params.Model),
+			observability.InferenceRequestStreamKey.Bool(true),
 		),
 	)
 	start := time.Now()
@@ -320,8 +322,8 @@ func (s *Service) ChatCompletionStream(
 	}
 
 	span.SetAttributes(
-		attribute.String("tenant_id", p.TenantID),
-		attribute.String("principal_type", p.PrincipalType),
+		observability.TenantIDKey.String(p.TenantID),
+		observability.PrincipalTypeKey.String(p.PrincipalType),
 	)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
@@ -875,10 +877,10 @@ func (s *Service) checkBudget(ctx context.Context, p principal) error {
 		return nil
 	}
 
-	ctx, span := tracer.Start(ctx, "budget.quota_check",
+	ctx, span := tracer.Start(ctx, "inferencegw.Service.checkBudget",
 		trace.WithAttributes(
-			attribute.String("tenant_id", p.TenantID),
-			attribute.String("principal_id", p.PrincipalID),
+			observability.TenantIDKey.String(p.TenantID),
+			observability.PrincipalIDKey.String(p.PrincipalID),
 		),
 	)
 	defer span.End()
@@ -1682,8 +1684,8 @@ func (s *Service) Embeddings(
 	ctx context.Context,
 	params openai.EmbeddingNewParams,
 ) (*openai.CreateEmbeddingResponse, error) {
-	ctx, span := tracer.Start(ctx, "inferencegw.Embeddings",
-		trace.WithAttributes(attribute.String("model", params.Model)),
+	ctx, span := tracer.Start(ctx, "embeddings "+params.Model,
+		trace.WithAttributes(observability.GenAIOperationNameKey.String("embeddings"), observability.GenAIRequestModelKey.String(params.Model)),
 	)
 	defer span.End()
 
@@ -1697,8 +1699,8 @@ func (s *Service) Embeddings(
 	}
 
 	span.SetAttributes(
-		attribute.String("tenant_id", p.TenantID),
-		attribute.String("principal_type", p.PrincipalType),
+		observability.TenantIDKey.String(p.TenantID),
+		observability.PrincipalTypeKey.String(p.PrincipalType),
 	)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
@@ -1795,8 +1797,8 @@ func (s *Service) Embeddings(
 // rewritten; the upstream body is returned unchanged. Usage is priced from the
 // catalog: input tokens at the input price, output tokens at the output price.
 func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*SystemOneResult, error) {
-	ctx, span := tracer.Start(ctx, "inferencegw.SystemOne",
-		trace.WithAttributes(attribute.String("model", model)),
+	ctx, span := tracer.Start(ctx, "chat "+model,
+		trace.WithAttributes(observability.GenAIOperationNameKey.String("chat"), observability.GenAIRequestModelKey.String(model)),
 	)
 	defer span.End()
 
@@ -1810,8 +1812,8 @@ func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*Sy
 	}
 
 	span.SetAttributes(
-		attribute.String("tenant_id", p.TenantID),
-		attribute.String("principal_type", p.PrincipalType),
+		observability.TenantIDKey.String(p.TenantID),
+		observability.PrincipalTypeKey.String(p.PrincipalType),
 	)
 
 	routeReq := ChatCompletionRequest{Model: model}
@@ -1907,10 +1909,11 @@ func (s *Service) Responses(
 	ctx context.Context,
 	params responses.ResponseNewParams,
 ) (*responses.Response, error) {
-	ctx, span := tracer.Start(ctx, "inferencegw.Responses",
+	ctx, span := tracer.Start(ctx, "chat "+params.Model,
 		trace.WithAttributes(
-			attribute.String("model", params.Model),
-			attribute.Bool("stream", false),
+			observability.GenAIOperationNameKey.String("chat"),
+			observability.GenAIRequestModelKey.String(params.Model),
+			observability.InferenceRequestStreamKey.Bool(false),
 		),
 	)
 	defer span.End()
@@ -1925,8 +1928,8 @@ func (s *Service) Responses(
 	}
 
 	span.SetAttributes(
-		attribute.String("tenant_id", p.TenantID),
-		attribute.String("principal_type", p.PrincipalType),
+		observability.TenantIDKey.String(p.TenantID),
+		observability.PrincipalTypeKey.String(p.PrincipalType),
 	)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
@@ -2036,10 +2039,11 @@ func (s *Service) ResponsesStream(
 	ctx context.Context,
 	params responses.ResponseNewParams,
 ) (<-chan ResponsesStreamResult, error) {
-	ctx, span := tracer.Start(ctx, "inferencegw.ResponsesStream",
+	ctx, span := tracer.Start(ctx, "chat "+params.Model,
 		trace.WithAttributes(
-			attribute.String("model", params.Model),
-			attribute.Bool("stream", true),
+			observability.GenAIOperationNameKey.String("chat"),
+			observability.GenAIRequestModelKey.String(params.Model),
+			observability.InferenceRequestStreamKey.Bool(true),
 		),
 	)
 	start := time.Now()
@@ -2053,8 +2057,8 @@ func (s *Service) ResponsesStream(
 	}
 
 	span.SetAttributes(
-		attribute.String("tenant_id", p.TenantID),
-		attribute.String("principal_type", p.PrincipalType),
+		observability.TenantIDKey.String(p.TenantID),
+		observability.PrincipalTypeKey.String(p.PrincipalType),
 	)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
@@ -2255,10 +2259,11 @@ func (s *Service) AnthropicMessages(
 	ctx context.Context,
 	params anthropic.MessageNewParams,
 ) (*anthropic.Message, error) {
-	ctx, span := tracer.Start(ctx, "inferencegw.AnthropicMessages",
+	ctx, span := tracer.Start(ctx, "chat "+params.Model,
 		trace.WithAttributes(
-			attribute.String("model", params.Model),
-			attribute.Bool("stream", false),
+			observability.GenAIOperationNameKey.String("chat"),
+			observability.GenAIRequestModelKey.String(params.Model),
+			observability.InferenceRequestStreamKey.Bool(false),
 		),
 	)
 	defer span.End()
@@ -2273,8 +2278,8 @@ func (s *Service) AnthropicMessages(
 	}
 
 	span.SetAttributes(
-		attribute.String("tenant_id", p.TenantID),
-		attribute.String("principal_type", p.PrincipalType),
+		observability.TenantIDKey.String(p.TenantID),
+		observability.PrincipalTypeKey.String(p.PrincipalType),
 	)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
@@ -2390,10 +2395,11 @@ func (s *Service) AnthropicMessagesStream(
 	ctx context.Context,
 	params anthropic.MessageNewParams,
 ) (<-chan AnthropicStreamEvent, error) {
-	ctx, span := tracer.Start(ctx, "inferencegw.AnthropicMessagesStream",
+	ctx, span := tracer.Start(ctx, "chat "+params.Model,
 		trace.WithAttributes(
-			attribute.String("model", params.Model),
-			attribute.Bool("stream", true),
+			observability.GenAIOperationNameKey.String("chat"),
+			observability.GenAIRequestModelKey.String(params.Model),
+			observability.InferenceRequestStreamKey.Bool(true),
 		),
 	)
 	start := time.Now()
@@ -2407,8 +2413,8 @@ func (s *Service) AnthropicMessagesStream(
 	}
 
 	span.SetAttributes(
-		attribute.String("tenant_id", p.TenantID),
-		attribute.String("principal_type", p.PrincipalType),
+		observability.TenantIDKey.String(p.TenantID),
+		observability.PrincipalTypeKey.String(p.PrincipalType),
 	)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
