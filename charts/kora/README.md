@@ -51,6 +51,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.image.registry | string | `""` |  |
 | agents.image.repository | string | `"kora-agents"` |  |
 | agents.image.tag | string | `""` |  |
+| agents.landlock | string | `"enforce"` | Landlock confinement of agent runs: `enforce` or `bestEffort`. With `enforce`, an agent pod on a node whose kernel lacks Landlock ABI v2 fails readiness and its session-manager log names this setting. `bestEffort` runs agents with whatever confinement the kernel supports, down to none. Use it only where the node kernel has no Landlock, such as some local VMs. |
 | agents.manifestPatches | object | `{}` |  |
 | agents.nodeSelector | object | `{}` |  |
 | agents.podAnnotations | object | `{}` |  |

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	smConfig "github.com/runkora/kora/backend/cmd/session-manager/config"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/landlockmode"
 	"github.com/runkora/kora/backend/internal/agents/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/brand"
@@ -113,6 +114,8 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 	// mistake.
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 
+	landlock, isolationErr := checkIsolation(ctx, logger, cfg.Runner.WrapperPath, cfg.Runner.Landlock)
+
 	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSecs) * time.Second
 	registry := sessionmanager.NewRegistry(logger, cfg.Workspaces.BasePath, notifier, idleTimeout, b)
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
@@ -128,6 +131,8 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 		ToolGatewayURL:      cfg.ToolGateway.URL,
 		OTLPEndpoint:        observability.DefaultConfig.OTLPEndpoint,
 		NodeMaxOldSpaceMB:   cfg.Runner.NodeMaxOldSpaceMB,
+		Landlock:            landlock,
+		IsolationErr:        isolationErr,
 		Brand:               b,
 	}, registry, verifier)
 
@@ -145,6 +150,29 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 		),
 		controller,
 	), registry
+}
+
+// checkIsolation reports whether this node's kernel can confine agents in the
+// configured mode, and logs the confinement it cannot apply. Without a wrapper
+// there is nothing to check: that is local development off Kubernetes.
+func checkIsolation(ctx context.Context, logger logging.Logger, wrapperPath, mode string) (landlockmode.Mode, error) {
+	m, err := landlockmode.Parse(mode)
+	if err != nil || wrapperPath == "" {
+		return m, err
+	}
+	abi := landlockmode.KernelABI()
+	if err := m.Check(abi); err != nil {
+		logger.Error(ctx, "Agents cannot run on this node", logging.Field{Key: "error", Value: err.Error()})
+		return m, err
+	}
+	for _, missing := range landlockmode.Missing(abi) {
+		logger.Warn(ctx, "Landlock confinement unavailable on this node's kernel",
+			logging.Field{Key: "missing", Value: missing},
+			logging.Field{Key: "landlock_abi", Value: abi},
+			logging.Field{Key: "mode", Value: string(m)},
+		)
+	}
+	return m, nil
 }
 
 func run(ctx context.Context, logger logging.Logger, server *http.Server, registry *sessionmanager.Registry, metrics *platformmetrics.Bootstrap) {

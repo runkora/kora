@@ -643,6 +643,12 @@ agents:
   # kora-agents principal. kora-agents creates one alongside each StatefulSet.
   authorizationPolicy:
     enabled: true
+  # -- Landlock confinement of agent runs: `enforce` or `bestEffort`. With
+  # `enforce`, an agent pod on a node whose kernel lacks Landlock ABI v2 fails
+  # readiness and its session-manager log names this setting. `bestEffort` runs
+  # agents with whatever confinement the kernel supports, down to none. Use it
+  # only where the node kernel has no Landlock, such as some local VMs.
+  landlock: enforce
   tenantConnectionsConfigMapName: kora-tenant-connections
   # Kustomize patches applied to the resources kora-agents provisions in
   # tenant namespaces: StatefulSet, PersistentVolumeClaim (the StatefulSet's

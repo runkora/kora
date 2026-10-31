@@ -18,6 +18,7 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
 	sandboxfolder "github.com/runkora/kora/backend/internal/agents/sandbox/folder"
 	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/landlockmode"
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 	"github.com/runkora/kora/backend/internal/platform/brand"
 
@@ -131,6 +132,8 @@ type K8sProvisionerConfig struct {
 	// NodeMaxOldSpaceMB is passed to each session-manager, which caps the heap
 	// of Node processes its runs start. Zero disables the cap.
 	NodeMaxOldSpaceMB int
+	// Landlock is the session-manager's KORA_LANDLOCK: enforce or bestEffort.
+	Landlock string
 	// MinReplicas is the session-manager pod count each agent starts with and the HPA minimum.
 	MinReplicas int32
 	// DrainGracePeriodSecs is how long a terminating session-manager pod may wait for its runs to end.
@@ -1884,6 +1887,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								// Claude Code requires a non-empty value to start in --bare mode.
 								{Name: "ANTHROPIC_API_KEY", Value: "kora-managed"},
 								{Name: "KORA_NODE_MAX_OLD_SPACE_MB", Value: strconv.Itoa(p.cfg.NodeMaxOldSpaceMB)},
+								{Name: landlockmode.EnvVar, Value: p.cfg.Landlock},
 								// The session-manager ends its drain before the kubelet stops the pod.
 								{Name: "KORA_TERMINATION_GRACE_PERIOD_SECS", Value: strconv.FormatInt(p.cfg.DrainGracePeriodSecs, 10)},
 							},

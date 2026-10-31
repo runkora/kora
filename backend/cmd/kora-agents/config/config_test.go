@@ -57,6 +57,16 @@ func TestValidate_NodeMaxOldSpaceMB(t *testing.T) {
 	}
 }
 
+func TestValidate_Landlock(t *testing.T) {
+	for mode, valid := range map[string]bool{"enforce": true, "bestEffort": true, "": true, "off": false} {
+		cfg := &Config{}
+		cfg.Agents.SessionManager.Landlock = mode
+		if err := Validate(cfg); (err == nil) != valid {
+			t.Errorf("Validate(landlock=%q) error = %v, want valid %v", mode, err, valid)
+		}
+	}
+}
+
 func TestValidate_RequiresTrustDomainInCluster(t *testing.T) {
 	cfg := &Config{}
 	cfg.Kubernetes.InCluster = true

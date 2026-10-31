@@ -49,9 +49,8 @@ FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec
 
 WORKDIR /app
 
-# bash: the real /bin/bash, left untouched by the proxy. kora-session-runner does not
-#       let an agent execute it.
-# git:  required by Claude Code for git operations inside workspaces.
+# bash, git: kora-session-runner does not let an agent execute either. Commands
+#       run in the sandbox.
 # curl: used to download the Codex musl binary below.
 # ripgrep: OpenCode's grep, glob and list tools; it downloads rg from GitHub when none is on PATH,
 #          and the agent pod cannot reach GitHub.
@@ -76,8 +75,8 @@ COPY cmd/session-manager/agent-clis/claude-managed-settings.json /etc/claude-cod
 
 # Install the claude and opencode CLIs from the lockfile in cmd/session-manager/agent-clis,
 # so every build gets the same versions. Validate the opencode ACP protocol on upgrade.
-# They live under /usr because kora-session-runner's Landlock rules only allow exec from
-# /usr, /bin, /sbin and /lib.
+# kora-session-runner lets a run execute only its harness binary, kora-shell,
+# kora-runtime-mcp, their ELF interpreter and, for OpenCode, ripgrep.
 COPY cmd/session-manager/agent-clis/package.json cmd/session-manager/agent-clis/package-lock.json /usr/local/lib/agent-clis/
 RUN cd /usr/local/lib/agent-clis && \
     npm ci --omit=dev && \
