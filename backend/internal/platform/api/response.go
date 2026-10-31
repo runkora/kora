@@ -39,7 +39,7 @@ func NoBody(w http.ResponseWriter, status int) {
 
 // ErrorResponse writes an APIError as a JSON response with tracing and logging integration.
 // It automatically:
-// - Adds error attributes to the current trace span
+// - Adds error attributes to the current trace span, flagging only 5xx as an error
 // - Logs the error with appropriate level based on status code
 // - Returns a JSON error response with consistent format
 //
@@ -47,9 +47,10 @@ func NoBody(w http.ResponseWriter, status int) {
 func ErrorResponse(ctx context.Context, w http.ResponseWriter, logger logging.Logger, apiErr *APIError, underlyingErr error) {
 	span := trace.SpanFromContext(ctx)
 
-	// Add error context to trace span
+	// Only a 5xx flags the span as an error, matching the HTTP server
+	// semantic conventions; a 4xx is the caller's mistake, not ours.
 	span.SetAttributes(
-		attribute.Bool("app.error", true),
+		attribute.Bool("app.error", apiErr.StatusCode >= 500),
 		attribute.String("app.error.code", apiErr.Code),
 		attribute.Int("app.error.status", apiErr.StatusCode),
 		attribute.String("app.error.message", apiErr.Message),
