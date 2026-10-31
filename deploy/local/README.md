@@ -9,6 +9,7 @@ deploy/local/
 ├── connections/   # Connection resources for the example tenant (Kubernetes, GitHub)
 ├── declarative/   # One of each declarative resource kind for the example tenant
 ├── fixtures/      # Example tenant workload
+├── observability/ # LGTM stack the platform exports telemetry to
 └── tenants/       # KoraTenant resources
 ```
 
