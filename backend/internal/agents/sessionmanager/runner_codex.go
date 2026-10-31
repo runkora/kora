@@ -1162,7 +1162,6 @@ func (r *CodexRunner) writeModelCatalog(codexHome string) (string, error) {
 		"support_verbosity":            false,
 		"truncation_policy":            map[string]any{"mode": "bytes", "limit": 10000},
 		"supports_parallel_tool_calls": false,
-		"context_window":               272000,
 		"experimental_supported_tools": []any{},
 		"supports_search_tool":         true,
 	}}}
