@@ -222,7 +222,7 @@ Legitimate exceptions (e.g. the `httpclient/base.go` implementation itself) are 
 
 The following files implement this ADR:
 
-- `rules/kora_rules.go` — `ruleguard` AST matchers for all four span discipline rules
+- `rules/kora_rules.go`: `ruleguard` AST matchers for all five span discipline rules
 - `.golangci.yml` — `depguard` rule `no-otel-span-mgmt-in-service-clients`
 - `backend/internal/platform/clients/httpclient/base.go` — canonical span lifecycle owner
 

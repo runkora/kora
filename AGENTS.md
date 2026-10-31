@@ -139,6 +139,7 @@ All conventions above are mechanically enforced. Do not add inline `//nolint` di
 | `spanSetStatusCtxErr`    | `span.SetStatus(_, ctx.Err().Error())`            |
 | `spanAttrStringLocalErr` | `attribute.String(_, err.Error())`                |
 | `spanAttrStringCtxErr`   | `attribute.String(_, ctx.Err().Error())`          |
+| `spanAttrKeyVocabulary`  | a string literal as a span attribute key; keys come from semconv or `internal/platform/observability` |
 | `noRawJsonDecodeRequest` | `json.NewDecoder(r.Body).Decode(...)` in handlers |
 | `noFmtErrorfStringErr`   | `fmt.Errorf("...: %s", err)`                      |
 | `noRawHttpClientLiteral` | `http.Client{...}` literal construction           |
