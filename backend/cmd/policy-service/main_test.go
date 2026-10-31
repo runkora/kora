@@ -61,13 +61,13 @@ func TestPolicyServiceRoutesCoverTheRegisteredTable(t *testing.T) {
 	}
 }
 
-func TestNotBundlePoll_LeavesBundlePollsUntraced(t *testing.T) {
+func TestNotTimerPoll_LeavesTimerPollsUntraced(t *testing.T) {
 	recorder := tracetest.NewSpanRecorder()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 	otel.SetTracerProvider(provider)
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 
-	chain := mw.MiddlewareChain(mw.TracingMiddleware("policy-service", notBundlePoll("/api/v1")))
+	chain := mw.MiddlewareChain(mw.TracingMiddleware("policy-service", notTimerPoll("/api/v1")))
 	handler := chain(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 
 	tests := []struct {
@@ -78,6 +78,8 @@ func TestNotBundlePoll_LeavesBundlePollsUntraced(t *testing.T) {
 		{http.MethodGet, "/api/v1/policy/bundles/gateway", 0},
 		{http.MethodGet, "/api/v1/policy/grants", 1},
 		{http.MethodPost, "/api/v1/policy/bundles/tenant-1", 1},
+		{http.MethodPost, "/api/v1/policy/routes/register", 0},
+		{http.MethodGet, "/api/v1/policy/routes", 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
