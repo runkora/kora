@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
+	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared/constant"
 )
@@ -23,10 +24,11 @@ const blockTypeToolUse = "tool_use"
 // plain string fields and a constant, so failure is a runtime fault, not a
 // recoverable condition. A silent error here would leave JSON.raw empty and
 // reintroduce the wire-format regression this helper exists to prevent.
-func newFunctionCallItem(id, callID, name, arguments string) responses.ResponseOutputItemUnion {
+func newFunctionCallItem(id, callID, namespace, name, arguments string) responses.ResponseOutputItemUnion {
 	ftc := responses.ResponseFunctionToolCall{
 		ID:        id,
 		CallID:    callID,
+		Namespace: namespace,
 		Name:      name,
 		Arguments: arguments,
 		Status:    responses.ResponseFunctionToolCallStatusCompleted,
@@ -62,12 +64,13 @@ func newFunctionCallItem(id, callID, name, arguments string) responses.ResponseO
 // in_progress function_call item (used in response.output_item.added events
 // before arguments have been accumulated). Same round-trip approach as
 // newFunctionCallItem to ensure correct wire serialization.
-func newInProgressFunctionCallItem(id, callID, name string) responses.ResponseOutputItemUnion {
+func newInProgressFunctionCallItem(id, callID, namespace, name string) responses.ResponseOutputItemUnion {
 	ftc := responses.ResponseFunctionToolCall{
-		ID:     id,
-		CallID: callID,
-		Name:   name,
-		Status: responses.ResponseFunctionToolCallStatusInProgress,
+		ID:        id,
+		CallID:    callID,
+		Namespace: namespace,
+		Name:      name,
+		Status:    responses.ResponseFunctionToolCallStatusInProgress,
 	}
 	b, err := json.Marshal(ftc)
 	if err != nil {
@@ -321,7 +324,7 @@ func convertResponsesItems(items []responses.ResponseInputItemUnionParam) ([]ant
 				}
 				input = parsed
 			}
-			pendingTool = append(pendingTool, anthropic.NewToolUseBlock(fc.CallID, input, fc.Name))
+			pendingTool = append(pendingTool, anthropic.NewToolUseBlock(fc.CallID, input, joinToolName(fc.Namespace.Value, fc.Name)))
 
 		case item.OfFunctionCallOutput != nil:
 			flushPendingTool()
@@ -482,29 +485,74 @@ func extractContentListText(parts responses.ResponseInputMessageContentListParam
 }
 
 // convertResponsesToolsToAnthropic translates Responses API function tools to
-// Anthropic ToolUnionParams. Built-in tools (file_search, web_search,
-// code_interpreter, mcp, …) are silently dropped — Anthropic does not host them.
+// Anthropic ToolUnionParams. A namespace tool's functions become tools named
+// joinToolName(namespace, name): Anthropic has no namespaces, and Codex puts
+// MCP tools in one. Built-in tools (file_search, web_search, code_interpreter,
+// mcp, …) are silently dropped — Anthropic does not host them.
 func convertResponsesToolsToAnthropic(tools []responses.ToolUnionParam) []anthropic.ToolUnionParam {
 	out := make([]anthropic.ToolUnionParam, 0, len(tools))
 	for _, t := range tools {
-		if t.OfFunction == nil {
-			continue
+		switch {
+		case t.OfFunction != nil:
+			fn := t.OfFunction
+			out = append(out, anthropicTool(fn.Name, fn.Description, fn.Parameters))
+		case t.OfNamespace != nil:
+			for _, inner := range t.OfNamespace.Tools {
+				if fn := inner.OfFunction; fn != nil {
+					params, _ := fn.Parameters.(map[string]any)
+					out = append(out, anthropicTool(joinToolName(t.OfNamespace.Name, fn.Name), fn.Description, params))
+				}
+			}
 		}
-		fn := t.OfFunction
-		var desc string
-		if fn.Description.Valid() {
-			desc = fn.Description.Value
-		}
-		schema := openAISchemaToAnthropic(fn.Parameters)
-		out = append(out, anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name:        fn.Name,
-				Description: anthropic.String(desc),
-				InputSchema: schema,
-			},
-		})
 	}
 	return out
+}
+
+func anthropicTool(name string, description param.Opt[string], parameters map[string]any) anthropic.ToolUnionParam {
+	return anthropic.ToolUnionParam{
+		OfTool: &anthropic.ToolParam{
+			Name:        name,
+			Description: anthropic.String(description.Value),
+			InputSchema: openAISchemaToAnthropic(parameters),
+		},
+	}
+}
+
+// joinToolName is the Anthropic tool name for a function in a Responses
+// namespace, or the function's own name outside one.
+func joinToolName(namespace, name string) string {
+	if namespace == "" {
+		return name
+	}
+	return namespace + "__" + name
+}
+
+// ToolNames maps the Anthropic name of each namespaced function back to its
+// Responses namespace and name, which a function_call must carry.
+type ToolNames map[string][2]string
+
+// ResponsesToolNames builds the ToolNames for a request's tools.
+func ResponsesToolNames(tools []responses.ToolUnionParam) ToolNames {
+	names := ToolNames{}
+	for _, t := range tools {
+		if t.OfNamespace == nil {
+			continue
+		}
+		for _, inner := range t.OfNamespace.Tools {
+			if fn := inner.OfFunction; fn != nil {
+				names[joinToolName(t.OfNamespace.Name, fn.Name)] = [2]string{t.OfNamespace.Name, fn.Name}
+			}
+		}
+	}
+	return names
+}
+
+// split returns the namespace and name for an Anthropic tool name.
+func (n ToolNames) split(anthropicName string) (namespace, name string) {
+	if v, ok := n[anthropicName]; ok {
+		return v[0], v[1]
+	}
+	return "", anthropicName
 }
 
 // responsesUsage builds Responses usage from Anthropic's counts. Anthropic
@@ -533,7 +581,7 @@ func responsesUsage(uncachedInput, cacheRead, cacheWrite, output int64) response
 // responses in the Responses API wire format. Tool-use blocks are emitted as
 // function_call output items so the streaming and non-streaming paths produce
 // equivalent shapes for tool calls.
-func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Response {
+func AnthropicMessageToResponsesResponse(msg *anthropic.Message, names ToolNames) *responses.Response {
 	var textBuf strings.Builder
 	var toolItems []responses.ResponseOutputItemUnion
 
@@ -542,8 +590,9 @@ func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Resp
 		case "text":
 			textBuf.WriteString(block.Text)
 		case blockTypeToolUse:
+			namespace, name := names.split(block.Name)
 			toolItems = append(toolItems, newFunctionCallItem(
-				block.ID, block.ID, block.Name, string(block.Input),
+				block.ID, block.ID, namespace, name, string(block.Input),
 			))
 		}
 	}
@@ -587,6 +636,7 @@ type AnthropicResponsesStreamState struct {
 	cacheWriteTokens  int64
 	stopReason        string
 	sentMsgOutputItem bool // whether response.output_item.added (message) was emitted
+	names             ToolNames
 }
 
 // pendingToolUse accumulates a tool_use block across content_block_start /
@@ -598,8 +648,8 @@ type pendingToolUse struct {
 }
 
 // NewAnthropicResponsesStreamState initializes state for a new stream.
-func NewAnthropicResponsesStreamState() *AnthropicResponsesStreamState {
-	return &AnthropicResponsesStreamState{toolUses: map[int64]*pendingToolUse{}}
+func NewAnthropicResponsesStreamState(names ToolNames) *AnthropicResponsesStreamState {
+	return &AnthropicResponsesStreamState{toolUses: map[int64]*pendingToolUse{}, names: names}
 }
 
 // CacheWriteTokens reports what the turn wrote to cache. Responses usage has no
@@ -632,7 +682,8 @@ func (s *AnthropicResponsesStreamState) completedToolItems() []responses.Respons
 		if args == "" {
 			args = "{}"
 		}
-		out = append(out, newFunctionCallItem(t.id, t.id, t.name, args))
+		namespace, name := s.names.split(t.name)
+		out = append(out, newFunctionCallItem(t.id, t.id, namespace, name, args))
 	}
 	return out
 }
@@ -709,11 +760,16 @@ func (s *AnthropicResponsesStreamState) handleContentBlockStart(event anthropic.
 				Type:           "response.output_item.added",
 				SequenceNumber: s.nextSeq(),
 				OutputIndex:    outputIdx,
-				Item:           newInProgressFunctionCallItem(event.ContentBlock.ID, event.ContentBlock.ID, event.ContentBlock.Name),
+				Item:           s.inProgressToolItem(event.ContentBlock.ID, event.ContentBlock.Name),
 			},
 		}
 	}
 	return nil
+}
+
+func (s *AnthropicResponsesStreamState) inProgressToolItem(id, anthropicName string) responses.ResponseOutputItemUnion {
+	namespace, name := s.names.split(anthropicName)
+	return newInProgressFunctionCallItem(id, id, namespace, name)
 }
 
 func (s *AnthropicResponsesStreamState) handleContentBlockDelta(event anthropic.MessageStreamEventUnion) []responses.ResponseStreamEventUnion {
@@ -758,7 +814,8 @@ func (s *AnthropicResponsesStreamState) handleContentBlockStop(event anthropic.M
 		args = "{}"
 	}
 	outputIdx := s.toolOutputIndex(event.Index)
-	completed := newFunctionCallItem(t.id, t.id, t.name, args)
+	namespace, name := s.names.split(t.name)
+	completed := newFunctionCallItem(t.id, t.id, namespace, name, args)
 	return []responses.ResponseStreamEventUnion{
 		{
 			Type:           "response.function_call_arguments.done",

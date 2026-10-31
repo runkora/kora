@@ -52,7 +52,7 @@ func (b *AnthropicResponsesBridge) Execute(ctx context.Context, params responses
 		return nil, err
 	}
 
-	resp := convert.AnthropicMessageToResponsesResponse(accumulated)
+	resp := convert.AnthropicMessageToResponsesResponse(accumulated, convert.ResponsesToolNames(params.Tools))
 	b.logger.Debug(ctx, "bridge: anthropic responses execute done",
 		logging.Field{Key: "status", Value: string(resp.Status)},
 	)
@@ -82,7 +82,7 @@ func (b *AnthropicResponsesBridge) ExecuteStream(ctx context.Context, params res
 		defer close(ch)
 		defer stream.Close()
 
-		state := convert.NewAnthropicResponsesStreamState()
+		state := convert.NewAnthropicResponsesStreamState(convert.ResponsesToolNames(params.Tools))
 		var completed bool
 		for stream.Next() {
 			for _, ev := range convert.AnthropicEventToResponsesEvents(stream.Current(), state) {

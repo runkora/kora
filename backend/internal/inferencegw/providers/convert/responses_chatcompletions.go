@@ -245,7 +245,7 @@ func ChatCompletionToResponsesResponse(completion *openai.ChatCompletion) *respo
 
 		for _, tc := range msg.ToolCalls {
 			outputItems = append(outputItems, newFunctionCallItem(
-				tc.ID, tc.ID, tc.Function.Name, tc.Function.Arguments,
+				tc.ID, tc.ID, "", tc.Function.Name, tc.Function.Arguments,
 			))
 		}
 	}
@@ -317,7 +317,7 @@ func (s *ChatCompletionsStreamState) completedToolItems() []responses.ResponseOu
 		if args == "" {
 			args = "{}"
 		}
-		out = append(out, newFunctionCallItem(t.id, t.id, t.name, args))
+		out = append(out, newFunctionCallItem(t.id, t.id, "", t.name, args))
 	}
 	return out
 }

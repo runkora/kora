@@ -194,7 +194,7 @@ func TestAnthropicMessageToResponsesResponse_TextOnly(t *testing.T) {
 		StopReason: anthropic.StopReasonEndTurn,
 		Usage:      anthropic.Usage{InputTokens: 5, OutputTokens: 2},
 	}
-	got := convert.AnthropicMessageToResponsesResponse(msg)
+	got := convert.AnthropicMessageToResponsesResponse(msg, nil)
 
 	if got.Status != "completed" {
 		t.Errorf("Status = %q, want completed", got.Status)
@@ -221,7 +221,7 @@ func TestAnthropicMessageToResponsesResponse_WithToolUse(t *testing.T) {
 		},
 		StopReason: anthropic.StopReasonToolUse,
 	}
-	got := convert.AnthropicMessageToResponsesResponse(msg)
+	got := convert.AnthropicMessageToResponsesResponse(msg, nil)
 	if len(got.Output) != 2 {
 		t.Fatalf("len(Output) = %d, want 2 (message + function_call)", len(got.Output))
 	}
@@ -244,7 +244,7 @@ func TestAnthropicMessageToResponsesResponse_WithToolUse(t *testing.T) {
 // terminal response.completed carries the same function_call item.
 func TestAnthropicStreaming_FunctionCallEmittedInTerminalEvent(t *testing.T) {
 	t.Parallel()
-	state := convert.NewAnthropicResponsesStreamState()
+	state := convert.NewAnthropicResponsesStreamState(nil)
 
 	events := []anthropic.MessageStreamEventUnion{
 		{
@@ -476,7 +476,7 @@ func TestAnthropicMessageToResponsesResponse_CacheReadTokens(t *testing.T) {
 			CacheCreationInputTokens: 0,
 		},
 	}
-	got := convert.AnthropicMessageToResponsesResponse(msg)
+	got := convert.AnthropicMessageToResponsesResponse(msg, nil)
 
 	if got.Usage.InputTokens != 130 {
 		t.Errorf("InputTokens = %d, want 130 (uncached 100 + cache read 30)", got.Usage.InputTokens)
@@ -618,7 +618,7 @@ func TestAnthropicMessageToResponsesResponse_MultipleToolUse(t *testing.T) {
 		},
 		StopReason: anthropic.StopReasonToolUse,
 	}
-	got := convert.AnthropicMessageToResponsesResponse(msg)
+	got := convert.AnthropicMessageToResponsesResponse(msg, nil)
 	if len(got.Output) != 3 {
 		t.Fatalf("len(Output) = %d, want 3 (message + 2 function_calls)", len(got.Output))
 	}
@@ -640,7 +640,7 @@ func TestAnthropicMessageToResponsesResponse_MaxTokensIncomplete(t *testing.T) {
 		Content:    []anthropic.ContentBlockUnion{{Type: "text", Text: "Truncated..."}},
 		StopReason: anthropic.StopReasonMaxTokens,
 	}
-	got := convert.AnthropicMessageToResponsesResponse(msg)
+	got := convert.AnthropicMessageToResponsesResponse(msg, nil)
 	if got.Status != "incomplete" {
 		t.Errorf("Status = %q, want incomplete for max_tokens stop reason", got.Status)
 	}
@@ -648,7 +648,7 @@ func TestAnthropicMessageToResponsesResponse_MaxTokensIncomplete(t *testing.T) {
 
 func TestAnthropicStreaming_MaxTokensIncomplete(t *testing.T) {
 	t.Parallel()
-	state := convert.NewAnthropicResponsesStreamState()
+	state := convert.NewAnthropicResponsesStreamState(nil)
 
 	events := []anthropic.MessageStreamEventUnion{
 		{Type: "message_start", Message: anthropic.Message{ID: "msg_trunc_stream", Model: "claude-sonnet-4-6"}},
@@ -745,7 +745,7 @@ func TestResponsesParamsToAnthropicParams_TemperatureTopPUnset(t *testing.T) {
 
 func TestAnthropicStreaming_CacheTokensInCompletedEvent(t *testing.T) {
 	t.Parallel()
-	state := convert.NewAnthropicResponsesStreamState()
+	state := convert.NewAnthropicResponsesStreamState(nil)
 
 	events := []anthropic.MessageStreamEventUnion{
 		{
@@ -823,7 +823,7 @@ func TestAnthropicMessageToResponsesResponse_FunctionCallWireFormat(t *testing.T
 		},
 		StopReason: anthropic.StopReasonToolUse,
 	}
-	got := convert.AnthropicMessageToResponsesResponse(msg)
+	got := convert.AnthropicMessageToResponsesResponse(msg, nil)
 	if len(got.Output) == 0 {
 		t.Fatal("expected at least 1 output item")
 	}
@@ -869,7 +869,7 @@ func TestAnthropicMessageToResponsesResponse_FunctionCallWireFormat(t *testing.T
 // in the streaming bridge have RawJSON populated correctly.
 func TestAnthropicStreaming_FunctionCallWireFormat(t *testing.T) {
 	t.Parallel()
-	state := convert.NewAnthropicResponsesStreamState()
+	state := convert.NewAnthropicResponsesStreamState(nil)
 
 	events := []anthropic.MessageStreamEventUnion{
 		{Type: "message_start", Message: anthropic.Message{ID: "msg_ws", Model: "claude-3-5-sonnet-20241022"}},
