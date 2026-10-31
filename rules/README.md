@@ -21,6 +21,7 @@ Each function in the file is one rule. The rule name is the function name. Viola
 | `spanSetStatusCtxErr` | `span.SetStatus(_, ctx.Err().Error())`: dynamic context error in span status | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
 | `spanAttrStringLocalErr` | `attribute.String(_, err.Error())`: raw error string in a span attribute | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
 | `spanAttrStringCtxErr` | `attribute.String(_, ctx.Err().Error())`: context error string in a span attribute | [ADD-0022] |
+| `spanAttrKeyVocabulary` | `attribute.String("run_id", ...)`: a string literal as an attribute key; keys come from semconv or `internal/platform/observability` | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
 | `noRawJsonDecodeRequest` | `json.NewDecoder(r.Body).Decode(...)`: raw body decode bypassing `api.DecodeJSON` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
 | `noFmtErrorfStringErr` | `fmt.Errorf("...: %s", err)`: `%s` formatting that discards the error chain | [[repository-pattern-and-code-organization](../docs/adr/2026-02-17-repository-pattern-and-code-organization.md)] |
 | `noRawHttpClientLiteral` | `http.Client{...}` composite literal outside the httpclient base package | [[multi-service-backend-deployment-structure](../docs/adr/2026-03-19-multi-service-backend-deployment-structure.md)] |
@@ -66,6 +67,7 @@ Some call sites are legitimately exempt. Rather than scattering `//nolint` direc
 - `internal/identity/service.go`: constructs `*http.Client` for coreos/go-oidc provider discovery (external IdP, not a platform service)
 - `internal/identityproxy/server.go`: constructs `*http.Client` for the Istio readiness health poll (local loopback, no tracing required)
 - `internal/platform/middleware/`: uses `http.Error` in the defensive nil-handler guard that fires before any request context exists
+- `internal/platform/middleware/metrics.go` and `internal/triggers/metrics.go`: metric labels (`method`, `route`, `status`, `state`) are not span attributes and keep their names
 - `internal/egressgw/tlsca/`: the X.509 subject of the per-tenant CA's leaf certificates is an identifier, not prose, and keeps the kora name
 - `internal/agents/sessionmanager/runner_codex.go` and `runner_opencode.go`, scoped by `source:` to the one declaration line each: `codexProvider` and `openCodeProvider` are the config-table keys the runtimes key on; the provider display name beside them reads the brand
 
