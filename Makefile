@@ -447,7 +447,7 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm, helmfile,
 # The schema is applied by the kora chart's pre-install hook during
 # cluster-platform, before any service starts.
 .PHONY: up
-up: dev-cluster cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, SPIRE + Istio + kora (schema applied by the chart's migrate hook), tenants. Idempotent.
+up: dev-cluster cluster-observability cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, LGTM, SPIRE + Istio + kora (schema applied by the chart's migrate hook), tenants. Idempotent.
 	@echo ""
 	@echo "$(COLOR_GREEN)✓ kora is up$(COLOR_RESET)"
 	@echo "  Dashboard:   https://local.runkora.io"
@@ -502,6 +502,9 @@ REDEPLOY_ROLLOUT_SERVICES := \
 REDEPLOY_RESTART_ONLY := kora-opa-gateway
 
 OPA_ENVOY_IMAGE := openpolicyagent/opa:1.21.0-envoy-static
+# Keep in step with the tag in deploy/local/observability/lgtm.yaml.
+LGTM_IMAGE := grafana/otel-lgtm:0.38.1
+THIRD_PARTY_IMAGES := $(OPA_ENVOY_IMAGE) $(LGTM_IMAGE)
 
 # ===========================================
 # Image bake (CI / multi-arch publishing)
@@ -525,13 +528,20 @@ docker-bake-push: ## Build and push images via docker buildx bake (defaults to G
 			--push $(BACKEND_IMAGE_GROUP)
 	@echo "$(COLOR_GREEN)✓ Published images to $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG)$(COLOR_RESET)"
 
+# Skips images already in the registry; the LGTM image is several GB.
 .PHONY: docker-pull-third-party
-docker-pull-third-party: ## Pull third-party sidecar images and push to local registry (OPA envoy)
-	@echo "$(COLOR_YELLOW)Pulling $(OPA_ENVOY_IMAGE)...$(COLOR_RESET)"
-	@docker pull $(OPA_ENVOY_IMAGE)
-	@docker tag $(OPA_ENVOY_IMAGE) localhost:5001/$(OPA_ENVOY_IMAGE)
-	@docker push localhost:5001/$(OPA_ENVOY_IMAGE)
-	@echo "$(COLOR_GREEN)✓ localhost:5001/$(OPA_ENVOY_IMAGE)$(COLOR_RESET)"
+docker-pull-third-party: ## Pull third-party images and push to local registry (OPA envoy, LGTM)
+	@for img in $(THIRD_PARTY_IMAGES); do \
+		if docker buildx imagetools inspect "localhost:5001/$$img" >/dev/null 2>&1; then \
+			echo "$(COLOR_BLUE)ℹ $$img already in registry, skipping pull$(COLOR_RESET)"; \
+			continue; \
+		fi; \
+		echo "$(COLOR_YELLOW)Pulling $$img...$(COLOR_RESET)"; \
+		docker pull $$img || exit $$?; \
+		docker tag $$img localhost:5001/$$img; \
+		docker push localhost:5001/$$img || exit $$?; \
+		echo "$(COLOR_GREEN)✓ localhost:5001/$$img$(COLOR_RESET)"; \
+	done
 
 # ===========================================
 # Cluster bring-up + bulk operations
@@ -685,11 +695,13 @@ cluster-restore: ## Re-push locally-built images to the registry after a Colima/
 			docker push localhost:5001/kora-$$svc:latest > /dev/null; \
 		fi; \
 	done
-	@if docker image inspect $(OPA_ENVOY_IMAGE) > /dev/null 2>&1; then \
-		echo "  pushing $(OPA_ENVOY_IMAGE)"; \
-		docker tag $(OPA_ENVOY_IMAGE) localhost:5001/$(OPA_ENVOY_IMAGE); \
-		docker push localhost:5001/$(OPA_ENVOY_IMAGE) > /dev/null; \
-	fi
+	@for img in $(THIRD_PARTY_IMAGES); do \
+		if docker image inspect $$img > /dev/null 2>&1; then \
+			echo "  pushing $$img"; \
+			docker tag $$img localhost:5001/$$img; \
+			docker push localhost:5001/$$img > /dev/null; \
+		fi; \
+	done
 	@docker image prune -f > /dev/null
 	@echo "$(COLOR_GREEN)✓ Registry synced$(COLOR_RESET)"
 
@@ -718,6 +730,15 @@ cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install S
 	@echo "  Backend API: https://api.local.runkora.io"
 	@echo "  (HTTP on :8880 redirects to HTTPS)"
 	@echo "$(COLOR_YELLOW)Next: 'make cluster-deploy' to register tenants and deploy workloads$(COLOR_RESET)"
+
+.PHONY: cluster-observability
+cluster-observability: docker-pull-third-party ## Run the local LGTM stack (Grafana, Tempo, Prometheus, Loki) that the platform exports telemetry to
+	@kubectl apply -f deploy/local/observability/
+	@kubectl rollout status deployment/lgtm -n observability --timeout=180s
+
+.PHONY: grafana
+grafana: ## Open the local Grafana on http://localhost:3000 (port-forward; Ctrl-C to stop)
+	@kubectl -n observability port-forward svc/lgtm 3000:3000
 
 .PHONY: cluster-deploy
 cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads (builds tenant images only if absent)

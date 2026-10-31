@@ -1,0 +1,77 @@
+# Local trace, metric and log backend: Grafana with Tempo, Prometheus and Loki
+# behind one OTLP receiver. kora.local.yaml points global.observability at it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lgtm
+  namespace: observability
+  labels:
+    app: lgtm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lgtm
+  template:
+    metadata:
+      labels:
+        app: lgtm
+    spec:
+      containers:
+        - name: lgtm
+          # Mirrored into the k3d registry by make docker-pull-third-party.
+          image: kora-registry:5001/grafana/otel-lgtm:0.38.1
+          ports:
+            - name: grpc-otlp
+              containerPort: 4317
+            - name: http-otlp
+              containerPort: 4318
+            - name: http-grafana
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      # Telemetry is disposable locally; a pod restart starts from empty.
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lgtm
+  namespace: observability
+  labels:
+    app: lgtm
+spec:
+  selector:
+    app: lgtm
+  # Named ports tell the mesh the protocol, so the OTLP export is routed as gRPC.
+  ports:
+    - name: grpc-otlp
+      port: 4317
+      targetPort: 4317
+      appProtocol: grpc
+    - name: http-otlp
+      port: 4318
+      targetPort: 4318
+      appProtocol: http
+    - name: http-grafana
+      port: 3000
+      targetPort: 3000
+      appProtocol: http
