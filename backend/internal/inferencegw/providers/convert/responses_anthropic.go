@@ -1,6 +1,8 @@
 package convert
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -524,8 +526,17 @@ func joinToolName(namespace, name string) string {
 	if namespace == "" {
 		return name
 	}
-	return namespace + "__" + name
+	joined := namespace + "__" + name
+	// Anthropic caps tool names at 64 characters. A longer name keeps its start
+	// and a hash of the whole, and ToolNames maps it back.
+	if len(joined) > maxAnthropicToolName {
+		sum := sha256.Sum256([]byte(joined))
+		joined = joined[:maxAnthropicToolName-9] + "_" + hex.EncodeToString(sum[:4])
+	}
+	return joined
 }
+
+const maxAnthropicToolName = 64
 
 // ToolNames maps the Anthropic name of each namespaced function back to its
 // Responses namespace and name, which a function_call must carry.

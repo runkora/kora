@@ -129,3 +129,32 @@ func TestAnthropicToolUse_NamespaceRestored(t *testing.T) {
 		t.Errorf("checked %d function_call items in the stream, want added, done and completed", checked)
 	}
 }
+
+// A joined name over Anthropic's 64-character limit is shortened, and a call to
+// it still returns with the original namespace and name.
+func TestNamespaceTools_LongNameShortened(t *testing.T) {
+	t.Parallel()
+	const namespace = "mcp__a_very_long_server_name_for_an_internal_system"
+	const name = "create_an_extremely_specific_record"
+	var params responses.ResponseNewParams
+	body := `{"model":"m","input":"hi","tools":[{"type":"namespace","name":"` + namespace + `","description":"d","tools":[{"type":"function","name":"` + name + `","parameters":{"type":"object","properties":{}}}]}]}`
+	if err := json.Unmarshal([]byte(body), &params); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+	got, err := convert.ResponsesParamsToAnthropicParams(params)
+	if err != nil {
+		t.Fatalf("ResponsesParamsToAnthropicParams: %v", err)
+	}
+	sent := got.Tools[0].OfTool.Name
+	if len(sent) > 64 {
+		t.Fatalf("tool name %q is %d characters, want at most 64", sent, len(sent))
+	}
+	msg := &anthropic.Message{
+		Content:    []anthropic.ContentBlockUnion{{Type: "tool_use", ID: "toolu_l", Name: sent, Input: json.RawMessage(`{}`)}},
+		StopReason: anthropic.StopReasonToolUse,
+	}
+	resp := convert.AnthropicMessageToResponsesResponse(msg, convert.ResponsesToolNames(params.Tools))
+	if ns, n := functionCallNames(t, resp.Output[0]); ns != namespace || n != name {
+		t.Errorf("call = (%q, %q), want (%q, %q)", ns, n, namespace, name)
+	}
+}
