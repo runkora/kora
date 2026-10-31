@@ -74,7 +74,7 @@ type engine struct {
 
 func newEngine(bundleEndpoint string, pollInterval time.Duration, logger logging.Logger) *engine {
 	return &engine{
-		Base:           httpclient.New("kora.policy-engine-bundle-client", logger, 10*time.Second),
+		Base:           httpclient.New("github.com/runkora/kora/backend/internal/platform/policy", logger, 10*time.Second),
 		bundles:        make(map[string]*tenantBundle),
 		bundleEndpoint: bundleEndpoint,
 		pollInterval:   pollInterval,

@@ -8,7 +8,9 @@ import (
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 func TestSpanRouteName(t *testing.T) {
@@ -81,11 +83,21 @@ func TestSpanRouteName(t *testing.T) {
 				t.Errorf("span name = %q, want %q", got, tt.wantName)
 			}
 
-			var gotRoute string
+			var gotRoute, gotRunID string
 			for _, attr := range ended[0].Attributes() {
-				if attr.Key == semconv.HTTPRouteKey {
+				switch attr.Key {
+				case semconv.HTTPRouteKey:
 					gotRoute = attr.Value.AsString()
+				case observability.RunIDKey:
+					gotRunID = attr.Value.AsString()
 				}
+			}
+			wantRunID := ""
+			if tt.runPrefix {
+				wantRunID = "run-123"
+			}
+			if gotRunID != wantRunID {
+				t.Errorf("kora.run.id = %q, want %q", gotRunID, wantRunID)
 			}
 			if gotRoute != tt.wantRoute {
 				t.Errorf("http.route = %q, want %q", gotRoute, tt.wantRoute)

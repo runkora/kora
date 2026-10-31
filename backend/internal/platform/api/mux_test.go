@@ -10,7 +10,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/middleware"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
 
 // TestNewMux verifies Mux creation

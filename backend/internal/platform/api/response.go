@@ -7,7 +7,8 @@ import (
 	"net/http"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
-	"go.opentelemetry.io/otel/attribute"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -50,11 +51,13 @@ func ErrorResponse(ctx context.Context, w http.ResponseWriter, logger logging.Lo
 	// Only a 5xx flags the span as an error, matching the HTTP server
 	// semantic conventions; a 4xx is the caller's mistake, not ours.
 	span.SetAttributes(
-		attribute.Bool("app.error", apiErr.StatusCode >= 500),
-		attribute.String("app.error.code", apiErr.Code),
-		attribute.Int("app.error.status", apiErr.StatusCode),
-		attribute.String("app.error.message", apiErr.Message),
+		observability.ErrorCodeKey.String(apiErr.Code),
+		observability.ErrorMessageKey.String(apiErr.Message),
+		semconv.HTTPResponseStatusCode(apiErr.StatusCode),
 	)
+	if apiErr.StatusCode >= 500 {
+		span.SetAttributes(semconv.ErrorTypeKey.String(apiErr.Code))
+	}
 
 	if underlyingErr != nil {
 		span.RecordError(underlyingErr)
