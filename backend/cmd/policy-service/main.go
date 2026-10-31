@@ -267,19 +267,26 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 		psc.Current.Server.Port,
 		psc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(psc.Current.Observability.ServiceName, notBundlePoll(psc.Current.Server.BasePath)),
+			mw.TracingMiddleware(psc.Current.Observability.ServiceName, notTimerPoll(psc.Current.Server.BasePath)),
 			mw.LoggingMiddleware(logger),
 		),
 		controllers...,
 	)
 }
 
-// notBundlePoll leaves the OPA bundle polls untraced. Every OPA sidecar and
-// the gateway poll them on a timer; the route metrics still count each one.
-func notBundlePoll(basePath string) mw.TraceFilter {
-	prefix := strings.TrimSuffix(basePath, "/") + "/policy/bundles/"
+// notTimerPoll leaves the calls other services make on a timer untraced: the
+// OPA bundle polls and route scope re-registration. The route metrics still
+// count each one, and a changed registration keeps the caller's summary span.
+func notTimerPoll(basePath string) mw.TraceFilter {
+	base := strings.TrimSuffix(basePath, "/")
 	return func(r *http.Request) bool {
-		return r.Method != http.MethodGet || !strings.HasPrefix(r.URL.Path, prefix)
+		switch {
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, base+"/policy/bundles/"):
+			return false
+		case r.Method == http.MethodPost && r.URL.Path == base+"/policy/routes/register":
+			return false
+		}
+		return true
 	}
 }
 
