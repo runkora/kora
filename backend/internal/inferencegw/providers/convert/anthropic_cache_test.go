@@ -132,7 +132,7 @@ func TestAnthropicMessageToResponsesResponse_CacheWriteCountsAsInput(t *testing.
 			CacheReadInputTokens:     0,
 			CacheCreationInputTokens: 11215,
 		},
-	})
+	}, nil)
 
 	if got.Usage.InputTokens != 11217 {
 		t.Errorf("InputTokens = %d, want 11217 (uncached 2 + cache write 11215)", got.Usage.InputTokens)
@@ -148,7 +148,7 @@ func TestAnthropicMessageToResponsesResponse_CacheWriteCountsAsInput(t *testing.
 func TestAnthropicStreamToResponses_CacheWriteCountsAsInput(t *testing.T) {
 	t.Parallel()
 
-	state := convert.NewAnthropicResponsesStreamState()
+	state := convert.NewAnthropicResponsesStreamState(nil)
 	events := []anthropic.MessageStreamEventUnion{
 		{
 			Type: "message_start",
