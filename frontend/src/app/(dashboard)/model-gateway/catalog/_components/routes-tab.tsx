@@ -348,6 +348,7 @@ export function RoutesTab({
                   <Toggle
                     checked={route.enabled}
                     disabled={disabled}
+                    aria-label={`Enable route ${idx + 1}`}
                     onChange={(v) => {
                       const updated = model.routes.map((r, i) =>
                         i === idx ? { ...r, enabled: v } : r,

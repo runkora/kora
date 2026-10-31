@@ -435,6 +435,7 @@ function PricingOverlay({
                 checked={model.enabled}
                 onChange={(v) => void onToggleEnabled(model.provider, model.modelId, v)}
                 disabled={!canWrite}
+                aria-label={`Enable ${model.modelId}`}
               />
             </PermissionHint>
           </Stack>
@@ -703,6 +704,7 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
                 checked={m.enabled}
                 onChange={(v) => void toggle(m.provider, m.modelId, v)}
                 disabled={!canWrite}
+                aria-label={`Enable ${m.modelId}`}
               />
             </PermissionHint>
           </Stack>

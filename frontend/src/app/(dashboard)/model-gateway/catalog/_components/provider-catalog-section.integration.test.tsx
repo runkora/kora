@@ -5,7 +5,7 @@
  * through the exported ProviderCatalogSection with controlled props.
  */
 import { describe, it, expect } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@runkora/test-utils';
 import { ProviderCatalogSection } from './provider-catalog-section';
 import type { ProviderModel } from '../_types/catalog';
@@ -198,5 +198,18 @@ describe('Detail overlay token rows', () => {
     fireEvent.click(screen.getByText('test-model'));
     expect(await screen.findByText('Image input /image')).toBeInTheDocument();
     expect(await screen.findByText('Image output /image')).toBeInTheDocument();
+  });
+});
+
+describe('Enabled toggles', () => {
+  it('names the table and detail toggles after the model', async () => {
+    renderWithProviders(<ProviderCatalogSection models={[model()]} />);
+    expect(screen.getByRole('switch', { name: 'Enable test-model' })).toBeInTheDocument();
+    fireEvent.click(screen.getByText('test-model'));
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('switch', { name: 'Enable test-model', hidden: true }),
+      ).toHaveLength(2),
+    );
   });
 });

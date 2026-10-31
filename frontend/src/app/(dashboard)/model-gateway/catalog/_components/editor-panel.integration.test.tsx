@@ -54,4 +54,9 @@ describe('EditorPanel managed in git', () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save Changes' })).not.toBeInTheDocument();
   });
+
+  it('names the enabled toggle after the model', () => {
+    renderPanel(MODEL);
+    expect(screen.getByRole('switch', { name: 'Enable Claude Sonnet 4.6' })).toBeInTheDocument();
+  });
 });

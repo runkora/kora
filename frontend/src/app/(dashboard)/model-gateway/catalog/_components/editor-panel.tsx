@@ -282,6 +282,7 @@ export function EditorPanel({
               checked={draft.enabled}
               onChange={(v) => setDraft({ ...draft, enabled: v })}
               disabled={!canWrite || managedInGit}
+              aria-label={`Enable ${draft.displayName || draft.name || 'model'}`}
             />
           </PermissionHint>
           <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
