@@ -195,18 +195,17 @@ func (c *Client) doRegister(ctx context.Context, reg registrationRequest) error 
 		return fmt.Errorf("encode registration: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.serviceURL+"/api/v1/policy/routes/register", body)
-	if err != nil {
-		return fmt.Errorf("build registration request: %w", err)
-	}
+	header := http.Header{}
 	tok, err := c.token(ctx)
 	if err != nil {
 		return fmt.Errorf("get platform token for registration: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+tok)
+	header.Set("Content-Type", "application/json")
+	header.Set("Authorization", "Bearer "+tok)
 
-	_, span, resp, err := c.Do(ctx, registerSpan, req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.serviceURL, Path: "/api/v1/policy/routes/register", Header: header, Body: body,
+	})
 	defer span.End()
 	if err != nil {
 		return err

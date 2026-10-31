@@ -214,11 +214,9 @@ type MyServiceClient struct {
 }
 
 func (c *MyServiceClient) Fetch(ctx context.Context, id string) (*Result, error) {
-    req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/resource/"+id, nil)
-    if err != nil {
-        return nil, fmt.Errorf("build request: %w", err)
-    }
-    _, span, resp, err := c.base.Do(ctx, "myservice.fetch", req)
+    _, span, resp, err := c.base.Do(ctx, httpclient.Request{
+        Method: http.MethodGet, BaseURL: c.baseURL, Path: "/resource/{id}", Params: []string{id},
+    })
     defer span.End()
     if err != nil {
         return nil, err
@@ -315,7 +313,7 @@ Spans are batched before export:
 ✅ **W3C TraceContext**: Standard `traceparent`/`tracestate` propagation on all inbound and outbound calls
 ✅ **Service-to-service clients**: `httpclient.Base.Do()` opens a `SpanKindClient` child span and injects W3C headers automatically
 ✅ **Upstream error bodies**: Non-2xx responses from upstream services are captured in the `error.upstream_body` span attribute
-✅ **Database queries**: A `db.query` span per query that runs under a parent span. A query with no parent, such as an idle poll, records no span, and client spans from `httpclient.Base.Do` and the tracing transport follow the same rule
+✅ **Database queries**: A `postgresql` span per query that runs under a parent span. A query with no parent, such as an idle poll, records no span, and client spans from `httpclient.Base.Do` and the tracing transport follow the same rule
 
 ### Planned
 

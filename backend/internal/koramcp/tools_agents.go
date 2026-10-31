@@ -3,7 +3,6 @@ package koramcp
 import (
 	"context"
 	"errors"
-	"net/url"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
@@ -18,7 +17,7 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *korajson.Client, produc
 	addTool(srv, "agents.list",
 		"List the agent types (agent definitions) registered in the caller's tenant.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, caller(ctx), base, nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base, "", nil))
 		})
 
 	addTool(srv, "agents.get",
@@ -27,7 +26,7 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *korajson.Client, produc
 			if a.AgentTypeID == "" {
 				return toolError(errors.New("agent_type_id is required")), nil
 			}
-			return jsonResult(jc.Get(ctx, caller(ctx), base+"/"+url.PathEscape(a.AgentTypeID), nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base, "/{agentTypeID}", nil, a.AgentTypeID))
 		})
 
 	addEnumTool(srv, "agents.create",
@@ -39,7 +38,7 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *korajson.Client, produc
 			if a.Name == "" || a.Slug == "" {
 				return toolError(errors.New("name and slug are required")), nil
 			}
-			return jsonResult(jc.Post(ctx, caller(ctx), base, a))
+			return jsonResult(jc.Post(ctx, caller(ctx), base, "", a))
 		})
 
 	addEnumTool(srv, "agents.update",
@@ -51,7 +50,7 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *korajson.Client, produc
 			if a.AgentTypeID == "" {
 				return toolError(errors.New("agent_type_id is required")), nil
 			}
-			return jsonResult(jc.Patch(ctx, caller(ctx), base+"/"+url.PathEscape(a.AgentTypeID), a))
+			return jsonResult(jc.Patch(ctx, caller(ctx), base, "/{agentTypeID}", a, a.AgentTypeID))
 		})
 
 	addTool(srv, "agents.delete",
@@ -60,14 +59,14 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *korajson.Client, produc
 			if a.AgentTypeID == "" {
 				return toolError(errors.New("agent_type_id is required")), nil
 			}
-			return jsonResult(jc.Delete(ctx, caller(ctx), base+"/"+url.PathEscape(a.AgentTypeID)))
+			return jsonResult(jc.Delete(ctx, caller(ctx), base, "/{agentTypeID}", nil, a.AgentTypeID))
 		})
 
 	addTool(srv, "agents.connectors",
 		"List the credential connections available in the caller's tenant — each connection's name, adapter, and "+
 			"the actions it supports. Use this to fill the connectors field of agents.create / agents.update.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, caller(ctx), b.Agents+"/api/v1/connections", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), b.Agents, "/api/v1/connections", nil))
 		})
 
 	addTool(srv, "agents.mcp_tools",
@@ -75,7 +74,7 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *korajson.Client, produc
 			"its server, and what it does, from the tool-gateway catalog. Use this to choose values for the "+
 			"mcp_tools field of agents.create / agents.update.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, caller(ctx), b.ToolGateway+"/v1/catalog", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), b.ToolGateway, "/v1/catalog", nil))
 		})
 }
 

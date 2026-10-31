@@ -20,7 +20,7 @@ package httpclient
 //
 //	Do you control request construction and response decoding?
 //	  YES → embed *Base, call Base.Do, use Base helper methods.
-//	  NO  → pass NewHTTPClient(timeout, NewTracingTransport(name, inner)) to the SDK.
+//	  NO  → pass NewHTTPClient(timeout, NewTracingTransport(name, template, inner)) to the SDK.
 //
 // Composing auth and tracing transports:
 //
@@ -30,25 +30,29 @@ package httpclient
 //	including any header mutations performed by the auth transport:
 //
 //	    NewHTTPClient(timeout,
-//	        NewTracingTransport("kora.my-provider", authTransport),
+//	        NewTracingTransport(tracerName, "", authTransport),
 //	    )
 //
 //	If the SDK handles auth itself (e.g. anthropic-sdk-go with awsbedrock.WithConfig),
 //	pass nil for inner and the tracing transport wraps http.DefaultTransport:
 //
 //	    NewHTTPClient(timeout,
-//	        NewTracingTransport("kora.bedrock-anthropic", nil),
+//	        NewTracingTransport(tracerName, "", nil),
 //	    )
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -61,7 +65,7 @@ import (
 // Always pair with [NewTracingTransport] to get OTel coverage on every call:
 //
 //	httpclient.NewHTTPClient(30*time.Second,
-//	    httpclient.NewTracingTransport("kora.bedrock-anthropic", nil),
+//	    httpclient.NewTracingTransport(tracerName, "", nil),
 //	)
 //
 // Pass nil for transport to use http.DefaultTransport.
@@ -91,7 +95,7 @@ func NewHTTPClient(timeout time.Duration, transport http.RoundTripper) *http.Cli
 // Always pair with [NewTracingTransport] to get OTel coverage per request:
 //
 //	httpclient.NewStreamingHTTPClient(
-//	    httpclient.NewTracingTransport("kora.bedrock-anthropic", nil),
+//	    httpclient.NewTracingTransport(tracerName, "", nil),
 //	)
 //
 // Pass nil for transport to use http.DefaultTransport.
@@ -100,112 +104,99 @@ func NewStreamingHTTPClient(transport http.RoundTripper) *http.Client {
 	return NewHTTPClient(0, transport)
 }
 
-// NewTracingTransport wraps inner with an OTel client span per HTTP round-trip.
+// NewTracingTransport wraps inner with an OTel client span per HTTP round-trip,
+// for an *http.Client handed to a third-party SDK that cannot use [Base.Do].
+// The span is named "{METHOD} {urlTemplate}", or "{METHOD}" when urlTemplate
+// is empty because the SDK builds paths this code cannot template. It carries
+// the same attributes as Base.Do and injects traceparent.
 //
-// It mirrors the observability provided by [Base.Do] for cases where the caller
-// cannot use Base — typically when handing an *http.Client to a third-party SDK.
-// For every outbound request it:
-//
-//   - Opens a child OTel span (SpanKindClient) named "{METHOD} {host}"
-//   - Sets http.request.method and url.full span attributes
-//   - Injects W3C traceparent/tracestate headers so downstream services can
-//     attach their server spans as children of this span
-//   - Records transport errors on the span (span.RecordError + codes.Error)
-//   - Sets http.response.status_code; marks the span as codes.Error for HTTP 4xx/5xx
-//     (because the SDK caller cannot access the span to do this itself)
-//
-// Note: unlike [Base.Do], where the caller decides how to handle non-2xx responses
-// and may add domain-specific span attributes, the tracing transport operates
-// below that level — it cannot distinguish application errors from infrastructure
-// errors, so all >= 400 responses are marked codes.Error automatically.
-//
-// Pass nil for inner to wrap http.DefaultTransport.
-//
-// Typical usage — Anthropic SDK (SDK handles SigV4 via awsbedrock.WithConfig):
-//
-//	anthropic.NewClient(
-//	    awsbedrock.WithConfig(awsCfg),
-//	    option.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
-//	        httpclient.NewTracingTransport("kora.bedrock-anthropic", nil),
-//	    )),
-//	)
-//
-// Typical usage — OpenAI SDK (tracing wraps a custom SigV4 transport):
+// The SDK caller cannot reach the span, so the transport marks every 4xx and
+// 5xx response as an error. Pass nil for inner to wrap http.DefaultTransport.
 //
 //	openai.NewClient(
 //	    option.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
-//	        httpclient.NewTracingTransport("kora.bedrock-openai", sigV4Transport),
+//	        httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/bedrock", "", sigV4Transport),
 //	    )),
 //	)
-func NewTracingTransport(tracerName string, inner http.RoundTripper) http.RoundTripper {
+func NewTracingTransport(tracerName, urlTemplate string, inner http.RoundTripper) http.RoundTripper {
 	if inner == nil {
 		inner = http.DefaultTransport
 	}
 	return &tracingTransport{
-		inner:  inner,
-		tracer: otel.Tracer(tracerName),
+		inner:       inner,
+		tracer:      otel.Tracer(tracerName),
+		urlTemplate: urlTemplate,
 	}
 }
 
-// tracingTransport is an http.RoundTripper that opens an OTel client span,
-// injects W3C trace headers, and records HTTP semantic attributes for every
-// outbound request. Constructed exclusively via [NewTracingTransport].
+// tracingTransport is the http.RoundTripper built by [NewTracingTransport].
 type tracingTransport struct {
-	inner  http.RoundTripper
-	tracer trace.Tracer
+	inner       http.RoundTripper
+	tracer      trace.Tracer
+	urlTemplate string
 }
 
-// RoundTrip implements http.RoundTripper. It opens a client span, injects
-// trace headers, delegates to the inner transport, and records the result.
+// RoundTrip implements http.RoundTripper.
 func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// A call with no parent span records no span, the same rule as Base.Do.
 	if !trace.SpanContextFromContext(req.Context()).IsValid() {
 		return t.inner.RoundTrip(req)
 	}
-	// Span name follows OTel HTTP client semantic conventions: "{METHOD} {host}".
-	spanName := req.Method + " " + req.URL.Host
-	ctx, span := t.tracer.Start(req.Context(), spanName, trace.WithSpanKind(trace.SpanKindClient))
+	ctx, span := startClientSpan(req.Context(), t.tracer, req, t.urlTemplate)
 	defer span.End()
 
-	// Standard OTel HTTP semantic convention attributes — mirrors what Base.Do records
-	// so trace backends can query all outbound calls by method and URL uniformly.
-	// redactURL strips userinfo and query string: registered endpoints (e.g. MCP
-	// server URLs) are admin-configured and may embed credentials there, which
-	// must never be copied verbatim into span attributes / telemetry backends.
-	span.SetAttributes(
-		attribute.String("http.request.method", req.Method),
-		attribute.String("url.full", redactURL(req.URL)),
-	)
-
-	// Re-attach the span context to the request so deadline/cancellation from
-	// the span-bearing context propagates through the inner transport.
 	req = req.WithContext(ctx)
-
-	// Inject W3C traceparent/tracestate so the remote service's tracing middleware
-	// can attach its server span as a child of this client span, forming a
-	// single end-to-end trace across service boundaries.
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
 	resp, err := t.inner.RoundTrip(req)
 	if err != nil {
-		// RecordError captures the full error event. Static description keeps
-		// raw network strings (hostnames, addresses) out of span string fields
-		// per docs/adr/2026-03-03-database-infrastructure-layer.md.
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "transport failure")
+		recordFailure(span, err, errTransport)
 		return nil, err
 	}
 
-	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
-
-	// Because the SDK caller cannot access this span to record application errors,
-	// the transport marks all HTTP 4xx/5xx responses as span errors automatically.
-	// This differs from Base.Do where the caller decides how to classify non-2xx.
+	span.SetAttributes(semconv.HTTPResponseStatusCode(resp.StatusCode))
 	if resp.StatusCode >= 400 {
-		span.SetStatus(codes.Error, "upstream error")
+		span.SetStatus(codes.Error, errUpstream.Error())
+		span.SetAttributes(semconv.ErrorTypeKey.String(strconv.Itoa(resp.StatusCode)))
 	}
-
 	return resp, nil
+}
+
+// errUpstream is the static status of a 4xx or 5xx seen by the transport.
+var errUpstream = errors.New("upstream error")
+
+// startClientSpan opens the HTTP client span for req, named
+// "{METHOD} {url.template}" per the HTTP semantic conventions, or "{METHOD}"
+// with no template. http.route is a server key and is never set here.
+func startClientSpan(ctx context.Context, tracer trace.Tracer, req *http.Request, template string) (context.Context, trace.Span) {
+	name := req.Method
+	attrs := []attribute.KeyValue{
+		semconv.HTTPRequestMethodKey.String(req.Method),
+		semconv.URLFull(redactURL(req.URL)),
+		semconv.ServerAddress(req.URL.Hostname()),
+	}
+	if template != "" {
+		name += " " + template
+		attrs = append(attrs, semconv.URLTemplate(template))
+	}
+	if port := urlPort(req.URL); port > 0 {
+		attrs = append(attrs, semconv.ServerPort(port))
+	}
+	return tracer.Start(ctx, name, trace.WithSpanKind(trace.SpanKindClient), trace.WithAttributes(attrs...))
+}
+
+// urlPort is the URL's port, or the scheme's default when it names none.
+func urlPort(u *url.URL) int {
+	if p, err := strconv.Atoi(u.Port()); err == nil {
+		return p
+	}
+	switch u.Scheme {
+	case "https":
+		return 443
+	case "http":
+		return 80
+	}
+	return 0
 }
 
 // redactURL renders u without userinfo (user:password@) or a query string, so a
