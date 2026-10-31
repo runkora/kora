@@ -12,13 +12,17 @@ global:
     otlpEndpoint: http://otel-collector.observability:4317
     samplingRate: "0.1"
     collectorNamespace: observability
+    traceUrlTemplate: https://grafana.example.com/explore?...{trace_id}...
 ```
 
 - **`otlpEndpoint`:** an OTLP gRPC endpoint. kora does not support OTLP over HTTP. The scheme is required, with `http://` for plaintext and `https://` for TLS. The endpoint receives traces and metrics from every service and agent pod.
 - **`samplingRate`:** the share of traces kept, from 0 to 1. Empty keeps the production default of 0.1.
 - **`collectorNamespace`:** the namespace of an in-cluster collector. kora opens egress to that namespace on the endpoint's port, and without it the default-deny policy drops the export.
+- **`traceUrlTemplate`:** a trace viewer URL with `{trace_id}` where the trace ID goes, such as a Grafana Explore URL. The run page links to the run's trace through it. Empty shows no link.
 
 Runs on Claude Code export the harness's own traces, metrics and logs to the same endpoint, tagged with the run and tenant they belong to.
+
+A run is one trace, from the request or trigger fire that started it through every turn and gateway call. The run resource returns its `trace_id`, which is null when the run was not sampled. See [one trace per agent run](../adr/2026-10-31-one-trace-per-run.md).
 
 kora propagates W3C `traceparent` headers. Export your mesh's spans to the same collector to see the proxy hop and the application span in one trace.
 

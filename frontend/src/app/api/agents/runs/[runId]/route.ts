@@ -8,6 +8,12 @@ import type { Run, RunWithAttribution, AgentType } from '@runkora/shared/api';
 
 type Params = { runId: string };
 
+// The run's link in the trace viewer, from the chart's trace URL template. Null without either.
+function traceUrl(traceId: string | null | undefined): string | null {
+  const template = process.env.KORA_TRACE_URL_TEMPLATE;
+  return template && traceId ? template.replaceAll('{trace_id}', traceId) : null;
+}
+
 export const GET = withAuth(
   async (_req: NextRequest, session, context?: { params: Promise<Params> }) => {
     const { runId } = await (context?.params ?? Promise.resolve({ runId: '' }));
@@ -33,7 +39,12 @@ export const GET = withAuth(
         ? !!agentType.can_run &&
           (agentType.identity_mode !== 'delegated' || run.created_by === session.user.sub)
         : null;
-      return NextResponse.json({ data, agent_type: agentType, can_steer: canSteer });
+      return NextResponse.json({
+        data,
+        agent_type: agentType,
+        can_steer: canSteer,
+        trace_url: traceUrl(run.trace_id),
+      });
     } catch (err) {
       if (err instanceof ApiError) {
         return NextResponse.json({ code: err.code, message: err.message }, { status: err.status });

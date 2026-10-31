@@ -218,6 +218,7 @@ Kubernetes: `>=1.34.0-0`
 | global.observability.collectorNamespace | string | `""` |  |
 | global.observability.otlpEndpoint | string | `""` |  |
 | global.observability.samplingRate | string | `""` |  |
+| global.observability.traceUrlTemplate | string | `""` |  |
 | global.postgres.captureQueryText | bool | `false` |  |
 | global.postgres.sslMode | string | `"require"` |  |
 | global.priorityClassName | string | `""` |  |
