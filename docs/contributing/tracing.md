@@ -85,7 +85,6 @@ r = r.WithContext(tracedCtx)
 - Semantic conventions for HTTP attributes
 - Span marked as error for 4xx/5xx responses
 - Response status code recorded
-- A request that a `TraceFilter` passed to `TracingMiddleware` rejects is served without a span, like `otelhttp.WithFilter`. The policy service filters the OPA bundle polls.
 
 ### Trace Propagation
 
@@ -316,7 +315,7 @@ Spans are batched before export:
 ✅ **W3C TraceContext**: Standard `traceparent`/`tracestate` propagation on all inbound and outbound calls
 ✅ **Service-to-service clients**: `httpclient.Base.Do()` opens a `SpanKindClient` child span and injects W3C headers automatically
 ✅ **Upstream error bodies**: Non-2xx responses from upstream services are captured in the `error.upstream_body` span attribute
-✅ **Database queries**: A `db.query` span per query that runs under a parent span. A query with no parent, such as an idle poll, records no span
+✅ **Database queries**: A `db.query` span per query that runs under a parent span. A query with no parent, such as an idle poll, records no span, and client spans from `httpclient.Base.Do` and the tracing transport follow the same rule
 
 ### Planned
 
@@ -334,7 +333,6 @@ Spans are batched before export:
 ✅ Create child spans for complex operations (>100ms)
 ✅ Record errors with `span.RecordError(err)`
 ✅ Propagate context to all downstream calls
-✅ Trace units of work, not loops: a periodic tick runs under `observability.Untraced` and records a span with `httpclient.Base.SpanSince` only when it changed something or failed. Metrics count every tick
 
 ### DON'T
 
