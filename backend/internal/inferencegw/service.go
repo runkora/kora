@@ -189,7 +189,7 @@ func (s *Service) ChatCompletion(
 	}
 
 	// ── 2b. Budget check ─────────────────────────────────────────────────────
-	if ctx, err = s.checkBudget(ctx, p); err != nil {
+	if err = s.checkBudget(ctx, p); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
@@ -337,7 +337,7 @@ func (s *Service) ChatCompletionStream(
 	}
 
 	// ── 2b. Budget check ─────────────────────────────────────────────────────
-	if ctx, err = s.checkBudget(ctx, p); err != nil {
+	if err = s.checkBudget(ctx, p); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
 		span.End()
@@ -870,9 +870,9 @@ func (s *Service) delegatorBudgetScopes(ctx context.Context, tenantID string) (s
 // Note: enforcement is soft — check and increment are not atomic. Concurrent
 // requests near a limit may both pass and briefly overspend before the counter
 // catches up. This is acceptable for cost-cap (not hard billing) use cases.
-func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context, error) {
+func (s *Service) checkBudget(ctx context.Context, p principal) error {
 	if s.budgetCounter == nil {
-		return ctx, nil
+		return nil
 	}
 
 	ctx, span := tracer.Start(ctx, "budget.quota_check",
@@ -893,7 +893,7 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 			logging.Field{Key: "principal_id", Value: p.PrincipalID},
 		)
 		span.RecordError(err)
-		return ctx, nil
+		return nil
 	}
 
 	result, err := s.policy.CheckBudget(ctx, p.TenantID, policy.BudgetCheckRequest{
@@ -913,7 +913,7 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 			logging.Field{Key: "principal_id", Value: p.PrincipalID},
 		)
 		span.RecordError(err)
-		return ctx, nil
+		return nil
 	}
 
 	if !result.Allow {
@@ -939,12 +939,12 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 			// the agent's (delegated-agent-identity ADR, Phase 5: refusal
 			// reasons distinguish which leg denied). Scopes only — never
 			// amounts — so nothing about another principal's budget leaks.
-			return ctx, fmt.Errorf("%w: the %s spending ceiling has been reached", ErrBudgetExceeded, strings.Join(breached, ", "))
+			return fmt.Errorf("%w: the %s spending ceiling has been reached", ErrBudgetExceeded, strings.Join(breached, ", "))
 		}
-		return ctx, ErrBudgetExceeded
+		return ErrBudgetExceeded
 	}
 
-	return ctx, nil
+	return nil
 }
 
 // incrementSpend best-effort increments every applicable canonical counter
@@ -1711,7 +1711,7 @@ func (s *Service) Embeddings(
 		return nil, err
 	}
 
-	if ctx, err = s.checkBudget(ctx, p); err != nil {
+	if err = s.checkBudget(ctx, p); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
@@ -1824,7 +1824,7 @@ func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*Sy
 		return nil, err
 	}
 
-	if ctx, err = s.checkBudget(ctx, p); err != nil {
+	if err = s.checkBudget(ctx, p); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
@@ -1939,7 +1939,7 @@ func (s *Service) Responses(
 		return nil, err
 	}
 
-	if ctx, err = s.checkBudget(ctx, p); err != nil {
+	if err = s.checkBudget(ctx, p); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
@@ -2068,7 +2068,7 @@ func (s *Service) ResponsesStream(
 		return nil, err
 	}
 
-	if ctx, err = s.checkBudget(ctx, p); err != nil {
+	if err = s.checkBudget(ctx, p); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
 		span.End()
@@ -2289,7 +2289,7 @@ func (s *Service) AnthropicMessages(
 	}
 
 	// ── Budget check ─────────────────────────────────────────────────────────
-	if ctx, err = s.checkBudget(ctx, p); err != nil {
+	if err = s.checkBudget(ctx, p); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
@@ -2424,7 +2424,7 @@ func (s *Service) AnthropicMessagesStream(
 	}
 
 	// ── Budget check ─────────────────────────────────────────────────────────
-	if ctx, err = s.checkBudget(ctx, p); err != nil {
+	if err = s.checkBudget(ctx, p); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
 		span.End()
