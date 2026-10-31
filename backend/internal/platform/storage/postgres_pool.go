@@ -46,15 +46,19 @@ func (c *PostgresConfig) BuildPoolConfig() (*pgxpool.Config, error) {
 var errQueryFailed = errors.New("database query failed")
 
 // otelQueryTracer implements pgx.QueryTracer to emit OpenTelemetry spans for
-// every database operation. SQL statement text is only captured when
+// database operations that run under a parent span. SQL statement text is only captured when
 // CaptureQueryText is true (disabled in production for security).
 type otelQueryTracer struct {
 	tracer           trace.Tracer
 	captureQueryText bool
 }
 
-// TraceQueryStart opens a span when a query begins.
+// TraceQueryStart opens a span when a query begins inside a traced unit of
+// work. A query with no parent, such as an idle poll, records no span.
 func (t *otelQueryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if !trace.SpanContextFromContext(ctx).IsValid() {
+		return ctx
+	}
 	attrs := []attribute.KeyValue{
 		attribute.String("db.system", "postgresql"),
 	}

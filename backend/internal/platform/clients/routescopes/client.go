@@ -41,9 +41,12 @@ package routescopes
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
@@ -52,6 +55,11 @@ import (
 
 // ErrRegistrationFailed is returned when the policy service rejects a registration.
 var ErrRegistrationFailed = errors.New("route scope registration rejected by policy service")
+
+// errRegisterFailed is the static span status for a registration that failed.
+var errRegisterFailed = errors.New("route scope registration failed")
+
+const registerSpan = "routescopes.Client.Register"
 
 // RouteScope maps an HTTP path prefix and method to the scope required to access it.
 type RouteScope struct {
@@ -101,6 +109,9 @@ type Client struct {
 	*httpclient.Base
 	serviceURL string
 	token      TokenSource
+
+	mu   sync.Mutex
+	sent map[string][sha256.Size]byte // service → digest of its last accepted registration
 }
 
 const (
@@ -116,6 +127,7 @@ func NewClient(serviceURL string, token TokenSource, logger logging.Logger) *Cli
 		Base:       httpclient.New(tracerName, logger, clientTimeout),
 		serviceURL: serviceURL,
 		token:      token,
+		sent:       make(map[string][sha256.Size]byte),
 	}
 }
 
@@ -144,10 +156,31 @@ func (c *Client) RegisterWithPrune(ctx context.Context, service string, routes [
 
 // register makes exactly one registration call. Failure is returned to the
 // caller, which owns whatever retry policy it wants.
+//
+// Registrations run from loops and hooks with no parent span, so Base.Do
+// records none. A changed or failed registration gets a summary span instead;
+// a repeat of the last accepted one is a heartbeat and gets none.
 func (c *Client) register(ctx context.Context, reg registrationRequest) error {
-	if err := c.doRegister(ctx, reg); err != nil {
+	raw, err := json.Marshal(reg)
+	if err != nil {
+		return fmt.Errorf("encode registration: %w", err)
+	}
+	sum := sha256.Sum256(raw)
+	c.mu.Lock()
+	repeat := c.sent[reg.Service] == sum
+	c.mu.Unlock()
+
+	start := time.Now()
+	err = c.doRegister(ctx, reg)
+	if !repeat || err != nil {
+		c.SpanSince(ctx, registerSpan, start, err, errRegisterFailed)
+	}
+	if err != nil {
 		return err
 	}
+	c.mu.Lock()
+	c.sent[reg.Service] = sum
+	c.mu.Unlock()
 	c.Logger().Info(ctx, "route scopes registered",
 		logging.Field{Key: "service", Value: reg.Service},
 		logging.Field{Key: "route_count", Value: len(reg.Routes)},
@@ -173,7 +206,7 @@ func (c *Client) doRegister(ctx context.Context, reg registrationRequest) error 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+tok)
 
-	_, span, resp, err := c.Do(ctx, "routescopes.Client.Register", req)
+	_, span, resp, err := c.Do(ctx, registerSpan, req)
 	defer span.End()
 	if err != nil {
 		return err

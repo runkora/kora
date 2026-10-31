@@ -158,6 +158,10 @@ type tracingTransport struct {
 // RoundTrip implements http.RoundTripper. It opens a client span, injects
 // trace headers, delegates to the inner transport, and records the result.
 func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// A call with no parent span records no span, the same rule as Base.Do.
+	if !trace.SpanContextFromContext(req.Context()).IsValid() {
+		return t.inner.RoundTrip(req)
+	}
 	// Span name follows OTel HTTP client semantic conventions: "{METHOD} {host}".
 	spanName := req.Method + " " + req.URL.Host
 	ctx, span := t.tracer.Start(req.Context(), spanName, trace.WithSpanKind(trace.SpanKindClient))

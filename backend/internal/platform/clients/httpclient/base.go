@@ -223,6 +223,19 @@ func (b *Base) RecordError(span trace.Span, sentinel error) error {
 	return sentinel
 }
 
+// SpanSince records a span that began at start for work that ran untraced and
+// turned out worth tracing, such as a periodic call that changed something or
+// failed. It starts a root when ctx has no parent. A non-nil err is recorded
+// with sentinel as the static status.
+func (b *Base) SpanSince(ctx context.Context, spanName string, start time.Time, err, sentinel error) {
+	_, span := b.tracer.Start(ctx, spanName, trace.WithTimestamp(start))
+	defer span.End()
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, sentinel.Error())
+	}
+}
+
 // ReadErrorBody reads up to 512 bytes from resp.Body, records the trimmed
 // content as the error.upstream_body span attribute, and returns the string so
 // callers can embed it in their error.
@@ -279,6 +292,12 @@ func (b *Base) Do(
 	spanName string,
 	req *http.Request,
 ) (context.Context, trace.Span, *http.Response, error) {
+	// A call with no parent span, such as a loop tick, records no span. The
+	// returned span is then a no-op, so callers handle it the same way.
+	if !trace.SpanContextFromContext(ctx).IsValid() {
+		resp, err := b.httpClient.Do(req.WithContext(ctx))
+		return ctx, trace.SpanFromContext(ctx), resp, err
+	}
 	ctx, span := b.tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
 
 	// Standard OTel HTTP client semantic conventions.

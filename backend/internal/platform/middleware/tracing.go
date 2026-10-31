@@ -20,9 +20,19 @@ import (
 // include trace_id and span_id for correlation.
 //
 // Trace context propagation follows W3C TraceContext standard (configured in observability.Setup).
-func TracingMiddleware(serviceName string) Middleware {
+//
+// A request any filter rejects is served without a span, like otelhttp.WithFilter.
+// Services use it to drop high-rate polls that carry no signal, the same way
+// health checks skip tracing.
+func TracingMiddleware(serviceName string, filters ...TraceFilter) Middleware {
 	return NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for _, traced := range filters {
+				if !traced(r) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
 			// Get the global tracer for this service
 			tracer := otel.Tracer(serviceName)
 
@@ -107,6 +117,9 @@ func TracingMiddleware(serviceName string) Middleware {
 		})
 	})
 }
+
+// TraceFilter reports whether TracingMiddleware should trace a request.
+type TraceFilter func(*http.Request) bool
 
 // tracingResponseWriter wraps http.ResponseWriter to capture status code for tracing
 type tracingResponseWriter struct {

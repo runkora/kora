@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -266,11 +267,27 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 		psc.Current.Server.Port,
 		psc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(psc.Current.Observability.ServiceName),
+			mw.TracingMiddleware(psc.Current.Observability.ServiceName, notTimerPoll(psc.Current.Server.BasePath)),
 			mw.LoggingMiddleware(logger),
 		),
 		controllers...,
 	)
+}
+
+// notTimerPoll leaves the calls other services make on a timer untraced: the
+// OPA bundle polls and route scope re-registration. The route metrics still
+// count each one, and a changed registration keeps the caller's summary span.
+func notTimerPoll(basePath string) mw.TraceFilter {
+	base := strings.TrimSuffix(basePath, "/")
+	return func(r *http.Request) bool {
+		switch {
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, base+"/policy/bundles/"):
+			return false
+		case r.Method == http.MethodPost && r.URL.Path == base+"/policy/routes/register":
+			return false
+		}
+		return true
+	}
 }
 
 func run(ctx context.Context, logger logging.Logger, server *http.Server, metrics *platformmetrics.Bootstrap) {
