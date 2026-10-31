@@ -108,8 +108,9 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — `Accepted (Amended 2026-09-29)` · 2026-05-11
 - [Agent Portal & Chat UI](2026-05-11-agent-portal-and-chat-ui.md) — `Accepted` · 2026-05-11
 - [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) — `Accepted` · 2026-05-11
-- [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) — `Accepted` · 2026-09-18
+- [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) — `Accepted (Amended 2026-10-31)` · 2026-09-18
 - [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) — `Accepted` · 2026-09-18
+- [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) — `Accepted` · 2026-10-31
 - [Run Activity Events](2026-09-29-run-activity-events.md) — `Accepted` · 2026-09-29
 - [kora-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
 - [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) — `Accepted` · 2026-06-04
@@ -297,7 +298,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-16 | [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md) | Accepted (Amended 2026-10-29) | — |
 | 2026-09-17 | [Tenant MCP Servers as a Recognised Workload Class](2026-09-17-mcp-workload-class.md) | Proposed | — |
 | 2026-09-18 | [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) | Proposed | — |
-| 2026-09-18 | [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) | Accepted | — |
+| 2026-09-18 | [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) | Accepted (Amended 2026-10-31) | — |
 | 2026-09-18 | [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) | Accepted | — |
 | 2026-09-28 | [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) | Accepted | — |
 | 2026-09-29 | [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) | Accepted | — |
@@ -328,4 +329,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-26 | [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) | Proposed | — |
 | 2026-10-26 | [Release Asset Downloads Without Connection Selection](2026-10-26-release-asset-downloads-without-connection-selection.md) | Proposed | — |
 | 2026-10-27 | [Generic Webhook Source](2026-10-27-generic-webhook-source.md) | Accepted | — |
+| 2026-10-31 | [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
