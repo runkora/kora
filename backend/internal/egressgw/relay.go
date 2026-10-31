@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -31,11 +32,13 @@ const relayIdleTimeout = 10 * time.Minute
 // tunnel to the upstream and shuttles bytes both ways, with no TLS termination,
 // no HTTP parsing and no credential injection. Open and close are audit-logged.
 func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, claims *token.PlatformClaims, host, port string) {
+	// parseConnectAuthority has already checked port is numeric.
+	portNum, _ := strconv.Atoi(port)
 	ctx, span := tracer.Start(ctx, "egress.relay "+host,
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
 			attribute.String("server.address", host),
-			attribute.String("server.port", port),
+			attribute.Int("server.port", portNum),
 			attribute.String("kora.tenant_id", claims.Kora.TenantID),
 			attribute.String("kora.principal_id", claims.Subject),
 		))
