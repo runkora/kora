@@ -41,6 +41,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // authorizationHeader is the canonical HTTP header name injected by the proxy.
@@ -145,6 +146,8 @@ func headerValue(headers *ext_procv3.HttpHeaders, key string) string {
 // that run holds an active delegation, the X-Kora-Delegation-Token header —
 // into the upstream request.
 func (p *Processor) handleRequestHeaders(ctx context.Context, headers *ext_procv3.HttpHeaders) *ext_procv3.ProcessingResponse {
+	// Lookups made for this request join the trace of the call being proxied.
+	ctx = observability.ContextWithTraceParent(ctx, headerValue(headers, "traceparent"))
 	// Telemetry export is platform infrastructure: the collector gets neither
 	// the agent's token nor its delegation token.
 	if p.collector != "" && strings.EqualFold(headerValue(headers, ":authority"), p.collector) {

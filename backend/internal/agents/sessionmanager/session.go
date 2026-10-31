@@ -21,6 +21,7 @@ import (
 	execpb "github.com/runkora/kora/backend/internal/agents/sandbox/proto"
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -845,7 +846,8 @@ func (reg *Registry) awaitEgressReadyWithInterval(ctx context.Context, runID str
 // and returns (true, nil) when the command exits 0. A non-zero exit returns
 // (false, nil); an infrastructure error (dial/stream) returns (false, err).
 func (reg *Registry) sandboxExec(ctx context.Context, sandbox Sandbox, command string) (bool, error) {
-	conn, err := grpc.NewClient(sandbox.Endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(sandbox.Endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
 	if err != nil {
 		return false, fmt.Errorf("dial sandbox %s: %w", sandbox.Endpoint, err)
 	}
