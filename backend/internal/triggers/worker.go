@@ -195,9 +195,10 @@ func (w *Worker) drain(ctx context.Context) {
 	}
 }
 
-// dispatch runs one claimed fire in its own root trace. The poll that claimed
-// it records no span.
+// dispatch runs one claimed fire in the trace of the fire that queued it. The
+// poll that claimed it records no span.
 func (w *Worker) dispatch(ctx context.Context, p PendingDelivery, remaining []string) {
+	ctx = observability.ContextWithTraceParent(ctx, p.TraceParent)
 	ctx, span := triggersTracer.Start(ctx, "triggers.Worker.dispatch", trace.WithAttributes(
 		observability.TriggerIDKey.String(p.TriggerID),
 		observability.TriggerDeliveryIDKey.String(p.DeliveryID),

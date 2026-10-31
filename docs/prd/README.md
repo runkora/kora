@@ -55,4 +55,5 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Profile Page](profile-page.md) | Draft | [profile-page-architecture](../adr/2026-05-13-profile-page-architecture.md) |
 | [User App Preferences](user-app-preferences.md) | Approved | [user-app-preferences](../adr/2026-05-08-user-app-preferences.md) |
 | [White-labelling](white-labelling.md) | Approved | [white-labelling-theme](../adr/2026-10-12-white-labelling-theme.md) |
+| [Run Tracing](run-tracing.md) | Approved | [one-trace-per-run](../adr/2026-10-31-one-trace-per-run.md) |
 

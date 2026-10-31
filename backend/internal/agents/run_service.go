@@ -253,7 +253,9 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		// everywhere downstream.
 		StartedBy:      startedBy,
 		InitialMessage: req.InitialMessage,
+		TraceParent:    observability.TraceParent(ctx),
 	}
+	run.TraceID = observability.SampledTraceID(run.TraceParent)
 	span.SetAttributes(observability.RunIDKey.String(run.ID))
 	if startedBy != nil {
 		span.SetAttributes(observability.TriggerIDKey.String(startedBy.TriggerID))
@@ -347,6 +349,16 @@ func (s *RunService) loadRunForAction(ctx context.Context, runID, action string)
 		return nil, nil, err
 	}
 	return run, at, nil
+}
+
+// loadRunToAct is loadRunForAction for a write. The action stays in its caller's
+// trace and links to the run's (docs/adr/2026-10-31-one-trace-per-run.md).
+func (s *RunService) loadRunToAct(ctx context.Context, runID string) (*Run, *AgentType, error) {
+	run, at, err := s.loadRunForAction(ctx, runID, "write")
+	if err == nil {
+		observability.LinkToTraceParent(ctx, run.TraceParent)
+	}
+	return run, at, err
 }
 
 // GetRun retrieves a run by ID. Enforces tenant scoping against ctx claims and
@@ -484,7 +496,7 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 	)
 	defer span.End()
 
-	run, at, err := s.loadRunForAction(ctx, id, "write")
+	run, at, err := s.loadRunToAct(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -664,7 +676,7 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 		span.SetStatus(codes.Error, "authorize trigger attribution")
 		return err
 	}
-	run, at, err := s.loadRunForAction(ctx, runID, "write")
+	run, at, err := s.loadRunToAct(ctx, runID)
 	if err != nil {
 		return err
 	}
@@ -804,7 +816,7 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 	)
 	defer span.End()
 
-	run, at, err := s.loadRunForAction(ctx, runID, "write")
+	run, at, err := s.loadRunToAct(ctx, runID)
 	if err != nil {
 		return err
 	}

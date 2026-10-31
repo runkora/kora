@@ -36,6 +36,7 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 func main() {
@@ -170,7 +171,12 @@ func execOne(sb sandbox, command string) (exitCode int, err error) {
 		WorkingDir: workingDir(),
 	}
 
-	stream, err := client.Execute(execauth.WithToken(context.Background(), sb.token), req)
+	ctx := execauth.WithToken(context.Background(), sb.token)
+	// Claude Code's TRACEPARENT carries the run's trace into the sandbox call.
+	if tp := os.Getenv("TRACEPARENT"); tp != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "traceparent", tp)
+	}
+	stream, err := client.Execute(ctx, req)
 	if err != nil {
 		return 0, fmt.Errorf("execute: %w", err)
 	}
