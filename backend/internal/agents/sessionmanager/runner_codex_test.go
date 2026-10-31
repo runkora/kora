@@ -483,6 +483,48 @@ func TestCodexWriteConfig_BaseURLIncludesV1(t *testing.T) {
 	}
 }
 
+func TestCodexWriteConfig_ModelCatalogEnablesToolSearch(t *testing.T) {
+	r := NewCodexRunner(CodexRunnerConfig{
+		Logger:              logging.NewLoggerWithOutput(io.Discard),
+		RunID:               "test-run",
+		Model:               "anthropic/claude-sonnet-4-6",
+		InferenceGatewayURL: "http://kora-inference-gateway.kora-system.svc.cluster.local",
+	})
+
+	codexHome, err := r.writeCodexConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("writeCodexConfig() error = %v", err)
+	}
+	catalogPath := filepath.Join(codexHome, "model-catalog.json")
+
+	cfg, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
+	if err != nil {
+		t.Fatalf("read config.toml: %v", err)
+	}
+	want := fmt.Sprintf("model_catalog_json = %q", catalogPath)
+	head, _, _ := strings.Cut(string(cfg), "\n[")
+	if !strings.Contains(head, want) {
+		t.Errorf("config.toml top level does not contain %q, got:\n%s", want, cfg)
+	}
+
+	raw, err := os.ReadFile(catalogPath)
+	if err != nil {
+		t.Fatalf("read model-catalog.json: %v", err)
+	}
+	var catalog struct {
+		Models []struct {
+			Slug               string `json:"slug"`
+			SupportsSearchTool bool   `json:"supports_search_tool"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(raw, &catalog); err != nil {
+		t.Fatalf("parse model-catalog.json: %v", err)
+	}
+	if len(catalog.Models) != 1 || catalog.Models[0].Slug != "anthropic/claude-sonnet-4-6" || !catalog.Models[0].SupportsSearchTool {
+		t.Errorf("catalog = %s, want one model with the run's slug and supports_search_tool", raw)
+	}
+}
+
 func TestCodexWriteConfig_NamesTheProviderAfterTheBrand(t *testing.T) {
 	r := NewCodexRunner(CodexRunnerConfig{
 		Logger: logging.NewLoggerWithOutput(io.Discard),

@@ -1064,14 +1064,26 @@ func (r *CodexRunner) writeCodexConfig(workDir string) (string, error) {
 		return "", fmt.Errorf("create codex home dir: %w", err)
 	}
 
+	catalogPath, err := r.writeModelCatalog(codexHome)
+	if err != nil {
+		return "", err
+	}
+
 	// Build minimal config.toml: one custom provider pointing at the gateway.
 	// wire_api = "responses" is required — Codex only speaks the Responses API.
 	// env_key names an environment variable that holds the bearer token; the
 	// identity-proxy sidecar injects a platform token via KORA_INFERENCE_KEY,
 	// so the actual secret value never appears on the command line or in the file.
+	catalogLine := ""
+	if catalogPath != "" {
+		catalogLine = fmt.Sprintf("model_catalog_json = %q\n", catalogPath)
+	}
 	configContent := fmt.Sprintf(`model_provider = %q
 model = %q
-# Codex refuses to run a command unless it can sandbox it with bubblewrap, which
+# Codex knows no metadata for a model the gateway serves and falls back to a
+# profile without tool_search, which hides the MCP tools, including the runtime
+# server's provision_sandbox (docs/adr/2026-10-31-codex-model-catalog.md).
+%s# Codex refuses to run a command unless it can sandbox it with bubblewrap, which
 # this image does not carry: without this it panics with "bubblewrap is
 # unavailable" and no command runs at all. The platform's boundary is the sandbox
 # pod and the Landlock wrapper around this process, so a second sandbox nested
@@ -1116,13 +1128,53 @@ unified_exec = false
 shell_snapshot = false
 # The curated plugin sync clones github.com/openai/plugins at start.
 plugins = false
-%s`, codexProvider, r.cfg.Model, codexProvider, r.cfg.Brand.ProductName(), perRunURL, workDir, r.mcpServersTOML())
+%s`, codexProvider, r.cfg.Model, catalogLine, codexProvider, r.cfg.Brand.ProductName(), perRunURL, workDir, r.mcpServersTOML())
 
 	configPath := filepath.Join(codexHome, "config.toml")
 	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		return "", fmt.Errorf("write codex config.toml: %w", err)
 	}
 	return codexHome, nil
+}
+
+// codexCatalogInstructions stands in for Codex's bundled base prompt, which the
+// catalog entry replaces; the run's system prompt still arrives as developerInstructions.
+const codexCatalogInstructions = "You are a coding agent. Use the available tools to complete the user's task."
+
+// writeModelCatalog writes a one-model catalog for Codex's model_catalog_json and
+// returns its path, or "" when the run names no model. Field names follow Codex's
+// ModelInfo at the pinned CLI version; only supports_search_tool differs from the
+// fallback metadata Codex uses for a model it does not know.
+func (r *CodexRunner) writeModelCatalog(codexHome string) (string, error) {
+	if r.cfg.Model == "" {
+		return "", nil
+	}
+	catalog := map[string]any{"models": []map[string]any{{
+		"slug":                         r.cfg.Model,
+		"display_name":                 r.cfg.Model,
+		"supported_reasoning_levels":   []any{},
+		"shell_type":                   "default",
+		"visibility":                   "none",
+		"supported_in_api":             true,
+		"priority":                     99,
+		"base_instructions":            codexCatalogInstructions,
+		"supports_reasoning_summaries": false,
+		"support_verbosity":            false,
+		"truncation_policy":            map[string]any{"mode": "bytes", "limit": 10000},
+		"supports_parallel_tool_calls": false,
+		"context_window":               272000,
+		"experimental_supported_tools": []any{},
+		"supports_search_tool":         true,
+	}}}
+	data, err := json.Marshal(catalog)
+	if err != nil {
+		return "", fmt.Errorf("marshal codex model catalog: %w", err)
+	}
+	path := filepath.Join(codexHome, "model-catalog.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", fmt.Errorf("write codex model catalog: %w", err)
+	}
+	return path, nil
 }
 
 // mustMarshal marshals v to JSON, panicking on error (only called with known-good types).
