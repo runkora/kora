@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -122,5 +123,13 @@ func TestSystemOne_TimeoutIsUpstreamUnavailable(t *testing.T) {
 	_, err := c.SystemOne(context.Background(), "tok", routingRequest())
 	if !errors.Is(err, ErrUpstreamUnavailable) {
 		t.Errorf("err = %v, want ErrUpstreamUnavailable", err)
+	}
+}
+
+func TestSystemOne_BadBaseURLIsNotUpstreamUnavailable(t *testing.T) {
+	c := NewClient("http://bad host", logging.NewLoggerWithOutput(io.Discard))
+	_, err := c.SystemOne(context.Background(), "tok", routingRequest())
+	if !errors.Is(err, httpclient.ErrBuildRequest) || errors.Is(err, ErrUpstreamUnavailable) {
+		t.Errorf("err = %v, want ErrBuildRequest only", err)
 	}
 }

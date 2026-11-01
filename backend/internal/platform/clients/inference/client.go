@@ -119,6 +119,9 @@ func (c *Client) SystemOne(ctx context.Context, bearer string, req SystemOneRequ
 		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/v1/systemone", Header: header, Body: body,
 	})
 	defer span.End()
+	if errors.Is(err, httpclient.ErrBuildRequest) {
+		return SystemOneResponse{}, err
+	}
 	if err != nil {
 		return SystemOneResponse{}, fmt.Errorf("%w: %w", ErrUpstreamUnavailable, err)
 	}
