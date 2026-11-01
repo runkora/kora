@@ -149,6 +149,7 @@ func spanAttrStringCtxErr(m dsl.Matcher) {
 // spanAttrKeyVocabulary flags a string literal used as an attribute key. Keys
 // come from the semconv package or the constants in
 // internal/platform/observability, so one value has one key in every service.
+// It matches literals only; a key held in a local const is left to review.
 //
 // Enforces: docs/adr/2026-03-21-opentelemetry-observability-discipline.md, Amendment 1.
 //
@@ -164,7 +165,8 @@ func spanAttrKeyVocabulary(m dsl.Matcher) {
 	m.Match(
 		`attribute.String($k, $_)`, `attribute.Int($k, $_)`, `attribute.Int64($k, $_)`,
 		`attribute.Bool($k, $_)`, `attribute.Float64($k, $_)`, `attribute.StringSlice($k, $_)`,
-		`attribute.Key($k)`,
+		`attribute.IntSlice($k, $_)`, `attribute.Int64Slice($k, $_)`, `attribute.BoolSlice($k, $_)`,
+		`attribute.Float64Slice($k, $_)`, `attribute.Key($k)`, `attribute.KeyValue{Key: $k, $*_}`,
 	).
 		Where(m["k"].Text.Matches(`^"`)).
 		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: attribute key $k is a literal. ` +
