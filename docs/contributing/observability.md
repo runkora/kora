@@ -113,7 +113,7 @@ func (s *Service) ProcessData(ctx context.Context, data Data) error {
 }
 ```
 
-`token.WithClaims` puts the caller's tenant and run claim in the context, and the middleware that names the server span adds a run ID from the route, so a request handler calls `observability.WithRun` or `observability.WithTenant` only for an ID it learns itself.
+`token.WithClaims` puts the caller's tenant and run claim in the context. The middleware that names the server span adds the route's run ID. A handler calls `observability.WithRun` or `observability.WithTenant` only for an ID it learns itself.
 
 See [tracing.md](tracing.md) for detailed usage patterns.
 
