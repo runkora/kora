@@ -88,8 +88,6 @@ agents:
     # Restricts each agent pod's session-manager port to the kora-agents
     # SPIFFE principal at the mesh layer. Requires SPIFFE.
     authorizationPolicyEnabled: true
-    # Heap cap (MB) for Node processes a run starts on its agent pod. 0 disables it.
-    nodeMaxOldSpaceMB: 512
     # enforce keeps agents off a node whose kernel lacks Landlock ABI v2.
     # bestEffort runs them with whatever confinement the kernel supports.
     landlock: enforce

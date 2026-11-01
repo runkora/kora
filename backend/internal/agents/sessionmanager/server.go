@@ -60,10 +60,6 @@ type ControllerConfig struct {
 	// disables its telemetry.
 	OTLPEndpoint string
 
-	// NodeMaxOldSpaceMB caps the heap of Node processes a run starts on the agent
-	// pod, which shares one memory limit across every run. Zero disables the cap.
-	NodeMaxOldSpaceMB int
-
 	// Landlock is the mode kora-session-runner applies to every run.
 	Landlock landlockmode.Mode
 
@@ -497,9 +493,6 @@ func (c *Controller) runEnv(runID, runToken string) []string {
 	}
 	if c.cfg.Landlock != "" {
 		env = append(env, landlockmode.EnvVar+"="+string(c.cfg.Landlock))
-	}
-	if c.cfg.NodeMaxOldSpaceMB > 0 {
-		env = append(env, fmt.Sprintf("NODE_OPTIONS=--max-old-space-size=%d", c.cfg.NodeMaxOldSpaceMB))
 	}
 	return append(env, runfs.InstallEnv(runfs.LocalDir(workspace), os.Getenv("PATH"))...)
 }

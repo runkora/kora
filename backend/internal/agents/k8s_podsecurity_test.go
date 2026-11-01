@@ -214,24 +214,6 @@ func TestSessionManagerStatefulSet_UsesConfiguredSystemNamespace(t *testing.T) {
 	}
 }
 
-// The session-manager caps the Node heap of its runs from this value, so an
-// install's setting must reach every agent pod.
-func TestSessionManagerStatefulSet_PassesNodeHeapCap(t *testing.T) {
-	p := podSecurityProvisioner()
-	p.cfg.NodeMaxOldSpaceMB = 768
-	at := AgentType{Slug: "coder", TenantID: "acme"}
-	ss := p.buildSessionManagerStatefulSet(at, "ns", podLabels(at))
-	for _, e := range ss.Spec.Template.Spec.Containers[0].Env {
-		if e.Name == "KORA_NODE_MAX_OLD_SPACE_MB" {
-			if e.Value != "768" {
-				t.Errorf("KORA_NODE_MAX_OLD_SPACE_MB = %q, want 768", e.Value)
-			}
-			return
-		}
-	}
-	t.Error("session-manager env is missing KORA_NODE_MAX_OLD_SPACE_MB")
-}
-
 // The install's Landlock mode must reach every agent pod.
 func TestSessionManagerStatefulSet_PassesLandlockMode(t *testing.T) {
 	p := podSecurityProvisioner()

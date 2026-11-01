@@ -592,11 +592,6 @@ agents:
     # Git author name inside the sandbox. Empty means kora-agent.
     sandboxGitAuthorName: ""
     sandboxGitAuthorEmail: ""
-    # -- Heap cap in MB for Node processes an agent run starts on its agent pod.
-    # The pod's runs share one memory limit, so a runaway Node tool fails with a
-    # heap OOM instead of taking every run with it. The agent harnesses and
-    # sandbox commands are not capped. 0 disables the cap.
-    nodeMaxOldSpaceMB: 512
   # -- Raw config merged last over kora-agents' rendered config files, keyed by
   # config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys
   # follow the Go config structs; an unknown key fails startup.

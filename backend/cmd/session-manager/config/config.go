@@ -66,11 +66,6 @@ type Config struct {
 		// whose kernel cannot confine it (see landlockmode). kora-agents sets it
 		// through KORA_LANDLOCK from the chart's agents.landlock.
 		Landlock string `yaml:"landlock"`
-
-		// NodeMaxOldSpaceMB is the --max-old-space-size set in each run's
-		// NODE_OPTIONS. kora-agents sets it per install through
-		// KORA_NODE_MAX_OLD_SPACE_MB; zero adds no NODE_OPTIONS.
-		NodeMaxOldSpaceMB int `yaml:"nodeMaxOldSpaceMB"`
 	} `yaml:"runner"`
 
 	Claude struct {
@@ -169,13 +164,6 @@ func applyEnvOverrides(cfg *Config, getenv func(string) string) error {
 	}
 	if _, err := landlockmode.Parse(cfg.Runner.Landlock); err != nil {
 		return err
-	}
-	if v := getenv("KORA_NODE_MAX_OLD_SPACE_MB"); v != "" {
-		mb, err := strconv.Atoi(v)
-		if err != nil || mb < 0 {
-			return fmt.Errorf("KORA_NODE_MAX_OLD_SPACE_MB must be a non-negative integer, got %q", v)
-		}
-		cfg.Runner.NodeMaxOldSpaceMB = mb
 	}
 	return nil
 }

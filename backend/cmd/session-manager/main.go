@@ -130,7 +130,6 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 		InferenceGatewayURL: cfg.InferenceGateway.URL,
 		ToolGatewayURL:      cfg.ToolGateway.URL,
 		OTLPEndpoint:        observability.DefaultConfig.OTLPEndpoint,
-		NodeMaxOldSpaceMB:   cfg.Runner.NodeMaxOldSpaceMB,
 		Landlock:            landlock,
 		IsolationErr:        isolationErr,
 		Brand:               b,
