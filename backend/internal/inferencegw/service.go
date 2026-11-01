@@ -151,7 +151,7 @@ func (s *Service) ChatCompletion(
 	ctx context.Context,
 	params openai.ChatCompletionNewParams,
 ) (*openai.ChatCompletion, error) {
-	ctx, span := tracer.Start(ctx, "chat "+params.Model,
+	ctx, span := tracer.Start(ctx, "chat",
 		trace.WithAttributes(
 			observability.GenAIOperationNameKey.String("chat"),
 			observability.GenAIRequestModelKey.String(params.Model),
@@ -205,6 +205,7 @@ func (s *Service) ChatCompletion(
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
+	nameModelSpan(span, "chat", params.Model)
 
 	// ── 3b. Policy-filter targets for wildcard routing ────────────────────────
 	if s.router.IsWildcardModel(params.Model) {
@@ -303,7 +304,7 @@ func (s *Service) ChatCompletionStream(
 ) (<-chan OpenAIStreamResult, error) {
 	// Span must be ended manually (not via defer) because it outlives the
 	// function — it is closed inside the goroutine once the stream drains.
-	ctx, span := tracer.Start(ctx, "chat "+params.Model,
+	ctx, span := tracer.Start(ctx, "chat",
 		trace.WithAttributes(
 			observability.GenAIOperationNameKey.String("chat"),
 			observability.GenAIRequestModelKey.String(params.Model),
@@ -356,6 +357,7 @@ func (s *Service) ChatCompletionStream(
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
+	nameModelSpan(span, "chat", params.Model)
 
 	// ── 3b. Policy-filter targets for wildcard routing ────────────────────────
 	if s.router.IsWildcardModel(params.Model) {
@@ -1684,7 +1686,7 @@ func (s *Service) Embeddings(
 	ctx context.Context,
 	params openai.EmbeddingNewParams,
 ) (*openai.CreateEmbeddingResponse, error) {
-	ctx, span := tracer.Start(ctx, "embeddings "+params.Model,
+	ctx, span := tracer.Start(ctx, "embeddings",
 		trace.WithAttributes(observability.GenAIOperationNameKey.String("embeddings"), observability.GenAIRequestModelKey.String(params.Model)),
 	)
 	defer span.End()
@@ -1727,6 +1729,7 @@ func (s *Service) Embeddings(
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
+	nameModelSpan(span, "embeddings", params.Model)
 
 	resp, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, CapabilityEmbedding, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (*openai.CreateEmbeddingResponse, error) {
@@ -1797,7 +1800,7 @@ func (s *Service) Embeddings(
 // rewritten; the upstream body is returned unchanged. Usage is priced from the
 // catalog: input tokens at the input price, output tokens at the output price.
 func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*SystemOneResult, error) {
-	ctx, span := tracer.Start(ctx, "chat "+model,
+	ctx, span := tracer.Start(ctx, "chat",
 		trace.WithAttributes(observability.GenAIOperationNameKey.String("chat"), observability.GenAIRequestModelKey.String(model)),
 	)
 	defer span.End()
@@ -1840,6 +1843,7 @@ func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*Sy
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
+	nameModelSpan(span, "chat", model)
 
 	result, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, CapabilityDecision, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (*SystemOneResult, error) {
@@ -1909,7 +1913,7 @@ func (s *Service) Responses(
 	ctx context.Context,
 	params responses.ResponseNewParams,
 ) (*responses.Response, error) {
-	ctx, span := tracer.Start(ctx, "chat "+params.Model,
+	ctx, span := tracer.Start(ctx, "chat",
 		trace.WithAttributes(
 			observability.GenAIOperationNameKey.String("chat"),
 			observability.GenAIRequestModelKey.String(params.Model),
@@ -1956,6 +1960,7 @@ func (s *Service) Responses(
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
+	nameModelSpan(span, "chat", params.Model)
 
 	result, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, CapabilityChat, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (*ResponsesResult, error) {
@@ -2039,7 +2044,7 @@ func (s *Service) ResponsesStream(
 	ctx context.Context,
 	params responses.ResponseNewParams,
 ) (<-chan ResponsesStreamResult, error) {
-	ctx, span := tracer.Start(ctx, "chat "+params.Model,
+	ctx, span := tracer.Start(ctx, "chat",
 		trace.WithAttributes(
 			observability.GenAIOperationNameKey.String("chat"),
 			observability.GenAIRequestModelKey.String(params.Model),
@@ -2088,6 +2093,7 @@ func (s *Service) ResponsesStream(
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
+	nameModelSpan(span, "chat", params.Model)
 
 	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, CapabilityChat, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (<-chan ResponsesStreamResult, error) {
@@ -2259,7 +2265,7 @@ func (s *Service) AnthropicMessages(
 	ctx context.Context,
 	params anthropic.MessageNewParams,
 ) (*anthropic.Message, error) {
-	ctx, span := tracer.Start(ctx, "chat "+params.Model,
+	ctx, span := tracer.Start(ctx, "chat",
 		trace.WithAttributes(
 			observability.GenAIOperationNameKey.String("chat"),
 			observability.GenAIRequestModelKey.String(params.Model),
@@ -2308,6 +2314,7 @@ func (s *Service) AnthropicMessages(
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
+	nameModelSpan(span, "chat", params.Model)
 
 	// Policy-filter targets for wildcard routing.
 	if s.router.IsWildcardModel(params.Model) {
@@ -2395,7 +2402,7 @@ func (s *Service) AnthropicMessagesStream(
 	ctx context.Context,
 	params anthropic.MessageNewParams,
 ) (<-chan AnthropicStreamEvent, error) {
-	ctx, span := tracer.Start(ctx, "chat "+params.Model,
+	ctx, span := tracer.Start(ctx, "chat",
 		trace.WithAttributes(
 			observability.GenAIOperationNameKey.String("chat"),
 			observability.GenAIRequestModelKey.String(params.Model),
@@ -2446,6 +2453,7 @@ func (s *Service) AnthropicMessagesStream(
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
+	nameModelSpan(span, "chat", params.Model)
 
 	// Policy-filter targets for wildcard routing.
 	if s.router.IsWildcardModel(params.Model) {
@@ -2672,4 +2680,10 @@ func (s *Service) AnalyticsPrincipalByID(ctx context.Context, principalID string
 		return AnalyticsResponse{}, fmt.Errorf("analytics principal by id: %w", err)
 	}
 	return resp, nil
+}
+
+// nameModelSpan names a model call span once routing has matched the model to
+// a catalog entry, so an unknown client-supplied model never reaches a span name.
+func nameModelSpan(span trace.Span, operation, model string) {
+	span.SetName(operation + " " + model)
 }
