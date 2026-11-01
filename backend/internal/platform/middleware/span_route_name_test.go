@@ -105,3 +105,27 @@ func TestSpanRouteName(t *testing.T) {
 		})
 	}
 }
+
+func TestRouteRunID(t *testing.T) {
+	tests := []struct {
+		pattern, path, want string
+	}{
+		{"/session/{runID}/messages", "/session/r1/messages", "r1"},
+		{"/run/{run_id}/v1/messages", "/run/r1/v1/messages", "r1"},
+		{"/api/v1/runs/{id}/messages", "/api/v1/runs/r1/messages", "r1"},
+		{"/internal/runs/{id}", "/internal/runs/r1", "r1"},
+		{"/api/v1/pats/{id}", "/api/v1/pats/p1", ""},
+		{"/api/v1/runs", "/api/v1/runs", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.pattern, func(t *testing.T) {
+			var got string
+			mux := http.NewServeMux()
+			mux.HandleFunc(tt.pattern, func(_ http.ResponseWriter, r *http.Request) { got = routeRunID(r) })
+			mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, tt.path, nil))
+			if got != tt.want {
+				t.Errorf("routeRunID = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
