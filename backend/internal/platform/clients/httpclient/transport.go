@@ -158,7 +158,7 @@ type tracingTransport struct {
 // RoundTrip implements http.RoundTripper. It opens a client span, injects
 // trace headers, delegates to the inner transport, and records the result.
 func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// A call with no parent span records no span, the same rule as Base.Do.
+	// A call with no parent span records no span.
 	if !trace.SpanContextFromContext(req.Context()).IsValid() {
 		return t.inner.RoundTrip(req)
 	}

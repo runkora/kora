@@ -110,9 +110,7 @@ func (e *engine) refreshAll(ctx context.Context) {
 	}
 }
 
-// refresh polls one tenant's bundle with no parent span, so the poll itself
-// records none. A summary span marks a changed bundle or a failed poll; the
-// policy service counts every poll.
+// refresh records a summary span only for a changed bundle or a failed poll.
 func (e *engine) refresh(ctx context.Context, tenantID string) {
 	start := time.Now()
 	changed, err := e.loadBundle(ctx, tenantID)

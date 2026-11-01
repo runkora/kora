@@ -52,8 +52,7 @@ func (w *PricingSyncWorker) Start(ctx context.Context) {
 	}
 }
 
-// sync is one unit of work, so it roots a trace that parents the catalog fetch
-// and the price writes.
+// sync roots a trace over one catalog fetch and its price writes.
 func (w *PricingSyncWorker) sync(ctx context.Context) {
 	start := time.Now()
 	ctx, span := tracer.Start(ctx, "inferencegw.PricingSyncWorker.sync")

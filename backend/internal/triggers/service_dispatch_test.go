@@ -523,8 +523,6 @@ func TestDispatchPending_MintKeepsFailing_OutcomeShowsMintError(t *testing.T) {
 	}
 }
 
-// A fire whose run fails to start marks the span it dispatched under, so a
-// failed fire shows as an error at the root of its trace.
 func TestDispatchPending_FailedStartMarksTheSpan(t *testing.T) {
 	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
 	deps.agents.status = http.StatusInternalServerError

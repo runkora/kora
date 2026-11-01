@@ -157,9 +157,7 @@ func (c *Client) RegisterWithPrune(ctx context.Context, service string, routes [
 // register makes exactly one registration call. Failure is returned to the
 // caller, which owns whatever retry policy it wants.
 //
-// Registrations run from loops and hooks with no parent span, so Base.Do
-// records none. A changed or failed registration gets a summary span instead;
-// a repeat of the last accepted one is a heartbeat and gets none.
+// A changed or failed registration gets a summary span; a repeat is a heartbeat and gets none.
 func (c *Client) register(ctx context.Context, reg registrationRequest) error {
 	raw, err := json.Marshal(reg)
 	if err != nil {

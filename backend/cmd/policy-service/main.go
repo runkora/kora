@@ -274,9 +274,7 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 	)
 }
 
-// notTimerPoll leaves the calls other services make on a timer untraced: the
-// OPA bundle polls and route scope re-registration. The route metrics still
-// count each one, and a changed registration keeps the caller's summary span.
+// notTimerPoll leaves OPA bundle polls and route scope re-registration untraced.
 func notTimerPoll(basePath string) mw.TraceFilter {
 	base := strings.TrimSuffix(basePath, "/")
 	return func(r *http.Request) bool {

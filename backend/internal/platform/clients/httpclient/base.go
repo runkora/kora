@@ -223,10 +223,8 @@ func (b *Base) RecordError(span trace.Span, sentinel error) error {
 	return sentinel
 }
 
-// SpanSince records a span that began at start for work that ran untraced and
-// turned out worth tracing, such as a periodic call that changed something or
-// failed. It starts a root when ctx has no parent. A non-nil err is recorded
-// with sentinel as the static status.
+// SpanSince records a span from start for untraced work that turned out worth tracing.
+// A non-nil err is recorded with sentinel as the static status.
 func (b *Base) SpanSince(ctx context.Context, spanName string, start time.Time, err, sentinel error) {
 	_, span := b.tracer.Start(ctx, spanName, trace.WithTimestamp(start))
 	defer span.End()
