@@ -206,7 +206,7 @@ func (w *Worker) drain(ctx context.Context) {
 // dispatch runs one claimed fire in its own root trace. The poll that claimed
 // it records no span.
 func (w *Worker) dispatch(ctx context.Context, p PendingDelivery, remaining []string) {
-	ctx, span := triggersTracer.Start(ctx, "triggers.Worker.dispatch", trace.WithAttributes(
+	ctx, span := triggersTracer.Start(observability.WithTenant(ctx, p.TenantID), "triggers.Worker.dispatch", trace.WithAttributes(
 		observability.TriggerIDKey.String(p.TriggerID),
 		observability.TriggerDeliveryIDKey.String(p.DeliveryID),
 	))

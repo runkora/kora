@@ -13,6 +13,7 @@ import (
 
 // SpanRouteName names the request's span after the matched route template, with mountPath and a stripped run prefix added back.
 // TracingMiddleware runs before routing and sees only the catch-all pattern.
+// A run ID in the route is also put in the context, for the spans the handler starts.
 func SpanRouteName(mountPath string) MiddlewareHandler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,6 +28,7 @@ func SpanRouteName(mountPath string) MiddlewareHandler {
 				span.SetAttributes(semconv.HTTPRoute(route))
 				if runID = cmp.Or(runID, routeRunID(r)); runID != "" {
 					span.SetAttributes(observability.RunIDKey.String(runID))
+					r = r.WithContext(observability.WithRun(r.Context(), runID))
 				}
 			}
 			next.ServeHTTP(w, r)

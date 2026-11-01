@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -154,6 +155,7 @@ func (s *Service) recordDispatchFailure(ctx context.Context, t Trigger, delivery
 // recordStarted records a delivery that started or joined runID. status is
 // RunStatusDispatched for a new run and RunStatusJoined for a joined one.
 func (s *Service) recordStarted(ctx context.Context, t Trigger, deliveryID, status, runID string) {
+	ctx = observability.WithRun(ctx, runID)
 	s.outcomes.insert(ctx, &DeliveryRun{
 		TenantID: t.TenantID, DeliveryID: deliveryID,
 		TriggerID: t.ID, TriggerName: t.Name,

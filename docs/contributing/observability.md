@@ -99,14 +99,12 @@ import "go.opentelemetry.io/otel"
 
 func (s *Service) ProcessData(ctx context.Context, data Data) error {
     tracer := otel.Tracer("github.com/runkora/kora/backend/internal/myfeature")
+    // Every span started from ctx, including database and HTTP client spans, records the run.
+    ctx = observability.WithRun(ctx, data.RunID)
     ctx, span := tracer.Start(ctx, "myfeature.Service.ProcessData")
     defer span.End()
-    
-    // Add custom attributes
-    span.SetAttributes(
-        observability.RunIDKey.String(data.RunID),
-        observability.TenantIDKey.String(data.TenantID),
-    )
+
+    span.SetAttributes(observability.AgentSlugKey.String(data.AgentSlug))
     
     // Your business logic here
     // Pass ctx to downstream calls for trace propagation
@@ -114,6 +112,8 @@ func (s *Service) ProcessData(ctx context.Context, data Data) error {
     return nil
 }
 ```
+
+`token.WithClaims` puts the caller's tenant and run claim in the context, and the middleware that names the server span adds a run ID from the route, so a request handler calls `observability.WithRun` or `observability.WithTenant` only for an ID it learns itself.
 
 See [tracing.md](tracing.md) for detailed usage patterns.
 

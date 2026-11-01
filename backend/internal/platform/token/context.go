@@ -1,6 +1,10 @@
 package token
 
-import "context"
+import (
+	"context"
+
+	"github.com/runkora/kora/backend/internal/platform/observability"
+)
 
 // claimsContextKey is the unexported context key under which verified
 // PlatformClaims are stored by AuthMiddleware. Unexported prevents collisions
@@ -8,8 +12,12 @@ import "context"
 type claimsContextKey struct{}
 
 // WithClaims returns a child context carrying the verified platform claims.
-// Called by AuthMiddleware after successful JWT verification.
+// Called by AuthMiddleware after successful JWT verification. The claims' tenant
+// and run also go on every span started from the returned context.
 func WithClaims(ctx context.Context, claims *PlatformClaims) context.Context {
+	if claims != nil {
+		ctx = observability.WithTenant(observability.WithRun(ctx, claims.Kora.Claims["run_id"]), claims.Kora.TenantID)
+	}
 	return context.WithValue(ctx, claimsContextKey{}, claims)
 }
 

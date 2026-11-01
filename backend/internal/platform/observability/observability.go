@@ -93,6 +93,7 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	)
 
 	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSpanProcessor(attributionProcessor{}),
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sampler),
