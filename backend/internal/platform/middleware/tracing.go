@@ -20,9 +20,20 @@ import (
 // include trace_id and span_id for correlation.
 //
 // Trace context propagation follows W3C TraceContext standard (configured in observability.Setup).
-func TracingMiddleware(serviceName string) Middleware {
+//
+// A request any filter rejects is served untraced unless its incoming parent is sampled.
+func TracingMiddleware(serviceName string, filters ...TraceFilter) Middleware {
 	return NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			propagatedCtx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+			if !trace.SpanContextFromContext(propagatedCtx).IsSampled() {
+				for _, traced := range filters {
+					if !traced(r) {
+						next.ServeHTTP(w, r)
+						return
+					}
+				}
+			}
 			// Get the global tracer for this service
 			tracer := otel.Tracer(serviceName)
 
@@ -33,11 +44,6 @@ func TracingMiddleware(serviceName string) Middleware {
 				// Fallback to URL path if pattern is not available
 				routePattern = r.URL.Path
 			}
-
-			// Extract trace context from incoming request headers (W3C TraceContext format)
-			// Then start a new span for this HTTP request, named "{method} {route}"
-			// per the HTTP semantic conventions; SpanRouteName renames it once a route matches.
-			propagatedCtx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
 
 			// Build span attributes following OpenTelemetry semantic conventions
 			attrs := []trace.SpanStartOption{
@@ -107,6 +113,9 @@ func TracingMiddleware(serviceName string) Middleware {
 		})
 	})
 }
+
+// TraceFilter reports whether TracingMiddleware should trace a request.
+type TraceFilter func(*http.Request) bool
 
 // tracingResponseWriter wraps http.ResponseWriter to capture status code for tracing
 type tracingResponseWriter struct {

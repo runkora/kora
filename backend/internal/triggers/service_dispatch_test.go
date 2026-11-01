@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
 
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 // errTriggerSideFailure stands for a dispatch failure that says something about
@@ -516,5 +520,27 @@ func TestDispatchPending_MintKeepsFailing_OutcomeShowsMintError(t *testing.T) {
 	}
 	if n := deps.minter.callCount(); n < 2 {
 		t.Errorf("mint calls = %d, want a retry", n)
+	}
+}
+
+func TestDispatchPending_FailedStartMarksTheSpan(t *testing.T) {
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
+	deps.agents.status = http.StatusInternalServerError
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "main")})
+
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	ctx, span := provider.Tracer("test").Start(context.Background(), "dispatch")
+	claimed, err := deps.repo.ClaimPending(ctx, 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimPending = %d, %v; want one fire", len(claimed), err)
+	}
+	svc.DispatchPending(ctx, claimed[0])
+	span.End()
+
+	got := recorder.Ended()[0].Status()
+	if got.Code != codes.Error || got.Description != errDispatchFailed.Error() {
+		t.Errorf("span status = %+v, want error %q", got, errDispatchFailed)
 	}
 }
