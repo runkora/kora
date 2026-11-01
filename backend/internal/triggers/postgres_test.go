@@ -1136,6 +1136,10 @@ func TestPostgres_DrainPendingLeavesClaimedRows(t *testing.T) {
 			t.Fatalf("EnqueuePending: %v", err)
 		}
 	}
+	// This test is about a claimed row surviving a drain, not about tie order. On
+	// a tie ClaimPending takes the lower id, which is random here, so without
+	// distinct timestamps it would claim `waiting` roughly half the time.
+	spaceEnqueuedAt(t, r, claimed.ID, waiting.ID)
 	if got, err := r.ClaimPending(ctx, 1); err != nil || len(got) != 1 || got[0].ID != claimed.ID {
 		t.Fatalf("ClaimPending = %v, %v; want the oldest row claimed", got, err)
 	}
@@ -2636,6 +2640,25 @@ func shareEnqueuedAt(t *testing.T, r *postgresRepository, ids ...string) {
 	`, ids)
 	if err != nil {
 		t.Fatalf("share enqueued_at: %v", err)
+	}
+}
+
+// spaceEnqueuedAt gives each id a distinct enqueued_at, oldest first, so a test
+// about age does not also depend on how the id tiebreaker resolves it. The
+// counterpart to shareEnqueuedAt, and needed for the same reason: now() is the
+// transaction timestamp, so two rows written back to back can land on one
+// microsecond and tie.
+func spaceEnqueuedAt(t *testing.T, r *postgresRepository, ids ...string) {
+	t.Helper()
+	for i, id := range ids {
+		_, err := r.pool.Exec(context.Background(), `
+			UPDATE trigger_pending_deliveries
+			SET    enqueued_at = now() - make_interval(secs => $2)
+			WHERE  id = $1
+		`, id, float64(len(ids)-i))
+		if err != nil {
+			t.Fatalf("space enqueued_at for %s: %v", id, err)
+		}
 	}
 }
 
