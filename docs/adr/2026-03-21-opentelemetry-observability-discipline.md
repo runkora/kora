@@ -222,7 +222,7 @@ Legitimate exceptions (e.g. the `httpclient/base.go` implementation itself) are 
 
 The following files implement this ADR:
 
-- `rules/kora_rules.go`: `ruleguard` AST matchers for all five span discipline rules
+- `rules/kora_rules.go`: `ruleguard` AST matchers for the span discipline rules
 - `.golangci.yml` — `depguard` rule `no-otel-span-mgmt-in-service-clients`
 - `backend/internal/platform/clients/httpclient/base.go` — canonical span lifecycle owner
 
@@ -249,7 +249,7 @@ The following files implement this ADR:
 
 Touches none of the three questions. Span attributes and span names are observability data and carry no identity, grant or credential.
 
-**Context:** A live trace audit on the local cluster found five span name styles: `METHOD route`, `pkg.Func`, `pkg.Type.Method`, dotted lowercase (`budget.quota_check`, `mcp.tools.call`, `db.query`) and `METHOD host[:port]`. One identifier has several keys across services:
+**Context:** Spans use five name styles: `METHOD route`, `pkg.Func`, `pkg.Type.Method`, dotted lowercase (`budget.quota_check`, `mcp.tools.call`, `db.query`) and `METHOD host[:port]`. One identifier has several keys across services:
 
 - Run ID: `run_id` (kora-agents, identity) and `kora.run_id` (Claude Code, egress gateway). Notifier, summarizer and inference gateway spans carry it only inside `url.path`.
 - Tenant ID: `tenant_id` and `kora.tenant_id`.
@@ -257,7 +257,7 @@ Touches none of the three questions. Span attributes and span names are observab
 - Model: `model` and `gen_ai.request.model`.
 - Trigger: `trigger_id` appears only on `agents.StartRun`, and `delivery_id` appears on no span.
 
-Tracer scope names are `kora.agents`, `kora.identity-proxy`, `inferencegw`, `identity`, `kora` and the service name passed to `TracingMiddleware`. The pgx tracer uses the pre-1.26 database keys `db.statement`, `db.operation` and `db.system` and sets neither `db.namespace` nor `server.address` (`internal/platform/storage/postgres_pool.go`). Services import `go.opentelemetry.io/otel/semconv/v1.24.0`. The session-manager sets Claude Code's resource attributes to `kora.run_id` and `kora.tenant_id` (`internal/agents/sessionmanager/server.go:792`). `httpclient.Base.Do` takes a span name from each typed client (`sessionmanager.Client.CreateSession`), and `NewTracingTransport` names client spans `{METHOD} {host}` (`internal/platform/clients/httpclient/base.go:277`, `transport.go:160`).
+Tracer scope names are `kora.agents`, `kora.identity-proxy`, `inferencegw`, `identity`, `kora` and the service name passed to `TracingMiddleware`. The pgx tracer uses the pre-1.26 database keys `db.statement`, `db.operation` and `db.system` and sets neither `db.namespace` nor `server.address` (`internal/platform/storage/postgres_pool.go`). Services import `go.opentelemetry.io/otel/semconv/v1.24.0`. The session-manager sets Claude Code's resource attributes to `kora.run_id` and `kora.tenant_id` (`internal/agents/sessionmanager/server.go`). `httpclient.Base.Do` takes a span name from each typed client (`sessionmanager.Client.CreateSession`), and `NewTracingTransport` names client spans `{METHOD} {host}` (`internal/platform/clients/httpclient/base.go`, `transport.go`).
 
 **Decision:**
 
@@ -276,7 +276,7 @@ Tracer scope names are `kora.agents`, `kora.identity-proxy`, `inferencegw`, `ide
 4. **Semantic convention keys:** These conventions cover kora's spans:
    - HTTP server spans: `http.request.method`, `http.route`, `http.response.status_code`, `url.path`, `url.scheme`, `server.address`, `server.port`, `client.address`, `user_agent.original`.
    - HTTP client spans: `http.request.method`, `url.full` (redacted), `url.template`, `server.address`, `server.port`, `http.response.status_code`. `http.route` is a server key and does not appear on a client span.
-   - Database spans: `db.system.name` (`postgresql`), `db.namespace`, `db.operation.name`, `db.collection.name`, `db.query.text` (when query capture is on), `server.address`, `server.port`. `db.operation.name` is set only when the caller knows the operation. It is not derived from the pgx command tag.
+   - Database spans: `db.system.name` (`postgresql`), `db.namespace`, `db.query.text` (when query capture is on), `server.address`, `server.port`.
    - Model calls: `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`. These replace `model`.
    - MCP calls: `mcp.method.name`, `gen_ai.tool.name`, `mcp.session.id`, `jsonrpc.request.id`.
    - gRPC: the `rpc.*` keys that otelgrpc sets.
@@ -284,15 +284,15 @@ Tracer scope names are `kora.agents`, `kora.identity-proxy`, `inferencegw`, `ide
    - The `gen_ai.*` and `mcp.*` keys have development status and have no constants in the Go semconv package. `internal/platform/observability` defines them once as constants.
 5. **Run ID placement:** Every span that does work for a run carries `kora.run.id`. This covers the kora-agents run and scheduler spans, every session-manager server and client span (Notifier, summarizer, `postRunState`, `SetSummary`, the internal loopback routes), inference gateway and tool gateway spans on `/run/{run_id}` routes, identity-proxy delegation lookups, egress gateway spans, and trigger dispatch spans once the run exists. A server span on a route with a run path parameter sets `kora.run.id` from that parameter in the middleware that names the span. A span with a tenant carries `kora.tenant.id`.
 6. **HTTP server span names:** A server span is named `{http.request.method} {http.route}`, the semconv form. `http.route` is the full route template the client called, including any prefix a mux strips (`POST /run/{run_id}/v1/messages`).
-7. **HTTP client span names:** A client span is named `{http.request.method} {url.template}` (`POST /session/{runID}/messages`), the semconv form. The `{method} {host}` form is not a semconv form, and the host goes in `server.address`.
+7. **HTTP client span names:** A client span is named `{http.request.method} {url.template}` (`POST /session/{runID}/messages`), the semconv form. The host goes in `server.address`.
 8. **Client span primitive:** `httpclient.Base.Do` takes the HTTP method, a path template and the template's parameters. That one function builds the request URL from the client's base URL, and sets the span name, `url.template`, `url.full`, `server.address` and `server.port`. Typed clients pass the template and never format span names or set these attributes. Clients built on `NewTracingTransport` use the same naming helper. For these clients the SDK builds the URL, and the transport names the span `{http.request.method} {url.template}` when its constructor receives a template and `{http.request.method}` otherwise.
 9. **Egress tunnel span names:** The egress gateway's CONNECT server span is named `CONNECT`, the semconv server form with no route. The destination host is `server.address`.
-10. **Database span names:** A database span is named `{db.operation.name} {db.collection.name}` when the caller supplies both, and `postgresql` (the `db.system.name`) otherwise.
+10. **Database span names:** A database span is named `postgresql`, the `db.system.name`. It sets no `db.operation.name` or `db.collection.name`.
 11. **Model and MCP span names:** A model call span is named `{gen_ai.operation.name} {gen_ai.request.model}` (`chat claude-sonnet-4-5`). An MCP span is named `{mcp.method.name} {gen_ai.tool.name}` (`tools/call get_issue`), or `{mcp.method.name}` for a method with no tool.
-12. **Internal span names:** An internal span is named after the Go function that starts it: `pkg.Func` or `pkg.Type.Method`, with the Go package name (`agents.StartRun`, `inferencegw.Service.checkBudget`). Dotted lowercase names are not used. This style is the most common one today and maps each span to one function by search.
+12. **Internal span names:** An internal span is named after the Go function that starts it: `pkg.Func` or `pkg.Type.Method`, with the Go package name (`agents.StartRun`, `inferencegw.Service.checkBudget`). Dotted lowercase names are not used.
 13. **Tracer scope names:** A tracer's scope name is the Go import path of the package that creates the span (`github.com/runkora/kora/backend/internal/agents`). The service is identified by the `service.name` resource attribute. `TracingMiddleware` uses the middleware package's import path.
 
-**Consequences:** Every span from every service and from Claude Code is searchable by `kora.run.id` and `kora.tenant.id`. Dashboards, saved queries and alerts that read the old keys or span names stop matching and must move to the new ones. Every typed client call site changes to pass a method, a path template and its parameters to `Base.Do`. Model, MCP and database span names hold the model alias, the tool name and the table name. Each of these sets is bounded by the catalog, the registrations and the schema. Log field names are unchanged.
+**Consequences:** Every span from every service and from Claude Code is searchable by `kora.run.id` and `kora.tenant.id`. Dashboards, saved queries and alerts that read the old keys or span names stop matching. Model and MCP span names hold the model alias and the tool name. The catalog and the registrations bound each set. Log field names are unchanged.
 
 ---
 

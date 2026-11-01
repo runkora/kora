@@ -67,7 +67,7 @@ server := apiServer.Server(
     port,
     basePath,
     mw.MiddlewareChain(
-        mw.TracingMiddleware(),           // Creates spans
+        mw.TracingMiddleware(),             // Creates spans
         mw.LoggingMiddleware(logger),       // Logs with trace context
     ),
     controllers...,

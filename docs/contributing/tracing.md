@@ -53,7 +53,6 @@ Every HTTP request automatically creates a span via the tracing middleware:
 ```go
 // From: backend/internal/platform/middleware/tracing.go
 
-// Get the global tracer for this service
 tracer := otel.Tracer("github.com/runkora/kora/backend/internal/platform/middleware")
 
 // Extract trace context from headers, then start span
@@ -62,12 +61,13 @@ propagatedCtx := otel.GetTextMapPropagator().Extract(
     propagation.HeaderCarrier(r.Header),
 )
 
-// Start span for this request (span name: "{METHOD} {PATH}")
-tracedCtx, span := tracer.Start(propagatedCtx, r.Method+" "+r.URL.Path,
+// Span name: "{METHOD} {route}"
+routePattern := r.Pattern
+tracedCtx, span := tracer.Start(propagatedCtx, r.Method+" "+routePattern,
     trace.WithSpanKind(trace.SpanKindServer),
     trace.WithAttributes(
         semconv.HTTPRequestMethodKey.String(r.Method),
-        semconv.HTTPRouteKey.String(r.URL.Path),
+        semconv.HTTPRouteKey.String(routePattern),
         semconv.URLScheme(schemeFromRequest(r)),
         semconv.URLPath(r.URL.Path),
         semconv.ServerAddress(r.Host),
@@ -104,7 +104,7 @@ traceparent: 00-2482aff647d2da4b929d57bc10bcfa74-85ad5c6de00215ea-01
 This enables distributed tracing across:
 - kora → Agent frameworks
 - kora → External APIs
-- kora → Database queries (future)
+- kora → Database queries
 - Agent → Tool invocations (future)
 
 ### Span Attributes
@@ -154,15 +154,7 @@ func MyHandler(w http.ResponseWriter, r *http.Request) {
     span := trace.SpanFromContext(r.Context())
     
     // Add custom attributes
-    span.SetAttributes(
-        observability.AgentIDKey.String(agentID),
-        observability.MCPDecisionKey.String("allow"),
-    )
-    
-    // Add events
-    span.AddEvent("policy_evaluated", trace.WithAttributes(
-        observability.EgressAllowedKey.Bool(true),
-    ))
+    span.SetAttributes(observability.AgentIDKey.String(agentID))
 }
 ```
 
@@ -189,10 +181,7 @@ func ProcessAgentRequest(ctx context.Context, req *AgentRequest) error {
     
     // Step 2: Evaluate policy
     ctx, policySpan := tracer.Start(ctx, "agents.evaluatePolicy")
-    decision, err := evaluatePolicy(ctx, req)
-    policySpan.SetAttributes(
-        observability.MCPDecisionKey.String(decision),
-    )
+    err = evaluatePolicy(ctx, req)
     policySpan.End()
     
     return nil
@@ -250,14 +239,14 @@ Trace ID: 2482aff647d2da4b929d57bc10bcfa74
    ├─ agents.authenticate [5ms]
    │
    ├─ agents.evaluatePolicy [10ms]
-   │  ├─ load_policy [3ms]
-   │  └─ opa_evaluate [7ms]
+   │  ├─ agents.loadPolicy [3ms]
+   │  └─ agents.evaluateOPA [7ms]
    │
-   ├─ execute_tool [180ms]
-   │  ├─ get_credentials [5ms]
-   │  └─ http_call_to_tool [175ms]
+   ├─ agents.executeTool [180ms]
+   │  ├─ agents.getCredentials [5ms]
+   │  └─ POST /mcp/{server} [175ms]
    │
-   └─ record_audit_event [5ms]
+   └─ agents.recordAuditEvent [5ms]
 ```
 
 ### Query Patterns
@@ -267,7 +256,7 @@ Trace ID: 2482aff647d2da4b929d57bc10bcfa74
 http.response.status_code:200 AND duration > 1s
 ```
 
-**Find policy denials:**
+**Find tool call denials:**
 ```
 kora.mcp.decision:deny
 ```
@@ -313,7 +302,8 @@ Spans are batched before export:
 ✅ **W3C TraceContext**: Standard `traceparent`/`tracestate` propagation on all inbound and outbound calls
 ✅ **Service-to-service clients**: `httpclient.Base.Do()` opens a `SpanKindClient` child span and injects W3C headers automatically
 ✅ **Upstream error bodies**: Non-2xx responses from upstream services are captured in the `kora.error.upstream_body` span attribute
-✅ **Database queries**: A `postgresql` span per query that runs under a parent span. A query with no parent, such as an idle poll, records no span, and client spans from `httpclient.Base.Do` and the tracing transport follow the same rule
+✅ **Database queries**: A `postgresql` span per query under a parent span. A query with no parent records no span.
+✅ **Unparented client calls**: `httpclient.Base.Do` and `NewTracingTransport` record no span without a parent span.
 
 ### Planned
 
