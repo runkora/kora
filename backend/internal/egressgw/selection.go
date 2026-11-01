@@ -308,7 +308,7 @@ func unresolved(host string, candidates []*credentials.Connection, ambiguous boo
 // Any other is served by the anonymous read fallback when it qualifies.
 func (b *Broker) unresolvedConnection(ctx context.Context, span trace.Span, claims *token.PlatformClaims, req EgressRequest, d *Denial) (Decision, error) {
 	if d.ambiguous || d.Reason != DenialConnectionUnresolved {
-		observability.RecordFailure(span, ErrForbidden, ErrForbidden)
+		observability.RecordFailure(span, d, ErrForbidden)
 		b.logDenial(ctx, claims, req, d)
 		return Decision{}, d
 	}

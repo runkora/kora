@@ -249,7 +249,7 @@ func (b *Base) SpanSince(ctx context.Context, spanName string, start time.Time, 
 // is responsible for closing it (typically via defer resp.Body.Close()).
 //
 // Call this in the non-2xx branch of every service client before constructing
-// the error and calling span.RecordError. The 512-byte cap is large enough to
+// the error and calling observability.RecordFailure. The 512-byte cap is large enough to
 // capture any structured error payload (JSON, plaintext) while defending
 // against unexpectedly large responses such as HTML gateway error pages.
 //
@@ -258,8 +258,7 @@ func (b *Base) SpanSince(ctx context.Context, spanName string, start time.Time, 
 //	if resp.StatusCode != http.StatusOK {
 //	    upstream := c.ReadErrorBody(span, resp)
 //	    err := fmt.Errorf("%w: status %d: %s", ErrUnexpectedStatus, resp.StatusCode, upstream)
-//	    span.RecordError(err)
-//	    span.SetStatus(codes.Error, ErrUnexpectedStatus.Error())
+//	    observability.RecordFailure(span, err, ErrUnexpectedStatus)
 //	    return err
 //	}
 func (b *Base) ReadErrorBody(span trace.Span, resp *http.Response) string {

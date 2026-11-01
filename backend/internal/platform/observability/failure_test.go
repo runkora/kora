@@ -57,3 +57,21 @@ func TestRecordFailure(t *testing.T) {
 		t.Errorf("exception.message = %q, want %q", message, detail.Error())
 	}
 }
+
+func TestRecordFailureSentinelOnly(t *testing.T) {
+	sentinel := errors.New("load widget")
+
+	rec := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+	_, span := tp.Tracer("test").Start(t.Context(), "op")
+	RecordFailure(span, sentinel, sentinel)
+	span.End()
+
+	got := rec.Ended()[0]
+	if got.Status().Code != codes.Error {
+		t.Errorf("status code = %v, want Error", got.Status().Code)
+	}
+	if len(got.Events()) != 0 {
+		t.Errorf("events = %v, want none", got.Events())
+	}
+}

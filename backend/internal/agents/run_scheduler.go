@@ -161,9 +161,8 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 		s.releaseStart(ctx, span, run.ID, claimedAt, fmt.Errorf("create session on pod %d: %w", pod, err))
 		return
 	default:
-		span.RecordError(err)
 		s.closeSession(ctx, podURL, run.ID)
-		s.failStart(ctx, span, run.ID, RunStateStarting, "The agent pod refused the run.")
+		s.failStart(ctx, span, err, run.ID, RunStateStarting, "The agent pod refused the run.")
 		return
 	}
 	// The session exists now, so the attempt timeout must not strand the run in starting.
@@ -176,7 +175,7 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 			s.releaseStart(ctx, span, run.ID, claimedAt, fmt.Errorf("set run active: %w", err))
 		default:
 			// A retry on another pod would leave two live sessions for one run.
-			s.failStart(ctx, span, run.ID, RunStateStarting, "The agent pod did not confirm the run.")
+			s.failStart(ctx, span, errStartFailed, run.ID, RunStateStarting, "The agent pod did not confirm the run.")
 		}
 		return
 	}
@@ -193,7 +192,7 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, claimedAt time.Time) (*AgentType, string, int, bool) {
 	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
 	if errors.Is(err, ErrNotFound) {
-		s.failStart(ctx, span, run.ID, RunStatePending, "The agent no longer exists.")
+		s.failStart(ctx, span, errStartFailed, run.ID, RunStatePending, "The agent no longer exists.")
 		return nil, "", 0, false
 	}
 	if err != nil {
@@ -203,11 +202,11 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 	// The agent can change while the run waits. Re-check what the start depends on.
 	switch at.State {
 	case AgentTypeStateDeleting:
-		s.failStart(ctx, span, run.ID, RunStatePending, "The agent is being deleted.")
+		s.failStart(ctx, span, errStartFailed, run.ID, RunStatePending, "The agent is being deleted.")
 		return nil, "", 0, false
 	case AgentTypeStateProvisioning:
 		if time.Since(run.CreatedAt) > s.provisionBudget() {
-			s.failStart(ctx, span, run.ID, RunStatePending, fmt.Sprintf("The agent did not finish provisioning within %s.", s.provisionBudget()))
+			s.failStart(ctx, span, errStartFailed, run.ID, RunStatePending, fmt.Sprintf("The agent did not finish provisioning within %s.", s.provisionBudget()))
 			return nil, "", 0, false
 		}
 		s.releaseStart(ctx, span, run.ID, claimedAt, errAgentProvisioning)
@@ -219,7 +218,7 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 		budgetStart = at.ActivatedAt
 	}
 	if time.Since(budgetStart) > s.startBudget() {
-		s.failStart(ctx, span, run.ID, RunStatePending, fmt.Sprintf("No agent pod could take the run within %s.", s.startBudget()))
+		s.failStart(ctx, span, errStartFailed, run.ID, RunStatePending, fmt.Sprintf("No agent pod could take the run within %s.", s.startBudget()))
 		return nil, "", 0, false
 	}
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
@@ -316,8 +315,8 @@ func (s *RunService) releaseStart(ctx context.Context, span trace.Span, runID st
 }
 
 // failStart records why a run could not start and fails it.
-func (s *RunService) failStart(ctx context.Context, span trace.Span, runID string, from RunState, reason string) {
-	observability.RecordFailure(span, errStartFailed, errStartFailed)
+func (s *RunService) failStart(ctx context.Context, span trace.Span, err error, runID string, from RunState, reason string) {
+	observability.RecordFailure(span, err, errStartFailed)
 	ctx = context.WithoutCancel(ctx)
 	// A run terminated meanwhile fails the transition and gets no error event.
 	if err := s.Transition(ctx, runID, from, RunStateFailed); err != nil {

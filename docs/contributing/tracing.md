@@ -134,9 +134,9 @@ Spans are marked as errors for failed requests:
 // Record response status in span
 span.SetAttributes(semconv.HTTPResponseStatusCode(wrapped.statusCode))
 
-// Mark span as error if status code indicates failure
-if wrapped.statusCode >= 400 {
-    span.SetStatus(codes.Error, "HTTP error")
+// Mark span as error for server errors; sets the static status and error.type
+if statusCode >= 500 {
+    observability.RecordFailure(span, errServerError, errServerError)
 }
 ```
 

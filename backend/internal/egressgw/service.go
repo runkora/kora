@@ -92,7 +92,6 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	conn, registered, err := b.resolveConnection(ctx, claims, req)
 	var unresolved *Denial
 	if errors.As(err, &unresolved) {
-		span.RecordError(err)
 		return b.unresolvedConnection(ctx, span, claims, req, unresolved)
 	}
 	if err != nil {

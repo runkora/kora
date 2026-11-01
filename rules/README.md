@@ -19,7 +19,7 @@ Each function in the file is one rule. The rule name is the function name. Viola
 |------|-------------|-----|
 | `spanSetStatusLocalErr` | `span.SetStatus(_, err.Error())`: dynamic local error string in span status | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
 | `spanSetStatusCtxErr` | `span.SetStatus(_, ctx.Err().Error())`: dynamic context error in span status | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
-| `spanSetStatusErrorDirect` | `span.SetStatus(codes.Error, _)` outside `internal/platform/observability`: use `observability.RecordFailure`, which also sets `error.type` | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
+| `spanSetStatusErrorDirect` | `span.SetStatus(<pkg>.Error, _)` under any import alias outside `internal/platform/observability`: use `observability.RecordFailure`, which also sets `error.type` | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
 | `spanAttrStringLocalErr` | `attribute.String(_, err.Error())`: raw error string in a span attribute | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
 | `spanAttrStringCtxErr` | `attribute.String(_, ctx.Err().Error())`: context error string in a span attribute | [ADD-0022] |
 | `spanAttrKeyVocabulary` | `attribute.String("run_id", ...)`: a string literal as an attribute key instead of a semconv or `internal/platform/observability` constant | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |

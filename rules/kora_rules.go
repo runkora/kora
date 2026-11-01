@@ -76,14 +76,13 @@ import "github.com/quasilyte/go-ruleguard/dsl"
 //
 // Good:
 //
-//	span.RecordError(err)
-//	span.SetStatus(codes.Error, errMyThing.Error())
+//	observability.RecordFailure(span, err, errMyThing)
 func spanSetStatusLocalErr(m dsl.Matcher) {
 	m.Match(`$_.SetStatus($_, err.Error())`).
 		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: do not pass err.Error() as the span status description — ` +
 			`it leaks dynamic runtime context into telemetry aggregations. ` +
-			`Use span.RecordError(err) for the full error event and a package-level ` +
-			`sentinel error string for SetStatus (e.g. errMyThing.Error()). ` +
+			`Use observability.RecordFailure(span, err, errMyThing) for the full error event and a package-level ` +
+			`sentinel status. ` +
 			`See docs/adr/2026-03-21-opentelemetry-observability-discipline.md`)
 }
 
@@ -98,13 +97,12 @@ func spanSetStatusLocalErr(m dsl.Matcher) {
 //
 // Good:
 //
-//	span.RecordError(ctx.Err())
-//	span.SetStatus(codes.Error, errContextCanceled.Error())
+//	observability.RecordFailure(span, ctx.Err(), errContextCanceled)
 func spanSetStatusCtxErr(m dsl.Matcher) {
 	m.Match(`$_.SetStatus($_, $x.Err().Error())`).
 		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: do not pass ctx.Err().Error() as the span status description — ` +
 			`it leaks dynamic runtime context into telemetry aggregations. ` +
-			`Use span.RecordError(ctx.Err()) and a package-level sentinel string for SetStatus. ` +
+			`Use observability.RecordFailure(span, ctx.Err(), sentinel) with a package-level sentinel. ` +
 			`See docs/adr/2026-03-21-opentelemetry-observability-discipline.md`)
 }
 
@@ -114,19 +112,15 @@ func spanSetStatusCtxErr(m dsl.Matcher) {
 //
 // Bad:
 //
-//	span.RecordError(err)
 //	span.SetStatus(codes.Error, errMyThing.Error())
 //
 // Good:
 //
 //	observability.RecordFailure(span, err, errMyThing)
 func spanSetStatusErrorDirect(m dsl.Matcher) {
-	m.Import("go.opentelemetry.io/otel/codes")
-	m.Match(`$span.SetStatus(codes.Error, $_)`).
-		Where(!m.File().PkgPath.Matches(`/internal/platform/observability$`)).
-		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: use observability.RecordFailure(span, err, sentinel) instead of span.SetStatus(codes.Error, ...) — ` +
-			`it also sets the semconv error.type a failed span must carry. ` +
-			`See docs/adr/2026-03-21-opentelemetry-observability-discipline.md`)
+	m.Match(`$span.SetStatus($code, $_)`).
+		Where(m["code"].Text.Matches(`\.Error$`) && !m.File().PkgPath.Matches(`/internal/platform/observability$`)).
+		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: use observability.RecordFailure(span, err, sentinel) instead of SetStatus with an Error code, so the span also carries error.type.`)
 }
 
 // spanAttrStringLocalErr flags attribute.String calls that embed a local error
