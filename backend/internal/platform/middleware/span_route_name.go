@@ -7,14 +7,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// SpanRouteName names the request's span after the route it matched, read from
-// the context the Mux populates.
-//
-// TracingMiddleware runs before any routing, where the only pattern available
-// is the outer mux's catch-all, so without this every span is named "GET /".
-// The pattern is a template rather than a URL, so span names stay
-// low-cardinality regardless of path parameters. mountPath and a stripped run
-// prefix are added back so the name matches the path the client called.
+// SpanRouteName names the request's span after the matched route template, with mountPath and a stripped run prefix added back.
+// TracingMiddleware runs before routing and sees only the catch-all pattern.
 func SpanRouteName(mountPath string) MiddlewareHandler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

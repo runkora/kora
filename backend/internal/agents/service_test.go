@@ -806,7 +806,6 @@ func TestTransitionRunState_Conflict(t *testing.T) {
 		repoErr    error
 		wantStatus codes.Code
 	}{
-		// Wrong `from` state: a CAS miss another writer won, not a failure.
 		{name: "conflict leaves the span unset", wantStatus: codes.Unset},
 		{name: "write failure marks the span", repoErr: errors.New("connection reset"), wantStatus: codes.Error},
 	}

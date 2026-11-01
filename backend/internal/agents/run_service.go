@@ -533,8 +533,7 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 	defer span.End()
 
 	if err := s.repo.SetRunState(ctx, runID, from, to); err != nil {
-		// A conflict means another writer moved the run first, which callers
-		// expect and handle, so only other failures mark the span.
+		// A CAS conflict is an expected race and leaves the span unset.
 		if !errors.Is(err, ErrConflict) {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, errSetRunState.Error())

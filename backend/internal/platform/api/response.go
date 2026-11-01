@@ -47,8 +47,6 @@ func NoBody(w http.ResponseWriter, status int) {
 func ErrorResponse(ctx context.Context, w http.ResponseWriter, logger logging.Logger, apiErr *APIError, underlyingErr error) {
 	span := trace.SpanFromContext(ctx)
 
-	// Only a 5xx flags the span as an error, matching the HTTP server
-	// semantic conventions; a 4xx is the caller's mistake, not ours.
 	span.SetAttributes(
 		attribute.Bool("app.error", apiErr.StatusCode >= 500),
 		attribute.String("app.error.code", apiErr.Code),

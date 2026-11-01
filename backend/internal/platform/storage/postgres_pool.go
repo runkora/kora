@@ -41,8 +41,7 @@ func (c *PostgresConfig) BuildPoolConfig() (*pgxpool.Config, error) {
 	return poolConfig, nil
 }
 
-// errQueryFailed is the static span status for a failed query; the driver error
-// itself goes on the span through RecordError.
+// errQueryFailed is the static span status for a failed query.
 var errQueryFailed = errors.New("database query failed")
 
 // otelQueryTracer implements pgx.QueryTracer to emit OpenTelemetry spans for

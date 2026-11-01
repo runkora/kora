@@ -29,8 +29,7 @@ type Mux struct {
 	logger     logging.Logger
 	ctx        context.Context
 
-	// mountPath is the server base path http.StripPrefix removes before this
-	// Mux routes, so span names can carry the route the client called.
+	// mountPath is the base path http.StripPrefix removed; span names add it back.
 	mountPath string
 
 	// metricsMiddleware is applied per-route, inside RoutePattern, so it can
