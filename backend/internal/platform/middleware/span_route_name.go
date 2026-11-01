@@ -12,8 +12,7 @@ import (
 )
 
 // SpanRouteName names the request's span after the matched route template, with mountPath and a stripped run prefix added back.
-// TracingMiddleware runs before routing and sees only the catch-all pattern.
-// A run ID in the route is also put in the context, for the spans the handler starts.
+// A run ID in the route also goes in the request context.
 func SpanRouteName(mountPath string) MiddlewareHandler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

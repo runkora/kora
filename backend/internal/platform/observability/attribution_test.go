@@ -15,6 +15,9 @@ func TestAttributionProcessor(t *testing.T) {
 	tracer := tp.Tracer("test")
 
 	ctx := WithTenant(WithRun(context.Background(), "run-1"), "tenant-1")
+	if got := WithRun(context.Background(), ""); got.Value(runIDContextKey{}) != nil {
+		t.Error("WithRun stored an empty run ID")
+	}
 	_, attributed := tracer.Start(ctx, "attributed")
 	attributed.End()
 	_, bare := tracer.Start(context.Background(), "bare")

@@ -60,7 +60,9 @@ func TestSpanRouteName(t *testing.T) {
 			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 			t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 
-			handler := SpanRouteName(tt.mountPath)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			var handlerRunID string
+			handler := SpanRouteName(tt.mountPath)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				handlerRunID = observability.RunFromContext(r.Context())
 				w.WriteHeader(http.StatusOK)
 			}))
 
@@ -98,6 +100,9 @@ func TestSpanRouteName(t *testing.T) {
 			}
 			if gotRunID != wantRunID {
 				t.Errorf("kora.run.id = %q, want %q", gotRunID, wantRunID)
+			}
+			if handlerRunID != wantRunID {
+				t.Errorf("handler context run = %q, want %q", handlerRunID, wantRunID)
 			}
 			if gotRoute != tt.wantRoute {
 				t.Errorf("http.route = %q, want %q", gotRoute, tt.wantRoute)

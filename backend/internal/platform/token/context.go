@@ -1,7 +1,10 @@
 package token
 
 import (
+	"cmp"
 	"context"
+
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/observability"
 )
@@ -11,12 +14,13 @@ import (
 // across packages.
 type claimsContextKey struct{}
 
-// WithClaims returns a child context carrying the verified platform claims.
-// Called by AuthMiddleware after successful JWT verification. The claims' tenant
-// and run also go on every span started from the returned context.
+// WithClaims returns a child context carrying the verified platform claims, set by AuthMiddleware.
+// A run already in ctx is the route's run and wins over the caller's run claim.
 func WithClaims(ctx context.Context, claims *PlatformClaims) context.Context {
 	if claims != nil {
-		ctx = observability.WithTenant(observability.WithRun(ctx, claims.Kora.Claims["run_id"]), claims.Kora.TenantID)
+		runID := cmp.Or(observability.RunFromContext(ctx), claims.Kora.Claims["run_id"])
+		trace.SpanFromContext(ctx).SetAttributes(observability.TenantIDKey.String(claims.Kora.TenantID))
+		ctx = observability.WithTenant(observability.WithRun(ctx, runID), claims.Kora.TenantID)
 	}
 	return context.WithValue(ctx, claimsContextKey{}, claims)
 }

@@ -1392,7 +1392,7 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 	principalID := p.agentSpiffeID(at, namespace)
 	grantTenantID := at.TenantID
 
-	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.ensureAgentGrant",
+	ctx, span := agentsTracer.Start(observability.WithTenant(ctx, at.TenantID), "agents.K8sProvisioner.ensureAgentGrant",
 		trace.WithAttributes(
 			observability.PrincipalIDKey.String(principalID),
 		),

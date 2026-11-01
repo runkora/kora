@@ -18,6 +18,12 @@ func WithRun(ctx context.Context, runID string) context.Context {
 	return context.WithValue(ctx, runIDContextKey{}, runID)
 }
 
+// RunFromContext returns the run ID WithRun stored in ctx.
+func RunFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(runIDContextKey{}).(string)
+	return id
+}
+
 // WithTenant returns ctx carrying tenantID, which every span started from it records as TenantIDKey.
 func WithTenant(ctx context.Context, tenantID string) context.Context {
 	if tenantID == "" {
