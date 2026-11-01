@@ -153,10 +153,21 @@ func realMain() error {
 				logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: replaceErr.Error()})
 			}
 		}
-		registry.OnReload(func(ctx context.Context) { cycle(ctx, true) })
+		// Buffered and non-blocking: a reload only needs to wake the loop once,
+		// and OnReload must never block on a loop busy running a cycle.
+		reloaded := make(chan struct{}, 1)
+		registry.OnReload(func(ctx context.Context) {
+			cycle(ctx, true)
+			select {
+			case reloaded <- struct{}{}:
+			default:
+			}
+		})
 		go registry.Watch(ctx)
-		ready := func() bool { return introspector.AllSeenOrRetained(registry.Servers()) }
-		go runIntrospectionLoop(ctx, cycle, tgc.Current.ReintrospectInterval(), catchUpInterval, ready, logger)
+		// AllReached, not the prune guard's AllSeenOrRetained: the catch-up has to
+		// track what an unforced tick will retry, or it spins. See AllReached.
+		ready := func() bool { return introspector.AllReached(registry.Servers()) }
+		go runIntrospectionLoop(ctx, cycle, tgc.Current.ReintrospectInterval(), catchUpInterval, ready, reloaded, logger)
 	}
 
 	// ── HTTP server (health + catalog [+ MCP proxy in proxy mode]) ───────────
@@ -216,7 +227,7 @@ func realMain() error {
 const catchUpInterval = 10 * time.Second
 
 // runIntrospectionLoop drives the introspection cycle: once at boot, then on a
-// timer. ready reports whether every registered server has tools to serve;
+// timer. ready reports whether every registered server has been reached;
 // while it is false the loop waits catchUp instead of the configured interval,
 // so a cold start converges in seconds rather than minutes. catchUp is a
 // parameter rather than a package var so a test can shorten it without racing
@@ -232,6 +243,7 @@ func runIntrospectionLoop(
 	cycle func(context.Context, bool),
 	interval, catchUp time.Duration,
 	ready func() bool,
+	reloaded <-chan struct{},
 	logger logging.Logger,
 ) {
 	cycle(ctx, true)
@@ -249,6 +261,13 @@ func runIntrospectionLoop(
 		case <-ctx.Done():
 			timer.Stop()
 			return
+		case <-reloaded:
+			// A reload already ran its own forced cycle. Recompute the wait rather
+			// than running another: a reload that adds a server whose first
+			// introspection fails must not sit out the rest of a long interval
+			// before the catch-up applies.
+			timer.Stop()
+			continue
 		case <-timer.C:
 		}
 		logger.Debug(ctx, "periodic re-introspection tick")

@@ -69,7 +69,7 @@ func TestRunIntrospectionLoop_CatchesUpWhenAServerIsUnreached(t *testing.T) {
 	// An interval far longer than the test: a second cycle can only mean the
 	// loop used the catch-up wait instead of waiting this out.
 	notReady := func() bool { return false }
-	go runIntrospectionLoop(ctx, rec.cycle, time.Hour, 20*time.Millisecond, notReady, testLogger())
+	go runIntrospectionLoop(ctx, rec.cycle, time.Hour, 20*time.Millisecond, notReady, nil, testLogger())
 
 	rec.waitForCycles(t, 3, 5*time.Second)
 }
@@ -85,7 +85,7 @@ func TestRunIntrospectionLoop_UsesTheConfiguredIntervalWhenReady(t *testing.T) {
 
 	// Far longer than the shortened catch-up: a ready loop must wait this out,
 	// so the only cycle in the window below is the boot one.
-	go runIntrospectionLoop(ctx, rec.cycle, time.Hour, 20*time.Millisecond, ready, testLogger())
+	go runIntrospectionLoop(ctx, rec.cycle, time.Hour, 20*time.Millisecond, ready, nil, testLogger())
 
 	rec.waitForCycles(t, 1, 5*time.Second) // the boot cycle
 	time.Sleep(500 * time.Millisecond)     // 25x the catch-up interval
@@ -102,7 +102,7 @@ func TestRunIntrospectionLoop_NeverWaitsLongerThanConfigured(t *testing.T) {
 
 	rec := newCycleRecorder()
 	notReady := func() bool { return false }
-	go runIntrospectionLoop(ctx, rec.cycle, 20*time.Millisecond, time.Hour, notReady, testLogger())
+	go runIntrospectionLoop(ctx, rec.cycle, 20*time.Millisecond, time.Hour, notReady, nil, testLogger())
 
 	// Cycles keep landing, so the loop took min(catch-up, configured) and did
 	// not stretch the configured interval up to the catch-up one.
@@ -115,7 +115,7 @@ func TestRunIntrospectionLoop_StopsOnContextCancel(t *testing.T) {
 	rec := newCycleRecorder()
 	done := make(chan struct{})
 	go func() {
-		runIntrospectionLoop(ctx, rec.cycle, time.Hour, time.Hour, func() bool { return true }, testLogger())
+		runIntrospectionLoop(ctx, rec.cycle, time.Hour, time.Hour, func() bool { return true }, nil, testLogger())
 		close(done)
 	}()
 
@@ -126,4 +126,30 @@ func TestRunIntrospectionLoop_StopsOnContextCancel(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("loop did not return after its context was cancelled")
 	}
+}
+
+// A reload that adds a server whose first introspection fails must not sit out
+// the rest of a long interval. The reload signal recomputes the wait.
+func TestRunIntrospectionLoop_ReloadWakesTheWait(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rec := newCycleRecorder()
+	reloaded := make(chan struct{}, 1)
+	// Starts ready (empty registry), so the loop parks on the long wait.
+	var mu sync.Mutex
+	ready := true
+	readyFn := func() bool { mu.Lock(); defer mu.Unlock(); return ready }
+
+	go runIntrospectionLoop(ctx, rec.cycle, time.Hour, 20*time.Millisecond, readyFn, reloaded, testLogger())
+	rec.waitForCycles(t, 1, 5*time.Second) // boot cycle, then parks on 1h
+
+	// A reload lands a server that cannot be reached.
+	mu.Lock()
+	ready = false
+	mu.Unlock()
+	reloaded <- struct{}{}
+
+	// The loop must recompute and fall to the catch-up wait instead of the hour.
+	rec.waitForCycles(t, 3, 5*time.Second)
 }

@@ -200,3 +200,42 @@ func TestToolRequires(t *testing.T) {
 		})
 	}
 }
+
+// The catch-up predicate must track what an unforced tick will actually retry.
+// A reload-only server reached once with zero tools and later degraded keeps
+// AllSeenOrRetained false while due() skips it, so using the prune guard for
+// catch-up spins the loop forever. AllReached stays true for that server.
+func TestIntrospector_AllReachedVsAllSeenOrRetained(t *testing.T) {
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
+	// Reload-only server (interval 0) that returned zero tools, then degraded.
+	srv := Server{TenantID: "", Name: "empty", ReintrospectIntervalSeconds: 0}
+	key := serverKey(srv.TenantID, srv.Name)
+	i.snapshots[key] = &ServerSnapshot{
+		Server: srv, State: StateDegraded, Reached: true, Tools: nil,
+	}
+	servers := []Server{srv}
+
+	if i.AllSeenOrRetained(servers) {
+		t.Fatal("setup: AllSeenOrRetained should be false for a degraded server with no tools")
+	}
+	if i.due(key, srv) {
+		t.Fatal("setup: a reached reload-only server should not be due on an unforced tick")
+	}
+	// The combination above is the spin: ready() false forever, never retried.
+	if !i.AllReached(servers) {
+		t.Error("AllReached = false for a server reached once; the catch-up loop would spin on it")
+	}
+
+	// A server never reached is what catch-up is for.
+	down := Server{TenantID: "", Name: "down", ReintrospectIntervalSeconds: 3600}
+	i.snapshots[serverKey(down.TenantID, down.Name)] = &ServerSnapshot{
+		Server: down, State: StateDegraded, Reached: false,
+	}
+	if i.AllReached([]Server{down}) {
+		t.Error("AllReached = true for a server that has never been reached")
+	}
+	// And one with no snapshot at all.
+	if i.AllReached([]Server{{TenantID: "", Name: "unseen"}}) {
+		t.Error("AllReached = true for a server with no snapshot")
+	}
+}

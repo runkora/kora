@@ -287,6 +287,30 @@ func (i *Introspector) AllSeenOrRetained(servers []Server) bool {
 	return true
 }
 
+// AllReached reports whether every server in the list has been successfully
+// introspected at least once this lifetime.
+//
+// Deliberately NOT AllSeenOrRetained, which answers a different question. The
+// prune guard asks whether the keep-list is complete enough to delete scopes
+// safely, so it treats a degraded server holding prior tools as fine and a
+// reached-but-empty server that later degrades as not fine. The catch-up loop
+// asks whether any server is one an unforced tick will actually retry, which is
+// exactly due's never-reached case. Conflating the two spins the loop: a
+// reload-only server reached once with zero tools and later degraded keeps
+// AllSeenOrRetained false forever while due skips it, so the loop republishes
+// scopes and rebuilds the catalog on every short tick and never retries it.
+func (i *Introspector) AllReached(servers []Server) bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	for _, srv := range servers {
+		snap := i.snapshots[serverKey(srv.TenantID, srv.Name)]
+		if snap == nil || !snap.Reached {
+			return false
+		}
+	}
+	return true
+}
+
 // marshalSchema renders a tool's input schema (a map[string]any from the client)
 // to JSON, defaulting an empty schema to "{}".
 func marshalSchema(schema any) json.RawMessage {
