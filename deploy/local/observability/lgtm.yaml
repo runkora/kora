@@ -46,7 +46,6 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
-      # Telemetry is disposable locally; a pod restart starts from empty.
       volumes:
         - name: data
           emptyDir: {}
@@ -61,7 +60,7 @@ metadata:
 spec:
   selector:
     app: lgtm
-  # Named ports tell the mesh the protocol, so the OTLP export is routed as gRPC.
+  # Port names and appProtocol mark OTLP as gRPC for the mesh.
   ports:
     - name: grpc-otlp
       port: 4317

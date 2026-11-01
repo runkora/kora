@@ -502,7 +502,7 @@ REDEPLOY_ROLLOUT_SERVICES := \
 REDEPLOY_RESTART_ONLY := kora-opa-gateway
 
 OPA_ENVOY_IMAGE := openpolicyagent/opa:1.21.0-envoy-static
-# The manifest owns the tag, so the image mirrored here is the one the pod pulls.
+# Read from the manifest, where the pod's image is pinned.
 LGTM_IMAGE := $(shell sed -n 's|^ *image: kora-registry:5001/||p' deploy/local/observability/lgtm.yaml)
 THIRD_PARTY_IMAGES := $(OPA_ENVOY_IMAGE) $(LGTM_IMAGE)
 
