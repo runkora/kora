@@ -105,11 +105,10 @@ func TracingMiddleware(filters ...TraceFilter) Middleware {
 			}
 			span.SetAttributes(semconv.HTTPResponseStatusCode(statusCode))
 
-			// Mark span as error only for server errors (5xx), not client errors (4xx).
-			// Client errors indicate issues with the request, not failures in our service.
-			// This aligns with OpenTelemetry semantic conventions for HTTP server spans.
+			// Only 5xx fails a server span; error.type is the status code per HTTP semconv.
 			if statusCode >= 500 {
 				observability.RecordFailure(span, errServerError, errServerError)
+				span.SetAttributes(semconv.ErrorTypeKey.String(strconv.Itoa(statusCode)))
 			}
 		})
 	})
