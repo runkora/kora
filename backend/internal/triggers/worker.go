@@ -2,15 +2,23 @@ package triggers
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
 var triggersTracer = otel.Tracer("kora.triggers")
+
+// Static span statuses for a failed fire and for failed claim upkeep around it.
+var (
+	errDispatchFailed   = errors.New("trigger dispatch failed")
+	errClaimMaintenance = errors.New("pending claim maintenance failed")
+)
 
 // Worker drains the pending-delivery queue.
 //
@@ -205,6 +213,8 @@ func (w *Worker) dispatch(ctx context.Context, p PendingDelivery, remaining []st
 	defer span.End()
 
 	if err := w.repo.TouchPendingClaims(ctx, remaining); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, errClaimMaintenance.Error())
 		w.logger.Error(ctx, "failed to re-stamp claims before dispatch",
 			logging.Field{Key: "pending_id", Value: p.ID},
 			logging.Field{Key: "error", Value: err.Error()})
@@ -214,6 +224,8 @@ func (w *Worker) dispatch(ctx context.Context, p PendingDelivery, remaining []st
 		return
 	}
 	if err := w.repo.ReleasePending(ctx, p.ID); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, errClaimMaintenance.Error())
 		w.logger.Error(ctx, "failed to release claimed delivery",
 			logging.Field{Key: "pending_id", Value: p.ID},
 			logging.Field{Key: "error", Value: err.Error()})
