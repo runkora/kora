@@ -876,8 +876,12 @@ func TestDiscoverTenantByEmail_CaseInsensitive(t *testing.T) {
 func TestDiscoverTenantByEmail_UnknownDomain(t *testing.T) {
 	recorder := tracetest.NewSpanRecorder()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	previous := otel.GetTracerProvider()
 	otel.SetTracerProvider(provider)
-	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		_ = provider.Shutdown(context.Background())
+	})
 
 	issuer, _ := newOIDCTestServer(t)
 	svc := newTestServiceWithDomains(t, issuer, []string{"acme.com"})
