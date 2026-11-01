@@ -188,7 +188,7 @@ None at this time.
 ### Internal Dependencies
 
 - Telemetry collector: agent pods export to the platform collector ([2026-09-18: Telemetry Collector as a Declared Platform Destination](../adr/2026-09-18-telemetry-collector-platform-destination.md)). Implemented.
-- Shared span vocabulary: one run ID field name on every service ([2026-03-21: OpenTelemetry Observability Discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md), amendment proposed).
+- Shared span vocabulary: one run ID field name on every service ([2026-03-21: OpenTelemetry Observability Discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md), Amendment 1). Implemented.
 
 ### External Dependencies
 
