@@ -332,8 +332,6 @@ func TestWriteCommittedResult(t *testing.T) {
 	}
 }
 
-// TestWriteAnthropicErrorType covers the Anthropic dialect's own error
-// writer: only a 5xx sets error.type, matching api.ErrorResponse.
 func TestWriteAnthropicErrorType(t *testing.T) {
 	tests := []struct {
 		name          string

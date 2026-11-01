@@ -56,7 +56,7 @@ var errQueryFailed = errors.New("database query failed")
 type otelQueryTracer struct {
 	tracer           trace.Tracer
 	captureQueryText bool
-	// dbAttrs holds the database and server keys, built once per pool rather than per query.
+	// dbAttrs holds the database and server keys every query span carries.
 	dbAttrs []attribute.KeyValue
 }
 

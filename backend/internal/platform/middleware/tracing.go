@@ -34,7 +34,6 @@ func TracingMiddleware(filters ...TraceFilter) Middleware {
 					}
 				}
 			}
-			// Get the global tracer for this service
 			tracer := otel.Tracer("github.com/runkora/kora/backend/internal/platform/middleware")
 
 			// Extract the route pattern from the request context

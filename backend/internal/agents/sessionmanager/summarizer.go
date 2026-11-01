@@ -160,8 +160,7 @@ func (s *summarizer) send(ctx context.Context, baseURL, model, initialMessage st
 	header := http.Header{}
 	header.Set("Content-Type", "application/json")
 
-	// The run ID in the per-run base goes in as a parameter so the span name
-	// stays a template.
+	// A per-run base URL's run ID becomes a path param to keep the span name a template.
 	req := httpclient.Request{Method: http.MethodPost, BaseURL: baseURL, Path: "/v1/messages", Header: header, Body: body}
 	gateway, runID, perRun := strings.Cut(baseURL, "/run/")
 	if perRun {

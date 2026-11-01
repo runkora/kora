@@ -104,14 +104,9 @@ func NewStreamingHTTPClient(transport http.RoundTripper) *http.Client {
 	return NewHTTPClient(0, transport)
 }
 
-// NewTracingTransport wraps inner with an OTel client span per HTTP round-trip,
-// for an *http.Client handed to a third-party SDK that cannot use [Base.Do].
-// The span is named "{METHOD} {urlTemplate}", or "{METHOD}" when urlTemplate
-// is empty because the SDK builds paths this code cannot template. It carries
-// the same attributes as Base.Do and injects traceparent.
-//
-// The SDK caller cannot reach the span, so the transport marks every 4xx and
-// 5xx response as an error. Pass nil for inner to wrap http.DefaultTransport.
+// NewTracingTransport wraps inner with an OTel client span per round-trip, for an *http.Client handed to a third-party SDK that cannot use [Base.Do].
+// The span is named "{METHOD} {urlTemplate}", or "{METHOD}" for an empty template. Every 4xx and 5xx marks it as an error: the SDK caller cannot reach it.
+// Pass nil for inner to wrap http.DefaultTransport.
 //
 //	openai.NewClient(
 //	    option.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
@@ -165,9 +160,7 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 // errUpstream is the static status of a 4xx or 5xx seen by the transport.
 var errUpstream = errors.New("upstream error")
 
-// startClientSpan opens the HTTP client span for req, named
-// "{METHOD} {url.template}" per the HTTP semantic conventions, or "{METHOD}"
-// with no template. http.route is a server key and is never set here.
+// startClientSpan opens the HTTP client span for req, named "{METHOD} {url.template}", or "{METHOD}" with no template.
 func startClientSpan(ctx context.Context, tracer trace.Tracer, req *http.Request, template string) (context.Context, trace.Span) {
 	name := req.Method
 	attrs := []attribute.KeyValue{

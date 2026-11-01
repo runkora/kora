@@ -2682,8 +2682,8 @@ func (s *Service) AnalyticsPrincipalByID(ctx context.Context, principalID string
 	return resp, nil
 }
 
-// nameModelSpan names a model call span once routing has matched the model to
-// a catalog entry, so an unknown client-supplied model never reaches a span name.
+// nameModelSpan runs only after routing matches a catalog entry: an unknown
+// client model never names a span.
 func nameModelSpan(span trace.Span, operation, model string) {
 	span.SetName(operation + " " + model)
 }

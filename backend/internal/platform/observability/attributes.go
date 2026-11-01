@@ -2,9 +2,7 @@ package observability
 
 import "go.opentelemetry.io/otel/attribute"
 
-// Span attribute keys outside the Go semconv package. Every span uses these or
-// a semconv constant, so one identifier has one key across services
-// (docs/adr/2026-03-21-opentelemetry-observability-discipline.md, Amendment 1).
+// Span attribute keys outside the Go semconv package. Spans use these or a semconv constant: one key per identifier.
 const (
 	TenantIDKey                attribute.Key = "kora.tenant.id"
 	RunIDKey                   attribute.Key = "kora.run.id"

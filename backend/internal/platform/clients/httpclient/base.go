@@ -209,7 +209,7 @@ func (b *Base) HandleErrorResponse(span trace.Span, resp *http.Response, sentine
 	upstream := b.ReadErrorBody(span, resp)
 	err := fmt.Errorf("%w: status %d: %s", sentinel, resp.StatusCode, upstream)
 	recordFailure(span, err, sentinel)
-	// The HTTP convention's error.type is the status code, as the tracing transport sets it.
+	// HTTP semconv: error.type is the status code.
 	span.SetAttributes(semconv.ErrorTypeKey.String(strconv.Itoa(resp.StatusCode)))
 	return err
 }
@@ -278,9 +278,8 @@ func (b *Base) ReadErrorBody(span trace.Span, resp *http.Response) string {
 	return upstream
 }
 
-// Request is one call through Do. Path is a template such as
-// "/session/{runID}/messages", and Params fill its placeholders in order, so
-// the span name stays low-cardinality while the URL carries the values.
+// Request is one call through Do. Path is a template such as "/session/{runID}/messages"
+// whose placeholders Params fill in order. The span is named after the template.
 type Request struct {
 	Method  string
 	BaseURL string
@@ -291,16 +290,12 @@ type Request struct {
 	Body    io.Reader
 }
 
-// Do builds the request from r and sends it. Under a parent span it opens a
-// client span named "{METHOD} {url.template}" with the HTTP client semantic
-// convention attributes and injects traceparent. A call with no parent span,
-// such as a loop tick, records no span and returns a no-op one.
-//
-// The caller defers span.End() even on error, records non-2xx outcomes, and
-// reads and closes resp.Body. On error resp is nil.
+// Do builds and sends r. Under a parent span it opens a "{METHOD} {url.template}" client span and injects traceparent; with no parent it records none.
+// The caller defers span.End() even on error, records non-2xx outcomes, and closes resp.Body. On error resp is nil.
 func (b *Base) Do(ctx context.Context, r Request) (context.Context, trace.Span, *http.Response, error) {
 	path, err := expandPath(r.Path, r.Params)
 	if err != nil {
+		// A no-op span: the caller ends what Do returns.
 		return ctx, trace.SpanFromContext(context.Background()), nil, fmt.Errorf("%w: %w", ErrBuildRequest, err)
 	}
 	target := r.BaseURL + path
@@ -309,7 +304,6 @@ func (b *Base) Do(ctx context.Context, r Request) (context.Context, trace.Span, 
 	}
 	req, err := http.NewRequestWithContext(ctx, r.Method, target, r.Body)
 	if err != nil {
-		// A no-op span, never the parent, since the caller ends what Do returns.
 		return ctx, trace.SpanFromContext(context.Background()), nil, fmt.Errorf("%w: %w", ErrBuildRequest, err)
 	}
 	maps.Copy(req.Header, r.Header)
@@ -324,8 +318,7 @@ func (b *Base) Do(ctx context.Context, r Request) (context.Context, trace.Span, 
 
 	resp, err := b.httpClient.Do(req)
 	if err != nil {
-		// The static status keeps network error text, which can name internal
-		// hosts, out of span string fields.
+		// Static status: network error text can name internal hosts.
 		recordFailure(span, err, errTransport)
 		return ctx, span, nil, err
 	}
@@ -333,9 +326,8 @@ func (b *Base) Do(ctx context.Context, r Request) (context.Context, trace.Span, 
 	return ctx, span, resp, nil
 }
 
-// expandPath fills each {name} placeholder in template with the next param,
-// path-escaped. A count mismatch is an error, since a leftover placeholder
-// would reach the upstream and a dropped param would be silently lost.
+// expandPath fills each {name} placeholder in template with the next param, path-escaped.
+// A count mismatch is an error.
 func expandPath(template string, params []string) (string, error) {
 	var b strings.Builder
 	rest := template
@@ -355,8 +347,7 @@ func expandPath(template string, params []string) (string, error) {
 	return b.String(), nil
 }
 
-// urlTemplate prefixes the path template with the base URL's own path, so
-// url.template is the full path the server sees.
+// urlTemplate is the path template under the base URL's own path: the full path the server sees.
 func urlTemplate(baseURL, path string) string {
 	u, err := url.Parse(baseURL)
 	if err != nil {

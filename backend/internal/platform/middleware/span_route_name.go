@@ -34,8 +34,7 @@ func SpanRouteName(mountPath string) MiddlewareHandler {
 	}
 }
 
-// routeRunID reads the run from the route's path parameter, which the routes
-// name runID, run_id, or id under /runs/.
+// routeRunID is the run ID path parameter, under any name the routes use.
 func routeRunID(r *http.Request) string {
 	if id := cmp.Or(r.PathValue("runID"), r.PathValue("run_id")); id != "" {
 		return id
