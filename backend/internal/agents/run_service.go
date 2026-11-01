@@ -846,6 +846,16 @@ func (s *RunService) AuthorizeAgentCallback(ctx context.Context, runID string) e
 	return nil
 }
 
+// TraceParent returns the run's stored traceparent, empty when it has none. The caller is
+// authorized by the handler: the lookup is by run ID alone.
+func (s *RunService) TraceParent(ctx context.Context, runID string) (string, error) {
+	run, err := s.repo.GetRun(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+	return run.TraceParent, nil
+}
+
 // ErrNoSandbox reports that a run has no sandbox. Distinct from a lookup
 // failure: the caller routes work locally for the former and refuses for the
 // latter.

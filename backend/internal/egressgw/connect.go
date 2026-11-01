@@ -92,6 +92,8 @@ type ConnectHandler struct {
 	inner  http.Handler
 	conns  connLookup
 	logger logging.Logger
+	// traces links each CONNECT span to its run's trace. Nil links nothing.
+	traces *TraceLinker
 }
 
 // connLookup is the narrow slice of the connection registry the broker and the
@@ -109,6 +111,12 @@ type connLookup interface {
 // intercepted and all other ports are relayed).
 func NewConnectHandler(bundle CABundle, inner http.Handler, conns connLookup, logger logging.Logger) *ConnectHandler {
 	return &ConnectHandler{bundle: bundle, inner: inner, conns: conns, logger: logger}
+}
+
+// WithTraceLinker makes every CONNECT span link to the trace of its run.
+func (h *ConnectHandler) WithTraceLinker(l *TraceLinker) *ConnectHandler {
+	h.traces = l
+	return h
 }
 
 // ServeHTTP handles one CONNECT request. Non-CONNECT methods are rejected; the
@@ -254,6 +262,7 @@ func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.
 	portNum, _ := strconv.Atoi(port)
 	ctx, span := tracer.Start(ctx, http.MethodConnect,
 		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithLinks(h.traces.Links(ctx, observability.RunFromContext(ctx))...),
 		trace.WithAttributes(
 			semconv.ServerAddressKey.String(host),
 			semconv.ServerPortKey.Int(portNum),
