@@ -18,18 +18,18 @@ Every agent run will be one trace that follows the run from the event that start
 
 ### Current State
 
-kora records traces for its services, and an operator can view them in the trace viewer. A single agent run today appears as about 15 unrelated traces. The run start request, the run itself, each status update the agent sends, the run summary, each step of a trigger fire and each credential lookup are separate traces. Nothing connects a follow-up message to the turn it started. The run start response and the run page give no reference to any trace.
+kora records traces for its services, and an operator can view them in the trace viewer. A single agent run appears as about 15 unrelated traces. The run start request, the run itself, each status update the agent sends, the run summary, each step of a trigger fire and each credential lookup are separate traces. Nothing connects a follow-up message to the turn it started. The run start response and the run page give no reference to any trace.
 
 ### User Pain Points
 
-- **No end-to-end view:** An operator cannot see one agent session from start to finish. Following a run means guessing which traces belong to it by time and by searching for its ID inside request paths.
+- **No end-to-end view:** An operator cannot see one agent session from start to finish. Following a run means guessing which traces belong to it by time.
 - **Lost cause:** A run started by a trigger cannot be traced back to the event that fired it.
 - **No way in from the run:** An agent developer debugging a slow or failed run has no link from the run to its trace.
 
 ### Business Impact
 
 - Debugging a run takes longer for platform operators and agent developers.
-- kora promises that every agent action traces back to the human who initiated it. The trace data does not show that chain for a run today.
+- kora promises that every agent action traces back to the human who initiated it. The trace data does not show that chain for a run.
 
 ---
 
@@ -163,8 +163,7 @@ None at this time.
 ### Functional Requirements
 
 **Must Have (P0):**
-- [ ] Runs started through the API, the dashboard and every trigger kind each produce one trace.
-- [ ] Turns and tool calls the agent's own processes make join the run's trace.
+- [ ] None at this time.
 
 **Should Have (P1):**
 - [ ] None at this time.
@@ -177,9 +176,6 @@ None at this time.
 **Security:**
 - The trace reference grants no access. No part of the platform reads it to decide identity, access or credentials.
 - The trace reference is visible to anyone who can read the run.
-
-**Observability:**
-- A run is sampled once at its start, and the whole run follows that decision.
 
 ---
 
@@ -200,6 +196,7 @@ None at this time.
 
 - **Very large traces:** A long session can produce a trace larger than the trace store keeps. Search by run ID still finds the recorded parts.
 - **All or nothing:** A run that was not sampled at its start has no trace for its whole life. The run then shows no trace reference.
+- **Long sessions:** A session stays one trace for its whole life.
 
 ---
 
@@ -225,13 +222,7 @@ None at this time.
 
 ## Open Questions
 
-1. **Trace viewer address:** Where does an operator set the address of the trace viewer for the dashboard?
-   - **Status:** Resolved. The operator sets it in the platform's deployment configuration.
-   - **Owner:** Justin Wilkin
-
-2. **Long sessions:** Should a session that stays open for days stay one trace, or start a new trace after a limit?
-   - **Status:** Resolved. A session stays one trace for its whole life.
-   - **Owner:** Justin Wilkin
+None at this time.
 
 ---
 
