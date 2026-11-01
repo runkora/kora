@@ -10,6 +10,8 @@ The CNI must enforce `NetworkPolicy`. The `kora` chart installs a default-deny p
 
 Pod Security Admission must admit the privileged SPIRE and Istio node components. kora's own namespaces run at the `restricted` level.
 
+Agent nodes need a kernel with Landlock ABI v2 or later (Linux 5.19) and Landlock enabled at boot. On a node without it, agent pods stay not ready and the session-manager log cites `agents.landlock`. Set `agents.landlock: bestEffort` to run agents on such nodes without Landlock confinement.
+
 ## Trust domain
 
 Istio, SPIRE and kora must use the same trust domain. Every workload's SPIFFE ID starts with it, such as `spiffe://example.com/tenant/kora-tenant-engineering/agent/coder`. Choose it before you install. Changing it later means migrating every workload identity.

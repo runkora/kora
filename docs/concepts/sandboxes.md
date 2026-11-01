@@ -6,7 +6,7 @@ A sandbox is an isolated pod that an agent provisions for its run when a task ne
 - Optional connectivity and egress
 
 > [!NOTE]
-> Runs that only use MCP servers do not need a sandbox and can complete their task inside the agent's runtime pod.
+> Runs that only use MCP servers do not need a sandbox and can complete their task inside the agent's runtime pod. Shell commands run only in a sandbox.
 
 See [agent execution](../architecture/agent-execution.md) for how the runtime and the sandbox fit together.
 

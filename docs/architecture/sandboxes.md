@@ -16,7 +16,7 @@ Commands reach the sandbox over gRPC:
 
 1. `kora-agents` mints a token for the run when it provisions the sandbox.
 2. The session-manager writes the sandbox's address and the token into the run's workspace. Landlock keeps every other run on the pod out of that workspace.
-3. `kora-shell` checks for the address on every command. Once a sandbox exists, it streams each command to `sandbox-exec` on port 50051 with the run's token.
+3. `kora-shell` checks for the address on every command and streams the command to `sandbox-exec` on port 50051 with the run's token. Without a sandbox it refuses the command and tells the agent to call `provision_sandbox`.
 4. `sandbox-exec` rejects any call without the token. Another run on the same agent that finds the address cannot execute commands in the sandbox.
 
 ## Placement
