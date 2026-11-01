@@ -538,7 +538,7 @@ docker-pull-third-party: ## Pull third-party images and push to local registry (
 		fi; \
 		echo "$(COLOR_YELLOW)Pulling $$img...$(COLOR_RESET)"; \
 		docker pull $$img || exit $$?; \
-		docker tag $$img localhost:5001/$$img; \
+		docker tag $$img localhost:5001/$$img || exit $$?; \
 		docker push localhost:5001/$$img || exit $$?; \
 		echo "$(COLOR_GREEN)✓ localhost:5001/$$img$(COLOR_RESET)"; \
 	done
@@ -691,15 +691,15 @@ cluster-restore: ## Re-push locally-built images to the registry after a Colima/
 	@for svc in $(REDEPLOY_PLATFORM_SERVICES) $(REDEPLOY_TENANT_SERVICES); do \
 		if docker image inspect kora-$$svc:latest > /dev/null 2>&1; then \
 			echo "  pushing kora-$$svc:latest"; \
-			docker tag kora-$$svc:latest localhost:5001/kora-$$svc:latest; \
-			docker push localhost:5001/kora-$$svc:latest > /dev/null; \
+			docker tag kora-$$svc:latest localhost:5001/kora-$$svc:latest || exit $$?; \
+			docker push localhost:5001/kora-$$svc:latest > /dev/null || exit $$?; \
 		fi; \
 	done
 	@for img in $(THIRD_PARTY_IMAGES); do \
 		if docker image inspect $$img > /dev/null 2>&1; then \
 			echo "  pushing $$img"; \
-			docker tag $$img localhost:5001/$$img; \
-			docker push localhost:5001/$$img > /dev/null; \
+			docker tag $$img localhost:5001/$$img || exit $$?; \
+			docker push localhost:5001/$$img > /dev/null || exit $$?; \
 		fi; \
 	done
 	@docker image prune -f > /dev/null
