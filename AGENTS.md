@@ -137,7 +137,7 @@ All conventions above are mechanically enforced. Do not add inline `//nolint` di
 | ------------------------ | ------------------------------------------------- |
 | `spanSetStatusLocalErr`  | `span.SetStatus(_, err.Error())`                  |
 | `spanSetStatusCtxErr`    | `span.SetStatus(_, ctx.Err().Error())`            |
-| `spanSetStatusErrorDirect` | `span.SetStatus(codes.Error, _)` outside `internal/platform/observability` (use `observability.RecordFailure`) |
+| `spanSetStatusErrorDirect` | `span.SetStatus(<codes pkg alias>.Error, _)` outside `internal/platform/observability` (use `observability.RecordFailure`) |
 | `spanAttrStringLocalErr` | `attribute.String(_, err.Error())`                |
 | `spanAttrStringCtxErr`   | `attribute.String(_, ctx.Err().Error())`          |
 | `spanAttrKeyVocabulary`  | a string literal as a span attribute key (use semconv or `internal/platform/observability`) |

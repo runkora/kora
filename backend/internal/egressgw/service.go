@@ -227,12 +227,11 @@ func (b *Broker) validateCaller(ctx context.Context, span trace.Span, claims *to
 // still be served by the anonymous fallback; a failed evaluation never is.
 func (b *Broker) policyDenied(ctx context.Context, span trace.Span, claims *token.PlatformClaims, conn *credentials.Connection, req EgressRequest, perr error) (Decision, error) {
 	span.SetAttributes(observability.EgressAllowedKey.Bool(false))
-	span.RecordError(perr)
 	var denial *Denial
 	if errors.As(perr, &denial) && denial.Reason != DenialPolicyUnavailable {
 		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, denial)
 	}
-	observability.RecordFailure(span, ErrForbidden, ErrForbidden)
+	observability.RecordFailure(span, perr, ErrForbidden)
 	// An evaluator error is logged where it happens. An operational result
 	// such as no policy for the tenant is logged here.
 	if denial != nil && denial.decision != "" {
@@ -252,7 +251,7 @@ const anonymousReadAction = "anonymous_read"
 // docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md, Amendment 5.
 func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claims *token.PlatformClaims, conn *credentials.Connection, req EgressRequest, denial *Denial) (Decision, error) {
 	if conn.Adapter != credentials.AdapterGitHubApp || !isRead(req) || !b.ownEgressAllows(ctx, claims, req.Host) {
-		observability.RecordFailure(span, ErrForbidden, ErrForbidden)
+		observability.RecordFailure(span, denial, ErrForbidden)
 		b.logDenial(ctx, claims, req, denial)
 		return Decision{}, denial
 	}

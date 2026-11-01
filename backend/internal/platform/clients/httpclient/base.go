@@ -213,8 +213,8 @@ func (b *Base) HandleErrorResponse(span trace.Span, resp *http.Response, sentine
 	return err
 }
 
-// RecordError records err on the span, sets span status to codes.Error, and
-// returns err unchanged so callers can use it inline without a separate return.
+// RecordError marks the span failed with sentinel as status and error.type, records
+// no exception event since only the sentinel is known, and returns sentinel so callers can use it inline without a separate return.
 //
 // Use this for application-level validation failures after a successful HTTP
 // response — e.g. a required field is absent in the decoded body. The span

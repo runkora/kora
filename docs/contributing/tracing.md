@@ -126,13 +126,13 @@ All HTTP request spans include:
 
 ### Error Handling
 
-Spans are marked as errors for failed requests:
+Spans are marked as errors for server errors (5xx):
 
 ```go
 // From: backend/internal/platform/middleware/tracing.go
 
 // Record response status in span
-span.SetAttributes(semconv.HTTPResponseStatusCode(wrapped.statusCode))
+span.SetAttributes(semconv.HTTPResponseStatusCode(statusCode))
 
 // Mark span as error for server errors; sets the static status and error.type
 if statusCode >= 500 {
@@ -175,7 +175,7 @@ func ProcessAgentRequest(ctx context.Context, req *AgentRequest) error {
     err := authenticate(ctx, req.AgentID)
     authSpan.End()
     if err != nil {
-        span.RecordError(err)
+        observability.RecordFailure(span, err, errAuthenticate)
         return err
     }
     
@@ -318,7 +318,7 @@ Spans are batched before export:
 ✅ Use semantic conventions for standard operations (HTTP, DB, RPC)
 ✅ Add meaningful attributes that aid debugging
 ✅ Create child spans for complex operations (>100ms)
-✅ Record errors with `span.RecordError(err)`
+✅ Record failures with `observability.RecordFailure(span, err, errSentinel)`
 ✅ Propagate context to all downstream calls
 
 ### DON'T
@@ -328,8 +328,8 @@ Spans are batched before export:
 ❌ Create deeply nested span hierarchies (>10 levels)
 ❌ Forget to call `span.End()` (use defer)
 ❌ Sample 100% in production (too expensive)
-❌ Use `err.Error()` or `ctx.Err().Error()` inside `span.SetStatus(codes.Error, ...)`; use a package-level sentinel string ([opentelemetry-observability-discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md), enforced by `spanSetStatusLocalErr` lint rule)
-❌ Use `err.Error()` inside `attribute.String(...)`; use `span.RecordError(err)` for dynamic error context instead ([opentelemetry-observability-discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md), enforced by `spanAttrStringLocalErr` lint rule)
+❌ Use `err.Error()` or `ctx.Err().Error()` as a span status; use `observability.RecordFailure` with a package-level sentinel ([opentelemetry-observability-discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md), enforced by `spanSetStatusLocalErr` lint rule)
+❌ Use `err.Error()` inside `attribute.String(...)`; use `observability.RecordFailure` for dynamic error context instead ([opentelemetry-observability-discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md), enforced by `spanAttrStringLocalErr` lint rule)
 ❌ Manually call `otel.GetTextMapPropagator().Inject(...)` on outbound requests; use `httpclient.Base.Do()` ([multi-service-backend-deployment-structure](../adr/2026-03-19-multi-service-backend-deployment-structure.md))
 ❌ Import `go.opentelemetry.io/otel/codes` or `go.opentelemetry.io/otel/trace` in typed service clients: the base client owns that lifecycle ([opentelemetry-observability-discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md), enforced by `no-otel-span-mgmt-in-service-clients`)
 

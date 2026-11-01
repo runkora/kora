@@ -175,7 +175,7 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 			s.releaseStart(ctx, span, run.ID, claimedAt, fmt.Errorf("set run active: %w", err))
 		default:
 			// A retry on another pod would leave two live sessions for one run.
-			s.failStart(ctx, span, errStartFailed, run.ID, RunStateStarting, "The agent pod did not confirm the run.")
+			s.failStart(ctx, span, err, run.ID, RunStateStarting, "The agent pod did not confirm the run.")
 		}
 		return
 	}

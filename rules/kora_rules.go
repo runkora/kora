@@ -120,7 +120,7 @@ func spanSetStatusCtxErr(m dsl.Matcher) {
 func spanSetStatusErrorDirect(m dsl.Matcher) {
 	m.Match(`$span.SetStatus($code, $_)`).
 		Where(m["code"].Text.Matches(`\.Error$`) && !m.File().PkgPath.Matches(`/internal/platform/observability$`)).
-		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: use observability.RecordFailure(span, err, sentinel) instead of SetStatus with an Error code, so the span also carries error.type.`)
+		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: use observability.RecordFailure(span, err, sentinel) instead of SetStatus with an Error code. RecordFailure also sets error.type.`)
 }
 
 // spanAttrStringLocalErr flags attribute.String calls that embed a local error
