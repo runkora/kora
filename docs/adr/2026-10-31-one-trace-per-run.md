@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-31-one-trace-per-run.md  (decision date + slug; no sequential number) -->
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-11-01)
 **Date:** 2026-10-31
 **Deciders:** Justin Wilkin
 **Technical Story:** [Run Tracing PRD](../prd/run-tracing.md). Amends [2026-09-18: Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md).
@@ -131,7 +131,6 @@ This decision touches none of the three questions. No service reads `traceparent
   - Query frontend `search.max_duration`: 168 h, and `metrics.max_duration`: 24 h.
   - Compaction `block_retention`: 336 h.
 - A run that stays open longer than the 336 h block retention loses its earliest spans, and a search window of 168 h cannot cover a longer run.
-- A caller-supplied `traceparent` at the edge decides the trace ID and the sampling decision of the whole run. An unsampled flag at the run start suppresses the run's entire trace.
 - kora-runtime-mcp and kora-shell receive `TRACEPARENT` by inheriting Claude Code's environment. Their calls become children of the create-session span, and the `claude_code.tool` span that caused them is not their parent.
 - Egress spans stay roots. `git` and `curl` egress spans are found by `kora.run.id`.
 - sandbox-exec spans are not exported. [2026-09-18: Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) lists sandbox pods as a non-goal.
@@ -140,6 +139,27 @@ This decision touches none of the three questions. No service reads `traceparent
 ### Neutral
 
 - `trace_id` on the run resource is visible to every principal that can read the run.
+
+---
+
+## Amendment 1 (2026-11-01): Untrusted trace context at the edge
+
+**Status:** Accepted
+
+Touches none of the three questions. No service reads `traceparent` or `tracestate` for an identity, authorization or credential decision.
+
+**Context:** The north-south edge forwarded a client-supplied `traceparent` unchanged. A kora service took its trace ID from that header. Every service uses a `ParentBased` sampler, and a `traceparent` with flags `00` suppressed tracing for the request. The run stores the start request's trace context. An unsampled start left the whole run untraced and its `trace_id` null.
+
+**Decision:** The edge drops `traceparent` and `tracestate` from every request it receives from outside the mesh. The first kora service span starts a new root under the configured sampler. Trace context set by a client never reaches a kora service.
+
+The `kora-api` and `kora-frontend` VirtualServices remove both headers on every route. The optional frontend Ingress forwards them to the frontend, which records no spans and forwards no inbound headers. Mesh callers reach services by their in-mesh names and keep their `traceparent`.
+
+**Consequences:**
+
+- Kora always makes the trace ID and sampling decision of a run.
+- A client cannot join its own trace to a kora trace through the edge.
+- A new external route must remove both headers. The `kora.edgeHeaders` chart helper does this for the API host.
+- Envoy tracing at the ingress gateway reads `traceparent` before route header removal. Enabling it requires removing the headers with `early_header_mutation_extensions`.
 
 ---
 
@@ -182,4 +202,4 @@ On the local cluster at 100% sampling:
 - [OpenTelemetry span links](https://opentelemetry.io/docs/concepts/signals/traces/#span-links)
 - [Grafana Tempo configuration: ingester limits](https://grafana.com/docs/tempo/latest/configuration/)
 
-**Last Updated:** 2026-10-31
+**Last Updated:** 2026-11-01 (Amendment 1: untrusted trace context at the edge)
