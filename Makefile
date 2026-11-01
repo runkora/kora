@@ -733,8 +733,9 @@ cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install S
 
 .PHONY: cluster-observability
 cluster-observability: docker-pull-third-party ## Run the local LGTM stack (Grafana, Tempo, Prometheus, Loki) that the platform exports telemetry to
-	@kubectl apply -f deploy/local/observability/
-	@kubectl rollout status deployment/lgtm -n observability --timeout=180s
+	@# Pinned to the local context: the LGTM image is only served by the local registry.
+	@kubectl --context "$${KORA_KUBE_CONTEXT:-k3d-kora-local}" apply -f deploy/local/observability/
+	@kubectl --context "$${KORA_KUBE_CONTEXT:-k3d-kora-local}" rollout status deployment/lgtm -n observability --timeout=180s
 
 .PHONY: grafana
 grafana: ## Open the local Grafana on http://localhost:3000 (port-forward; Ctrl-C to stop)
