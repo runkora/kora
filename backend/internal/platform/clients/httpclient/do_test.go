@@ -2,6 +2,7 @@ package httpclient_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -71,5 +72,79 @@ func TestDo_NamesTheSpanAfterTheURLTemplate(t *testing.T) {
 	}
 	for k := range want {
 		t.Errorf("missing %s", k)
+	}
+}
+
+func TestDo_RejectsARequestItCannotBuild(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits++ }))
+	t.Cleanup(srv.Close)
+	base := httpclient.New("test", logging.NewLoggerWithOutput(io.Discard), 0)
+
+	tests := map[string]httpclient.Request{
+		"invalid method":     {Method: "BAD METHOD", BaseURL: srv.URL, Path: "/runs"},
+		"too few params":     {Method: http.MethodGet, BaseURL: srv.URL, Path: "/runs/{runID}/messages/{id}", Params: []string{"r"}},
+		"too many params":    {Method: http.MethodGet, BaseURL: srv.URL, Path: "/runs/{runID}", Params: []string{"r", "x"}},
+		"params, no holders": {Method: http.MethodGet, BaseURL: srv.URL, Path: "/runs", Params: []string{"r"}},
+	}
+	for name, r := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, span, resp, err := base.Do(context.Background(), r)
+			span.End()
+			if !errors.Is(err, httpclient.ErrBuildRequest) || resp != nil {
+				t.Errorf("Do = %v, %v, want ErrBuildRequest and no response", resp, err)
+			}
+		})
+	}
+	if hits != 0 {
+		t.Errorf("the server was called %d times", hits)
+	}
+}
+
+func TestHTTPFailures_SetErrorTypeToTheStatusCode(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+	ctx, parent := provider.Tracer("test").Start(context.Background(), "parent")
+	defer parent.End()
+
+	base := httpclient.New("test", logging.NewLoggerWithOutput(io.Discard), 0)
+	_, span, resp, err := base.Do(ctx, httpclient.Request{Method: http.MethodGet, BaseURL: srv.URL, Path: "/health"})
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	_ = base.HandleErrorResponse(span, resp, errors.New("unexpected status"))
+	_ = resp.Body.Close()
+	span.End()
+
+	sdk := httpclient.NewHTTPClient(0, httpclient.NewTracingTransport("test", "/v1/chat/completions", nil))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL+"/v1/chat/completions", nil)
+	resp, err = sdk.Do(req)
+	if err != nil {
+		t.Fatalf("transport: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	ended := recorder.Ended()
+	for i, wantName := range []string{"GET /health", "POST /v1/chat/completions"} {
+		got := ended[len(ended)-2+i]
+		if got.Name() != wantName {
+			t.Errorf("span name = %q, want %q", got.Name(), wantName)
+		}
+		errorType := ""
+		for _, kv := range got.Attributes() {
+			if kv.Key == semconv.ErrorTypeKey {
+				errorType = kv.Value.AsString()
+			}
+		}
+		if errorType != "503" {
+			t.Errorf("%s: error.type = %q, want 503", wantName, errorType)
+		}
 	}
 }

@@ -71,6 +71,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -98,10 +99,13 @@ var (
 	// be marshaled to JSON.
 	ErrEncodeBody = errors.New("failed to encode request body")
 
-	// ErrBuildRequest is returned by Do when the method or URL is invalid.
+	// ErrBuildRequest is returned by Do when the method or URL is invalid, or
+	// the path placeholders and params differ in count.
 	ErrBuildRequest = errors.New("failed to build request")
 
 	errTransport = errors.New("transport failure")
+
+	errPathParams = errors.New("path placeholders and params differ in count")
 )
 
 // Base is the shared foundation for all kora service-to-service HTTP clients.
@@ -205,6 +209,8 @@ func (b *Base) HandleErrorResponse(span trace.Span, resp *http.Response, sentine
 	upstream := b.ReadErrorBody(span, resp)
 	err := fmt.Errorf("%w: status %d: %s", sentinel, resp.StatusCode, upstream)
 	recordFailure(span, err, sentinel)
+	// The HTTP convention's error.type is the status code, as the tracing transport sets it.
+	span.SetAttributes(semconv.ErrorTypeKey.String(strconv.Itoa(resp.StatusCode)))
 	return err
 }
 
@@ -293,7 +299,11 @@ type Request struct {
 // The caller defers span.End() even on error, records non-2xx outcomes, and
 // reads and closes resp.Body. On error resp is nil.
 func (b *Base) Do(ctx context.Context, r Request) (context.Context, trace.Span, *http.Response, error) {
-	target := r.BaseURL + expandPath(r.Path, r.Params)
+	path, err := expandPath(r.Path, r.Params)
+	if err != nil {
+		return ctx, trace.SpanFromContext(context.Background()), nil, fmt.Errorf("%w: %w", ErrBuildRequest, err)
+	}
+	target := r.BaseURL + path
 	if len(r.Query) > 0 {
 		target += "?" + r.Query.Encode()
 	}
@@ -324,21 +334,25 @@ func (b *Base) Do(ctx context.Context, r Request) (context.Context, trace.Span, 
 }
 
 // expandPath fills each {name} placeholder in template with the next param,
-// path-escaped.
-func expandPath(template string, params []string) string {
+// path-escaped. A count mismatch is an error, since a leftover placeholder
+// would reach the upstream and a dropped param would be silently lost.
+func expandPath(template string, params []string) (string, error) {
 	var b strings.Builder
 	rest := template
 	for _, p := range params {
 		start, end := strings.IndexByte(rest, '{'), strings.IndexByte(rest, '}')
 		if start < 0 || end < start {
-			break
+			return "", errPathParams
 		}
 		b.WriteString(rest[:start])
 		b.WriteString(url.PathEscape(p))
 		rest = rest[end+1:]
 	}
+	if strings.ContainsRune(rest, '{') {
+		return "", errPathParams
+	}
 	b.WriteString(rest)
-	return b.String()
+	return b.String(), nil
 }
 
 // urlTemplate prefixes the path template with the base URL's own path, so
