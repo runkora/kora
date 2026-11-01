@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/observability"
@@ -84,8 +83,7 @@ func (s *RunService) AgentRunStats(ctx context.Context, slug string, period usag
 	defer span.End()
 	out, err := s.agentRunStats(ctx, tenantID, slug, period, now)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "agent run stats")
+		observability.RecordFailure(span, err, errSpanAgentRunStats)
 	}
 	return out, err
 }
@@ -119,8 +117,7 @@ func (s *RunService) TenantRunStats(ctx context.Context, period usagewindow.Peri
 	defer span.End()
 	out, err := s.tenantRunStats(ctx, tenantID, period, now)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "tenant run stats")
+		observability.RecordFailure(span, err, errSpanTenantRunStats)
 	}
 	return out, err
 }

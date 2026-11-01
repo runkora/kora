@@ -5,11 +5,11 @@ import (
 	"errors"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/observability"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 var triggersTracer = otel.Tracer("github.com/runkora/kora/backend/internal/triggers")
@@ -214,8 +214,7 @@ func (w *Worker) dispatch(ctx context.Context, p PendingDelivery, remaining []st
 	defer span.End()
 
 	if err := w.repo.TouchPendingClaims(ctx, remaining); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errClaimMaintenance.Error())
+		observability.RecordFailure(span, err, errClaimMaintenance)
 		w.logger.Error(ctx, "failed to re-stamp claims before dispatch",
 			logging.Field{Key: "pending_id", Value: p.ID},
 			logging.Field{Key: "error", Value: err.Error()})
@@ -225,8 +224,7 @@ func (w *Worker) dispatch(ctx context.Context, p PendingDelivery, remaining []st
 		return
 	}
 	if err := w.repo.ReleasePending(ctx, p.ID); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errClaimMaintenance.Error())
+		observability.RecordFailure(span, err, errClaimMaintenance)
 		w.logger.Error(ctx, "failed to release claimed delivery",
 			logging.Field{Key: "pending_id", Value: p.ID},
 			logging.Field{Key: "error", Value: err.Error()})

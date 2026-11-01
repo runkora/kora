@@ -13,12 +13,13 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 
 	"github.com/google/uuid"
-	"github.com/runkora/kora/backend/internal/platform/logging"
-	"github.com/runkora/kora/backend/internal/platform/policy"
-	"github.com/runkora/kora/backend/internal/platform/token"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 
 	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/storage"
@@ -165,8 +166,7 @@ func (s *Service) ChatCompletion(
 	// ── 1. Extract principal from context ─────────────────────────────────────
 	p, err := principalFromClaims(ctx)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		observability.RecordFailure(span, err, ErrTokenParseFailed)
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
@@ -179,17 +179,15 @@ func (s *Service) ChatCompletion(
 	// Wildcard routing and unknown models fall through to the coarse
 	// inference:invoke scope enforced at Layer 1 by Envoy.
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
-		span.RecordError(err)
-		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
-		span.SetStatus(codes.Error, spanMsg)
+		usageStatus, usageCode, spanErr := modelPolicyFailure(err)
+		observability.RecordFailure(span, err, spanErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
 	}
 
 	// ── 2b. Budget check ─────────────────────────────────────────────────────
 	if err = s.checkBudget(ctx, p); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		observability.RecordFailure(span, err, ErrBudgetExceeded)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
@@ -197,8 +195,7 @@ func (s *Service) ChatCompletion(
 	// ── 3. Route request ──────────────────────────────────────────────────────
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		observability.RecordFailure(span, err, ErrRoutingFailed)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
@@ -208,8 +205,7 @@ func (s *Service) ChatCompletion(
 	if s.router.IsWildcardModel(params.Model) {
 		targets, err = s.filterTargetsByPolicy(ctx, targets)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+			observability.RecordFailure(span, err, ErrPolicyDenied)
 			s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 			return nil, err
 		}
@@ -221,8 +217,7 @@ func (s *Service) ChatCompletion(
 	latencyMS := int(time.Since(start).Milliseconds())
 
 	if callErr != nil || usedTarget == nil {
-		span.RecordError(callErr)
-		span.SetStatus(codes.Error, ErrProviderError.Error())
+		observability.RecordFailure(span, callErr, ErrProviderError)
 		s.logProviderError(ctx, params.Model, callErr)
 		errCode := extractErrorCode(callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, extractFailureDetails(callErr), latencyMS)
@@ -313,8 +308,7 @@ func (s *Service) ChatCompletionStream(
 	// ── 1. Extract principal ───────────────────────────────────────────────────
 	p, err := principalFromClaims(ctx)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		observability.RecordFailure(span, err, ErrTokenParseFailed)
 		span.End()
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
@@ -325,9 +319,8 @@ func (s *Service) ChatCompletionStream(
 
 	// ── 2. Policy check ───────────────────────────────────────────────────────
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
-		span.RecordError(err)
-		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
-		span.SetStatus(codes.Error, spanMsg)
+		usageStatus, usageCode, spanErr := modelPolicyFailure(err)
+		observability.RecordFailure(span, err, spanErr)
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
@@ -335,8 +328,7 @@ func (s *Service) ChatCompletionStream(
 
 	// ── 2b. Budget check ─────────────────────────────────────────────────────
 	if err = s.checkBudget(ctx, p); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		observability.RecordFailure(span, err, ErrBudgetExceeded)
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
@@ -345,8 +337,7 @@ func (s *Service) ChatCompletionStream(
 	// ── 3. Route ───────────────────────────────────────────────────────────────
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		observability.RecordFailure(span, err, ErrRoutingFailed)
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
@@ -357,8 +348,7 @@ func (s *Service) ChatCompletionStream(
 	if s.router.IsWildcardModel(params.Model) {
 		targets, err = s.filterTargetsByPolicy(ctx, targets)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+			observability.RecordFailure(span, err, ErrPolicyDenied)
 			span.End()
 			s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 			return nil, err
@@ -380,8 +370,7 @@ func (s *Service) ChatCompletionStream(
 		})
 
 	if callErr != nil || usedTarget == nil {
-		span.RecordError(callErr)
-		span.SetStatus(codes.Error, ErrProviderError.Error())
+		observability.RecordFailure(span, callErr, ErrProviderError)
 		span.End()
 		s.logProviderError(ctx, params.Model, callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), extractFailureDetails(callErr), 0)
@@ -415,8 +404,7 @@ func (s *Service) ChatCompletionStream(
 				s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, storage.NullIfZero(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", nil, latencyMS)
 				return
 			}
-			span.RecordError(streamErr)
-			span.SetStatus(codes.Error, ErrProviderError.Error())
+			observability.RecordFailure(span, streamErr, ErrProviderError)
 			s.logProviderError(writeCtx, params.Model, streamErr)
 			s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, storage.NullIfZero(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
 			return
@@ -625,15 +613,15 @@ func (s *Service) checkModelPolicy(ctx context.Context, model string) error {
 }
 
 // modelPolicyFailure maps a checkModelPolicy error to the usage status, usage
-// code, and span message to record. An unknown model (ErrModelNotFound) is a
+// code, and span failure sentinel to record. An unknown model (ErrModelNotFound) is a
 // client 404, not an authorization failure, so it must not be recorded as a
 // policy denial in telemetry or usage; every other failure keeps the existing
 // policy-denied treatment.
-func modelPolicyFailure(err error) (status UsageStatus, code, spanMsg string) {
+func modelPolicyFailure(err error) (status UsageStatus, code string, spanErr error) {
 	if errors.Is(err, ErrModelNotFound) {
-		return UsageStatusModelNotFound, "MODEL_NOT_FOUND", err.Error()
+		return UsageStatusModelNotFound, "MODEL_NOT_FOUND", ErrModelNotFound
 	}
-	return UsageStatusPolicyDenied, "POLICY_DENIED", ErrPolicyDenied.Error()
+	return UsageStatusPolicyDenied, "POLICY_DENIED", ErrPolicyDenied
 }
 
 // filterTargetsByPolicy batch-filters routing targets through the OPA policy
@@ -704,8 +692,6 @@ func (s *Service) filterTargetsByPolicy(ctx context.Context, targets []RouteTarg
 	}
 	return filtered, nil
 }
-
-const spanStatusBudgetExceeded = "budget exceeded"
 
 // writeUsage stamps the run identity onto the record and persists it. Role
 // membership is NOT written here: it is single-sourced in the user_profiles
@@ -929,7 +915,7 @@ func (s *Service) checkBudget(ctx context.Context, p principal) error {
 			}
 		}
 		s.logger.Info(ctx, "budget.hard_block", fields...)
-		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		observability.RecordFailure(span, ErrBudgetExceeded, ErrBudgetExceeded)
 		if len(breached) > 0 {
 			// Name the breached ceiling scope(s) in the error so the run's
 			// visible refusal distinguishes e.g. the delegator's ceiling from
@@ -1688,8 +1674,7 @@ func (s *Service) Embeddings(
 
 	p, err := principalFromClaims(ctx)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		observability.RecordFailure(span, err, ErrTokenParseFailed)
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
@@ -1698,24 +1683,21 @@ func (s *Service) Embeddings(
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
-		span.RecordError(err)
-		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
-		span.SetStatus(codes.Error, spanMsg)
+		usageStatus, usageCode, spanErr := modelPolicyFailure(err)
+		observability.RecordFailure(span, err, spanErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
 	}
 
 	if err = s.checkBudget(ctx, p); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		observability.RecordFailure(span, err, ErrBudgetExceeded)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		observability.RecordFailure(span, err, ErrRoutingFailed)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
@@ -1731,8 +1713,7 @@ func (s *Service) Embeddings(
 	latencyMS := int(time.Since(start).Milliseconds())
 
 	if callErr != nil || usedTarget == nil {
-		span.RecordError(callErr)
-		span.SetStatus(codes.Error, ErrProviderError.Error())
+		observability.RecordFailure(span, callErr, ErrProviderError)
 		s.logProviderError(ctx, params.Model, callErr)
 		errCode := extractErrorCode(callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, extractFailureDetails(callErr), latencyMS)
@@ -1799,8 +1780,7 @@ func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*Sy
 
 	p, err := principalFromClaims(ctx)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		observability.RecordFailure(span, err, ErrTokenParseFailed)
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
@@ -1809,24 +1789,21 @@ func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*Sy
 	routeReq := ChatCompletionRequest{Model: model}
 
 	if err = s.checkModelPolicy(ctx, model); err != nil {
-		span.RecordError(err)
-		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
-		span.SetStatus(codes.Error, spanMsg)
+		usageStatus, usageCode, spanErr := modelPolicyFailure(err)
+		observability.RecordFailure(span, err, spanErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
 	}
 
 	if err = s.checkBudget(ctx, p); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		observability.RecordFailure(span, err, ErrBudgetExceeded)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		observability.RecordFailure(span, err, ErrRoutingFailed)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
@@ -1840,8 +1817,7 @@ func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*Sy
 	latencyMS := int(time.Since(start).Milliseconds())
 
 	if callErr != nil || usedTarget == nil {
-		span.RecordError(callErr)
-		span.SetStatus(codes.Error, ErrProviderError.Error())
+		observability.RecordFailure(span, callErr, ErrProviderError)
 		s.logProviderError(ctx, model, callErr)
 		errCode := extractErrorCode(callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, extractFailureDetails(callErr), latencyMS)
@@ -1913,8 +1889,7 @@ func (s *Service) Responses(
 
 	p, err := principalFromClaims(ctx)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		observability.RecordFailure(span, err, ErrTokenParseFailed)
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
@@ -1923,24 +1898,21 @@ func (s *Service) Responses(
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
-		span.RecordError(err)
-		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
-		span.SetStatus(codes.Error, spanMsg)
+		usageStatus, usageCode, spanErr := modelPolicyFailure(err)
+		observability.RecordFailure(span, err, spanErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
 	}
 
 	if err = s.checkBudget(ctx, p); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		observability.RecordFailure(span, err, ErrBudgetExceeded)
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		observability.RecordFailure(span, err, ErrRoutingFailed)
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
@@ -1956,8 +1928,7 @@ func (s *Service) Responses(
 	latencyMS := int(time.Since(start).Milliseconds())
 
 	if callErr != nil || usedTarget == nil {
-		span.RecordError(callErr)
-		span.SetStatus(codes.Error, ErrProviderError.Error())
+		observability.RecordFailure(span, callErr, ErrProviderError)
 		s.logProviderError(ctx, params.Model, callErr)
 		errCode := extractErrorCode(callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, extractFailureDetails(callErr), latencyMS)
@@ -2039,8 +2010,7 @@ func (s *Service) ResponsesStream(
 
 	p, err := principalFromClaims(ctx)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		observability.RecordFailure(span, err, ErrTokenParseFailed)
 		span.End()
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
@@ -2050,17 +2020,15 @@ func (s *Service) ResponsesStream(
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
-		span.RecordError(err)
-		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
-		span.SetStatus(codes.Error, spanMsg)
+		usageStatus, usageCode, spanErr := modelPolicyFailure(err)
+		observability.RecordFailure(span, err, spanErr)
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
 	}
 
 	if err = s.checkBudget(ctx, p); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		observability.RecordFailure(span, err, ErrBudgetExceeded)
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
@@ -2068,8 +2036,7 @@ func (s *Service) ResponsesStream(
 
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		observability.RecordFailure(span, err, ErrRoutingFailed)
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
@@ -2084,8 +2051,7 @@ func (s *Service) ResponsesStream(
 		})
 
 	if callErr != nil || usedTarget == nil {
-		span.RecordError(callErr)
-		span.SetStatus(codes.Error, ErrProviderError.Error())
+		observability.RecordFailure(span, callErr, ErrProviderError)
 		span.End()
 		s.logProviderError(ctx, params.Model, callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), extractFailureDetails(callErr), 0)
@@ -2111,8 +2077,7 @@ func (s *Service) ResponsesStream(
 				s.writeFailedUsage(writeCtx, p, routeReq, DialectResponses, &capturedTarget.Provider, storage.NullIfZero(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", nil, latencyMS)
 				return
 			}
-			span.RecordError(streamErr)
-			span.SetStatus(codes.Error, ErrProviderError.Error())
+			observability.RecordFailure(span, streamErr, ErrProviderError)
 			s.logProviderError(writeCtx, params.Model, streamErr)
 			s.writeFailedUsage(writeCtx, p, routeReq, DialectResponses, &capturedTarget.Provider, storage.NullIfZero(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
 			return
@@ -2259,8 +2224,7 @@ func (s *Service) AnthropicMessages(
 
 	p, err := principalFromClaims(ctx)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		observability.RecordFailure(span, err, ErrTokenParseFailed)
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
@@ -2270,25 +2234,22 @@ func (s *Service) AnthropicMessages(
 
 	// ── Policy check ──────────────────────────────────────────────────────────
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
-		span.RecordError(err)
-		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
-		span.SetStatus(codes.Error, spanMsg)
+		usageStatus, usageCode, spanErr := modelPolicyFailure(err)
+		observability.RecordFailure(span, err, spanErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
 	}
 
 	// ── Budget check ─────────────────────────────────────────────────────────
 	if err = s.checkBudget(ctx, p); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		observability.RecordFailure(span, err, ErrBudgetExceeded)
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		observability.RecordFailure(span, err, ErrRoutingFailed)
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
@@ -2298,8 +2259,7 @@ func (s *Service) AnthropicMessages(
 	if s.router.IsWildcardModel(params.Model) {
 		targets, err = s.filterTargetsByPolicy(ctx, targets)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+			observability.RecordFailure(span, err, ErrPolicyDenied)
 			s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 			return nil, err
 		}
@@ -2315,8 +2275,7 @@ func (s *Service) AnthropicMessages(
 	latencyMS := int(time.Since(start).Milliseconds())
 
 	if callErr != nil || usedTarget == nil {
-		span.RecordError(callErr)
-		span.SetStatus(codes.Error, ErrProviderError.Error())
+		observability.RecordFailure(span, callErr, ErrProviderError)
 		s.logProviderError(ctx, params.Model, callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), extractFailureDetails(callErr), latencyMS)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
@@ -2391,8 +2350,7 @@ func (s *Service) AnthropicMessagesStream(
 
 	p, err := principalFromClaims(ctx)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		observability.RecordFailure(span, err, ErrTokenParseFailed)
 		span.End()
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
@@ -2403,9 +2361,8 @@ func (s *Service) AnthropicMessagesStream(
 
 	// ── Policy check ──────────────────────────────────────────────────────────
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
-		span.RecordError(err)
-		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
-		span.SetStatus(codes.Error, spanMsg)
+		usageStatus, usageCode, spanErr := modelPolicyFailure(err)
+		observability.RecordFailure(span, err, spanErr)
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, usageStatus, usageCode, nil, 0)
 		return nil, err
@@ -2413,8 +2370,7 @@ func (s *Service) AnthropicMessagesStream(
 
 	// ── Budget check ─────────────────────────────────────────────────────────
 	if err = s.checkBudget(ctx, p); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		observability.RecordFailure(span, err, ErrBudgetExceeded)
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
@@ -2422,8 +2378,7 @@ func (s *Service) AnthropicMessagesStream(
 
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		observability.RecordFailure(span, err, ErrRoutingFailed)
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
@@ -2434,8 +2389,7 @@ func (s *Service) AnthropicMessagesStream(
 	if s.router.IsWildcardModel(params.Model) {
 		targets, err = s.filterTargetsByPolicy(ctx, targets)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+			observability.RecordFailure(span, err, ErrPolicyDenied)
 			span.End()
 			s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 			return nil, err
@@ -2450,8 +2404,7 @@ func (s *Service) AnthropicMessagesStream(
 		})
 
 	if callErr != nil || usedTarget == nil {
-		span.RecordError(callErr)
-		span.SetStatus(codes.Error, ErrProviderError.Error())
+		observability.RecordFailure(span, callErr, ErrProviderError)
 		span.End()
 		s.logProviderError(ctx, params.Model, callErr)
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), extractFailureDetails(callErr), 0)
@@ -2477,8 +2430,7 @@ func (s *Service) AnthropicMessagesStream(
 				s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, storage.NullIfZero(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", nil, latencyMS)
 				return
 			}
-			span.RecordError(streamErr)
-			span.SetStatus(codes.Error, ErrProviderError.Error())
+			observability.RecordFailure(span, streamErr, ErrProviderError)
 			s.logProviderError(writeCtx, params.Model, streamErr)
 			s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, storage.NullIfZero(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
 			return

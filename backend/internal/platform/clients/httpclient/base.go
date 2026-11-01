@@ -76,7 +76,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
@@ -180,7 +179,7 @@ func (b *Base) EncodeJSON(body any) (io.Reader, error) {
 func (b *Base) DecodeJSON(span trace.Span, resp *http.Response, dest any) error {
 	if err := json.NewDecoder(resp.Body).Decode(dest); err != nil {
 		wrapped := fmt.Errorf("%w: %w", ErrDecodeBody, err)
-		recordFailure(span, wrapped, ErrDecodeBody)
+		observability.RecordFailure(span, wrapped, ErrDecodeBody)
 		return wrapped
 	}
 	return nil
@@ -208,7 +207,7 @@ func (b *Base) DecodeJSON(span trace.Span, resp *http.Response, dest any) error 
 func (b *Base) HandleErrorResponse(span trace.Span, resp *http.Response, sentinel error) error {
 	upstream := b.ReadErrorBody(span, resp)
 	err := fmt.Errorf("%w: status %d: %s", sentinel, resp.StatusCode, upstream)
-	recordFailure(span, err, sentinel)
+	observability.RecordFailure(span, err, sentinel)
 	// HTTP semconv: error.type is the status code.
 	span.SetAttributes(semconv.ErrorTypeKey.String(strconv.Itoa(resp.StatusCode)))
 	return err
@@ -228,16 +227,8 @@ func (b *Base) HandleErrorResponse(span trace.Span, resp *http.Response, sentine
 //	    return c.RecordError(span, ErrMissingToken)
 //	}
 func (b *Base) RecordError(span trace.Span, sentinel error) error {
-	recordFailure(span, sentinel, sentinel)
+	observability.RecordFailure(span, sentinel, sentinel)
 	return sentinel
-}
-
-// recordFailure records err on span with the sentinel as both the static
-// status and error.type.
-func recordFailure(span trace.Span, err, sentinel error) {
-	span.RecordError(err)
-	span.SetStatus(codes.Error, sentinel.Error())
-	span.SetAttributes(semconv.ErrorTypeKey.String(sentinel.Error()))
 }
 
 // SpanSince records a span from start for untraced work that turned out worth tracing.
@@ -246,7 +237,7 @@ func (b *Base) SpanSince(ctx context.Context, spanName string, start time.Time, 
 	_, span := b.tracer.Start(ctx, spanName, trace.WithTimestamp(start))
 	defer span.End()
 	if err != nil {
-		recordFailure(span, err, sentinel)
+		observability.RecordFailure(span, err, sentinel)
 	}
 }
 
@@ -319,7 +310,7 @@ func (b *Base) Do(ctx context.Context, r Request) (context.Context, trace.Span, 
 	resp, err := b.httpClient.Do(req)
 	if err != nil {
 		// Static status: network error text can name internal hosts.
-		recordFailure(span, err, errTransport)
+		observability.RecordFailure(span, err, errTransport)
 		return ctx, span, nil, err
 	}
 	span.SetAttributes(semconv.HTTPResponseStatusCode(resp.StatusCode))

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
@@ -305,8 +304,7 @@ func (s *RunService) selectPod(ctx context.Context, at *AgentType, namespace str
 
 // releaseStart returns a claimed run to the queue after a transient failure.
 func (s *RunService) releaseStart(ctx context.Context, span trace.Span, runID string, claimedAt time.Time, cause error) {
-	span.RecordError(cause)
-	span.SetStatus(codes.Error, errStartReleased.Error())
+	observability.RecordFailure(span, cause, errStartReleased)
 	ctx = context.WithoutCancel(ctx)
 	if err := s.queue.ReleaseRunClaim(ctx, runID, claimedAt, time.Now().Add(s.pollInterval())); err != nil {
 		s.logger.Warn(ctx, "release run claim failed",
@@ -319,7 +317,7 @@ func (s *RunService) releaseStart(ctx context.Context, span trace.Span, runID st
 
 // failStart records why a run could not start and fails it.
 func (s *RunService) failStart(ctx context.Context, span trace.Span, runID string, from RunState, reason string) {
-	span.SetStatus(codes.Error, errStartFailed.Error())
+	observability.RecordFailure(span, errStartFailed, errStartFailed)
 	ctx = context.WithoutCancel(ctx)
 	// A run terminated meanwhile fails the transition and gets no error event.
 	if err := s.Transition(ctx, runID, from, RunStateFailed); err != nil {

@@ -108,6 +108,27 @@ func spanSetStatusCtxErr(m dsl.Matcher) {
 			`See docs/adr/2026-03-21-opentelemetry-observability-discipline.md`)
 }
 
+// spanSetStatusErrorDirect flags a failed-span status set outside the observability helper, which also sets error.type.
+//
+// Enforces: docs/adr/2026-03-21-opentelemetry-observability-discipline.md, Amendment 1.
+//
+// Bad:
+//
+//	span.RecordError(err)
+//	span.SetStatus(codes.Error, errMyThing.Error())
+//
+// Good:
+//
+//	observability.RecordFailure(span, err, errMyThing)
+func spanSetStatusErrorDirect(m dsl.Matcher) {
+	m.Import("go.opentelemetry.io/otel/codes")
+	m.Match(`$span.SetStatus(codes.Error, $_)`).
+		Where(!m.File().PkgPath.Matches(`/internal/platform/observability$`)).
+		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: use observability.RecordFailure(span, err, sentinel) instead of span.SetStatus(codes.Error, ...) — ` +
+			`it also sets the semconv error.type a failed span must carry. ` +
+			`See docs/adr/2026-03-21-opentelemetry-observability-discipline.md`)
+}
+
 // spanAttrStringLocalErr flags attribute.String calls that embed a local error
 // variable's .Error() string directly into a span attribute value.
 //

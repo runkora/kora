@@ -1,15 +1,17 @@
 package middleware
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"strconv"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // TracingMiddleware creates middleware that handles OpenTelemetry distributed tracing.
@@ -107,7 +109,7 @@ func TracingMiddleware(filters ...TraceFilter) Middleware {
 			// Client errors indicate issues with the request, not failures in our service.
 			// This aligns with OpenTelemetry semantic conventions for HTTP server spans.
 			if statusCode >= 500 {
-				span.SetStatus(codes.Error, "HTTP server error")
+				observability.RecordFailure(span, errServerError, errServerError)
 			}
 		})
 	})
@@ -161,3 +163,5 @@ func mustParsePort(portStr string) int {
 	}
 	return port
 }
+
+var errServerError = errors.New("HTTP server error")
