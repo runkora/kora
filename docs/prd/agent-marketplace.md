@@ -8,48 +8,48 @@
 
 ## Executive Summary
 
-Orbit needs Marketplaces where users can find and review agent skills in one place. Users must be able to understand what a package does, where it comes from, and what it contains. The first release is read-only: it supports finding and reviewing packages from GitHub sources approved for the user's tenant, but it does not install them or add them to agents. In the first release, a package is a skill. Plugins come in a later release.
+Kora needs Marketplaces where users can find and review agent skills in one place. Users must be able to understand what a package does, where it comes from, and what it contains. The first release is read-only: it supports finding and reviewing packages from GitHub sources approved for the user's tenant, but it does not install them or add them to agents. In the first release, a package is a skill. Plugins come in a later release.
 
 ## Problem Statement
 
 ### Current State
 
-Orbit is a platform for running AI agents safely at work. It controls who each agent is, what it can do, and what it can reach.
+Kora is a platform for running AI agents safely at work. It controls who each agent is, what it can do, and what it can reach.
 
-Orbit can allow an agent to use skills, but it gives the agent none. Today, each developer finds skills from GitHub and other sources and adds them to their own agent. As a result:
+Kora can allow an agent to use skills, but it gives the agent none. Today, each developer finds skills from GitHub and other sources and adds them to their own agent. As a result:
 
 - The company does not know which skills its teams use.
 - Nobody checks a skill before use.
-- Orbit cannot control what a skill does on a developer's computer.
-- Orbit agents cannot use these skills.
+- Kora cannot control what a skill does on a developer's computer.
+- Kora agents cannot use these skills.
 
 With the Marketplace, a platform administrator approves GitHub repositories for a tenant, and users with Marketplace access find and read the skills in them. Approval makes a source available for browsing, it does not certify its skills or authorize their execution.
 
 ### User Pain Points
 
-- Users cannot browse skills in Orbit, so they search several GitHub repositories.
+- Users cannot browse skills in Kora, so they search several GitHub repositories.
 - Users have no shared catalogue of skill sources approved for their team.
 - Users cannot see which Marketplace a skill comes from.
-- Users cannot read a skill and its files in Orbit before they use it.
+- Users cannot read a skill and its files in Kora before they use it.
 
 ### Business Impact
 
-- Teams spend more time configuring Orbit’s AI agents.
+- Teams spend more time configuring Kora’s AI agents.
 - Teams must spend time researching what packages to use and from where to get them.
-- Companies that run Orbit on their own servers must build and run their own marketplace service for skills instead of using Orbit.
+- Companies that run Kora on their own servers must build and run their own marketplace service for skills instead of using Kora.
 
 ## Goals and Objectives
 
 ### Primary Goals
 
-1. Let users browse and search skills in Orbit.
+1. Let users browse and search skills in Kora.
 2. Show only skills from approved sources.
 3. Show which Marketplace each skill comes from.
 4. Let users read a skill and its files before they use it.
 
 ### Success Metrics
 
-- Tenant members with Marketplace access can find a given skill and identify its source without leaving Orbit.
+- Tenant members with Marketplace access can find a given skill and identify its source without leaving Kora.
 - 100% of skill pages show the source repository, `SKILL.md`, and the supporting text files returned for the skill.
 
 ### Non-Goals
@@ -64,7 +64,7 @@ The first release does not:
 
 ### Primary User Stories
 
-> A tenant is one company or team workspace inside an Orbit installation.
+> A tenant is one company or team workspace inside an Kora installation.
 
 **As a** tenant member,  
 **I want to** browse and search skills from approved sources,\
@@ -90,21 +90,21 @@ The first release does not:
 
 ### Secondary User Stories
 
-> A self-hosting operator is the person or team that installs and runs Orbit on the company's own servers. A platform administrator decides which GitHub repositories are approved for a tenant. A security reviewer checks a skill for risks before teams use it.
+> A self-hosting operator is the person or team that installs and runs Kora on the company's own servers. A platform administrator decides which GitHub repositories are approved for a tenant. A security reviewer checks a skill for risks before teams use it.
 
-- As a self-hosting operator, I want Marketplace to behave like part of Orbit, so that users do not need a separate product or sign-in experience.
+- As a self-hosting operator, I want Marketplace to behave like part of Kora, so that users do not need a separate product or sign-in experience.
 - As a tenant administrator, I want to register GitHub repositories for my tenant and obtain platform approval, so that users see only skills from approved sources.
-- As a security reviewer, I want to read a skill's instructions and files in Orbit, so that I can check the skill before a team uses it.
+- As a security reviewer, I want to read a skill's instructions and files in Kora, so that I can check the skill before a team uses it.
 
 ## Proposed Solution
 
 ### High-Level Approach
 
-Orbit adds a read-only Marketplace for skills to the Orbit dashboard. It brings the skills from approved GitHub repositories into one consistent view, where users can browse, search, and read them. Each repository is one Marketplace, available only to the tenants for which it is approved.
+Kora adds a read-only Marketplace for skills to the Kora dashboard. It brings the skills from approved GitHub repositories into one consistent view, where users can browse, search, and read them. Each repository is one Marketplace, available only to the tenants for which it is approved.
 
 ### User Experience
 
-The Marketplace is a page under Control Plane in the Orbit dashboard. It has the same look and sign-in as the rest of Orbit.
+The Marketplace is a page under Control Plane in the Kora dashboard. It has the same look and sign-in as the rest of Kora.
 
 - Users can show the results as a list or as cards.
 - Users can sort the results by name, A to Z or Z to A.
@@ -118,9 +118,9 @@ The Marketplace is a page under Control Plane in the Orbit dashboard. It has the
 1. **Browse Marketplace**
    1. The user opens Control Plane → Marketplace.
    2. The page opens the Marketplace named in the address. When the address names none, it uses the user's last selected Marketplace, or the first available one in the order supplied by the platform.
-   3. The user can select another Marketplace. Orbit remembers a selection after its skills load successfully.
+   3. The user can select another Marketplace. Kora remembers a selection after its skills load successfully.
    4. The user enters a search of at least three characters. Search covers names, descriptions, and `SKILL.md` instructions in that Marketplace, excluding supporting files.
-   5. Orbit shows a numbered page of up to 24 matching skills. A new search uses relevance order; browsing without a search defaults to name order, A to Z.
+   5. Kora shows a numbered page of up to 24 matching skills. A new search uses relevance order; browsing without a search defaults to name order, A to Z.
    6. Each result shows its name, summary, and Marketplace.
 2. **Review a package**
    1. The user selects a skill.
@@ -172,7 +172,7 @@ The Marketplace is a page under Control Plane in the Orbit dashboard. It has the
 
 **Must Have (P0):**
 
-- **FR-1:** Add the Marketplace under Control Plane in the Orbit dashboard.
+- **FR-1:** Add the Marketplace under Control Plane in the Kora dashboard.
 - **FR-2:** Allow authorized tenant members to view only the sources approved for their tenant.
 - **FR-3:** Let users browse the available skills of the selected Marketplace.
 - **FR-4:** Let users search skill names, descriptions, and instructions within the selected Marketplace. Order search results by relevance by default.
@@ -181,7 +181,7 @@ The Marketplace is a page under Control Plane in the Orbit dashboard. It has the
 - **FR-7:** Let users review a skill's instructions and available supporting text files, and identify its source repository.
 - **FR-9:** Provide read-only previews of supported skill files.
 - **FR-14:** Show clear messages for loading, no sources, no skills, no search matches, missing skills, and failures. Let users retry failed loads.
-- **FR-15:** Marketplace content must be displayed without executing it or changing Orbit's behavior.
+- **FR-15:** Marketplace content must be displayed without executing it or changing Kora's behavior.
 
 **Should Have (P1):**
 
@@ -193,7 +193,7 @@ The Marketplace is a page under Control Plane in the Orbit dashboard. It has the
 
 **Security:**
 
-- **Who is this agent?** Users access Marketplace through their existing Orbit identity and sign-in.
+- **Who is this agent?** Users access Marketplace through their existing Kora identity and sign-in.
 - **What can it access?** Users may view only sources permitted by their existing access rights and approved for their tenant. Browsing or source approval must not grant permission to execute skills or access tools.
 - **How does it connect?** Repository credentials must remain protected and must not be exposed to users or agents.
 
@@ -201,7 +201,7 @@ The Marketplace is a page under Control Plane in the Orbit dashboard. It has the
 
 - A failed update must leave the last available results visible, explain the failure, and allow users to try again.
 - A failure in one source must not prevent users from browsing other available sources.
-- Marketplace failures must not disrupt other Orbit features.
+- Marketplace failures must not disrupt other Kora features.
 
 **Observability:**
 
@@ -211,16 +211,16 @@ The Marketplace is a page under Control Plane in the Orbit dashboard. It has the
 
 ### Internal Dependencies
 
-- **Orbit identity and tenant membership:** Determines who the user is and which tenant they are using.
-- **Orbit permissions:** Determines which users may access Marketplace.
-- **Orbit dashboard standards:** Provides navigation, wording, accessibility, and responsive behaviour.
+- **Kora identity and tenant membership:** Determines who the user is and which tenant they are using.
+- **Kora permissions:** Determines which users may access Marketplace.
+- **Kora dashboard standards:** Provides navigation, wording, accessibility, and responsive behaviour.
 - **Source approval:** A tenant administrator or operator registers a source. A platform administrator approves the repository for that tenant before users can browse it. This happens outside the dashboard.
 
 ### External Dependencies
 
-- **GitHub:** Hosts the approved sources in the first release. Orbit needs read access to each approved repository.
+- **GitHub:** Hosts the approved sources in the first release. Kora needs read access to each approved repository.
 - **Skill authors:** Each skill needs its own repository folder and a valid `SKILL.md` file with a name and a description. Supporting files are optional. A `SKILL.md` at the repository root is not listed.
-- **Self-hosting environment:** A self-hosted Orbit must be able to reach GitHub.
+- **Self-hosting environment:** A self-hosted Kora must be able to reach GitHub.
 
 ## Alternatives Considered
 
@@ -231,15 +231,15 @@ The Marketplace is a page under Control Plane in the Orbit dashboard. It has the
 **Why not chosen:**
 
 - Users must understand different repository structures and package formats.
-- Orbit cannot offer one consistent view of source, contents, and package needs.
+- Kora cannot offer one consistent view of source, contents, and package needs.
 
 ### Alternative 2: Provide a Links-Only Marketplace
 
-**Description:** Orbit shows package names, short descriptions, and source links but no detailed review information.
+**Description:** Kora shows package names, short descriptions, and source links but no detailed review information.
 
 **Why not chosen:**
 
-- Users would still leave Orbit to understand package contents and needs.
+- Users would still leave Kora to understand package contents and needs.
 - Platform and security reviewers would not receive enough information for a consistent review.
 
 ### Alternative 3: Include Package Management in the First Release
@@ -280,13 +280,13 @@ The Marketplace is a page under Control Plane in the Orbit dashboard. It has the
 
 ### Glossary
 
-- **Marketplace:** The Orbit area where users with Marketplace access find and review skills. Each approved repository provides one selectable Marketplace.
+- **Marketplace:** The Kora area where users with Marketplace access find and review skills. Each approved repository provides one selectable Marketplace.
 - **Marketplace source:** An approved GitHub repository that provides skills for one tenant.
 - **Package:** One item in Marketplace. Its type is skill.
 - **Skill:** A `SKILL.md` file with instructions, plus optional supporting files, that helps an agent perform a task. The dashboard previews returned text files and does not run them.
 - **Agent plugin:** A package that can contain skills and other declared agent parts. Plugins come in a later release.
-- **Tenant:** A company or team workspace inside an Orbit installation.
-- **Operator:** The person or team that installs and runs Orbit.
+- **Tenant:** A company or team workspace inside an Kora installation.
+- **Operator:** The person or team that installs and runs Kora.
 - **Tenant administrator:** A person who can register Marketplace sources in their tenant's namespace.
 - **Platform administrator:** A person who decides which GitHub repositories are approved for each tenant.
 
