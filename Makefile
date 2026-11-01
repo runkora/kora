@@ -739,7 +739,7 @@ cluster-observability: docker-pull-third-party ## Run the local LGTM stack (Graf
 
 .PHONY: grafana
 grafana: ## Open the local Grafana on http://localhost:3000 (port-forward; Ctrl-C to stop)
-	@kubectl -n observability port-forward svc/lgtm 3000:3000
+	@kubectl --context "$${KORA_KUBE_CONTEXT:-k3d-kora-local}" -n observability port-forward svc/lgtm 3000:3000
 
 .PHONY: cluster-deploy
 cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads (builds tenant images only if absent)
