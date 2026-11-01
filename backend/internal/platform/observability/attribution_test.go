@@ -33,6 +33,20 @@ func TestAttributionProcessor(t *testing.T) {
 	}
 }
 
+func TestWithRunTagsTheCurrentSpan(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+
+	ctx, span := tp.Tracer("test").Start(context.Background(), "started-first")
+	WithTenant(WithRun(ctx, "run-1"), "tenant-1")
+	span.End()
+
+	got := attrMap(rec.Ended()[0].Attributes())
+	if got[RunIDKey] != "run-1" || got[TenantIDKey] != "tenant-1" {
+		t.Errorf("span attributes = %v, want run-1 and tenant-1", got)
+	}
+}
+
 func attrMap(kvs []attribute.KeyValue) map[attribute.Key]string {
 	m := map[attribute.Key]string{}
 	for _, kv := range kvs {

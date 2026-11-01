@@ -27,7 +27,6 @@ func SpanRouteName(mountPath string) MiddlewareHandler {
 				span.SetName(r.Method + " " + route)
 				span.SetAttributes(semconv.HTTPRoute(route))
 				if runID = cmp.Or(runID, routeRunID(r)); runID != "" {
-					span.SetAttributes(observability.RunIDKey.String(runID))
 					r = r.WithContext(observability.WithRun(r.Context(), runID))
 				}
 			}
