@@ -60,9 +60,7 @@ type otelQueryTracer struct {
 	dbAttrs []attribute.KeyValue
 }
 
-// TraceQueryStart opens a span when a query begins inside a traced unit of
-// work. A query with no parent, such as an idle poll, records no span. The
-// operation is not read from the SQL or the command tag, which mislabel CTEs.
+// TraceQueryStart opens a span for a query under a parent span. A query with no parent records none.
 func (t *otelQueryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	if !trace.SpanContextFromContext(ctx).IsValid() {
 		return ctx
