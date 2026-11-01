@@ -38,6 +38,10 @@ func (c *PostgresConfig) BuildPoolConfig() (*pgxpool.Config, error) {
 	poolConfig.ConnConfig.Tracer = &otelQueryTracer{
 		tracer:           otel.Tracer("github.com/runkora/kora/backend/internal/platform/storage"),
 		captureQueryText: c.CaptureQueryText,
+		dbAttrs: []attribute.KeyValue{
+			semconv.DBSystemNamePostgreSQL, semconv.DBNamespace(c.Database),
+			semconv.ServerAddress(c.Host), semconv.ServerPort(c.Port),
+		},
 	}
 
 	return poolConfig, nil
@@ -52,29 +56,22 @@ var errQueryFailed = errors.New("database query failed")
 type otelQueryTracer struct {
 	tracer           trace.Tracer
 	captureQueryText bool
+	// dbAttrs holds the database and server keys, built once per pool rather than per query.
+	dbAttrs []attribute.KeyValue
 }
 
 // TraceQueryStart opens a span when a query begins inside a traced unit of
 // work. A query with no parent, such as an idle poll, records no span. The
 // operation is not read from the SQL or the command tag, which mislabel CTEs.
-func (t *otelQueryTracer) TraceQueryStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+func (t *otelQueryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	if !trace.SpanContextFromContext(ctx).IsValid() {
 		return ctx
 	}
-	attrs := []attribute.KeyValue{semconv.DBSystemNamePostgreSQL}
-	if conn != nil {
-		cfg := conn.Config()
-		attrs = append(attrs, semconv.DBNamespace(cfg.Database), semconv.ServerAddress(cfg.Host), semconv.ServerPort(int(cfg.Port)))
-	}
-
+	opts := []trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindClient), trace.WithAttributes(t.dbAttrs...)}
 	if t.captureQueryText {
-		attrs = append(attrs, semconv.DBQueryText(data.SQL))
+		opts = append(opts, trace.WithAttributes(semconv.DBQueryText(data.SQL)))
 	}
-
-	ctx, _ = t.tracer.Start(ctx, semconv.DBSystemNamePostgreSQL.Value.AsString(),
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(attrs...),
-	)
+	ctx, _ = t.tracer.Start(ctx, semconv.DBSystemNamePostgreSQL.Value.AsString(), opts...)
 	return ctx
 }
 
