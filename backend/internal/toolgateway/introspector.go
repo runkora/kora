@@ -30,13 +30,8 @@ const introspectClientName = "kora-tool-gateway"
 // defaultIntrospectTimeout bounds a single server's initialize + tools/list.
 const defaultIntrospectTimeout = 15 * time.Second
 
-// retryBaseDelay and retryMaxDelay bound the per-server backoff for a server
-// that has never been reached. The delay doubles per consecutive failure and
-// caps at retryMaxDelay, so a server that is slow to start is retried within
-// seconds while one that is down settles to a cheap poll. Deliberately
-// independent of ReintrospectIntervalSeconds: that interval says how often a
-// WORKING server should be re-read, which is a different question from how soon
-// to retry one that has never answered.
+// Backoff for a server that has never been reached. Independent of
+// ReintrospectIntervalSeconds, which paces re-reads of a working server.
 const (
 	retryBaseDelay = 2 * time.Second
 	retryMaxDelay  = time.Minute
@@ -127,9 +122,6 @@ func (i *Introspector) due(key string, srv Server) bool {
 		return true
 	}
 	if neverReached {
-		// Its own backoff decides, not the periodic interval: retrying a server
-		// that is still starting every tick is wasteful, and waiting a full
-		// interval leaves it serving nothing.
 		return !time.Now().Before(retryAt)
 	}
 	if srv.ReintrospectIntervalSeconds <= 0 {
@@ -157,8 +149,7 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 		snap.State = StateDegraded
 		snap.LastErr = err.Error()
 		if !snap.Reached {
-			// No retained tools, so this server is serving nothing. Schedule its
-			// own retry rather than waiting for the next periodic cycle.
+			// Nothing retained to serve, so schedule its own retry.
 			snap.retries++
 			snap.retryAt = time.Now().Add(backoffFor(snap.retries))
 		}
@@ -313,8 +304,7 @@ func (i *Introspector) AllSeenOrRetained(servers []Server) bool {
 	return true
 }
 
-// backoffFor is the delay before attempt n+1 of a server that has never been
-// reached: retryBaseDelay doubled per consecutive failure, capped.
+// backoffFor doubles retryBaseDelay per consecutive failure, capped.
 func backoffFor(failures int) time.Duration {
 	d := retryBaseDelay
 	for range failures - 1 {
@@ -327,10 +317,7 @@ func backoffFor(failures int) time.Duration {
 }
 
 // NextRetryIn reports how long until the earliest listed server is due for a
-// retry, and whether any is waiting at all. A zero duration means one is due
-// now. Only servers that have never been reached schedule a retry, so a server
-// already serving tools never shortens the caller's wait, and a permanently
-// unreachable one settles at retryMaxDelay rather than spinning.
+// retry, and whether any is waiting. Zero means due now.
 func (i *Introspector) NextRetryIn(servers []Server) (time.Duration, bool) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()

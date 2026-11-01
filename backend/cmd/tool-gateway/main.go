@@ -153,8 +153,7 @@ func realMain() error {
 				logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: replaceErr.Error()})
 			}
 		}
-		// Buffered and non-blocking: a reload only needs to wake the loop once,
-		// and OnReload must never block on a loop busy running a cycle.
+		// Non-blocking: OnReload must not wait on a loop mid-cycle.
 		reloaded := make(chan struct{}, 1)
 		registry.OnReload(func(ctx context.Context) {
 			cycle(ctx, true)
@@ -164,7 +163,6 @@ func realMain() error {
 			}
 		})
 		go registry.Watch(ctx)
-		// The introspector owns the retry schedule; the loop only waits for it.
 		nextRetry := func() (time.Duration, bool) { return introspector.NextRetryIn(registry.Servers()) }
 		go runIntrospectionLoop(ctx, cycle, tgc.Current.ReintrospectInterval(), nextRetry, reloaded, logger)
 	}
@@ -211,17 +209,10 @@ func realMain() error {
 	return nil
 }
 
-// runIntrospectionLoop drives the introspection cycle: once at boot, then on a
-// timer. nextRetry reports how long until a server that has never been reached
-// is due for its own retry; while one is waiting the loop uses that instead of
-// the configured interval, so a cold start converges on the introspector's
-// backoff rather than minutes later.
-//
-// The wait is recomputed each pass rather than held in a ticker, so the loop
-// follows the backoff up to its cap and settles back to the configured interval
-// once every server is reached. reloaded lets a registry reload recompute that
-// wait immediately: a reload that adds a server whose first introspection fails
-// must not sit out the remainder of a long interval.
+// runIntrospectionLoop runs the cycle once at boot, then waits
+// min(nextRetry, interval) each pass. Recomputed rather than held in a ticker so
+// the loop follows the introspector's backoff and settles back to interval once
+// every server is reached. A reload signal recomputes the wait immediately.
 func runIntrospectionLoop(
 	ctx context.Context,
 	cycle func(context.Context, bool),
@@ -246,7 +237,7 @@ func runIntrospectionLoop(
 			timer.Stop()
 			return
 		case <-reloaded:
-			// The reload ran its own forced cycle; just recompute the wait.
+			// The reload ran its own cycle; just recompute the wait.
 			timer.Stop()
 			continue
 		case <-timer.C:
