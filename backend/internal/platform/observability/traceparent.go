@@ -32,7 +32,7 @@ func LinkToTraceParent(ctx context.Context, traceparent string) {
 }
 
 // TraceParentLink is a span link to the span traceparent names, and false when it does not parse.
-// Pass it to trace.WithLinks so the sampler sees the link at span start.
+// Pass it to trace.WithLinks: the sampler sees links only at span start.
 func TraceParentLink(traceparent string) (trace.Link, bool) {
 	sc := spanContextOf(traceparent)
 	return trace.Link{SpanContext: sc}, sc.IsValid()

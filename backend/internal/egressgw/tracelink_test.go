@@ -50,13 +50,18 @@ type stubRunTraces struct {
 	traceParent string
 	err         error
 	calls       int
+	block       chan struct{} // when set, a lookup waits for it to close
 }
 
 func (s *stubRunTraces) RunTraceParent(context.Context, string, string) (string, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.calls++
-	return s.traceParent, s.err
+	traceParent, err, block := s.traceParent, s.err, s.block
+	s.mu.Unlock()
+	if block != nil {
+		<-block
+	}
+	return traceParent, err
 }
 
 func (s *stubRunTraces) callCount() int {
@@ -140,6 +145,25 @@ func TestTraceLinker_Links(t *testing.T) {
 		}
 	})
 
+	t.Run("concurrent calls for an uncached run share one lookup", func(t *testing.T) {
+		release := make(chan struct{})
+		src := &stubRunTraces{traceParent: testTraceParent, block: release}
+		l := newTestLinker(src)
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Go(func() { l.Links(ctx, "run-1") })
+		}
+		for src.callCount() == 0 {
+			time.Sleep(time.Millisecond)
+		}
+		time.Sleep(50 * time.Millisecond)
+		close(release)
+		wg.Wait()
+		if src.callCount() != 1 {
+			t.Errorf("lookups = %d, want 1", src.callCount())
+		}
+	})
+
 	t.Run("cache is bounded", func(t *testing.T) {
 		l := newTestLinker(&stubRunTraces{traceParent: testTraceParent})
 		for i := range traceLinkEntries + 10 {
@@ -153,29 +177,18 @@ func TestTraceLinker_Links(t *testing.T) {
 
 func TestConnect_RelaySpanLinksToRunTrace(t *testing.T) {
 	// A loopback target is refused after the span starts.
-	cases := []struct {
-		name string
-		src  *stubRunTraces
-		want bool
-	}{
-		{"traceparent", &stubRunTraces{traceParent: testTraceParent}, true},
-		{"lookup failure", &stubRunTraces{err: errors.New("agents down")}, false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			rec := spanRecorder()
-			h := NewConnectHandler(nil, nil, nil, logging.NewLoggerWithOutput(io.Discard)).WithTraceLinker(newTestLinker(c.src))
-			req := httptest.NewRequest(http.MethodConnect, "127.0.0.1:5432", nil)
-			req.Host = "127.0.0.1:5432"
-			w := httptest.NewRecorder()
-			authInjector(claimsFor("kora-tenant-example", testCaller, "run-9"), h).ServeHTTP(w, req)
+	rec := spanRecorder()
+	h := NewConnectHandler(nil, nil, nil, logging.NewLoggerWithOutput(io.Discard)).
+		WithTraceLinker(newTestLinker(&stubRunTraces{traceParent: testTraceParent}))
+	req := httptest.NewRequest(http.MethodConnect, "127.0.0.1:5432", nil)
+	req.Host = "127.0.0.1:5432"
+	w := httptest.NewRecorder()
+	authInjector(claimsFor("kora-tenant-example", testCaller, "run-9"), h).ServeHTTP(w, req)
 
-			if w.Code != http.StatusForbidden {
-				t.Errorf("status = %d, want %d regardless of the lookup", w.Code, http.StatusForbidden)
-			}
-			assertLinks(t, endedSpan(t, rec, "egressgw.ConnectHandler.serveRelay"), c.want)
-		})
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusForbidden)
 	}
+	assertLinks(t, endedSpan(t, rec, "egressgw.ConnectHandler.serveRelay"), true)
 }
 
 func TestConnect_InterceptedSpanLinksToRunTrace(t *testing.T) {

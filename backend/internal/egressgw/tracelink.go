@@ -6,13 +6,13 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
-// Cache bounds. A failed lookup is held briefly so an unavailable kora-agents costs one lookup
-// per run per interval, not one per connection.
+// Cache bounds. Failed lookups are held for traceLinkFailureTTL to cap lookups against an unavailable kora-agents.
 const (
 	traceLinkTTL        = 5 * time.Minute
 	traceLinkFailureTTL = 30 * time.Second
@@ -33,6 +33,7 @@ type TraceLinker struct {
 	logger logging.Logger
 	now    func() time.Time
 
+	flight  singleflight.Group // one in-flight lookup per run
 	mu      sync.Mutex
 	entries map[string]traceLinkEntry
 }
@@ -42,7 +43,7 @@ type traceLinkEntry struct {
 	expires time.Time
 }
 
-// NewTraceLinker returns a TraceLinker that reads from src using the bearer token returns.
+// NewTraceLinker reads traceparents from src with the bearer from token.
 func NewTraceLinker(src runTraceParents, token func(context.Context) (string, error), logger logging.Logger) *TraceLinker {
 	return &TraceLinker{src: src, token: token, logger: logger, now: time.Now, entries: map[string]traceLinkEntry{}}
 }
@@ -60,13 +61,16 @@ func (l *TraceLinker) Links(ctx context.Context, runID string) []trace.Link {
 		return e.links
 	}
 
-	links, ttl := l.lookup(ctx, runID)
-	l.put(runID, traceLinkEntry{links: links, expires: l.now().Add(ttl)})
-	return links
+	v, _, _ := l.flight.Do(runID, func() (any, error) {
+		links, ttl := l.lookup(ctx, runID)
+		l.put(runID, traceLinkEntry{links: links, expires: l.now().Add(ttl)})
+		return links, nil
+	})
+	return v.([]trace.Link)
 }
 
 func (l *TraceLinker) lookup(ctx context.Context, runID string) ([]trace.Link, time.Duration) {
-	ctx, cancel := context.WithTimeout(ctx, traceLinkTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), traceLinkTimeout)
 	defer cancel()
 
 	bearer, err := l.token(ctx)
