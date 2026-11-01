@@ -138,12 +138,20 @@ func TestIntrospectorDue(t *testing.T) {
 	}
 
 	// A reload-only server that was unreachable at startup must be retried on
-	// the timer, or it serves no tools until the next registry change.
+	// the timer, or it serves no tools until the next registry change. It is now
+	// retried on its own backoff rather than on every tick: due() holds it until
+	// the delay elapses, and the loop wakes exactly then.
 	unreached := Server{TenantID: "", Name: "unreached", ReintrospectIntervalSeconds: 0}
 	uKey := serverKey(unreached.TenantID, unreached.Name)
 	i.recordResult(context.Background(), unreached, uKey, nil, errors.New("connect: service unavailable"))
+	if i.due(uKey, unreached) {
+		t.Error("a never-reached server was due inside its backoff; every tick would retry it")
+	}
+	i.mu.Lock()
+	i.snapshots[uKey].retryAt = time.Now().Add(-time.Second)
+	i.mu.Unlock()
 	if !i.due(uKey, unreached) {
-		t.Error("a server that has never been reached should be due")
+		t.Error("a server that has never been reached should be due once its backoff elapsed")
 	}
 
 	// A reload-only server that once succeeded with no tools and then failed has
@@ -201,41 +209,65 @@ func TestToolRequires(t *testing.T) {
 	}
 }
 
-// The catch-up predicate must track what an unforced tick will actually retry.
-// A reload-only server reached once with zero tools and later degraded keeps
-// AllSeenOrRetained false while due() skips it, so using the prune guard for
-// catch-up spins the loop forever. AllReached stays true for that server.
-func TestIntrospector_AllReachedVsAllSeenOrRetained(t *testing.T) {
+// Per-server backoff: a server that has never been reached schedules its own
+// retry, and that schedule — not the reintrospect interval — decides when due()
+// lets it through. A server already serving tools never schedules one, which is
+// what keeps the loop from spinning on a reached-but-empty server.
+func TestIntrospector_PerServerRetryBackoff(t *testing.T) {
 	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
-	// Reload-only server (interval 0) that returned zero tools, then degraded.
-	srv := Server{TenantID: "", Name: "empty", ReintrospectIntervalSeconds: 0}
-	key := serverKey(srv.TenantID, srv.Name)
-	i.snapshots[key] = &ServerSnapshot{
-		Server: srv, State: StateDegraded, Reached: true, Tools: nil,
+	// Reload-only server (interval 0) reached once with zero tools, then degraded.
+	reachedEmpty := Server{TenantID: "", Name: "empty", ReintrospectIntervalSeconds: 0}
+	i.snapshots[serverKey("", "empty")] = &ServerSnapshot{
+		Server: reachedEmpty, State: StateDegraded, Reached: true, Tools: nil,
 	}
-	servers := []Server{srv}
-
-	if i.AllSeenOrRetained(servers) {
-		t.Fatal("setup: AllSeenOrRetained should be false for a degraded server with no tools")
+	if _, pending := i.NextRetryIn([]Server{reachedEmpty}); pending {
+		t.Error("a server reached once scheduled a retry; the loop would spin on it")
 	}
-	if i.due(key, srv) {
-		t.Fatal("setup: a reached reload-only server should not be due on an unforced tick")
-	}
-	// The combination above is the spin: ready() false forever, never retried.
-	if !i.AllReached(servers) {
-		t.Error("AllReached = false for a server reached once; the catch-up loop would spin on it")
+	if i.due(serverKey("", "empty"), reachedEmpty) {
+		t.Error("a reached reload-only server should not be due on an unforced tick")
 	}
 
-	// A server never reached is what catch-up is for.
+	// A never-reached server is due only once its backoff elapses.
 	down := Server{TenantID: "", Name: "down", ReintrospectIntervalSeconds: 3600}
-	i.snapshots[serverKey(down.TenantID, down.Name)] = &ServerSnapshot{
+	key := serverKey("", "down")
+	i.snapshots[key] = &ServerSnapshot{
 		Server: down, State: StateDegraded, Reached: false,
+		retries: 1, retryAt: time.Now().Add(time.Hour),
 	}
-	if i.AllReached([]Server{down}) {
-		t.Error("AllReached = true for a server that has never been reached")
+	if i.due(key, down) {
+		t.Error("due() = true before the backoff elapsed")
 	}
-	// And one with no snapshot at all.
-	if i.AllReached([]Server{{TenantID: "", Name: "unseen"}}) {
-		t.Error("AllReached = true for a server with no snapshot")
+	d, pending := i.NextRetryIn([]Server{down})
+	if !pending || d <= 0 {
+		t.Errorf("NextRetryIn = (%v, %v), want a pending future retry", d, pending)
+	}
+	i.snapshots[key].retryAt = time.Now().Add(-time.Second)
+	if !i.due(key, down) {
+		t.Error("due() = false after the backoff elapsed")
+	}
+}
+
+// The delay doubles per consecutive failure and caps, so a server that never
+// comes up settles to a cheap poll instead of retrying forever at the base.
+func TestIntrospector_BackoffGrowsAndCaps(t *testing.T) {
+	if got := backoffFor(1); got != retryBaseDelay {
+		t.Errorf("backoffFor(1) = %v, want %v", got, retryBaseDelay)
+	}
+	if got := backoffFor(2); got != 2*retryBaseDelay {
+		t.Errorf("backoffFor(2) = %v, want %v", got, 2*retryBaseDelay)
+	}
+	prev := time.Duration(0)
+	for n := 1; n <= 12; n++ {
+		got := backoffFor(n)
+		if got < prev {
+			t.Errorf("backoffFor(%d) = %v went backwards from %v", n, got, prev)
+		}
+		if got > retryMaxDelay {
+			t.Errorf("backoffFor(%d) = %v exceeds the cap %v", n, got, retryMaxDelay)
+		}
+		prev = got
+	}
+	if got := backoffFor(12); got != retryMaxDelay {
+		t.Errorf("backoffFor(12) = %v, want the cap %v", got, retryMaxDelay)
 	}
 }

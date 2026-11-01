@@ -30,6 +30,18 @@ const introspectClientName = "kora-tool-gateway"
 // defaultIntrospectTimeout bounds a single server's initialize + tools/list.
 const defaultIntrospectTimeout = 15 * time.Second
 
+// retryBaseDelay and retryMaxDelay bound the per-server backoff for a server
+// that has never been reached. The delay doubles per consecutive failure and
+// caps at retryMaxDelay, so a server that is slow to start is retried within
+// seconds while one that is down settles to a cheap poll. Deliberately
+// independent of ReintrospectIntervalSeconds: that interval says how often a
+// WORKING server should be re-read, which is a different question from how soon
+// to retry one that has never answered.
+const (
+	retryBaseDelay = 2 * time.Second
+	retryMaxDelay  = time.Minute
+)
+
 // Introspector introspects MCP servers and holds their snapshots. It is
 // concurrency-safe: Sync mutates snapshots under a write lock; Snapshot and the
 // prune-guard predicate read under a read lock.
@@ -102,16 +114,23 @@ func (i *Introspector) Sync(ctx context.Context, servers []Server, force bool) {
 func (i *Introspector) due(key string, srv Server) bool {
 	i.mu.RLock()
 	snap, seen := i.snapshots[key]
-	var last time.Time
+	var last, retryAt time.Time
 	neverReached := false
 	if seen {
 		last = snap.LastIntrospectedAt
 		neverReached = !snap.Reached
+		retryAt = snap.retryAt
 	}
 	i.mu.RUnlock()
 
-	if !seen || neverReached {
+	if !seen {
 		return true
+	}
+	if neverReached {
+		// Its own backoff decides, not the periodic interval: retrying a server
+		// that is still starting every tick is wasteful, and waiting a full
+		// interval leaves it serving nothing.
+		return !time.Now().Before(retryAt)
 	}
 	if srv.ReintrospectIntervalSeconds <= 0 {
 		return false
@@ -137,6 +156,12 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 	if err != nil {
 		snap.State = StateDegraded
 		snap.LastErr = err.Error()
+		if !snap.Reached {
+			// No retained tools, so this server is serving nothing. Schedule its
+			// own retry rather than waiting for the next periodic cycle.
+			snap.retries++
+			snap.retryAt = time.Now().Add(backoffFor(snap.retries))
+		}
 		i.logger.Error(ctx, "MCP server introspection failed — retaining prior tools",
 			logging.Field{Key: "server", Value: srv.Name},
 			logging.Field{Key: "tenant_id", Value: srv.TenantID},
@@ -152,6 +177,7 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 	snap.State = StateOK
 	snap.LastErr = ""
 	snap.Reached = true
+	snap.retries, snap.retryAt = 0, time.Time{}
 	i.logger.Info(ctx, "MCP server introspected",
 		logging.Field{Key: "server", Value: srv.Name},
 		logging.Field{Key: "tenant_id", Value: srv.TenantID},
@@ -287,28 +313,44 @@ func (i *Introspector) AllSeenOrRetained(servers []Server) bool {
 	return true
 }
 
-// AllReached reports whether every server in the list has been successfully
-// introspected at least once this lifetime.
-//
-// Deliberately NOT AllSeenOrRetained, which answers a different question. The
-// prune guard asks whether the keep-list is complete enough to delete scopes
-// safely, so it treats a degraded server holding prior tools as fine and a
-// reached-but-empty server that later degrades as not fine. The catch-up loop
-// asks whether any server is one an unforced tick will actually retry, which is
-// exactly due's never-reached case. Conflating the two spins the loop: a
-// reload-only server reached once with zero tools and later degraded keeps
-// AllSeenOrRetained false forever while due skips it, so the loop republishes
-// scopes and rebuilds the catalog on every short tick and never retries it.
-func (i *Introspector) AllReached(servers []Server) bool {
-	i.mu.RLock()
-	defer i.mu.RUnlock()
-	for _, srv := range servers {
-		snap := i.snapshots[serverKey(srv.TenantID, srv.Name)]
-		if snap == nil || !snap.Reached {
-			return false
+// backoffFor is the delay before attempt n+1 of a server that has never been
+// reached: retryBaseDelay doubled per consecutive failure, capped.
+func backoffFor(failures int) time.Duration {
+	d := retryBaseDelay
+	for range failures - 1 {
+		d *= 2
+		if d >= retryMaxDelay {
+			return retryMaxDelay
 		}
 	}
-	return true
+	return min(d, retryMaxDelay)
+}
+
+// NextRetryIn reports how long until the earliest listed server is due for a
+// retry, and whether any is waiting at all. A zero duration means one is due
+// now. Only servers that have never been reached schedule a retry, so a server
+// already serving tools never shortens the caller's wait, and a permanently
+// unreachable one settles at retryMaxDelay rather than spinning.
+func (i *Introspector) NextRetryIn(servers []Server) (time.Duration, bool) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	var earliest time.Time
+	for _, srv := range servers {
+		snap := i.snapshots[serverKey(srv.TenantID, srv.Name)]
+		if snap == nil {
+			return 0, true // never introspected: due now
+		}
+		if snap.Reached || snap.retryAt.IsZero() {
+			continue
+		}
+		if earliest.IsZero() || snap.retryAt.Before(earliest) {
+			earliest = snap.retryAt
+		}
+	}
+	if earliest.IsZero() {
+		return 0, false
+	}
+	return max(0, time.Until(earliest)), true
 }
 
 // marshalSchema renders a tool's input schema (a map[string]any from the client)

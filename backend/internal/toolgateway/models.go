@@ -81,4 +81,11 @@ type ServerSnapshot struct {
 	LastIntrospectedAt time.Time
 	// Reached is true once any introspection of this server has succeeded.
 	Reached bool
+
+	// retries and retryAt schedule the next attempt for a server that has NEVER
+	// been reached, which is the only case with no retained tools to serve.
+	// Unexported: this is the introspector's own scheduling state, not part of
+	// what the publisher or catalog reads out of a snapshot.
+	retries int
+	retryAt time.Time
 }
