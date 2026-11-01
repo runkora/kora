@@ -178,7 +178,7 @@ As a control plane for autonomous agents, observability is critical:
 - Development and production modes
 - OTLP exporter support
 - Service-to-service client tracing via `httpclient.Base.Do()` (`SpanKindClient` child spans with OTel HTTP semantic conventions)
-- Upstream error body capture in `error.upstream_body` span attribute for non-2xx responses
+- Upstream error body capture in `kora.error.upstream_body` span attribute for non-2xx responses
 - [opentelemetry-observability-discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md) lint rules enforcing static span status descriptions and correct `RecordError` usage
 
 ## Quick Start
