@@ -100,7 +100,7 @@ func (r *Refresher) exchangeWithBackoff(ctx context.Context) {
 		case <-r.envoyReady:
 			// Envoy is ready — proceed.
 		case <-ctx.Done():
-			span.SetStatus(codes.Error, "context canceled waiting for Envoy")
+			observability.RecordFailure(span, errSpanContextCanceledWaitingForEnvoy, errSpanContextCanceledWaitingForEnvoy)
 			return
 		}
 	}
@@ -127,7 +127,7 @@ func (r *Refresher) exchangeWithBackoff(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			span.SetAttributes(observability.TokenRefreshAttemptsKey.Int(attempt))
-			span.SetStatus(codes.Error, "context canceled during retry")
+			observability.RecordFailure(span, errSpanContextCanceledDuringRetry, errSpanContextCanceledDuringRetry)
 			return
 		case <-time.After(backoff):
 		}

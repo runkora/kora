@@ -347,8 +347,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 
 	ts, err := s.tenantOIDC(req.TenantID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "OIDC not configured for tenant")
+		observability.RecordFailure(span, err, errSpanOIDCNotConfiguredForTenant)
 		return nil, err
 	}
 
@@ -363,8 +362,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 
 	resp, err := s.postForm(ctx, ts.meta.TokenEndpoint, formVals)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "token endpoint request failed")
+		observability.RecordFailure(span, err, errSpanTokenEndpointRequestFailed)
 		return nil, fmt.Errorf("poll device auth token endpoint %s: %w", ts.meta.TokenEndpoint, err)
 	}
 	defer resp.Body.Close()
@@ -382,8 +380,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 			return nil, sentinelErr
 		}
 		unexpectedErr := fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, body)
-		span.RecordError(unexpectedErr)
-		span.SetStatus(codes.Error, "unexpected status code")
+		observability.RecordFailure(span, unexpectedErr, errSpanUnexpectedStatusCode)
 		return nil, unexpectedErr
 	}
 
@@ -402,8 +399,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		ClientID: ts.cfg.ClientID,
 	}).Verify(ctx, tokenResp.IDToken)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "id_token verification failed")
+		observability.RecordFailure(span, err, errSpanIdTokenVerificationFailed)
 		return nil, fmt.Errorf("verify id token: %w", err)
 	}
 
@@ -416,8 +412,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		Groups            []string `json:"groups"`
 	}
 	if err = idToken.Claims(&claims); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "claims extraction failed")
+		observability.RecordFailure(span, err, errSpanClaimsExtractionFailed)
 		return nil, fmt.Errorf("extract id token claims: %w", err)
 	}
 
@@ -429,8 +424,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 
 	tenantID, err := s.bindTenant(ts, req.TenantID, idToken)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "tenant claim binding failed")
+		observability.RecordFailure(span, err, errSpanTenantClaimBindingFailed)
 		return nil, err
 	}
 
@@ -492,8 +486,7 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 
 	tenant, err := s.tenantOIDC(req.TenantID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrOIDCNotConfigured.Error())
+		observability.RecordFailure(span, err, ErrOIDCNotConfigured)
 		return nil, fmt.Errorf("%w: tenant %q", ErrOIDCNotConfigured, req.TenantID)
 	}
 
@@ -502,8 +495,7 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 		ClientID: tenant.cfg.ClientID,
 	}).Verify(ctx, req.IDToken)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "id_token verification failed")
+		observability.RecordFailure(span, err, errSpanIdTokenVerificationFailed)
 		return nil, fmt.Errorf("%w: %w", ErrIDTokenInvalid, err)
 	}
 
@@ -516,8 +508,7 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 		Groups            []string `json:"groups"`
 	}
 	if err = idToken.Claims(&claims); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "claims extraction failed")
+		observability.RecordFailure(span, err, errSpanClaimsExtractionFailed)
 		return nil, fmt.Errorf("extract id_token claims: %w", err)
 	}
 
@@ -529,8 +520,7 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 
 	tenantID, err := s.bindTenant(tenant, req.TenantID, idToken)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "tenant claim binding failed")
+		observability.RecordFailure(span, err, errSpanTenantClaimBindingFailed)
 		return nil, err
 	}
 
@@ -572,8 +562,7 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 
 	if req.RefreshToken == "" {
 		err := fmt.Errorf("refresh_token is required")
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "missing refresh_token")
+		observability.RecordFailure(span, err, errSpanMissingRefreshToken)
 		return nil, err
 	}
 
@@ -582,40 +571,33 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hash)
 	if err != nil {
 		if errors.Is(err, ErrRefreshTokenNotFound) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "refresh_token not found")
+			observability.RecordFailure(span, err, errSpanRefreshTokenNotFound)
 			return nil, ErrRefreshTokenNotFound
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "database error")
+		observability.RecordFailure(span, err, errSpanDatabaseError)
 		return nil, fmt.Errorf("get refresh token: %w", err)
 	}
 
 	if rt.RevokedAt != nil {
-		span.RecordError(ErrRefreshTokenRevoked)
-		span.SetStatus(codes.Error, "refresh_token revoked")
+		observability.RecordFailure(span, ErrRefreshTokenRevoked, errSpanRefreshTokenRevoked)
 		return nil, ErrRefreshTokenRevoked
 	}
 	if time.Now().After(rt.ExpiresAt) {
-		span.RecordError(ErrRefreshTokenExpired)
-		span.SetStatus(codes.Error, "refresh_token expired")
+		observability.RecordFailure(span, ErrRefreshTokenExpired, errSpanRefreshTokenExpired)
 		return nil, ErrRefreshTokenExpired
 	}
 
 	session, err := s.sessions.GetSessionByID(ctx, rt.SessionID)
 	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "session not found")
+			observability.RecordFailure(span, err, errSpanSessionNotFound)
 			return nil, ErrSessionNotFound
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "database error")
+		observability.RecordFailure(span, err, errSpanDatabaseError)
 		return nil, fmt.Errorf("get session: %w", err)
 	}
 	if session.RevokedAt != nil {
-		span.RecordError(ErrTokenRevoked)
-		span.SetStatus(codes.Error, "session revoked")
+		observability.RecordFailure(span, ErrTokenRevoked, errSpanSessionRevoked)
 		return nil, ErrTokenRevoked
 	}
 
@@ -629,8 +611,7 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 
 	// Revoke the used refresh token (rotation).
 	if err := s.refreshTokens.RevokeRefreshToken(ctx, rt.ID, time.Now()); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "refresh token rotation failed")
+		observability.RecordFailure(span, err, errSpanRefreshTokenRotationFailed)
 		return nil, fmt.Errorf("rotate refresh token: %w", err)
 	}
 
@@ -661,8 +642,7 @@ func (s *Service) ExchangeSVID(ctx context.Context, r *http.Request) (*SessionRe
 
 	principal, err := s.extractor.Extract(r)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "principal extraction failed")
+		observability.RecordFailure(span, err, errSpanPrincipalExtractionFailed)
 		return nil, fmt.Errorf("extract principal: %w", err)
 	}
 
@@ -698,8 +678,7 @@ func (s *Service) RevokeToken(ctx context.Context, req RevokeRequest) error {
 	case "access_token":
 		err := s.revokeAccessToken(ctx, req.Token)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "access_token revocation failed")
+			observability.RecordFailure(span, err, errSpanAccessTokenRevocationFailed)
 		} else {
 			span.SetStatus(codes.Ok, "access_token revoked")
 		}
@@ -707,16 +686,14 @@ func (s *Service) RevokeToken(ctx context.Context, req RevokeRequest) error {
 	case "refresh_token":
 		err := s.revokeRefreshToken(ctx, req.Token)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "refresh_token revocation failed")
+			observability.RecordFailure(span, err, errSpanRefreshTokenParamRevocationFailed)
 		} else {
 			span.SetStatus(codes.Ok, "refresh_token revoked")
 		}
 		return err
 	default:
 		err := fmt.Errorf("unsupported token_type %q: %w", req.TokenType, ErrUnsupportedTokenType)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "unsupported token_type")
+		observability.RecordFailure(span, err, errSpanUnsupportedTokenType)
 		return err
 	}
 }
@@ -727,15 +704,13 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 
 	claims, err := s.parseToken(token)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "invalid token")
+		observability.RecordFailure(span, err, errSpanInvalidToken)
 		return ErrInvalidToken
 	}
 
 	jti := claims.ID
 	if jti == "" {
-		span.RecordError(ErrInvalidToken)
-		span.SetStatus(codes.Error, "missing jti")
+		observability.RecordFailure(span, ErrInvalidToken, errSpanMissingJti)
 		return ErrInvalidToken
 	}
 
@@ -746,8 +721,7 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 		ttl := time.Until(expiry.Time)
 		if ttl > 0 {
 			if blockErr := s.blocklist.BlockJTI(ctx, jti, ttl); blockErr != nil {
-				span.RecordError(blockErr)
-				span.SetStatus(codes.Error, "blocklist operation failed")
+				observability.RecordFailure(span, blockErr, errSpanBlocklistOperationFailed)
 				return fmt.Errorf("block jti: %w", blockErr)
 			}
 			span.SetAttributes(observability.TokenTTLSecondsKey.Int64(int64(ttl.Seconds())))
@@ -762,8 +736,7 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 			span.SetStatus(codes.Ok, "jti blocked (session already revoked)")
 			return nil
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "database error")
+		observability.RecordFailure(span, err, errSpanDatabaseError)
 		return fmt.Errorf("get session by jti: %w", err)
 	}
 
@@ -771,14 +744,12 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 
 	now := time.Now()
 	if rErr := s.refreshTokens.RevokeAllForSession(ctx, session.ID, now); rErr != nil {
-		span.RecordError(rErr)
-		span.SetStatus(codes.Error, "refresh token revocation failed")
+		observability.RecordFailure(span, rErr, errSpanRefreshTokenRevocationFailed)
 		return fmt.Errorf("revoke refresh tokens for session: %w", rErr)
 	}
 	if rErr := s.sessions.RevokeSession(ctx, session.ID, now); rErr != nil {
 		if !errors.Is(rErr, ErrSessionNotFound) {
-			span.RecordError(rErr)
-			span.SetStatus(codes.Error, "session revocation failed")
+			observability.RecordFailure(span, rErr, errSpanSessionRevocationFailed)
 			return fmt.Errorf("revoke session: %w", rErr)
 		}
 	}
@@ -800,8 +771,7 @@ func (s *Service) revokeRefreshToken(ctx context.Context, token string) error {
 			span.SetStatus(codes.Ok, "refresh_token not found (already revoked or never issued)")
 			return nil
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "database error")
+		observability.RecordFailure(span, err, errSpanDatabaseError)
 		return fmt.Errorf("get refresh token for revocation: %w", err)
 	}
 
@@ -813,8 +783,7 @@ func (s *Service) revokeRefreshToken(ctx context.Context, token string) error {
 			span.SetStatus(codes.Ok, "refresh_token concurrently revoked")
 			return nil
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "revocation failed")
+		observability.RecordFailure(span, err, errSpanRevocationFailed)
 		return err
 	}
 
@@ -860,8 +829,7 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 	// Sign before persisting — if signing fails nothing is written to the DB.
 	accessToken, err = s.signToken(principal, jti, sessionID, "", now, ttl)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "token signing failed")
+		observability.RecordFailure(span, err, errSpanTokenSigningFailed)
 		err = fmt.Errorf("sign access token: %w", err)
 		return
 	}
@@ -879,8 +847,7 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 		ExpiresAt:      now.Add(ttl),
 	}
 	if err = s.sessions.CreateSession(ctx, session); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "session persistence failed")
+		observability.RecordFailure(span, err, errSpanSessionPersistenceFailed)
 		err = fmt.Errorf("persist session: %w", err)
 		return
 	}
@@ -902,8 +869,7 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 
 	sessionID, accessToken, now, ttl, err := s.buildAndPersistSession(ctx, principal)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "session creation failed")
+		observability.RecordFailure(span, err, errSpanSessionCreationFailed)
 		return nil, err
 	}
 
@@ -923,8 +889,7 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 	// Issue refresh token (opaque random bytes; only the hash is stored).
 	rawRefresh, err := generateOpaqueToken()
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "refresh token generation failed")
+		observability.RecordFailure(span, err, errSpanRefreshTokenGenerationFailed)
 		return nil, fmt.Errorf("generate refresh token: %w", err)
 	}
 
@@ -936,8 +901,7 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 		ExpiresAt: now.Add(time.Duration(s.cfg.Token.RefreshTokenTTLDays) * 24 * time.Hour),
 	}
 	if err := s.refreshTokens.CreateRefreshToken(ctx, rt); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "refresh token persistence failed")
+		observability.RecordFailure(span, err, errSpanRefreshTokenPersistenceFailed)
 		return nil, fmt.Errorf("persist refresh token: %w", err)
 	}
 
@@ -971,8 +935,7 @@ func (s *Service) createAgentSession(ctx context.Context, principal *Principal) 
 
 	_, accessToken, now, ttl, err := s.buildAndPersistSession(ctx, principal)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "agent session creation failed")
+		observability.RecordFailure(span, err, errSpanAgentSessionCreationFailed)
 		return nil, err
 	}
 
@@ -1347,20 +1310,19 @@ func recordDeviceAuthError(span trace.Span, err error) {
 	if errors.Is(err, ErrAuthorizationPending) {
 		return
 	}
-	span.RecordError(err)
+	var oe *OAuthError
 	switch {
 	case errors.Is(err, ErrSlowDown):
-		span.SetStatus(codes.Error, "slow_down")
+		observability.RecordFailure(span, err, errSpanSlowDown)
 	case errors.Is(err, ErrAccessDenied):
-		span.SetStatus(codes.Error, "access_denied")
+		observability.RecordFailure(span, err, errSpanAccessDenied)
 	case errors.Is(err, ErrDeviceCodeExpired):
-		span.SetStatus(codes.Error, "expired_token")
+		observability.RecordFailure(span, err, errSpanExpiredToken)
+	case errors.As(err, &oe):
+		span.SetAttributes(observability.OAuthErrorKey.String(oe.Code))
+		observability.RecordFailure(span, err, errSpanOAuthError)
 	default:
-		var oe *OAuthError
-		if errors.As(err, &oe) {
-			span.SetAttributes(observability.OAuthErrorKey.String(oe.Code))
-			span.SetStatus(codes.Error, oe.Code)
-		}
+		span.RecordError(err)
 	}
 }
 

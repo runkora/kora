@@ -50,10 +50,11 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // NewHTTPClient constructs a *http.Client with the given timeout and transport.
@@ -145,13 +146,13 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 	resp, err := t.inner.RoundTrip(req)
 	if err != nil {
-		recordFailure(span, err, errTransport)
+		observability.RecordFailure(span, err, errTransport)
 		return nil, err
 	}
 
 	span.SetAttributes(semconv.HTTPResponseStatusCode(resp.StatusCode))
 	if resp.StatusCode >= 400 {
-		span.SetStatus(codes.Error, errUpstream.Error())
+		observability.RecordFailure(span, errUpstream, errUpstream)
 		span.SetAttributes(semconv.ErrorTypeKey.String(strconv.Itoa(resp.StatusCode)))
 	}
 	return resp, nil

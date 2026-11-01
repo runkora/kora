@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
@@ -267,8 +266,7 @@ func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.
 	// with an unbounded request line / header / body stream.
 	innerReq, err := http.ReadRequest(bufio.NewReader(io.LimitReader(tlsConn, maxInnerRequestBytes)))
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errReadInnerRequest.Error())
+		observability.RecordFailure(span, err, errReadInnerRequest)
 		h.logger.Warn(ctx, "read inner request failed",
 			logging.Field{Key: "host", Value: host},
 			logging.Field{Key: "error", Value: err.Error()},
@@ -299,7 +297,7 @@ func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.
 	h.inner.ServeHTTP(rw, innerReq)
 	span.SetAttributes(semconv.HTTPResponseStatusCodeKey.Int(rw.statusCode))
 	if rw.statusCode >= http.StatusBadRequest {
-		span.SetStatus(codes.Error, errInnerRequestFailed.Error())
+		observability.RecordFailure(span, errInnerRequestFailed, errInnerRequestFailed)
 	}
 	if err := rw.finish(); err != nil {
 		span.RecordError(err)

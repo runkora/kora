@@ -119,7 +119,7 @@ An agent **must** follow these conventions when modifying this codebase. Each co
 ### Errors & Observability
 
 - **Wrap errors with `%w`**: Always use `fmt.Errorf("context: %w", err)`, never `%s` for error wrapping.
-- **Static span status descriptions**: `span.SetStatus(codes.Error, sentinel.Error())` must use a package-level sentinel error string, never `err.Error()` or `ctx.Err().Error()` inline. Use `span.RecordError(err)` for dynamic context.
+- **Static span status descriptions**: a failed span is recorded with `observability.RecordFailure(span, err, sentinel)`, where `sentinel` is a package-level error that becomes the status description and `error.type`. Never pass `err.Error()` or `ctx.Err().Error()`; `err` carries the dynamic context.
 - **No raw OTel in typed clients**: Platform clients in `internal/platform/clients/` must not import `go.opentelemetry.io/otel/codes` or `go.opentelemetry.io/otel/trace` directly; the `httpclient.Base` handles all span lifecycle.
 
 ### Code Structure
@@ -137,6 +137,7 @@ All conventions above are mechanically enforced. Do not add inline `//nolint` di
 | ------------------------ | ------------------------------------------------- |
 | `spanSetStatusLocalErr`  | `span.SetStatus(_, err.Error())`                  |
 | `spanSetStatusCtxErr`    | `span.SetStatus(_, ctx.Err().Error())`            |
+| `spanSetStatusErrorDirect` | `span.SetStatus(<codes pkg alias>.Error, _)` outside `internal/platform/observability` (use `observability.RecordFailure`) |
 | `spanAttrStringLocalErr` | `attribute.String(_, err.Error())`                |
 | `spanAttrStringCtxErr`   | `attribute.String(_, ctx.Err().Error())`          |
 | `spanAttrKeyVocabulary`  | a string literal as a span attribute key (use semconv or `internal/platform/observability`) |

@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
@@ -357,6 +358,16 @@ func TestTracingMiddlewareErrorStatus(t *testing.T) {
 
 	if statusCode != http.StatusInternalServerError {
 		t.Errorf("http.response.status_code = %d, want %d", statusCode, http.StatusInternalServerError)
+	}
+
+	var errorType string
+	for _, attr := range span.Attributes {
+		if attr.Key == semconv.ErrorTypeKey {
+			errorType = attr.Value.AsString()
+		}
+	}
+	if errorType != "500" {
+		t.Errorf("error.type = %q, want %q", errorType, "500")
 	}
 }
 

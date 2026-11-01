@@ -74,8 +74,7 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 	// subject token — this structurally blocks a delegated run from starting
 	// another delegated agent.
 	if claims.Kora.PrincipalType == token.PrincipalTypeAgent {
-		span.RecordError(ErrDelegationPrincipalType)
-		span.SetStatus(codes.Error, ErrDelegationPrincipalType.Error())
+		observability.RecordFailure(span, ErrDelegationPrincipalType, ErrDelegationPrincipalType)
 		return nil, ErrDelegationPrincipalType
 	}
 
@@ -91,8 +90,7 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 	if req.SubjectToken != "" {
 		subject, err := s.parseToken(req.SubjectToken)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, ErrDelegationSubjectToken.Error())
+			observability.RecordFailure(span, err, ErrDelegationSubjectToken)
 			return nil, ErrDelegationSubjectToken
 		}
 		// A blocklist backend error fails open, as every other blocklist lookup
@@ -105,8 +103,7 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 				logging.Field{Key: "error", Value: blErr.Error()})
 		}
 		if blocked {
-			span.RecordError(ErrDelegationSubjectToken)
-			span.SetStatus(codes.Error, ErrDelegationSubjectToken.Error())
+			observability.RecordFailure(span, ErrDelegationSubjectToken, ErrDelegationSubjectToken)
 			return nil, ErrDelegationSubjectToken
 		}
 		delegator = subject
@@ -116,8 +113,7 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 	case token.PrincipalTypeHuman, token.PrincipalTypePAT:
 		// The person, directly or via a PAT acting as the person.
 	default:
-		span.RecordError(ErrDelegationPrincipalType)
-		span.SetStatus(codes.Error, ErrDelegationPrincipalType.Error())
+		observability.RecordFailure(span, ErrDelegationPrincipalType, ErrDelegationPrincipalType)
 		return nil, ErrDelegationPrincipalType
 	}
 
@@ -148,12 +144,10 @@ func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, re
 
 	if err := s.delegations.CreateIssuance(ctx, issuance); err != nil {
 		if errors.Is(err, ErrDelegationRunActive) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, ErrDelegationRunActive.Error())
+			observability.RecordFailure(span, err, ErrDelegationRunActive)
 			return nil, ErrDelegationRunActive
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "delegation issuance persistence failed")
+		observability.RecordFailure(span, err, errSpanDelegationIssuancePersistenceFailed)
 		return nil, fmt.Errorf("persist delegation issuance: %w", err)
 	}
 
@@ -182,12 +176,10 @@ func (s *Service) RevokeDelegation(ctx context.Context, claims *PlatformClaims, 
 	issuance, err := s.delegations.GetByJTI(ctx, jti)
 	if err != nil {
 		if errors.Is(err, ErrDelegationNotFound) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, ErrDelegationNotFound.Error())
+			observability.RecordFailure(span, err, ErrDelegationNotFound)
 			return ErrDelegationNotFound
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "delegation issuance lookup failed")
+		observability.RecordFailure(span, err, errSpanDelegationIssuanceLookupFailed)
 		return fmt.Errorf("get delegation issuance: %w", err)
 	}
 
@@ -196,13 +188,11 @@ func (s *Service) RevokeDelegation(ctx context.Context, claims *PlatformClaims, 
 		// Platform components (kora-agents on terminal run state).
 	case token.PrincipalTypeHuman, token.PrincipalTypePAT:
 		if claims.Subject != issuance.DelegatorPrincipalID || claims.Kora.TenantID != issuance.TenantID {
-			span.RecordError(ErrDelegationRevokeForbidden)
-			span.SetStatus(codes.Error, ErrDelegationRevokeForbidden.Error())
+			observability.RecordFailure(span, ErrDelegationRevokeForbidden, ErrDelegationRevokeForbidden)
 			return ErrDelegationRevokeForbidden
 		}
 	default:
-		span.RecordError(ErrDelegationRevokeForbidden)
-		span.SetStatus(codes.Error, ErrDelegationRevokeForbidden.Error())
+		observability.RecordFailure(span, ErrDelegationRevokeForbidden, ErrDelegationRevokeForbidden)
 		return ErrDelegationRevokeForbidden
 	}
 
@@ -210,8 +200,7 @@ func (s *Service) RevokeDelegation(ctx context.Context, claims *PlatformClaims, 
 		if err := s.delegations.Revoke(ctx, jti, time.Now().UTC()); err != nil && !errors.Is(err, ErrDelegationNotFound) {
 			// ErrDelegationNotFound here means a concurrent revocation won —
 			// the tombstone exists, which is the desired end state.
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "delegation issuance tombstone failed")
+			observability.RecordFailure(span, err, errSpanDelegationIssuanceTombstoneFailed)
 			return fmt.Errorf("tombstone delegation issuance: %w", err)
 		}
 	}
@@ -220,8 +209,7 @@ func (s *Service) RevokeDelegation(ctx context.Context, claims *PlatformClaims, 
 	// lifetime of any re-signed token carrying it. The tombstone stops new
 	// re-signs; the blocklist kills tokens already released.
 	if err := s.blocklist.BlockJTI(ctx, jti, s.delegationTokenTTL()); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "jti blocklist operation failed")
+		observability.RecordFailure(span, err, errSpanJtiBlocklistOperationFailed)
 		return fmt.Errorf("blocklist delegation jti: %w", err)
 	}
 
@@ -246,8 +234,7 @@ func (s *Service) DelegationTokenForRun(ctx context.Context, r *http.Request, ru
 
 	principal, err := s.extractor.Extract(r)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "principal extraction failed")
+		observability.RecordFailure(span, err, errSpanPrincipalExtractionFailed)
 		return nil, fmt.Errorf("extract principal: %w", err)
 	}
 	span.SetAttributes(observability.PrincipalIDKey.String(principal.ID))
@@ -258,16 +245,14 @@ func (s *Service) DelegationTokenForRun(ctx context.Context, r *http.Request, ru
 			span.SetStatus(codes.Ok, "no active delegation for run")
 			return nil, ErrDelegationNotFound
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "delegation issuance lookup failed")
+		observability.RecordFailure(span, err, errSpanDelegationIssuanceLookupFailed)
 		return nil, fmt.Errorf("get delegation issuance for run: %w", err)
 	}
 
 	// Release only to the agent the delegation names. A mismatch is a tamper
 	// signal (ADR Monitoring): some other workload asserted this run.
 	if principal.ID != issuance.AgentPrincipalID {
-		span.RecordError(ErrDelegationAgentMismatch)
-		span.SetStatus(codes.Error, ErrDelegationAgentMismatch.Error())
+		observability.RecordFailure(span, ErrDelegationAgentMismatch, ErrDelegationAgentMismatch)
 		return nil, ErrDelegationAgentMismatch
 	}
 
@@ -275,8 +260,7 @@ func (s *Service) DelegationTokenForRun(ctx context.Context, r *http.Request, ru
 	ttl := s.delegationTokenTTL()
 	signed, err := s.signDelegationToken(issuance, now, ttl)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "delegation token signing failed")
+		observability.RecordFailure(span, err, errSpanDelegationTokenSigningFailed)
 		return nil, fmt.Errorf("sign delegation token: %w", err)
 	}
 

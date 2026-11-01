@@ -419,8 +419,7 @@ func (s *Server) waitForEnvoy(ctx context.Context) error {
 	for {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, istioReadyURL, nil)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(otelcodes.Error, errBuildRequest.Error())
+			observability.RecordFailure(span, err, errBuildRequest)
 			return fmt.Errorf("build request: %w", err)
 		}
 		resp, err := client.Do(req)
@@ -435,15 +434,13 @@ func (s *Server) waitForEnvoy(ctx context.Context) error {
 
 		if time.Now().After(deadline) {
 			err = fmt.Errorf("timed out after %s waiting for Envoy to become ready", s.cfg.EnvoyReadyTimeout)
-			span.RecordError(err)
-			span.SetStatus(otelcodes.Error, errEnvoyReadyTimeout.Error())
+			observability.RecordFailure(span, err, errEnvoyReadyTimeout)
 			return err
 		}
 
 		select {
 		case <-ctx.Done():
-			span.RecordError(ctx.Err())
-			span.SetStatus(otelcodes.Error, errContextCanceled.Error())
+			observability.RecordFailure(span, ctx.Err(), errContextCanceled)
 			return ctx.Err()
 		case <-time.After(1 * time.Second):
 		}
@@ -484,13 +481,12 @@ func (s *Server) waitForInitialToken(ctx context.Context) error {
 			return nil
 		}
 
-		span.RecordError(err)
-
 		if time.Now().After(deadline) {
 			err = fmt.Errorf("timed out after %s waiting for first token: %w", s.cfg.ReadyTimeout, err)
-			span.SetStatus(otelcodes.Error, errInitialTokenTimeout.Error())
+			observability.RecordFailure(span, err, errInitialTokenTimeout)
 			return err
 		}
+		span.RecordError(err)
 
 		s.logger.Warn(ctx, "initial exchange failed, retrying",
 			logging.Field{Key: "error", Value: err.Error()},
@@ -499,7 +495,7 @@ func (s *Server) waitForInitialToken(ctx context.Context) error {
 
 		select {
 		case <-ctx.Done():
-			span.SetStatus(otelcodes.Error, errContextCanceled.Error())
+			observability.RecordFailure(span, ctx.Err(), errContextCanceled)
 			return ctx.Err()
 		case <-time.After(backoff):
 		}

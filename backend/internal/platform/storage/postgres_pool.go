@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
@@ -79,9 +78,7 @@ func (t *otelQueryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data p
 	defer span.End()
 
 	if data.Err != nil {
-		span.RecordError(data.Err)
-		span.SetStatus(codes.Error, errQueryFailed.Error())
-		span.SetAttributes(semconv.ErrorTypeKey.String(errQueryFailed.Error()))
+		observability.RecordFailure(span, data.Err, errQueryFailed)
 		return
 	}
 
