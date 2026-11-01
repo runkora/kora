@@ -223,7 +223,7 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 		return fmt.Errorf("create workspace %s: %w", workDir, err)
 	}
 
-	// The session outlives the create request but stays in its trace (docs/adr/2026-10-31-one-trace-per-run.md).
+	// The session outlives the create request but stays in its trace.
 	runCtx, cancel := context.WithCancel(trace.ContextWithSpanContext(context.Background(), trace.SpanContextFromContext(ctx)))
 
 	s := &session{

@@ -15,8 +15,7 @@ var (
 	recorder     *tracetest.SpanRecorder
 )
 
-// spanRecorder installs one global tracer provider for the package's tests and clears its spans.
-// The package tracer binds to the first provider set, so every test shares it.
+// spanRecorder returns the package's one recorder, cleared: the package tracer binds to the first provider set.
 func spanRecorder() *tracetest.SpanRecorder {
 	recorderOnce.Do(func() {
 		recorder = tracetest.NewSpanRecorder()
@@ -37,7 +36,6 @@ func endedSpan(t *testing.T, rec *tracetest.SpanRecorder, name string) sdktrace.
 	return nil
 }
 
-// A scheduler attempt continues the trace StartRun stored, though it runs on a context of its own.
 func TestStartClaimed_ContinuesStartRunTrace(t *testing.T) {
 	rec := spanRecorder()
 	f, _, _, _ := schedulerService(t)
@@ -66,7 +64,6 @@ func TestStartClaimed_ContinuesStartRunTrace(t *testing.T) {
 	}
 }
 
-// A message to a running run is its own trace with a link to the run's.
 func TestSendMessage_LinksToRunTrace(t *testing.T) {
 	rec := spanRecorder()
 	svc, repo, _, _ := newTestService(t)

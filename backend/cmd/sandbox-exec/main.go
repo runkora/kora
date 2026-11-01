@@ -68,7 +68,7 @@ func main() {
 	}
 
 	srv := grpc.NewServer(
-		// Propagation only: the caller's trace context reaches the handlers, and no spans are exported.
+		// Propagation only: sandbox-exec exports no spans.
 		grpc.StatsHandler(otelgrpc.NewServerHandler(otelgrpc.WithPropagators(propagation.TraceContext{}))),
 		grpc.StreamInterceptor(requireExecTokenStream(execToken)),
 		grpc.UnaryInterceptor(requireExecTokenUnary(execToken)),

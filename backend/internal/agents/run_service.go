@@ -349,8 +349,7 @@ func (s *RunService) loadRunForAction(ctx context.Context, runID, action string)
 	return run, at, nil
 }
 
-// loadRunToAct is loadRunForAction for a write. The action stays in its caller's
-// trace and links to the run's (docs/adr/2026-10-31-one-trace-per-run.md).
+// loadRunToAct is loadRunForAction for a write, linking the caller's span to the run's trace.
 func (s *RunService) loadRunToAct(ctx context.Context, runID string) (*Run, *AgentType, error) {
 	run, at, err := s.loadRunForAction(ctx, runID, "write")
 	if err == nil {

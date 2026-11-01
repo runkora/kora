@@ -247,7 +247,6 @@ func TestPostgres_ReapStalePendingRun(t *testing.T) {
 	}
 }
 
-// The claim hands the scheduler the traceparent StartRun stored, and reads derive trace_id from it.
 func TestPostgres_RunTraceParent(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)

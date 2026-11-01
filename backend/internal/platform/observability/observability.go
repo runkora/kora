@@ -157,7 +157,7 @@ func createOTLPExporter(ctx context.Context, endpoint string) (sdktrace.SpanExpo
 }
 
 // createNoOpProvider creates a no-op tracer provider for production without OTLP.
-// It never samples, so no run records a trace ID that has no exported trace behind it.
+// It never samples: a run must not store a trace ID with no exported trace.
 func createNoOpProvider(res *resource.Resource) func(context.Context) error {
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithResource(res),

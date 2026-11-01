@@ -2565,7 +2565,7 @@ func TestPostgres_TriggerNameAcrossSources(t *testing.T) {
 	}
 }
 
-// The claim hands the worker the fire's traceparent, and a coalesced or superseding replacement carries the newest fire's.
+// A coalesced or superseding replacement carries the newest fire's traceparent.
 func TestPostgres_PendingTraceParent(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()

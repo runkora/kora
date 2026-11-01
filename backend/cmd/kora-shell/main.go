@@ -334,8 +334,7 @@ func workingDir() string {
 	return wd
 }
 
-// setTraceParent puts a session-manager call in the run's trace, through the TRACEPARENT
-// Claude Code passes this shell (docs/adr/2026-10-31-one-trace-per-run.md).
+// setTraceParent puts a session-manager call in the run's trace via Claude Code's TRACEPARENT.
 func setTraceParent(h http.Header) {
 	if tp := os.Getenv("TRACEPARENT"); tp != "" {
 		h.Set("traceparent", tp)

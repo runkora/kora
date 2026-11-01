@@ -92,8 +92,7 @@ type PendingDelivery struct {
 	// HoldCount is how many times the fire returned to the queue to wait for a
 	// starting run its join key names.
 	HoldCount int16
-	// TraceParent is the W3C traceparent of the fire, which its dispatch continues
-	// (docs/adr/2026-10-31-one-trace-per-run.md).
+	// TraceParent is the W3C traceparent of the fire, continued by its dispatch.
 	TraceParent string
 }
 

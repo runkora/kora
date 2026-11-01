@@ -10,8 +10,7 @@ import (
 // traceparentHeader is the W3C Trace Context header and the key a stored traceparent is read under.
 const traceparentHeader = "traceparent"
 
-// TraceParent is the W3C traceparent of the span in ctx, or empty when ctx holds no valid span.
-// A record that outlives its request stores it so later work joins the same trace
+// TraceParent is the W3C traceparent of the span in ctx, or empty when ctx holds no valid span
 // (docs/adr/2026-10-31-one-trace-per-run.md).
 func TraceParent(ctx context.Context) string {
 	carrier := propagation.MapCarrier{}

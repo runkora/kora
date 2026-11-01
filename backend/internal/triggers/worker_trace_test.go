@@ -14,9 +14,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
-// spanRecorder installs one recording provider for the package: the global
-// provider delegates only to the first one set, so a per-test provider would
-// miss the package tracer's spans in every test after the first.
+// spanRecorder is the package's one recording provider: the global provider delegates only to the first one set.
 var spanRecorder = sync.OnceValue(func() *tracetest.SpanRecorder {
 	rec := tracetest.NewSpanRecorder()
 	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)))
@@ -33,7 +31,6 @@ func endedSpan(rec *tracetest.SpanRecorder, name string, traceID trace.TraceID) 
 	return nil
 }
 
-// A queued fire dispatches in the trace of the request that fired it.
 func TestWorkerDispatchContinuesFireTrace(t *testing.T) {
 	rec := spanRecorder()
 	svc, deps := newTestService(t)
@@ -56,7 +53,6 @@ func TestWorkerDispatchContinuesFireTrace(t *testing.T) {
 	}
 }
 
-// A scheduled tick roots the trace that its queued delivery and dispatch continue.
 func TestTickScheduledRootsRunTrace(t *testing.T) {
 	rec := spanRecorder()
 	svc, deps := newTestService(t)

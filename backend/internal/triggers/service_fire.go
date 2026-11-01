@@ -168,7 +168,7 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 // its cron tick. It creates a delivery record (with dedup) and starts the run.
 func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 	t := tick.Trigger
-	// The root of a scheduled run's trace, as the request span is for the other fires.
+	// Roots a scheduled fire's trace; other fires have a request span.
 	ctx, span := triggersTracer.Start(ctx, "triggers.Service.TickScheduled",
 		trace.WithAttributes(observability.TriggerIDKey.String(t.ID), observability.TenantIDKey.String(t.TenantID)))
 	defer span.End()

@@ -303,7 +303,7 @@ func (s *mcpServer) call(method, action string, body io.Reader) ([]byte, error) 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Kora-Run-Token", os.Getenv("KORA_RUN_TOKEN"))
-	// Claude Code's TRACEPARENT puts this call in the run's trace (docs/adr/2026-10-31-one-trace-per-run.md).
+	// Claude Code's TRACEPARENT puts this call in the run's trace.
 	if tp := os.Getenv("TRACEPARENT"); tp != "" {
 		req.Header.Set("traceparent", tp)
 	}

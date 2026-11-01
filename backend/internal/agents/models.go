@@ -586,8 +586,7 @@ type Run struct {
 	// InitialMessage is the run's first message. Only a claimed run carries it, and
 	// the scheduling worker sends it when it creates the session.
 	InitialMessage string `json:"-"`
-	// TraceParent is the W3C traceparent of the StartRun span. The scheduler and every
-	// later action on the run continue or link to it (docs/adr/2026-10-31-one-trace-per-run.md).
+	// TraceParent is the StartRun span's traceparent; the scheduler and later run actions continue or link to it.
 	TraceParent string `json:"-"`
 	// TraceID is the run's trace, read from TraceParent. Nil when the run was not sampled.
 	TraceID *string `json:"trace_id"`

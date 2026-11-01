@@ -23,7 +23,6 @@ func (n *traceNotifier) CompleteRun(ctx context.Context, _, _ string, _ bool) er
 	return nil
 }
 
-// Lifecycle calls after the create request has returned stay in the create-session trace.
 func TestSessionLifecycleStaysInCreateTrace(t *testing.T) {
 	n := &traceNotifier{}
 	reg, _ := newTestRegistry(t, n)

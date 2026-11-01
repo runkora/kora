@@ -98,10 +98,7 @@ type DelegationManager struct {
 	sandboxMu    sync.RWMutex
 	sandboxRunID string
 
-	// fetchTimeout bounds a single background delegation fetch. Fetches run OFF
-	// the ext_proc request context (which Envoy cancels at the ~200ms
-	// message_timeout) — on a context detached from its cancellation — so they can
-	// actually complete; fetchTimeout is their only deadline.
+	// fetchTimeout is the only deadline on a background delegation fetch, which outlives Envoy's ~200ms ext_proc cancellation.
 	fetchTimeout time.Duration
 
 	now func() time.Time // test seam
@@ -235,11 +232,8 @@ func (m *DelegationManager) tokenForRun(ctx context.Context, runID string) (stri
 	return "", false
 }
 
-// startFetchLocked launches a single background delegation fetch for the run
-// unless one is already in flight or the post-error backoff gate is still
-// closed. The entry mutex is held by the caller. The fetch keeps the request's
-// trace but not its cancellation, which Envoy fires at the ext_proc deadline, so
-// it can complete and populate the cache.
+// startFetchLocked starts a background delegation fetch unless one is in flight or backoff is closed; the caller holds the entry mutex.
+// The fetch keeps the request's trace but outlives Envoy's ext_proc deadline.
 func (m *DelegationManager) startFetchLocked(ctx context.Context, runID string, e *delegationEntry, now time.Time) {
 	if e.fetching || now.Before(e.nextRetry) {
 		return

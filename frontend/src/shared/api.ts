@@ -460,7 +460,7 @@ export interface Run {
   };
   /** LLM-generated one-sentence summary of the run's task intent, if available. */
   summary?: string | null;
-  /** The run's trace in the trace viewer; null when the run was not sampled. */
+  /** The run's W3C trace ID; null when the run was not sampled. */
   trace_id?: string | null;
   /**
    * Present when a trigger started this run. trigger_name and delivery_id are

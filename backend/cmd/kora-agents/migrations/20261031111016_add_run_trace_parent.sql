@@ -1,7 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
--- The W3C traceparent of the span that created the run, so every later step joins the run's trace
--- (docs/adr/2026-10-31-one-trace-per-run.md).
+-- W3C traceparent of the span that created the run; later steps join its trace.
 ALTER TABLE runs ADD COLUMN trace_parent TEXT;
 -- +goose StatementEnd
 

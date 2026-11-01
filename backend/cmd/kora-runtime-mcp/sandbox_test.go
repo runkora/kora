@@ -11,8 +11,7 @@ import (
 
 // provisionSandbox is the tool call that gives a run its sandbox. Without the
 // run token the session-manager refuses it, so the header is part of the
-// request's contract rather than an optimisation. The traceparent keeps the call
-// in the run's trace.
+// request's contract rather than an optimisation.
 func TestProvisionSandbox_SendsTheRunToken(t *testing.T) {
 	var gotHeader, gotPath, gotTrace string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
