@@ -8,6 +8,7 @@ import (
 
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
@@ -90,4 +91,18 @@ func TestNotTimerPoll_LeavesTimerPollsUntraced(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("a poll with a sampled parent stays traced", func(t *testing.T) {
+		otel.SetTextMapPropagator(propagation.TraceContext{})
+		parentCtx, parent := provider.Tracer("caller").Start(context.Background(), "evaluate")
+		defer parent.End()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/policy/bundles/tenant-1", nil)
+		otel.GetTextMapPropagator().Inject(parentCtx, propagation.HeaderCarrier(req.Header))
+
+		before := len(recorder.Ended())
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+		if got := len(recorder.Ended()) - before; got != 1 {
+			t.Errorf("spans = %d, want 1", got)
+		}
+	})
 }

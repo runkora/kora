@@ -23,14 +23,19 @@ import (
 //
 // A request any filter rejects is served without a span, like otelhttp.WithFilter.
 // Services use it to drop high-rate polls that carry no signal, the same way
-// health checks skip tracing.
+// health checks skip tracing. A request with a sampled incoming parent is always
+// traced, since it is part of someone else's unit of work.
 func TracingMiddleware(serviceName string, filters ...TraceFilter) Middleware {
 	return NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			for _, traced := range filters {
-				if !traced(r) {
-					next.ServeHTTP(w, r)
-					return
+			// Extract trace context from incoming request headers (W3C TraceContext format).
+			propagatedCtx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+			if !trace.SpanContextFromContext(propagatedCtx).IsSampled() {
+				for _, traced := range filters {
+					if !traced(r) {
+						next.ServeHTTP(w, r)
+						return
+					}
 				}
 			}
 			// Get the global tracer for this service
@@ -44,10 +49,8 @@ func TracingMiddleware(serviceName string, filters ...TraceFilter) Middleware {
 				routePattern = r.URL.Path
 			}
 
-			// Extract trace context from incoming request headers (W3C TraceContext format)
-			// Then start a new span for this HTTP request, named "{method} {route}"
-			// per the HTTP semantic conventions; SpanRouteName renames it once a route matches.
-			propagatedCtx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+			// Start a span for this HTTP request, named "{method} {route}" per the
+			// HTTP semantic conventions; SpanRouteName renames it once a route matches.
 
 			// Build span attributes following OpenTelemetry semantic conventions
 			attrs := []trace.SpanStartOption{
