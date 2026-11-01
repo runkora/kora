@@ -129,7 +129,6 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 
 	cls, err := b.classify(connector, req)
 	if err != nil {
-		span.RecordError(err)
 		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, deny(DenialUnclassified, req.Host, conn, credentials.Classification{}, err))
 	}
 	span.SetAttributes(

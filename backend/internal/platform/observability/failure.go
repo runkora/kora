@@ -9,7 +9,7 @@ import (
 )
 
 // RecordFailure marks span failed. The sentinel is the static status description and error.type;
-// err carries the dynamic detail as an exception event, skipped when err is the sentinel.
+// err carries the dynamic detail as an exception event, skipped when err is in the sentinel's chain.
 func RecordFailure(span trace.Span, err, sentinel error) {
 	if !errors.Is(sentinel, err) {
 		span.RecordError(err)
