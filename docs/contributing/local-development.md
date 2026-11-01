@@ -39,7 +39,7 @@ make up
 
 - `dev-up`: Starts Postgres, Redis, glauth, and Dex in Docker Compose. Generates `secrets/signing.key` on first run.
 - `dev-cluster`: Creates the k3d cluster `kora-local` with a registry at `kora-registry:5001`, and patches CoreDNS so pods resolve `dex.local.runkora.io`.
-- `cluster-observability`: Runs the `grafana/otel-lgtm` stack (Grafana, Tempo, Prometheus, Loki) as `lgtm` in the `observability` namespace. Platform services and agent runs export their telemetry to it, with every trace sampled.
+- `cluster-observability`: Runs the `grafana/otel-lgtm` stack (Grafana, Tempo, Prometheus, Loki) as `lgtm` in the `observability` namespace. Platform services and agent runs export telemetry to it. The local values sample every trace.
 - `cluster-platform`: Builds any missing service images, creates the `kora-system` namespace, secrets and TLS, writes the Docker network values to `deploy/reference/environments/local.generated.yaml`, then runs `helmfile -e local apply` from `deploy/reference/`. That installs SPIRE, Istio and the two kora charts in dependency order, the same sequence on any cluster. The `kora` chart's pre-install hook applies the database schema before any service starts. Helmfile diffs before applying, so an unchanged environment is a no-op.
 - `cluster-deploy`: Runs `create-secrets.sh`, applies the `KoraTenant` resources, and deploys the workload fixtures.
 
