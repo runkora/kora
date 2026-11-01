@@ -40,7 +40,6 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 		trace.WithAttributes(
 			semconv.ServerAddressKey.String(host),
 			semconv.ServerPortKey.Int(portNum),
-			observability.TenantIDKey.String(claims.Kora.TenantID),
 			observability.PrincipalIDKey.String(claims.Subject),
 		))
 	defer span.End()

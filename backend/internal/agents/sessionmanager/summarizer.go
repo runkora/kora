@@ -166,11 +166,8 @@ func (s *summarizer) send(ctx context.Context, baseURL, model, initialMessage st
 	if perRun {
 		req.BaseURL, req.Path, req.Params = gateway, "/run/{run_id}/v1/messages", []string{runID}
 	}
-	_, span, resp, err := s.Do(ctx, req)
+	_, span, resp, err := s.Do(observability.WithRun(ctx, runID), req)
 	defer span.End()
-	if perRun {
-		span.SetAttributes(observability.RunIDKey.String(runID))
-	}
 	if err != nil {
 		return result, false, err
 	}

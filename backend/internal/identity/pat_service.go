@@ -26,7 +26,6 @@ import (
 func (s *Service) CreatePAT(ctx context.Context, tenantID, userID string, userClaims *PlatformClaims, req CreatePATRequest) (*CreatePATResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.CreatePAT",
 		trace.WithAttributes(
-			observability.TenantIDKey.String(tenantID),
 			observability.PrincipalIDKey.String(userID),
 			observability.PATNameKey.String(req.Name),
 		),
@@ -135,7 +134,6 @@ func (s *Service) CreatePAT(ctx context.Context, tenantID, userID string, userCl
 func (s *Service) ListPATs(ctx context.Context, tenantID, userID string) (*ListPATsResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.ListPATs",
 		trace.WithAttributes(
-			observability.TenantIDKey.String(tenantID),
 			observability.PrincipalIDKey.String(userID),
 		),
 	)
@@ -181,7 +179,6 @@ func (s *Service) ListPATs(ctx context.Context, tenantID, userID string) (*ListP
 func (s *Service) UpdatePATScopes(ctx context.Context, tenantID, userID, patID string, userClaims *PlatformClaims, req UpdatePATScopesRequest) error {
 	ctx, span := s.tracer.Start(ctx, "identity.UpdatePATScopes",
 		trace.WithAttributes(
-			observability.TenantIDKey.String(tenantID),
 			observability.PrincipalIDKey.String(userID),
 			observability.PATIDKey.String(patID),
 		),
@@ -261,7 +258,6 @@ func (s *Service) UpdatePATScopes(ctx context.Context, tenantID, userID, patID s
 func (s *Service) RevokePAT(ctx context.Context, tenantID, userID, patID string) error {
 	ctx, span := s.tracer.Start(ctx, "identity.RevokePAT",
 		trace.WithAttributes(
-			observability.TenantIDKey.String(tenantID),
 			observability.PrincipalIDKey.String(userID),
 			observability.PATIDKey.String(patID),
 		),

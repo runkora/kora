@@ -79,7 +79,7 @@ func histogramRange(finished, p99Ms, longestMs int64) (rangeMs int64, capped boo
 func (s *RunService) AgentRunStats(ctx context.Context, slug string, period usagewindow.Period, now time.Time) (RunStats, error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.AgentRunStats",
-		trace.WithAttributes(observability.TenantIDKey.String(tenantID), observability.AgentSlugKey.String(slug)),
+		trace.WithAttributes(observability.AgentSlugKey.String(slug)),
 	)
 	defer span.End()
 	out, err := s.agentRunStats(ctx, tenantID, slug, period, now)
@@ -115,9 +115,7 @@ func (s *RunService) agentRunStats(ctx context.Context, tenantID, slug string, p
 // runs the caller may read, for the period's window ending at now.
 func (s *RunService) TenantRunStats(ctx context.Context, period usagewindow.Period, now time.Time) (RunStats, error) {
 	tenantID := tenantFromContext(ctx)
-	ctx, span := agentsTracer.Start(ctx, "agents.TenantRunStats",
-		trace.WithAttributes(observability.TenantIDKey.String(tenantID)),
-	)
+	ctx, span := agentsTracer.Start(ctx, "agents.TenantRunStats")
 	defer span.End()
 	out, err := s.tenantRunStats(ctx, tenantID, period, now)
 	if err != nil {

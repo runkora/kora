@@ -170,10 +170,7 @@ func (s *Service) ChatCompletion(
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(
-		observability.TenantIDKey.String(p.TenantID),
-		observability.PrincipalTypeKey.String(p.PrincipalType),
-	)
+	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
@@ -322,10 +319,7 @@ func (s *Service) ChatCompletionStream(
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(
-		observability.TenantIDKey.String(p.TenantID),
-		observability.PrincipalTypeKey.String(p.PrincipalType),
-	)
+	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
@@ -881,7 +875,6 @@ func (s *Service) checkBudget(ctx context.Context, p principal) error {
 
 	ctx, span := tracer.Start(ctx, "inferencegw.Service.checkBudget",
 		trace.WithAttributes(
-			observability.TenantIDKey.String(p.TenantID),
 			observability.PrincipalIDKey.String(p.PrincipalID),
 		),
 	)
@@ -1700,10 +1693,7 @@ func (s *Service) Embeddings(
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(
-		observability.TenantIDKey.String(p.TenantID),
-		observability.PrincipalTypeKey.String(p.PrincipalType),
-	)
+	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
@@ -1814,10 +1804,7 @@ func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*Sy
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(
-		observability.TenantIDKey.String(p.TenantID),
-		observability.PrincipalTypeKey.String(p.PrincipalType),
-	)
+	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
 
 	routeReq := ChatCompletionRequest{Model: model}
 
@@ -1931,10 +1918,7 @@ func (s *Service) Responses(
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(
-		observability.TenantIDKey.String(p.TenantID),
-		observability.PrincipalTypeKey.String(p.PrincipalType),
-	)
+	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
@@ -2061,10 +2045,7 @@ func (s *Service) ResponsesStream(
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(
-		observability.TenantIDKey.String(p.TenantID),
-		observability.PrincipalTypeKey.String(p.PrincipalType),
-	)
+	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
@@ -2283,10 +2264,7 @@ func (s *Service) AnthropicMessages(
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(
-		observability.TenantIDKey.String(p.TenantID),
-		observability.PrincipalTypeKey.String(p.PrincipalType),
-	)
+	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
@@ -2419,10 +2397,7 @@ func (s *Service) AnthropicMessagesStream(
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(
-		observability.TenantIDKey.String(p.TenantID),
-		observability.PrincipalTypeKey.String(p.PrincipalType),
-	)
+	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 

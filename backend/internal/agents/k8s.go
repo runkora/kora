@@ -502,7 +502,6 @@ const (
 func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.ProvisionSandbox",
 		trace.WithAttributes(
-			observability.RunIDKey.String(run.ID),
 			observability.AgentSlugKey.String(agentTypeSlug),
 			semconv.K8SNamespaceNameKey.String(namespace),
 		),
@@ -615,10 +614,7 @@ var errSandboxUnusable = errors.New("sandbox pod unusable")
 // no usable endpoint yet, so it reports no sandbox rather than a half one.
 func (p *K8sProvisioner) LookupSandbox(ctx context.Context, runID, namespace string) (Sandbox, bool, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.LookupSandbox",
-		trace.WithAttributes(
-			observability.RunIDKey.String(runID),
-			semconv.K8SNamespaceNameKey.String(namespace),
-		),
+		trace.WithAttributes(semconv.K8SNamespaceNameKey.String(namespace)),
 	)
 	defer span.End()
 
@@ -895,11 +891,8 @@ func (p *K8sProvisioner) waitForPodGone(ctx context.Context, name, namespace str
 
 // DeleteSandbox removes the sandbox pod for a run. Missing pod is silently ignored.
 func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace string) error {
-	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.DeleteSandbox",
-		trace.WithAttributes(
-			observability.RunIDKey.String(runID),
-			semconv.K8SNamespaceNameKey.String(namespace),
-		),
+	ctx, span := agentsTracer.Start(observability.WithRun(ctx, runID), "agents.K8sProvisioner.DeleteSandbox",
+		trace.WithAttributes(semconv.K8SNamespaceNameKey.String(namespace)),
 	)
 	defer span.End()
 
@@ -1402,7 +1395,6 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.ensureAgentGrant",
 		trace.WithAttributes(
 			observability.PrincipalIDKey.String(principalID),
-			observability.TenantIDKey.String(grantTenantID),
 		),
 	)
 	defer span.End()

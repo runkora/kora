@@ -25,6 +25,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 const (
@@ -281,7 +282,7 @@ func (c *Client) CanReadRun(ctx context.Context, bearer, delegation, runID strin
 		header.Set(mw.DelegationTokenHeader, delegation)
 	}
 
-	_, span, resp, err := c.Do(ctx, httpclient.Request{
+	_, span, resp, err := c.Do(observability.WithRun(ctx, runID), httpclient.Request{
 		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/api/v1/runs/{runID}", Params: []string{runID}, Header: header,
 	})
 	defer span.End()
@@ -327,7 +328,7 @@ func (c *Client) SendRunMessage(ctx context.Context, bearer, runID string, req S
 	header.Set("Content-Type", "application/json")
 	header.Set("Authorization", "Bearer "+bearer)
 
-	_, span, resp, err := c.Do(ctx, httpclient.Request{
+	_, span, resp, err := c.Do(observability.WithRun(ctx, runID), httpclient.Request{
 		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/api/v1/runs/{runID}/messages", Params: []string{runID}, Header: header, Body: body,
 	})
 	defer span.End()

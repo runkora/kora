@@ -128,11 +128,10 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 	if isDurableEvent(ev.Type) {
 		client = n.lifecycleClient
 	}
-	_, span, resp, err := client.Do(ctx, httpclient.Request{
+	_, span, resp, err := client.Do(observability.WithRun(ctx, runID), httpclient.Request{
 		Method: http.MethodPost, BaseURL: n.baseURL, Path: "/internal/runs/{runID}/events", Params: []string{runID}, Header: header, Body: bytes.NewReader(body),
 	})
 	defer span.End()
-	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return fmt.Errorf("post event: %w", err)
 	}
@@ -147,11 +146,10 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 // ok is false when the run has none, which kora-agents reports as 404 and this
 // pod must not confuse with a lookup failure.
 func (n *HTTPNotifier) GetSandbox(ctx context.Context, runID string) (Sandbox, bool, error) {
-	_, span, resp, err := n.sandboxClient.Do(ctx, httpclient.Request{
+	_, span, resp, err := n.sandboxClient.Do(observability.WithRun(ctx, runID), httpclient.Request{
 		Method: http.MethodGet, BaseURL: n.baseURL, Path: "/internal/runs/{runID}/sandbox", Params: []string{runID},
 	})
 	defer span.End()
-	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return Sandbox{}, false, fmt.Errorf("get sandbox: %w", err)
 	}
@@ -196,11 +194,10 @@ func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, envir
 	body, _ := json.Marshal(map[string]any{"environment": environment, "replace": replace})
 	header := http.Header{}
 	header.Set("Content-Type", "application/json")
-	_, span, resp, err := n.sandboxClient.Do(ctx, httpclient.Request{
+	_, span, resp, err := n.sandboxClient.Do(observability.WithRun(ctx, runID), httpclient.Request{
 		Method: http.MethodPost, BaseURL: n.baseURL, Path: "/internal/runs/{runID}/provision-sandbox", Params: []string{runID}, Header: header, Body: bytes.NewReader(body),
 	})
 	defer span.End()
-	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return Sandbox{}, fmt.Errorf("call kora-agents: %w", err)
 	}
@@ -231,11 +228,10 @@ func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, envir
 }
 
 func (n *HTTPNotifier) ListEnvironments(ctx context.Context, runID string) (json.RawMessage, error) {
-	_, span, resp, err := n.lifecycleClient.Do(ctx, httpclient.Request{
+	_, span, resp, err := n.lifecycleClient.Do(observability.WithRun(ctx, runID), httpclient.Request{
 		Method: http.MethodGet, BaseURL: n.baseURL, Path: "/internal/runs/{runID}/environments", Params: []string{runID},
 	})
 	defer span.End()
-	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return nil, fmt.Errorf("list environments: %w", err)
 	}
@@ -257,11 +253,10 @@ func (n *HTTPNotifier) SetSummary(ctx context.Context, runID, summary string) er
 	}
 	header := http.Header{}
 	header.Set("Content-Type", "application/json")
-	_, span, resp, err := n.lifecycleClient.Do(ctx, httpclient.Request{
+	_, span, resp, err := n.lifecycleClient.Do(observability.WithRun(ctx, runID), httpclient.Request{
 		Method: http.MethodPost, BaseURL: n.baseURL, Path: "/internal/runs/{runID}/summary", Params: []string{runID}, Header: header, Body: bytes.NewReader(body),
 	})
 	defer span.End()
-	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return fmt.Errorf("post summary: %w", err)
 	}
@@ -299,11 +294,10 @@ func (n *HTTPNotifier) postRunState(ctx context.Context, runID, from, to string)
 	}
 	header := http.Header{}
 	header.Set("Content-Type", "application/json")
-	_, span, resp, err := n.lifecycleClient.Do(ctx, httpclient.Request{
+	_, span, resp, err := n.lifecycleClient.Do(observability.WithRun(ctx, runID), httpclient.Request{
 		Method: http.MethodPost, BaseURL: n.baseURL, Path: "/internal/runs/{runID}/state", Params: []string{runID}, Header: header, Body: bytes.NewReader(body),
 	})
 	defer span.End()
-	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return fmt.Errorf("post state: %w", err)
 	}

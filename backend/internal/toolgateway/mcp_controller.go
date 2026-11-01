@@ -259,7 +259,6 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 		observability.MCPMethodNameKey.String("tools/call"),
 		observability.MCPServerKey.String(server),
 		observability.GenAIToolNameKey.String(tool),
-		observability.TenantIDKey.String(claims.Kora.TenantID),
 		observability.PrincipalIDKey.String(claims.Subject),
 	)
 

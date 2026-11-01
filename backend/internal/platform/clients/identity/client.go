@@ -328,11 +328,10 @@ func (c *Client) RevokeDelegation(ctx context.Context, bearer, jti string) error
 // Returns ErrDelegationNotFound when the run has no active delegation — the
 // identity-proxy caches this as "autonomous, none".
 func (c *Client) GetDelegationForRun(ctx context.Context, runID string) (*DelegationToken, error) {
-	_, span, resp, err := c.Do(ctx, httpclient.Request{
+	_, span, resp, err := c.Do(observability.WithRun(ctx, runID), httpclient.Request{
 		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/api/v1/identity/delegation/run/{runID}", Params: []string{runID},
 	})
 	defer span.End()
-	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return nil, fmt.Errorf("get delegation for run call: %w", err)
 	}

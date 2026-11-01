@@ -338,10 +338,9 @@ func parseDeviceTokenError(body []byte) error {
 // endpoint for a device_code grant. It maps provider error codes to sentinel
 // errors so the caller can decide whether to retry or surface the failure.
 func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*SessionResponse, error) {
-	ctx, span := s.tracer.Start(ctx, "identity.PollDeviceAuth",
+	ctx, span := s.tracer.Start(observability.WithTenant(ctx, req.TenantID), "identity.PollDeviceAuth",
 		trace.WithAttributes(
 			observability.OAuthGrantTypeKey.String("urn:ietf:params:oauth:grant-type:device_code"),
-			observability.TenantIDKey.String(req.TenantID),
 		),
 	)
 	defer span.End()
@@ -484,10 +483,9 @@ func resolveDisplayName(name, preferredUsername, email, sub string) string {
 // browser-to-backend channel, no PKCE state is stored server-side, and the
 // kora JWT is sealed into an HttpOnly iron-session cookie by the BFF.
 func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*SessionResponse, error) {
-	ctx, span := s.tracer.Start(ctx, "identity.ExchangeIDToken",
+	ctx, span := s.tracer.Start(observability.WithTenant(ctx, req.TenantID), "identity.ExchangeIDToken",
 		trace.WithAttributes(
 			observability.OAuthGrantTypeKey.String("oidc_id_token"),
-			observability.TenantIDKey.String(req.TenantID),
 		),
 	)
 	defer span.End()
@@ -838,11 +836,10 @@ func (s *Service) JWKSJSON() []byte {
 // createSession (human, with refresh token) and createAgentSession (no refresh
 // token). Returns the session ID, signed access token, issue time, and TTL.
 func (s *Service) buildAndPersistSession(ctx context.Context, principal *Principal) (sessionID, accessToken string, now time.Time, ttl time.Duration, err error) {
-	ctx, span := s.tracer.Start(ctx, "identity.buildAndPersistSession",
+	ctx, span := s.tracer.Start(observability.WithTenant(ctx, principal.TenantID), "identity.buildAndPersistSession",
 		trace.WithAttributes(
 			observability.PrincipalIDKey.String(principal.ID),
 			observability.PrincipalTypeKey.String(string(principal.Type)),
-			observability.TenantIDKey.String(principal.TenantID),
 			observability.PrincipalIdentitySourceKey.String(string(principal.IdentitySource)),
 		),
 	)

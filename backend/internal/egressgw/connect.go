@@ -258,9 +258,7 @@ func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.
 		trace.WithAttributes(
 			semconv.ServerAddressKey.String(host),
 			semconv.ServerPortKey.Int(portNum),
-			observability.TenantIDKey.String(claims.Kora.TenantID),
 			observability.PrincipalIDKey.String(claims.Subject),
-			observability.RunIDKey.String(claims.Kora.Claims["run_id"]),
 		))
 	defer span.End()
 

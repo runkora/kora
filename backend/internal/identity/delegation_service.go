@@ -63,11 +63,9 @@ func (s *Service) delegationTokenTTL() time.Duration {
 // verified claims. The response is the record — the token never leaves the
 // identity service at mint time.
 func (s *Service) MintDelegation(ctx context.Context, claims *PlatformClaims, req CreateDelegationRequest) (*DelegationIssuance, error) {
-	ctx, span := s.tracer.Start(ctx, "identity.MintDelegation",
+	ctx, span := s.tracer.Start(observability.WithRun(ctx, req.RunID), "identity.MintDelegation",
 		trace.WithAttributes(
 			observability.PrincipalTypeKey.String(string(claims.Kora.PrincipalType)),
-			observability.TenantIDKey.String(claims.Kora.TenantID),
-			observability.RunIDKey.String(req.RunID),
 		),
 	)
 	defer span.End()
@@ -243,9 +241,7 @@ func (s *Service) RevokeDelegation(ctx context.Context, claims *PlatformClaims, 
 // qualify. No active issuance → ErrDelegationNotFound, which the caller treats
 // as "autonomous, none".
 func (s *Service) DelegationTokenForRun(ctx context.Context, r *http.Request, runID string) (*DelegationTokenResponse, error) {
-	ctx, span := s.tracer.Start(ctx, "identity.DelegationTokenForRun",
-		trace.WithAttributes(observability.RunIDKey.String(runID)),
-	)
+	ctx, span := s.tracer.Start(ctx, "identity.DelegationTokenForRun")
 	defer span.End()
 
 	principal, err := s.extractor.Extract(r)

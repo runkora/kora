@@ -338,7 +338,6 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	req.TenantID = tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.CreateAgentType",
 		trace.WithAttributes(
-			observability.TenantIDKey.String(req.TenantID),
 			observability.AgentSlugKey.String(req.Slug),
 		),
 	)
@@ -474,10 +473,9 @@ func (s *AgentTypeService) ApplyAll(ctx context.Context, lister activeAgentTypeL
 // On success it transitions the agent type from provisioning → active.
 // On failure it deletes the record so the slug is freed for a retry.
 func (s *AgentTypeService) provisionAgentTypeAsync(detachedCtx context.Context, at AgentType) {
-	ctx, span := agentsTracer.Start(detachedCtx, "agents.provisionAgentTypeAsync",
+	ctx, span := agentsTracer.Start(observability.WithTenant(detachedCtx, at.TenantID), "agents.provisionAgentTypeAsync",
 		trace.WithAttributes(
 			observability.AgentIDKey.String(at.ID),
-			observability.TenantIDKey.String(at.TenantID),
 			observability.AgentSlugKey.String(at.Slug),
 		),
 	)
@@ -589,9 +587,7 @@ func (s *AgentTypeService) GetAgentType(ctx context.Context, id string) (*AgentT
 // agent types their scopes cover.
 func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, error) {
 	tenantID := tenantFromContext(ctx)
-	ctx, span := agentsTracer.Start(ctx, "agents.ListAgentTypes",
-		trace.WithAttributes(observability.TenantIDKey.String(tenantID)),
-	)
+	ctx, span := agentsTracer.Start(ctx, "agents.ListAgentTypes")
 	defer span.End()
 	types, err := s.repo.ListAgentTypes(ctx, tenantID)
 	if err != nil {
@@ -613,7 +609,7 @@ func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, err
 func (s *AgentTypeService) ListAgentTypesByIDs(ctx context.Context, ids []string, withAccess bool) ([]AgentType, error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListAgentTypesByIDs",
-		trace.WithAttributes(observability.TenantIDKey.String(tenantID), observability.AgentIDCountKey.Int(len(ids))),
+		trace.WithAttributes(observability.AgentIDCountKey.Int(len(ids))),
 	)
 	defer span.End()
 	all, err := s.repo.ListAgentTypes(ctx, tenantID)

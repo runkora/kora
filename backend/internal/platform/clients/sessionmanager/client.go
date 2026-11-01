@@ -151,11 +151,10 @@ func (c *Client) CreateSession(ctx context.Context, podURL string, req CreateSes
 		return err
 	}
 
-	_, span, resp, err := c.Do(ctx, httpclient.Request{
+	_, span, resp, err := c.Do(observability.WithTenant(observability.WithRun(ctx, req.RunID), req.TenantID), httpclient.Request{
 		Method: http.MethodPost, BaseURL: podURL, Path: "/session", Header: header, Body: body,
 	})
 	defer span.End()
-	span.SetAttributes(observability.RunIDKey.String(req.RunID), observability.TenantIDKey.String(req.TenantID))
 	if err != nil {
 		return err
 	}
@@ -193,12 +192,11 @@ func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string,
 		return err
 	}
 
-	_, span, resp, err := c.Do(ctx, httpclient.Request{
+	_, span, resp, err := c.Do(observability.WithRun(ctx, runID), httpclient.Request{
 		Method: http.MethodPost, BaseURL: podURL, Path: "/session/{runID}/messages", Params: []string{runID},
 		Header: header, Body: body,
 	})
 	defer span.End()
-	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return err
 	}
@@ -223,11 +221,10 @@ func (c *Client) InterruptSession(ctx context.Context, podURL, runID string) err
 		return err
 	}
 
-	_, span, resp, err := c.Do(ctx, httpclient.Request{
+	_, span, resp, err := c.Do(observability.WithRun(ctx, runID), httpclient.Request{
 		Method: http.MethodPost, BaseURL: podURL, Path: "/session/{runID}/interrupt", Params: []string{runID}, Header: header,
 	})
 	defer span.End()
-	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return err
 	}
@@ -251,11 +248,10 @@ func (c *Client) CloseSession(ctx context.Context, podURL, runID string) error {
 		return err
 	}
 
-	_, span, resp, err := c.Do(ctx, httpclient.Request{
+	_, span, resp, err := c.Do(observability.WithRun(ctx, runID), httpclient.Request{
 		Method: http.MethodDelete, BaseURL: podURL, Path: "/session/{runID}", Params: []string{runID}, Header: header,
 	})
 	defer span.End()
-	span.SetAttributes(observability.RunIDKey.String(runID))
 	if err != nil {
 		return err
 	}
