@@ -62,6 +62,9 @@ func TestRefresh_SpansOnlyOnChangeOrFailure(t *testing.T) {
 		{name: "unchanged bundle records no span", body: v1, status: http.StatusOK, wantSpans: 0},
 		{name: "changed bundle records a span", body: v2, status: http.StatusOK, wantSpans: 1, wantStatus: codes.Unset},
 		{name: "failed poll records an error span", body: v2, status: http.StatusInternalServerError, wantSpans: 1, wantStatus: codes.Error},
+		{name: "evicting the bundle records a span", status: http.StatusNotFound, wantSpans: 1, wantStatus: codes.Unset},
+		// A tenant without grants drops out of the poll once its bundle is evicted.
+		{name: "evicted tenant is not polled again", status: http.StatusNotFound, wantSpans: 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
