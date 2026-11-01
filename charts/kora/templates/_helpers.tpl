@@ -685,8 +685,9 @@ app: kora-sandbox-mount
 {{- end }}
 
 {{/*
-Request headers every edge route sets. Drops client trace context so the edge
-span starts a new root under the normal sampler (ADR 2026-10-31, Amendment 1).
+Request headers for each kora-api VirtualService route. Drops client trace
+context so the first kora service span starts a new root under the configured
+sampler (ADR 2026-10-31, Amendment 1).
 Forces x-forwarded-proto: https behind a TLS-terminating Ingress, where the
 gateway would otherwise stamp http and OAuth metadata would reflect it.
 */}}

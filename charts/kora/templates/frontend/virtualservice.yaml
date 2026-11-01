@@ -23,7 +23,7 @@ spec:
     # Next.js app.
     - headers:
         request:
-          remove: [traceparent, tracestate] # Untrusted client trace context; see kora.edgeHeaders.
+          remove: [traceparent, tracestate] # Drop client trace context so kora starts a new root trace (ADR 2026-10-31, Amendment 1).
       route:
         - destination:
             host: kora-frontend.{{ include "kora.systemNamespace" . }}.svc.cluster.local

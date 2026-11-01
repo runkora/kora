@@ -142,24 +142,24 @@ This decision touches none of the three questions. No service reads `traceparent
 
 ---
 
-## Amendment 1: Untrusted trace context at the edge
+## Amendment 1 (2026-11-01): Untrusted trace context at the edge
 
 **Status:** Accepted
-**Date:** 2026-11-01
 
 Touches none of the three questions. No service reads `traceparent` or `tracestate` for an identity, authorization or credential decision.
 
-**Context:** The north-south edge forwarded a client-supplied `traceparent` unchanged. Every service uses a `ParentBased` sampler, so an internet client chose the trace ID. A `traceparent` with flags `00` suppressed tracing for the request. The run stores the start request's trace context, so an unsampled start left the whole run untraced and its `trace_id` null.
+**Context:** The north-south edge forwarded a client-supplied `traceparent` unchanged. A kora service took its trace ID from that header. Every service uses a `ParentBased` sampler, and a `traceparent` with flags `00` suppressed tracing for the request. The run stores the start request's trace context. An unsampled start left the whole run untraced and its `trace_id` null.
 
-**Decision:** The edge drops `traceparent` and `tracestate` from every request it receives from outside the mesh. The service span at the edge starts a new root under the configured sampler. Trace context set by a client never reaches a kora service.
+**Decision:** The edge drops `traceparent` and `tracestate` from every request it receives from outside the mesh. The first kora service span starts a new root under the configured sampler. Trace context set by a client never reaches a kora service.
 
-The `kora-api` and `kora-frontend` VirtualServices remove both headers on every route. All external traffic enters through these two VirtualServices. Mesh callers reach services by their in-mesh names and do not pass through them, so their `traceparent` is unchanged.
+The `kora-api` and `kora-frontend` VirtualServices remove both headers on every route. The optional frontend Ingress forwards them to the frontend, which records no spans and forwards no inbound headers. Mesh callers reach services by their in-mesh names and keep their `traceparent`.
 
 **Consequences:**
 
-- The sampling decision and the trace ID of a run are always made by kora. The Negative consequence that let a caller suppress a run's trace is removed.
+- Kora always makes the trace ID and sampling decision of a run.
 - A client cannot join its own trace to a kora trace through the edge.
 - A new external route must remove both headers. The `kora.edgeHeaders` chart helper does this for the API host.
+- Envoy tracing at the ingress gateway reads `traceparent` before route header removal. Enabling it requires removing the headers with `early_header_mutation_extensions`.
 
 ---
 
