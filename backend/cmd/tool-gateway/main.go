@@ -155,7 +155,8 @@ func realMain() error {
 		}
 		registry.OnReload(func(ctx context.Context) { cycle(ctx, true) })
 		go registry.Watch(ctx)
-		go runIntrospectionLoop(ctx, cycle, tgc.Current.ReintrospectInterval(), logger)
+		ready := func() bool { return introspector.AllSeenOrRetained(registry.Servers()) }
+		go runIntrospectionLoop(ctx, cycle, tgc.Current.ReintrospectInterval(), catchUpInterval, ready, logger)
 	}
 
 	// ── HTTP server (health + catalog [+ MCP proxy in proxy mode]) ───────────
@@ -200,21 +201,58 @@ func realMain() error {
 	return nil
 }
 
-// runIntrospectionLoop runs the introspection cycle once (forced) at startup
-// and then on a timer (unforced — each server's own reintrospect interval
-// applies) until ctx is canceled.
-func runIntrospectionLoop(ctx context.Context, cycle func(context.Context, bool), interval time.Duration, logger logging.Logger) {
+// catchUpInterval is how soon the loop re-introspects while some registered
+// server has never been reached since boot.
+//
+// A server reached once keeps its tools in the snapshot, so a later failure is
+// invisible to callers and waiting for the configured interval costs nothing.
+// A server that has never been reached has nothing retained: the publisher
+// registers no scopes for it and the catalog holds no tools, so every session
+// started before the next cycle sees an empty tool list. The configured
+// interval is minutes, which is the five-minute outage in #880. Ticking sooner
+// closes that window, and because the catch-up tick is unforced it re-reaches
+// only the servers that are actually due — a healthy server inside its own
+// interval is skipped.
+const catchUpInterval = 10 * time.Second
+
+// runIntrospectionLoop drives the introspection cycle: once at boot, then on a
+// timer. ready reports whether every registered server has tools to serve;
+// while it is false the loop waits catchUp instead of the configured interval,
+// so a cold start converges in seconds rather than minutes. catchUp is a
+// parameter rather than a package var so a test can shorten it without racing
+// a running loop.
+//
+// The wait is recomputed each pass rather than held in a ticker, so the loop
+// settles back to the configured interval on its own once every server is
+// reached. Nothing blocks on a server that never comes up: an unreachable
+// server just keeps the loop on the short interval, and each attempt is still
+// bounded by the introspection timeout.
+func runIntrospectionLoop(
+	ctx context.Context,
+	cycle func(context.Context, bool),
+	interval, catchUp time.Duration,
+	ready func() bool,
+	logger logging.Logger,
+) {
 	cycle(ctx, true)
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
 	for {
+		wait := interval
+		if !ready() {
+			wait = min(catchUp, interval)
+			logger.Warn(ctx, "an MCP server has no tools to serve — re-introspecting early",
+				logging.Field{Key: "retry_in", Value: wait.String()},
+				logging.Field{Key: "configured_interval", Value: interval.String()})
+		}
+
+		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
-			logger.Debug(ctx, "periodic re-introspection tick")
-			cycle(ctx, false)
+		case <-timer.C:
 		}
+		logger.Debug(ctx, "periodic re-introspection tick")
+		cycle(ctx, false)
 	}
 }
 
