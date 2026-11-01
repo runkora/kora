@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,7 +11,10 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // BuildPoolConfig creates a pgxpool.Config with all pool settings and the
@@ -34,8 +36,12 @@ func (c *PostgresConfig) BuildPoolConfig() (*pgxpool.Config, error) {
 	}
 
 	poolConfig.ConnConfig.Tracer = &otelQueryTracer{
-		tracer:           otel.Tracer("kora.database"),
+		tracer:           otel.Tracer("github.com/runkora/kora/backend/internal/platform/storage"),
 		captureQueryText: c.CaptureQueryText,
+		dbAttrs: []attribute.KeyValue{
+			semconv.DBSystemNamePostgreSQL, semconv.DBNamespace(c.Database),
+			semconv.ServerAddress(c.Host), semconv.ServerPort(c.Port),
+		},
 	}
 
 	return poolConfig, nil
@@ -50,26 +56,20 @@ var errQueryFailed = errors.New("database query failed")
 type otelQueryTracer struct {
 	tracer           trace.Tracer
 	captureQueryText bool
+	// dbAttrs holds the database and server keys every query span carries.
+	dbAttrs []attribute.KeyValue
 }
 
-// TraceQueryStart opens a span when a query begins inside a traced unit of
-// work. A query with no parent, such as an idle poll, records no span.
+// TraceQueryStart opens a span for a query under a parent span. A query with no parent records none.
 func (t *otelQueryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	if !trace.SpanContextFromContext(ctx).IsValid() {
 		return ctx
 	}
-	attrs := []attribute.KeyValue{
-		attribute.String("db.system", "postgresql"),
-	}
-
+	opts := []trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindClient), trace.WithAttributes(t.dbAttrs...)}
 	if t.captureQueryText {
-		attrs = append(attrs, attribute.String("db.statement", data.SQL))
+		opts = append(opts, trace.WithAttributes(semconv.DBQueryText(data.SQL)))
 	}
-
-	ctx, _ = t.tracer.Start(ctx, "db.query",
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(attrs...),
-	)
+	ctx, _ = t.tracer.Start(ctx, semconv.DBSystemNamePostgreSQL.Value.AsString(), opts...)
 	return ctx
 }
 
@@ -81,19 +81,11 @@ func (t *otelQueryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data p
 	if data.Err != nil {
 		span.RecordError(data.Err)
 		span.SetStatus(codes.Error, errQueryFailed.Error())
-		span.SetAttributes(attribute.Bool("db.error", true))
+		span.SetAttributes(semconv.ErrorTypeKey.String(errQueryFailed.Error()))
 		return
 	}
 
-	commandTag := data.CommandTag.String()
-	if commandTag != "" {
-		operation := commandTag
-		if idx := strings.Index(commandTag, " "); idx > 0 {
-			operation = commandTag[:idx]
-		}
-		span.SetAttributes(
-			attribute.String("db.operation", operation),
-			attribute.Int64("db.rows_affected", data.CommandTag.RowsAffected()),
-		)
+	if data.CommandTag.String() != "" {
+		span.SetAttributes(observability.DBRowsAffectedKey.Int64(data.CommandTag.RowsAffected()))
 	}
 }

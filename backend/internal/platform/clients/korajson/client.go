@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	tracerName    = "kora.json-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/korajson"
 	clientTimeout = 30 * time.Second
 )
 
@@ -79,71 +79,48 @@ func NewClient(logger logging.Logger) *Client {
 	return &Client{Base: httpclient.New(tracerName, logger, clientTimeout)}
 }
 
-// Get performs an authenticated GET and returns the raw JSON body.
-func (c *Client) Get(ctx context.Context, caller Caller, rawURL string, query url.Values) (json.RawMessage, error) {
-	if len(query) > 0 {
-		rawURL += "?" + query.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build GET request: %w", err)
-	}
-	return c.send(ctx, "korajson.Get", caller, req)
+// Get performs an authenticated GET and returns the raw JSON body. path is a
+// template under baseURL whose placeholders params fill in order.
+func (c *Client) Get(ctx context.Context, caller Caller, baseURL, path string, query url.Values, params ...string) (json.RawMessage, error) {
+	return c.send(ctx, caller, httpclient.Request{Method: http.MethodGet, BaseURL: baseURL, Path: path, Params: params, Query: query})
 }
 
 // Post performs an authenticated POST of a JSON body and returns the raw JSON body.
-func (c *Client) Post(ctx context.Context, caller Caller, rawURL string, body any) (json.RawMessage, error) {
-	r, err := c.EncodeJSON(body)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, r)
-	if err != nil {
-		return nil, fmt.Errorf("build POST request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	return c.send(ctx, "korajson.Post", caller, req)
+func (c *Client) Post(ctx context.Context, caller Caller, baseURL, path string, body any, params ...string) (json.RawMessage, error) {
+	return c.sendJSON(ctx, caller, http.MethodPost, baseURL, path, body, params)
 }
 
 // Put performs an authenticated PUT of a JSON body and returns the raw JSON body.
-func (c *Client) Put(ctx context.Context, caller Caller, rawURL string, body any) (json.RawMessage, error) {
-	r, err := c.EncodeJSON(body)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, rawURL, r)
-	if err != nil {
-		return nil, fmt.Errorf("build PUT request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	return c.send(ctx, "korajson.Put", caller, req)
+func (c *Client) Put(ctx context.Context, caller Caller, baseURL, path string, body any, params ...string) (json.RawMessage, error) {
+	return c.sendJSON(ctx, caller, http.MethodPut, baseURL, path, body, params)
 }
 
 // Patch performs an authenticated PATCH of a JSON body and returns the raw JSON body.
-func (c *Client) Patch(ctx context.Context, caller Caller, rawURL string, body any) (json.RawMessage, error) {
-	r, err := c.EncodeJSON(body)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, rawURL, r)
-	if err != nil {
-		return nil, fmt.Errorf("build PATCH request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	return c.send(ctx, "korajson.Patch", caller, req)
+func (c *Client) Patch(ctx context.Context, caller Caller, baseURL, path string, body any, params ...string) (json.RawMessage, error) {
+	return c.sendJSON(ctx, caller, http.MethodPatch, baseURL, path, body, params)
 }
 
 // Delete performs an authenticated DELETE and returns the raw JSON body (or a
 // synthetic {"status":"ok"} for a 204 No Content).
-func (c *Client) Delete(ctx context.Context, caller Caller, rawURL string) (json.RawMessage, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, rawURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build DELETE request: %w", err)
-	}
-	return c.send(ctx, "korajson.Delete", caller, req)
+func (c *Client) Delete(ctx context.Context, caller Caller, baseURL, path string, query url.Values, params ...string) (json.RawMessage, error) {
+	return c.send(ctx, caller, httpclient.Request{Method: http.MethodDelete, BaseURL: baseURL, Path: path, Params: params, Query: query})
 }
 
-func (c *Client) send(ctx context.Context, spanName string, caller Caller, req *http.Request) (json.RawMessage, error) {
+func (c *Client) sendJSON(ctx context.Context, caller Caller, method, baseURL, path string, body any, params []string) (json.RawMessage, error) {
+	r, err := c.EncodeJSON(body)
+	if err != nil {
+		return nil, err
+	}
+	return c.send(ctx, caller, httpclient.Request{
+		Method: method, BaseURL: baseURL, Path: path, Params: params, Body: r,
+		Header: http.Header{"Content-Type": {"application/json"}},
+	})
+}
+
+func (c *Client) send(ctx context.Context, caller Caller, req httpclient.Request) (json.RawMessage, error) {
+	if req.Header == nil {
+		req.Header = http.Header{}
+	}
 	if caller.Bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+caller.Bearer)
 	}
@@ -153,7 +130,7 @@ func (c *Client) send(ctx context.Context, spanName string, caller Caller, req *
 	// This is a JSON client: always ask for JSON. Lets content-negotiated routes
 	// (e.g. the agents run-events endpoint, which is SSE by default) serve us JSON.
 	req.Header.Set("Accept", "application/json")
-	_, span, resp, err := c.Do(ctx, spanName, req)
+	_, span, resp, err := c.Do(ctx, req)
 	defer span.End()
 	if err != nil {
 		return nil, err

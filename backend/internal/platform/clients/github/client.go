@@ -13,6 +13,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,7 +23,7 @@ import (
 )
 
 const (
-	tracerName    = "kora.github-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/github"
 	clientTimeout = 10 * time.Second
 
 	// DefaultBaseURL is GitHub.com's REST API root. GitHub Enterprise Server
@@ -97,21 +99,19 @@ func (c *Client) CreateInstallationToken(
 	installationID int64,
 	body InstallationTokenRequest,
 ) (InstallationToken, error) {
-	endpoint := fmt.Sprintf("%s/app/installations/%d/access_tokens", c.baseURL, installationID)
-
 	payload, err := c.EncodeJSON(body)
 	if err != nil {
 		return InstallationToken{}, fmt.Errorf("encode installation token request: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, payload)
-	if err != nil {
-		return InstallationToken{}, fmt.Errorf("build installation token request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+appJWT)
-	req.Header.Set("Accept", acceptHeader)
-	req.Header.Set("Content-Type", "application/json")
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+appJWT)
+	header.Set("Accept", acceptHeader)
+	header.Set("Content-Type", "application/json")
 
-	_, span, resp, err := c.Do(ctx, "github.Client.CreateInstallationToken", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/app/installations/{installationID}/access_tokens",
+		Params: []string{strconv.FormatInt(installationID, 10)}, Header: header, Body: payload,
+	})
 	defer span.End()
 	if err != nil {
 		return InstallationToken{}, fmt.Errorf("installation token call: %w", err)
@@ -166,15 +166,14 @@ type installationRepositoriesResponse struct {
 func (c *Client) ListInstallationRepositories(ctx context.Context, installationToken string) ([]string, error) {
 	names := make([]string, 0, listRepositoriesPageSize)
 	for page := 1; page <= listRepositoriesMaxPages; page++ {
-		endpoint := fmt.Sprintf("%s/installation/repositories?per_page=%d&page=%d", c.baseURL, listRepositoriesPageSize, page)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-		if err != nil {
-			return nil, fmt.Errorf("build installation repositories request: %w", err)
-		}
-		req.Header.Set("Authorization", "Bearer "+installationToken)
-		req.Header.Set("Accept", acceptHeader)
+		header := http.Header{}
+		header.Set("Authorization", "Bearer "+installationToken)
+		header.Set("Accept", acceptHeader)
 
-		_, span, resp, err := c.Do(ctx, "github.Client.ListInstallationRepositories", req)
+		_, span, resp, err := c.Do(ctx, httpclient.Request{
+			Method: http.MethodGet, BaseURL: c.baseURL, Path: "/installation/repositories", Header: header,
+			Query: url.Values{"per_page": {strconv.Itoa(listRepositoriesPageSize)}, "page": {strconv.Itoa(page)}},
+		})
 		if err != nil {
 			span.End()
 			return nil, fmt.Errorf("installation repositories call: %w", err)
@@ -218,15 +217,14 @@ type installationResponse struct {
 // adapter to intersect the umbrella permission set with the installation's
 // actual grants, avoiding GitHub 422 errors from ungranted permissions.
 func (c *Client) GetInstallationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error) {
-	endpoint := fmt.Sprintf("%s/app/installations/%d", c.baseURL, installationID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build get installation request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+appJWT)
-	req.Header.Set("Accept", acceptHeader)
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+appJWT)
+	header.Set("Accept", acceptHeader)
 
-	_, span, resp, err := c.Do(ctx, "github.Client.GetInstallationPermissions", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/app/installations/{installationID}",
+		Params: []string{strconv.FormatInt(installationID, 10)}, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return nil, fmt.Errorf("get installation call: %w", err)

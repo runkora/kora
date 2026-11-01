@@ -13,17 +13,16 @@ import (
 	"syscall"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
-
 	"github.com/google/uuid"
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/token"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // RunServiceConfig holds runtime parameters for RunService.
@@ -206,10 +205,7 @@ func (s *RunService) authorizeStart(ctx context.Context, span trace.Span, req St
 func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started *Run, retErr error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.StartRun",
-		trace.WithAttributes(
-			attribute.String("tenant_id", tenantID),
-			attribute.String("agent_type_id", req.AgentTypeID),
-		),
+		trace.WithAttributes(observability.AgentIDKey.String(req.AgentTypeID)),
 	)
 	defer span.End()
 
@@ -255,9 +251,10 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		StartedBy:      startedBy,
 		InitialMessage: req.InitialMessage,
 	}
-	span.SetAttributes(attribute.String("run_id", run.ID))
+	span.SetAttributes(observability.RunIDKey.String(run.ID))
+	ctx = observability.WithRun(ctx, run.ID)
 	if startedBy != nil {
-		span.SetAttributes(attribute.String("trigger_id", startedBy.TriggerID))
+		span.SetAttributes(observability.TriggerIDKey.String(startedBy.TriggerID))
 	}
 
 	if err := s.repo.CreateRun(ctx, run); err != nil {
@@ -354,9 +351,7 @@ func (s *RunService) loadRunForAction(ctx context.Context, runID, action string)
 // runs an authz check; returns ErrNotFound when the run belongs to another
 // tenant (avoiding existence leak) and the same on authz deny.
 func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
-	ctx, span := agentsTracer.Start(ctx, "agents.GetRun",
-		trace.WithAttributes(attribute.String("run_id", id)),
-	)
+	ctx, span := agentsTracer.Start(ctx, "agents.GetRun")
 	defer span.End()
 	run, _, err := s.loadRunForAction(ctx, id, "read")
 	if err != nil {
@@ -386,9 +381,8 @@ func (s *RunService) ListRuns(ctx context.Context, agentTypeIDs []string, p RunL
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListRuns",
 		trace.WithAttributes(
-			attribute.String("tenant_id", tenantID),
-			attribute.StringSlice("agent_type_ids", agentTypeIDs),
-			attribute.Int("limit", p.Limit),
+			observability.AgentIDsKey.StringSlice(agentTypeIDs),
+			observability.PageLimitKey.Int(p.Limit),
 		),
 	)
 	defer span.End()
@@ -459,9 +453,7 @@ func (s *RunService) readableRunScope(ctx context.Context, tenantID string) (Run
 // RunOutcomes counts the caller's visible completed and failed runs in [from, to).
 func (s *RunService) RunOutcomes(ctx context.Context, from, to time.Time) (RunOutcomes, error) {
 	tenantID := tenantFromContext(ctx)
-	ctx, span := agentsTracer.Start(ctx, "agents.RunOutcomes",
-		trace.WithAttributes(attribute.String("tenant_id", tenantID)),
-	)
+	ctx, span := agentsTracer.Start(ctx, "agents.RunOutcomes")
 	defer span.End()
 	scope, err := s.readableRunScope(ctx, tenantID)
 	if err != nil {
@@ -480,16 +472,14 @@ func (s *RunService) RunOutcomes(ctx context.Context, from, to time.Time) (RunOu
 // TerminateRun signals the session-manager to stop the subprocess and cleans up.
 // Enforces tenant scoping and authz write on the run's agent type.
 func (s *RunService) TerminateRun(ctx context.Context, id string) error {
-	ctx, span := agentsTracer.Start(ctx, "agents.TerminateRun",
-		trace.WithAttributes(attribute.String("run_id", id)),
-	)
+	ctx, span := agentsTracer.Start(ctx, "agents.TerminateRun")
 	defer span.End()
 
 	run, at, err := s.loadRunForAction(ctx, id, "write")
 	if err != nil {
 		return err
 	}
-	span.SetAttributes(attribute.String("run_state", string(run.State)))
+	span.SetAttributes(observability.RunStateKey.String(string(run.State)))
 
 	// An idle run still holds its session, and a draining pod waits for it.
 	if run.State == RunStateActive || run.State == RunStateStarting || run.State == RunStateIdle {
@@ -525,9 +515,8 @@ var errSetRunState = errors.New("set run state")
 func (s *RunService) Transition(ctx context.Context, runID string, from, to RunState) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.Transition",
 		trace.WithAttributes(
-			attribute.String("run_id", runID),
-			attribute.String("from", string(from)),
-			attribute.String("to", string(to)),
+			observability.RunStateFromKey.String(string(from)),
+			observability.RunStateToKey.String(string(to)),
 		),
 	)
 	defer span.End()
@@ -652,9 +641,7 @@ func (s *RunService) SubscribeRun(runID string) (<-chan PushedEvent, func()) {
 // from a trigger's SERVICE principal leaves the run's idle timeout and is
 // recorded as a trigger_message (trigger routing ADR, Decision 14).
 func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMessageRequest) error {
-	ctx, span := agentsTracer.Start(ctx, "agents.SendMessage",
-		trace.WithAttributes(attribute.String("run_id", runID)),
-	)
+	ctx, span := agentsTracer.Start(ctx, "agents.SendMessage")
 	defer span.End()
 
 	content := req.Content
@@ -799,9 +786,7 @@ func (s *RunService) emitMessage(ctx context.Context, runID, eventType string, b
 // InterruptRun signals the session-manager to send SIGINT to the Claude subprocess.
 // Enforces tenant scoping and authz write on the run's agent type.
 func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
-	ctx, span := agentsTracer.Start(ctx, "agents.InterruptRun",
-		trace.WithAttributes(attribute.String("run_id", runID)),
-	)
+	ctx, span := agentsTracer.Start(ctx, "agents.InterruptRun")
 	defer span.End()
 
 	run, at, err := s.loadRunForAction(ctx, runID, "write")
@@ -874,9 +859,7 @@ var ErrNoSandbox = errors.New("run has no sandbox")
 // answer comes from the live pod rather than the run's workspace, which the
 // agent can delete.
 func (s *RunService) GetSandbox(ctx context.Context, runID string) (Sandbox, error) {
-	ctx, span := agentsTracer.Start(ctx, "agents.GetSandbox",
-		trace.WithAttributes(attribute.String("run_id", runID)),
-	)
+	ctx, span := agentsTracer.Start(ctx, "agents.GetSandbox")
 	defer span.End()
 
 	run, err := s.repo.GetRun(ctx, runID)
@@ -895,7 +878,7 @@ func (s *RunService) GetSandbox(ctx context.Context, runID string) (Sandbox, err
 	if !ok {
 		return Sandbox{}, ErrNoSandbox
 	}
-	span.SetAttributes(attribute.String("endpoint", sandbox.Endpoint))
+	span.SetAttributes(observability.SandboxEndpointKey.String(sandbox.Endpoint))
 	return sandbox, nil
 }
 
@@ -909,9 +892,8 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, environ
 	environment = strings.TrimSpace(environment)
 	ctx, span := agentsTracer.Start(ctx, "agents.ProvisionSandbox",
 		trace.WithAttributes(
-			attribute.String("run_id", runID),
-			attribute.String("environment", environment),
-			attribute.Bool("replace", replace),
+			observability.EnvironmentNameKey.String(environment),
+			observability.EnvironmentReplaceKey.Bool(replace),
 		),
 	)
 	defer span.End()
@@ -958,7 +940,7 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, environ
 
 	sandbox.CanaryHost = s.egressCanaryHost(ctx, *at)
 
-	span.SetAttributes(attribute.String("endpoint", sandbox.Endpoint))
+	span.SetAttributes(observability.SandboxEndpointKey.String(sandbox.Endpoint))
 	s.logger.Info(ctx, "Sandbox provisioned",
 		logging.Field{Key: "run_id", Value: runID},
 		logging.Field{Key: "tenant_id", Value: run.TenantID},

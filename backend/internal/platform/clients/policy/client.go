@@ -42,7 +42,7 @@ func (e *ScopeNotInVocabularyError) Is(target error) bool { return target == Err
 var errGrantRejected = errors.New("create grant rejected")
 
 const (
-	tracerName    = "kora.policy-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	clientTimeout = 10 * time.Second
 )
 
@@ -127,14 +127,13 @@ func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, princ
 		return "", fmt.Errorf("get bearer token for grant request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.serviceURL+"/api/v1/policy/grants", body)
-	if err != nil {
-		return "", fmt.Errorf("build grant request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+tok)
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	header.Set("Authorization", "Bearer "+tok)
 
-	_, span, resp, err := c.Do(ctx, "policy.Client.CreateGrant", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.serviceURL, Path: "/api/v1/policy/grants", Header: header, Body: body,
+	})
 	defer span.End()
 	if err != nil {
 		return "", err
@@ -167,13 +166,12 @@ func (c *Client) CallerEffectiveScopes(ctx context.Context, bearer string) ([]st
 	if bearer == "" {
 		return nil, ErrNoCallerBearer
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.serviceURL+"/api/v1/policy/effective-scopes", nil)
-	if err != nil {
-		return nil, fmt.Errorf("build effective scopes request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+bearer)
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+bearer)
 
-	_, span, resp, err := c.Do(ctx, "policy.Client.CallerEffectiveScopes", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.serviceURL, Path: "/api/v1/policy/effective-scopes", Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return nil, err
@@ -201,22 +199,13 @@ func (c *Client) ListGrants(ctx context.Context, tenantID, principalType, princi
 		return nil, fmt.Errorf("get bearer token for list grants request: %w", err)
 	}
 
-	u, err := url.Parse(c.serviceURL + "/api/v1/policy/grants")
-	if err != nil {
-		return nil, fmt.Errorf("parse list grants URL: %w", err)
-	}
-	q := u.Query()
-	q.Set("tenant_id", tenantID)
-	q.Set("principal_type", principalType)
-	q.Set("principal_id", principalID)
-	u.RawQuery = q.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("build list grants request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+tok)
+	query := url.Values{"tenant_id": {tenantID}, "principal_type": {principalType}, "principal_id": {principalID}}
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+tok)
 
-	_, span, resp, err := c.Do(ctx, "policy.Client.ListGrants", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.serviceURL, Path: "/api/v1/policy/grants", Query: query, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return nil, err
@@ -243,13 +232,12 @@ func (c *Client) GetGrant(ctx context.Context, grantID string) (*Grant, error) {
 		return nil, fmt.Errorf("get bearer token for get grant request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.serviceURL+"/api/v1/policy/grants/"+url.PathEscape(grantID), nil)
-	if err != nil {
-		return nil, fmt.Errorf("build get grant request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+tok)
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+tok)
 
-	_, span, resp, err := c.Do(ctx, "policy.Client.GetGrant", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.serviceURL, Path: "/api/v1/policy/grants/{grantID}", Params: []string{grantID}, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return nil, err
@@ -286,14 +274,13 @@ func (c *Client) UpdateGrantBudget(ctx context.Context, grantID string, budget *
 		return fmt.Errorf("get bearer token for update grant budget request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.serviceURL+"/api/v1/policy/grants/"+grantID, body)
-	if err != nil {
-		return fmt.Errorf("build update grant budget request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+tok)
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	header.Set("Authorization", "Bearer "+tok)
 
-	_, span, resp, err := c.Do(ctx, "policy.Client.UpdateGrantBudget", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPatch, BaseURL: c.serviceURL, Path: "/api/v1/policy/grants/{grantID}", Params: []string{grantID}, Header: header, Body: body,
+	})
 	defer span.End()
 	if err != nil {
 		return err
@@ -317,13 +304,12 @@ func (c *Client) DeleteGrant(ctx context.Context, grantID string) error {
 		return fmt.Errorf("get bearer token for delete grant request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.serviceURL+"/api/v1/policy/grants/"+grantID, nil)
-	if err != nil {
-		return fmt.Errorf("build delete grant request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+tok)
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+tok)
 
-	_, span, resp, err := c.Do(ctx, "policy.Client.DeleteGrant", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodDelete, BaseURL: c.serviceURL, Path: "/api/v1/policy/grants/{grantID}", Params: []string{grantID}, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return err

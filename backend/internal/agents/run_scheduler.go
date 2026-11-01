@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 const (
@@ -140,8 +140,8 @@ func (s *RunService) pollInterval() time.Duration {
 // startClaimed makes one attempt to start a run claimed at claimedAt. It never waits for a pod.
 // A transient failure returns the run to the queue, and a run past its start or provisioning budget fails.
 func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.Time) {
-	ctx, span := agentsTracer.Start(ctx, "agents.startClaimed",
-		trace.WithAttributes(attribute.String("run_id", run.ID), attribute.String("agent_type_id", run.AgentTypeID)),
+	ctx, span := agentsTracer.Start(observability.WithTenant(observability.WithRun(ctx, run.ID), run.TenantID), "agents.startClaimed",
+		trace.WithAttributes(observability.AgentIDKey.String(run.AgentTypeID)),
 	)
 	defer span.End()
 

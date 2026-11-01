@@ -146,6 +146,31 @@ func spanAttrStringCtxErr(m dsl.Matcher) {
 			`See docs/adr/2026-03-21-opentelemetry-observability-discipline.md`)
 }
 
+// spanAttrKeyVocabulary flags a string literal attribute key; keys come from semconv or internal/platform/observability.
+// It matches literals only; a key in a local const is left to review.
+//
+// Enforces: docs/adr/2026-03-21-opentelemetry-observability-discipline.md.
+//
+// Bad:
+//
+//	span.SetAttributes(attribute.String("run_id", runID))
+//
+// Good:
+//
+//	span.SetAttributes(observability.RunIDKey.String(runID))
+func spanAttrKeyVocabulary(m dsl.Matcher) {
+	m.Import("go.opentelemetry.io/otel/attribute")
+	m.Match(
+		`attribute.String($k, $_)`, `attribute.Int($k, $_)`, `attribute.Int64($k, $_)`,
+		`attribute.Bool($k, $_)`, `attribute.Float64($k, $_)`, `attribute.StringSlice($k, $_)`,
+		`attribute.IntSlice($k, $_)`, `attribute.Int64Slice($k, $_)`, `attribute.BoolSlice($k, $_)`,
+		`attribute.Float64Slice($k, $_)`, `attribute.Key($k)`, `attribute.KeyValue{Key: $k, $*_}`,
+	).
+		Where(m["k"].Text.Matches("^[\"`]")).
+		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: attribute key $k is a literal. ` +
+			`Use a semconv constant or a key constant from internal/platform/observability.`)
+}
+
 // noRawJsonDecodeRequest flags direct use of json.NewDecoder(r.Body).Decode
 // inside HTTP handlers, where api.DecodeJSON must be used instead.
 //

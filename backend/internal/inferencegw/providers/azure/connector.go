@@ -47,7 +47,7 @@ func New(cfg *Config, name inferencegw.ProviderName, logger logging.Logger) (*Co
 		azureopenai.WithEndpoint(cfg.Endpoint, cfg.APIVersion),
 		azureopenai.WithAPIKey(cfg.APIKey),
 		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("kora.azure-openai", nil),
+			httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/azure", "", nil),
 		)),
 	)
 
@@ -55,7 +55,7 @@ func New(cfg *Config, name inferencegw.ProviderName, logger logging.Logger) (*Co
 		anthropicopt.WithBaseURL(cfg.AnthropicEndpoint),
 		anthropicopt.WithHeader("api-key", cfg.APIKey),
 		anthropicopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("kora.azure-anthropic", nil),
+			httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/azure", "", nil),
 		)),
 	)
 

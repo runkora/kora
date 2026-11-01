@@ -568,7 +568,7 @@ See PRD Phase 3 milestones.
 - Structured log event `pricing.sync.completed` — emitted on every sync run with fields: `models_upserted`, `models_skipped` (override present), `errors`, `duration_ms`.
 - Structured log event `budget.hard_block` — emitted whenever a request is rejected for budget exceeded; fields: `principal_id`, `tenant_id`, `monthly_spend_usd`, `monthly_budget_usd`.
 - Structured log event `budget.fail_open` — emitted whenever a request proceeds because the quota store was unreachable; fields: `principal_id`, `tenant_id`, `error`.
-- OTel span `budget.quota_check` — wraps the Redis spend read and OPA `CheckBudget` evaluation on every request for a principal with a quota.
+- OTel span `inferencegw.Service.checkBudget`: wraps the Redis spend read and OPA `CheckBudget` evaluation on every request for a principal with a quota.
 
 ---
 

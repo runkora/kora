@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 )
 
 // ErrGraphQLQuery is returned when GitHub answers a GraphQL query with errors and no data.
@@ -55,14 +57,13 @@ func (c *Client) NodeOwners(ctx context.Context, installationToken string, ids [
 	if err != nil {
 		return nil, fmt.Errorf("encode node owner lookup: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/graphql", payload)
-	if err != nil {
-		return nil, fmt.Errorf("build node owner lookup: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+installationToken)
-	req.Header.Set("Content-Type", "application/json")
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+installationToken)
+	header.Set("Content-Type", "application/json")
 
-	_, span, resp, err := c.Do(ctx, "github.Client.NodeOwners", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/graphql", Header: header, Body: payload,
+	})
 	defer span.End()
 	if err != nil {
 		return nil, fmt.Errorf("node owner lookup call: %w", err)

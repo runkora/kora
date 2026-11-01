@@ -14,6 +14,7 @@ import (
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -331,13 +332,11 @@ func TestWriteCommittedResult(t *testing.T) {
 	}
 }
 
-// TestWriteAnthropicErrorAppError covers the Anthropic dialect's own error
-// writer: only a 5xx marks app.error true, matching api.ErrorResponse.
-func TestWriteAnthropicErrorAppError(t *testing.T) {
+func TestWriteAnthropicErrorType(t *testing.T) {
 	tests := []struct {
-		name         string
-		status       int
-		wantAppError bool
+		name          string
+		status        int
+		wantErrorType bool
 	}{
 		{"client error", http.StatusBadRequest, false},
 		{"server error", http.StatusBadGateway, true},
@@ -352,18 +351,14 @@ func TestWriteAnthropicErrorAppError(t *testing.T) {
 			c.writeAnthropicError(ctx, httptest.NewRecorder(), &api.APIError{Code: "test_error", Message: "test", StatusCode: tt.status}, nil)
 			span.End()
 
-			var appError *bool
+			hasErrorType := false
 			for _, attr := range recorder.Ended()[0].Attributes() {
-				if attr.Key == "app.error" {
-					v := attr.Value.AsBool()
-					appError = &v
+				if attr.Key == semconv.ErrorTypeKey {
+					hasErrorType = true
 				}
 			}
-			if appError == nil {
-				t.Fatal("app.error attribute not set")
-			}
-			if *appError != tt.wantAppError {
-				t.Errorf("app.error = %v, want %v", *appError, tt.wantAppError)
+			if hasErrorType != tt.wantErrorType {
+				t.Errorf("error.type set = %v, want %v", hasErrorType, tt.wantErrorType)
 			}
 		})
 	}

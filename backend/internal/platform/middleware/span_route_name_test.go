@@ -8,7 +8,9 @@ import (
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 func TestSpanRouteName(t *testing.T) {
@@ -58,7 +60,9 @@ func TestSpanRouteName(t *testing.T) {
 			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 			t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 
-			handler := SpanRouteName(tt.mountPath)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			var handlerRunID string
+			handler := SpanRouteName(tt.mountPath)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				handlerRunID = observability.RunFromContext(r.Context())
 				w.WriteHeader(http.StatusOK)
 			}))
 
@@ -81,14 +85,51 @@ func TestSpanRouteName(t *testing.T) {
 				t.Errorf("span name = %q, want %q", got, tt.wantName)
 			}
 
-			var gotRoute string
+			var gotRoute, gotRunID string
 			for _, attr := range ended[0].Attributes() {
-				if attr.Key == semconv.HTTPRouteKey {
+				switch attr.Key {
+				case semconv.HTTPRouteKey:
 					gotRoute = attr.Value.AsString()
+				case observability.RunIDKey:
+					gotRunID = attr.Value.AsString()
 				}
+			}
+			wantRunID := ""
+			if tt.runPrefix {
+				wantRunID = "run-123"
+			}
+			if gotRunID != wantRunID {
+				t.Errorf("kora.run.id = %q, want %q", gotRunID, wantRunID)
+			}
+			if handlerRunID != wantRunID {
+				t.Errorf("handler context run = %q, want %q", handlerRunID, wantRunID)
 			}
 			if gotRoute != tt.wantRoute {
 				t.Errorf("http.route = %q, want %q", gotRoute, tt.wantRoute)
+			}
+		})
+	}
+}
+
+func TestRouteRunID(t *testing.T) {
+	tests := []struct {
+		pattern, path, want string
+	}{
+		{"/session/{runID}/messages", "/session/r1/messages", "r1"},
+		{"/run/{run_id}/v1/messages", "/run/r1/v1/messages", "r1"},
+		{"/api/v1/runs/{id}/messages", "/api/v1/runs/r1/messages", "r1"},
+		{"/internal/runs/{id}", "/internal/runs/r1", "r1"},
+		{"/api/v1/pats/{id}", "/api/v1/pats/p1", ""},
+		{"/api/v1/runs", "/api/v1/runs", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.pattern, func(t *testing.T) {
+			var got string
+			mux := http.NewServeMux()
+			mux.HandleFunc(tt.pattern, func(_ http.ResponseWriter, r *http.Request) { got = routeRunID(r) })
+			mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, tt.path, nil))
+			if got != tt.want {
+				t.Errorf("routeRunID = %q, want %q", got, tt.want)
 			}
 		})
 	}

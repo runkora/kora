@@ -267,7 +267,7 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 		psc.Current.Server.Port,
 		psc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(psc.Current.Observability.ServiceName, notTimerPoll(psc.Current.Server.BasePath)),
+			mw.TracingMiddleware(notTimerPoll(psc.Current.Server.BasePath)),
 			mw.LoggingMiddleware(logger),
 		),
 		controllers...,

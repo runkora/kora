@@ -101,9 +101,9 @@ func (u upstreamCredentials) read(key string) (string, bool) {
 
 // upstreamClient adds headers to every request and does not follow redirects.
 // A followed redirect would carry the headers to another host.
-func upstreamClient(timeout time.Duration, tracerName string, headers http.Header) (*http.Client, *headerTransport) {
+func upstreamClient(timeout time.Duration, headers http.Header) (*http.Client, *headerTransport) {
 	t := &headerTransport{headers: headers, base: http.DefaultTransport}
-	c := httpclient.NewHTTPClient(timeout, httpclient.NewTracingTransport(tracerName, t))
+	c := httpclient.NewHTTPClient(timeout, httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/toolgateway", "", t))
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return c, t
 }

@@ -8,7 +8,7 @@ import (
 	"strconv"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
-	"go.opentelemetry.io/otel/attribute"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // ─── GET /v1/analytics/me ────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ import (
 func (c *Controller) handleAnalyticsMe(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	ctx, span := tracer.Start(ctx, "handleAnalyticsMe")
+	ctx, span := tracer.Start(ctx, "inferencegw.Controller.handleAnalyticsMe")
 	defer span.End()
 
 	filter, apiErr, parseErr := parseAnalyticsFilter(r.URL.Query())
@@ -31,9 +31,9 @@ func (c *Controller) handleAnalyticsMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	span.SetAttributes(
-		attribute.String("app.analytics.scope", "personal"),
-		attribute.Int("app.analytics.days", filter.Days),
-		attribute.String("app.analytics.granularity", filter.Granularity),
+		observability.AnalyticsScopeKey.String("personal"),
+		observability.AnalyticsDaysKey.Int(filter.Days),
+		observability.AnalyticsGranularityKey.String(filter.Granularity),
 	)
 
 	resp, err := c.svc.AnalyticsMe(ctx, filter)
@@ -54,7 +54,7 @@ func (c *Controller) handleAnalyticsMe(w http.ResponseWriter, r *http.Request) {
 func (c *Controller) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	ctx, span := tracer.Start(ctx, "handleAnalytics")
+	ctx, span := tracer.Start(ctx, "inferencegw.Controller.handleAnalytics")
 	defer span.End()
 
 	filter, apiErr, parseErr := parseAnalyticsFilter(r.URL.Query())
@@ -69,9 +69,9 @@ func (c *Controller) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	span.SetAttributes(
-		attribute.String("app.analytics.scope", "tenant"),
-		attribute.Int("app.analytics.days", filter.Days),
-		attribute.String("app.analytics.granularity", filter.Granularity),
+		observability.AnalyticsScopeKey.String("tenant"),
+		observability.AnalyticsDaysKey.Int(filter.Days),
+		observability.AnalyticsGranularityKey.String(filter.Granularity),
 	)
 
 	resp, err := c.svc.Analytics(ctx, filter)
@@ -94,7 +94,7 @@ func (c *Controller) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 func (c *Controller) handleAnalyticsPrincipals(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	ctx, span := tracer.Start(ctx, "handleAnalyticsPrincipals")
+	ctx, span := tracer.Start(ctx, "inferencegw.Controller.handleAnalyticsPrincipals")
 	defer span.End()
 
 	filter, apiErr, parseErr := parseAnalyticsPrincipalsFilter(r.URL.Query())
@@ -104,8 +104,8 @@ func (c *Controller) handleAnalyticsPrincipals(w http.ResponseWriter, r *http.Re
 	}
 
 	span.SetAttributes(
-		attribute.Int("app.analytics.principals.days", filter.Days),
-		attribute.Int("app.analytics.principals.page", filter.Page),
+		observability.AnalyticsPrincipalsDaysKey.Int(filter.Days),
+		observability.AnalyticsPrincipalsPageKey.Int(filter.Page),
 	)
 
 	resp, err := c.svc.AnalyticsPrincipals(ctx, filter)
@@ -132,7 +132,7 @@ func (c *Controller) handleAnalyticsPrincipals(w http.ResponseWriter, r *http.Re
 func (c *Controller) handleAnalyticsPrincipalByID(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	ctx, span := tracer.Start(ctx, "handleAnalyticsPrincipalByID")
+	ctx, span := tracer.Start(ctx, "inferencegw.Controller.handleAnalyticsPrincipalByID")
 	defer span.End()
 
 	principalID := r.PathValue("id")
@@ -148,9 +148,9 @@ func (c *Controller) handleAnalyticsPrincipalByID(w http.ResponseWriter, r *http
 	}
 
 	span.SetAttributes(
-		attribute.String("app.analytics.scope", "principal_by_id"),
-		attribute.Int("app.analytics.days", filter.Days),
-		attribute.String("app.analytics.granularity", filter.Granularity),
+		observability.AnalyticsScopeKey.String("principal_by_id"),
+		observability.AnalyticsDaysKey.Int(filter.Days),
+		observability.AnalyticsGranularityKey.String(filter.Granularity),
 	)
 
 	resp, err := c.svc.AnalyticsPrincipalByID(ctx, principalID, filter)

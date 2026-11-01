@@ -13,8 +13,9 @@ import (
 
 	"github.com/runkora/kora/backend/internal/inferencegw"
 	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
-	"go.opentelemetry.io/otel/attribute"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"go.opentelemetry.io/otel/codes"
 )
 
@@ -56,17 +57,16 @@ func (c *Connector) SystemOne(ctx context.Context, req inferencegw.SystemOneRequ
 			HTTPStatus:      http.StatusBadRequest,
 		}
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/systemone", bytes.NewReader(body))
-	if err != nil {
-		return nil, convert.MapOpenAIError(c.name, err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	header.Set("Accept", "application/json")
 	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+		header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
-	_, span, resp, err := c.decide.Do(ctx, "compatible.Connector.SystemOne", httpReq)
+	_, span, resp, err := c.decide.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/systemone", Header: header, Body: bytes.NewReader(body),
+	})
 	defer span.End()
 	if err != nil {
 		return nil, c.transportError(ctx, err)
@@ -79,7 +79,7 @@ func (c *Connector) SystemOne(ctx context.Context, req inferencegw.SystemOneRequ
 		if len(msg) > maxSystemOneErrorMessage {
 			msg = strings.ToValidUTF8(msg[:maxSystemOneErrorMessage], "")
 		}
-		span.SetAttributes(attribute.String("error.upstream_message", msg))
+		span.SetAttributes(observability.ErrorUpstreamMessageKey.String(msg))
 		span.RecordError(fmt.Errorf("%w: status %d: %s", errSystemOneStatus, resp.StatusCode, msg))
 		span.SetStatus(codes.Error, errSystemOneStatus.Error())
 		return nil, c.systemOneError(resp.StatusCode, msg)

@@ -14,6 +14,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/credentials"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -31,13 +32,13 @@ type ownerScoped interface {
 type idLookup struct {
 	kind    string
 	subject string
-	idsAttr string
+	idsAttr attribute.Key
 	resolve func(s ownerScoped, ctx context.Context, ids, categories []string) (map[string]string, error)
 }
 
 var (
-	nodeLookup = idLookup{kind: "node", idsAttr: "kora.node_ids", subject: "node ids", resolve: ownerScoped.NodeOwners}
-	repoLookup = idLookup{kind: "repository", idsAttr: "kora.repository_ids", subject: "repository ids", resolve: ownerScoped.RepoOwners}
+	nodeLookup = idLookup{kind: "node", idsAttr: observability.EgressNodeIDCountKey, subject: "node ids", resolve: ownerScoped.NodeOwners}
+	repoLookup = idLookup{kind: "repository", idsAttr: observability.EgressRepositoryIDCountKey, subject: "repository ids", resolve: ownerScoped.RepoOwners}
 )
 
 // idsToResolve returns the ids the request names for an owner lookup, node ids
@@ -212,9 +213,9 @@ func (b *Broker) resolveOwners(ctx context.Context, claims *token.PlatformClaims
 // lookupOwners runs one candidate's id lookup under its own span and
 // logs it with the run attribution. Its result never reaches the agent.
 func (b *Broker) lookupOwners(ctx context.Context, claims *token.PlatformClaims, c *credentials.Connection, s ownerScoped, ids, categories []string, lookup idLookup) (map[string]string, error) {
-	ctx, span := tracer.Start(ctx, "egress."+lookup.kind+"_owner_lookup", trace.WithSpanKind(trace.SpanKindInternal))
+	ctx, span := tracer.Start(ctx, "egressgw.Broker.lookupOwners", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
-	span.SetAttributes(attribute.String("kora.connection", c.Name), attribute.Int(lookup.idsAttr, len(ids)))
+	span.SetAttributes(observability.ConnectionNameKey.String(c.Name), lookup.idsAttr.Int(len(ids)))
 
 	resolved, err := lookup.resolve(s, ctx, ids, categories)
 	fields := []logging.Field{

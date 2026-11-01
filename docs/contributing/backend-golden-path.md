@@ -155,7 +155,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 		ec.Current.Server.Port,
 		ec.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(ec.Current.Observability.ServiceName), // tracing first: provides context
+			mw.TracingMiddleware(), // tracing first: provides context
 			mw.LoggingMiddleware(logger),
 		),
 		controller, // Server(...) is variadic; pass every controller here

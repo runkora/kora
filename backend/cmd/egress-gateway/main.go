@@ -186,7 +186,7 @@ func realMain() error {
 		egc.Current.Server.AdminHTTPPort,
 		egc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(egc.Current.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 		),
 		connectionsReadController,

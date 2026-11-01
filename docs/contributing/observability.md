@@ -67,7 +67,7 @@ server := apiServer.Server(
     port,
     basePath,
     mw.MiddlewareChain(
-        mw.TracingMiddleware("kora"),      // Creates spans
+        mw.TracingMiddleware(),             // Creates spans
         mw.LoggingMiddleware(logger),       // Logs with trace context
     ),
     controllers...,
@@ -98,15 +98,13 @@ For detailed tracing within services:
 import "go.opentelemetry.io/otel"
 
 func (s *Service) ProcessData(ctx context.Context, data Data) error {
-    tracer := otel.Tracer("kora")
-    ctx, span := tracer.Start(ctx, "Service.ProcessData")
+    tracer := otel.Tracer("github.com/runkora/kora/backend/internal/myfeature")
+    // Every span started from ctx, including database and HTTP client spans, records the run.
+    ctx = observability.WithRun(ctx, data.RunID)
+    ctx, span := tracer.Start(ctx, "myfeature.Service.ProcessData")
     defer span.End()
-    
-    // Add custom attributes
-    span.SetAttributes(
-        attribute.String("data.type", data.Type),
-        attribute.Int("data.size", len(data.Items)),
-    )
+
+    span.SetAttributes(observability.AgentSlugKey.String(data.AgentSlug))
     
     // Your business logic here
     // Pass ctx to downstream calls for trace propagation
@@ -114,6 +112,8 @@ func (s *Service) ProcessData(ctx context.Context, data Data) error {
     return nil
 }
 ```
+
+`token.WithClaims` puts the caller's tenant and run claim in the context. The middleware that names the server span adds the route's run ID. A handler calls `observability.WithRun` or `observability.WithTenant` only for an ID it learns itself.
 
 See [tracing.md](tracing.md) for detailed usage patterns.
 
@@ -178,7 +178,7 @@ As a control plane for autonomous agents, observability is critical:
 - Development and production modes
 - OTLP exporter support
 - Service-to-service client tracing via `httpclient.Base.Do()` (`SpanKindClient` child spans with OTel HTTP semantic conventions)
-- Upstream error body capture in `error.upstream_body` span attribute for non-2xx responses
+- Upstream error body capture in `kora.error.upstream_body` span attribute for non-2xx responses
 - [opentelemetry-observability-discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md) lint rules enforcing static span status descriptions and correct `RecordError` usage
 
 ## Quick Start

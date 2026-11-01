@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // authoringSwitch reports whether a tenant accepts API writes.
@@ -27,7 +28,7 @@ type declaredWrite struct {
 // created_by names the resource. The repository annotation is tenant-writable, so it is shown,
 // never attributed.
 func withDeclaredWrite(ctx context.Context, item declarative.Item) context.Context {
-	return context.WithValue(ctx, declaredWriteKey{}, declaredWrite{
+	return context.WithValue(observability.WithTenant(ctx, item.TenantID), declaredWriteKey{}, declaredWrite{
 		tenantID:    item.TenantID,
 		createdBy:   "resource:" + item.Namespace + "/" + item.Name,
 		resourceUID: item.UID,

@@ -109,7 +109,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 		ec.Current.Server.Port,
 		ec.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(ec.Current.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 		),
 		controller,
