@@ -9,9 +9,15 @@ import { test, expect, type Page, type Route } from '@playwright/test';
 import { injectSessionCookie } from './fixtures';
 
 const SESSION_RESPONSE = {
-  user: { sub: 'user-e2e', email: 'e2e@orbit.local', name: 'E2E User' },
+  user: { sub: 'user-e2e', email: 'e2e@local.runkora.io', name: 'E2E User' },
   expiresAt: Math.floor(Date.now() / 1000) + 3600,
-  permissions: { scopes: [], evaluatedAt: Math.floor(Date.now() / 1000) },
+  // triggers:read is what the route's ScopeGuard requires; without it the page
+  // renders Forbidden and nothing below is reachable. triggers:write keeps the
+  // write affordances enabled so a selector does not land on a disabled control.
+  permissions: {
+    scopes: ['triggers:read', 'triggers:write'],
+    evaluatedAt: Math.floor(Date.now() / 1000),
+  },
 };
 
 /** One delivery on the wire, in the snake_case shape toDeliveryRow reads. */
@@ -93,7 +99,9 @@ test.describe('/triggers — Deliveries paging', () => {
     ]);
 
     await openDeliveries(page);
-    await page.getByRole('combobox').first().selectOption('failed');
+    await page
+      .getByRole('combobox', { name: 'Filter deliveries by status' })
+      .selectOption('failed');
 
     // The filter went to the server, not to rows already on screen.
     await expect.poll(() => seen.length).toBeGreaterThan(0);
@@ -128,7 +136,9 @@ test.describe('/triggers — Deliveries paging', () => {
     ]);
 
     await openDeliveries(page);
-    await page.getByRole('combobox').first().selectOption('failed');
+    await page
+      .getByRole('combobox', { name: 'Filter deliveries by status' })
+      .selectOption('failed');
     await expect(page.getByText('d1')).toBeVisible();
 
     await page
