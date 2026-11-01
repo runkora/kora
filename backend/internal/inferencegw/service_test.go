@@ -639,7 +639,7 @@ func TestCheckBudget_ScopesDerivedFromConfiguration(t *testing.T) {
 	counter := &mockSpendCounter{}
 	svc := newBudgetService(eval, counter)
 
-	_, err := svc.checkBudget(ctxWithRoles(t, "engineering", "engineer"), principal{
+	err := svc.checkBudget(ctxWithRoles(t, "engineering", "engineer"), principal{
 		TenantID: "tenant-1", PrincipalID: "user-1", PrincipalType: "HUMAN",
 	})
 	if err != nil {

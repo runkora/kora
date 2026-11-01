@@ -1277,8 +1277,6 @@ func (s *Service) DiscoverTenantByEmail(ctx context.Context, email string) (*Ten
 		}, nil
 	}
 
-	span.RecordError(ErrTenantNotFound)
-	span.SetStatus(codes.Error, ErrTenantNotFound.Error())
 	return nil, ErrTenantNotFound
 }
 

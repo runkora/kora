@@ -264,7 +264,7 @@ func marshalMessage(msg *anthropic.Message) (json.RawMessage, error) {
 func (c *Controller) writeAnthropicError(ctx context.Context, w http.ResponseWriter, apiErr *api.APIError, underlying error) {
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(
-		attribute.Bool("app.error", true),
+		attribute.Bool("app.error", apiErr.StatusCode >= 500),
 		attribute.String("app.error.code", apiErr.Code),
 		attribute.Int("app.error.status", apiErr.StatusCode),
 		attribute.String("app.error.message", apiErr.Message),

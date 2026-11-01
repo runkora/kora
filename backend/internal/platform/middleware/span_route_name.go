@@ -7,20 +7,21 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// SpanRouteName names the request's span after the route it matched, read from
-// the context the Mux populates.
-//
-// TracingMiddleware runs before any routing, where the only pattern available
-// is the outer mux's catch-all, so without this every span is named "GET /".
-// The pattern is a template rather than a URL, so span names stay
-// low-cardinality regardless of path parameters.
-func SpanRouteName(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if pattern, ok := RoutePatternFromContext(r.Context()); ok {
-			span := trace.SpanFromContext(r.Context())
-			span.SetName(r.Method + " " + pattern)
-			span.SetAttributes(semconv.HTTPRoute(pattern))
-		}
-		next.ServeHTTP(w, r)
-	})
+// SpanRouteName names the request's span after the matched route template, with mountPath and a stripped run prefix added back.
+// TracingMiddleware runs before routing and sees only the catch-all pattern.
+func SpanRouteName(mountPath string) MiddlewareHandler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if pattern, ok := RoutePatternFromContext(r.Context()); ok {
+				route := mountPath + pattern
+				if _, ok := r.Context().Value(runIDContextKey{}).(string); ok {
+					route = "/run/{run_id}" + route
+				}
+				span := trace.SpanFromContext(r.Context())
+				span.SetName(r.Method + " " + route)
+				span.SetAttributes(semconv.HTTPRoute(route))
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

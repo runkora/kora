@@ -12,7 +12,10 @@ import (
 	"testing"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
+	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -323,6 +326,44 @@ func TestWriteCommittedResult(t *testing.T) {
 			}
 			if resp.Type != "error" || resp.Error.Type != tt.wantErrType || resp.Error.Message != tt.wantErrMsg {
 				t.Errorf("body = %s, want error %s %q", rec.Body, tt.wantErrType, tt.wantErrMsg)
+			}
+		})
+	}
+}
+
+// TestWriteAnthropicErrorAppError covers the Anthropic dialect's own error
+// writer: only a 5xx marks app.error true, matching api.ErrorResponse.
+func TestWriteAnthropicErrorAppError(t *testing.T) {
+	tests := []struct {
+		name         string
+		status       int
+		wantAppError bool
+	}{
+		{"client error", http.StatusBadRequest, false},
+		{"server error", http.StatusBadGateway, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := tracetest.NewSpanRecorder()
+			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+			ctx, span := provider.Tracer("test").Start(context.Background(), "POST /v1/messages")
+
+			c := &Controller{logger: logging.NewLoggerWithOutput(io.Discard)}
+			c.writeAnthropicError(ctx, httptest.NewRecorder(), &api.APIError{Code: "test_error", Message: "test", StatusCode: tt.status}, nil)
+			span.End()
+
+			var appError *bool
+			for _, attr := range recorder.Ended()[0].Attributes() {
+				if attr.Key == "app.error" {
+					v := attr.Value.AsBool()
+					appError = &v
+				}
+			}
+			if appError == nil {
+				t.Fatal("app.error attribute not set")
+			}
+			if *appError != tt.wantAppError {
+				t.Errorf("app.error = %v, want %v", *appError, tt.wantAppError)
 			}
 		})
 	}

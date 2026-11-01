@@ -250,11 +250,13 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // is untraced: the broker's decision, the credential mint and the forward leg
 // all become orphan roots, and every log line on the path carries no trace id.
 func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.Conn, claims *token.PlatformClaims, host, port string) {
+	// parseConnectAuthority has already checked port is numeric.
+	portNum, _ := strconv.Atoi(port)
 	ctx, span := tracer.Start(ctx, "egress "+host,
 		trace.WithSpanKind(trace.SpanKindServer),
 		trace.WithAttributes(
 			attribute.String("server.address", host),
-			attribute.String("server.port", port),
+			attribute.Int("server.port", portNum),
 			attribute.String("kora.tenant_id", claims.Kora.TenantID),
 			attribute.String("kora.principal_id", claims.Subject),
 			attribute.String("kora.run_id", claims.Kora.Claims["run_id"]),
