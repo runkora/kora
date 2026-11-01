@@ -723,7 +723,8 @@ func (c *Controller) writeSandboxError(ctx context.Context, w http.ResponseWrite
 // handleGetSandbox reports this run's sandbox, or 404 if it has none.
 //
 // kora-shell asks when the workspace descriptor is missing, which the agent can
-// arrange by deleting it. 404 is the only answer that sends it to a local shell.
+// arrange by deleting it. On 404 it refuses the command and tells the agent to
+// provision a sandbox.
 func (c *Controller) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	runID := r.PathValue("runID")
@@ -733,9 +734,8 @@ func (c *Controller) handleGetSandbox(w http.ResponseWriter, r *http.Request) {
 
 	sandbox, ok, err := c.registry.Sandbox(ctx, runID)
 	if err != nil {
-		// Not 404: kora-shell reads that as permission to run the command
-		// locally. A lookup we could not complete must stop the command, not
-		// relax where it runs.
+		// Not 404: a lookup we could not complete says nothing about whether
+		// the run has a sandbox.
 		apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "could not determine this run's sandbox", map[string]any{"run_id": runID})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return

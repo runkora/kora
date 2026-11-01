@@ -726,10 +726,8 @@ func (reg *Registry) Sandbox(ctx context.Context, runID string) (Sandbox, bool, 
 		}
 	}
 
-	// The error is returned rather than folded into found=false. kora-shell
-	// reads "no sandbox" as permission to run the command locally, so an
-	// unreachable kora-agents would put the agent outside the sandbox, which
-	// is the failure this whole path exists to prevent.
+	// The error is returned rather than folded into found=false. "No sandbox"
+	// tells the agent to provision one, which it may already have.
 	sandbox, found, err := reg.notifier.GetSandbox(ctx, runID)
 	if err != nil {
 		return Sandbox{}, false, fmt.Errorf("look up sandbox: %w", err)

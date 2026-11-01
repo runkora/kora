@@ -606,8 +606,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 }
 
 // errSandboxUnusable reports a sandbox pod that exists but cannot serve the
-// run. Distinct from no pod at all, which is the only state that may route the
-// agent's command to a local shell.
+// run. Distinct from no pod at all, which tells the agent to provision one.
 var errSandboxUnusable = errors.New("sandbox pod unusable")
 
 // LookupSandbox returns the run's sandbox as its live pod describes it, and
@@ -636,9 +635,9 @@ func (p *K8sProvisioner) LookupSandbox(ctx context.Context, runID, namespace str
 		return Sandbox{}, false, nil
 	}
 	// A pod that exists but cannot be used is not the same answer as no pod.
-	// found=false reaches kora-shell as "this run never had a sandbox", which
-	// sends the command to a local shell, so only a genuinely absent pod earns
-	// it. Everything else is an error, and the caller stops.
+	// found=false reaches kora-shell as "this run never had a sandbox", so only
+	// a genuinely absent pod earns it. Everything else is an error, and the
+	// caller stops.
 	switch {
 	case !podLive(pod):
 		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s is terminating, finished or its sandbox-exec exited", errSandboxUnusable, pod.Name)

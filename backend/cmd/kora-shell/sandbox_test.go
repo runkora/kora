@@ -76,7 +76,7 @@ func TestReadSandbox(t *testing.T) {
 }
 
 // A missing descriptor must not read as "no sandbox yet": the agent can delete
-// it, and a local shell is the wrong answer to that.
+// it while its sandbox still runs.
 func TestFetchSandbox(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -97,7 +97,7 @@ func TestFetchSandbox(t *testing.T) {
 			body:   `{"code":"not_found"}`,
 		},
 		{
-			// An unreadable answer must not become a local shell.
+			// An unreadable answer is an error, not "no sandbox".
 			name:    "session-manager is unhappy",
 			status:  http.StatusInternalServerError,
 			body:    `{"code":"internal_error"}`,
@@ -143,11 +143,7 @@ func TestFetchSandbox(t *testing.T) {
 }
 
 // Missing session-manager coordinates are an environment fault, not a run
-// without a sandbox. Reading them as the latter routes the agent's command to a
-// local shell in this container, which is the confinement this binary enforces,
-// and it does so for a reason the run never asked for. reprovisionSandbox
-// already treats the same condition as fatal, so fetchSandbox agreeing is what
-// makes the two consistent.
+// without a sandbox. reprovisionSandbox treats the same condition as fatal.
 func TestFetchSandbox_MissingEnvIsAnError(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
