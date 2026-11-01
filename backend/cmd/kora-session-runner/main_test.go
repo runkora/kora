@@ -29,3 +29,41 @@ func TestExisting(t *testing.T) {
 		}
 	}
 }
+
+// enforce refuses a kernel below the required ABI and an unknown mode; bestEffort
+// runs on any kernel.
+func TestCheckKernel(t *testing.T) {
+	for _, tc := range []struct {
+		mode    string
+		abi     int
+		wantErr bool
+	}{
+		{"", 0, true},
+		{"enforce", 1, true},
+		{"enforce", 2, false},
+		{"bestEffort", 0, false},
+		{"off", 6, true},
+	} {
+		if err := checkKernel(tc.mode, tc.abi); (err != nil) != tc.wantErr {
+			t.Errorf("checkKernel(%q, %d) = %v, want error %v", tc.mode, tc.abi, err, tc.wantErr)
+		}
+	}
+}
+
+// OpenCode, and only OpenCode, may execute the image's ripgrep.
+func TestExecutablesHarnessBinaries(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		wantRg bool
+	}{
+		{"opencode", true},
+		{"/usr/local/bin/opencode", true},
+		{"claude", false},
+		{"codex", false},
+	} {
+		got := executables(tc.name, "/harness/"+filepath.Base(tc.name))
+		if slices.Contains(got, "/usr/bin/rg") != tc.wantRg {
+			t.Errorf("executables(%q) = %v, want rg allowed %v", tc.name, got, tc.wantRg)
+		}
+	}
+}

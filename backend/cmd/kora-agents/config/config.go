@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/runkora/kora/backend/internal/agents/sandbox/landlockmode"
 	"github.com/runkora/kora/backend/internal/platform/config"
 	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 )
@@ -144,6 +145,9 @@ type Config struct {
 			// on its agent pod, so one runaway run cannot OOM-kill the pod's
 			// other runs. Zero disables the cap.
 			NodeMaxOldSpaceMB int `yaml:"nodeMaxOldSpaceMB"`
+			// Landlock is enforce or bestEffort. enforce keeps agents off a node
+			// whose kernel cannot confine them; the chart sets it from agents.landlock.
+			Landlock string `yaml:"landlock"`
 		} `yaml:"sessionManager"`
 		// SandboxMount gives each sandbox a working folder on its local disk at
 		// /workspaces/<run>/sandbox, mounted into the session-manager pod by the
@@ -225,6 +229,9 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.Agents.SessionManager.NodeMaxOldSpaceMB < 0 {
 		return errors.New("agents.sessionManager.nodeMaxOldSpaceMB must be a non-negative integer")
+	}
+	if _, err := landlockmode.Parse(cfg.Agents.SessionManager.Landlock); err != nil {
+		return err
 	}
 	return nil
 }

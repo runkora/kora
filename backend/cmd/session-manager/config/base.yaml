@@ -24,6 +24,9 @@ runner:
   # The kora-shell proxy. Exposed under a "bash" basename by
   # Dockerfile.session-manager, since shell detection keys on that.
   shellPath: /opt/kora/shell/bash
+  # enforce keeps agents off a node whose kernel lacks Landlock ABI v2.
+  # bestEffort runs them with whatever confinement the kernel supports.
+  landlock: enforce
 
 claude:
   binaryPath: claude

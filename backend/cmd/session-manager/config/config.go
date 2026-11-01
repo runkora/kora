@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/runkora/kora/backend/internal/agents/sandbox/landlockmode"
 	"github.com/runkora/kora/backend/internal/platform/config"
 	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 )
@@ -60,6 +61,11 @@ type Config struct {
 		// OpenCode from the "shell" key in its config. Empty leaves
 		// OpenCode on the container's shell.
 		ShellPath string `yaml:"shellPath"`
+
+		// Landlock is enforce or bestEffort: whether an agent may run on a node
+		// whose kernel cannot confine it (see landlockmode). kora-agents sets it
+		// through KORA_LANDLOCK from the chart's agents.landlock.
+		Landlock string `yaml:"landlock"`
 
 		// NodeMaxOldSpaceMB is the --max-old-space-size set in each run's
 		// NODE_OPTIONS. kora-agents sets it per install through
@@ -157,6 +163,12 @@ func applyEnvOverrides(cfg *Config, getenv func(string) string) error {
 			return fmt.Errorf("KORA_TERMINATION_GRACE_PERIOD_SECS must be a non-negative integer, got %q", v)
 		}
 		cfg.Server.TerminationGracePeriodSecs = secs
+	}
+	if v := getenv(landlockmode.EnvVar); v != "" {
+		cfg.Runner.Landlock = v
+	}
+	if _, err := landlockmode.Parse(cfg.Runner.Landlock); err != nil {
+		return err
 	}
 	if v := getenv("KORA_NODE_MAX_OLD_SPACE_MB"); v != "" {
 		mb, err := strconv.Atoi(v)

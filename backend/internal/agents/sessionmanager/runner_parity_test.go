@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/runkora/kora/backend/internal/agents/sandbox/landlockmode"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -103,6 +104,14 @@ func TestRunEnv(t *testing.T) {
 		if !slices.Contains(got, w) {
 			t.Errorf("run env %v is missing %q", got, w)
 		}
+	}
+}
+
+// kora-session-runner reads the Landlock mode from the run's environment.
+func TestRunEnv_LandlockMode(t *testing.T) {
+	c := &Controller{cfg: ControllerConfig{WorkspacesBasePath: "/workspaces", SelfPort: 8090, Landlock: landlockmode.BestEffort}}
+	if got := c.runEnv("run-42", "tok-42"); !slices.Contains(got, "KORA_LANDLOCK=bestEffort") {
+		t.Errorf("run env %v is missing KORA_LANDLOCK=bestEffort", got)
 	}
 }
 

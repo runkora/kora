@@ -68,6 +68,7 @@ cmd/kora-agents:
     sessionManager:
       authorizationPolicyEnabled: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled }}
       nodeMaxOldSpaceMB: {{ .Values.agents.config.nodeMaxOldSpaceMB | int }}
+      landlock: {{ .Values.agents.landlock | quote }}
     sandboxMount: {{ .Values.sandboxMount.enabled }}
 {{ include "kora.observabilityConfigModule" . }}
 {{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
