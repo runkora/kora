@@ -57,6 +57,7 @@ import (
 	"github.com/runkora/kora/backend/internal/credentials/resolvers/k8sfile"
 	"github.com/runkora/kora/backend/internal/egressgw"
 	"github.com/runkora/kora/backend/internal/egressgw/cabundle"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
@@ -149,6 +150,9 @@ func realMain() error {
 	}
 	proxyHandler := egressgw.NewProxyHandler(broker, forward, b, logger)
 	connectHandler := egressgw.NewConnectHandler(caBundle, proxyHandler, connRegistry, logger)
+	selfToken := identityclient.NewClient(egc.Current.Identity.InternalURL, logger).SelfTokenSource()
+	connectHandler.WithTraceLinker(egressgw.NewTraceLinker(
+		agentsclient.NewClient(egc.Current.Agents.InternalURL, logger), selfToken, logger))
 
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 
@@ -161,7 +165,6 @@ func realMain() error {
 	defer func() { _ = redis.Close() }()
 
 	// ── Scope publisher ──────────────────────────────────────────────────────
-	selfToken := identityclient.NewClient(egc.Current.Identity.InternalURL, logger).SelfTokenSource()
 	registerScopes := initScopeRegistration(logger, selfToken, connRegistry, registry)
 
 	// ── Admin/read HTTP server (health + read-only connections) ──────────────

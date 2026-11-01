@@ -161,6 +161,38 @@ The `kora-api` and `kora-frontend` VirtualServices remove both headers on every 
 - A new external route must remove both headers. The `kora.edgeHeaders` chart helper does this for the API host.
 - Envoy tracing at the ingress gateway reads `traceparent` before route header removal. Enabling it requires removing the headers with `early_header_mutation_extensions`.
 
+## Amendment 2 (2026-11-01): Egress spans link to the run trace
+
+**Status:** Accepted
+
+### Context
+
+The egress gateway starts a `CONNECT` span for each tunnel. The CONNECT listener has no tracing middleware, and the sandbox tool that opens the tunnel sends no `traceparent`. Each span is a root, so `git`, `curl` and `npm` traffic from a sandbox is not in the run's trace.
+
+The spans already carry `kora.run.id` and `kora.tenant.id` from the verified token claims. The run stores its trace context in `runs.trace_parent`. A tunnel can stay open for minutes.
+
+### Options considered
+
+**Parent the span to the run trace.** The egress span joins the run trace and appears in the run waterfall. A long-lived tunnel stretches the trace. A busy run adds a span for every connection and grows the trace toward the limits named under Negative consequences.
+
+**Link the span to the run trace.** The egress span is the root of its own trace and carries a span link to the run's stored trace context. The run trace does not grow, and the egress span is sampled on its own, the pattern the run already uses for follow-up messages and terminate.
+
+### Decision
+
+Each egress `CONNECT` span stays the root of its own trace and carries a span link to the run's stored trace context. The span is not a child of the run trace.
+
+The gateway reads the stored `traceparent` for the run ID in the verified claims from kora-agents. The link is set when the span starts. This covers the TLS-intercepted path and the non-intercepted relay path.
+
+A failed lookup or a run without a `traceparent` starts the span with no link. It never fails the connection, and the lookup is bounded to a few seconds.
+
+### Consequences
+
+- Egress spans are found from the run trace through the link, or by `kora.run.id`. They are not in the run waterfall.
+- The run trace does not grow with egress traffic, whatever the tunnel lifetime.
+- A span that started while the lookup was failing has no link. `kora.run.id` still finds it.
+- The egress gateway depends on kora-agents for a trace lookup. The lookup is cached per run. A busy run costs one lookup per interval.
+- No identity, authorization or credential decision reads the link.
+
 ---
 
 ## Amends 2026-09-18
@@ -202,4 +234,4 @@ On the local cluster at 100% sampling:
 - [OpenTelemetry span links](https://opentelemetry.io/docs/concepts/signals/traces/#span-links)
 - [Grafana Tempo configuration: ingester limits](https://grafana.com/docs/tempo/latest/configuration/)
 
-**Last Updated:** 2026-11-01 (Amendment 1: untrusted trace context at the edge)
+**Last Updated:** 2026-11-01 (Amendments 1 and 2: untrusted trace context at the edge; egress spans link to the run trace)

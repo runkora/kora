@@ -306,6 +306,42 @@ func (c *Client) CanReadRun(ctx context.Context, bearer, delegation, runID strin
 	}
 }
 
+// RunTraceParent returns the run's stored W3C traceparent, empty when it has none. Only the
+// egress gateway's SYSTEM token may call it. A missing run returns ErrRunNotFound.
+func (c *Client) RunTraceParent(ctx context.Context, bearer, runID string) (string, error) {
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+bearer)
+
+	_, span, resp, err := c.Do(observability.WithRun(ctx, runID), httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/internal/runs/{runID}/trace-parent", Params: []string{runID}, Header: header,
+	})
+	defer span.End()
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var out struct {
+			TraceParent string `json:"trace_parent"`
+		}
+		if err := c.DecodeJSON(span, resp, &out); err != nil {
+			return "", fmt.Errorf("decode run trace parent response: %w", err)
+		}
+		return out.TraceParent, nil
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return "", c.HandleErrorResponse(span, resp, ErrForbidden)
+	case http.StatusNotFound:
+		return "", c.HandleErrorResponse(span, resp, ErrRunNotFound)
+	default:
+		if resp.StatusCode >= http.StatusInternalServerError {
+			return "", c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
+		}
+		return "", c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+}
+
 // SendRunMessageRequest is the payload for SendRunMessage. TriggerID,
 // TriggerName and DeliveryID name the trigger and delivery the message comes
 // from, under the same rules as StartRunRequest's attribution.

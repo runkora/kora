@@ -215,6 +215,40 @@ func TestCanReadRun(t *testing.T) {
 	}
 }
 
+func TestRunTraceParent(t *testing.T) {
+	const traceParent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	cases := []struct {
+		status int
+		body   string
+		want   string
+		err    error
+	}{
+		{http.StatusOK, `{"trace_parent":"` + traceParent + `"}`, traceParent, nil},
+		{http.StatusOK, `{"trace_parent":""}`, "", nil},
+		{http.StatusForbidden, "", "", ErrForbidden},
+		{http.StatusNotFound, "", "", ErrRunNotFound},
+		{http.StatusBadGateway, "", "", ErrUpstreamUnavailable},
+		{http.StatusTeapot, "", "", ErrUnexpectedStatus},
+	}
+	for _, tc := range cases {
+		var gotPath, gotAuth string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotPath, gotAuth = r.URL.Path, r.Header.Get("Authorization")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		got, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).RunTraceParent(context.Background(), "tok", "run-1")
+		srv.Close()
+		if !errors.Is(err, tc.err) || got != tc.want {
+			t.Errorf("status %d: got %q, %v; want %q, %v", tc.status, got, err, tc.want, tc.err)
+		}
+		if gotPath != "/internal/runs/run-1/trace-parent" || gotAuth != "Bearer tok" {
+			t.Errorf("status %d: request %s with %q", tc.status, gotPath, gotAuth)
+		}
+	}
+}
+
 func TestSendRunMessage_Success(t *testing.T) {
 	c, cap := newTestClient(t, http.StatusAccepted, "")
 

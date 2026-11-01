@@ -36,6 +36,7 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 	portNum, _ := strconv.Atoi(port)
 	ctx, span := tracer.Start(ctx, "egressgw.ConnectHandler.serveRelay",
 		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithLinks(h.traces.Links(ctx, observability.RunFromContext(ctx))...),
 		trace.WithAttributes(
 			semconv.ServerAddressKey.String(host),
 			semconv.ServerPortKey.Int(portNum),
