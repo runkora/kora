@@ -685,14 +685,18 @@ app: kora-sandbox-mount
 {{- end }}
 
 {{/*
-Forces x-forwarded-proto: https on API routes. Only needed behind a
-TLS-terminating Ingress, where the gateway would otherwise stamp http and
-OAuth metadata would reflect it.
+Request headers every edge route sets. Drops client trace context so the edge
+span starts a new root under the normal sampler (ADR 2026-10-31, Amendment 1).
+Forces x-forwarded-proto: https behind a TLS-terminating Ingress, where the
+gateway would otherwise stamp http and OAuth metadata would reflect it.
 */}}
-{{- define "kora.forceHttpsHeaders" -}}
-{{- if and .Values.gateway.create .Values.gateway.ingress.enabled }}
+{{- define "kora.edgeHeaders" -}}
 headers:
   request:
+    remove:
+      - traceparent
+      - tracestate
+{{- if and .Values.gateway.create .Values.gateway.ingress.enabled }}
     set:
       x-forwarded-proto: https
 {{- end }}

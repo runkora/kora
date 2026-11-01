@@ -21,7 +21,10 @@ spec:
     # backend APIs, including inbound webhooks (which moved to the api. host), are
     # served by the kora-api VirtualService. This host is a pure catch-all to the
     # Next.js app.
-    - route:
+    - headers:
+        request:
+          remove: [traceparent, tracestate] # Untrusted client trace context; see kora.edgeHeaders.
+      route:
         - destination:
             host: kora-frontend.{{ include "kora.systemNamespace" . }}.svc.cluster.local
             port:
