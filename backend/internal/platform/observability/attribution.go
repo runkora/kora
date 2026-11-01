@@ -4,28 +4,25 @@ import (
 	"context"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/trace"
 )
 
 type runIDContextKey struct{}
 
 type tenantIDContextKey struct{}
 
-// WithRun returns ctx carrying runID. The span in ctx and every span started from it record it as RunIDKey.
+// WithRun returns ctx carrying runID, which every span started from it records as RunIDKey.
 func WithRun(ctx context.Context, runID string) context.Context {
 	if runID == "" {
 		return ctx
 	}
-	trace.SpanFromContext(ctx).SetAttributes(RunIDKey.String(runID))
 	return context.WithValue(ctx, runIDContextKey{}, runID)
 }
 
-// WithTenant returns ctx carrying tenantID. The span in ctx and every span started from it record it as TenantIDKey.
+// WithTenant returns ctx carrying tenantID, which every span started from it records as TenantIDKey.
 func WithTenant(ctx context.Context, tenantID string) context.Context {
 	if tenantID == "" {
 		return ctx
 	}
-	trace.SpanFromContext(ctx).SetAttributes(TenantIDKey.String(tenantID))
 	return context.WithValue(ctx, tenantIDContextKey{}, tenantID)
 }
 

@@ -623,9 +623,9 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 		observability.SessionIDKey.String(session.ID),
 		observability.PrincipalIDKey.String(session.PrincipalID),
 		observability.PrincipalTypeKey.String(string(session.PrincipalType)),
+		observability.TenantIDKey.String(session.TenantID),
 		observability.PrincipalIdentitySourceKey.String(string(session.IdentitySource)),
 	)
-	ctx = observability.WithTenant(ctx, session.TenantID)
 
 	// Revoke the used refresh token (rotation).
 	if err := s.refreshTokens.RevokeRefreshToken(ctx, rt.ID, time.Now()); err != nil {
@@ -669,9 +669,9 @@ func (s *Service) ExchangeSVID(ctx context.Context, r *http.Request) (*SessionRe
 	span.SetAttributes(
 		observability.PrincipalIDKey.String(principal.ID),
 		observability.PrincipalTypeKey.String(string(principal.Type)),
+		observability.TenantIDKey.String(principal.TenantID),
 		observability.PrincipalIdentitySourceKey.String(string(principal.IdentitySource)),
 	)
-	ctx = observability.WithTenant(ctx, principal.TenantID)
 
 	// tenant_id is extracted exclusively from the SPIFFE URI in the XFCC header —
 	// the value attested by SPIRE and injected by Envoy after mTLS termination.

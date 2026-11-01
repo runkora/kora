@@ -251,6 +251,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		StartedBy:      startedBy,
 		InitialMessage: req.InitialMessage,
 	}
+	span.SetAttributes(observability.RunIDKey.String(run.ID))
 	ctx = observability.WithRun(ctx, run.ID)
 	if startedBy != nil {
 		span.SetAttributes(observability.TriggerIDKey.String(startedBy.TriggerID))
