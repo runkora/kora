@@ -19,7 +19,9 @@ type claimsContextKey struct{}
 func WithClaims(ctx context.Context, claims *PlatformClaims) context.Context {
 	if claims != nil {
 		runID := cmp.Or(observability.RunFromContext(ctx), claims.Kora.Claims["run_id"])
-		trace.SpanFromContext(ctx).SetAttributes(observability.TenantIDKey.String(claims.Kora.TenantID))
+		if claims.Kora.TenantID != "" {
+			trace.SpanFromContext(ctx).SetAttributes(observability.TenantIDKey.String(claims.Kora.TenantID))
+		}
 		ctx = observability.WithTenant(observability.WithRun(ctx, runID), claims.Kora.TenantID)
 	}
 	return context.WithValue(ctx, claimsContextKey{}, claims)
