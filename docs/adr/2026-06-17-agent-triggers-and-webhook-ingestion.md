@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-17-agent-triggers-and-webhook-ingestion.md -->
 
-**Status:** Accepted (Decision item 3 superseded in part by [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) 2026-09-29)
+**Status:** Accepted (Decision item 3 superseded in part by [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) 2026-09-29; Amended 2026-10-31)
 **Date:** 2026-06-17
 **Deciders:** Justin Wilkin, Platform Engineering
 **Technical Story:** [PRD: Agent Triggers](../prd/agent-webhook-triggers.md) — start agent runs automatically in response to external events (first use case: trigger agents on GitHub pull requests).
@@ -111,7 +111,7 @@ Option 1 is the only one that satisfies every driver at once: it puts the public
 ### Sub-decisions
 
 **1. Identity: per-source mapped `SERVICE` principal, JIT-minted at dispatch.**
-- Creating a webhook source provisions a stable `SERVICE` principal id (e.g. `service://trigger-source/{tenant}/{sourceID}`) and a policy grant via the policy client (`CreateGrant`, the same call PATs use).
+- Creating a webhook source provisions a stable `SERVICE` principal id (e.g. `service://trigger-source/{tenant}/{sourceID}`; *amended 2026-10-31, see Amendment 1: the id is `trigger-source:<id>`*) and a policy grant via the policy client (`CreateGrant`, the same call PATs use).
 - Binding a trigger to agent `A` ensures the source principal is granted `agents:runs:{A.slug}:write` (and `:read`) — this *is* the mechanism behind "a triggered run gets read/write to the agent if its identity has access." `A.slug` is **resolved server-side** at `CreateTrigger`: the triggers service calls `kora-agents GET /api/v1/agent-types/{id}` with the caller's own bearer and uses the returned canonical slug for the grant. The client-supplied `agent_slug` is never trusted — `kora-agents` keys its run check on the resolved slug, so trusting the request body would let a `triggers:write` caller shape an arbitrary grant scope and would silently 403 every dispatch on any slug/id mismatch. The same read must report `can_run` before the grant is created. `can_run` is computed by the run-start check: the agent's creator, `agents:runs:{A.slug}:write`, or a covering scope. The read itself needs agent-type read access, which the creator also holds. The trigger confers that agent's run scopes, so binding takes the same authority as starting a run. The same check applies to an edit of the prompt, manual inputs, schedule, event filters, sender restriction or enablement, and to replaying a delivery. Rotating a source's secret and enabling or disabling a source need it for every agent bound by a trigger on that source.
 - **No long-lived token is stored.** At dispatch, the triggers service mints a short-lived `SERVICE` JWT for the source principal (following the `SystemToken` pattern) and passes it as the `Authorization: Bearer` on the `kora-agents` call. `kora-agents` verifies the JWT and enforces the scope exactly as for any principal; `created_by` resolves to the source principal, so every run traces to its source.
 - Rejected: delegation from the configuring admin (offboarding/coupling problems) and a single shared service principal (no per-source attribution or scoping).
@@ -246,4 +246,12 @@ trigger surface lands** (e.g. cron/scheduled), rather than adding a second surfa
 
 Tracked as backlog work on the kora board.
 
-**Last Updated:** 2026-06-17
+## Amendment 1 (2026-10-31): Source principal id is `trigger-source:<id>`
+
+**Status:** Accepted
+
+Sub-decision 1 gave the source principal id as `service://trigger-source/{tenant}/{sourceID}`. The implementation mints `trigger-source:<id>`, and `kora-agents` run attribution matches on the `trigger-source:` prefix. [Extended Trigger Types](2026-06-20-extended-trigger-types.md) already uses this form. The id carries no tenant segment because the source id is unique and tenancy comes from the token. Nothing else in the sub-decision changes.
+
+---
+
+**Last Updated:** 2026-10-31 (Amendment 1: source principal id format)
