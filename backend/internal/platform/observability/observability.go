@@ -157,10 +157,11 @@ func createOTLPExporter(ctx context.Context, endpoint string) (sdktrace.SpanExpo
 }
 
 // createNoOpProvider creates a no-op tracer provider for production without OTLP.
-// This allows the app to work without an observability backend.
+// It never samples: a run must not store a trace ID with no exported trace.
 func createNoOpProvider(res *resource.Resource) func(context.Context) error {
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.NeverSample()),
 	)
 	otel.SetTracerProvider(tp)
 	return func(ctx context.Context) error {

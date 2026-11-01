@@ -303,6 +303,10 @@ func (s *mcpServer) call(method, action string, body io.Reader) ([]byte, error) 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Kora-Run-Token", os.Getenv("KORA_RUN_TOKEN"))
+	// Claude Code's TRACEPARENT puts this call in the run's trace.
+	if tp := os.Getenv("TRACEPARENT"); tp != "" {
+		req.Header.Set("traceparent", tp)
+	}
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, err

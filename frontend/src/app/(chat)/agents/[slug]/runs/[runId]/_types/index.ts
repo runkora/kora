@@ -182,4 +182,6 @@ export interface RunChatState {
   loadError: string | null;
   /** Why the last Stop was refused; null when it was not. */
   stopError: string | null;
+  /** The run's trace viewer link; null without a trace URL template or a sampled trace. */
+  traceUrl: string | null;
 }

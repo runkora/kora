@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // Overflow behaviors: what a trigger does when it is already at its concurrency
@@ -91,6 +92,8 @@ type PendingDelivery struct {
 	// HoldCount is how many times the fire returned to the queue to wait for a
 	// starting run its join key names.
 	HoldCount int16
+	// TraceParent is the W3C traceparent of the fire, continued by its dispatch.
+	TraceParent string
 }
 
 // OrphanedPending is a waiting fire whose trigger can no longer run it.
@@ -180,11 +183,12 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 	// One pending row, built once: both enqueue paths below store the same
 	// thing, so a field added to it cannot reach one and miss the other.
 	pending := &PendingDelivery{
-		ID:         newID(),
-		TenantID:   t.TenantID,
-		TriggerID:  t.ID,
-		DeliveryID: deliveryID,
-		Fields:     fields,
+		ID:          newID(),
+		TenantID:    t.TenantID,
+		TriggerID:   t.ID,
+		DeliveryID:  deliveryID,
+		Fields:      fields,
+		TraceParent: observability.TraceParent(ctx),
 	}
 
 	switch t.Overflow {

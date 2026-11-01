@@ -33,6 +33,7 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 func main() {
@@ -158,7 +159,7 @@ func execOne(sb sandbox, command string) (exitCode int, err error) {
 		WorkingDir: workingDir(),
 	}
 
-	stream, err := client.Execute(execauth.WithToken(context.Background(), sb.token), req)
+	stream, err := client.Execute(execContext(sb.token), req)
 	if err != nil {
 		return 0, fmt.Errorf("execute: %w", err)
 	}
@@ -203,6 +204,7 @@ func fetchSandbox() (sandbox, bool, error) {
 		return sandbox{}, false, fmt.Errorf("build sandbox request: %w", err)
 	}
 	req.Header.Set(runTokenHeader, os.Getenv("KORA_RUN_TOKEN"))
+	setTraceParent(req.Header)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return sandbox{}, false, fmt.Errorf("get sandbox: %w", err)
@@ -248,6 +250,7 @@ func reprovisionSandbox() (sandbox, error) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(runTokenHeader, os.Getenv("KORA_RUN_TOKEN"))
+	setTraceParent(req.Header)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return sandbox{}, fmt.Errorf("post provision-sandbox: %w", err)
@@ -329,4 +332,20 @@ func workingDir() string {
 		fmt.Fprintf(os.Stderr, "kora-shell: getwd: %v\n", err)
 	}
 	return wd
+}
+
+// setTraceParent puts a session-manager call in the run's trace via Claude Code's TRACEPARENT.
+func setTraceParent(h http.Header) {
+	if tp := os.Getenv("TRACEPARENT"); tp != "" {
+		h.Set("traceparent", tp)
+	}
+}
+
+// execContext authenticates a sandbox exec call and carries the run's trace in its metadata.
+func execContext(token string) context.Context {
+	ctx := execauth.WithToken(context.Background(), token)
+	if tp := os.Getenv("TRACEPARENT"); tp != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "traceparent", tp)
+	}
+	return ctx
 }

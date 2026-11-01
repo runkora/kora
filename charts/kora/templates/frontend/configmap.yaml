@@ -21,3 +21,4 @@ data:
   TOOL_GATEWAY_URL: {{ $c.toolGatewayUrl | default (printf "http://kora-tool-gateway.%s.svc.cluster.local" $ns) | quote }}
   NEXT_PUBLIC_APP_URL: {{ $c.nextPublicAppUrl | default (printf "https://%s" (include "kora.frontendHost" .)) | quote }}
   KORA_APP_URL: {{ $c.nextPublicAppUrl | default (printf "https://%s" (include "kora.frontendHost" .)) | quote }}
+  KORA_TRACE_URL_TEMPLATE: {{ .Values.global.observability.traceUrlTemplate | default "" | quote }}

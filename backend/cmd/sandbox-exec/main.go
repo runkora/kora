@@ -20,6 +20,8 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
 	execpb "github.com/runkora/kora/backend/internal/agents/sandbox/proto"
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -66,6 +68,8 @@ func main() {
 	}
 
 	srv := grpc.NewServer(
+		// Propagation only: sandbox-exec exports no spans.
+		grpc.StatsHandler(otelgrpc.NewServerHandler(otelgrpc.WithPropagators(propagation.TraceContext{}))),
 		grpc.StreamInterceptor(requireExecTokenStream(execToken)),
 		grpc.UnaryInterceptor(requireExecTokenUnary(execToken)),
 	)

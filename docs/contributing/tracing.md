@@ -307,7 +307,6 @@ Spans are batched before export:
 
 ### Planned
 
-🔄 **gRPC Services**: Automatic gRPC tracing
 🔄 **Agent Tool Invocations**: Trace agent → tool calls
 🔄 **Policy Evaluations**: Detailed OPA evaluation spans
 🔄 **Credential Brokering**: Track secret retrieval and usage
