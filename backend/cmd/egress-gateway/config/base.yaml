@@ -15,7 +15,7 @@ server:
   basePath: "/api/v1"
   shutdownTimeoutSecs: 30
 
-# The chart renders the identity and policy service URLs.
+# The chart renders the identity, agents and policy service URLs.
 policy:
   bundlePollIntervalSecs: 30
 

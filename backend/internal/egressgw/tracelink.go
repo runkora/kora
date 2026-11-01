@@ -11,9 +11,8 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
-// Run trace link cache bounds. A run's traceparent never changes, so the TTL only bounds how long a
-// gateway holds a finished run. A failed lookup is held briefly so an unavailable kora-agents costs
-// one lookup per run per interval, not one per connection.
+// Cache bounds. A failed lookup is held briefly so an unavailable kora-agents costs one lookup
+// per run per interval, not one per connection.
 const (
 	traceLinkTTL        = 5 * time.Minute
 	traceLinkFailureTTL = 30 * time.Second
@@ -43,7 +42,7 @@ type traceLinkEntry struct {
 	expires time.Time
 }
 
-// NewTraceLinker builds a TraceLinker reading from src as the caller token returns.
+// NewTraceLinker returns a TraceLinker that reads from src using the bearer token returns.
 func NewTraceLinker(src runTraceParents, token func(context.Context) (string, error), logger logging.Logger) *TraceLinker {
 	return &TraceLinker{src: src, token: token, logger: logger, now: time.Now, entries: map[string]traceLinkEntry{}}
 }
@@ -85,23 +84,12 @@ func (l *TraceLinker) lookup(ctx context.Context, runID string) ([]trace.Link, t
 	return nil, traceLinkTTL
 }
 
-// put stores an entry. At the size bound it drops expired entries, then any needed to make room.
+// put stores an entry, clearing the cache when it is full.
 func (l *TraceLinker) put(runID string, e traceLinkEntry) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if len(l.entries) >= traceLinkEntries {
-		now := l.now()
-		for k, old := range l.entries {
-			if !now.Before(old.expires) {
-				delete(l.entries, k)
-			}
-		}
-		for k := range l.entries {
-			if len(l.entries) < traceLinkEntries {
-				break
-			}
-			delete(l.entries, k)
-		}
+		clear(l.entries)
 	}
 	l.entries[runID] = e
 }

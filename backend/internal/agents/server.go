@@ -1044,13 +1044,12 @@ func (c *Controller) handleGetRunSandbox(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// traceParentCaller is the SYSTEM principal allowed to read a run's trace context: the egress
-// gateway, which links its connection spans to the run trace
+// traceParentCaller is the SYSTEM principal allowed to read a run's trace context
 // (docs/adr/2026-10-31-one-trace-per-run.md).
 const traceParentCaller = "egress-gateway"
 
 // handleGetRunTraceParent returns the run's stored traceparent, empty when the run has none.
-// A SYSTEM token alone is not enough, as with the session-manager routes, so the caller is pinned.
+// Any SYSTEM token is not enough: the caller must be the egress gateway.
 func (c *Controller) handleGetRunTraceParent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	claims, ok := token.ClaimsFromContext(ctx)
