@@ -821,11 +821,16 @@ func TestTransitionRunState_Conflict(t *testing.T) {
 				t.Fatal("expected an error")
 			}
 
-			var status sdktrace.Status
+			var status *sdktrace.Status
 			for _, s := range recorder.Ended() {
 				if s.Name() == "agents.Transition" {
-					status = s.Status()
+					st := s.Status()
+					status = &st
 				}
+			}
+			// An unrecorded span would read as Unset and pass the conflict case.
+			if status == nil {
+				t.Fatal("no agents.Transition span recorded")
 			}
 			if status.Code != tt.wantStatus {
 				t.Errorf("agents.Transition status = %v, want %v", status.Code, tt.wantStatus)
