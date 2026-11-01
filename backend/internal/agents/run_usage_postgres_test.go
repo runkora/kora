@@ -18,7 +18,7 @@ func TestPostgres_RunUsageTotals(t *testing.T) {
 		t.Helper()
 		if _, err := r.pool.Exec(ctx, `
 			INSERT INTO inference_usage (id, tenant_id, principal_id, principal_type, model_id, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, status, run_id)
-			VALUES ($1, $2, 'p', 'AGENT', 'm', $3, $4, $3 + $4, $5, 'success', $6)`,
+			VALUES ($1, $2, 'p', 'AGENT', 'm', $3, $4, $3::int + $4::int, $5, 'success', $6)`,
 			uuid.NewString(), tenantID, in, out, cost, runID); err != nil {
 			t.Fatalf("insert usage: %v", err)
 		}
