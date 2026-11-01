@@ -169,8 +169,8 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 	t := tick.Trigger
 	// Roots a scheduled fire's trace; other fires have a request span.
-	ctx, span := triggersTracer.Start(ctx, "triggers.Service.TickScheduled",
-		trace.WithAttributes(observability.TriggerIDKey.String(t.ID), observability.TenantIDKey.String(t.TenantID)))
+	ctx, span := triggersTracer.Start(observability.WithTenant(ctx, t.TenantID), "triggers.Service.TickScheduled",
+		trace.WithAttributes(observability.TriggerIDKey.String(t.ID)))
 	defer span.End()
 	scheduledAt := scheduledAtMinute(tick.ScheduledAt)
 
