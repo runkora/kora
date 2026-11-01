@@ -2,10 +2,14 @@ package inferencegw
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"go.opentelemetry.io/otel/codes"
 )
+
+var errPricingSync = errors.New("pricing sync failed")
 
 // DefaultSyncInterval is the default pricing sync frequency.
 const DefaultSyncInterval = 24 * time.Hour
@@ -48,11 +52,17 @@ func (w *PricingSyncWorker) Start(ctx context.Context) {
 	}
 }
 
+// sync is one unit of work, so it roots a trace that parents the catalog fetch
+// and the price writes.
 func (w *PricingSyncWorker) sync(ctx context.Context) {
 	start := time.Now()
+	ctx, span := tracer.Start(ctx, "inferencegw.PricingSyncWorker.sync")
+	defer span.End()
 
 	entries, err := w.source.Fetch(ctx)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, errPricingSync.Error())
 		w.logger.Error(ctx, "pricing.sync.failed",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
@@ -60,6 +70,8 @@ func (w *PricingSyncWorker) sync(ctx context.Context) {
 	}
 
 	if err := w.catalog.UpsertSynced(ctx, entries); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, errPricingSync.Error())
 		w.logger.Error(ctx, "pricing.sync.failed",
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "models_fetched", Value: len(entries)},
