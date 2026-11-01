@@ -166,7 +166,7 @@ func spanAttrKeyVocabulary(m dsl.Matcher) {
 		`attribute.IntSlice($k, $_)`, `attribute.Int64Slice($k, $_)`, `attribute.BoolSlice($k, $_)`,
 		`attribute.Float64Slice($k, $_)`, `attribute.Key($k)`, `attribute.KeyValue{Key: $k, $*_}`,
 	).
-		Where(m["k"].Text.Matches(`^"`)).
+		Where(m["k"].Text.Matches("^[\"`]")).
 		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: attribute key $k is a literal. ` +
 			`Use a semconv constant or a key constant from internal/platform/observability.`)
 }
