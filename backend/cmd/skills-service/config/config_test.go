@@ -100,6 +100,38 @@ func TestApplyEnvOverridesRejectsInvalidTTL(t *testing.T) {
 	}
 }
 
+func TestApplyEnvOverridesLocalTenantIDRequiresLocalEnv(t *testing.T) {
+	cases := []struct {
+		name     string
+		appEnv   string
+		tenantID string
+		wantErr  bool
+		wantID   string
+	}{
+		{"unset env defaults to production", "", "t1", true, ""},
+		{"production rejects bypass", "production", "t1", true, ""},
+		{"unknown env rejects bypass", "staging", "t1", true, ""},
+		{"local allows bypass", "local", "t1", false, "t1"},
+		{"no bypass requested in production", "production", "", false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("APP_ENV", tc.appEnv)
+			t.Setenv("LOCAL_TENANT_ID", tc.tenantID)
+
+			var c sc.Config
+			err := c.ApplyEnvOverrides()
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
+			}
+			if c.Marketplace.LocalTenantID != tc.wantID {
+				t.Errorf("LocalTenantID = %q, want %q", c.Marketplace.LocalTenantID, tc.wantID)
+			}
+		})
+	}
+}
+
 func TestApplyEnvOverridesRequiredVars(t *testing.T) {
 	cases := []struct {
 		name    string

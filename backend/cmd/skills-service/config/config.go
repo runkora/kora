@@ -68,7 +68,7 @@ type Config struct {
 		SourcesConfigPath string `yaml:"-"`
 
 		// LocalTenantID, when non-empty, bypasses token auth and uses this
-		// tenant ID directly. Set via LOCAL_TENANT_ID for local dev only.
+		// tenant ID directly. Set via LOCAL_TENANT_ID; rejected unless APP_ENV=local.
 		LocalTenantID string `yaml:"-"`
 
 		// CacheTTL is the Redis key TTL for cached skill sets.
@@ -115,6 +115,9 @@ func (c *Config) ApplyEnvOverrides() error {
 	c.Marketplace.SourcesConfigPath = filepath.Join(dir, "skills-mapping.yaml")
 
 	if v := os.Getenv("LOCAL_TENANT_ID"); v != "" {
+		if env := config.Environment(); env != "local" {
+			return fmt.Errorf("LOCAL_TENANT_ID disables authentication and is only allowed when APP_ENV=local (APP_ENV=%q)", env)
+		}
 		c.Marketplace.LocalTenantID = v
 	}
 

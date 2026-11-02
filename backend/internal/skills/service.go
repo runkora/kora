@@ -104,11 +104,6 @@ type Service struct {
 	crawls   singleflight.Group
 }
 
-type ListSkillsResponse struct {
-	Skills     []SkillSummary `json:"skills"`
-	NextCursor string         `json:"nextCursor,omitempty"` // empty = no more results
-}
-
 func NewService(registry sourceRegistry, cache skillCache, crawler skillCrawler, search skillSearcher, logger logging.Logger) *Service {
 	return &Service{
 		registry: registry,
@@ -117,15 +112,6 @@ func NewService(registry sourceRegistry, cache skillCache, crawler skillCrawler,
 		search:   search,
 		logger:   logger,
 	}
-}
-
-func (s *Service) ListMarketplaceSkills(tenantID string) []string {
-	sources := s.registry.ListSources(tenantID)
-	names := make([]string, len(sources))
-	for i, src := range sources {
-		names[i] = src.Name
-	}
-	return names
 }
 
 // findSource returns the MarketplaceSource whose MarketplaceSlug matches slug

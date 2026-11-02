@@ -71,21 +71,6 @@ func (r *Registry) ListSources(tenantID string) []MarketplaceSource {
 	return out
 }
 
-// FindSource returns the marketplace registered for tenantID with the given
-// slug. It returns false if the marketplace is not registered for that tenant.
-func (r *Registry) FindSource(tenantID, marketplaceSlug string) (MarketplaceSource, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	for _, source := range r.sources[tenantID] {
-		if source.MarketplaceSlug == marketplaceSlug {
-			return source, true
-		}
-	}
-
-	return MarketplaceSource{}, false
-}
-
 // Reload reloads marketplace sources and keeps the previous
 // configuration if the new file cannot be parsed.
 func (r *Registry) Reload(path string) error {
@@ -179,7 +164,7 @@ func loadYAMLSources(path string, logger logging.Logger) (map[string][]Marketpla
 		return nil, fmt.Errorf("read skills mapping: %w", err)
 	}
 
-	var f skillsMappingYAML // yaml to go
+	var f skillsMappingYAML
 	if err := yaml.Unmarshal(data, &f); err != nil {
 		return nil, fmt.Errorf("parse skills mapping yaml: %w", err)
 	}

@@ -161,26 +161,6 @@ func listAllPages(t *testing.T, svc *Service, search string) [][]SkillSummary {
 	}
 }
 
-// --- ListMarketplaceSkills ---
-
-func TestListMarketplaceSkills_ReturnsTenantNames(t *testing.T) {
-	svc := newTestService(&fakeCache{}, &fakeCrawler{})
-
-	got := svc.ListMarketplaceSkills("tenant-a")
-	if len(got) != 1 || got[0] != "test-marketplace" {
-		t.Errorf("got %v, want [test-marketplace]", got)
-	}
-}
-
-func TestListMarketplaceSkills_UnknownTenantReturnsEmpty(t *testing.T) {
-	svc := newTestService(&fakeCache{}, &fakeCrawler{})
-
-	got := svc.ListMarketplaceSkills("tenant-unknown")
-	if len(got) != 0 {
-		t.Errorf("got %v, want empty", got)
-	}
-}
-
 // --- ListSkills ---
 
 func TestListSkills_CacheHit(t *testing.T) {

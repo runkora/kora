@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -516,6 +517,30 @@ func (f *handlerEvaluator) Check(_ context.Context, input policy.CheckInput) (po
 	return policy.Result{Allow: f.allow}, f.err
 }
 
+type handlerBlocklist struct {
+	blocked []string
+	err     error
+	lookups []string
+}
+
+func (f *handlerBlocklist) IsBlocked(_ context.Context, jti string) (bool, error) {
+	f.lookups = append(f.lookups, jti)
+	if f.err != nil {
+		return false, f.err
+	}
+	return slices.Contains(f.blocked, jti), nil
+}
+
+func TestNewControllerRequiresBlocklist(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic when the JTI blocklist is nil")
+		}
+	}()
+	verifier := token.NewVerifier(context.Background(), "http://127.0.0.1:0", token.DefaultIssuer, token.DefaultAudience)
+	NewController(logging.NewDevelopmentLogger(), nil, nil, verifier, &handlerEvaluator{}, nil, "/v1", "")
+}
+
 func TestControllerAuthorization(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -535,6 +560,7 @@ func TestControllerAuthorization(t *testing.T) {
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer: token.DefaultIssuer, Audience: jwt.ClaimStrings{token.DefaultAudience},
 			Subject: "caller", ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+			ID: "platform-1",
 		},
 		Orbit: token.OrbitClaims{TenantID: "tenant-a", PrincipalType: token.PrincipalTypeHuman},
 	}
@@ -572,21 +598,28 @@ func TestControllerAuthorization(t *testing.T) {
 		allow                  bool
 		policyErr              error
 		code, checks           int
+		revoked                []string
+		blocklistErr           error
 	}{
-		{"missing token", "", "", true, nil, http.StatusUnauthorized, 0},
-		{"invalid token", "invalid", "", true, nil, http.StatusUnauthorized, 0},
-		{"invalid delegation", validToken, "invalid", true, nil, http.StatusUnauthorized, 0},
-		{"valid delegation token", validToken, validDelegation, true, nil, http.StatusOK, 1},
-		{"denied scope", validToken, "", false, nil, http.StatusForbidden, 1},
-		{"policy unavailable", validToken, "", true, errors.New("policy unavailable"), http.StatusForbidden, 1},
-		{"allowed", validToken, "", true, nil, http.StatusOK, 1},
+		{"missing token", "", "", true, nil, http.StatusUnauthorized, 0, nil, nil},
+		{"invalid token", "invalid", "", true, nil, http.StatusUnauthorized, 0, nil, nil},
+		{"invalid delegation", validToken, "invalid", true, nil, http.StatusUnauthorized, 0, nil, nil},
+		{"valid delegation token", validToken, validDelegation, true, nil, http.StatusOK, 1, nil, nil},
+		{"denied scope", validToken, "", false, nil, http.StatusForbidden, 1, nil, nil},
+		{"policy unavailable", validToken, "", true, errors.New("policy unavailable"), http.StatusForbidden, 1, nil, nil},
+		{"allowed", validToken, "", true, nil, http.StatusOK, 1, nil, nil},
+		{"revoked platform token", validToken, "", true, nil, http.StatusUnauthorized, 0, []string{"platform-1"}, nil},
+		{"revoked delegation token", validToken, validDelegation, true, nil, http.StatusUnauthorized, 0, []string{"delegation-1"}, nil},
+		// Blocklist lookup failures fail open, matching the platform middleware.
+		{"blocklist unavailable", validToken, validDelegation, true, nil, http.StatusOK, 1, nil, errors.New("redis down")},
 	} {
 		for _, target := range targets {
 			t.Run(tc.name+target, func(t *testing.T) {
 				fixture := newHandlerController(true)
 				eval := &handlerEvaluator{allow: tc.allow, err: tc.policyErr}
+				blocklist := &handlerBlocklist{blocked: tc.revoked, err: tc.blocklistErr}
 				svc := NewService(fixture.registry, fixture.cache, fixture.crawler, &fakeSearch{}, logger)
-				c := NewController(logger, svc, fixture.registry, verifier, eval, "/v1", "")
+				c := NewController(logger, svc, fixture.registry, verifier, eval, blocklist, "/v1", "")
 				server := api.NewAPI(context.Background(), logger).Server(context.Background(), 0, "/v1", nil, c)
 				r := httptest.NewRequest(http.MethodGet, "/v1"+target, nil)
 				if tc.auth != "" {
@@ -602,6 +635,9 @@ func TestControllerAuthorization(t *testing.T) {
 				}
 				if tc.code != http.StatusOK && (len(fixture.registry.calls) != 0 || len(fixture.cache.getCalls) != 0) {
 					t.Fatal("denied request reached marketplace data")
+				}
+				if tc.auth == validToken && !slices.Contains(blocklist.lookups, "platform-1") {
+					t.Fatalf("platform token was not checked against the blocklist: %v", blocklist.lookups)
 				}
 				if tc.checks == 1 {
 					input := eval.inputs[0]
