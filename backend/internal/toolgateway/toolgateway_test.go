@@ -88,17 +88,26 @@ func TestAllSeenOrRetained(t *testing.T) {
 	// deg-empty: failed on first contact → degraded, no tools.
 	i.recordResult(ctx, degEmpty, serverKey(degEmpty.TenantID, degEmpty.Name), nil, errors.New("boom"))
 
-	if !i.AllSeenOrRetained([]Server{ok}) {
+	snaps := i.Snapshot()
+	if !AllSeenOrRetained([]Server{ok}, snaps) {
 		t.Error("ok server should satisfy prune-guard")
 	}
-	if !i.AllSeenOrRetained([]Server{ok, degRetained}) {
+	if !AllSeenOrRetained([]Server{ok, degRetained}, snaps) {
 		t.Error("ok + degraded-with-tools should satisfy prune-guard")
 	}
-	if i.AllSeenOrRetained([]Server{ok, degEmpty}) {
+	if AllSeenOrRetained([]Server{ok, degEmpty}, snaps) {
 		t.Error("degraded-without-tools should defer prune")
 	}
-	if i.AllSeenOrRetained([]Server{ok, pending}) {
+	if AllSeenOrRetained([]Server{ok, pending}, snaps) {
 		t.Error("never-seen server should defer prune")
+	}
+
+	// The prune decision reads the captured set, so a server reached after the
+	// capture must not make an older, incomplete keep-list prunable.
+	stale := snaps
+	i.recordResult(ctx, pending, serverKey(pending.TenantID, pending.Name), []Tool{{Name: "t"}}, nil)
+	if AllSeenOrRetained([]Server{ok, pending}, stale) {
+		t.Error("a server reached after the capture made an incomplete keep-list prunable")
 	}
 
 	// Degraded-with-tools must still expose its retained tools in the snapshot.

@@ -336,15 +336,25 @@ func (i *Introspector) Snapshot() []ServerSnapshot {
 
 // AllSeenOrRetained reports whether every server in the list has either been
 // successfully introspected this lifetime (StateOK) or is Degraded with prior
-// tools to retain. A server that has NEVER been reachable since boot (Pending,
-// or Degraded with no tools) returns false — the prune-guard then defers the
-// destructive prune so a cold/partial start cannot revoke live scopes.
-func (i *Introspector) AllSeenOrRetained(servers []Server) bool {
-	i.mu.RLock()
-	defer i.mu.RUnlock()
+// tools to retain. A server that has NEVER been reachable since boot (absent,
+// Pending, or Degraded with no tools) returns false. The prune-guard then
+// defers the destructive prune so a cold/partial start cannot revoke live
+// scopes.
+//
+// It takes an already-captured snapshot set, like BuildScopes, and deliberately
+// does not read the live introspector. The prune decision has to be made
+// against the very snapshots the keep-list was built from: Sync runs
+// concurrently with a heartbeat publish, so re-reading here could pair an
+// incomplete keep-list with a newer state that looks complete, and prune the
+// omitted scopes out of every grant and role.
+func AllSeenOrRetained(servers []Server, snapshots []ServerSnapshot) bool {
+	byKey := make(map[string]ServerSnapshot, len(snapshots))
+	for _, snap := range snapshots {
+		byKey[serverKey(snap.Server.TenantID, snap.Server.Name)] = snap
+	}
 	for _, srv := range servers {
-		snap := i.snapshots[serverKey(srv.TenantID, srv.Name)]
-		if snap == nil {
+		snap, ok := byKey[serverKey(srv.TenantID, srv.Name)]
+		if !ok {
 			return false
 		}
 		if snap.State == StateOK {

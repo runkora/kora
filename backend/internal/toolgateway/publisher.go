@@ -75,7 +75,9 @@ func (p *Publisher) Publish(ctx context.Context) error {
 			fmt.Sprintf("tool %q scope shadows sibling %q", c.Tool, c.ShadowedBy))
 	}
 
-	prune := p.registry.Loaded() && p.introspector.AllSeenOrRetained(servers)
+	// Both halves read what this call already captured, never live state: see
+	// AllSeenOrRetained.
+	prune := p.registry.Loaded() && AllSeenOrRetained(servers, snapshots)
 	if err := p.client.RegisterWithPrune(ctx, ServiceName, CoarseRoutes(), decls, prune); err != nil {
 		return fmt.Errorf("register mcp scopes: %w", err)
 	}
