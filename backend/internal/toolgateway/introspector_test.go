@@ -148,7 +148,7 @@ func TestIntrospectorDue(t *testing.T) {
 		t.Error("a never-reached server was due inside its backoff; every tick would retry it")
 	}
 	i.mu.Lock()
-	i.snapshots[uKey].retryAt = time.Now().Add(-time.Second)
+	i.retries[uKey].at = time.Now().Add(-time.Second)
 	i.mu.Unlock()
 	if !i.due(uKey, unreached) {
 		t.Error("a server that has never been reached should be due once its backoff elapsed")
@@ -209,6 +209,45 @@ func TestToolRequires(t *testing.T) {
 	}
 }
 
+// Sync reports whether anything a consumer reads changed. The caller skips the
+// scope publish and the catalog rewrite when it did not, so a server that stays
+// down costs one failed introspection per retry rather than a global republish.
+func TestIntrospectorSync_ReportsWhetherAnythingChanged(t *testing.T) {
+	ctx := context.Background()
+	endpoint, _ := newFakeMCPServer(t)
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
+	srv := Server{TenantID: "", Name: "s", Endpoint: endpoint, ReintrospectIntervalSeconds: 3600}
+
+	if !i.Sync(ctx, []Server{srv}, true) {
+		t.Fatal("the first sync discovered a server and its tools, so it changed something")
+	}
+	// Same server, same tools: only LastIntrospectedAt moves, which no consumer
+	// reads. Counting it would make the skip useless.
+	if i.Sync(ctx, []Server{srv}, true) {
+		t.Error("a re-sync returning identical tools reported a change")
+	}
+
+	// A server leaving the registry drops its snapshot, which consumers do read.
+	if !i.Sync(ctx, nil, true) {
+		t.Error("dropping a server's snapshot reported no change")
+	}
+}
+
+// A server that is down on every attempt changes nothing after the first
+// failure, so the caller stops republishing while it stays down.
+func TestIntrospectorSync_RepeatedFailureChangesNothing(t *testing.T) {
+	ctx := context.Background()
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
+	down := Server{TenantID: "", Name: "down", Endpoint: "http://127.0.0.1:1/mcp", ReintrospectIntervalSeconds: 3600}
+
+	if !i.Sync(ctx, []Server{down}, true) {
+		t.Fatal("the first failure moved the server to Degraded, which is a change")
+	}
+	if i.Sync(ctx, []Server{down}, true) {
+		t.Error("a repeated identical failure reported a change; the catalog would be rewritten every retry")
+	}
+}
+
 // Per-server backoff: a server that has never been reached schedules its own
 // retry, and that schedule — not the reintrospect interval — decides when due()
 // lets it through. A server already serving tools never schedules one, which is
@@ -219,10 +258,10 @@ func TestIntrospector_PerServerRetryBackoff(t *testing.T) {
 	reachedEmpty := Server{TenantID: "", Name: "empty", ReintrospectIntervalSeconds: 0}
 	i.snapshots[serverKey("", "empty")] = &ServerSnapshot{
 		Server: reachedEmpty, State: StateDegraded, Reached: true, Tools: nil,
-		// Non-zero, or NextRetryIn skips it on the IsZero half of the guard and
-		// the Reached half this asserts is never exercised.
-		retryAt: time.Now().Add(time.Hour),
 	}
+	// A schedule left behind from before it was reached: NextRetryIn must ignore
+	// it, or a reached server keeps shortening the loop's wait.
+	i.retries[serverKey("", "empty")] = &retrySchedule{failures: 1, at: time.Now().Add(time.Hour)}
 	if _, pending := i.NextRetryIn([]Server{reachedEmpty}); pending {
 		t.Error("a server reached once scheduled a retry; the loop would spin on it")
 	}
@@ -233,10 +272,8 @@ func TestIntrospector_PerServerRetryBackoff(t *testing.T) {
 	// A never-reached server is due only once its backoff elapses.
 	down := Server{TenantID: "", Name: "down", ReintrospectIntervalSeconds: 3600}
 	key := serverKey("", "down")
-	i.snapshots[key] = &ServerSnapshot{
-		Server: down, State: StateDegraded, Reached: false,
-		retries: 1, retryAt: time.Now().Add(time.Hour),
-	}
+	i.snapshots[key] = &ServerSnapshot{Server: down, State: StateDegraded, Reached: false}
+	i.retries[key] = &retrySchedule{failures: 1, at: time.Now().Add(time.Hour)}
 	if i.due(key, down) {
 		t.Error("due() = true before the backoff elapsed")
 	}
@@ -244,7 +281,7 @@ func TestIntrospector_PerServerRetryBackoff(t *testing.T) {
 	if !pending || d <= 0 {
 		t.Errorf("NextRetryIn = (%v, %v), want a pending future retry", d, pending)
 	}
-	i.snapshots[key].retryAt = time.Now().Add(-time.Second)
+	i.retries[key].at = time.Now().Add(-time.Second)
 	if !i.due(key, down) {
 		t.Error("due() = false after the backoff elapsed")
 	}
@@ -260,10 +297,8 @@ func TestIntrospector_CappedBackoffStopsShorteningTheWait(t *testing.T) {
 	key := serverKey("", "down")
 
 	// Below the cap it is pending, so the loop retries sooner.
-	i.snapshots[key] = &ServerSnapshot{
-		Server: down, State: StateDegraded, Reached: false,
-		retries: 1, retryAt: time.Now().Add(time.Second),
-	}
+	i.snapshots[key] = &ServerSnapshot{Server: down, State: StateDegraded, Reached: false}
+	i.retries[key] = &retrySchedule{failures: 1, at: time.Now().Add(time.Second)}
 	if _, pending := i.NextRetryIn([]Server{down}); !pending {
 		t.Error("a server below the cap should be pending")
 	}
@@ -273,12 +308,12 @@ func TestIntrospector_CappedBackoffStopsShorteningTheWait(t *testing.T) {
 	for backoffFor(capped) < retryMaxDelay {
 		capped++
 	}
-	i.snapshots[key].retries = capped
+	i.retries[key].failures = capped
 	if _, pending := i.NextRetryIn([]Server{down}); pending {
 		t.Errorf("a server at the %v cap still shortened the wait after %d failures", retryMaxDelay, capped)
 	}
 	// Still retried, just on the configured interval rather than the cap.
-	i.snapshots[key].retryAt = time.Now().Add(-time.Second)
+	i.retries[key].at = time.Now().Add(-time.Second)
 	if !i.due(key, down) {
 		t.Error("a capped server stopped being due; it must still be retried")
 	}

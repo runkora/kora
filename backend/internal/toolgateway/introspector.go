@@ -12,9 +12,11 @@
 package toolgateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -48,6 +50,7 @@ type Introspector struct {
 
 	mu        sync.RWMutex
 	snapshots map[string]*ServerSnapshot // key: serverKey(tenantID, name)
+	retries   map[string]*retrySchedule  // key: serverKey, only while unreached
 }
 
 // NewIntrospector constructs an Introspector.
@@ -58,7 +61,15 @@ func NewIntrospector(creds UpstreamCredentials, version string, logger logging.L
 		timeout:   defaultIntrospectTimeout,
 		logger:    logger,
 		snapshots: make(map[string]*ServerSnapshot),
+		retries:   make(map[string]*retrySchedule),
 	}
+}
+
+// retrySchedule is when a server that has never been reached is next due, and
+// how many consecutive failures set that delay.
+type retrySchedule struct {
+	failures int
+	at       time.Time
 }
 
 // serverKey identifies a server uniquely. Two tenants' servers may share a name
@@ -75,8 +86,9 @@ func serverKey(tenantID, name string) string { return tenantID + "|" + name }
 // honored: force=true (registry reload, and the initial boot cycle)
 // introspects every server unconditionally; force=false (a periodic timer
 // tick) introspects only servers that are due — see due.
-func (i *Introspector) Sync(ctx context.Context, servers []Server, force bool) {
+func (i *Introspector) Sync(ctx context.Context, servers []Server, force bool) bool {
 	current := make(map[string]struct{}, len(servers))
+	dirty := false
 
 	for _, srv := range servers {
 		key := serverKey(srv.TenantID, srv.Name)
@@ -87,7 +99,9 @@ func (i *Introspector) Sync(ctx context.Context, servers []Server, force bool) {
 		}
 
 		tools, err := i.introspectOne(ctx, srv)
-		i.recordResult(ctx, srv, key, tools, err)
+		if i.recordResult(ctx, srv, key, tools, err) {
+			dirty = true
+		}
 	}
 
 	// Drop snapshots for servers no longer registered.
@@ -95,9 +109,12 @@ func (i *Introspector) Sync(ctx context.Context, servers []Server, force bool) {
 	for key := range i.snapshots {
 		if _, ok := current[key]; !ok {
 			delete(i.snapshots, key)
+			delete(i.retries, key)
+			dirty = true
 		}
 	}
 	i.mu.Unlock()
+	return dirty
 }
 
 // due reports whether a server is due for re-introspection on the periodic
@@ -114,7 +131,9 @@ func (i *Introspector) due(key string, srv Server) bool {
 	if seen {
 		last = snap.LastIntrospectedAt
 		neverReached = !snap.Reached
-		retryAt = snap.retryAt
+		if r := i.retries[key]; r != nil {
+			retryAt = r.at
+		}
 	}
 	i.mu.RUnlock()
 
@@ -133,7 +152,11 @@ func (i *Introspector) due(key string, srv Server) bool {
 // recordResult updates the snapshot for one server. On success the tools are
 // replaced and state set OK. On failure the prior tools are retained and state
 // set Degraded — never dropped.
-func (i *Introspector) recordResult(ctx context.Context, srv Server, key string, tools []Tool, err error) {
+// recordResult updates the snapshot for one server and reports whether anything
+// a consumer reads actually changed. On success the tools are replaced and state
+// set OK. On failure the prior tools are retained and state set Degraded, never
+// dropped.
+func (i *Introspector) recordResult(ctx context.Context, srv Server, key string, tools []Tool, err error) bool {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
@@ -142,25 +165,47 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 		snap = &ServerSnapshot{Server: srv, State: StatePending}
 		i.snapshots[key] = snap
 	}
+	before := *snap
 	snap.Server = srv
 	snap.LastIntrospectedAt = time.Now()
 
 	if err != nil {
 		snap.State = StateDegraded
 		snap.LastErr = err.Error()
+
+		first := true
 		if !snap.Reached {
 			// Nothing retained to serve, so schedule its own retry.
-			snap.retries++
-			snap.retryAt = time.Now().Add(backoffFor(snap.retries))
+			r := i.retries[key]
+			if r == nil {
+				r = &retrySchedule{}
+				i.retries[key] = r
+			}
+			r.failures++
+			r.at = time.Now().Add(backoffFor(r.failures))
+			first = r.failures == 1
 		}
-		i.logger.Error(ctx, "MCP server introspection failed — retaining prior tools",
-			logging.Field{Key: "server", Value: srv.Name},
-			logging.Field{Key: "tenant_id", Value: srv.TenantID},
-			logging.Field{Key: "endpoint", Value: srv.Endpoint},
-			logging.Field{Key: "retained_tools", Value: len(snap.Tools)},
-			logging.Field{Key: "reason", Value: failureReason(err)},
-			logging.Field{Key: "error", Value: err.Error()})
-		return
+
+		// A server that stays down is logged once at Error and then at Warn, or it
+		// reports an incident on every retry for as long as it is down.
+		msg := "MCP server introspection failed"
+		fields := []logging.Field{
+			{Key: "server", Value: srv.Name},
+			{Key: "tenant_id", Value: srv.TenantID},
+			{Key: "endpoint", Value: srv.Endpoint},
+			{Key: "reason", Value: failureReason(err)},
+			{Key: "error", Value: err.Error()},
+		}
+		if len(snap.Tools) > 0 {
+			msg += " — retaining prior tools"
+			fields = append(fields, logging.Field{Key: "retained_tools", Value: len(snap.Tools)})
+		}
+		if first {
+			i.logger.Error(ctx, msg, fields...)
+		} else {
+			i.logger.Warn(ctx, msg, fields...)
+		}
+		return changed(before, *snap)
 	}
 
 	sort.Slice(tools, func(a, b int) bool { return tools[a].Name < tools[b].Name })
@@ -168,11 +213,31 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 	snap.State = StateOK
 	snap.LastErr = ""
 	snap.Reached = true
-	snap.retries, snap.retryAt = 0, time.Time{}
+	delete(i.retries, key)
 	i.logger.Info(ctx, "MCP server introspected",
 		logging.Field{Key: "server", Value: srv.Name},
 		logging.Field{Key: "tenant_id", Value: srv.TenantID},
 		logging.Field{Key: "tools", Value: len(tools)})
+	return changed(before, *snap)
+}
+
+// changed reports whether a snapshot difference is one a consumer reads. The
+// publisher and catalog read tools, state and the error; LastIntrospectedAt
+// moves on every attempt and must not count, or nothing is ever skipped.
+func changed(before, after ServerSnapshot) bool {
+	if before.State != after.State || before.LastErr != after.LastErr ||
+		before.Reached != after.Reached || len(before.Tools) != len(after.Tools) {
+		return true
+	}
+	for n := range after.Tools {
+		a, b := after.Tools[n], before.Tools[n]
+		if a.Name != b.Name || a.Description != b.Description ||
+			!bytes.Equal(a.InputSchema, b.InputSchema) ||
+			!slices.Equal(a.RequiresScopes, b.RequiresScopes) {
+			return true
+		}
+	}
+	return false
 }
 
 // introspectOne opens an MCP session to the server and lists its tools
@@ -323,19 +388,23 @@ func (i *Introspector) NextRetryIn(servers []Server) (time.Duration, bool) {
 	defer i.mu.RUnlock()
 	var earliest time.Time
 	for _, srv := range servers {
-		snap := i.snapshots[serverKey(srv.TenantID, srv.Name)]
+		key := serverKey(srv.TenantID, srv.Name)
+		snap := i.snapshots[key]
 		if snap == nil {
 			return 0, true // never introspected: due now
 		}
-		// At the cap the fast retry has served its purpose. Leaving it pending
-		// would hold the whole cycle at retryMaxDelay for as long as one server
-		// stays down, and the cycle republishes every scope and rewrites the
-		// catalog.
-		if snap.Reached || snap.retryAt.IsZero() || backoffFor(snap.retries) >= retryMaxDelay {
+		if snap.Reached {
 			continue
 		}
-		if earliest.IsZero() || snap.retryAt.Before(earliest) {
-			earliest = snap.retryAt
+		// At the cap the fast retry has served its purpose. Leaving it pending
+		// holds the whole cycle at retryMaxDelay for as long as one server stays
+		// down.
+		r := i.retries[key]
+		if r == nil || backoffFor(r.failures) >= retryMaxDelay {
+			continue
+		}
+		if earliest.IsZero() || r.at.Before(earliest) {
+			earliest = r.at
 		}
 	}
 	if earliest.IsZero() {

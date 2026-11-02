@@ -81,8 +81,4 @@ type ServerSnapshot struct {
 	LastIntrospectedAt time.Time
 	// Reached is true once any introspection of this server has succeeded.
 	Reached bool
-
-	// Retry schedule for a server that has never been reached.
-	retries int
-	retryAt time.Time
 }
