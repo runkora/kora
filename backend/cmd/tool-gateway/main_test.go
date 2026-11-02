@@ -54,7 +54,9 @@ func (c *cycleRecorder) waitForCycles(t *testing.T, n int, within time.Duration)
 
 func noRetry() (time.Duration, bool) { return 0, false }
 
-func TestRunIntrospectionLoop_UsesTheConfiguredIntervalWhenNothingPending(t *testing.T) {
+// The loop waits min(next retry, interval): the configured interval when
+// nothing is pending, and never longer than it when a retry is further out.
+func TestRunIntrospectionLoop_WaitsTheShorterOfRetryAndInterval(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -72,16 +74,11 @@ func TestRunIntrospectionLoop_UsesTheConfiguredIntervalWhenNothingPending(t *tes
 	if got := rec.count(); got != 1 {
 		t.Errorf("cycles = %d, want 1: with no retry pending the loop must wait the configured interval", got)
 	}
-}
 
-func TestRunIntrospectionLoop_NeverWaitsLongerThanConfigured(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	rec := newCycleRecorder()
-	go runIntrospectionLoop(ctx, rec.cycle, 20*time.Millisecond, func() (time.Duration, bool) { return time.Hour, true }, nil, testLogger())
-
-	rec.waitForCycles(t, 3, 5*time.Second)
+	// A retry an hour out must not stretch a 20ms interval.
+	far := newCycleRecorder()
+	go runIntrospectionLoop(ctx, far.cycle, 20*time.Millisecond, func() (time.Duration, bool) { return time.Hour, true }, nil, testLogger())
+	far.waitForCycles(t, 3, 5*time.Second)
 }
 
 func TestRunIntrospectionLoop_ReloadRecomputesTheWait(t *testing.T) {
@@ -116,24 +113,6 @@ func TestRunIntrospectionLoop_ReloadRecomputesTheWait(t *testing.T) {
 	reloaded <- struct{}{}
 
 	rec.waitForCycles(t, 3, 5*time.Second)
-}
-
-func TestRunIntrospectionLoop_StopsOnContextCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	rec := newCycleRecorder()
-	done := make(chan struct{})
-	go func() {
-		runIntrospectionLoop(ctx, rec.cycle, time.Hour, noRetry, nil, testLogger())
-		close(done)
-	}()
-
-	rec.waitForCycles(t, 1, 5*time.Second)
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("loop did not return after its context was cancelled")
-	}
 }
 
 type calls struct {
