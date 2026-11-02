@@ -710,3 +710,97 @@ func TestSkillMarketplaceAggregator_NoSourcesStillWritesEmptyList(t *testing.T) 
 		t.Errorf("skills-mapping.yaml = %q, want %q", cm.Data["skills-mapping.yaml"], want)
 	}
 }
+
+// chartOwnedConfigMap is the ConfigMap the chart renders when
+// skillsService.skillsMapping lists tenants.
+func chartOwnedConfigMap(data string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        marketplace.SourcesConfigMapName,
+			Namespace:   systemNamespace,
+			Annotations: map[string]string{marketplace.ChartMappingAnnotation: "true"},
+		},
+		Data: map[string]string{marketplace.SourcesFileName: data},
+	}
+}
+
+// Without the annotation check the operator would replace the chart's list on
+// every tenant reconcile, and helm upgrade would put it back.
+func TestSkillMarketplaceAggregator_LeavesAChartOwnedMappingAlone(t *testing.T) {
+	ctx := context.Background()
+	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
+	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	const chartData = "skillsMapping:\n  tenants:\n  - id: other\n    marketplaces:\n    - https://github.com/example/core-skills\n"
+	existing := chartOwnedConfigMap(chartData)
+	c := newMarketplaceClient(t, &tenant, &src, existing)
+
+	if err := newTestMarketplaceAggregator(c).Sync(ctx); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	got := &corev1.ConfigMap{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(existing), got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Data[marketplace.SourcesFileName] != chartData {
+		t.Errorf("skills-mapping.yaml = %q, want the chart's %q kept", got.Data[marketplace.SourcesFileName], chartData)
+	}
+}
+
+// A source the operator would have rendered waits on the chart instead, while a
+// source excluded for its own reason keeps that reason, which is still the one
+// its tenant can act on.
+func TestSkillMarketplaceAggregator_ChartOwnedMappingKeepsSourcesPending(t *testing.T) {
+	ctx := context.Background()
+	const ns = "orbit-tenant-acme"
+	tenant := marketTenant("acme", true, "acme-corp/approved")
+	approved := marketSrc(ns, "approved", "acme-corp", "approved", marketplaceT0)
+	waiting := marketSrc(ns, "waiting", "acme-corp", "waiting", marketplaceT0)
+	c := newMarketplaceClient(t, &tenant, &approved, &waiting, chartOwnedConfigMap("skillsMapping:\n  tenants: []\n"))
+
+	if err := newTestMarketplaceAggregator(c).Sync(ctx); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	assertMarketplaceStatus(t, getMarketplaceSource(t, c, client.ObjectKeyFromObject(&approved)),
+		SkillMarketplaceSourcePhasePending, MarketplaceReasonMappingManagedByChart, metav1.ConditionFalse)
+	assertMarketplaceStatus(t, getMarketplaceSource(t, c, client.ObjectKeyFromObject(&waiting)),
+		SkillMarketplaceSourcePhasePending, MarketplaceReasonNotAllowlisted, metav1.ConditionFalse)
+}
+
+// Emptying skillsService.skillsMapping makes helm upgrade drop the key and the
+// annotation, and the next run renders the sources again.
+func TestSkillMarketplaceAggregator_RendersAgainOnceTheChartLetsGo(t *testing.T) {
+	ctx := context.Background()
+	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
+	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	existing := chartOwnedConfigMap("skillsMapping:\n  tenants: []\n")
+	c := newMarketplaceClient(t, &tenant, &src, existing)
+	a := newTestMarketplaceAggregator(c)
+	key := client.ObjectKeyFromObject(&src)
+
+	if err := a.Sync(ctx); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	assertMarketplaceStatus(t, getMarketplaceSource(t, c, key),
+		SkillMarketplaceSourcePhasePending, MarketplaceReasonMappingManagedByChart, metav1.ConditionFalse)
+
+	cm := &corev1.ConfigMap{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(existing), cm); err != nil {
+		t.Fatal(err)
+	}
+	cm.Annotations = nil
+	cm.Data = nil
+	if err := c.Update(ctx, cm); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.Sync(ctx); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	assertMarketplaceStatus(t, getMarketplaceSource(t, c, key),
+		SkillMarketplaceSourcePhaseAggregated, MarketplaceReasonAggregated, metav1.ConditionTrue)
+	if got := marketplaceLinks(readMarketplaceFile(t, c))["acme"]; !slices.Equal(got, []string{"https://github.com/acme-corp/internal-skills"}) {
+		t.Errorf("acme links = %v, want the approved source rendered", got)
+	}
+}

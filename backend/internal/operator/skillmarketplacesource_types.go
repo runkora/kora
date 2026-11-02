@@ -23,7 +23,8 @@ import (
 // SkillMarketplaceSource phases.
 const (
 	// SkillMarketplaceSourcePhasePending means the source is valid but not
-	// served yet: its tenant is inactive, or its repository is not approved.
+	// served yet: its tenant is inactive, its repository is not approved, or
+	// the chart sets the marketplace list itself.
 	SkillMarketplaceSourcePhasePending = "Pending"
 	// SkillMarketplaceSourcePhaseAggregated means the source was rendered into
 	// orbit-skill-marketplace-sources for its tenant.
@@ -41,6 +42,7 @@ const (
 	MarketplaceReasonNotAllowlisted            = "NotAllowlisted"
 	MarketplaceReasonGlobalSourcesNotSupported = "GlobalSourcesNotSupported"
 	MarketplaceReasonDuplicateRepository       = "DuplicateRepository"
+	MarketplaceReasonMappingManagedByChart     = "MappingManagedByChart"
 )
 
 // SkillMarketplaceSource registers a GitHub repository as a skill marketplace

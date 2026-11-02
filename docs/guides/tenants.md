@@ -87,6 +87,8 @@ Before adding an entry:
 
 Apply it with `kubectl edit orbittenant <name>` or through GitOps. The operator re-renders the marketplace list when it sees the change to the `OrbitTenant`, and the source moves from `Pending` to `Aggregated`. Removing an entry takes the source out of the marketplace the same way. kora does not track or notify pending requests, so agree an approval turnaround with your tenants.
 
+While `skillsService.skillsMapping` in the release values lists tenants, the chart's list is served instead of the operator's, and an approved source stays `Pending` with reason `MappingManagedByChart`. That list is not checked against `allowedMarketplaceRepos`. See [marketplace sources](deployment.md#marketplace-sources) in the deployment guide.
+
 Periodically compare each tenant's list with the sources registered against it, and remove entries no source uses. An unused entry lets the tenant register that repository again without asking you:
 
 ```bash

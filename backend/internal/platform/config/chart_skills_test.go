@@ -16,6 +16,7 @@ import (
 	skillsConfig "github.com/clear-route/orbit/cmd/skills-service/config"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/marketplace"
 	"github.com/clear-route/orbit/internal/skills"
 )
 
@@ -189,5 +190,30 @@ func TestChartSkillsServiceWiring(t *testing.T) {
 	want := fmt.Sprintf("http://orbit-skills-service.orbit-system.svc.cluster.local:%d/v1", port)
 	if got := frontend.Data["SKILLS_SERVICE_URL"]; got != want {
 		t.Errorf("frontend Skills URL = %q, want %q", got, want)
+	}
+}
+
+// The annotation tells the operator to leave skills-mapping.yaml to Helm, so the
+// chart sets it exactly when it writes the key.
+func TestChartSkillsMappingAnnotatesTheConfigMapWhenItWritesTheKey(t *testing.T) {
+	cases := []struct {
+		name   string
+		values string
+		want   bool
+	}{
+		{name: "empty defaults", values: "{}\n", want: false},
+		{name: "tenant sources", values: skillsMappingValues, want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := renderChart(t, tc.values, "--show-only", "templates/skills-service/configmap.yaml")
+			var cm corev1.ConfigMap
+			if err := yaml.Unmarshal([]byte(out), &cm); err != nil {
+				t.Fatal(err)
+			}
+			if got := cm.Annotations[marketplace.ChartMappingAnnotation] == "true"; got != tc.want {
+				t.Errorf("%s set = %v, want %v (annotations %v)", marketplace.ChartMappingAnnotation, got, tc.want, cm.Annotations)
+			}
+		})
 	}
 }

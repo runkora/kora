@@ -17,6 +17,10 @@ const (
 	// SourcesFileName is its data key, and the file skills-service reads from the
 	// mounted directory.
 	SourcesFileName = "skills-mapping.yaml"
+	// ChartMappingAnnotation is set to "true" on the ConfigMap when the orbit
+	// chart writes SourcesFileName from skillsService.skillsMapping. The operator
+	// then leaves the key to Helm, so the two never overwrite each other.
+	ChartMappingAnnotation = "orbit.io/skills-mapping-from-chart"
 )
 
 // SourcesFile is the wire shape of skills-mapping.yaml.

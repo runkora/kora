@@ -139,6 +139,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) — `Accepted` · 2026-09-28
 - [Agent Run Guardrails](2026-09-29-agent-run-guardrails.md) — `Accepted (Amended 2026-09-30)` · 2026-09-29
 - [Agent Marketplace Backend](2026-08-28-marketplace-adr-backend.md) — `Proposed` · 2026-09-17
+- [Skill Marketplace Source Registration via a Tenant-Scoped CRD](2026-10-13-skill-marketplace-source-registration.md) — `Proposed (Amended 2026-10-30)` · 2026-10-13
 
 ### MCP / Tool Gateway
 
@@ -313,23 +314,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-11 | [Hades Versioning and Theme Surface Manifest](2026-10-11-hades-versioning-and-theme-surface-manifest.md) | Accepted | — |
 | 2026-10-11 | [Hades Delivery to External Consumers](2026-10-11-hades-delivery-to-external-consumers.md) | Accepted | — |
 | 2026-10-12 | [Run Scheduling](2026-10-12-run-scheduling.md) | Accepted | — |
-| 2026-10-12 | [White-labelling Theme](2026-10-12-white-labelling-theme.md) | Accepted | — |
-| 2026-10-13 | [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) | Accepted | — |
-| 2026-10-15 | [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) | Accepted | — |
-| 2026-10-19 | [Trigger Routing](2026-10-19-trigger-routing.md) | Accepted | — |
-| 2026-10-19 | [Explain GitHub's Workflow-File Push Refusal at the Egress Gateway](2026-10-19-workflow-push-refusal-message.md) | Accepted | — |
-| 2026-10-20 | [Chat Command Triggers](2026-10-20-chat-command-triggers.md) | Accepted | — |
-| 2026-10-20 | [Non-Text Model Discovery on Compatible Providers](2026-10-20-compatible-non-text-model-discovery.md) | Accepted | — |
-| 2026-10-20 | [Per-Run Cost on the Run Record](2026-10-20-run-cost-on-run-record.md) | Proposed | — |
-| 2026-10-19 | [Repository Id Owner Selection in the Egress Gateway](2026-10-19-repository-id-owner-selection.md) | Accepted | — |
-| 2026-10-20 | [Actions Results Receiver Classification](2026-10-20-actions-results-receiver-classification.md) | Accepted | — |
-| 2026-10-22 | [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md) | Accepted | — |
-| 2026-10-24 | [Declarative Resources](2026-10-24-declarative-resources.md) | Accepted | — |
-| 2026-10-26 | [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) | Accepted (Amended 2026-11-04) | — |
-| 2026-10-26 | [Release Asset Downloads Without Connection Selection](2026-10-26-release-asset-downloads-without-connection-selection.md) | Proposed | — |
-| 2026-10-27 | [Generic Webhook Source](2026-10-27-generic-webhook-source.md) | Accepted | — |
-| 2026-10-31 | [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) | Accepted (Amended 2026-11-01) | — |
-| 2026-11-03 | [Run Outcome and Duration Metrics](2026-11-03-run-outcome-and-duration-metrics.md) | Accepted | — |
-| 2026-11-03 | [Agent Attribution on Model and Harness Spans](2026-11-03-agent-attribution-on-spans.md) | Accepted | — |
-| 2026-11-04 | [Tenant Switching](2026-11-04-tenant-switching.md) | Accepted | — |
+| 2026-10-13 | [Skill Marketplace Source Registration via a Tenant-Scoped CRD](2026-10-13-skill-marketplace-source-registration.md) | Proposed (Amended 2026-10-30) | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

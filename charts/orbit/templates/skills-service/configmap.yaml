@@ -7,11 +7,13 @@ metadata:
 {{- /*
 The chart owns skills-mapping.yaml only when skillsMapping lists tenants. By
 default it creates an empty ConfigMap, so the mount exists, and leaves the key to
-the operator, which renders it from SkillMarketplaceSource resources. A key that
-Helm and the operator both write makes helm upgrade fail with a field conflict,
-or reset the operator's data.
+the operator, which renders it from SkillMarketplaceSource resources. When the
+chart writes the key it also sets the annotation below, and the operator stops
+writing it; otherwise each would overwrite the other's list.
 */}}
 {{- if $mapping.tenants }}
+  annotations:
+    orbit.io/skills-mapping-from-chart: "true"
 data:
   skills-mapping.yaml: |
     {{- dict "skillsMapping" $mapping | toYaml | nindent 4 }}

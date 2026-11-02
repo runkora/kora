@@ -376,7 +376,7 @@ Use the narrowest CIDRs and ports in `networkPolicy.externalServices` that cover
 
 ### Marketplace sources
 
-Set the approved Marketplace repositories in the release values. Each tenant ID must match the `metadata.name` of an `OrbitTenant` resource, which the operator publishes as the platform tenant ID:
+Tenants register their own marketplaces with [skill marketplace sources](skill-marketplace-sources.md), which a platform administrator [approves on the `OrbitTenant`](tenants.md#approving-skill-marketplace-repositories). Alternatively, set the Marketplace repositories in the release values. Each tenant ID must match the `metadata.name` of an `OrbitTenant` resource, which the operator publishes as the platform tenant ID:
 
 ```yaml
 skillsService:
@@ -387,7 +387,11 @@ skillsService:
           - https://github.com/your-org/your-skills
 ```
 
-The chart writes this mapping to `orbit-skill-marketplace-sources` as `skills-mapping.yaml`, mounted at `/etc/orbit/marketplace/skills-mapping.yaml`. An empty tenant list leaves the key out, so the chart creates an empty ConfigMap and the operator can render `skills-mapping.yaml` from `SkillMarketplaceSource` resources; skills-service treats a missing file as an empty registry. Do not list tenants here and let the operator write the same key: a Helm upgrade would fail with a field conflict, or reset the operator's data. The first Secret named in `skillsService.githubApps` must contain `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `private-key.pem`. The service reads and validates the private key at startup; restart it after rotating that key.
+The chart writes this mapping to `orbit-skill-marketplace-sources` as `skills-mapping.yaml`, mounted at `/etc/orbit/marketplace/skills-mapping.yaml`. An empty tenant list leaves the key out, so the chart creates an empty ConfigMap and the operator can render `skills-mapping.yaml` from `SkillMarketplaceSource` resources; skills-service treats a missing file as an empty registry.
+
+Listing tenants here hands the file to the chart. The chart sets the annotation `orbit.io/skills-mapping-from-chart: "true"` on the ConfigMap, and the operator stops writing `skills-mapping.yaml`. Sources the operator would otherwise serve stay `Pending` with reason `MappingManagedByChart`. The chart's list is served as written: nothing checks it against any tenant's `allowedMarketplaceRepos`, so review it like an allowlist change. To hand the file back to the operator, empty the list and upgrade the release. The operator renders the sources the next time it reconciles a tenant, within five minutes.
+
+The first Secret named in `skillsService.githubApps` must contain `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `private-key.pem`. The service reads and validates the private key at startup; restart it after rotating that key.
 
 The registry loads the file at startup and watches its directory for updates. Direct ConfigMap edits are reloaded after Kubernetes updates the mounted file; malformed YAML keeps the previous sources. Changing the mapping through a Helm upgrade also changes the pod-template checksum and rolls skills-service. Source declarations remain scoped to the authenticated caller's tenant; requests still require `marketplace:read`.
 
