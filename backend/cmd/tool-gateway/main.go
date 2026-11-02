@@ -149,7 +149,6 @@ func realMain() error {
 			},
 			logger,
 		)
-		// Non-blocking: OnReload must not wait on a loop mid-cycle.
 		reloaded := make(chan struct{}, 1)
 		registry.OnReload(func(ctx context.Context) {
 			cycle(ctx, true)
@@ -205,17 +204,9 @@ func realMain() error {
 	return nil
 }
 
-// newCycle returns the introspect, publish, rebuild cycle, serialized so the
-// reload hook and the timer never race.
-//
-// publish and rebuild are skipped when introspect reports that nothing a consumer
-// reads changed. Both are global and expensive: one registers every scope with
-// policy-service, the other rewrites the whole tool catalog. A server that
-// stays down would otherwise pay for both on every retry.
-//
-// Starts dirty so the boot cycle always runs, and is marked dirty again when
-// either call fails, so an outage is retried rather than waiting for a snapshot
-// to happen to change.
+// newCycle returns the serialized introspect, publish, rebuild cycle. publish
+// and rebuild are skipped when introspect reports no change, and retried when
+// either fails.
 func newCycle(
 	introspect func(ctx context.Context, force bool) bool,
 	publish func(context.Context) error,
@@ -245,10 +236,8 @@ func newCycle(
 	}
 }
 
-// runIntrospectionLoop runs the cycle once at boot, then waits
-// min(nextRetry, interval) each pass. Recomputed rather than held in a ticker so
-// the loop follows the introspector's backoff and settles back to interval once
-// every server is reached. A reload signal recomputes the wait immediately.
+// runIntrospectionLoop runs the cycle at boot, then waits
+// min(nextRetry, interval) each pass. A reload recomputes that wait.
 func runIntrospectionLoop(
 	ctx context.Context,
 	cycle func(context.Context, bool),
@@ -273,7 +262,6 @@ func runIntrospectionLoop(
 			timer.Stop()
 			return
 		case <-reloaded:
-			// The reload ran its own cycle; just recompute the wait.
 			timer.Stop()
 			continue
 		case <-timer.C:

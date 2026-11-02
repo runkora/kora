@@ -12,7 +12,6 @@ import (
 
 func testLogger() logging.Logger { return logging.NewLogger() }
 
-// cycleRecorder counts cycle calls and signals each one.
 type cycleRecorder struct {
 	mu    sync.Mutex
 	calls int
@@ -39,7 +38,6 @@ func (c *cycleRecorder) count() int {
 	return c.calls
 }
 
-// waitForCycles blocks until the loop has run n cycles, or fails.
 func (c *cycleRecorder) waitForCycles(t *testing.T, n int, within time.Duration) {
 	t.Helper()
 	deadline := time.After(within)
@@ -54,7 +52,6 @@ func (c *cycleRecorder) waitForCycles(t *testing.T, n int, within time.Duration)
 
 func noRetry() (time.Duration, bool) { return 0, false }
 
-// With nothing awaiting a retry the loop waits the configured interval.
 func TestRunIntrospectionLoop_UsesTheConfiguredIntervalWhenNothingPending(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -69,8 +66,6 @@ func TestRunIntrospectionLoop_UsesTheConfiguredIntervalWhenNothingPending(t *tes
 	}
 }
 
-// The configured interval is the ceiling: a retry further out than it must not
-// stretch the wait beyond what the deployment asked for.
 func TestRunIntrospectionLoop_NeverWaitsLongerThanConfigured(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -81,7 +76,6 @@ func TestRunIntrospectionLoop_NeverWaitsLongerThanConfigured(t *testing.T) {
 	rec.waitForCycles(t, 3, 5*time.Second)
 }
 
-// A reload that lands an unreachable server must not sit out a long wait.
 func TestRunIntrospectionLoop_ReloadRecomputesTheWait(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -102,15 +96,12 @@ func TestRunIntrospectionLoop_ReloadRecomputesTheWait(t *testing.T) {
 	go runIntrospectionLoop(ctx, rec.cycle, time.Hour, next, reloaded, testLogger())
 	rec.waitForCycles(t, 1, 5*time.Second) // boot cycle, then parks on the hour
 
-	// With nothing pending the reload must only recompute the wait. If it ran a
-	// cycle of its own the count would move.
 	reloaded <- struct{}{}
 	time.Sleep(200 * time.Millisecond)
 	if got := rec.count(); got != 1 {
 		t.Fatalf("cycles = %d after a reload with nothing pending, want 1: the reload arm must not run a cycle", got)
 	}
 
-	// Now a retry is pending, so the recomputed wait is the short one.
 	mu.Lock()
 	pending = true
 	mu.Unlock()
@@ -119,7 +110,6 @@ func TestRunIntrospectionLoop_ReloadRecomputesTheWait(t *testing.T) {
 	rec.waitForCycles(t, 3, 5*time.Second)
 }
 
-// Cancelling the context ends the loop rather than leaving it parked on a timer.
 func TestRunIntrospectionLoop_StopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	rec := newCycleRecorder()
@@ -138,7 +128,6 @@ func TestRunIntrospectionLoop_StopsOnContextCancel(t *testing.T) {
 	}
 }
 
-// calls counts publish and rebuild, and can fail either on demand.
 type calls struct {
 	publish, rebuild       int
 	publishErr, rebuildErr error
@@ -147,9 +136,6 @@ type calls struct {
 func (c *calls) pub(context.Context) error { c.publish++; return c.publishErr }
 func (c *calls) reb(context.Context) error { c.rebuild++; return c.rebuildErr }
 
-// The boot cycle always publishes, and a cycle that changes nothing skips both
-// calls. This is the whole point of the change: a server that stays down must
-// not cost a scope republish and a catalog rewrite on every retry.
 func TestNewCycle_SkipsWhenNothingChanged(t *testing.T) {
 	ctx := context.Background()
 	c := &calls{}
@@ -173,9 +159,6 @@ func TestNewCycle_SkipsWhenNothingChanged(t *testing.T) {
 	}
 }
 
-// A failed publish must be retried on the next cycle even though nothing
-// changed, or a policy-service outage strands the scopes until something
-// unrelated happens to move.
 func TestNewCycle_RetriesAfterAFailedPublish(t *testing.T) {
 	ctx := context.Background()
 	c := &calls{publishErr: errors.New("policy-service down")}
@@ -201,8 +184,6 @@ func TestNewCycle_RetriesAfterAFailedPublish(t *testing.T) {
 	}
 }
 
-// The same guarantee for the catalog write, which fails independently of the
-// publish.
 func TestNewCycle_RetriesAfterAFailedRebuild(t *testing.T) {
 	ctx := context.Background()
 	c := &calls{rebuildErr: errors.New("db down")}

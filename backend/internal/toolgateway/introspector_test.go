@@ -140,9 +140,7 @@ func TestIntrospectorDue(t *testing.T) {
 	}
 
 	// A reload-only server that was unreachable at startup must be retried on
-	// the timer, or it serves no tools until the next registry change. It is now
-	// retried on its own backoff rather than on every tick: due() holds it until
-	// the delay elapses, and the loop wakes exactly then.
+	// the timer, gated on its own backoff.
 	unreached := Server{TenantID: "", Name: "unreached", ReintrospectIntervalSeconds: 0}
 	uKey := serverKey(unreached.TenantID, unreached.Name)
 	i.recordResult(context.Background(), unreached, uKey, nil, errors.New("connect: service unavailable"))
@@ -211,8 +209,6 @@ func TestToolRequires(t *testing.T) {
 	}
 }
 
-// capturingLogger records the level of each message, so a test can assert that
-// a failure is reported once as an incident and then quietly.
 type capturingLogger struct {
 	mu     sync.Mutex
 	levels []string
@@ -237,9 +233,6 @@ func (l *capturingLogger) seen() []string {
 	return slices.Clone(l.levels)
 }
 
-// A server that stays down must report one incident, not one per retry. This
-// covers the server that was WORKING and then went down, which is the common
-// case and the one a never-reached check misses.
 func TestIntrospector_FailureLogsErrorOnceThenWarns(t *testing.T) {
 	ctx := context.Background()
 	log := &capturingLogger{}
@@ -266,10 +259,8 @@ func TestIntrospector_FailureLogsErrorOnceThenWarns(t *testing.T) {
 	}
 }
 
-// Two identical failures whose error strings differ must not count as a change.
 // A net.OpError carries the resolved ip:port, so the message moves between
-// attempts that are otherwise the same, and republishing on it would defeat the
-// skip entirely.
+// otherwise identical failures.
 func TestIntrospector_VaryingErrorTextIsNotAChange(t *testing.T) {
 	ctx := context.Background()
 	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
@@ -284,9 +275,6 @@ func TestIntrospector_VaryingErrorTextIsNotAChange(t *testing.T) {
 	}
 }
 
-// Sync reports whether anything a consumer reads changed. The caller skips the
-// scope publish and the catalog rewrite when it did not, so a server that stays
-// down costs one failed introspection per retry rather than a global republish.
 func TestIntrospectorSync_ReportsWhetherAnythingChanged(t *testing.T) {
 	ctx := context.Background()
 	endpoint, _ := newFakeMCPServer(t)
@@ -296,7 +284,6 @@ func TestIntrospectorSync_ReportsWhetherAnythingChanged(t *testing.T) {
 	if !i.Sync(ctx, []Server{srv}, true) {
 		t.Fatal("the first sync discovered a server and its tools, so it changed something")
 	}
-	// Only LastIntrospectedAt moves, and no consumer reads it.
 	if i.Sync(ctx, []Server{srv}, true) {
 		t.Error("a re-sync returning identical tools reported a change")
 	}
@@ -306,8 +293,6 @@ func TestIntrospectorSync_ReportsWhetherAnythingChanged(t *testing.T) {
 	}
 }
 
-// A server that is down on every attempt changes nothing after the first
-// failure, so the caller stops republishing while it stays down.
 func TestIntrospectorSync_RepeatedFailureChangesNothing(t *testing.T) {
 	ctx := context.Background()
 	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
@@ -321,18 +306,12 @@ func TestIntrospectorSync_RepeatedFailureChangesNothing(t *testing.T) {
 	}
 }
 
-// Per-server backoff: a server that has never been reached schedules its own
-// retry, and that schedule — not the reintrospect interval — decides when due()
-// lets it through. A server already serving tools never schedules one, which is
-// what keeps the loop from spinning on a reached-but-empty server.
 func TestIntrospector_PerServerRetryBackoff(t *testing.T) {
 	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
-	// Reload-only server (interval 0) reached once with zero tools, then degraded.
 	reachedEmpty := Server{TenantID: "", Name: "empty", ReintrospectIntervalSeconds: 0}
 	i.snapshots[serverKey("", "empty")] = &ServerSnapshot{
 		Server: reachedEmpty, State: StateDegraded, Reached: true, Tools: nil,
 	}
-	// A schedule left over from before it was reached.
 	i.retries[serverKey("", "empty")] = &retrySchedule{failures: 1, at: time.Now().Add(time.Hour)}
 	if _, pending := i.NextRetryIn([]Server{reachedEmpty}); pending {
 		t.Error("a server reached once scheduled a retry; the loop would spin on it")
@@ -341,7 +320,6 @@ func TestIntrospector_PerServerRetryBackoff(t *testing.T) {
 		t.Error("a reached reload-only server should not be due on an unforced tick")
 	}
 
-	// A never-reached server is due only once its backoff elapses.
 	down := Server{TenantID: "", Name: "down", ReintrospectIntervalSeconds: 3600}
 	key := serverKey("", "down")
 	i.snapshots[key] = &ServerSnapshot{Server: down, State: StateDegraded, Reached: false}
@@ -359,10 +337,6 @@ func TestIntrospector_PerServerRetryBackoff(t *testing.T) {
 	}
 }
 
-// A server whose backoff has reached the cap must stop shortening the loop's
-// wait. The cycle republishes every scope and rewrites the whole catalog, so
-// leaving one dead server pending at the cap runs that five times more often
-// than configured, for as long as the server stays down.
 func TestIntrospector_CappedBackoffStopsShorteningTheWait(t *testing.T) {
 	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 	down := Server{TenantID: "", Name: "down", ReintrospectIntervalSeconds: 3600}
@@ -388,8 +362,6 @@ func TestIntrospector_CappedBackoffStopsShorteningTheWait(t *testing.T) {
 	}
 }
 
-// The delay doubles per consecutive failure and caps, so a server that never
-// comes up settles to a cheap poll instead of retrying forever at the base.
 func TestIntrospector_BackoffGrowsAndCaps(t *testing.T) {
 	if got := backoffFor(1); got != retryBaseDelay {
 		t.Errorf("backoffFor(1) = %v, want %v", got, retryBaseDelay)

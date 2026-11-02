@@ -32,8 +32,8 @@ const introspectClientName = "kora-tool-gateway"
 // defaultIntrospectTimeout bounds a single server's initialize + tools/list.
 const defaultIntrospectTimeout = 15 * time.Second
 
-// Backoff for a server that has never been reached. Independent of
-// ReintrospectIntervalSeconds, which paces re-reads of a working server.
+// Backoff for a server that has never been reached, independent of
+// ReintrospectIntervalSeconds.
 const (
 	retryBaseDelay = 2 * time.Second
 	retryMaxDelay  = time.Minute
@@ -65,8 +65,7 @@ func NewIntrospector(creds UpstreamCredentials, version string, logger logging.L
 	}
 }
 
-// retrySchedule is when a server that has never been reached is next due, and
-// how many consecutive failures set that delay.
+// retrySchedule is when a never-reached server is next due.
 type retrySchedule struct {
 	failures int
 	at       time.Time
@@ -82,8 +81,7 @@ func serverKey(tenantID, name string) string { return tenantID + "|" + name }
 // leave the keep-list). Each server is introspected independently; one failure
 // never aborts the batch.
 //
-// Returns whether any snapshot changed in a way a consumer reads, so the caller
-// can skip the scope publish and the catalog rewrite when nothing did.
+// Returns whether a consumer-visible value changed.
 //
 // force controls whether a server's own ReintrospectIntervalSeconds is
 // honored: force=true (registry reload, and the initial boot cycle)
@@ -121,11 +119,11 @@ func (i *Introspector) Sync(ctx context.Context, servers []Server, force bool) b
 }
 
 // due reports whether a server is due for re-introspection on the periodic
-// timer. A server never introspected this lifetime is always due. One that has
-// never been reached is due once its own backoff elapses. Otherwise a server
-// with ReintrospectIntervalSeconds <= 0 is reload-only — never due on the timer
-// — and one with a positive interval is due once that many seconds have passed
-// since it was last introspected.
+// timer. A server never introspected this lifetime is always due, and one never
+// reached is due once its backoff elapses. Otherwise a
+// server with ReintrospectIntervalSeconds <= 0 is reload-only — never due on
+// the timer — and one with a positive interval is due once that many seconds
+// have passed since it was last introspected.
 func (i *Introspector) due(key string, srv Server) bool {
 	i.mu.RLock()
 	snap, seen := i.snapshots[key]
@@ -152,10 +150,8 @@ func (i *Introspector) due(key string, srv Server) bool {
 	return time.Since(last) >= time.Duration(srv.ReintrospectIntervalSeconds)*time.Second
 }
 
-// recordResult updates the snapshot for one server and reports whether anything
-// a consumer reads actually changed. On success the tools are replaced and state
-// set OK. On failure the prior tools are retained and state set Degraded, never
-// dropped.
+// recordResult updates one server's snapshot and reports whether a
+// consumer-visible value changed. A failure retains the prior tools.
 func (i *Introspector) recordResult(ctx context.Context, srv Server, key string, tools []Tool, err error) bool {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -173,11 +169,9 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 		snap.State = StateDegraded
 		snap.LastErr = err.Error()
 
-		// The transition into Degraded, so a server that was working and goes
-		// down also logs once rather than on every retry.
+		// One incident per outage, not per retry.
 		first := before.State != StateDegraded
 		if !snap.Reached {
-			// Nothing retained to serve, so schedule its own retry.
 			r := i.retries[key]
 			if r == nil {
 				r = &retrySchedule{}
@@ -187,8 +181,6 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 			r.at = time.Now().Add(backoffFor(r.failures))
 		}
 
-		// A server that stays down is logged once at Error and then at Warn, or it
-		// reports an incident on every retry for as long as it is down.
 		msg := "MCP server introspection failed"
 		fields := []logging.Field{
 			{Key: "server", Value: srv.Name},
@@ -222,11 +214,9 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 	return changed(before, *snap)
 }
 
-// changed reports whether a snapshot difference is one a consumer reads:
-// BuildScopes and CatalogToolsFromSnapshots read the tools and the state.
-// LastIntrospectedAt moves on every attempt, and LastErr carries a message no
-// consumer reads which can vary between identical failures. Counting either
-// would mean nothing is ever skipped.
+// changed reports whether a difference is one BuildScopes or
+// CatalogToolsFromSnapshots reads. LastIntrospectedAt and LastErr are excluded:
+// both move between otherwise identical failures.
 func changed(before, after ServerSnapshot) bool {
 	if before.State != after.State ||
 		before.Reached != after.Reached || len(before.Tools) != len(after.Tools) {
@@ -384,8 +374,8 @@ func backoffFor(failures int) time.Duration {
 	return d
 }
 
-// NextRetryIn reports how long until the earliest listed server is due for a
-// retry, and whether any is waiting. Zero means due now.
+// NextRetryIn reports how long until the earliest listed server is due, and
+// whether any is waiting. Zero means due now.
 func (i *Introspector) NextRetryIn(servers []Server) (time.Duration, bool) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
@@ -399,9 +389,7 @@ func (i *Introspector) NextRetryIn(servers []Server) (time.Duration, bool) {
 		if snap.Reached {
 			continue
 		}
-		// At the cap the fast retry has served its purpose. Leaving it pending
-		// holds the whole cycle at retryMaxDelay for as long as one server stays
-		// down.
+		// At the cap, it would otherwise hold the whole cycle at retryMaxDelay.
 		r := i.retries[key]
 		if r == nil || backoffFor(r.failures) >= retryMaxDelay {
 			continue
