@@ -27,8 +27,20 @@ func TestPublisher_NeverPrunesAnIncompleteKeepList(t *testing.T) {
 	b := Server{TenantID: "", Name: "b", ReintrospectIntervalSeconds: 60}
 
 	var mu sync.Mutex
-	var bad, empty int
+	var bad, empty, overlaps, inFlight int
 	policy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		inFlight++
+		if inFlight > 1 {
+			overlaps++
+		}
+		mu.Unlock()
+		defer func() {
+			mu.Lock()
+			inFlight--
+			mu.Unlock()
+		}()
+
 		var body struct {
 			Scopes    []routescopes.ScopeDeclaration `json:"scopes"`
 			SkipPrune bool                           `json:"skip_prune"`
@@ -98,11 +110,21 @@ func TestPublisher_NeverPrunesAnIncompleteKeepList(t *testing.T) {
 			reg.mu.Unlock()
 		}
 	})
-	for range 200 {
-		if err := p.Publish(ctx); err != nil {
-			t.Fatalf("Publish: %v", err)
-		}
+	// Concurrent, because the heartbeat and the cycle both call Publish. That
+	// also exercises the serialization the destructive prune needs: replicas=1
+	// rules out a second process, not a second goroutine.
+	var pubs sync.WaitGroup
+	for range 8 {
+		pubs.Go(func() {
+			for range 25 {
+				if err := p.Publish(ctx); err != nil {
+					t.Errorf("Publish: %v", err)
+					return
+				}
+			}
+		})
 	}
+	pubs.Wait()
 	close(stop)
 	wg.Wait()
 
@@ -111,5 +133,8 @@ func TestPublisher_NeverPrunesAnIncompleteKeepList(t *testing.T) {
 	}
 	if empty > 0 {
 		t.Errorf("%d publishes asked to prune with an empty keep-list; that strips every mcp scope", empty)
+	}
+	if overlaps > 0 {
+		t.Errorf("%d registrations overlapped at the policy service; the prune is destructive", overlaps)
 	}
 }

@@ -263,8 +263,10 @@ func newCycle(
 const minCycleWait = time.Second
 
 // cycleWait returns how long the loop waits before its next unforced cycle:
-// the configured interval, or sooner when a server is awaiting its retry, never
-// below minCycleWait and never above the configured interval.
+// the configured interval, or sooner when a server is awaiting its retry. It
+// never returns more than the configured interval, and never less than
+// minCycleWait unless the configured interval is itself shorter than that,
+// which only a test configures.
 func cycleWait(interval time.Duration, nextRetry func() (time.Duration, bool)) time.Duration {
 	d, pending := nextRetry()
 	if !pending || d >= interval {
