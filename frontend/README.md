@@ -66,5 +66,4 @@ make frontend-check
 - [Component placement](docs/reference/component-placement.md): the three-tier component model and `@tier` rules.
 - [App-level components](docs/reference/app-components.md): shared kora-aware components exported by `@orbit/components`.
 - [Frontend testing](../docs/guides/frontend-testing.md): the test suites and where each kind of test belongs.
-- [Marketplace frontend](../docs/architecture/marketplace.md): browse state, server-rendered Skill details, file ownership, and authenticated data loading.
 - [Agent development guide](../AGENTS.md): the machine-enforced frontend conventions, including the Hades rules.
