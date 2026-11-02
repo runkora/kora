@@ -52,33 +52,34 @@ func (c *cycleRecorder) waitForCycles(t *testing.T, n int, within time.Duration)
 	}
 }
 
-func noRetry() (time.Duration, bool) { return 0, false }
-
 // The loop waits min(next retry, interval): the configured interval when
 // nothing is pending, and never longer than it when a retry is further out.
-func TestRunIntrospectionLoop_WaitsTheShorterOfRetryAndInterval(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	rec := newCycleRecorder()
-	go runIntrospectionLoop(ctx, rec.cycle, time.Hour, noRetry, nil, testLogger())
-
-	rec.waitForCycles(t, 1, 5*time.Second) // the boot cycle
-	rec.mu.Lock()
-	bootForced := rec.forced[0]
-	rec.mu.Unlock()
-	if !bootForced {
-		t.Error("the boot cycle must be forced, or a server inside its interval is never introspected")
+func TestCycleWait(t *testing.T) {
+	retry := func(d time.Duration, pending bool) func() (time.Duration, bool) {
+		return func() (time.Duration, bool) { return d, pending }
 	}
-	time.Sleep(300 * time.Millisecond)
-	if got := rec.count(); got != 1 {
-		t.Errorf("cycles = %d, want 1: with no retry pending the loop must wait the configured interval", got)
+	for _, tc := range []struct {
+		name     string
+		interval time.Duration
+		next     func() (time.Duration, bool)
+		want     time.Duration
+	}{
+		{"nothing pending waits the interval", 5 * time.Minute, retry(0, false), 5 * time.Minute},
+		{"a retry sooner than the interval wins", 5 * time.Minute, retry(30*time.Second, true), 30 * time.Second},
+		{"a retry past the interval does not stretch it", time.Minute, retry(time.Hour, true), time.Minute},
+		// An overdue retry reports zero. Without the floor the loop would run
+		// cycles back to back, which a few hanging servers can cause on their
+		// own because one cycle can outrun the backoff cap.
+		{"an overdue retry is floored", 5 * time.Minute, retry(0, true), minCycleWait},
+		// The floor never overrides a deliberately short interval.
+		{"the floor never exceeds the interval", 20 * time.Millisecond, retry(0, true), 20 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := cycleWait(tc.interval, tc.next); got != tc.want {
+				t.Errorf("cycleWait(%v) = %v, want %v", tc.interval, got, tc.want)
+			}
+		})
 	}
-
-	// A retry an hour out must not stretch a 20ms interval.
-	far := newCycleRecorder()
-	go runIntrospectionLoop(ctx, far.cycle, 20*time.Millisecond, func() (time.Duration, bool) { return time.Hour, true }, nil, testLogger())
-	far.waitForCycles(t, 3, 5*time.Second)
 }
 
 func TestRunIntrospectionLoop_ReloadRecomputesTheWait(t *testing.T) {
@@ -100,6 +101,13 @@ func TestRunIntrospectionLoop_ReloadRecomputesTheWait(t *testing.T) {
 
 	go runIntrospectionLoop(ctx, rec.cycle, time.Hour, next, reloaded, testLogger())
 	rec.waitForCycles(t, 1, 5*time.Second) // boot cycle, then parks on the hour
+
+	rec.mu.Lock()
+	bootForced := rec.forced[0]
+	rec.mu.Unlock()
+	if !bootForced {
+		t.Error("the boot cycle must be forced, or a server inside its interval is never introspected")
+	}
 
 	reloaded <- struct{}{}
 	time.Sleep(200 * time.Millisecond)

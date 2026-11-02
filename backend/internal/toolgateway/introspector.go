@@ -216,14 +216,14 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 
 // changed reports whether this attempt moved something a consumer reads.
 //
-// A successful reach always has. It advances LastIntrospectedAt, which the
-// catalog writes as each tool's discovered_at and the servers endpoint
-// publishes as last_synced, deriving "healthy" or "stale" from how recently it
+// A successful reach always has. Rewriting the catalog stamps every row's
+// discovered_at with now(), and the servers endpoint publishes the latest of
+// those as last_synced, deriving "healthy" or "stale" from how recently it
 // moved (see serverStatus). So a reachable server whose tool list never changes
 // must still be rewritten each cycle, or it reports itself stale while healthy.
 //
-// A failure moves only LastErr and LastIntrospectedAt and retains the prior
-// tools, so it counts only as the transition into Degraded. That is what keeps
+// A failure retains the prior tools and moves only LastErr, which no consumer
+// reads, so it counts only as the transition into Degraded. That is what keeps
 // a server which never comes up from rewriting the catalog on every retry.
 func changed(before, after ServerSnapshot) bool {
 	return after.State == StateOK || before.State != after.State

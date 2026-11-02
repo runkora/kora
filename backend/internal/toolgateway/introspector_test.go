@@ -291,7 +291,12 @@ func TestIntrospector_NextRetryInSchedulesOnlyUnreachedServers(t *testing.T) {
 
 	// At the cap the retry still counts. A server that has never been reached
 	// has no tools retained, so holding the loop at the cap rather than the
-	// configured interval is the whole point of the catch-up.
+	// configured interval is the point.
+	//
+	// failures is what makes this assertion load-bearing. NextRetryIn does not
+	// read it today, and an earlier version excluded any server whose backoff
+	// had reached the cap. Setting it here is what fails if that exclusion
+	// comes back.
 	capped := 1
 	for backoffFor(capped) < retryMaxDelay {
 		capped++

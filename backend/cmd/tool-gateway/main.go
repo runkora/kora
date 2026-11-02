@@ -135,12 +135,17 @@ func realMain() error {
 		publisher := toolgateway.NewPublisher(registry, introspector, scopeClient, logger)
 
 		// The route and scope registration lives in the policy service's
-		// memory, so it has to be republished on a cadence this gateway's own
-		// introspection interval cannot supply: a cycle that changed nothing
-		// publishes nothing, and a gateway whose servers are all steady (or
-		// whose registry is empty) would otherwise never republish at all.
-		// That is the same problem every other binary solves with
-		// KeepRegistered, on the same deliberately uniform cadence.
+		// memory, so it has to survive a restart of that pod within a bounded
+		// time, and the introspection cycle cannot promise one. Its interval is
+		// minutes against the platform's 30s answer, and a gateway with an
+		// empty registry, or with every server degraded, runs cycles that
+		// publish nothing at all. So registration goes through KeepRegistered,
+		// like every other binary, on the cadence reregisterInterval documents
+		// as deliberately uniform.
+		//
+		// Note this takes the publish out of what a changed-nothing cycle
+		// saves: that skip now spares the catalog's DELETE and INSERT per tool,
+		// while the heartbeat republishes scopes either way.
 		go routescopes.KeepRegistered(ctx, logger, toolgateway.ServiceName, publisher.Publish)
 
 		// Re-introspect servers, publish scopes (prune-guarded), rebuild the
@@ -248,8 +253,28 @@ func newCycle(
 	}
 }
 
-// runIntrospectionLoop runs the cycle at boot, then waits
-// min(nextRetry, interval) each pass. A reload recomputes that wait.
+// minCycleWait floors the wait so the loop always yields between cycles.
+//
+// An overdue retry reports zero, and a cycle can outrun the backoff cap on its
+// own: Sync introspects servers one at a time, each bounded by the
+// introspection timeout, so a handful of hanging servers takes longer than the
+// cap. Without a floor the loop would then run cycles back to back and never
+// sleep.
+const minCycleWait = time.Second
+
+// cycleWait returns how long the loop waits before its next unforced cycle:
+// the configured interval, or sooner when a server is awaiting its retry, never
+// below minCycleWait and never above the configured interval.
+func cycleWait(interval time.Duration, nextRetry func() (time.Duration, bool)) time.Duration {
+	d, pending := nextRetry()
+	if !pending || d >= interval {
+		return interval
+	}
+	return min(max(d, minCycleWait), interval)
+}
+
+// runIntrospectionLoop runs the cycle at boot, then waits cycleWait each pass.
+// A reload recomputes that wait.
 func runIntrospectionLoop(
 	ctx context.Context,
 	cycle func(context.Context, bool),
@@ -260,10 +285,9 @@ func runIntrospectionLoop(
 ) {
 	cycle(ctx, true)
 	for {
-		wait := interval
-		if d, pending := nextRetry(); pending && d < wait {
-			wait = d
-			logger.Debug(ctx, "an MCP server is awaiting its retry — waking early",
+		wait := cycleWait(interval, nextRetry)
+		if wait < interval {
+			logger.Debug(ctx, "an MCP server is awaiting its retry, waking early",
 				logging.Field{Key: "retry_in", Value: wait.String()},
 				logging.Field{Key: "configured_interval", Value: interval.String()})
 		}

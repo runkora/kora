@@ -70,11 +70,13 @@ type Config struct {
 
 	Introspection struct {
 		// ReintrospectIntervalSecs is the ceiling on the publisher's
-		// re-introspection timer (besides on registry reload). It is the
-		// polling granularity, not a per-server cadence: on each tick, a
-		// server is only actually re-introspected once its own
-		// reintrospectIntervalSeconds has elapsed since its last introspection
-		// (0 = reload-only, never due on the timer).
+		// re-introspection timer (besides on registry reload), not a
+		// per-server cadence: on each tick, a server is only actually
+		// re-introspected once its own reintrospectIntervalSeconds has elapsed
+		// since its last introspection (0 = reload-only). A server that has
+		// never been reached is the exception. It carries its own backoff and
+		// is retried whatever its interval says, so the timer can wake sooner
+		// than this.
 		ReintrospectIntervalSecs int `yaml:"reintrospectIntervalSecs"`
 	} `yaml:"introspection"`
 

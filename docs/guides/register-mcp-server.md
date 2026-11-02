@@ -28,7 +28,7 @@ spec:
 - `endpoint`: the URL of the MCP server, either its in-cluster Service or an external HTTPS URL. The operator marks a CR `Invalid` when the URL contains userinfo or a query string. The tool-gateway does not follow redirects from the endpoint.
 - `displayName` and `description`: shown in the tool catalog.
 - `transport`: `streamable-http`, the default and only supported transport.
-- `reintrospectIntervalSeconds`: how often the tool-gateway re-introspects the tool surface. `0` re-introspects on registry reload only.
+- `reintrospectIntervalSeconds`: how often the tool-gateway re-introspects the tool surface. `0` re-introspects on registry reload only, once the server has been reached. A server the gateway has never reached is retried on a short backoff whatever this is set to, because it has no tools to serve until it answers.
 - `callerIdentity`: `none` (the default) has the server act as itself with its own credential. `forward` passes the caller's bearer token, letting the server act as the caller against first-party kora APIs. For a delegated run it also passes the run's delegation token. `forward` is allowed only on a global (`kora-system`) server. A tenant-namespaced CR that sets it is rejected with status `Invalid`.
 - `workload.selector`: the labels of the pods serving `endpoint`, in this CR's namespace. Naming them lets kora skip the injection those pods must not carry and generate the policies that let the tool-gateway reach them. Omit it for a global server, or one reached at an external URL.
 - `auth.headers`: the credential headers the tool-gateway sends to the server. See [Servers that need a credential](#servers-that-need-a-credential).

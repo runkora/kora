@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-29-mcp-server-registration-and-introspection.md -->
 
-**Status:** Accepted (Amended 2026-10-22)
+**Status:** Accepted (Amended 2026-11-02)
 **Date:** 2026-06-29
 **Deciders:** Justin Wilkin, kora Core Team
 **Technical Story:** [MCP / Tool Gateway PRD](../prd/mcp-tool-gateway.md)
@@ -210,19 +210,25 @@ Purely Kubernetes-facing: no MCP calls, no policy-service calls, no new identity
 **Tool-gateway publisher** (the `replicas=1` deployment; mounts the registry ConfigMap, `fsnotify` reload + timer):
 
 ```
-on registry reload / timer:
-  for each server in the mounted registry (subject to its reintrospectInterval):
+on registry reload / timer (timer waits min(next retry, reintrospectInterval)):
+  for each server in the mounted registry (subject to its reintrospectInterval,
+      or its own retry backoff while it has never been reached):
     open MCP session to endpoint → initialize, tools/list
       └─ on error (unreachable / malformed): record server Degraded in
          metrics + catalog; RETAIN its prior tools in the keep-list; continue
     upsert tool metadata into the mcp_tools catalog (server_slug, tool_name,
        description, input_schema, tenant_id) for the read-only UI
   keep = union of every reachable/retained server's tools (all tenants)
+  if this cycle changed nothing a consumer reads: skip the two calls below
   ScopePublisher → RegisterRoutes(service="tool-gateway",
-     scopes={mcp:<server>:<tool>:use}…)            // Upsert always
+     scopes={mcp:<server>:<tool>:use}…)            // Upsert
   if registry fully mounted AND every listed server seen-or-retained:
      run global DeleteOrphans(keep)                 // prune-guard: else Upsert-only
+
+independently, every 30s: KeepRegistered → the same RegisterRoutes call
 ```
+
+> **Amendment (2026-11-02) — retry backoff, a change-gated publish, and a registration heartbeat.** Three changes to the loop above, from [#880](https://github.com/runkora/kora/issues/880), where the publisher and an MCP server restarted together and the gateway served no tools for a full interval. (1) A server that has **never** been reached has no tools retained, so it gets its own backoff (2s doubling to a 60s cap) independent of `reintrospectIntervalSeconds`, and the timer waits whichever of that and the configured interval comes first. A `reintrospectIntervalSeconds` of `0` therefore no longer means "reload-only" for a server that has never answered. (2) A cycle that moved nothing a consumer reads skips both the publish and the catalog write, so a server that never comes up no longer republishes every scope and rewrites `mcp_tools` on every retry. A successful reach always counts as a change, because the catalog derives a server's freshness from when its rows were written. (3) Registration no longer rides solely on the cycle: it also runs on the platform-wide `routescopes.KeepRegistered` heartbeat, because the registration lives in the policy service's memory and a cycle that publishes nothing cannot recover it after a policy-service restart. That gives `Publish` a second caller, so it serializes against itself.
 
 Publication is global with a union keep-list, so `DeleteOrphans` (which runs for `tenantID == ""`) prunes a scope only when no server in any tenant still exposes it — exactly the connection `ScopePublisher` behaviour. A tenant's `github` and another tenant's `github` share the `mcp:github` names; that is fine, because the gateway resolves the *caller's* tenant's server and authorisation is on tenant-scoped grants. A server that is unreachable at introspection time keeps its prior tools in the keep-list (no silent prune) and is flagged `Degraded` in the gateway's metrics and the catalog — not on the CR.
 
