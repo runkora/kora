@@ -9,6 +9,8 @@ import (
 	"slices"
 	"sync"
 	"testing"
+
+	"github.com/runkora/kora/backend/internal/platform/logging"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -209,6 +211,79 @@ func TestToolRequires(t *testing.T) {
 	}
 }
 
+// capturingLogger records the level of each message, so a test can assert that
+// a failure is reported once as an incident and then quietly.
+type capturingLogger struct {
+	mu     sync.Mutex
+	levels []string
+}
+
+func (l *capturingLogger) record(level string) {
+	l.mu.Lock()
+	l.levels = append(l.levels, level)
+	l.mu.Unlock()
+}
+func (l *capturingLogger) Debug(context.Context, string, ...logging.Field) {}
+func (l *capturingLogger) Info(context.Context, string, ...logging.Field)  {}
+func (l *capturingLogger) Warn(ctx context.Context, msg string, f ...logging.Field) {
+	l.record("warn")
+}
+func (l *capturingLogger) Error(ctx context.Context, msg string, f ...logging.Field) {
+	l.record("error")
+}
+func (l *capturingLogger) seen() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.levels)
+}
+
+// A server that stays down must report one incident, not one per retry. This
+// covers the server that was WORKING and then went down, which is the common
+// case and the one a never-reached check misses.
+func TestIntrospector_FailureLogsErrorOnceThenWarns(t *testing.T) {
+	ctx := context.Background()
+	log := &capturingLogger{}
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", log)
+	srv := Server{TenantID: "", Name: "s", ReintrospectIntervalSeconds: 60}
+	key := serverKey("", "s")
+	boom := errors.New("connect: service unavailable")
+
+	i.recordResult(ctx, srv, key, []Tool{{Name: "echo"}}, nil)
+	i.recordResult(ctx, srv, key, nil, boom)
+	i.recordResult(ctx, srv, key, nil, boom)
+	i.recordResult(ctx, srv, key, nil, boom)
+
+	got := log.seen()
+	want := []string{"error", "warn", "warn"}
+	if !slices.Equal(got, want) {
+		t.Errorf("levels = %v, want %v: a server that stays down must not log an incident per retry", got, want)
+	}
+
+	i.recordResult(ctx, srv, key, []Tool{{Name: "echo"}}, nil)
+	i.recordResult(ctx, srv, key, nil, boom)
+	if got := log.seen(); got[len(got)-1] != "error" {
+		t.Errorf("last level = %q, want error: a fresh failure after recovery is a new incident", got[len(got)-1])
+	}
+}
+
+// Two identical failures whose error strings differ must not count as a change.
+// A net.OpError carries the resolved ip:port, so the message moves between
+// attempts that are otherwise the same, and republishing on it would defeat the
+// skip entirely.
+func TestIntrospector_VaryingErrorTextIsNotAChange(t *testing.T) {
+	ctx := context.Background()
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
+	srv := Server{TenantID: "", Name: "s", ReintrospectIntervalSeconds: 60}
+	key := serverKey("", "s")
+
+	if !i.recordResult(ctx, srv, key, nil, errors.New("dial tcp 10.0.0.1:8080: connect: refused")) {
+		t.Fatal("the first failure moved the server to Degraded, which is a change")
+	}
+	if i.recordResult(ctx, srv, key, nil, errors.New("dial tcp 10.0.0.2:8080: connect: refused")) {
+		t.Error("a differing error message counted as a change; every retry would republish")
+	}
+}
+
 // Sync reports whether anything a consumer reads changed. The caller skips the
 // scope publish and the catalog rewrite when it did not, so a server that stays
 // down costs one failed introspection per retry rather than a global republish.
@@ -221,13 +296,11 @@ func TestIntrospectorSync_ReportsWhetherAnythingChanged(t *testing.T) {
 	if !i.Sync(ctx, []Server{srv}, true) {
 		t.Fatal("the first sync discovered a server and its tools, so it changed something")
 	}
-	// Same server, same tools: only LastIntrospectedAt moves, which no consumer
-	// reads. Counting it would make the skip useless.
+	// Only LastIntrospectedAt moves, and no consumer reads it.
 	if i.Sync(ctx, []Server{srv}, true) {
 		t.Error("a re-sync returning identical tools reported a change")
 	}
 
-	// A server leaving the registry drops its snapshot, which consumers do read.
 	if !i.Sync(ctx, nil, true) {
 		t.Error("dropping a server's snapshot reported no change")
 	}
@@ -259,8 +332,7 @@ func TestIntrospector_PerServerRetryBackoff(t *testing.T) {
 	i.snapshots[serverKey("", "empty")] = &ServerSnapshot{
 		Server: reachedEmpty, State: StateDegraded, Reached: true, Tools: nil,
 	}
-	// A schedule left behind from before it was reached: NextRetryIn must ignore
-	// it, or a reached server keeps shortening the loop's wait.
+	// A schedule left over from before it was reached.
 	i.retries[serverKey("", "empty")] = &retrySchedule{failures: 1, at: time.Now().Add(time.Hour)}
 	if _, pending := i.NextRetryIn([]Server{reachedEmpty}); pending {
 		t.Error("a server reached once scheduled a retry; the loop would spin on it")
@@ -296,14 +368,12 @@ func TestIntrospector_CappedBackoffStopsShorteningTheWait(t *testing.T) {
 	down := Server{TenantID: "", Name: "down", ReintrospectIntervalSeconds: 3600}
 	key := serverKey("", "down")
 
-	// Below the cap it is pending, so the loop retries sooner.
 	i.snapshots[key] = &ServerSnapshot{Server: down, State: StateDegraded, Reached: false}
 	i.retries[key] = &retrySchedule{failures: 1, at: time.Now().Add(time.Second)}
 	if _, pending := i.NextRetryIn([]Server{down}); !pending {
 		t.Error("a server below the cap should be pending")
 	}
 
-	// At the cap it is not, and the loop falls back to the configured interval.
 	capped := 1
 	for backoffFor(capped) < retryMaxDelay {
 		capped++
@@ -312,7 +382,6 @@ func TestIntrospector_CappedBackoffStopsShorteningTheWait(t *testing.T) {
 	if _, pending := i.NextRetryIn([]Server{down}); pending {
 		t.Errorf("a server at the %v cap still shortened the wait after %d failures", retryMaxDelay, capped)
 	}
-	// Still retried, just on the configured interval rather than the cap.
 	i.retries[key].at = time.Now().Add(-time.Second)
 	if !i.due(key, down) {
 		t.Error("a capped server stopped being due; it must still be retried")

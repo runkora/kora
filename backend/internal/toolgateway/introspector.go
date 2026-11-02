@@ -82,6 +82,9 @@ func serverKey(tenantID, name string) string { return tenantID + "|" + name }
 // leave the keep-list). Each server is introspected independently; one failure
 // never aborts the batch.
 //
+// Returns whether any snapshot changed in a way a consumer reads, so the caller
+// can skip the scope publish and the catalog rewrite when nothing did.
+//
 // force controls whether a server's own ReintrospectIntervalSeconds is
 // honored: force=true (registry reload, and the initial boot cycle)
 // introspects every server unconditionally; force=false (a periodic timer
@@ -149,9 +152,6 @@ func (i *Introspector) due(key string, srv Server) bool {
 	return time.Since(last) >= time.Duration(srv.ReintrospectIntervalSeconds)*time.Second
 }
 
-// recordResult updates the snapshot for one server. On success the tools are
-// replaced and state set OK. On failure the prior tools are retained and state
-// set Degraded — never dropped.
 // recordResult updates the snapshot for one server and reports whether anything
 // a consumer reads actually changed. On success the tools are replaced and state
 // set OK. On failure the prior tools are retained and state set Degraded, never
@@ -173,7 +173,9 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 		snap.State = StateDegraded
 		snap.LastErr = err.Error()
 
-		first := true
+		// The transition into Degraded, so a server that was working and goes
+		// down also logs once rather than on every retry.
+		first := before.State != StateDegraded
 		if !snap.Reached {
 			// Nothing retained to serve, so schedule its own retry.
 			r := i.retries[key]
@@ -183,7 +185,6 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 			}
 			r.failures++
 			r.at = time.Now().Add(backoffFor(r.failures))
-			first = r.failures == 1
 		}
 
 		// A server that stays down is logged once at Error and then at Warn, or it
@@ -221,11 +222,13 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 	return changed(before, *snap)
 }
 
-// changed reports whether a snapshot difference is one a consumer reads. The
-// publisher and catalog read tools, state and the error; LastIntrospectedAt
-// moves on every attempt and must not count, or nothing is ever skipped.
+// changed reports whether a snapshot difference is one a consumer reads:
+// BuildScopes and CatalogToolsFromSnapshots read the tools and the state.
+// LastIntrospectedAt moves on every attempt, and LastErr carries a message no
+// consumer reads which can vary between identical failures. Counting either
+// would mean nothing is ever skipped.
 func changed(before, after ServerSnapshot) bool {
-	if before.State != after.State || before.LastErr != after.LastErr ||
+	if before.State != after.State ||
 		before.Reached != after.Reached || len(before.Tools) != len(after.Tools) {
 		return true
 	}

@@ -141,35 +141,14 @@ func realMain() error {
 		// every server unconditionally; force=false (a periodic timer tick)
 		// introspects only servers due per their own ReintrospectIntervalSeconds
 		// (0 = reload-only, honored by Introspector.Sync).
-		var cycleMu sync.Mutex
-		// Both calls are global and expensive: Publish registers every scope with
-		// policy-service and Replace rewrites mcp_tools wholesale. Skip them when
-		// Sync changed nothing, so a server that stays down costs one failed
-		// introspection per retry rather than a republish and a catalog rewrite.
-		//
-		// Starts true for the boot cycle, and is set again when either call
-		// fails, so a policy-service outage is retried instead of waiting for a
-		// snapshot to happen to change.
-		republish := true
-		cycle := func(ctx context.Context, force bool) {
-			cycleMu.Lock()
-			defer cycleMu.Unlock()
-			if introspector.Sync(ctx, registry.Servers(), force) {
-				republish = true
-			}
-			if !republish {
-				return
-			}
-			republish = false
-			if pubErr := publisher.Publish(ctx); pubErr != nil {
-				logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: pubErr.Error()})
-				republish = true
-			}
-			if replaceErr := catalogRepo.Replace(ctx, toolgateway.CatalogToolsFromSnapshots(introspector.Snapshot())); replaceErr != nil {
-				logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: replaceErr.Error()})
-				republish = true
-			}
-		}
+		cycle := newCycle(
+			func(ctx context.Context, force bool) bool { return introspector.Sync(ctx, registry.Servers(), force) },
+			publisher.Publish,
+			func(ctx context.Context) error {
+				return catalogRepo.Replace(ctx, toolgateway.CatalogToolsFromSnapshots(introspector.Snapshot()))
+			},
+			logger,
+		)
 		// Non-blocking: OnReload must not wait on a loop mid-cycle.
 		reloaded := make(chan struct{}, 1)
 		registry.OnReload(func(ctx context.Context) {
@@ -224,6 +203,46 @@ func realMain() error {
 
 	logger.Info(ctx, "Tool gateway shutdown complete")
 	return nil
+}
+
+// newCycle returns the introspect, publish, rebuild cycle, serialized so the
+// reload hook and the timer never race.
+//
+// publish and rebuild are skipped when introspect reports that nothing a consumer
+// reads changed. Both are global and expensive: one registers every scope with
+// policy-service, the other rewrites the whole tool catalog. A server that
+// stays down would otherwise pay for both on every retry.
+//
+// Starts dirty so the boot cycle always runs, and is marked dirty again when
+// either call fails, so an outage is retried rather than waiting for a snapshot
+// to happen to change.
+func newCycle(
+	introspect func(ctx context.Context, force bool) bool,
+	publish func(context.Context) error,
+	rebuild func(context.Context) error,
+	logger logging.Logger,
+) func(context.Context, bool) {
+	var mu sync.Mutex
+	republish := true
+	return func(ctx context.Context, force bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		if introspect(ctx, force) {
+			republish = true
+		}
+		if !republish {
+			return
+		}
+		republish = false
+		if err := publish(ctx); err != nil {
+			logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: err.Error()})
+			republish = true
+		}
+		if err := rebuild(ctx); err != nil {
+			logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: err.Error()})
+			republish = true
+		}
+	}
 }
 
 // runIntrospectionLoop runs the cycle once at boot, then waits

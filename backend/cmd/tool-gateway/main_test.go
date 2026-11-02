@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -51,11 +52,7 @@ func (c *cycleRecorder) waitForCycles(t *testing.T, n int, within time.Duration)
 	}
 }
 
-// never/always are the two nextRetry shapes the loop sees.
 func noRetry() (time.Duration, bool) { return 0, false }
-func retryIn(d time.Duration) func() (time.Duration, bool) {
-	return func() (time.Duration, bool) { return d, true }
-}
 
 // With nothing awaiting a retry the loop waits the configured interval.
 func TestRunIntrospectionLoop_UsesTheConfiguredIntervalWhenNothingPending(t *testing.T) {
@@ -79,7 +76,7 @@ func TestRunIntrospectionLoop_NeverWaitsLongerThanConfigured(t *testing.T) {
 	defer cancel()
 
 	rec := newCycleRecorder()
-	go runIntrospectionLoop(ctx, rec.cycle, 20*time.Millisecond, retryIn(time.Hour), nil, testLogger())
+	go runIntrospectionLoop(ctx, rec.cycle, 20*time.Millisecond, func() (time.Duration, bool) { return time.Hour, true }, nil, testLogger())
 
 	rec.waitForCycles(t, 3, 5*time.Second)
 }
@@ -138,5 +135,89 @@ func TestRunIntrospectionLoop_StopsOnContextCancel(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("loop did not return after its context was cancelled")
+	}
+}
+
+// calls counts publish and rebuild, and can fail either on demand.
+type calls struct {
+	publish, rebuild       int
+	publishErr, rebuildErr error
+}
+
+func (c *calls) pub(context.Context) error { c.publish++; return c.publishErr }
+func (c *calls) reb(context.Context) error { c.rebuild++; return c.rebuildErr }
+
+// The boot cycle always publishes, and a cycle that changes nothing skips both
+// calls. This is the whole point of the change: a server that stays down must
+// not cost a scope republish and a catalog rewrite on every retry.
+func TestNewCycle_SkipsWhenNothingChanged(t *testing.T) {
+	ctx := context.Background()
+	c := &calls{}
+	changed := false
+	cycle := newCycle(func(context.Context, bool) bool { return changed }, c.pub, c.reb, testLogger())
+
+	cycle(ctx, true) // boot: starts dirty
+	if c.publish != 1 || c.rebuild != 1 {
+		t.Fatalf("boot cycle: publish=%d rebuild=%d, want 1 and 1", c.publish, c.rebuild)
+	}
+	cycle(ctx, false)
+	cycle(ctx, false)
+	if c.publish != 1 || c.rebuild != 1 {
+		t.Errorf("after two no-change cycles: publish=%d rebuild=%d, want both still 1", c.publish, c.rebuild)
+	}
+
+	changed = true
+	cycle(ctx, false)
+	if c.publish != 2 || c.rebuild != 2 {
+		t.Errorf("after a change: publish=%d rebuild=%d, want 2 and 2", c.publish, c.rebuild)
+	}
+}
+
+// A failed publish must be retried on the next cycle even though nothing
+// changed, or a policy-service outage strands the scopes until something
+// unrelated happens to move.
+func TestNewCycle_RetriesAfterAFailedPublish(t *testing.T) {
+	ctx := context.Background()
+	c := &calls{publishErr: errors.New("policy-service down")}
+	cycle := newCycle(func(context.Context, bool) bool { return false }, c.pub, c.reb, testLogger())
+
+	cycle(ctx, true)
+	if c.publish != 1 {
+		t.Fatalf("boot publish=%d, want 1", c.publish)
+	}
+	cycle(ctx, false) // nothing changed, but the last publish failed
+	if c.publish != 2 {
+		t.Errorf("publish=%d after a failure, want 2: a failed publish must be retried", c.publish)
+	}
+
+	c.publishErr = nil
+	cycle(ctx, false)
+	if c.publish != 3 {
+		t.Fatalf("publish=%d, want 3", c.publish)
+	}
+	cycle(ctx, false) // succeeded last time and nothing changed, so skip
+	if c.publish != 3 {
+		t.Errorf("publish=%d, want 3: once it succeeds the skip resumes", c.publish)
+	}
+}
+
+// The same guarantee for the catalog write, which fails independently of the
+// publish.
+func TestNewCycle_RetriesAfterAFailedRebuild(t *testing.T) {
+	ctx := context.Background()
+	c := &calls{rebuildErr: errors.New("db down")}
+	cycle := newCycle(func(context.Context, bool) bool { return false }, c.pub, c.reb, testLogger())
+
+	cycle(ctx, true)
+	cycle(ctx, false)
+	if c.rebuild != 2 {
+		t.Errorf("rebuild=%d after a failure, want 2: a failed catalog write must be retried", c.rebuild)
+	}
+
+	c.rebuildErr = nil
+	cycle(ctx, false) // the retry, which now succeeds
+	cycle(ctx, false) // nothing changed and the last write stuck, so skip
+	if c.rebuild != 3 {
+		t.Errorf("rebuild=%d, want 3: the retry succeeds and then the skip resumes", c.rebuild)
 	}
 }
