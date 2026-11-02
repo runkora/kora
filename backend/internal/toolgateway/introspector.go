@@ -222,9 +222,10 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 // moved (see serverStatus). So a reachable server whose tool list never changes
 // must still be rewritten each cycle, or it reports itself stale while healthy.
 //
-// A failure retains the prior tools and moves only LastErr, which no consumer
-// reads, so it counts only as the transition into Degraded. That is what keeps
-// a server which never comes up from rewriting the catalog on every retry.
+// A failure retains the prior tools and moves LastErr, LastIntrospectedAt and
+// Failing, none of which a consumer reads, so it counts only as the transition
+// into Degraded. That is what keeps a server which never comes up from
+// rewriting the catalog on every retry.
 func changed(before, after ServerSnapshot) bool {
 	return after.State == StateOK || before.State != after.State
 }
@@ -387,9 +388,9 @@ func backoffFor(failures int) time.Duration {
 // rather than the configured interval, which is the point: a server that has
 // never been reached has no tools retained, so every session started before it
 // is reached sees an empty tool list, and the retry that ends that is worth one
-// tick a minute. The tick itself is cheap — a failed attempt changes nothing a
-// consumer reads, so the cycle skips both the publish and the catalog rewrite
-// (see changed).
+// tick a minute. The tick itself is cheap: every attempt after the first
+// changes nothing a consumer reads, so the cycle skips the catalog rewrite (see
+// changed).
 func (i *Introspector) NextRetryIn(servers []Server) (time.Duration, bool) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()

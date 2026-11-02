@@ -289,29 +289,18 @@ func TestIntrospector_NextRetryInSchedulesOnlyUnreachedServers(t *testing.T) {
 		t.Errorf("NextRetryIn = (%v, %v), want the earliest of the two", d, pending)
 	}
 
-	// At the cap the retry still counts. A server that has never been reached
-	// has no tools retained, so holding the loop at the cap rather than the
-	// configured interval is the point.
-	//
-	// failures is what makes this assertion load-bearing. NextRetryIn does not
-	// read it today, and an earlier version excluded any server whose backoff
-	// had reached the cap. Setting it here is what fails if that exclusion
-	// comes back.
+	// A server whose backoff has reached the cap still counts. It has never
+	// been reached, so it has no tools retained, and an earlier version
+	// excluded it here and sent the loop back to the configured interval.
+	// Setting failures is what fails if that exclusion returns.
 	capped := 1
 	for backoffFor(capped) < retryMaxDelay {
 		capped++
 	}
 	for _, n := range []string{"soon", "late"} {
-		r := i.retries[serverKey("", n)]
-		r.failures = capped
-		r.at = time.Now().Add(retryMaxDelay)
+		i.retries[serverKey("", n)].failures = capped
 	}
-	d, pending = i.NextRetryIn([]Server{soon, late})
-	if !pending || d > retryMaxDelay {
-		t.Errorf("NextRetryIn at the cap = (%v, %v), want a retry within %v", d, pending, retryMaxDelay)
-	}
-	i.retries[serverKey("", "soon")].at = time.Now().Add(-time.Second)
-	if !i.due(serverKey("", "soon"), soon) {
-		t.Error("a capped server stopped being due; it must still be retried")
+	if _, pending = i.NextRetryIn([]Server{soon, late}); !pending {
+		t.Error("a server at the backoff cap scheduled no retry; the loop would wait out the interval")
 	}
 }

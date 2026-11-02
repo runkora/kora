@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -90,6 +91,7 @@ func TestPublisher_NeverPrunesAnIncompleteKeepList(t *testing.T) {
 			i.mu.Lock()
 			delete(i.snapshots, serverKey("", "b"))
 			i.mu.Unlock()
+			runtime.Gosched() // never starve the publishes on one CPU
 		}
 	})
 	// The registry mounts and unmounts underneath them too. An empty server
@@ -108,6 +110,7 @@ func TestPublisher_NeverPrunesAnIncompleteKeepList(t *testing.T) {
 			reg.mu.Lock()
 			reg.servers, reg.loaded = []Server{a, b}, true
 			reg.mu.Unlock()
+			runtime.Gosched()
 		}
 	})
 	// Concurrent, because the heartbeat and the cycle both call Publish. That
