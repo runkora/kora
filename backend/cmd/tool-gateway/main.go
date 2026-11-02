@@ -218,7 +218,10 @@ func newCycle(
 	return func(ctx context.Context, force bool) {
 		mu.Lock()
 		defer mu.Unlock()
-		if introspect(ctx, force) {
+		// force means boot or a registry reload. Publish computes prune from
+		// registry.Loaded(), which can flip with no snapshot change, so a forced
+		// cycle must publish even when nothing was introspected.
+		if introspect(ctx, force) || force {
 			republish = true
 		}
 		if !republish {

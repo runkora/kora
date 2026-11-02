@@ -170,7 +170,8 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 		snap.LastErr = err.Error()
 
 		// One incident per outage, not per retry.
-		first := before.State != StateDegraded
+		first := !before.Failing
+		snap.Failing = true
 		if !snap.Reached {
 			r := i.retries[key]
 			if r == nil {
@@ -206,6 +207,7 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 	snap.State = StateOK
 	snap.LastErr = ""
 	snap.Reached = true
+	snap.Failing = false
 	delete(i.retries, key)
 	i.logger.Info(ctx, "MCP server introspected",
 		logging.Field{Key: "server", Value: srv.Name},

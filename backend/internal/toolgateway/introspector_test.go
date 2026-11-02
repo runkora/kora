@@ -261,6 +261,23 @@ func TestIntrospector_FailureLogsErrorOnceThenWarns(t *testing.T) {
 
 // A net.OpError carries the resolved ip:port, so the message moves between
 // otherwise identical failures.
+func TestIntrospector_FlagDegradedDoesNotMaskAnIncident(t *testing.T) {
+	ctx := context.Background()
+	log := &capturingLogger{}
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", log)
+	srv := Server{TenantID: "", Name: "s", ReintrospectIntervalSeconds: 60}
+	key := serverKey("", "s")
+
+	i.recordResult(ctx, srv, key, []Tool{{Name: "echo"}}, nil)
+	// Publish flags a scope collision, which writes State from outside Sync.
+	i.FlagDegraded("", "s", "tool scope shadows a sibling")
+
+	i.recordResult(ctx, srv, key, nil, errors.New("connect: service unavailable"))
+	if got := log.seen(); len(got) == 0 || got[len(got)-1] != "error" {
+		t.Errorf("levels = %v, want the endpoint failure at error: FlagDegraded must not mask a fresh incident", got)
+	}
+}
+
 func TestIntrospector_VaryingErrorTextIsNotAChange(t *testing.T) {
 	ctx := context.Background()
 	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())

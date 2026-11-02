@@ -159,6 +159,24 @@ func TestNewCycle_SkipsWhenNothingChanged(t *testing.T) {
 	}
 }
 
+func TestNewCycle_ForcedCycleAlwaysPublishes(t *testing.T) {
+	ctx := context.Background()
+	c := &calls{}
+	cycle := newCycle(func(context.Context, bool) bool { return false }, c.pub, c.reb, testLogger())
+
+	cycle(ctx, true)
+	cycle(ctx, false) // nothing changed: skipped
+	if c.publish != 1 {
+		t.Fatalf("publish=%d, want 1", c.publish)
+	}
+	// A reload recomputes prune from registry.Loaded(), which no snapshot
+	// reflects, so a forced cycle must publish even with nothing introspected.
+	cycle(ctx, true)
+	if c.publish != 2 {
+		t.Errorf("publish=%d after a forced cycle, want 2", c.publish)
+	}
+}
+
 func TestNewCycle_RetriesAfterAFailedPublish(t *testing.T) {
 	ctx := context.Background()
 	c := &calls{publishErr: errors.New("policy-service down")}
