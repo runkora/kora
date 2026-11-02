@@ -107,7 +107,9 @@ const Modal = ({
           // Layout
           'flex w-full flex-col',
           // Visual
-          'rounded-xl border border-border bg-surface p-0 shadow-2xl',
+          // `overflow-hidden` clips a scrolling body's square scrollbar track to
+          // the rounded corners; without it the track pokes out of them.
+          'overflow-hidden rounded-xl border border-border bg-surface p-0 shadow-2xl',
           // Animation
           'data-[state=open]:animate-in data-[state=closed]:animate-out',
           'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
