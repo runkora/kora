@@ -80,7 +80,7 @@ skillsService:
     tenants:
       - id: example
         marketplaces:
-          - https://github.com/sidp-2003/skills-marketplace-test-acme
+          - https://github.com/anthropics/skills
       - id: example1
         marketplaces:
-          - https://github.com/sidp-2003/skills-marketplace-test
+          - https://github.com/anthropics/skills

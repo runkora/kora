@@ -879,7 +879,9 @@ skillsService:
     annotations: {}
   configOverrides: {}
   # Leave empty when the operator renders the list from SkillMarketplaceSource
-  # resources: the chart then owns no data key in the ConfigMap.
+  # resources: the chart then owns no data key in the ConfigMap. Listing tenants
+  # makes the chart write the file and the operator stop writing it, and serves
+  # these repositories without checking any tenant's allowedMarketplaceRepos.
   skillsMapping:
     # -- Approved GitHub repositories grouped by platform tenant ID.
     tenants: []

@@ -9,6 +9,10 @@
 //     skills-mapping.yaml, in the shape skills-service already reads and
 //     internal/platform/marketplace defines: each tenant's repository links.
 //
+// When skillsService.skillsMapping lists tenants, the chart writes the file
+// itself and sets marketplace.ChartMappingAnnotation. The operator then writes
+// nothing, and every source it would have rendered stays Pending.
+//
 // A source is rendered only when its owner/repo is on its tenant's
 // spec.allowedMarketplaceRepos. Its verdict therefore depends on that field and
 // on its sibling sources (repository clashes), not only on its own
@@ -189,6 +193,7 @@ func NewSkillMarketplaceAggregator(c client.Client, logger logging.Logger) *Skil
 // Sync computes every source's verdict, writes the ConfigMap, then patches the
 // status of each source whose verdict changed. The ConfigMap is written first,
 // so a status never reads Aggregated before skills-service can see the source.
+// When the chart owns the file, nothing is written and no source is Aggregated.
 func (a *SkillMarketplaceAggregator) Sync(ctx context.Context) error {
 	tenants := &OrbitTenantList{}
 	if err := a.client.List(ctx, tenants); err != nil {
@@ -200,10 +205,26 @@ func (a *SkillMarketplaceAggregator) Sync(ctx context.Context) error {
 	}
 
 	file, verdicts := buildMarketplaceSources(sources.Items, tenants.Items)
-	if err := a.upsertConfigMap(ctx, file); err != nil {
+	chartOwned, err := a.upsertConfigMap(ctx, file)
+	if err != nil {
 		return err
 	}
+	if chartOwned {
+		deferToChart(verdicts)
+	}
 	return a.updateStatuses(ctx, sources.Items, verdicts)
+}
+
+// deferToChart turns every source that would have been rendered into one that
+// waits on the chart. A source excluded for its own reason keeps it: that reason
+// still stands once the chart lets go.
+func deferToChart(verdicts map[client.ObjectKey]marketplaceVerdict) {
+	for key, v := range verdicts {
+		if v.aggregated() {
+			verdicts[key] = marketplaceVerdict{SkillMarketplaceSourcePhasePending, MarketplaceReasonMappingManagedByChart,
+				fmt.Sprintf("the orbit chart sets %s from skillsService.skillsMapping; a platform admin must empty that list before sources are rendered", marketplace.SourcesFileName)}
+		}
+	}
 }
 
 // updateStatuses logs every source left out of the file and patches each
@@ -277,11 +298,12 @@ func (a *SkillMarketplaceAggregator) setStatus(ctx context.Context, src *SkillMa
 
 // upsertConfigMap creates or patches the marketplace sources ConfigMap,
 // skipping the write when the content is unchanged so the kubelet does not
-// re-project an identical volume.
-func (a *SkillMarketplaceAggregator) upsertConfigMap(ctx context.Context, file marketplace.SourcesFile) error {
+// re-project an identical volume. It writes nothing and reports chartOwned when
+// the chart's annotation says Helm writes the file.
+func (a *SkillMarketplaceAggregator) upsertConfigMap(ctx context.Context, file marketplace.SourcesFile) (chartOwned bool, err error) {
 	raw, err := yaml.Marshal(file)
 	if err != nil {
-		return fmt.Errorf("marshal marketplace sources: %w", err)
+		return false, fmt.Errorf("marshal marketplace sources: %w", err)
 	}
 	data := string(raw)
 
@@ -305,20 +327,24 @@ func (a *SkillMarketplaceAggregator) upsertConfigMap(ctx context.Context, file m
 			Data: map[string]string{marketplace.SourcesFileName: data},
 		}
 		if err := a.client.Create(ctx, cm); err != nil {
-			return fmt.Errorf("create %s ConfigMap: %w", marketplace.SourcesConfigMapName, err)
+			return false, fmt.Errorf("create %s ConfigMap: %w", marketplace.SourcesConfigMapName, err)
 		}
 		a.logger.Info(ctx, "created skill marketplace sources ConfigMap",
 			logging.Field{Key: "configmap", Value: marketplace.SourcesConfigMapName},
 			logging.Field{Key: "namespace", Value: systemNamespace},
 			logging.Field{Key: "tenants", Value: len(file.SkillsMapping.Tenants)},
 		)
-		return nil
+		return false, nil
 	case getErr != nil:
-		return fmt.Errorf("get %s ConfigMap: %w", marketplace.SourcesConfigMapName, getErr)
+		return false, fmt.Errorf("get %s ConfigMap: %w", marketplace.SourcesConfigMapName, getErr)
 	default:
+		if existing.Annotations[marketplace.ChartMappingAnnotation] == "true" {
+			a.logger.Debug(ctx, "chart owns the skill marketplace sources file, skipping update")
+			return true, nil
+		}
 		if existing.Data[marketplace.SourcesFileName] == data {
 			a.logger.Debug(ctx, "aggregated skill marketplace sources unchanged, skipping update")
-			return nil
+			return false, nil
 		}
 		// Two controllers share this aggregator; the lock turns a stale writer
 		// into a conflict and requeue instead of a silent overwrite.
@@ -328,13 +354,13 @@ func (a *SkillMarketplaceAggregator) upsertConfigMap(ctx context.Context, file m
 		}
 		existing.Data[marketplace.SourcesFileName] = data
 		if err := a.client.Patch(ctx, existing, patch); err != nil {
-			return fmt.Errorf("patch %s ConfigMap: %w", marketplace.SourcesConfigMapName, err)
+			return false, fmt.Errorf("patch %s ConfigMap: %w", marketplace.SourcesConfigMapName, err)
 		}
 		a.logger.Info(ctx, "updated skill marketplace sources ConfigMap",
 			logging.Field{Key: "configmap", Value: marketplace.SourcesConfigMapName},
 			logging.Field{Key: "namespace", Value: systemNamespace},
 			logging.Field{Key: "tenants", Value: len(file.SkillsMapping.Tenants)},
 		)
-		return nil
+		return false, nil
 	}
 }

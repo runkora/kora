@@ -131,6 +131,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) — `Accepted` · 2026-09-28
 - [Agent Run Guardrails](2026-09-29-agent-run-guardrails.md) — `Accepted (Amended 2026-09-30)` · 2026-09-29
 - [Agent Marketplace Backend](2026-08-28-marketplace-adr-backend.md) — `Proposed` · 2026-09-17
+- [Skill Marketplace Source Registration via a Tenant-Scoped CRD](2026-10-13-skill-marketplace-source-registration.md) — `Proposed (Amended 2026-10-30)` · 2026-10-13
 
 ### MCP / Tool Gateway
 
@@ -303,4 +304,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-08 | [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) | Accepted | — |
 | 2026-10-10 | [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) | Accepted | — |
 | 2026-10-12 | [Run Scheduling](2026-10-12-run-scheduling.md) | Accepted | — |
+| 2026-10-13 | [Skill Marketplace Source Registration via a Tenant-Scoped CRD](2026-10-13-skill-marketplace-source-registration.md) | Proposed (Amended 2026-10-30) | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

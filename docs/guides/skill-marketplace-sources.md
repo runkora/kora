@@ -75,6 +75,7 @@ The `Phase` and `Reason` columns report the operator's verdict. kora applies the
 | `Pending` | `TenantNotActive` | No active tenant owns the namespace: the tenant is suspended, or none owns it. |
 | `Invalid` | `DuplicateRepository` | An older source in your namespace already registers this repository. Use one source per repository. |
 | `Pending` | `NotAllowlisted` | Waiting for a platform administrator to approve the repository. |
+| `Pending` | `MappingManagedByChart` | Approved, but the platform sets the marketplace list in its Helm release instead. Ask your platform administrator. |
 | `Aggregated` | `Aggregated` | Served to your tenant. |
 
 "Older" means created earlier. Sources created in the same second are ordered by `metadata.name`, and the name that sorts first counts as older. A source that is waiting for approval still holds its repository, so a newer source in the namespace cannot register it in the meantime.
