@@ -301,8 +301,10 @@ func TestIntrospectorSync_ReportsWhetherAnythingChanged(t *testing.T) {
 	if !i.Sync(ctx, []Server{srv}, true) {
 		t.Fatal("the first sync discovered a server and its tools, so it changed something")
 	}
-	if i.Sync(ctx, []Server{srv}, true) {
-		t.Error("a re-sync returning identical tools reported a change")
+	// A reach is a change even when the tools are identical: it advances the
+	// freshness the catalog publishes as last_synced.
+	if !i.Sync(ctx, []Server{srv}, true) {
+		t.Error("a re-sync that reached the server reported no change; its last_synced would freeze")
 	}
 
 	if !i.Sync(ctx, nil, true) {
@@ -323,25 +325,33 @@ func TestIntrospectorSync_RepeatedFailureChangesNothing(t *testing.T) {
 	}
 }
 
-func TestIntrospector_RenamedToolIsAChange(t *testing.T) {
+// TestIntrospector_EverySuccessfulReachIsAChange pins the half of the
+// republish rule that is not the dead-server skip. The catalog derives a
+// server's healthy/stale status from how recently its rows were written, so a
+// reachable server has to be rewritten on every cycle, whatever its tools did.
+func TestIntrospector_EverySuccessfulReachIsAChange(t *testing.T) {
 	ctx := context.Background()
 	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 	srv := Server{TenantID: "", Name: "s", ReintrospectIntervalSeconds: 60}
 	key := serverKey("", "s")
 
-	i.recordResult(ctx, srv, key, []Tool{{Name: "echo", Description: "a"}}, nil)
-	if i.recordResult(ctx, srv, key, []Tool{{Name: "echo", Description: "a"}}, nil) {
-		t.Error("identical tools reported a change")
+	tools := []Tool{{Name: "echo", Description: "a"}}
+	if !i.recordResult(ctx, srv, key, tools, nil) {
+		t.Fatal("the first reach discovered a tool and reported no change")
 	}
-	// Same count, different tool: the catalog and the scope vocabulary both move.
-	if !i.recordResult(ctx, srv, key, []Tool{{Name: "speak", Description: "a"}}, nil) {
+	if !i.recordResult(ctx, srv, key, tools, nil) {
+		t.Error("an identical reach reported no change; the server would report itself stale while healthy")
+	}
+	if !i.recordResult(ctx, srv, key, []Tool{{Name: "speak"}}, nil) {
 		t.Error("a renamed tool reported no change; the catalog would keep the old name")
 	}
-	if !i.recordResult(ctx, srv, key, []Tool{{Name: "speak", Description: "b"}}, nil) {
-		t.Error("a changed description reported no change")
+
+	// The other half: once it stops being reachable, only the transition counts.
+	if !i.recordResult(ctx, srv, key, nil, errors.New("connect: refused")) {
+		t.Error("the move to Degraded reported no change")
 	}
-	if !i.recordResult(ctx, srv, key, []Tool{{Name: "speak", Description: "b", RequiresScopes: []string{"x"}}}, nil) {
-		t.Error("changed RequiresScopes reported no change")
+	if i.recordResult(ctx, srv, key, nil, errors.New("connect: refused")) {
+		t.Error("a repeated failure reported a change; a dead server would rewrite the catalog every retry")
 	}
 }
 
@@ -365,7 +375,7 @@ func TestIntrospector_BackoffGrowsAcrossFailures(t *testing.T) {
 	}
 }
 
-func TestIntrospector_NextRetryInSchedulesOnlyUnreachedServersUnderTheCap(t *testing.T) {
+func TestIntrospector_NextRetryInSchedulesOnlyUnreachedServers(t *testing.T) {
 	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 
 	// Never introspected at all: due now.
@@ -393,15 +403,21 @@ func TestIntrospector_NextRetryInSchedulesOnlyUnreachedServersUnderTheCap(t *tes
 		t.Errorf("NextRetryIn = (%v, %v), want the earliest of the two", d, pending)
 	}
 
+	// At the cap the retry still counts. A server that has never been reached
+	// has no tools retained, so holding the loop at the cap rather than the
+	// configured interval is the whole point of the catch-up.
 	capped := 1
 	for backoffFor(capped) < retryMaxDelay {
 		capped++
 	}
 	for _, n := range []string{"soon", "late"} {
-		i.retries[serverKey("", n)].failures = capped
+		r := i.retries[serverKey("", n)]
+		r.failures = capped
+		r.at = time.Now().Add(retryMaxDelay)
 	}
-	if _, pending := i.NextRetryIn([]Server{soon, late}); pending {
-		t.Errorf("servers at the %v cap still shortened the wait after %d failures", retryMaxDelay, capped)
+	d, pending = i.NextRetryIn([]Server{soon, late})
+	if !pending || d > retryMaxDelay {
+		t.Errorf("NextRetryIn at the cap = (%v, %v), want a retry within %v", d, pending, retryMaxDelay)
 	}
 	i.retries[serverKey("", "soon")].at = time.Now().Add(-time.Second)
 	if !i.due(serverKey("", "soon"), soon) {

@@ -19,17 +19,26 @@ package toolgateway
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Publisher publishes the mcp scope vocabulary from introspection snapshots.
+//
+// Publish serializes against itself: the introspection cycle calls it when a
+// cycle changed something, and KeepRegistered calls it on its own heartbeat, so
+// two callers can reach it at once. Scope publication is single-writer because
+// the prune is destructive (see the package comment), and the replicas=1
+// topology only rules out a second process.
 type Publisher struct {
 	registry     *Registry
 	introspector *Introspector
 	client       *routescopes.Client
 	logger       logging.Logger
+
+	mu sync.Mutex
 }
 
 // NewPublisher constructs a Publisher.
@@ -43,11 +52,14 @@ func NewPublisher(registry *Registry, introspector *Introspector, client *routes
 // Upsert-only.
 //
 // One registration attempt per call: a failure (the identity service or the
-// policy service still starting) is returned to the
-// caller. The introspection cycle that drives Publish is itself the retry, so a
-// publish that fails is re-attempted on the next cycle rather than blocking
-// this one.
+// policy service still starting) is returned to the caller, which owns the
+// retry. Both callers have one — KeepRegistered backs off until its first
+// success and then re-registers on every tick, and the introspection cycle
+// re-publishes on the next cycle — so a failed publish never blocks either.
 func (p *Publisher) Publish(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	servers := p.registry.Servers()
 	snapshots := p.introspector.Snapshot()
 

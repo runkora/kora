@@ -12,11 +12,9 @@
 package toolgateway
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -216,22 +214,19 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 	return changed(before, *snap)
 }
 
-// changed reports whether a difference is one BuildScopes or
-// CatalogToolsFromSnapshots reads. LastIntrospectedAt and LastErr are excluded:
-// both move between otherwise identical failures.
+// changed reports whether this attempt moved something a consumer reads.
+//
+// A successful reach always has. It advances LastIntrospectedAt, which the
+// catalog writes as each tool's discovered_at and the servers endpoint
+// publishes as last_synced, deriving "healthy" or "stale" from how recently it
+// moved (see serverStatus). So a reachable server whose tool list never changes
+// must still be rewritten each cycle, or it reports itself stale while healthy.
+//
+// A failure moves only LastErr and LastIntrospectedAt and retains the prior
+// tools, so it counts only as the transition into Degraded. That is what keeps
+// a server which never comes up from rewriting the catalog on every retry.
 func changed(before, after ServerSnapshot) bool {
-	if before.State != after.State || len(before.Tools) != len(after.Tools) {
-		return true
-	}
-	for n := range after.Tools {
-		a, b := after.Tools[n], before.Tools[n]
-		if a.Name != b.Name || a.Description != b.Description ||
-			!bytes.Equal(a.InputSchema, b.InputSchema) ||
-			!slices.Equal(a.RequiresScopes, b.RequiresScopes) {
-			return true
-		}
-	}
-	return false
+	return after.State == StateOK || before.State != after.State
 }
 
 // introspectOne opens an MCP session to the server and lists its tools
@@ -377,6 +372,14 @@ func backoffFor(failures int) time.Duration {
 
 // NextRetryIn reports how long until the earliest listed server is due, and
 // whether any is waiting. Zero means due now.
+//
+// A server at the retryMaxDelay cap still counts. It holds the loop at the cap
+// rather than the configured interval, which is the point: a server that has
+// never been reached has no tools retained, so every session started before it
+// is reached sees an empty tool list, and the retry that ends that is worth one
+// tick a minute. The tick itself is cheap — a failed attempt changes nothing a
+// consumer reads, so the cycle skips both the publish and the catalog rewrite
+// (see changed).
 func (i *Introspector) NextRetryIn(servers []Server) (time.Duration, bool) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
@@ -390,9 +393,8 @@ func (i *Introspector) NextRetryIn(servers []Server) (time.Duration, bool) {
 		if snap.Reached {
 			continue
 		}
-		// At the cap, it would otherwise hold the whole cycle at retryMaxDelay.
 		r := i.retries[key]
-		if r == nil || backoffFor(r.failures) >= retryMaxDelay {
+		if r == nil {
 			continue
 		}
 		if earliest.IsZero() || r.at.Before(earliest) {

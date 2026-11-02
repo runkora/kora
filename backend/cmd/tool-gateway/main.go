@@ -134,6 +134,15 @@ func realMain() error {
 		scopeClient := routescopes.NewClient(tgc.Current.Policy.PolicyServiceInternalURL, selfToken, logger)
 		publisher := toolgateway.NewPublisher(registry, introspector, scopeClient, logger)
 
+		// The route and scope registration lives in the policy service's
+		// memory, so it has to be republished on a cadence this gateway's own
+		// introspection interval cannot supply: a cycle that changed nothing
+		// publishes nothing, and a gateway whose servers are all steady (or
+		// whose registry is empty) would otherwise never republish at all.
+		// That is the same problem every other binary solves with
+		// KeepRegistered, on the same deliberately uniform cadence.
+		go routescopes.KeepRegistered(ctx, logger, toolgateway.ServiceName, publisher.Publish)
+
 		// Re-introspect servers, publish scopes (prune-guarded), rebuild the
 		// catalog. Serialized so the reload hook and timer never race.
 		//
