@@ -24,7 +24,7 @@ import type { RoutingAgentName } from './delivery-routing';
  * Excerpts are truncated at capture, so parsing can fail on an honest excerpt;
  * in that case the raw text is shown rather than nothing.
  */
-export function formatPayload(excerpt: string): string {
+function formatPayload(excerpt: string): string {
   try {
     return JSON.stringify(JSON.parse(excerpt), null, 2);
   } catch {
@@ -33,7 +33,7 @@ export function formatPayload(excerpt: string): string {
 }
 
 /** Byte counts read better as the size they are than as a raw integer. */
-export function formatBytes(bytes: number | null): string {
+function formatBytes(bytes: number | null): string {
   if (bytes === null) return '';
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 }

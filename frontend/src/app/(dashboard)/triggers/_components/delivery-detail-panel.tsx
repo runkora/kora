@@ -29,6 +29,7 @@ import {
   coalesceKeyText,
   coalesceKeysFor,
   deliveryTriggerLabel,
+  shortId,
   formatTimestampUtc,
   supersededRuns,
 } from '../_types';
@@ -133,6 +134,15 @@ export function DeliveryDetailPanel({
     coalescingTriggers.size < 2
       ? label
       : `${label} (${delivery.runs.find((r) => r.triggerId === id)?.triggerName ?? id})`;
+  // The link opens `triggerId`, so it is named from that trigger. The generic
+  // label can read `first-trigger +1` for a delivery that fanned out, which would
+  // name a different trigger than the one the click opens.
+  const linkedName =
+    triggerId === null
+      ? null
+      : (delivery.triggerName ??
+        delivery.runs.find((r) => r.triggerId === triggerId)?.triggerName ??
+        shortId(triggerId));
   const statusLabel = delivery.status.charAt(0).toUpperCase() + delivery.status.slice(1);
   const via =
     delivery.kind === 'scheduled'
@@ -172,7 +182,7 @@ export function DeliveryDetailPanel({
             <FactRow label="Trigger" control>
               <Button variant="ghost" size="xs" onClick={() => onOpenTrigger(triggerId)}>
                 <Text as="span" size="supporting" color="accent">
-                  {deliveryTriggerLabel(delivery)}
+                  {linkedName}
                 </Text>
               </Button>
             </FactRow>
@@ -218,8 +228,9 @@ export function DeliveryDetailPanel({
               <Text
                 mono={!c.keyTooLong}
                 size="supporting"
-
                 color={c.keyTooLong ? 'status-error' : undefined}
+                truncate
+                title={coalesceKeyText(c)}
               >
                 {coalesceKeyText(c)}
               </Text>
@@ -244,7 +255,6 @@ export function DeliveryDetailPanel({
             onRedeliver={onRedeliver}
             redeliverAllowed={canWrite && redeliverAllowed}
             agents={agents}
-            runHref={runHref}
             hideCoalescing
             hideRun
             plainHeadings

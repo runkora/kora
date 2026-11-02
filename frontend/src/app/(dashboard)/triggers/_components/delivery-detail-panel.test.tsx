@@ -91,6 +91,47 @@ describe('DeliveryDetailPanel facts', () => {
   });
 });
 
+describe('DeliveryDetailPanel fan-out and long keys', () => {
+  it('names the trigger link from the trigger it opens, not the first fan-out row', () => {
+    const onOpenTrigger = vi.fn();
+    const run = (triggerId: string, triggerName: string) => ({
+      triggerId,
+      triggerName,
+      runId: null,
+      status: 'dispatched',
+      error: null,
+      createdAt: null,
+    });
+    renderPanel({
+      onOpenTrigger,
+      delivery: makeDelivery({
+        id: 'd-5',
+        triggerId: 'gh-audit',
+        triggerName: null,
+        runs: [run('gh-push', 'gh-push'), run('gh-audit', 'gh-audit')],
+      }),
+    });
+    const link = screen.getByRole('button', { name: /gh-audit/ });
+    expect(screen.queryByRole('button', { name: /gh-push/ })).not.toBeInTheDocument();
+    fireEvent.click(link);
+    expect(onOpenTrigger).toHaveBeenCalledWith('gh-audit');
+  });
+
+  it('truncates a long coalescing key and keeps the whole key on hover', () => {
+    const key = 'k'.repeat(256);
+    renderPanel({
+      delivery: makeDelivery({
+        id: 'd-6',
+        triggerId: 't1',
+        coalesceKeys: [{ triggerId: 't1', key, keyTooLong: false }],
+      }),
+    });
+    const value = screen.getByText(key);
+    expect(value).toHaveAttribute('title', key);
+    expect(value.className).toMatch(/truncate/);
+  });
+});
+
 describe('runHrefFor', () => {
   it('names the run page from the owning agent, and only for a single-agent trigger', () => {
     const owner = { agentSlug: 'triager', routing: null } as Parameters<typeof runHrefFor>[0];
