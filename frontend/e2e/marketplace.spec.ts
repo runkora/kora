@@ -332,7 +332,9 @@ test.describe('/marketplace — overview and Skill detail', () => {
   test('a failed server detail load stays on its route and offers a retry', async ({ page }) => {
     const path = '/marketplace/clearroute__core-skills/upstream-error';
     await page.goto(path);
-    await expect(page.getByRole('alert')).toContainText('could not load this Skill');
+    await expect(page.getByRole('main').getByRole('alert')).toContainText(
+      'could not load this Skill',
+    );
     const retry = page.getByRole('button', { name: 'Try again' });
     await retry.click();
     await expect(retry).toBeEnabled();
@@ -671,7 +673,16 @@ test.describe('/marketplace — accessibility and layout', () => {
         expect(second.x).toBeGreaterThanOrEqual(first.x + first.width);
         expect(Math.abs(second.y - first.y)).toBeLessThan(1);
       }
-      await expectControlsFit(page, [...controls, ...(await cards.all())]);
+      const cardLinks = await cards.all();
+      // Cards scroll behind the sticky pagination bar. Check spacing within
+      // each group, then verify every card can receive focus and be clicked.
+      await expectControlsFit(page, controls);
+      await expectControlsFit(page, cardLinks);
+      for (const card of cardLinks) {
+        await tabTo(page, card);
+        await expect(card).toBeInViewport();
+        await card.click({ trial: true });
+      }
       await expectNoPageOverflow(page);
       await testInfo.attach(`cards-${viewport.width}px`, {
         body: await page.screenshot({ fullPage: true }),
