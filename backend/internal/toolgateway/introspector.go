@@ -220,8 +220,7 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 // CatalogToolsFromSnapshots reads. LastIntrospectedAt and LastErr are excluded:
 // both move between otherwise identical failures.
 func changed(before, after ServerSnapshot) bool {
-	if before.State != after.State ||
-		before.Reached != after.Reached || len(before.Tools) != len(after.Tools) {
+	if before.State != after.State || len(before.Tools) != len(after.Tools) {
 		return true
 	}
 	for n := range after.Tools {

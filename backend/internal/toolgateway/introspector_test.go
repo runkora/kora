@@ -323,58 +323,88 @@ func TestIntrospectorSync_RepeatedFailureChangesNothing(t *testing.T) {
 	}
 }
 
-func TestIntrospector_PerServerRetryBackoff(t *testing.T) {
+func TestIntrospector_RenamedToolIsAChange(t *testing.T) {
+	ctx := context.Background()
 	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
-	reachedEmpty := Server{TenantID: "", Name: "empty", ReintrospectIntervalSeconds: 0}
-	i.snapshots[serverKey("", "empty")] = &ServerSnapshot{
-		Server: reachedEmpty, State: StateDegraded, Reached: true, Tools: nil,
-	}
-	i.retries[serverKey("", "empty")] = &retrySchedule{failures: 1, at: time.Now().Add(time.Hour)}
-	if _, pending := i.NextRetryIn([]Server{reachedEmpty}); pending {
-		t.Error("a server reached once scheduled a retry; the loop would spin on it")
-	}
-	if i.due(serverKey("", "empty"), reachedEmpty) {
-		t.Error("a reached reload-only server should not be due on an unforced tick")
-	}
+	srv := Server{TenantID: "", Name: "s", ReintrospectIntervalSeconds: 60}
+	key := serverKey("", "s")
 
-	down := Server{TenantID: "", Name: "down", ReintrospectIntervalSeconds: 3600}
-	key := serverKey("", "down")
-	i.snapshots[key] = &ServerSnapshot{Server: down, State: StateDegraded, Reached: false}
-	i.retries[key] = &retrySchedule{failures: 1, at: time.Now().Add(time.Hour)}
-	if i.due(key, down) {
-		t.Error("due() = true before the backoff elapsed")
+	i.recordResult(ctx, srv, key, []Tool{{Name: "echo", Description: "a"}}, nil)
+	if i.recordResult(ctx, srv, key, []Tool{{Name: "echo", Description: "a"}}, nil) {
+		t.Error("identical tools reported a change")
 	}
-	d, pending := i.NextRetryIn([]Server{down})
-	if !pending || d <= 0 {
-		t.Errorf("NextRetryIn = (%v, %v), want a pending future retry", d, pending)
+	// Same count, different tool: the catalog and the scope vocabulary both move.
+	if !i.recordResult(ctx, srv, key, []Tool{{Name: "speak", Description: "a"}}, nil) {
+		t.Error("a renamed tool reported no change; the catalog would keep the old name")
 	}
-	i.retries[key].at = time.Now().Add(-time.Second)
-	if !i.due(key, down) {
-		t.Error("due() = false after the backoff elapsed")
+	if !i.recordResult(ctx, srv, key, []Tool{{Name: "speak", Description: "b"}}, nil) {
+		t.Error("a changed description reported no change")
+	}
+	if !i.recordResult(ctx, srv, key, []Tool{{Name: "speak", Description: "b", RequiresScopes: []string{"x"}}}, nil) {
+		t.Error("changed RequiresScopes reported no change")
 	}
 }
 
-func TestIntrospector_CappedBackoffStopsShorteningTheWait(t *testing.T) {
+func TestIntrospector_BackoffGrowsAcrossFailures(t *testing.T) {
+	ctx := context.Background()
 	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
-	down := Server{TenantID: "", Name: "down", ReintrospectIntervalSeconds: 3600}
+	srv := Server{TenantID: "", Name: "down", ReintrospectIntervalSeconds: 3600}
 	key := serverKey("", "down")
+	boom := errors.New("connect: service unavailable")
 
-	i.snapshots[key] = &ServerSnapshot{Server: down, State: StateDegraded, Reached: false}
-	i.retries[key] = &retrySchedule{failures: 1, at: time.Now().Add(time.Second)}
-	if _, pending := i.NextRetryIn([]Server{down}); !pending {
-		t.Error("a server below the cap should be pending")
+	var delays []time.Duration
+	for range 3 {
+		i.recordResult(ctx, srv, key, nil, boom)
+		delays = append(delays, time.Until(i.retries[key].at))
+	}
+	if !(delays[0] < delays[1] && delays[1] < delays[2]) {
+		t.Errorf("delays = %v, want each retry further out than the last", delays)
+	}
+	if got := i.retries[key].failures; got != 3 {
+		t.Errorf("failures = %d after three failures, want 3", got)
+	}
+}
+
+func TestIntrospector_NextRetryInSchedulesOnlyUnreachedServersUnderTheCap(t *testing.T) {
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
+
+	// Never introspected at all: due now.
+	unseen := Server{TenantID: "", Name: "unseen"}
+	if d, pending := i.NextRetryIn([]Server{unseen}); !pending || d != 0 {
+		t.Errorf("NextRetryIn for an unseen server = (%v, %v), want (0, true)", d, pending)
+	}
+
+	reached := Server{TenantID: "", Name: "empty", ReintrospectIntervalSeconds: 0}
+	i.snapshots[serverKey("", "empty")] = &ServerSnapshot{Server: reached, State: StateDegraded, Reached: true}
+	i.retries[serverKey("", "empty")] = &retrySchedule{failures: 1, at: time.Now().Add(time.Hour)}
+	if _, pending := i.NextRetryIn([]Server{reached}); pending {
+		t.Error("a server reached once scheduled a retry; the loop would spin on it")
+	}
+
+	soon := Server{TenantID: "", Name: "soon", ReintrospectIntervalSeconds: 3600}
+	late := Server{TenantID: "", Name: "late", ReintrospectIntervalSeconds: 3600}
+	for _, s := range []Server{soon, late} {
+		i.snapshots[serverKey("", s.Name)] = &ServerSnapshot{Server: s, State: StateDegraded, Reached: false}
+	}
+	i.retries[serverKey("", "soon")] = &retrySchedule{failures: 1, at: time.Now().Add(time.Minute)}
+	i.retries[serverKey("", "late")] = &retrySchedule{failures: 1, at: time.Now().Add(time.Hour)}
+	d, pending := i.NextRetryIn([]Server{late, soon})
+	if !pending || d > 2*time.Minute {
+		t.Errorf("NextRetryIn = (%v, %v), want the earliest of the two", d, pending)
 	}
 
 	capped := 1
 	for backoffFor(capped) < retryMaxDelay {
 		capped++
 	}
-	i.retries[key].failures = capped
-	if _, pending := i.NextRetryIn([]Server{down}); pending {
-		t.Errorf("a server at the %v cap still shortened the wait after %d failures", retryMaxDelay, capped)
+	for _, n := range []string{"soon", "late"} {
+		i.retries[serverKey("", n)].failures = capped
 	}
-	i.retries[key].at = time.Now().Add(-time.Second)
-	if !i.due(key, down) {
+	if _, pending := i.NextRetryIn([]Server{soon, late}); pending {
+		t.Errorf("servers at the %v cap still shortened the wait after %d failures", retryMaxDelay, capped)
+	}
+	i.retries[serverKey("", "soon")].at = time.Now().Add(-time.Second)
+	if !i.due(serverKey("", "soon"), soon) {
 		t.Error("a capped server stopped being due; it must still be retried")
 	}
 }

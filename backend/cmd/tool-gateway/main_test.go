@@ -13,18 +13,20 @@ import (
 func testLogger() logging.Logger { return logging.NewLogger() }
 
 type cycleRecorder struct {
-	mu    sync.Mutex
-	calls int
-	fire  chan struct{}
+	mu     sync.Mutex
+	calls  int
+	forced []bool
+	fire   chan struct{}
 }
 
 func newCycleRecorder() *cycleRecorder {
 	return &cycleRecorder{fire: make(chan struct{}, 64)}
 }
 
-func (c *cycleRecorder) cycle(context.Context, bool) {
+func (c *cycleRecorder) cycle(_ context.Context, force bool) {
 	c.mu.Lock()
 	c.calls++
+	c.forced = append(c.forced, force)
 	c.mu.Unlock()
 	select {
 	case c.fire <- struct{}{}:
@@ -60,6 +62,12 @@ func TestRunIntrospectionLoop_UsesTheConfiguredIntervalWhenNothingPending(t *tes
 	go runIntrospectionLoop(ctx, rec.cycle, time.Hour, noRetry, nil, testLogger())
 
 	rec.waitForCycles(t, 1, 5*time.Second) // the boot cycle
+	rec.mu.Lock()
+	bootForced := rec.forced[0]
+	rec.mu.Unlock()
+	if !bootForced {
+		t.Error("the boot cycle must be forced, or a server inside its interval is never introspected")
+	}
 	time.Sleep(300 * time.Millisecond)
 	if got := rec.count(); got != 1 {
 		t.Errorf("cycles = %d, want 1: with no retry pending the loop must wait the configured interval", got)
