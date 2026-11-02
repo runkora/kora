@@ -27,7 +27,7 @@ func TestPublisher_NeverPrunesAnIncompleteKeepList(t *testing.T) {
 	b := Server{TenantID: "", Name: "b", ReintrospectIntervalSeconds: 60}
 
 	var mu sync.Mutex
-	var bad int
+	var bad, empty int
 	policy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Scopes    []routescopes.ScopeDeclaration `json:"scopes"`
@@ -41,11 +41,14 @@ func TestPublisher_NeverPrunesAnIncompleteKeepList(t *testing.T) {
 					seenB = true
 				}
 			}
+			mu.Lock()
 			if !seenB {
-				mu.Lock()
 				bad++
-				mu.Unlock()
 			}
+			if len(body.Scopes) == 0 {
+				empty++
+			}
+			mu.Unlock()
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -77,6 +80,24 @@ func TestPublisher_NeverPrunesAnIncompleteKeepList(t *testing.T) {
 			i.mu.Unlock()
 		}
 	})
+	// The registry mounts and unmounts underneath them too. An empty server
+	// list reads as "nothing to keep", so pairing one with a loaded registry
+	// would prune the whole vocabulary.
+	wg.Go(func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			reg.mu.Lock()
+			reg.servers, reg.loaded = nil, false
+			reg.mu.Unlock()
+			reg.mu.Lock()
+			reg.servers, reg.loaded = []Server{a, b}, true
+			reg.mu.Unlock()
+		}
+	})
 	for range 200 {
 		if err := p.Publish(ctx); err != nil {
 			t.Fatalf("Publish: %v", err)
@@ -87,5 +108,8 @@ func TestPublisher_NeverPrunesAnIncompleteKeepList(t *testing.T) {
 
 	if bad > 0 {
 		t.Errorf("%d publishes asked to prune with b missing from the keep-list", bad)
+	}
+	if empty > 0 {
+		t.Errorf("%d publishes asked to prune with an empty keep-list; that strips every mcp scope", empty)
 	}
 }

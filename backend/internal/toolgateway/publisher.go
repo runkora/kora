@@ -60,7 +60,9 @@ func (p *Publisher) Publish(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	servers := p.registry.Servers()
+	// One read of each source. Every input to the prune decision below has to
+	// come from the same instant: see Registry.ServersAndLoaded.
+	servers, loaded := p.registry.ServersAndLoaded()
 	snapshots := p.introspector.Snapshot()
 
 	decls, collisions := BuildScopes(snapshots)
@@ -75,9 +77,8 @@ func (p *Publisher) Publish(ctx context.Context) error {
 			fmt.Sprintf("tool %q scope shadows sibling %q", c.Tool, c.ShadowedBy))
 	}
 
-	// Both halves read what this call already captured, never live state: see
-	// AllSeenOrRetained.
-	prune := p.registry.Loaded() && AllSeenOrRetained(servers, snapshots)
+	// Every half reads what this call already captured, never live state.
+	prune := loaded && AllSeenOrRetained(servers, snapshots)
 	if err := p.client.RegisterWithPrune(ctx, ServiceName, CoarseRoutes(), decls, prune); err != nil {
 		return fmt.Errorf("register mcp scopes: %w", err)
 	}
