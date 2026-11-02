@@ -219,6 +219,9 @@ func TestIntrospector_PerServerRetryBackoff(t *testing.T) {
 	reachedEmpty := Server{TenantID: "", Name: "empty", ReintrospectIntervalSeconds: 0}
 	i.snapshots[serverKey("", "empty")] = &ServerSnapshot{
 		Server: reachedEmpty, State: StateDegraded, Reached: true, Tools: nil,
+		// Non-zero, or NextRetryIn skips it on the IsZero half of the guard and
+		// the Reached half this asserts is never exercised.
+		retryAt: time.Now().Add(time.Hour),
 	}
 	if _, pending := i.NextRetryIn([]Server{reachedEmpty}); pending {
 		t.Error("a server reached once scheduled a retry; the loop would spin on it")
@@ -244,6 +247,40 @@ func TestIntrospector_PerServerRetryBackoff(t *testing.T) {
 	i.snapshots[key].retryAt = time.Now().Add(-time.Second)
 	if !i.due(key, down) {
 		t.Error("due() = false after the backoff elapsed")
+	}
+}
+
+// A server whose backoff has reached the cap must stop shortening the loop's
+// wait. The cycle republishes every scope and rewrites the whole catalog, so
+// leaving one dead server pending at the cap runs that five times more often
+// than configured, for as long as the server stays down.
+func TestIntrospector_CappedBackoffStopsShorteningTheWait(t *testing.T) {
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
+	down := Server{TenantID: "", Name: "down", ReintrospectIntervalSeconds: 3600}
+	key := serverKey("", "down")
+
+	// Below the cap it is pending, so the loop retries sooner.
+	i.snapshots[key] = &ServerSnapshot{
+		Server: down, State: StateDegraded, Reached: false,
+		retries: 1, retryAt: time.Now().Add(time.Second),
+	}
+	if _, pending := i.NextRetryIn([]Server{down}); !pending {
+		t.Error("a server below the cap should be pending")
+	}
+
+	// At the cap it is not, and the loop falls back to the configured interval.
+	capped := 1
+	for backoffFor(capped) < retryMaxDelay {
+		capped++
+	}
+	i.snapshots[key].retries = capped
+	if _, pending := i.NextRetryIn([]Server{down}); pending {
+		t.Errorf("a server at the %v cap still shortened the wait after %d failures", retryMaxDelay, capped)
+	}
+	// Still retried, just on the configured interval rather than the cap.
+	i.snapshots[key].retryAt = time.Now().Add(-time.Second)
+	if !i.due(key, down) {
+		t.Error("a capped server stopped being due; it must still be retried")
 	}
 }
 

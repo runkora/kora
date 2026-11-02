@@ -11,25 +11,19 @@ import (
 
 func testLogger() logging.Logger { return logging.NewLogger() }
 
-// cycleRecorder records each cycle call and the gap before it, so a test can
-// assert which interval the loop waited.
+// cycleRecorder counts cycle calls and signals each one.
 type cycleRecorder struct {
 	mu    sync.Mutex
-	gaps  []time.Duration
-	last  time.Time
 	calls int
 	fire  chan struct{}
 }
 
 func newCycleRecorder() *cycleRecorder {
-	return &cycleRecorder{last: time.Now(), fire: make(chan struct{}, 64)}
+	return &cycleRecorder{fire: make(chan struct{}, 64)}
 }
 
 func (c *cycleRecorder) cycle(context.Context, bool) {
 	c.mu.Lock()
-	now := time.Now()
-	c.gaps = append(c.gaps, now.Sub(c.last))
-	c.last = now
 	c.calls++
 	c.mu.Unlock()
 	select {
@@ -61,18 +55,6 @@ func (c *cycleRecorder) waitForCycles(t *testing.T, n int, within time.Duration)
 func noRetry() (time.Duration, bool) { return 0, false }
 func retryIn(d time.Duration) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) { return d, true }
-}
-
-// A server awaiting its first retry must not wait out the configured interval.
-func TestRunIntrospectionLoop_FollowsTheRetrySchedule(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	rec := newCycleRecorder()
-	// An hour configured, but a retry due in 20ms: the retry wins.
-	go runIntrospectionLoop(ctx, rec.cycle, time.Hour, retryIn(20*time.Millisecond), nil, testLogger())
-
-	rec.waitForCycles(t, 3, 5*time.Second)
 }
 
 // With nothing awaiting a retry the loop waits the configured interval.
@@ -123,6 +105,15 @@ func TestRunIntrospectionLoop_ReloadRecomputesTheWait(t *testing.T) {
 	go runIntrospectionLoop(ctx, rec.cycle, time.Hour, next, reloaded, testLogger())
 	rec.waitForCycles(t, 1, 5*time.Second) // boot cycle, then parks on the hour
 
+	// With nothing pending the reload must only recompute the wait. If it ran a
+	// cycle of its own the count would move.
+	reloaded <- struct{}{}
+	time.Sleep(200 * time.Millisecond)
+	if got := rec.count(); got != 1 {
+		t.Fatalf("cycles = %d after a reload with nothing pending, want 1: the reload arm must not run a cycle", got)
+	}
+
+	// Now a retry is pending, so the recomputed wait is the short one.
 	mu.Lock()
 	pending = true
 	mu.Unlock()

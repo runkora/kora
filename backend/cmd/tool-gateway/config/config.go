@@ -69,7 +69,7 @@ type Config struct {
 	} `yaml:"registry"`
 
 	Introspection struct {
-		// ReintrospectIntervalSecs is the tick rate of the publisher's
+		// ReintrospectIntervalSecs is the ceiling on the publisher's
 		// re-introspection timer (besides on registry reload). It is the
 		// polling granularity, not a per-server cadence: on each tick, a
 		// server is only actually re-introspected once its own

@@ -101,11 +101,11 @@ func (i *Introspector) Sync(ctx context.Context, servers []Server, force bool) {
 }
 
 // due reports whether a server is due for re-introspection on the periodic
-// timer. A server never introspected this lifetime is always due, and so is one
-// that has never been reached. Otherwise a
-// server with ReintrospectIntervalSeconds <= 0 is reload-only — never due on
-// the timer — and one with a positive interval is due once that many seconds
-// have passed since it was last introspected.
+// timer. A server never introspected this lifetime is always due. One that has
+// never been reached is due once its own backoff elapses. Otherwise a server
+// with ReintrospectIntervalSeconds <= 0 is reload-only — never due on the timer
+// — and one with a positive interval is due once that many seconds have passed
+// since it was last introspected.
 func (i *Introspector) due(key string, srv Server) bool {
 	i.mu.RLock()
 	snap, seen := i.snapshots[key]
@@ -313,7 +313,7 @@ func backoffFor(failures int) time.Duration {
 			return retryMaxDelay
 		}
 	}
-	return min(d, retryMaxDelay)
+	return d
 }
 
 // NextRetryIn reports how long until the earliest listed server is due for a
@@ -327,7 +327,11 @@ func (i *Introspector) NextRetryIn(servers []Server) (time.Duration, bool) {
 		if snap == nil {
 			return 0, true // never introspected: due now
 		}
-		if snap.Reached || snap.retryAt.IsZero() {
+		// At the cap the fast retry has served its purpose. Leaving it pending
+		// would hold the whole cycle at retryMaxDelay for as long as one server
+		// stays down, and the cycle republishes every scope and rewrites the
+		// catalog.
+		if snap.Reached || snap.retryAt.IsZero() || backoffFor(snap.retries) >= retryMaxDelay {
 			continue
 		}
 		if earliest.IsZero() || snap.retryAt.Before(earliest) {
