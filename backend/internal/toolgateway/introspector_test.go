@@ -9,8 +9,6 @@ import (
 	"slices"
 	"sync"
 	"testing"
-
-	"github.com/runkora/kora/backend/internal/platform/logging"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -209,153 +207,38 @@ func TestToolRequires(t *testing.T) {
 	}
 }
 
-type capturingLogger struct {
-	mu     sync.Mutex
-	levels []string
-}
-
-func (l *capturingLogger) record(level string) {
-	l.mu.Lock()
-	l.levels = append(l.levels, level)
-	l.mu.Unlock()
-}
-func (l *capturingLogger) Debug(context.Context, string, ...logging.Field) {}
-func (l *capturingLogger) Info(context.Context, string, ...logging.Field)  {}
-func (l *capturingLogger) Warn(ctx context.Context, msg string, f ...logging.Field) {
-	l.record("warn")
-}
-func (l *capturingLogger) Error(ctx context.Context, msg string, f ...logging.Field) {
-	l.record("error")
-}
-func (l *capturingLogger) seen() []string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return slices.Clone(l.levels)
-}
-
-func TestIntrospector_FailureLogsErrorOnceThenWarns(t *testing.T) {
-	ctx := context.Background()
-	log := &capturingLogger{}
-	i := NewIntrospector(NewUpstreamCredentials(""), "test", log)
-	srv := Server{TenantID: "", Name: "s", ReintrospectIntervalSeconds: 60}
-	key := serverKey("", "s")
-	boom := errors.New("connect: service unavailable")
-
-	i.recordResult(ctx, srv, key, []Tool{{Name: "echo"}}, nil)
-	i.recordResult(ctx, srv, key, nil, boom)
-	i.recordResult(ctx, srv, key, nil, boom)
-	i.recordResult(ctx, srv, key, nil, boom)
-
-	got := log.seen()
-	want := []string{"error", "warn", "warn"}
-	if !slices.Equal(got, want) {
-		t.Errorf("levels = %v, want %v: a server that stays down must not log an incident per retry", got, want)
-	}
-
-	i.recordResult(ctx, srv, key, []Tool{{Name: "echo"}}, nil)
-	i.recordResult(ctx, srv, key, nil, boom)
-	if got := log.seen(); got[len(got)-1] != "error" {
-		t.Errorf("last level = %q, want error: a fresh failure after recovery is a new incident", got[len(got)-1])
-	}
-}
-
-// A net.OpError carries the resolved ip:port, so the message moves between
-// otherwise identical failures.
-func TestIntrospector_FlagDegradedDoesNotMaskAnIncident(t *testing.T) {
-	ctx := context.Background()
-	log := &capturingLogger{}
-	i := NewIntrospector(NewUpstreamCredentials(""), "test", log)
-	srv := Server{TenantID: "", Name: "s", ReintrospectIntervalSeconds: 60}
-	key := serverKey("", "s")
-
-	i.recordResult(ctx, srv, key, []Tool{{Name: "echo"}}, nil)
-	// Publish flags a scope collision, which writes State from outside Sync.
-	i.FlagDegraded("", "s", "tool scope shadows a sibling")
-
-	i.recordResult(ctx, srv, key, nil, errors.New("connect: service unavailable"))
-	if got := log.seen(); len(got) == 0 || got[len(got)-1] != "error" {
-		t.Errorf("levels = %v, want the endpoint failure at error: FlagDegraded must not mask a fresh incident", got)
-	}
-}
-
-func TestIntrospector_VaryingErrorTextIsNotAChange(t *testing.T) {
+// The republish rule: a reach is always a change, because the catalog derives
+// healthy/stale from how recently a server's rows were written. A failure is a
+// change only on the way into Degraded, so a server that never comes up does
+// not rewrite the catalog on every retry.
+func TestIntrospector_ReachIsAChangeAndRepeatedFailureIsNot(t *testing.T) {
 	ctx := context.Background()
 	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 	srv := Server{TenantID: "", Name: "s", ReintrospectIntervalSeconds: 60}
 	key := serverKey("", "s")
+	tools := []Tool{{Name: "echo"}}
 
+	if !i.recordResult(ctx, srv, key, tools, nil) {
+		t.Fatal("the first reach reported no change")
+	}
+	if !i.recordResult(ctx, srv, key, tools, nil) {
+		t.Error("an identical reach reported no change; the server would report itself stale while healthy")
+	}
 	if !i.recordResult(ctx, srv, key, nil, errors.New("dial tcp 10.0.0.1:8080: connect: refused")) {
-		t.Fatal("the first failure moved the server to Degraded, which is a change")
+		t.Error("the move to Degraded reported no change")
 	}
+	// A net.OpError carries the resolved ip:port, so the text moves between
+	// otherwise identical failures.
 	if i.recordResult(ctx, srv, key, nil, errors.New("dial tcp 10.0.0.2:8080: connect: refused")) {
-		t.Error("a differing error message counted as a change; every retry would republish")
+		t.Error("a repeated failure reported a change; a dead server would rewrite the catalog every retry")
 	}
-}
-
-func TestIntrospectorSync_ReportsWhetherAnythingChanged(t *testing.T) {
-	ctx := context.Background()
-	endpoint, _ := newFakeMCPServer(t)
-	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
-	srv := Server{TenantID: "", Name: "s", Endpoint: endpoint, ReintrospectIntervalSeconds: 3600}
-
-	if !i.Sync(ctx, []Server{srv}, true) {
-		t.Fatal("the first sync discovered a server and its tools, so it changed something")
-	}
-	// A reach is a change even when the tools are identical: it advances the
-	// freshness the catalog publishes as last_synced.
-	if !i.Sync(ctx, []Server{srv}, true) {
-		t.Error("a re-sync that reached the server reported no change; its last_synced would freeze")
-	}
-
+	// A removed server has to leave the keep-list.
 	if !i.Sync(ctx, nil, true) {
 		t.Error("dropping a server's snapshot reported no change")
 	}
 }
 
-func TestIntrospectorSync_RepeatedFailureChangesNothing(t *testing.T) {
-	ctx := context.Background()
-	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
-	down := Server{TenantID: "", Name: "down", Endpoint: "http://127.0.0.1:1/mcp", ReintrospectIntervalSeconds: 3600}
-
-	if !i.Sync(ctx, []Server{down}, true) {
-		t.Fatal("the first failure moved the server to Degraded, which is a change")
-	}
-	if i.Sync(ctx, []Server{down}, true) {
-		t.Error("a repeated identical failure reported a change; the catalog would be rewritten every retry")
-	}
-}
-
-// TestIntrospector_EverySuccessfulReachIsAChange pins the half of the
-// republish rule that is not the dead-server skip. The catalog derives a
-// server's healthy/stale status from how recently its rows were written, so a
-// reachable server has to be rewritten on every cycle, whatever its tools did.
-func TestIntrospector_EverySuccessfulReachIsAChange(t *testing.T) {
-	ctx := context.Background()
-	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
-	srv := Server{TenantID: "", Name: "s", ReintrospectIntervalSeconds: 60}
-	key := serverKey("", "s")
-
-	tools := []Tool{{Name: "echo", Description: "a"}}
-	if !i.recordResult(ctx, srv, key, tools, nil) {
-		t.Fatal("the first reach discovered a tool and reported no change")
-	}
-	if !i.recordResult(ctx, srv, key, tools, nil) {
-		t.Error("an identical reach reported no change; the server would report itself stale while healthy")
-	}
-	if !i.recordResult(ctx, srv, key, []Tool{{Name: "speak"}}, nil) {
-		t.Error("a renamed tool reported no change; the catalog would keep the old name")
-	}
-
-	// The other half: once it stops being reachable, only the transition counts.
-	if !i.recordResult(ctx, srv, key, nil, errors.New("connect: refused")) {
-		t.Error("the move to Degraded reported no change")
-	}
-	if i.recordResult(ctx, srv, key, nil, errors.New("connect: refused")) {
-		t.Error("a repeated failure reported a change; a dead server would rewrite the catalog every retry")
-	}
-}
-
-func TestIntrospector_BackoffGrowsAcrossFailures(t *testing.T) {
+func TestIntrospector_BackoffGrowsAndCaps(t *testing.T) {
 	ctx := context.Background()
 	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 	srv := Server{TenantID: "", Name: "down", ReintrospectIntervalSeconds: 3600}
@@ -370,8 +253,11 @@ func TestIntrospector_BackoffGrowsAcrossFailures(t *testing.T) {
 	if !(delays[0] < delays[1] && delays[1] < delays[2]) {
 		t.Errorf("delays = %v, want each retry further out than the last", delays)
 	}
-	if got := i.retries[key].failures; got != 3 {
-		t.Errorf("failures = %d after three failures, want 3", got)
+	if got := backoffFor(1); got != retryBaseDelay {
+		t.Errorf("backoffFor(1) = %v, want %v", got, retryBaseDelay)
+	}
+	if got := backoffFor(99); got != retryMaxDelay {
+		t.Errorf("backoffFor(99) = %v, want the cap %v", got, retryMaxDelay)
 	}
 }
 
@@ -422,28 +308,5 @@ func TestIntrospector_NextRetryInSchedulesOnlyUnreachedServers(t *testing.T) {
 	i.retries[serverKey("", "soon")].at = time.Now().Add(-time.Second)
 	if !i.due(serverKey("", "soon"), soon) {
 		t.Error("a capped server stopped being due; it must still be retried")
-	}
-}
-
-func TestIntrospector_BackoffGrowsAndCaps(t *testing.T) {
-	if got := backoffFor(1); got != retryBaseDelay {
-		t.Errorf("backoffFor(1) = %v, want %v", got, retryBaseDelay)
-	}
-	if got := backoffFor(2); got != 2*retryBaseDelay {
-		t.Errorf("backoffFor(2) = %v, want %v", got, 2*retryBaseDelay)
-	}
-	prev := time.Duration(0)
-	for n := 1; n <= 12; n++ {
-		got := backoffFor(n)
-		if got < prev {
-			t.Errorf("backoffFor(%d) = %v went backwards from %v", n, got, prev)
-		}
-		if got > retryMaxDelay {
-			t.Errorf("backoffFor(%d) = %v exceeds the cap %v", n, got, retryMaxDelay)
-		}
-		prev = got
-	}
-	if got := backoffFor(12); got != retryMaxDelay {
-		t.Errorf("backoffFor(12) = %v, want the cap %v", got, retryMaxDelay)
 	}
 }

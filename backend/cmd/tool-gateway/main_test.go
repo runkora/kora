@@ -185,46 +185,37 @@ func TestNewCycle_ForcedCycleAlwaysPublishes(t *testing.T) {
 	}
 }
 
-func TestNewCycle_RetriesAfterAFailedPublish(t *testing.T) {
-	ctx := context.Background()
-	c := &calls{publishErr: errors.New("policy-service down")}
-	cycle := newCycle(func(context.Context, bool) bool { return false }, c.pub, c.reb, testLogger())
+// A failed publish or catalog write leaves the cycle owing a republish, so the
+// next cycle retries it even though nothing changed, and the skip resumes once
+// it sticks.
+func TestNewCycle_RetriesAfterAFailedStep(t *testing.T) {
+	boom := errors.New("downstream down")
+	for _, tc := range []struct {
+		name string
+		fail func(*calls, error)
+		got  func(*calls) int
+	}{
+		{"publish", func(c *calls, e error) { c.publishErr = e }, func(c *calls) int { return c.publish }},
+		{"rebuild", func(c *calls, e error) { c.rebuildErr = e }, func(c *calls) int { return c.rebuild }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			c := &calls{}
+			tc.fail(c, boom)
+			cycle := newCycle(func(context.Context, bool) bool { return false }, c.pub, c.reb, testLogger())
 
-	cycle(ctx, true)
-	if c.publish != 1 {
-		t.Fatalf("boot publish=%d, want 1", c.publish)
-	}
-	cycle(ctx, false) // nothing changed, but the last publish failed
-	if c.publish != 2 {
-		t.Errorf("publish=%d after a failure, want 2: a failed publish must be retried", c.publish)
-	}
+			cycle(ctx, true)
+			cycle(ctx, false) // nothing changed, but the last cycle failed
+			if got := tc.got(c); got != 2 {
+				t.Errorf("%s=%d after a failure, want 2: a failed %s must be retried", tc.name, got, tc.name)
+			}
 
-	c.publishErr = nil
-	cycle(ctx, false)
-	if c.publish != 3 {
-		t.Fatalf("publish=%d, want 3", c.publish)
-	}
-	cycle(ctx, false) // succeeded last time and nothing changed, so skip
-	if c.publish != 3 {
-		t.Errorf("publish=%d, want 3: once it succeeds the skip resumes", c.publish)
-	}
-}
-
-func TestNewCycle_RetriesAfterAFailedRebuild(t *testing.T) {
-	ctx := context.Background()
-	c := &calls{rebuildErr: errors.New("db down")}
-	cycle := newCycle(func(context.Context, bool) bool { return false }, c.pub, c.reb, testLogger())
-
-	cycle(ctx, true)
-	cycle(ctx, false)
-	if c.rebuild != 2 {
-		t.Errorf("rebuild=%d after a failure, want 2: a failed catalog write must be retried", c.rebuild)
-	}
-
-	c.rebuildErr = nil
-	cycle(ctx, false) // the retry, which now succeeds
-	cycle(ctx, false) // nothing changed and the last write stuck, so skip
-	if c.rebuild != 3 {
-		t.Errorf("rebuild=%d, want 3: the retry succeeds and then the skip resumes", c.rebuild)
+			tc.fail(c, nil)
+			cycle(ctx, false) // the retry, which now succeeds
+			cycle(ctx, false) // nothing changed and it stuck, so skip
+			if got := tc.got(c); got != 3 {
+				t.Errorf("%s=%d, want 3: once it succeeds the skip resumes", tc.name, got)
+			}
+		})
 	}
 }
