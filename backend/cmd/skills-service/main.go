@@ -26,8 +26,8 @@ import (
 )
 
 func main() {
-	ctx := context.Background() // A context is an object used to control how long the operation should continue
-	logger := initLogger()      // The logger is used throughout the file to report events and errors.
+	ctx := context.Background()
+	logger := initLogger()
 
 	if err := sc.Current.ApplyEnvOverrides(); err != nil {
 		logger.Error(ctx, "invalid config", logging.Field{Key: "error", Value: err.Error()})
@@ -42,6 +42,11 @@ func main() {
 	}
 
 	logger.Info(ctx, "skills-service starting", logging.Field{Key: "version", Value: sc.Current.App.Version})
+
+	if sc.Current.Marketplace.LocalTenantID != "" {
+		logger.Warn(ctx, "LOCAL_TENANT_ID set: authentication, delegation and scope enforcement are disabled",
+			logging.Field{Key: "tenant_id", Value: sc.Current.Marketplace.LocalTenantID})
+	}
 
 	redis, err := initStorage(ctx, logger)
 	if err != nil {
@@ -181,12 +186,17 @@ func initControllers(ctx context.Context, logger logging.Logger, redis *storage.
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	svc := skills.NewService(registry, cache, crawler, search, logger)
 
+	// Shared revoked-JTI blocklist: rejects logged-out platform tokens and
+	// revoked delegation tokens before natural expiry.
+	jtiBlocklist := storage.NewJTIBlocklist(redis)
+
 	controller := skills.NewController(
 		logger,
 		svc,
 		registry,
 		verifier,
 		pol,
+		jtiBlocklist,
 		sc.Current.Server.BasePath,
 		sc.Current.Marketplace.LocalTenantID,
 	)
@@ -198,7 +208,6 @@ func initControllers(ctx context.Context, logger logging.Logger, redis *storage.
 // route/scope vocabulary with the policy service. The caller passes it to
 // routescopes.KeepRegistered, which owns the initial registration and the
 // periodic self-heal loop.
-
 func initScopeRegistration(logger logging.Logger) func(context.Context) error {
 	identityClient := identityclient.NewClient(sc.Current.Identity.InternalURL, logger)
 	selfToken := identityClient.SelfTokenSource()

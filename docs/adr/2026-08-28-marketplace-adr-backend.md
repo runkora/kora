@@ -17,7 +17,7 @@ A `skills-service` owns this capability. GitHub is the source of truth for all M
 
 Marketplace sources are declared through GitOps — one `SkillMarketplaceSource` CRD per GitHub repository, scoped to a tenant. The `orbit-operator` watches all `SkillMarketplaceSource` CRDs and aggregates the valid entries into one ConfigMap (`orbit-skill-marketplace-sources`). `skills-service` reads a `skills-mapping.yaml` file from that ConfigMap to know which repos are declared for which tenant.
 
-The service authenticates with GitHub using a **GitHub App**. A `TokenProvider` mints short-lived installation tokens on demand and refreshes them before expiry. Multiple marketplace sources may use different GitHub App credentials via per-source `credentialsRef`; a `TokenProviderPool` lazily constructs a `TokenProvider` per credential directory. All content fetches go through the platform GitHub client at `internal/platform/clients/github/`, which embeds `httpclient.Base` — the same convention every other service-to-service HTTP client follows.
+The service authenticates with GitHub using a **GitHub App**. A `TokenProvider` mints short-lived installation tokens on demand and refreshes them before expiry. Today one GitHub App serves every source; per-source credentials (`credentialsRef` with a `TokenProviderPool`) are deferred (see [GitHub App Authentication and Platform Client](#github-app-authentication-and-platform-client)). All content fetches go through the platform GitHub client at `internal/platform/clients/github/`, which embeds `httpclient.Base` — the same convention every other service-to-service HTTP client follows.
 
 A single Redis instance is shared across all tenants. Isolation is enforced by prefixing marketplace list keys with the tenant ID. `skills-service` is the only service allowed to read or write these keys, and it lives in the `orbit-system` namespace — no other workload has network access to this Redis instance or to the `skills-service` API.
 
@@ -285,9 +285,9 @@ Each entry in `marketplaces` is a GitHub repository URL. The registry parses eac
 
 ### GitHub App Authentication and Platform Client
 
-`TokenProvider` (in the feature package) holds the App private key path, App ID, and installation ID. It mints a short-lived installation token on first use and refreshes it before expiry. The private key is read fresh on every mint — it is never decoded and held resident in memory, so a rotated key takes effect on the next mint without a process restart.
+`TokenProvider` (in the feature package) holds the App ID, installation ID, and the App private key. `main.go` reads the PEM from `GITHUB_APP_PRIVATE_KEY_PATH` once at startup and the provider parses it at construction, so a rotated key takes effect on the next pod restart. It mints a short-lived installation token on first use and refreshes it before expiry.
 
-Multiple marketplace sources may use different GitHub App credentials. `TokenProviderPool` lazily constructs and caches one `TokenProvider` per `credentialsRef` directory path. A source with an empty `CredentialsRef` falls back to the default provider configured at startup. Each `credentialsRef` directory must contain three files: `appID`, `installationID`, and `privateKey` (PEM-encoded RSA key), matching the Kubernetes Secret mount shape.
+**Deferred: per-source credentials.** The original design let each marketplace source name its own GitHub App through a `credentialsRef` directory (`appID`, `installationID`, `privateKey`), with a `TokenProviderPool` constructing one `TokenProvider` per directory and falling back to the default. This is not implemented: every source uses the single startup `TokenProvider`, and `skills-mapping.yaml` has no `credentialsRef` field.
 
 All GitHub calls go through the platform client at:
 
@@ -297,7 +297,7 @@ backend/internal/platform/clients/github/client.go
 
 This client embeds `httpclient.Base` — the same base every other service-to-service client uses — and therefore gets W3C trace propagation, OTel span lifecycle, and structured logging for free. `skills-service` obtains it through the standard client wiring in `main.go`; it never constructs an `http.Client{}` literal, which is banned by the `noRawHttpClientLiteral` lint rule anyway.
 
-The feature package supplies the token by injecting a `TokenProvider` (or pool) into the crawler at construction time; the GitHub client itself has no knowledge of GitHub App semantics and only knows how to add an `Authorization: Bearer <token>` header from whatever source it is given.
+The feature package supplies the token by injecting a `TokenProvider` into the crawler at construction time; the GitHub client itself has no knowledge of GitHub App semantics and only knows how to add an `Authorization: Bearer <token>` header from whatever source it is given.
 
 ### Request Path and Tenant Resolution
 
@@ -336,7 +336,7 @@ Redis GET
    └── MISS
          │
          ▼
-      platform/clients/github (with TokenProvider/Pool)
+      platform/clients/github (with TokenProvider)
          ├── GetTree(org, repo, "HEAD")
          │     → walk all blobs; identify each SKILL.md by filename
          │     → collect adjacent .md files as docPaths
@@ -366,7 +366,7 @@ Redis GET {skillSlug}
    └── MISS
          │  look up SkillEntry in []SkillEntry for entry.Path + entry.DocPaths
          ▼
-      platform/clients/github (with TokenProvider/Pool)
+      platform/clients/github (with TokenProvider)
          fetch SKILL.md + all docPaths in parallel
          │
          ▼
@@ -525,7 +525,7 @@ When a key expires, the next request that targets it triggers a fresh crawl and 
 
 ### Authorization
 
-All three endpoints require scope `marketplace:read`. Middleware chain: `AuthMiddleware → DelegationMiddleware → ScopeEnforcementMiddleware`. In local development mode (`LOCAL_TENANT_ID` set), the middleware chain is bypassed and the configured tenant ID is used directly. The tenant ID is extracted from the authenticated caller's context and used verbatim as the Redis marketplace key prefix; there is no code path where a client-supplied value can influence which tenant's keys are read.
+All three endpoints require scope `marketplace:read`. Middleware chain: `AuthMiddleware → DelegationMiddleware → ScopeEnforcementMiddleware`. In local development mode (`LOCAL_TENANT_ID` set and `APP_ENV=local`), the middleware chain is bypassed and the configured tenant ID is used directly. If `LOCAL_TENANT_ID` is set under any other `APP_ENV` (including unset, which defaults to `production`), the service refuses to start. Outside local development mode, the tenant ID is extracted from the authenticated caller's context and used verbatim as the Redis marketplace key prefix; there is no code path where a client-supplied value can influence which tenant's keys are read.
 
 ---
 
@@ -542,7 +542,7 @@ All three endpoints require scope `marketplace:read`. Middleware chain: `AuthMid
 - A server-side cap (200 skills per marketplace) keeps list response sizes bounded regardless of dataset size.
 - `skillSlug` is stable and URL-safe — the frontend can use it directly as a path parameter without additional encoding.
 - GitHub calls go through the standard platform client, so tracing, logging, and metrics work the same way they do for every other service-to-service call.
-- Per-source `credentialsRef` allows each marketplace repository to authenticate with its own GitHub App installation, enabling cross-organization marketplaces without sharing credentials.
+- One GitHub App installation serves every marketplace source today. Cross-organization marketplaces with separate credentials need the deferred per-source `credentialsRef` support.
 
 ### Negative
 
@@ -565,8 +565,8 @@ A platform operator creates one `SkillMarketplaceSource` CRD per GitHub reposito
 When `skills-service` starts:
 
 1. Reads `ORBIT_MARKETPLACE_SOURCES_CONFIG/skills-mapping.yaml` to build the tenant-scoped in-memory registry.
-2. Builds a default `TokenProvider` from `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY_PATH`. Also constructs a `TokenProviderPool` backed by this default, for sources that supply their own `credentialsRef`.
-3. Constructs the platform GitHub client (`internal/platform/clients/github`) and wires it into the `Crawler` with the pool.
+2. Builds a default `TokenProvider` from `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY_PATH`. All sources share it (per-source credentials are deferred).
+3. Constructs the platform GitHub client (`internal/platform/clients/github`) and wires it into the `Crawler` with that provider.
 4. Passes the readiness probe. No preload is performed.
 
 ### Step 3 — User Opens the Marketplace
@@ -601,7 +601,7 @@ backend/internal/skills/
 ├── cache.go                    — Redis read/write; two-level key helpers; TTL configuration
 ├── crawler.go                  — GitHub Trees API walk; SKILL.md + adjacent .md fetch
 ├── registry.go                 — Reads skills-mapping.yaml; parses GitHub URLs; tenant → sources mapping
-├── token.go                    — TokenProvider (single App) + TokenProviderPool (per-source credentialsRef)
+├── token.go                    — TokenProvider (single GitHub App)
 ├── service.go                  — Cache-aside orchestration; search, server-cap, slug validation
 ├── handlers_skills_entry.go    — HTTP controllers for marketplaces, list, and detail endpoints
 ├── formatter.go                — SKILL.md frontmatter parser (ParseSkillFrontmatter)
@@ -618,7 +618,7 @@ backend/internal/operator/
                                   renders orbit-skill-marketplace-sources ConfigMap
 ```
 
-The GitHub HTTP client lives under `internal/platform/clients/github/` because the platform-client convention requires it. The feature package supplies GitHub App semantics (`TokenProvider`, `TokenProviderPool`) but never constructs its own HTTP client.
+The GitHub HTTP client lives under `internal/platform/clients/github/` because the platform-client convention requires it. The feature package supplies GitHub App semantics (`TokenProvider`) but never constructs its own HTTP client.
 
 ### API Style
 
@@ -627,7 +627,7 @@ REST is used for V1. The Marketplace has a small, well-defined set of operations
 ### Delivery Phases
 
 **Phase 1 — Configuration and platform client**
-Set up `skills-service` skeleton, ConfigMap and Secret mounts, `registry.Registry` loading from `skills-mapping.yaml` with tenant scoping, `TokenProvider` / `TokenProviderPool` with GitHub App token mint and cache, and `internal/platform/clients/github`. Service starts, reads credentials, and can make authenticated calls to the GitHub Trees API and `raw.githubusercontent.com`.
+Set up `skills-service` skeleton, ConfigMap and Secret mounts, `registry.Registry` loading from `skills-mapping.yaml` with tenant scoping, `TokenProvider` with GitHub App token mint and cache, and `internal/platform/clients/github`. Service starts, reads credentials, and can make authenticated calls to the GitHub Trees API and `raw.githubusercontent.com`.
 
 **Phase 2 — Cache-aside read path**
 Implement `cache.go`, `crawler.go`, and `service.go`: tenant-scoped Redis key helpers using `{org}__{repo}` marketplace slugs, `SKILL.md` and adjacent `.md` crawl with `{marketplaceSlug}__{nameSlug}` skill slugs, two-level write to Redis on miss, and the cache-aside orchestration used by the handlers.

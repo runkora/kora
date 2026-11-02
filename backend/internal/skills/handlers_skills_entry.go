@@ -37,11 +37,12 @@ func NewController(
 	registry marketplaceRegistry,
 	verifier *token.Verifier,
 	eval policy.Evaluator,
+	revoked mw.RevocationChecker,
 	basePath string,
 	localTenantID string,
 ) *Controller {
-	if verifier == nil || eval == nil {
-		panic("skills controller requires a token verifier and policy evaluator")
+	if verifier == nil || eval == nil || revoked == nil {
+		panic("skills controller requires a token verifier, policy evaluator and JTI blocklist")
 	}
 
 	if basePath == "/" {
@@ -57,8 +58,8 @@ func NewController(
 		}
 	} else {
 		middleware = mw.MiddlewareChain(
-			mw.AuthMiddleware(verifier, logger),
-			mw.DelegationMiddleware(logger, verifier),
+			mw.AuthMiddlewareWithRevocation(verifier, revoked, logger),
+			mw.DelegationMiddlewareWithBlocklist(logger, verifier, revoked),
 			mw.ScopeEnforcementMiddleware(
 				eval,
 				MarketplaceRoutes(basePath),
@@ -122,17 +123,17 @@ func (c *Controller) handleListMarketplaces(w http.ResponseWriter, r *http.Reque
 	}
 
 	sources := c.registry.ListSources(tenantID)
-	marketplaces := make([]map[string]string, 0, len(sources))
+	marketplaces := make([]MarketplaceSummary, 0, len(sources))
 
 	for _, source := range sources {
-		marketplaces = append(marketplaces, map[string]string{
-			"name":            source.Name,
-			"marketplaceSlug": source.MarketplaceSlug,
-			"link":            source.Link,
+		marketplaces = append(marketplaces, MarketplaceSummary{
+			Name:            source.Name,
+			MarketplaceSlug: source.MarketplaceSlug,
+			Link:            source.Link,
 		})
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"marketplaces": marketplaces})
+	api.JSON(ctx, w, c.logger, http.StatusOK, ListMarketplacesResponse{Marketplaces: marketplaces})
 }
 
 // handleGetMarketplace returns the selected marketplace and up to serverCap of

@@ -23,7 +23,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`) | ✅ |
 | `orbit-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster) | ✅ |
 | `orbit-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097` | ✅ |
-| `skills-service` | Read-only Agent Marketplace: browses and serves skills from GitHub-hosted repositories; cache-aside via Redis | `8089` | none |
+| `skills-service` | Read-only Agent Marketplace: browses and serves skills from GitHub-hosted repositories; cache-aside via Redis | `8098` | none |
 | `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090` | none |
 | `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar) | health `8081`, webhook `9443` | none |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |
@@ -51,6 +51,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `example` | Reference implementation, not production. Full feature layout (`models`, `repository`, `postgres`, `service`, `handlers`) with tests, demonstrating the pattern |
 | `credentials` | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, and the non-registrable `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
 | `toolgateway` | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) |
+| `skills` | Read-only Agent Marketplace behind `skills-service`: tenant-scoped source registry, GitHub App token provider, crawler, Redis cache and search, marketplace controller ([marketplace backend ADR](adr/2026-08-28-marketplace-adr-backend.md)) |
 | `errors` | Nothing yet: an empty placeholder directory. |
 
 > `internal/errors` is an intentional empty placeholder (a `git`-tracked directory with no Go files).
@@ -73,8 +74,9 @@ kora/
 │   │   ├── egress-gateway/           # JIT credential broker (no DB)
 │   │   ├── kora-mcp/                 # platform-management MCP server (no DB)
 │   │   ├── tool-gateway/             # governed MCP/tool gateway; owns tables (migrations/)
-│   │   ├── kora-agents/              # ... owns tables (migrations/)
-│   │   ├── kora-triggers/            # ... owns tables (migrations/)
+│   │   ├── orbit-agents/             # ... owns tables (migrations/)
+│   │   ├── orbit-triggers/           # ... owns tables (migrations/)
+│   │   ├── skills-service/           # Agent Marketplace (no DB; Redis cache)
 │   │   ├── session-manager/          # config only
 │   │   ├── operator/                 # K8s operator (controller-runtime)
 │   │   ├── identity-proxy/           # ext_proc sidecar
@@ -107,6 +109,7 @@ kora/
 │   │   ├── identityproxy/            # ✅ feature: ext_proc sidecar
 │   │   ├── credentials/              # ✅ feature: JIT credential broker (egress-gateway)
 │   │   ├── toolgateway/              # ✅ feature: governed MCP/tool gateway (tool-gateway)
+│   │   ├── skills/                   # ✅ feature: Agent Marketplace (skills-service)
 │   │   ├── example/                  # reference feature
 │   │   └── errors/                   # empty placeholder
 │   │

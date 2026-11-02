@@ -49,6 +49,25 @@ type SkillSummary struct {
 	SkillName   string `json:"skillName"`
 }
 
+// ListSkillsResponse is one cursor batch of skill summaries.
+type ListSkillsResponse struct {
+	Skills     []SkillSummary `json:"skills"`
+	NextCursor string         `json:"nextCursor,omitempty"` // empty = no more results
+}
+
+// MarketplaceSummary is the public projection of a MarketplaceSource.
+// Org and RepoName are intentionally omitted.
+type MarketplaceSummary struct {
+	Name            string `json:"name"`
+	MarketplaceSlug string `json:"marketplaceSlug"`
+	Link            string `json:"link"`
+}
+
+// ListMarketplacesResponse is the response of GET /marketplaces.
+type ListMarketplacesResponse struct {
+	Marketplaces []MarketplaceSummary `json:"marketplaces"`
+}
+
 // MarketplaceDetail is the response of GET /marketplaces/{marketplaceSlug}:
 // the selected marketplace and one cursor batch of its skills.
 type MarketplaceDetail struct {
