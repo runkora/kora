@@ -83,7 +83,7 @@ export const DeliveriesTab: Story = {
   },
 };
 
-/** A failed delivery open in the detail panel, with its wrapped error chain. */
+/** A failed delivery open in the detail modal, with its wrapped error chain. */
 export const DeliveryDetailOpen: Story = {
   decorators: frame,
   play: async ({ canvasElement }) => {
@@ -92,6 +92,18 @@ export const DeliveryDetailOpen: Story = {
     const rows = await canvas.findAllByText(/failed to start run/);
     const row = rows[0];
     if (row === undefined) throw new Error(`no row for ${FAILED_DELIVERY.id}`);
+    await userEvent.click(row);
+  },
+};
+
+/** A dispatched delivery in the detail modal: payload and the run it started, no error. */
+export const DeliveryDetailDispatched: Story = {
+  decorators: frame,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole('tab', { name: 'Deliveries' }));
+    const row = (await canvas.findAllByText('dispatched'))[0];
+    if (row === undefined) throw new Error('no dispatched delivery row');
     await userEvent.click(row);
   },
 };

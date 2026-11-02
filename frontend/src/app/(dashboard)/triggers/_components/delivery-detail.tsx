@@ -24,7 +24,7 @@ import type { RoutingAgentName } from './delivery-routing';
  * Excerpts are truncated at capture, so parsing can fail on an honest excerpt;
  * in that case the raw text is shown rather than nothing.
  */
-function formatPayload(excerpt: string): string {
+export function formatPayload(excerpt: string): string {
   try {
     return JSON.stringify(JSON.parse(excerpt), null, 2);
   } catch {
@@ -33,7 +33,7 @@ function formatPayload(excerpt: string): string {
 }
 
 /** Byte counts read better as the size they are than as a raw integer. */
-function formatBytes(bytes: number | null): string {
+export function formatBytes(bytes: number | null): string {
   if (bytes === null) return '';
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 }
@@ -59,6 +59,14 @@ export interface DeliveryDetailProps {
   agents?: RoutingAgentName[];
   /** Where a run id links to. Without it the id is plain text. */
   runHref?: (runId: string) => string;
+  /**
+   * Leaves out the Coalescing block and the run id, for a surface that shows
+   * them itself among the delivery's other facts. Redeliver stays.
+   */
+  hideCoalescing?: boolean;
+  hideRun?: boolean;
+  /** Heads the payload in the plain muted caption the detail modals use. */
+  plainHeadings?: boolean;
 }
 
 /**
@@ -72,6 +80,9 @@ export function DeliveryDetail({
   redeliverAllowed = true,
   agents = [],
   runHref,
+  hideCoalescing = false,
+  hideRun = false,
+  plainHeadings = false,
 }: DeliveryDetailProps) {
   const [redelivering, setRedelivering] = useState(false);
   const [redeliverError, setRedeliverError] = useState<string | null>(null);
@@ -183,7 +194,7 @@ export function DeliveryDetail({
 
         {/* Coalescing: the key this delivery rendered, and who replaced it. A key
           too long to use is stated, since that fire ran on its own. */}
-        {(coalesceKeys.length > 0 || superseded.length > 0) && (
+        {!hideCoalescing && (coalesceKeys.length > 0 || superseded.length > 0) && (
           <Stack gap="tight">
             <SectionLabel>Coalescing</SectionLabel>
             {coalesceKeys.map((c) => (
@@ -219,7 +230,13 @@ export function DeliveryDetail({
         {(delivery.payloadPurged || delivery.payloadExcerpt !== null) && (
           <Stack gap="snug">
             <Stack direction="horizontal" align="baseline" gap="snug">
-              <SectionLabel>Request payload</SectionLabel>
+              {plainHeadings ? (
+                <Text size="caption" color="muted">
+                  Request payload
+                </Text>
+              ) : (
+                <SectionLabel>Request payload</SectionLabel>
+              )}
               <Text mono size="micro" color="subtle">
                 {formatBytes(delivery.payloadBytes)}
               </Text>
@@ -257,9 +274,14 @@ export function DeliveryDetail({
 
         {/* The run line, and the replay that only makes sense once something
           arrived to replay. */}
-        {(runId != null || canRedeliver) && (
-          <Stack direction="horizontal" align="center" justify="between" gap="snug">
-            {runId != null ? (
+        {(canRedeliver || (!hideRun && runId != null)) && (
+          <Stack
+            direction="horizontal"
+            align="center"
+            justify={hideRun ? 'end' : 'between'}
+            gap="snug"
+          >
+            {hideRun ? null : runId != null ? (
               <Stack direction="horizontal" align="center" gap="tight">
                 <Text mono size="micro" color="subtle">
                   run
