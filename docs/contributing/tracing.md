@@ -83,7 +83,7 @@ r = r.WithContext(tracedCtx)
 **Key Features:**
 - Automatic parent-child relationship via W3C TraceContext
 - Semantic conventions for HTTP attributes
-- Span marked as error for 4xx/5xx responses
+- Span marked as error for 5xx responses
 - Response status code recorded
 
 ### Trace Propagation

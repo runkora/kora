@@ -30,7 +30,7 @@ kora is a multi-service backend: it compiles to a set of binaries under `backend
    - Creates a span for each HTTP request
    - Injects span into request context for downstream use
    - Records HTTP attributes (method, route, status, etc.)
-   - Marks spans as error for 4xx/5xx responses
+   - Marks spans as error for 5xx responses
 
 3. **Logging Middleware** (`internal/platform/middleware/logging.go`)
    - Logs incoming requests and responses
