@@ -339,7 +339,7 @@ export function DeliveryPayload({
   if (!hasPayload(delivery)) return null;
   return (
     <Stack gap="snug">
-      <Stack direction="horizontal" align="center" justify="between">
+      <Stack direction="horizontal" align="baseline" gap="snug">
         {heading}
         <Text mono size="micro" color="subtle">
           {formatBytes(delivery.payloadBytes)}

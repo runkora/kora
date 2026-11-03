@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { DeliveryDetailPanel, runHrefFor } from './delivery-detail-panel';
 import { StaticPermissionsProvider } from '../../_components/permissions-provider';
 import { makeDelivery } from '../_types/fixtures';
+import { TooltipProvider } from '@runkora/hades';
 
 const failed = makeDelivery({
   id: 'd-1',
@@ -17,9 +18,11 @@ const failed = makeDelivery({
 
 function renderPanel(props: Partial<React.ComponentProps<typeof DeliveryDetailPanel>> = {}) {
   return render(
-    <StaticPermissionsProvider scopes={['triggers:write']}>
-      <DeliveryDetailPanel delivery={failed} onClose={vi.fn()} {...props} />
-    </StaticPermissionsProvider>,
+    <TooltipProvider>
+      <StaticPermissionsProvider scopes={['triggers:write']}>
+        <DeliveryDetailPanel delivery={failed} onClose={vi.fn()} {...props} />
+      </StaticPermissionsProvider>
+    </TooltipProvider>,
   );
 }
 
@@ -149,6 +152,50 @@ describe('DeliveryDetailPanel outcome and redeliver', () => {
     });
     expect(screen.queryByRole('button', { name: 'Redeliver' })).not.toBeInTheDocument();
     expect(screen.queryByText('Request payload')).not.toBeInTheDocument();
+  });
+});
+
+describe('DeliveryDetailPanel parts', () => {
+  it('heads the payload with its size beside it, and shows a lone note without a payload', () => {
+    const { unmount } = renderPanel({
+      delivery: makeDelivery({
+        id: 'd-8',
+        payloadExcerpt: '{"a":1}',
+        payloadBytes: 2048,
+      }),
+    });
+    expect(screen.getByText('Request payload')).toBeInTheDocument();
+    expect(screen.getByText('2.0 KB')).toBeInTheDocument();
+    unmount();
+
+    renderPanel({
+      delivery: makeDelivery({ id: 'd-9', status: 'duplicate', reason: 'seen before' }),
+    });
+    expect(screen.getByText('seen before')).toBeInTheDocument();
+    expect(screen.queryByText('Request payload')).not.toBeInTheDocument();
+  });
+
+  it('reports a failed replay and leaves Redeliver usable', async () => {
+    const onRedeliver = vi.fn().mockResolvedValue({ deliveryId: null, error: 'queue is full' });
+    renderPanel({ onRedeliver });
+    fireEvent.click(screen.getByRole('button', { name: 'Redeliver' }));
+    expect(await screen.findByText('queue is full')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Redeliver' })).toBeEnabled());
+  });
+
+  it('disables Redeliver for a caller without write scope, or without run authority', () => {
+    const { unmount } = render(
+      <TooltipProvider>
+        <StaticPermissionsProvider scopes={[]}>
+          <DeliveryDetailPanel delivery={failed} onClose={vi.fn()} onRedeliver={vi.fn()} />
+        </StaticPermissionsProvider>
+      </TooltipProvider>,
+    );
+    expect(screen.getByRole('button', { name: 'Redeliver' })).toBeDisabled();
+    unmount();
+
+    renderPanel({ onRedeliver: vi.fn(), redeliverAllowed: false });
+    expect(screen.getByRole('button', { name: 'Redeliver' })).toBeDisabled();
   });
 });
 

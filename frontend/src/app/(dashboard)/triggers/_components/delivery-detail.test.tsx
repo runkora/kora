@@ -382,4 +382,34 @@ describe('deliveryOutcome', () => {
     });
     expect(deliveryOutcome(d, 't1')).toMatchObject({ error: null, note: 'no agent fit' });
   });
+
+  it('reads the delivery error when the named trigger has no fan-out row', () => {
+    const d = delivery({ error: 'refused before fan-out', runs: [] });
+    expect(deliveryOutcome(d, 't-missing')).toMatchObject({
+      error: 'refused before fan-out',
+      runId: null,
+    });
+  });
+
+  it('judges an unscoped delivery by its own status and reason, not a fan-out row', () => {
+    const d = delivery({
+      status: 'duplicate',
+      reason: 'seen before',
+      runs: [
+        {
+          triggerId: 't1',
+          triggerName: 'gh-push',
+          runId: null,
+          status: 'unrouted',
+          error: 'no agent fit',
+          createdAt: null,
+        },
+      ],
+    });
+    expect(deliveryOutcome(d)).toMatchObject({
+      error: null,
+      note: 'seen before',
+      redeliverable: false,
+    });
+  });
 });

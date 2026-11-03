@@ -32,6 +32,7 @@ import {
   hasPayload,
   useRedeliver,
 } from './delivery-detail';
+import type { RedeliverAction } from './delivery-detail';
 import {
   deliveryDotStatus,
   deliveryDuration,
@@ -97,9 +98,7 @@ export interface DeliveryDetailPanelProps {
   delivery: DeliveryRow;
   onClose: () => void;
   /** Replays the delivery. */
-  onRedeliver?: (
-    delivery: DeliveryRow,
-  ) => Promise<{ deliveryId: string | null; error: string | null }>;
+  onRedeliver?: RedeliverAction;
   /** False when the caller lacks run authority on the trigger's agent. */
   redeliverAllowed?: boolean;
   /**
