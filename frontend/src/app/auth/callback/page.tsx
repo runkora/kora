@@ -36,12 +36,9 @@ import {
   type TenantOidcConfig,
 } from '@runkora/lib/oidc-client';
 import { isSafeRedirectPath } from '@runkora/lib/routing';
-import { redirectToSignIn, type SignInState } from '@runkora/lib/tenant-switch';
-
-interface TenantOption {
-  id: string;
-  displayName: string;
-}
+import { ApiRoute } from '@runkora/lib/routing/api-routes';
+import { redirectToSignIn } from '@runkora/lib/tenant-switch';
+import type { SessionTenant } from '@runkora/server/auth-config';
 
 interface Exchange {
   idToken: string;
@@ -58,7 +55,7 @@ const SILENT_SIGNIN_ERRORS = new Set([
   'account_selection_required',
 ]);
 
-type View = { kind: 'working' } | { kind: 'pick'; tenants: TenantOption[] } | { kind: 'denied' };
+type View = { kind: 'working' } | { kind: 'pick'; tenants: SessionTenant[] } | { kind: 'denied' };
 
 export default function CallbackPage() {
   const router = useRouter();
@@ -74,7 +71,7 @@ export default function CallbackPage() {
     async (ex: Exchange, hint?: string) => {
       setPosting(true);
       try {
-        const res = await fetch('/api/auth/session', {
+        const res = await fetch(ApiRoute.session.POST(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -86,10 +83,10 @@ export default function CallbackPage() {
         });
         const body = (await res.json().catch(() => ({}))) as {
           error?: string;
-          tenants?: TenantOption[];
+          tenants?: SessionTenant[];
         };
         if (res.ok) {
-          // A switch reloads the page so no client state from the old tenant survives.
+          // A full reload drops client state from the old tenant.
           if (ex.switchTo) window.location.replace(ex.next);
           else router.replace(ex.next);
           return;
@@ -160,14 +157,24 @@ export default function CallbackPage() {
           user = await userManager.signinRedirectCallback();
         } catch (err) {
           // A silent switch the provider cannot complete without the person retries interactively.
-          const lapsed = err instanceof ErrorResponse && SILENT_SIGNIN_ERRORS.has(err.error ?? '');
-          const state = lapsed ? (err.state as Partial<SignInState> | undefined) : undefined;
+          const s: Record<string, unknown> =
+            err instanceof ErrorResponse &&
+            SILENT_SIGNIN_ERRORS.has(err.error ?? '') &&
+            err.state &&
+            typeof err.state === 'object'
+              ? (err.state as Record<string, unknown>)
+              : {};
           if (
-            state?.switchTo &&
-            typeof state.next === 'string' &&
-            typeof state.tenantId === 'string'
+            typeof s.switchTo === 'string' &&
+            typeof s.next === 'string' &&
+            typeof s.tenantId === 'string'
           ) {
-            await redirectToSignIn(tenantConfig, state as SignInState);
+            await redirectToSignIn(tenantConfig, {
+              next: s.next,
+              tenantId: s.tenantId,
+              switchTo: s.switchTo,
+              email: typeof s.email === 'string' ? s.email : undefined,
+            });
             return;
           }
           throw err;
@@ -222,7 +229,7 @@ export default function CallbackPage() {
 
   return (
     <Stack align="center" justify="center" minHeight="screen" padding="comfortable">
-      <Stack maxWidth="card" style={{ width: '100%' }}>
+      <Stack maxWidth="card">
         <Card>
           <CardHeader>
             <Heading variant="section">

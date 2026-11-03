@@ -30,6 +30,14 @@ export interface TenantOidcConfig {
   scopes: string[];
 }
 
+/** Shape returned by `GET /api/auth/discover`. Mirrors `TenantDiscovery` in the Go service. */
+export interface DiscoverResponse {
+  tenant_id: string;
+  issuer_url: string;
+  client_id: string;
+  scopes: string[];
+}
+
 // ── Storage key ───────────────────────────────────────────────────────────────
 
 /**

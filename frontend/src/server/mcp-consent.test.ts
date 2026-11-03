@@ -31,7 +31,7 @@ describe('mcpConsentToken / consentTokenValid', () => {
     expect(consentTokenValid('not-a-real-token', input)).toBe(false);
   });
 
-  it('rejects when any bound value differs (user or OAuth params)', () => {
+  it('rejects when any bound value differs (user, tenant or OAuth params)', () => {
     const token = mcpConsentToken(input);
     expect(consentTokenValid(token, { ...input, userKey: 'mallory@acme.com' })).toBe(false);
     expect(consentTokenValid(token, { ...input, tenantId: 'kora-tenant-example-data' })).toBe(

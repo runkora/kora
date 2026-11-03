@@ -32,8 +32,6 @@ export interface SessionPayload {
   refreshToken: string;
   /** UTC Unix seconds when the access token expires. */
   expiresAt: number;
-  /** UTC Unix seconds when the refresh token expires. Absent on older sessions. */
-  refreshExpiresAt?: number;
   /** Tenant ID the session was created against (used for token refresh). */
   tenantId: string;
   /**
@@ -52,6 +50,16 @@ export interface SessionPayload {
 export interface SessionTenant {
   id: string;
   displayName: string;
+}
+
+/** A tenant in the switcher; `active` marks the session's tenant. */
+export type TenantOption = SessionTenant & { active: boolean };
+
+/** The session's eligible set with its tenant marked active. */
+export function tenantOptions(
+  session: Pick<SessionPayload, 'tenants' | 'tenantId'>,
+): TenantOption[] {
+  return (session.tenants ?? []).map((t) => ({ ...t, active: t.id === session.tenantId }));
 }
 
 // ── Backend API response shapes ──────────────────────────────────────────────
@@ -141,7 +149,7 @@ function secureCookies(): boolean {
   return process.env.NODE_ENV === 'production' && !isInsecureLoopbackUrl(process.env.KORA_APP_URL);
 }
 
-/** Options for the last-used tenant cookie. It outlives sessions so the next sign-in can use it. */
+/** Options for the last-used tenant cookie. It outlives the session, and the next sign-in reads it. */
 export function lastTenantCookieOptions() {
   return {
     secure: secureCookies(),

@@ -3,16 +3,11 @@
 
 import { useEffect, useState } from 'react';
 import { Button, Icon, Popover, PopoverContent, PopoverTrigger, Stack, Text } from '@runkora/hades';
-
-export interface TenantSwitcherOption {
-  id: string;
-  displayName: string;
-  active: boolean;
-}
+import type { TenantOption } from '@runkora/server/auth-config';
 
 export interface TenantSwitcherProps {
   /** The eligible set. The switcher renders nothing with fewer than two. */
-  tenants: TenantSwitcherOption[];
+  tenants: TenantOption[];
   /** Called with the chosen tenant; the caller starts the switch. A rejection shows an error. */
   onSelect: (tenantId: string) => Promise<void> | void;
   /** Trigger text. Defaults to the active tenant's name. */
@@ -36,28 +31,33 @@ export function TenantSwitcher({ tenants, onSelect, label }: TenantSwitcherProps
 
   if (tenants.length < 2) return null;
   const active = tenants.find((t) => t.active);
+  const activeName = active?.displayName ?? 'Choose a tenant';
+  // The accessible name keeps the visible text and adds the active tenant.
+  const accessibleName = label
+    ? `${label} tenant from ${activeName}`
+    : `${activeName}, switch tenant`;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline-muted" size="sm" aria-label="Switch tenant">
+        <Button variant="outline-muted" size="sm" aria-label={accessibleName}>
           <Icon name="building" size="xs" />
           <Text as="span" size="caption" truncate>
-            {label ?? active?.displayName ?? 'Choose a tenant'}
+            {label ?? activeName}
           </Text>
           <Icon name="chevron-down" size="2xs" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end">
-        <Stack gap="none" role="menu" aria-label="Tenants">
+        <Stack gap="none" aria-label="Tenants">
           {tenants.map((t) => (
             <Button
               key={t.id}
               variant="ghost"
               size="sm"
               fullWidth
-              role="menuitemradio"
-              aria-checked={t.active}
+              selected={t.active}
+              aria-current={t.active ? 'true' : undefined}
               disabled={switching !== null}
               onClick={() => {
                 if (t.active) {
@@ -71,13 +71,14 @@ export function TenantSwitcher({ tenants, onSelect, label }: TenantSwitcherProps
                   setFailed(true);
                 });
               }}
-              style={{ justifyContent: 'space-between' }}
             >
-              <Text as="span" size="caption" truncate>
-                {t.displayName}
-              </Text>
-              {t.active ? <Icon name="check" size="xs" color="accent" /> : null}
-              {switching === t.id ? <Icon name="loader" size="xs" color="subtle" /> : null}
+              <Stack direction="horizontal" align="center" justify="between" grow>
+                <Text as="span" size="caption" truncate>
+                  {t.displayName}
+                </Text>
+                {t.active ? <Icon name="check" size="xs" color="accent" /> : null}
+                {switching === t.id ? <Icon name="loader" size="xs" color="subtle" /> : null}
+              </Stack>
             </Button>
           ))}
           {failed ? (

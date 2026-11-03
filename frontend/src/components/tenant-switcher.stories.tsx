@@ -26,10 +26,3 @@ export const Default: Story = {
     ],
   },
 };
-
-/** One tenant: nothing renders. */
-export const SingleTenant: Story = {
-  args: {
-    tenants: [{ id: 'kora-tenant-example', displayName: 'Example Platform', active: true }],
-  },
-};

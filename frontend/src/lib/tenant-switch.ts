@@ -8,6 +8,7 @@
 import {
   buildUserManager,
   TENANT_CONFIG_STORAGE_KEY,
+  type DiscoverResponse,
   type TenantOidcConfig,
 } from '@runkora/lib/oidc-client';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
@@ -50,12 +51,7 @@ export async function startTenantSwitch({
     headers: { Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`tenant discovery failed: ${res.status}`);
-  const d = (await res.json()) as {
-    tenant_id: string;
-    issuer_url: string;
-    client_id: string;
-    scopes: string[];
-  };
+  const d = (await res.json()) as DiscoverResponse;
   await redirectToSignIn(
     { tenantId: d.tenant_id, issuerUrl: d.issuer_url, clientId: d.client_id, scopes: d.scopes },
     { next: returnPath, tenantId: d.tenant_id, switchTo: tenantId, email },

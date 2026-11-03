@@ -13,18 +13,19 @@
  *        session's tenant and replaces the session's refresh token.
  *
  *        Request:  { id_token: string; tenant_id: string; tenant_hint?: string; switch?: boolean }
- *        Response: 200 {}  — session cookie and last-used tenant cookie set
+ *        Response: 200 {}: session cookie and last-used tenant cookie set
  *                  400 { error: 'bad_request', message?: string }
  *                  401 { error: 'unauthorized' }
- *                  403 { error: 'tenant_switch_denied' } — switch refused, session kept
- *                  409 { error: 'multiple_tenants_match', tenants } — sign-in needs a pick
+ *                  403 { error: 'forbidden' }: cross-site request rejected
+ *                  403 { error: 'tenant_switch_denied' }: switch refused, session kept
+ *                  409 { error: 'multiple_tenants_match', tenants }: sign-in needs a pick
  *                  502 { error: 'upstream_error' }
  *
  * GET  — returns the public (non-sensitive) portion of the current session for
  *        use by client components that need to know who is logged in.
  *
- *        Response: 200 { user, expiresAt, permissions, apiAuthoring, tenants } — active session
- *                  401 { error: 'unauthorized' }                — no/expired session
+ *        Response: 200 { user, expiresAt, permissions, apiAuthoring, tenants }: active session
+ *                  401 { error: 'unauthorized' }: no or expired session
  *
  * The access token and refresh token are NEVER included in GET responses —
  * they live in the sealed HttpOnly cookie only.
@@ -40,6 +41,7 @@ import {
   lastTenantCookieOptions,
   parseTenants,
   tenantIdFromAccessToken,
+  tenantOptions,
 } from '@runkora/server/auth-config';
 import type {
   SessionPayload,
@@ -132,12 +134,6 @@ async function fetchScopes(accessToken: string): Promise<string[]> {
   }
 }
 
-/** Identity's error envelope. */
-interface BackendError {
-  code?: string;
-  details?: { tenants?: unknown };
-}
-
 /**
  * Saves the session, dropping the eligible set when it pushes the cookie past
  * the browser limit. Sign-in matters more than the switcher, which then hides.
@@ -152,21 +148,12 @@ async function saveWithTenants(session: IronSession<SessionPayload>): Promise<vo
   }
 }
 
-async function readError(res: Response): Promise<BackendError> {
-  try {
-    const body: unknown = await res.json();
-    return body && typeof body === 'object' ? (body as BackendError) : {};
-  } catch {
-    return {};
-  }
-}
-
 // ── POST — exchange id_token for kora session ────────────────────────────────
 
 export async function POST(request: Request): Promise<Response> {
   // Only the callback page posts here; a cross-site post could plant a session or the last-used tenant.
   if (request.headers.get('sec-fetch-site') === 'cross-site') {
-    return Response.json({ error: 'bad_request' }, { status: 403 });
+    return Response.json({ error: 'forbidden' }, { status: 403 });
   }
 
   let body: unknown;
@@ -247,27 +234,21 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ error: 'unauthorized' }, { status: 401 });
     }
     if (backendRes.status === 403 || backendRes.status === 409) {
-      const err = await readError(backendRes);
-      const tenants = parseTenants(err.details?.tenants);
+      const err = (await backendRes.json().catch(() => ({}))) as {
+        code?: string;
+        details?: { tenants?: unknown };
+      } | null;
+      const tenants = parseTenants(err?.details?.tenants);
       // A refused switch keeps the current session and records the fresh set.
       // Any 403 or 409 during a switch means the target is not among the matches.
       if (replaced) {
         if (tenants) {
-          // Rebind with the refresh token's remaining lifetime so the kept cookie
-          // does not outlive it.
-          const remaining = replaced.refreshExpiresAt
-            ? Math.max(1, replaced.refreshExpiresAt - Math.floor(Date.now() / 1000))
-            : undefined;
-          const kept = await getIronSession<SessionPayload>(
-            cookieStore,
-            getSessionOptions(remaining),
-          );
-          kept.tenants = tenants;
-          await saveWithTenants(kept);
+          replaced.tenants = tenants;
+          await saveWithTenants(replaced);
         }
         return Response.json({ error: 'tenant_switch_denied' }, { status: 403 });
       }
-      if (err.code === 'multiple_tenants_match' && tenants) {
+      if (err?.code === 'multiple_tenants_match' && tenants) {
         return Response.json({ error: 'multiple_tenants_match', tenants }, { status: 409 });
       }
     }
@@ -304,9 +285,6 @@ export async function POST(request: Request): Promise<Response> {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     expiresAt: data.issued_at + data.expires_in,
-    refreshExpiresAt: data.refresh_token_expires_in
-      ? data.issued_at + data.refresh_token_expires_in
-      : undefined,
     // The token's tenant wins: a claim binding can move the person off the
     // tenant Home Realm Discovery picked, which is only a hint.
     tenantId: issuedTenant,
@@ -346,6 +324,6 @@ export async function GET(): Promise<Response> {
     expiresAt: session.expiresAt,
     permissions: { scopes },
     apiAuthoring: session.apiAuthoring ?? true,
-    tenants: (session.tenants ?? []).map((t) => ({ ...t, active: t.id === session.tenantId })),
+    tenants: tenantOptions(session),
   });
 }

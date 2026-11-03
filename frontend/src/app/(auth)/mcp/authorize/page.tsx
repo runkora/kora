@@ -5,6 +5,7 @@ import { Alert, Card, CardContent, CardHeader, Heading, Stack } from '@runkora/h
 
 import { getSession, isSessionValid } from '@runkora/server/session';
 import { getBrand } from '@runkora/server/theme';
+import { tenantOptions } from '@runkora/server/auth-config';
 import { mcpConsentToken } from '@runkora/server/mcp-consent';
 import { listGrantedTools, listMcpServers, listMcpTools } from '@runkora/server/mcp-client';
 import {
@@ -202,6 +203,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     ...(scope ? { scope } : {}),
   }).toString()}`;
 
+  const tenants = tenantOptions(session);
   const csrfToken = mcpConsentToken({
     userKey: session.user.email,
     tenantId: session.tenantId,
@@ -214,10 +216,8 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     <ConsentFlow
       clientName={clientName || 'An application'}
       userEmail={session.user.email}
-      tenantName={
-        session.tenants?.find((t) => t.id === session.tenantId)?.displayName ?? session.tenantId
-      }
-      tenants={(session.tenants ?? []).map((t) => ({ ...t, active: t.id === session.tenantId }))}
+      tenantName={tenants.find((t) => t.active)?.displayName ?? session.tenantId}
+      tenants={tenants}
       consentPath={consentPath}
       server={server}
       domains={domains}

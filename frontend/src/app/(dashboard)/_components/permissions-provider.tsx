@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 
 import { hasScopeCovering } from '@runkora/lib/permissions';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
+import type { TenantOption } from '@runkora/server/auth-config';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -11,13 +12,6 @@ interface SessionUser {
   sub: string;
   email: string;
   name: string;
-}
-
-/** A tenant the person can switch to; `active` marks the session's tenant. */
-export interface SessionTenantOption {
-  id: string;
-  displayName: string;
-  active: boolean;
 }
 
 interface SessionContextValue {
@@ -30,7 +24,7 @@ interface SessionContextValue {
   /** False when the tenant takes its changes from its configuration repository. */
   apiAuthoring?: boolean;
   /** The eligible set from the last sign-in or switch. Empty for older sessions. */
-  tenants?: SessionTenantOption[];
+  tenants?: TenantOption[];
 }
 
 // ── Context ──────────────────────────────────────────────────────────────────

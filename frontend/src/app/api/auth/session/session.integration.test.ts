@@ -16,7 +16,7 @@
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import type { IronSession, SessionOptions } from 'iron-session';
+import type { IronSession } from 'iron-session';
 import { server } from '@runkora/test-utils';
 import {
   createBackendSessionResponse,
@@ -372,43 +372,27 @@ describe('POST /api/auth/session', () => {
       return s;
     }
 
-    it('sends the last-used tenant cookie as the hint', async () => {
-      cookieJar.get.mockReturnValue({ value: 'kora-tenant-example-data' });
-      const sent = upstream(() => HttpResponse.json(createBackendSessionResponse()));
-      captureSession();
-
-      await POST(makePostRequest({ id_token: 'tok', tenant_id: 'kora-tenant-example' }));
-
-      expect(sent[0]).toMatchObject({
-        tenant_id: 'kora-tenant-example',
-        tenant_hint: 'kora-tenant-example-data',
-      });
-      expect(sent[0]).not.toHaveProperty('replaces_refresh_token');
-    });
-
-    it('sends no hint without a cookie or a pick', async () => {
-      const sent = upstream(() => HttpResponse.json(createBackendSessionResponse()));
-      captureSession();
-
-      await POST(makePostRequest({ id_token: 'tok', tenant_id: 'kora-tenant-example' }));
-
-      expect(sent[0]).not.toHaveProperty('tenant_hint');
-    });
-
-    it('prefers the picked tenant over the cookie', async () => {
-      cookieJar.get.mockReturnValue({ value: 'kora-tenant-example' });
+    it.each([
+      ['the cookie', 'kora-tenant-example-data', undefined, 'kora-tenant-example-data'],
+      ['no hint', undefined, undefined, undefined],
+      [
+        'the pick over the cookie',
+        'kora-tenant-example',
+        'kora-tenant-example-data',
+        'kora-tenant-example-data',
+      ],
+    ])('sends %s as the hint', async (_, cookie, pick, expected) => {
+      cookieJar.get.mockReturnValue(cookie ? { value: cookie } : undefined);
       const sent = upstream(() => HttpResponse.json(createBackendSessionResponse()));
       captureSession();
 
       await POST(
-        makePostRequest({
-          id_token: 'tok',
-          tenant_id: 'kora-tenant-example',
-          tenant_hint: 'kora-tenant-example-data',
-        }),
+        makePostRequest({ id_token: 'tok', tenant_id: 'kora-tenant-example', tenant_hint: pick }),
       );
 
-      expect(sent[0]?.tenant_hint).toBe('kora-tenant-example-data');
+      expect(sent[0]?.tenant_id).toBe('kora-tenant-example');
+      expect(sent[0]?.tenant_hint).toBe(expected);
+      expect(sent[0]).not.toHaveProperty('replaces_refresh_token');
     });
 
     it('seals the eligible set and sets the last-used cookie to the issued tenant', async () => {
@@ -496,7 +480,6 @@ describe('POST /api/auth/session', () => {
         replaces_refresh_token: 'rt-old',
       });
       expect(captured.tenantId).toBe('kora-tenant-example-data');
-      expect(captured.refreshExpiresAt).toEqual(expect.any(Number));
       expect(cookieJar.set).toHaveBeenCalledWith(
         'kora_last_tenant',
         'kora-tenant-example-data',
@@ -530,20 +513,20 @@ describe('POST /api/auth/session', () => {
         headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'cross-site' },
         body: JSON.stringify({ id_token: 'tok', tenant_id: 'kora-tenant-example' }),
       });
-      expect((await POST(req)).status).toBe(403);
+      const res = await POST(req);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: 'forbidden' });
     });
 
     it.each(['tenant_switch_denied', 'multiple_tenants_match', 'forbidden'])(
       'keeps the session and stores the fresh set on %s during a switch',
       async (code) => {
-        currentSession({
-          refreshExpiresAt: Math.floor(Date.now() / 1000) + 600,
+        const current = currentSession({
           tenants: [
             { id: 'kora-tenant-example', displayName: 'Example Platform' },
             { id: 'kora-tenant-example-data', displayName: 'Example Data' },
           ],
         });
-        const kept = captureSession();
         upstream(() =>
           HttpResponse.json(
             { code, message: 'denied', details: { tenants: [TENANTS[0]] } },
@@ -562,17 +545,12 @@ describe('POST /api/auth/session', () => {
 
         expect(res.status).toBe(403);
         expect(await res.json()).toEqual({ error: 'tenant_switch_denied' });
-        expect(kept.tenants).toEqual([
+        expect(current.tenants).toEqual([
           { id: 'kora-tenant-example', displayName: 'Example Platform' },
         ]);
-        expect(kept.save).toHaveBeenCalledOnce();
-        expect(kept).not.toHaveProperty('accessToken');
-        // The kept cookie lives as long as the refresh token, not the 30-day default.
-        const maxAge =
-          (vi.mocked(getIronSession).mock.calls[0]?.[1] as unknown as SessionOptions | undefined)
-            ?.cookieOptions?.maxAge ?? 0;
-        expect(maxAge).toBeGreaterThan(590);
-        expect(maxAge).toBeLessThanOrEqual(600);
+        expect(current.save).toHaveBeenCalledOnce();
+        expect(current.refreshToken).toBe('rt-old');
+        expect(getIronSession).not.toHaveBeenCalled();
         expect(cookieJar.set).not.toHaveBeenCalled();
       },
     );
@@ -705,7 +683,7 @@ describe('GET /api/auth/session', () => {
   });
 
   it('does not expose accessToken, refreshToken, or tenantId in the response', async () => {
-    // Security assertion: tokens and tenant routing info must never leak to
+    // Security assertion: tokens and the session's tenantId must never leak to
     // the browser. They are sealed inside the HttpOnly iron-session cookie only.
     const payload = createSessionPayload();
     vi.mocked(getSession).mockResolvedValue(payload as unknown as IronSession<SessionPayload>);
