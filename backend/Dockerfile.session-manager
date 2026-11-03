@@ -5,7 +5,7 @@
 # can run in the same container — framework selection stays a runtime concern.
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308 AS builder
 
 WORKDIR /app
 
@@ -45,7 +45,7 @@ RUN mkdir -p /configs && \
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 # Node.js 24 alpine, the active LTS: required for the claude and opencode CLI subprocesses.
-FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53
+FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85
 
 WORKDIR /app
 
