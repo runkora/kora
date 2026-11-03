@@ -118,7 +118,7 @@ The session response for a federated sign-in carries the eligible set as `tenant
 4.  Identity runs two checks before any write. The bound tenant must equal the hint. `replaces_refresh_token` must be an unexpired, unrevoked refresh token of an unrevoked session that belongs to the same principal subject. When either check fails, identity returns `403 tenant_switch_denied` and creates and revokes nothing. Its details carry the fresh eligible set as `tenants: [{id, display_name}]`. The set is empty when nothing matches.
 5.  When both checks pass, identity creates the new session first. It then revokes the replaced session and all its refresh tokens, and it writes the switch log entry last.
 6.  After a switch succeeds, the BFF swaps in the new session and returns to the path. On `403 tenant_switch_denied` it keeps the current session, shows that the switch was denied, and stores the eligible set from the details.
-7.  When the identity provider answers `login_required` or `interaction_required`, the browser starts an interactive sign-in whose state carries the same target tenant and return path.
+7.  When the identity provider answers `login_required`, `interaction_required`, `consent_required` or `account_selection_required`, the browser starts an interactive sign-in whose state carries the same target tenant and return path.
 
 ### Device Flow
 
