@@ -1309,6 +1309,15 @@ func utilization(s BudgetPrincipalStatus) float64 {
 	return s.EffectiveSpendUSD / s.EffectiveLimitUSD
 }
 
+// setPrincipalAttributes records the caller's type, and for an agent its slug, so
+// span metrics can split model calls per agent.
+func setPrincipalAttributes(span trace.Span, p principal) {
+	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
+	if slug := agentSlugFromPrincipal(p.PrincipalType, p.PrincipalID); slug != "" {
+		span.SetAttributes(observability.AgentSlugKey.String(slug))
+	}
+}
+
 // principalFromClaims reads the verified PlatformClaims stored in context by
 // AuthMiddleware and extracts the principal identity fields.
 //
@@ -1321,15 +1330,6 @@ func utilization(s BudgetPrincipalStatus) float64 {
 //
 // We use PatID (not JTI) so that all requests authenticated by the same
 // PAT are attributable to a single token_id in inference_usage.
-// setPrincipalAttributes records the caller's type, and for an agent its slug, so
-// span metrics can split model calls per agent.
-func setPrincipalAttributes(span trace.Span, p principal) {
-	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
-	if slug := agentSlugFromPrincipal(p.PrincipalType, p.PrincipalID); slug != "" {
-		span.SetAttributes(observability.AgentSlugKey.String(slug))
-	}
-}
-
 func principalFromClaims(ctx context.Context) (principal, error) {
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {
