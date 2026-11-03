@@ -1,6 +1,14 @@
 package inferencegw
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
+	"github.com/runkora/kora/backend/internal/platform/observability"
+)
 
 func TestAgentSlugFromPrincipal(t *testing.T) {
 	t.Parallel()
@@ -25,5 +33,34 @@ func TestAgentSlugFromPrincipal(t *testing.T) {
 				t.Errorf("agentSlugFromPrincipal(%q, %q) = %q, want %q", tc.principalType, tc.principalID, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSetPrincipalAttributes_AgentSlug(t *testing.T) {
+	t.Parallel()
+	rec := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+	for _, p := range []principal{
+		{PrincipalType: "AGENT", PrincipalID: "spiffe://runkora.test/tenant/ns/agent/triage"},
+		{PrincipalType: "HUMAN", PrincipalID: "user-1"},
+	} {
+		_, span := tp.Tracer("t").Start(context.Background(), "chat")
+		setPrincipalAttributes(span, p)
+		span.End()
+	}
+	ended := rec.Ended()
+	slug := func(i int) string {
+		for _, kv := range ended[i].Attributes() {
+			if kv.Key == observability.AgentSlugKey {
+				return kv.Value.AsString()
+			}
+		}
+		return ""
+	}
+	if got := slug(0); got != "triage" {
+		t.Errorf("agent span slug = %q, want triage", got)
+	}
+	if got := slug(1); got != "" {
+		t.Errorf("human span slug = %q, want none", got)
 	}
 }

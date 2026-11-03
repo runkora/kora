@@ -147,7 +147,7 @@ func TestHandleCreateSession_RejectsPathTraversalRunID(t *testing.T) {
 }
 
 func TestClaudeTelemetryEnv_NoEndpointAddsNothing(t *testing.T) {
-	if env := claudeTelemetryEnv(context.Background(), "", "run-1", "tenant-1"); env != nil {
+	if env := claudeTelemetryEnv(context.Background(), "", "run-1", "tenant-1", "agent-1", "triage"); env != nil {
 		t.Fatalf("want no env without an endpoint, got %v", env)
 	}
 }
@@ -161,14 +161,14 @@ func TestClaudeTelemetryEnv_ParentsToRequestSpan(t *testing.T) {
 		TraceFlags: trace.FlagsSampled,
 	}))
 
-	env := claudeTelemetryEnv(ctx, "http://collector:4317", "run-1", "tenant-1")
+	env := claudeTelemetryEnv(ctx, "http://collector:4317", "run-1", "tenant-1", "agent-1", "triage")
 
 	for _, want := range []string{
 		"TRACEPARENT=00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
 		"OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317",
 		"OTEL_EXPORTER_OTLP_PROTOCOL=grpc",
 		"CLAUDE_CODE_PROPAGATE_TRACEPARENT=1",
-		"OTEL_RESOURCE_ATTRIBUTES=kora.run.id=run-1,kora.tenant.id=tenant-1",
+		"OTEL_RESOURCE_ATTRIBUTES=kora.run.id=run-1,kora.tenant.id=tenant-1,kora.agent.id=agent-1,kora.agent.slug=triage",
 	} {
 		if !slices.Contains(env, want) {
 			t.Errorf("env missing %q: %v", want, env)
@@ -177,10 +177,17 @@ func TestClaudeTelemetryEnv_ParentsToRequestSpan(t *testing.T) {
 }
 
 func TestClaudeTelemetryEnv_NoSpanOmitsTraceparent(t *testing.T) {
-	env := claudeTelemetryEnv(context.Background(), "http://collector:4317", "run-1", "tenant-1")
+	env := claudeTelemetryEnv(context.Background(), "http://collector:4317", "run-1", "tenant-1", "agent-1", "triage")
 	for _, e := range env {
 		if strings.HasPrefix(e, "TRACEPARENT=") {
 			t.Fatalf("want no TRACEPARENT without a span, got %q", e)
 		}
+	}
+}
+
+func TestResourceAttributes_OmitsEmptySlug(t *testing.T) {
+	want := "kora.run.id=run-1,kora.tenant.id=tenant-1,kora.agent.id=agent-1"
+	if got := resourceAttributes("run-1", "tenant-1", "agent-1", ""); got != want {
+		t.Errorf("resourceAttributes = %q, want %q", got, want)
 	}
 }

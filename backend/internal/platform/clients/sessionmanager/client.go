@@ -109,6 +109,7 @@ func PodURL(slug string, ordinal int, namespace string) string {
 type CreateSessionRequest struct {
 	RunID        string `json:"run_id"`
 	AgentTypeID  string `json:"agent_type_id"`
+	AgentSlug    string `json:"agent_slug,omitempty"`
 	TenantID     string `json:"tenant_id"`
 	Framework    string `json:"framework,omitempty"`
 	Model        string `json:"model,omitempty"`

@@ -170,7 +170,7 @@ func (s *Service) ChatCompletion(
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
+	setPrincipalAttributes(span, p)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
@@ -315,7 +315,7 @@ func (s *Service) ChatCompletionStream(
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
+	setPrincipalAttributes(span, p)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
@@ -1321,6 +1321,15 @@ func utilization(s BudgetPrincipalStatus) float64 {
 //
 // We use PatID (not JTI) so that all requests authenticated by the same
 // PAT are attributable to a single token_id in inference_usage.
+// setPrincipalAttributes records the caller's type, and for an agent its slug, so
+// span metrics can split model calls per agent.
+func setPrincipalAttributes(span trace.Span, p principal) {
+	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
+	if slug := agentSlugFromPrincipal(p.PrincipalType, p.PrincipalID); slug != "" {
+		span.SetAttributes(observability.AgentSlugKey.String(slug))
+	}
+}
+
 func principalFromClaims(ctx context.Context) (principal, error) {
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {
@@ -1682,7 +1691,7 @@ func (s *Service) Embeddings(
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
+	setPrincipalAttributes(span, p)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
@@ -1788,7 +1797,7 @@ func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*Sy
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
+	setPrincipalAttributes(span, p)
 
 	routeReq := ChatCompletionRequest{Model: model}
 
@@ -1899,7 +1908,7 @@ func (s *Service) Responses(
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
+	setPrincipalAttributes(span, p)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
@@ -2023,7 +2032,7 @@ func (s *Service) ResponsesStream(
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
+	setPrincipalAttributes(span, p)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
@@ -2238,7 +2247,7 @@ func (s *Service) AnthropicMessages(
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
+	setPrincipalAttributes(span, p)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
@@ -2367,7 +2376,7 @@ func (s *Service) AnthropicMessagesStream(
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
-	span.SetAttributes(observability.PrincipalTypeKey.String(p.PrincipalType))
+	setPrincipalAttributes(span, p)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
