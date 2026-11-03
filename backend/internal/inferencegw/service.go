@@ -2298,7 +2298,7 @@ func (s *Service) AnthropicMessages(
 	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
 	estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
-	recordSpanUsage(span, usedTarget.ModelID, promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
+	recordSpanUsage(span, usedTarget.ModelID, promptTokens+cacheReadTokens+cacheCreationTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
@@ -2457,7 +2457,7 @@ func (s *Service) AnthropicMessagesStream(
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
 		estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
-		recordSpanUsage(span, capturedTarget.ModelID, promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
+		recordSpanUsage(span, capturedTarget.ModelID, promptTokens+cacheReadTokens+cacheCreationTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),
@@ -2631,6 +2631,7 @@ func nameModelSpan(span trace.Span, operation, model string) {
 
 // recordSpanUsage puts the response's token usage on the chat span under
 // kora's model name, and names the provider's model id as the response model.
+// input counts every prompt token, cached or not, whatever the dialect reports.
 func recordSpanUsage(span trace.Span, providerModelID string, input, output, cacheRead, cacheWrite int) {
 	span.SetAttributes(
 		observability.GenAIResponseModelKey.String(providerModelID),
