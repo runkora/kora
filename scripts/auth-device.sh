@@ -10,7 +10,8 @@
 # just need to visit a URL and enter a short code on any device.
 #
 # Options:
-#   --tenant-id <id>     Tenant ID for the session (required)
+#   --tenant-id <id>     Tenant ID for the session (required). It also picks the
+#                        tenant when your account matches several.
 #   --api-base <url>     API base URL (default: http://localhost:8080/api/v1)
 #   --help, -h           Show this help message and exit
 #
@@ -210,7 +211,7 @@ while true; do
   POLL_HTTP_CODE=$(curl -s -o /tmp/kora_poll_resp.json -w "%{http_code}" \
     -X POST "${API_BASE}/identity/session" \
     -H "Content-Type: application/json" \
-    -d "{\"grant_type\": \"urn:ietf:params:oauth:grant-type:device_code\", \"device_code\": \"${DEVICE_CODE}\", \"tenant_id\": \"${TENANT_ID}\"}")
+    -d "{\"grant_type\": \"urn:ietf:params:oauth:grant-type:device_code\", \"device_code\": \"${DEVICE_CODE}\", \"tenant_id\": \"${TENANT_ID}\", \"tenant_hint\": \"${TENANT_ID}\"}")
 
   POLL_RESP=$(cat /tmp/kora_poll_resp.json)
   chmod 600 /tmp/kora_poll_resp.json
@@ -270,8 +271,18 @@ while true; do
 
   # Any other status is a terminal error
   echo ""
-  ERR_CODE=$(echo "$POLL_RESP" | jq -r '.error.code // "unknown"')
-  ERR_MSG=$(echo "$POLL_RESP" | jq -r '.error.message // "unknown error"')
+  ERR_CODE=$(echo "$POLL_RESP" | jq -r '.code // "unknown"')
+  ERR_MSG=$(echo "$POLL_RESP" | jq -r '.message // "unknown error"')
   echo ""
-  die "Authentication failed (HTTP ${POLL_HTTP_CODE}): ${ERR_CODE} — ${ERR_MSG}"
+  if [[ "$ERR_CODE" == "multiple_tenants_match" ]]; then
+    error "Your account matches several tenants:"
+    echo ""
+    echo "$POLL_RESP" | jq -r '.details.tenants[] | "    \(.id)  (\(.display_name))"'
+    echo ""
+    echo "  Run the script again with the tenant you want:"
+    echo "    $0 --tenant-id <id>"
+    echo ""
+    exit 1
+  fi
+  die "Authentication failed (HTTP ${POLL_HTTP_CODE}): ${ERR_CODE}: ${ERR_MSG}"
 done

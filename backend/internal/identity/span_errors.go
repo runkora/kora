@@ -41,6 +41,8 @@ var (
 	errSpanOAuthError                          = errors.New("oauth error")
 	errSpanSlowDown                            = errors.New("slow_down")
 	errSpanTenantClaimBindingFailed            = errors.New("tenant claim binding failed")
+	errSpanTenantSwitchDenied                  = errors.New("tenant switch denied")
+	errSpanReplacedSessionRevocationFailed     = errors.New("replaced session revocation failed")
 	errSpanTokenEndpointRequestFailed          = errors.New("token endpoint request failed")
 	errSpanTokenSigningFailed                  = errors.New("token signing failed")
 	errSpanUnexpectedStatusCode                = errors.New("unexpected status code")

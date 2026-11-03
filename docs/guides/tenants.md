@@ -108,6 +108,12 @@ kora chooses the tenant in three steps:
 
 1.  It reads the domain from the ID token's `email` claim and keeps the tenants on the same issuer and client that list the domain in `emailDomains`. Without an `email` claim, it keeps only the tenant the person signed in to.
 2.  It checks each tenant's binding against the token. A string claim must equal one of `values`, and a list claim such as `groups` must contain one of them.
-3.  It signs the person in to the tenant that matches.
+3.  It signs the person in to the tenant that matches. When several match, it uses the tenant the sign-in asks for if that tenant is among them.
 
-A person who matches no tenant gets a 403. A person who matches more than one tenant cannot sign in, and the error lists the tenants they match.
+A person who matches no tenant gets a 403. A person who matches several tenants without asking for one of them gets a 409 that lists the matching tenants by ID and `displayName`. A tenant switch signs in again with the identity provider and succeeds only when the person still matches the target tenant. The switch ends the session it replaces.
+
+The CLI asks for a tenant with `--tenant-id`:
+
+```bash
+./scripts/auth-device.sh --tenant-id sre
+```

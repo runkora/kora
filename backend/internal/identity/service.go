@@ -422,7 +422,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		observability.PrincipalIdentitySourceKey.String(string(IdentitySourceFederated)),
 	)
 
-	tenantID, err := s.bindTenant(ts, req.TenantID, idToken)
+	tenantID, eligible, err := s.bindTenant(ts, req.TenantID, req.TenantHint, idToken)
 	if err != nil {
 		observability.RecordFailure(span, err, errSpanTenantClaimBindingFailed)
 		return nil, err
@@ -450,7 +450,12 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		Claims:         principalClaims,
 	}
 
-	return s.createSession(ctx, principal)
+	session, err := s.createSession(ctx, principal)
+	if err != nil {
+		return nil, err
+	}
+	session.Tenants = eligible
+	return session, nil
 }
 
 // ─── Federated authentication: browser id_token flow ────────────────────────
@@ -518,7 +523,19 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 		observability.PrincipalIdentitySourceKey.String(string(IdentitySourceFederated)),
 	)
 
-	tenantID, err := s.bindTenant(tenant, req.TenantID, idToken)
+	tenantID, eligible, err := s.bindTenant(tenant, req.TenantID, req.TenantHint, idToken)
+	var replaced *Session
+	if req.ReplacesRefreshToken != "" {
+		replaced, err = s.replacedSession(ctx, req, tenantID, eligible, err, claims.Sub, idToken.Issuer)
+		if err != nil {
+			sentinel := errSpanDatabaseError
+			if errors.Is(err, ErrTenantSwitchDenied) {
+				sentinel = errSpanTenantSwitchDenied
+			}
+			observability.RecordFailure(span, err, sentinel)
+			return nil, err
+		}
+	}
 	if err != nil {
 		observability.RecordFailure(span, err, errSpanTenantClaimBindingFailed)
 		return nil, err
@@ -546,8 +563,19 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 		Claims:         principalClaims,
 	}
 
-	span.SetStatus(codes.Ok, "id_token verified, creating session")
-	return s.createSession(ctx, principal)
+	resp, err := s.createSession(ctx, principal)
+	if err != nil {
+		return nil, err
+	}
+	if replaced != nil {
+		if err := s.revokeReplacedSession(ctx, replaced, tenantID); err != nil {
+			observability.RecordFailure(span, err, errSpanReplacedSessionRevocationFailed)
+			return nil, err
+		}
+	}
+	resp.Tenants = eligible
+	span.SetStatus(codes.Ok, "id_token verified, session created")
+	return resp, nil
 }
 
 // RefreshSession exchanges a valid refresh token for a new access token and
@@ -1241,25 +1269,27 @@ func (s *Service) DiscoverTenantByEmail(ctx context.Context, email string) (*Ten
 	return nil, ErrTenantNotFound
 }
 
-// bindTenant returns the tenant that owns a verified ID token. A tenant without
-// a claimBinding owns its own tokens. For a bound tenant, the owner is the one
-// tenant whose binding matches the token claims, chosen among the tenants on the
-// same issuer and client that claim the email domain of the token's email claim.
-// A token without an email claim considers only the requested tenant.
-// No match is ErrClaimBindingMismatch and several are ErrMultipleTenantsMatch.
-func (s *Service) bindTenant(requested *tenantOIDCState, requestedID string, idToken *gooidc.IDToken) (string, error) {
+// bindTenant returns the tenant that owns a verified ID token and the eligible
+// set the token matches. A tenant without a claimBinding owns its own tokens.
+// For a bound tenant, the candidates are the tenants on the same issuer and
+// client that claim the email domain of the token's email claim, or only the
+// requested tenant when the token has no email claim. The hint chooses among
+// several matches and never adds one. No match is ErrClaimBindingMismatch and
+// several without the hint among them are ErrMultipleTenantsMatch.
+// See docs/adr/2026-11-04-tenant-switching.md
+func (s *Service) bindTenant(requested *tenantOIDCState, requestedID, hint string, idToken *gooidc.IDToken) (string, []EligibleTenant, error) {
 	if requested.cfg.ClaimBinding == nil {
-		return requestedID, nil
+		return requestedID, []EligibleTenant{{ID: requestedID, DisplayName: requested.cfg.DisplayName}}, nil
 	}
 	var claims map[string]any
 	if err := idToken.Claims(&claims); err != nil {
-		return "", fmt.Errorf("extract id_token claims: %w", err)
+		return "", nil, fmt.Errorf("extract id_token claims: %w", err)
 	}
 
 	domain := tokenEmailDomain(claims)
 
 	s.mu.RLock()
-	var matched []string
+	matched := []EligibleTenant{}
 	for id, ts := range s.oidcTenants {
 		if ts.cfg.IssuerURL != requested.cfg.IssuerURL || ts.cfg.ClientID != requested.cfg.ClientID {
 			continue
@@ -1272,20 +1302,86 @@ func (s *Service) bindTenant(requested *tenantOIDCState, requestedID string, idT
 			continue
 		}
 		if ts.cfg.ClaimBinding.Matches(claims) {
-			matched = append(matched, id)
+			matched = append(matched, EligibleTenant{ID: id, DisplayName: ts.cfg.DisplayName})
 		}
 	}
 	s.mu.RUnlock()
+	slices.SortFunc(matched, func(a, b EligibleTenant) int { return strings.Compare(a.ID, b.ID) })
 
-	switch len(matched) {
-	case 0:
-		return "", ErrClaimBindingMismatch
-	case 1:
-		return matched[0], nil
+	switch {
+	case len(matched) == 0:
+		return "", matched, ErrClaimBindingMismatch
+	case len(matched) == 1:
+		return matched[0].ID, matched, nil
+	case slices.ContainsFunc(matched, func(t EligibleTenant) bool { return t.ID == hint }):
+		return hint, matched, nil
 	default:
-		slices.Sort(matched)
-		return "", fmt.Errorf("%w: %s", ErrMultipleTenantsMatch, strings.Join(matched, ", "))
+		return "", matched, &TenantMatchError{Err: ErrMultipleTenantsMatch, Tenants: matched}
 	}
+}
+
+// replacedSession checks a switch before any write: the bound tenant must be
+// the hint, and the replaced refresh token must be live and belong to a live
+// session of the same subject on the same issuer. Any failure is
+// ErrTenantSwitchDenied carrying the fresh eligible set.
+func (s *Service) replacedSession(ctx context.Context, req SessionRequest, bound string, eligible []EligibleTenant, bindErr error, subject, issuer string) (*Session, error) {
+	denied := &TenantMatchError{Err: ErrTenantSwitchDenied, Tenants: eligible}
+	if bindErr != nil {
+		if errors.Is(bindErr, ErrClaimBindingMismatch) || errors.Is(bindErr, ErrMultipleTenantsMatch) {
+			return nil, denied
+		}
+		return nil, bindErr
+	}
+	if bound != req.TenantHint {
+		return nil, denied
+	}
+
+	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hashToken(req.ReplacesRefreshToken))
+	if errors.Is(err, ErrRefreshTokenNotFound) {
+		return nil, denied
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get replaced refresh token: %w", err)
+	}
+	if rt.RevokedAt != nil || !time.Now().Before(rt.ExpiresAt) {
+		return nil, denied
+	}
+
+	session, err := s.sessions.GetSessionByID(ctx, rt.SessionID)
+	if errors.Is(err, ErrSessionNotFound) {
+		return nil, denied
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get replaced session: %w", err)
+	}
+	if session.RevokedAt != nil || session.PrincipalID != subject || session.Claims["issuer"] != issuer {
+		return nil, denied
+	}
+	return session, nil
+}
+
+// revokeReplacedSession ends the session a switch replaces, blocking its access
+// token because the auth middleware checks only the blocklist, and records the
+// switch for audit.
+func (s *Service) revokeReplacedSession(ctx context.Context, replaced *Session, toTenant string) error {
+	now := time.Now()
+	if ttl := replaced.ExpiresAt.Sub(now); ttl > 0 {
+		if err := s.blocklist.BlockJTI(ctx, replaced.JTI, ttl); err != nil {
+			return fmt.Errorf("block replaced access token: %w", err)
+		}
+	}
+	if err := s.refreshTokens.RevokeAllForSession(ctx, replaced.ID, now); err != nil {
+		return fmt.Errorf("revoke replaced refresh tokens: %w", err)
+	}
+	if err := s.sessions.RevokeSession(ctx, replaced.ID, now); err != nil && !errors.Is(err, ErrSessionNotFound) {
+		return fmt.Errorf("revoke replaced session: %w", err)
+	}
+	s.logger.Info(ctx, "tenant switched",
+		logging.Field{Key: "principal_id", Value: replaced.PrincipalID},
+		logging.Field{Key: "from_tenant_id", Value: replaced.TenantID},
+		logging.Field{Key: "to_tenant_id", Value: toTenant},
+	)
+	return nil
 }
 
 // tokenEmailDomain returns the lowercased domain of the email claim, or "" when

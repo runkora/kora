@@ -34,6 +34,13 @@ func sharedRegistry(issuer string, bindings map[string]string) string {
 
 func newTestServiceWithRegistry(t *testing.T, registry string) (*Service, error) {
 	t.Helper()
+	return newTestServiceWithRegistryRepos(t, registry, newMockSessionRepo(), newMockRefreshTokenRepo(), io.Discard)
+}
+
+// newTestServiceWithRegistryRepos builds a service over the given session and
+// refresh token repositories and writes its log to out.
+func newTestServiceWithRegistryRepos(t *testing.T, registry string, sessions SessionRepository, refreshTokens RefreshTokenRepository, out io.Writer) (*Service, error) {
+	t.Helper()
 	t.Setenv("KORA_ALLOW_EPHEMERAL_KEY", "true")
 	t.Setenv("KORA_TOKEN_SIGNING_KEY_FILE", "")
 	t.Setenv("KORA_TOKEN_SIGNING_KEY", "")
@@ -46,10 +53,10 @@ func newTestServiceWithRegistry(t *testing.T, registry string) (*Service, error)
 		Token:    TokenConfig{AccessTokenTTLMinutes: 60, RefreshTokenTTLDays: 30, Audience: "kora-platform"},
 	}
 	return NewService(context.Background(), cfg,
-		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+		sessions, refreshTokens, newMockBlocklistRepo(),
 		newMockAuthCodeRepo(), newMockClientRepo(), newMockPATRepo(),
 		nil, nil, nil, &mockPolicyClient{}, &mockPolicyEvaluator{},
-		&XFCCPrincipalExtractor{}, logging.NewLoggerWithOutput(io.Discard))
+		&XFCCPrincipalExtractor{}, logging.NewLoggerWithOutput(out))
 }
 
 func issueIDTokenWithClaims(t *testing.T, issuer string, key *rsa.PrivateKey, extra jwt.MapClaims) string {
@@ -116,8 +123,9 @@ func TestExchangeIDToken_ClaimBinding(t *testing.T) {
 				if !errors.Is(err, tc.wantErr) {
 					t.Fatalf("err = %v, want %v", err, tc.wantErr)
 				}
-				if tc.wantErr == ErrMultipleTenantsMatch && !strings.Contains(err.Error(), "engineering, sre") {
-					t.Errorf("error %q does not list the tenants", err)
+				var tme *TenantMatchError
+				if tc.wantErr == ErrMultipleTenantsMatch && (!errors.As(err, &tme) || len(tme.Tenants) != 2) {
+					t.Errorf("error %v does not carry the tenants", err)
 				}
 				return
 			}

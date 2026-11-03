@@ -113,7 +113,32 @@ type SessionRequest struct {
 	// presents the resulting id_token here. The backend verifies it via JWKS and
 	// issues a kora platform session token.
 	IDToken string `json:"id_token,omitempty"`
+	// TenantHint chooses among several tenants the ID token matches. It never
+	// adds a tenant the claims do not match.
+	TenantHint string `json:"tenant_hint,omitempty"`
+	// ReplacesRefreshToken marks an oidc_id_token exchange as a tenant switch
+	// and names the session it replaces.
+	// See docs/adr/2026-11-04-tenant-switching.md
+	ReplacesRefreshToken string `json:"replaces_refresh_token,omitempty"`
 }
+
+// EligibleTenant is a tenant that a verified ID token matches. The list is
+// display data for the tenant switcher and grants nothing.
+type EligibleTenant struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+}
+
+// TenantMatchError carries the eligible set alongside a binding or switch
+// failure so the handler can return it in the error details.
+type TenantMatchError struct {
+	Err     error
+	Tenants []EligibleTenant
+}
+
+func (e *TenantMatchError) Error() string { return e.Err.Error() }
+
+func (e *TenantMatchError) Unwrap() error { return e.Err }
 
 // SessionResponse is returned on successful session creation.
 // IssuedAt is expressed as Unix seconds (integer) per RFC 6749 / RFC 7519
@@ -133,6 +158,9 @@ type SessionResponse struct {
 	// only in its configuration repository. The dashboard then shows them
 	// read-only.
 	APIAuthoring bool `json:"api_authoring"`
+	// Tenants is the eligible set of a federated sign-in, kept by the BFF for
+	// the tenant switcher.
+	Tenants []EligibleTenant `json:"tenants,omitempty"`
 }
 
 // TenantDiscovery is the response body for GET /identity/tenants/discover.
@@ -402,6 +430,7 @@ var (
 	ErrTenantNotFound              = errors.New("tenant not found for email domain")
 	ErrClaimBindingMismatch        = errors.New("id_token claims match no tenant")
 	ErrMultipleTenantsMatch        = errors.New("id_token claims match several tenants")
+	ErrTenantSwitchDenied          = errors.New("tenant switch denied")
 	ErrDeviceFlowNotSupported      = errors.New("tenant OIDC provider does not support Device Authorization Grant")
 	ErrInvalidEmailFormat          = errors.New("invalid email format")
 	ErrPATNotFound                 = errors.New("PAT not found")
