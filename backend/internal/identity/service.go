@@ -523,10 +523,20 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 		observability.PrincipalIdentitySourceKey.String(string(IdentitySourceFederated)),
 	)
 
+	switching := req.ReplacesRefreshToken != ""
 	tenantID, eligible, err := s.bindTenant(tenant, req.TenantID, req.TenantHint, idToken)
+	if err != nil {
+		if switching && (errors.Is(err, ErrClaimBindingMismatch) || errors.Is(err, ErrMultipleTenantsMatch)) {
+			err = &TenantMatchError{Err: ErrTenantSwitchDenied, Tenants: eligible}
+			observability.RecordFailure(span, err, errSpanTenantSwitchDenied)
+			return nil, err
+		}
+		observability.RecordFailure(span, err, errSpanTenantClaimBindingFailed)
+		return nil, err
+	}
 	var replaced *Session
-	if req.ReplacesRefreshToken != "" {
-		replaced, err = s.replacedSession(ctx, req, tenantID, eligible, err, claims.Sub, idToken.Issuer)
+	if switching {
+		replaced, err = s.replacedSession(ctx, req.ReplacesRefreshToken, req.TenantHint, tenantID, eligible, claims.Sub, idToken.Issuer)
 		if err != nil {
 			sentinel := errSpanDatabaseError
 			if errors.Is(err, ErrTenantSwitchDenied) {
@@ -535,10 +545,6 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 			observability.RecordFailure(span, err, sentinel)
 			return nil, err
 		}
-	}
-	if err != nil {
-		observability.RecordFailure(span, err, errSpanTenantClaimBindingFailed)
-		return nil, err
 	}
 
 	displayName := resolveDisplayName(claims.Name, claims.PreferredUsername, claims.Email, claims.Sub)
@@ -1322,21 +1328,15 @@ func (s *Service) bindTenant(requested *tenantOIDCState, requestedID, hint strin
 
 // replacedSession checks a switch before any write: the bound tenant must be
 // the hint, and the replaced refresh token must be live and belong to a live
-// session of the same subject on the same issuer. Any failure is
+// session of the same subject on the same issuer. A failed check is
 // ErrTenantSwitchDenied carrying the fresh eligible set.
-func (s *Service) replacedSession(ctx context.Context, req SessionRequest, bound string, eligible []EligibleTenant, bindErr error, subject, issuer string) (*Session, error) {
+func (s *Service) replacedSession(ctx context.Context, refreshToken, hint, bound string, eligible []EligibleTenant, subject, issuer string) (*Session, error) {
 	denied := &TenantMatchError{Err: ErrTenantSwitchDenied, Tenants: eligible}
-	if bindErr != nil {
-		if errors.Is(bindErr, ErrClaimBindingMismatch) || errors.Is(bindErr, ErrMultipleTenantsMatch) {
-			return nil, denied
-		}
-		return nil, bindErr
-	}
-	if bound != req.TenantHint {
+	if bound != hint {
 		return nil, denied
 	}
 
-	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hashToken(req.ReplacesRefreshToken))
+	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hashToken(refreshToken))
 	if errors.Is(err, ErrRefreshTokenNotFound) {
 		return nil, denied
 	}

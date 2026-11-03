@@ -155,6 +155,16 @@ func (r recordingSessions) RevokeSession(ctx context.Context, id string, at time
 	return r.mockSessionRepository.RevokeSession(ctx, id, at)
 }
 
+type recordingBlocklist struct {
+	*mockJTIBlocklistRepository
+	log *eventLog
+}
+
+func (r recordingBlocklist) BlockJTI(ctx context.Context, jti string, ttl time.Duration) error {
+	r.log.add("block jti " + jti)
+	return r.mockJTIBlocklistRepository.BlockJTI(ctx, jti, ttl)
+}
+
 type recordingRefreshTokens struct {
 	*mockRefreshTokenRepository
 	log *eventLog
@@ -193,6 +203,7 @@ func newSwitchFixture(t *testing.T) *switchFixture {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
+	svc.blocklist = recordingBlocklist{newMockBlocklistRepo(), f.log}
 	f.svc = svc
 	return f
 }
@@ -248,25 +259,26 @@ func TestExchangeIDToken_SwitchSucceeds(t *testing.T) {
 	}
 
 	events := f.log.take()
+	oldSession, _ := f.sessions.GetSessionByID(context.Background(), oldRT.SessionID)
 	wantPrefix := []string{
 		"create session sre",
 		"create refresh token",
+		"block jti " + oldSession.JTI,
 		"revoke refresh tokens " + oldRT.SessionID,
 		"revoke session " + oldRT.SessionID,
 	}
-	if len(events) != 5 || !reflect.DeepEqual(events[:4], wantPrefix) {
+	if len(events) != 6 || !reflect.DeepEqual(events[:5], wantPrefix) {
 		t.Fatalf("events = %q, want %q then the switch log entry", events, wantPrefix)
 	}
 	for _, field := range []string{`"principal_id":"user-1"`, `"from_tenant_id":"eng"`, `"to_tenant_id":"sre"`} {
-		if !strings.Contains(events[4], field) {
-			t.Errorf("switch log entry %s lacks %s", events[4], field)
+		if !strings.Contains(events[5], field) {
+			t.Errorf("switch log entry %s lacks %s", events[5], field)
 		}
 	}
 
 	if _, err := f.svc.RefreshSession(context.Background(), SessionRequest{RefreshToken: old.RefreshToken}); !errors.Is(err, ErrRefreshTokenRevoked) {
 		t.Errorf("refresh with the replaced token: err = %v, want ErrRefreshTokenRevoked", err)
 	}
-	oldSession, _ := f.sessions.GetSessionByID(context.Background(), oldRT.SessionID)
 	if oldSession.RevokedAt == nil {
 		t.Error("replaced session is not revoked")
 	}

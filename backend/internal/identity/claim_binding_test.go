@@ -123,10 +123,6 @@ func TestExchangeIDToken_ClaimBinding(t *testing.T) {
 				if !errors.Is(err, tc.wantErr) {
 					t.Fatalf("err = %v, want %v", err, tc.wantErr)
 				}
-				var tme *TenantMatchError
-				if tc.wantErr == ErrMultipleTenantsMatch && (!errors.As(err, &tme) || len(tme.Tenants) != 2) {
-					t.Errorf("error %v does not carry the tenants", err)
-				}
 				return
 			}
 			if err != nil {

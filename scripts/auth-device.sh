@@ -277,7 +277,7 @@ while true; do
   if [[ "$ERR_CODE" == "multiple_tenants_match" ]]; then
     error "Your account matches several tenants:"
     echo ""
-    echo "$POLL_RESP" | jq -r '.details.tenants[] | "    \(.id)  (\(.display_name))"'
+    echo "$POLL_RESP" | jq -r '.details.tenants[] | "    \(.id)" + (if (.display_name // "") != "" then "  (\(.display_name))" else "" end)'
     echo ""
     echo "  Run the script again with the tenant you want:"
     echo "    $0 --tenant-id <id>"
