@@ -256,6 +256,9 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 	ctx = observability.WithRun(ctx, run.ID)
 	if startedBy != nil {
 		span.SetAttributes(observability.TriggerIDKey.String(startedBy.TriggerID))
+		if startedBy.TriggerName != "" {
+			span.SetAttributes(observability.TriggerNameKey.String(startedBy.TriggerName))
+		}
 	}
 
 	if err := s.repo.CreateRun(ctx, run); err != nil {

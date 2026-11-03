@@ -93,6 +93,8 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) (held 
 		})
 		return false
 	}
+	// The worker's dispatch span only knows the id; the name comes with the read.
+	trace.SpanFromContext(ctx).SetAttributes(observability.TriggerNameKey.String(t.Name))
 	if !t.Enabled {
 		s.outcomes.record(ctx, &DeliveryRun{
 			TenantID: p.TenantID, DeliveryID: p.DeliveryID,

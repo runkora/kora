@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -31,6 +32,15 @@ func endedSpan(rec *tracetest.SpanRecorder, name string, traceID trace.TraceID) 
 	return nil
 }
 
+func hasStringAttr(s sdktrace.ReadOnlySpan, key attribute.Key, want string) bool {
+	for _, a := range s.Attributes() {
+		if a.Key == key && a.Value.AsString() == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestWorkerDispatchContinuesFireTrace(t *testing.T) {
 	rec := spanRecorder()
 	svc, deps := newTestService(t)
@@ -51,13 +61,16 @@ func TestWorkerDispatchContinuesFireTrace(t *testing.T) {
 	if s == nil || s.Parent().SpanID() != fire.SpanContext().SpanID() {
 		t.Fatal("no dispatch span recorded as a child of the fire span")
 	}
+	if !hasStringAttr(s, observability.TriggerNameKey, trig.Name) {
+		t.Errorf("dispatch span lacks %s = %q", observability.TriggerNameKey, trig.Name)
+	}
 }
 
 func TestTickScheduledRootsRunTrace(t *testing.T) {
 	rec := spanRecorder()
 	svc, deps := newTestService(t)
 	trig := &Trigger{
-		ID: "sched-trace", TenantID: testTenant, Kind: KindScheduled,
+		ID: "sched-trace", Name: "nightly", TenantID: testTenant, Kind: KindScheduled,
 		PrincipalID: "trigger:sched-trace", AgentTypeID: "at-1", Enabled: true,
 		Overflow: OverflowReplace, MaxParallel: 1, MaxQueueDepth: 8,
 	}
@@ -76,6 +89,9 @@ func TestTickScheduledRootsRunTrace(t *testing.T) {
 	tick := endedSpan(rec, "triggers.Service.TickScheduled", queuedSC.TraceID())
 	if tick == nil || tick.Parent().IsValid() || tick.SpanContext().SpanID() != queuedSC.SpanID() {
 		t.Fatalf("queued traceparent %q does not name a root tick span", queued[0].TraceParent)
+	}
+	if !hasStringAttr(tick, observability.TriggerNameKey, trig.Name) {
+		t.Errorf("tick span lacks %s = %q", observability.TriggerNameKey, trig.Name)
 	}
 	if endedSpan(rec, "triggers.Worker.dispatch", queuedSC.TraceID()) == nil {
 		t.Error("no dispatch span recorded in the tick's trace")
