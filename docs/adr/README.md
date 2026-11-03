@@ -35,7 +35,8 @@ kora records every significant technical decision as an ADR. This index is the c
 - [OIDC Client Secret Projection for Confidential Tenants](2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md) — `Accepted` · 2026-03-31
 - [Browser-Based Authentication Flow and BFF Session Architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) — `Accepted` · 2026-04-01
 - [Home Realm Discovery and Email-Based Tenant Routing](2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md) — `Accepted` · 2026-04-01
-- [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) — `Proposed` · 2026-10-26
+- [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) — `Proposed (Amended 2026-11-04)` · 2026-10-26
+- [Tenant Switching](2026-11-04-tenant-switching.md) — `Proposed` · 2026-11-04
 - [Personal Access Tokens for Inference](2026-04-02-personal-access-tokens.md) — `Accepted` · 2026-04-02
 - [User Profiles Table for Principal Attribution](2026-04-19-user-profiles-table-for-principal-attribution.md) — `Accepted` · 2026-04-19
 - [User App Preferences](2026-05-08-user-app-preferences.md) — `Proposed` · 2026-05-08
@@ -326,8 +327,9 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-20 | [Actions Results Receiver Classification](2026-10-20-actions-results-receiver-classification.md) | Accepted | — |
 | 2026-10-22 | [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md) | Accepted | — |
 | 2026-10-24 | [Declarative Resources](2026-10-24-declarative-resources.md) | Accepted | — |
-| 2026-10-26 | [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) | Proposed | — |
+| 2026-10-26 | [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) | Proposed (Amended 2026-11-04) | — |
 | 2026-10-26 | [Release Asset Downloads Without Connection Selection](2026-10-26-release-asset-downloads-without-connection-selection.md) | Proposed | — |
 | 2026-10-27 | [Generic Webhook Source](2026-10-27-generic-webhook-source.md) | Accepted | — |
 | 2026-10-31 | [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) | Accepted (Amended 2026-11-01) | — |
+| 2026-11-04 | [Tenant Switching](2026-11-04-tenant-switching.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
