@@ -33,7 +33,7 @@ import { PLATFORM_MCP_SERVER } from '@runkora/lib/mcp';
 import type { McpServer } from '../_types';
 import { relativeTime, serverRollupScope } from '../_types';
 import { ServerAvatar } from './server-avatar';
-import { BuildConfigPanel } from './build-config-panel';
+import { BuildConfigWizard } from './build-config-wizard';
 
 type Filter = 'all' | 'global' | 'tenant';
 
@@ -295,7 +295,7 @@ export function McpServersPage({ servers, error }: McpServersPageProps) {
       ) : null}
 
       {panelOpen && selectedList.length > 0 ? (
-        <BuildConfigPanel
+        <BuildConfigWizard
           servers={servers}
           selected={[...selected]}
           onClose={() => setPanelOpen(false)}
