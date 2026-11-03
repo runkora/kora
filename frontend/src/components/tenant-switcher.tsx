@@ -1,7 +1,7 @@
 /** @tier 2 — kora-domain-aware: lists the person's tenants. Used by: dashboard shell, MCP consent. */
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Icon, Popover, PopoverContent, PopoverTrigger, Stack, Text } from '@runkora/hades';
 
 export interface TenantSwitcherOption {
@@ -13,7 +13,7 @@ export interface TenantSwitcherOption {
 export interface TenantSwitcherProps {
   /** The eligible set. The switcher renders nothing with fewer than two. */
   tenants: TenantSwitcherOption[];
-  /** Called with the chosen tenant; the caller starts the switch. A rejection re-enables the list. */
+  /** Called with the chosen tenant; the caller starts the switch. A rejection shows an error. */
   onSelect: (tenantId: string) => Promise<void> | void;
   /** Trigger text. Defaults to the active tenant's name. */
   label?: string;
@@ -23,6 +23,17 @@ export interface TenantSwitcherProps {
 export function TenantSwitcher({ tenants, onSelect, label }: TenantSwitcherProps) {
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  // A page restored from the back-forward cache after the redirect keeps its old state.
+  useEffect(() => {
+    const reset = (event: PageTransitionEvent) => {
+      if (event.persisted) setSwitching(null);
+    };
+    window.addEventListener('pageshow', reset);
+    return () => window.removeEventListener('pageshow', reset);
+  }, []);
+
   if (tenants.length < 2) return null;
   const active = tenants.find((t) => t.active);
 
@@ -54,7 +65,11 @@ export function TenantSwitcher({ tenants, onSelect, label }: TenantSwitcherProps
                   return;
                 }
                 setSwitching(t.id);
-                Promise.resolve(onSelect(t.id)).catch(() => setSwitching(null));
+                setFailed(false);
+                Promise.resolve(onSelect(t.id)).catch(() => {
+                  setSwitching(null);
+                  setFailed(true);
+                });
               }}
               style={{ justifyContent: 'space-between' }}
             >
@@ -65,6 +80,11 @@ export function TenantSwitcher({ tenants, onSelect, label }: TenantSwitcherProps
               {switching === t.id ? <Icon name="loader" size="xs" color="subtle" /> : null}
             </Button>
           ))}
+          {failed ? (
+            <Text size="caption" color="status-error" role="alert">
+              Could not start the switch. Try again.
+            </Text>
+          ) : null}
         </Stack>
       </PopoverContent>
     </Popover>

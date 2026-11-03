@@ -18,8 +18,8 @@
  * Tenant switching (docs/adr/2026-11-04-tenant-switching.md): when several
  * tenants match, the page shows a picker and re-posts the same ID token with
  * the chosen tenant. A switch carries its target in `state.switchTo`; a denied
- * switch keeps the current session, and a lapsed provider session falls back
- * to an interactive sign-in with the same state.
+ * switch keeps the current session, and a silent sign-in the provider cannot
+ * complete falls back to an interactive sign-in with the same state.
  *
  * Other failures redirect to `/login?error=<code>`.
  */
@@ -49,6 +49,14 @@ interface Exchange {
   next: string;
   switchTo?: string;
 }
+
+/** OIDC Core 3.1.2.6: the errors a `prompt=none` request returns when it needs the person. */
+const SILENT_SIGNIN_ERRORS = new Set([
+  'login_required',
+  'interaction_required',
+  'consent_required',
+  'account_selection_required',
+]);
 
 type View = { kind: 'working' } | { kind: 'pick'; tenants: TenantOption[] } | { kind: 'denied' };
 
@@ -151,10 +159,8 @@ export default function CallbackPage() {
         try {
           user = await userManager.signinRedirectCallback();
         } catch (err) {
-          // A silent switch without a live provider session retries interactively.
-          const lapsed =
-            err instanceof ErrorResponse &&
-            (err.error === 'login_required' || err.error === 'interaction_required');
+          // A silent switch the provider cannot complete without the person retries interactively.
+          const lapsed = err instanceof ErrorResponse && SILENT_SIGNIN_ERRORS.has(err.error ?? '');
           const state = lapsed ? (err.state as Partial<SignInState> | undefined) : undefined;
           if (
             state?.switchTo &&

@@ -253,8 +253,17 @@ export async function POST(request: Request): Promise<Response> {
       // Any 403 or 409 during a switch means the target is not among the matches.
       if (replaced) {
         if (tenants) {
-          replaced.tenants = tenants;
-          await saveWithTenants(replaced);
+          // Rebind with the refresh token's remaining lifetime so the kept cookie
+          // does not outlive it.
+          const remaining = replaced.refreshExpiresAt
+            ? Math.max(1, replaced.refreshExpiresAt - Math.floor(Date.now() / 1000))
+            : undefined;
+          const kept = await getIronSession<SessionPayload>(
+            cookieStore,
+            getSessionOptions(remaining),
+          );
+          kept.tenants = tenants;
+          await saveWithTenants(kept);
         }
         return Response.json({ error: 'tenant_switch_denied' }, { status: 403 });
       }
@@ -295,6 +304,9 @@ export async function POST(request: Request): Promise<Response> {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     expiresAt: data.issued_at + data.expires_in,
+    refreshExpiresAt: data.refresh_token_expires_in
+      ? data.issued_at + data.refresh_token_expires_in
+      : undefined,
     // The token's tenant wins: a claim binding can move the person off the
     // tenant Home Realm Discovery picked, which is only a hint.
     tenantId: issuedTenant,

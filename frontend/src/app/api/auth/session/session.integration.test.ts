@@ -16,7 +16,7 @@
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import type { IronSession } from 'iron-session';
+import type { IronSession, SessionOptions } from 'iron-session';
 import { server } from '@runkora/test-utils';
 import {
   createBackendSessionResponse,
@@ -496,6 +496,7 @@ describe('POST /api/auth/session', () => {
         replaces_refresh_token: 'rt-old',
       });
       expect(captured.tenantId).toBe('kora-tenant-example-data');
+      expect(captured.refreshExpiresAt).toEqual(expect.any(Number));
       expect(cookieJar.set).toHaveBeenCalledWith(
         'kora_last_tenant',
         'kora-tenant-example-data',
@@ -535,12 +536,14 @@ describe('POST /api/auth/session', () => {
     it.each(['tenant_switch_denied', 'multiple_tenants_match', 'forbidden'])(
       'keeps the session and stores the fresh set on %s during a switch',
       async (code) => {
-        const current = currentSession({
+        currentSession({
+          refreshExpiresAt: Math.floor(Date.now() / 1000) + 600,
           tenants: [
             { id: 'kora-tenant-example', displayName: 'Example Platform' },
             { id: 'kora-tenant-example-data', displayName: 'Example Data' },
           ],
         });
+        const kept = captureSession();
         upstream(() =>
           HttpResponse.json(
             { code, message: 'denied', details: { tenants: [TENANTS[0]] } },
@@ -559,12 +562,17 @@ describe('POST /api/auth/session', () => {
 
         expect(res.status).toBe(403);
         expect(await res.json()).toEqual({ error: 'tenant_switch_denied' });
-        expect(current.tenants).toEqual([
+        expect(kept.tenants).toEqual([
           { id: 'kora-tenant-example', displayName: 'Example Platform' },
         ]);
-        expect(current.save).toHaveBeenCalledOnce();
-        expect(current.accessToken).toBeTruthy();
-        expect(getIronSession).not.toHaveBeenCalled();
+        expect(kept.save).toHaveBeenCalledOnce();
+        expect(kept).not.toHaveProperty('accessToken');
+        // The kept cookie lives as long as the refresh token, not the 30-day default.
+        const maxAge =
+          (vi.mocked(getIronSession).mock.calls[0]?.[1] as unknown as SessionOptions | undefined)
+            ?.cookieOptions?.maxAge ?? 0;
+        expect(maxAge).toBeGreaterThan(590);
+        expect(maxAge).toBeLessThanOrEqual(600);
         expect(cookieJar.set).not.toHaveBeenCalled();
       },
     );

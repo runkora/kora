@@ -135,6 +135,9 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     refreshedSession.accessToken = refreshed.access_token;
     refreshedSession.refreshToken = refreshed.refresh_token;
     refreshedSession.expiresAt = refreshed.issued_at + refreshed.expires_in;
+    refreshedSession.refreshExpiresAt = refreshed.refresh_token_expires_in
+      ? refreshed.issued_at + refreshed.refresh_token_expires_in
+      : undefined;
 
     await refreshedSession.save();
 
