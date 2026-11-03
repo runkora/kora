@@ -11,14 +11,17 @@ import { Icon } from '../icon';
 // dynamic class construction.
 
 const MODAL_SIZE: Record<Required<ModalProps>['size'], string> = {
-  sm: 'max-w-sm',
-  md: 'max-w-md',
-  lg: 'max-w-lg',
+  // Width-only sizes sit centred at every viewport width, with a 1rem gutter
+  // either side and a height cap so a tall panel never overflows the screen.
+  sm: 'max-w-sm left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem)]',
+  md: 'max-w-md left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem)]',
+  lg: 'max-w-lg left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem)]',
   // Full workspace modal (agent builder): explicit height so children can
   // fill it (the root is already `flex flex-col`), `overflow-hidden` so the
   // panel never scrolls — scrolling happens inside the step content instead.
+  // Full-screen below `lg`, centred from `lg` up.
   builder:
-    'max-w-[1200px] w-full lg:w-[calc(100vw-4rem)] h-[100dvh] lg:h-[840px] lg:max-h-[calc(100vh-4rem)] overflow-hidden rounded-none lg:rounded-xl',
+    'inset-0 lg:inset-auto lg:left-1/2 lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 max-w-[1200px] w-full lg:w-[calc(100vw-4rem)] h-[100dvh] lg:h-[840px] lg:max-h-[calc(100vh-4rem)] overflow-hidden rounded-none lg:rounded-xl',
 };
 
 // ── Modal ────────────────────────────────────────────────────────────────────
@@ -30,14 +33,19 @@ export interface ModalProps {
    *  the built-in close button in ModalHeader). */
   onClose: () => void;
   /**
-   * Maximum width of the modal panel.
+   * Maximum width of the modal panel, and how it sits on small screens.
+   * `sm`, `md` and `lg` are centred at every width with a 1rem gutter and a
+   * height cap of the viewport minus 2rem. Content taller than that scrolls
+   * inside `ModalBody`, so give the panel a `ModalBody` (and optionally a
+   * `ModalFooter`) as direct children; wrapping them in another element, such
+   * as a `<form>`, stops the body from shrinking and scrolling.
    * - `'sm'` — `max-w-sm`  (384 px)
    * - `'md'` — `max-w-md`  (448 px) — default
    * - `'lg'` — `max-w-lg`  (512 px)
    * - `'builder'` — full workspace modal (1200 × 840 px, clamped to the
-   *   viewport minus a 2 rem margin). Unlike the width-only sizes, `builder`
-   *   gives the panel an explicit height and `overflow-hidden`, so children
-   *   can `flex-1` to fill it and manage their own internal scrolling.
+   *   viewport minus a 2 rem margin; full-screen below `lg`). Unlike the
+   *   width-only sizes, `builder` gives the panel an explicit height, so
+   *   children can `flex-1` to fill it and manage their own internal scrolling.
    */
   size?: 'sm' | 'md' | 'lg' | 'builder';
   /**
@@ -103,11 +111,13 @@ const Modal = ({
         }}
         className={cn(
           // Positioning
-          'fixed inset-0 lg:inset-auto lg:left-1/2 lg:top-1/2 z-50 lg:-translate-x-1/2 lg:-translate-y-1/2',
+          'fixed z-50',
           // Layout
           'flex w-full flex-col',
           // Visual
-          'rounded-xl border border-border bg-surface p-0 shadow-2xl',
+          // `overflow-hidden` clips a scrolling body's square scrollbar track to
+          // the rounded corners; without it the track pokes out of them.
+          'overflow-hidden rounded-xl border border-border bg-surface p-0 shadow-2xl',
           // Animation
           'data-[state=open]:animate-in data-[state=closed]:animate-out',
           'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
@@ -166,7 +176,10 @@ const ModalHeader = ({
 }: ModalHeaderProps) => (
   <div
     data-slot="modal-header"
-    className={cn('flex items-start justify-between p-5', !borderless && 'border-b border-border')}
+    className={cn(
+      'flex shrink-0 items-start justify-between p-5',
+      !borderless && 'border-b border-border',
+    )}
   >
     <div className="flex min-w-0 flex-col gap-0.5">
       {/* The title and its accessory share one inline flow, not a flex row: when
@@ -276,8 +289,18 @@ const ModalBody = React.forwardRef<HTMLDivElement, ModalBodyProps>(
       ref={ref}
       data-slot="modal-body"
       className={cn(
-        'flex flex-col',
-        flush ? 'p-0' : flushY ? 'px-5 py-0' : 'p-5',
+        // `min-h-0` lets the body shrink below its content inside the capped
+        // panel, and `overflow-y-auto` scrolls it, so the header and footer stay
+        // in view when the content is taller than the screen.
+        'flex min-h-0 flex-col overflow-y-auto',
+        flush
+          ? 'p-0'
+          : flushY
+            ? // 4px of vertical padding, cancelled by the negative margin, keeps the
+              // 2px outline + 2px offset of a focused first or last control inside
+              // the scrolling body, which would otherwise clip it.
+              'px-5 py-1 -my-1'
+            : 'p-5',
         gapless ? 'gap-0' : 'gap-5',
         constrained && 'max-h-[60vh] overflow-y-auto',
         className,
@@ -326,7 +349,7 @@ const ModalFooter = React.forwardRef<HTMLElement, ModalFooterProps>(
       ref={ref}
       data-slot="modal-footer"
       className={cn(
-        'flex items-center gap-2.5 p-5',
+        'flex shrink-0 items-center gap-2.5 p-5',
         !borderless && 'border-t border-border',
         FOOTER_JUSTIFY[justify],
         className,

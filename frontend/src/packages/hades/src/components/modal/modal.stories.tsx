@@ -118,6 +118,27 @@ function BuilderContent({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** A body taller than any phone screen, with no `constrained` prop: the panel itself must scroll it. */
+function LongContent({ onClose }: { onClose: () => void }) {
+  return (
+    <>
+      <ModalHeader title="Release notes" description="Everything that changed in this version." />
+      <ModalBody>
+        {Array.from({ length: 30 }, (_, i) => (
+          <Text key={i} size="supporting">
+            {`Change ${i + 1}: a line of text describing what was updated.`}
+          </Text>
+        ))}
+      </ModalBody>
+      <ModalFooter>
+        <Button size="sm" onClick={onClose}>
+          Done
+        </Button>
+      </ModalFooter>
+    </>
+  );
+}
+
 function RequiredContent({ onClose }: { onClose: () => void }) {
   return (
     <>
@@ -178,6 +199,23 @@ function OpenModal() {
     </>
   );
 }
+
+/** Long content in each width-only size. The body scrolls; header and footer stay in view. */
+export const Overflow: Story = {
+  render: () => (
+    <div className="flex max-w-xl flex-col gap-3">
+      <OpenButton label="Open long small modal" size="sm">
+        {(onClose) => <LongContent onClose={onClose} />}
+      </OpenButton>
+      <OpenButton label="Open long medium modal" size="md">
+        {(onClose) => <LongContent onClose={onClose} />}
+      </OpenButton>
+      <OpenButton label="Open long wide modal" size="lg">
+        {(onClose) => <LongContent onClose={onClose} />}
+      </OpenButton>
+    </div>
+  ),
+};
 
 export const Overview: Story = {
   render: () => (
