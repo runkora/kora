@@ -8,6 +8,8 @@ import (
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 func collectRunMetrics(t *testing.T, reader *sdkmetric.ManualReader) map[string]metricdata.Metrics {
@@ -53,10 +55,10 @@ func TestTransition_TerminalStateRecordsRunMetrics(t *testing.T) {
 				t.Fatalf("runs = %#v, want one point of 1", got["kora.agents.runs"].Data)
 			}
 			attrs := runs.DataPoints[0].Attributes
-			if v, _ := attrs.Value(metricKeyState); v.AsString() != string(terminal) {
+			if v, _ := attrs.Value(observability.RunStateKey); v.AsString() != string(terminal) {
 				t.Errorf("state = %q, want %q", v.AsString(), terminal)
 			}
-			if v, _ := attrs.Value(metricKeyStartedBy); v.AsString() != startedByLabelTrigger {
+			if v, _ := attrs.Value(observability.RunStartedByKey); v.AsString() != startedByLabelTrigger {
 				t.Errorf("started_by = %q, want %q", v.AsString(), startedByLabelTrigger)
 			}
 			if attrs.Len() != 2 {
@@ -119,7 +121,7 @@ func TestTransition_TerminalStateCountsRunWhenLookupFails(t *testing.T) {
 	if !ok || len(runs.DataPoints) != 1 || runs.DataPoints[0].Value != 1 {
 		t.Fatalf("runs = %#v, want one point of 1", got["kora.agents.runs"].Data)
 	}
-	if v, _ := runs.DataPoints[0].Attributes.Value(metricKeyStartedBy); v.AsString() != startedByLabelUnknown {
+	if v, _ := runs.DataPoints[0].Attributes.Value(observability.RunStartedByKey); v.AsString() != startedByLabelUnknown {
 		t.Errorf("started_by = %q, want unknown", v.AsString())
 	}
 	if _, ok := got["kora.agents.run.duration"]; ok {

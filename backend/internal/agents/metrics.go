@@ -5,17 +5,15 @@ import (
 	"fmt"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
-// Attribute keys and values of the run metrics. Every value comes from a closed
+// Values of the run metrics' started_by attribute. Every value comes from a closed
 // set, so the series count stays bounded; see
 // docs/adr/2026-11-03-run-outcome-and-duration-metrics.md.
 const (
-	metricKeyState     = attribute.Key("state")
-	metricKeyStartedBy = attribute.Key("started_by")
-
 	startedByLabelTrigger = "trigger"
 	startedByLabelPerson  = "person"
 	startedByLabelUnknown = "unknown"
@@ -72,8 +70,8 @@ func (m *Metrics) recordRunTerminal(ctx context.Context, run *Run, state RunStat
 		}
 	}
 	attrs := metric.WithAttributes(
-		metricKeyState.String(string(state)),
-		metricKeyStartedBy.String(startedBy),
+		observability.RunStateKey.String(string(state)),
+		observability.RunStartedByKey.String(startedBy),
 	)
 	m.runs.Add(ctx, 1, attrs)
 	if run == nil {
