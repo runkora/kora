@@ -10,12 +10,16 @@ import { Icon } from '../icon';
 // Full string literals required — Tailwind v4 static scanner cannot handle
 // dynamic class construction.
 
+// Width-only sizes sit centred at every viewport width, with a 1rem gutter
+// either side and a height cap so a tall panel never overflows the screen.
+// Every class is a full literal, so the Tailwind scanner still finds it.
+const CENTRED =
+  'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem)]';
+
 const MODAL_SIZE: Record<Required<ModalProps>['size'], string> = {
-  // Width-only sizes sit centred at every viewport width, with a 1rem gutter
-  // either side and a height cap so a tall panel never overflows the screen.
-  sm: 'max-w-sm left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem)]',
-  md: 'max-w-md left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem)]',
-  lg: 'max-w-lg left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem)]',
+  sm: `max-w-sm ${CENTRED}`,
+  md: `max-w-md ${CENTRED}`,
+  lg: `max-w-lg ${CENTRED}`,
   // Full workspace modal (agent builder): explicit height so children can
   // fill it (the root is already `flex flex-col`), `overflow-hidden` so the
   // panel never scrolls — scrolling happens inside the step content instead.

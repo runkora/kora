@@ -4,6 +4,8 @@ import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { Button } from '../button/button';
 import { FormField } from '../form-field/form-field';
 import { Input } from '../input/input';
+import { Popover, PopoverContent, PopoverTrigger } from '../popover';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../tooltip';
 import { Text } from '../typography/typography';
 import { Modal, ModalBody, ModalFooter, ModalHeader } from './modal';
 
@@ -118,6 +120,42 @@ function BuilderContent({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** A tooltip and a popover whose content reaches past the panel edges: both render in a portal, so the panel's `overflow-hidden` must not clip them. */
+function OverlayContent({ onClose }: { onClose: () => void }) {
+  return (
+    <>
+      <ModalHeader title="Overlays" description="Floating content opened from inside a modal." />
+      <ModalBody>
+        <Tooltip open>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="sm">
+              Hover target
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top" avoidCollisions={false}>
+            A tooltip wider than the panel it opened from.
+          </TooltipContent>
+        </Tooltip>
+      </ModalBody>
+      <ModalFooter justify="between">
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm">
+              Open popover
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent side="bottom" avoidCollisions={false} className="w-64">
+            <Text size="supporting">A popover opened below the footer, past the panel.</Text>
+          </PopoverContent>
+        </Popover>
+        <Button size="sm" onClick={onClose}>
+          Done
+        </Button>
+      </ModalFooter>
+    </>
+  );
+}
+
 /** A body taller than any phone screen, with no `constrained` prop: the panel itself must scroll it. */
 function LongContent({ onClose }: { onClose: () => void }) {
   return (
@@ -199,6 +237,17 @@ function OpenModal() {
     </>
   );
 }
+
+/** Tooltip and popover opened from inside a modal render in a portal and are not clipped by the panel. */
+export const WithOverlays: Story = {
+  render: () => (
+    <TooltipProvider>
+      <OpenButton label="Open modal with overlays" size="sm">
+        {(onClose) => <OverlayContent onClose={onClose} />}
+      </OpenButton>
+    </TooltipProvider>
+  ),
+};
 
 /** Long content in each width-only size. The body scrolls; header and footer stay in view. */
 export const Overflow: Story = {
