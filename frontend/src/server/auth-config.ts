@@ -39,6 +39,17 @@ export interface SessionPayload {
    * Absent on sessions sealed before the field existed, which read as true.
    */
   apiAuthoring?: boolean;
+  /**
+   * Tenants the last sign-in or switch matched, for the tenant switcher. Display
+   * data only: a switch is authorised by a fresh sign-in, never by this list.
+   */
+  tenants?: SessionTenant[];
+}
+
+/** A tenant the person's verified claims matched. */
+export interface SessionTenant {
+  id: string;
+  displayName: string;
 }
 
 // ── Backend API response shapes ──────────────────────────────────────────────
@@ -59,6 +70,24 @@ export interface BackendSessionResponse {
   refresh_token_expires_in?: number;
   /** False when the caller's tenant takes its changes from its configuration repository. */
   api_authoring?: boolean;
+  /** The eligible set of a federated sign-in. */
+  tenants?: unknown;
+}
+
+/**
+ * Reads an identity `tenants: [{id, display_name}]` list, from a session
+ * response or an error's details. Returns undefined when it is not a list.
+ */
+export function parseTenants(value: unknown): SessionTenant[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.flatMap((t: unknown) => {
+    if (!t || typeof t !== 'object') return [];
+    const { id, display_name } = t as Record<string, unknown>;
+    if (typeof id !== 'string' || !id) return [];
+    return [
+      { id, displayName: typeof display_name === 'string' && display_name ? display_name : id },
+    ];
+  });
 }
 
 /**
@@ -87,6 +116,9 @@ export function tenantIdFromAccessToken(token: string): string | undefined {
 /** Name of the sealed iron-session cookie. */
 export const SESSION_COOKIE_NAME = 'kora_session';
 
+/** Holds the tenant of the last sign-in or switch, sent as the next sign-in's tenant hint. */
+export const LAST_TENANT_COOKIE_NAME = 'kora_last_tenant';
+
 /**
  * True when the console's public URL is http:// on localhost or *.localhost.
  * Safari drops Secure cookies on that origin even though it is a secure context.
@@ -101,6 +133,21 @@ function isInsecureLoopbackUrl(appUrl: string | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+function secureCookies(): boolean {
+  return process.env.NODE_ENV === 'production' && !isInsecureLoopbackUrl(process.env.KORA_APP_URL);
+}
+
+/** Options for the last-used tenant cookie. It outlives sessions so the next sign-in can use it. */
+export function lastTenantCookieOptions() {
+  return {
+    secure: secureCookies(),
+    httpOnly: true,
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: 60 * 60 * 24 * 365,
+  };
 }
 
 // ── Session options factory ───────────────────────────────────────────────────
@@ -131,8 +178,7 @@ export function getSessionOptions(refreshTokenExpiresIn?: number): SessionOption
     cookieName: SESSION_COOKIE_NAME,
     password,
     cookieOptions: {
-      secure:
-        process.env.NODE_ENV === 'production' && !isInsecureLoopbackUrl(process.env.KORA_APP_URL),
+      secure: secureCookies(),
       httpOnly: true,
       // lax (not strict) so the cookie is sent after the cross-origin OIDC
       // redirect back from the IdP (strict blocks that first same-site navigation

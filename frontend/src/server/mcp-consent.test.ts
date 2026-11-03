@@ -3,6 +3,7 @@ import { mcpConsentToken, consentTokenValid } from './mcp-consent';
 
 const input = {
   userKey: 'jane@acme.com',
+  tenantId: 'kora-tenant-example',
   clientId: 'cid-123',
   redirectUri: 'http://127.0.0.1:9000/callback',
   codeChallenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
@@ -33,6 +34,9 @@ describe('mcpConsentToken / consentTokenValid', () => {
   it('rejects when any bound value differs (user or OAuth params)', () => {
     const token = mcpConsentToken(input);
     expect(consentTokenValid(token, { ...input, userKey: 'mallory@acme.com' })).toBe(false);
+    expect(consentTokenValid(token, { ...input, tenantId: 'kora-tenant-example-data' })).toBe(
+      false,
+    );
     expect(consentTokenValid(token, { ...input, clientId: 'other-client' })).toBe(false);
     expect(consentTokenValid(token, { ...input, redirectUri: 'http://127.0.0.1:1/x' })).toBe(false);
     expect(consentTokenValid(token, { ...input, codeChallenge: 'different' })).toBe(false);

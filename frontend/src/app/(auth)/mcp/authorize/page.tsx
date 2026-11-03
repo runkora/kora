@@ -100,19 +100,23 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     );
   }
 
+  // This consent request, rebuilt from validated params: the return path for a
+  // cold-start sign-in and for a tenant switch.
+  const back = new URLSearchParams({
+    response_type: 'code',
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+  });
+  if (state) back.set('state', state);
+  if (scope) back.set('scope', scope);
+  if (resource) back.set('resource', resource);
+  const consentPath = `/mcp/authorize?${back.toString()}`;
+
   const session = await getSession();
   if (!isSessionValid(session)) {
-    const back = new URLSearchParams({
-      response_type: 'code',
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      code_challenge: codeChallenge,
-      code_challenge_method: 'S256',
-    });
-    if (state) back.set('state', state);
-    if (scope) back.set('scope', scope);
-    if (resource) back.set('resource', resource);
-    redirect(`/login?next=${encodeURIComponent(`/mcp/authorize?${back.toString()}`)}`);
+    redirect(`/login?next=${encodeURIComponent(consentPath)}`);
   }
 
   // Name the application asking (registered via DCR or a pre-registered
@@ -200,6 +204,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 
   const csrfToken = mcpConsentToken({
     userKey: session.user.email,
+    tenantId: session.tenantId,
     clientId,
     redirectUri,
     codeChallenge,
@@ -209,6 +214,11 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     <ConsentFlow
       clientName={clientName || 'An application'}
       userEmail={session.user.email}
+      tenantName={
+        session.tenants?.find((t) => t.id === session.tenantId)?.displayName ?? session.tenantId
+      }
+      tenants={(session.tenants ?? []).map((t) => ({ ...t, active: t.id === session.tenantId }))}
+      consentPath={consentPath}
       server={server}
       domains={domains}
       grantedCount={grantedCount}

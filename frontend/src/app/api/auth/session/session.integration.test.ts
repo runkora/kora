@@ -27,8 +27,9 @@ import type { SessionPayload } from '@runkora/server/auth-config';
 
 // ── Module mocks (hoisted before imports) ─────────────────────────────────────
 
+const cookieJar = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn() }));
 vi.mock('next/headers', () => ({
-  cookies: vi.fn().mockResolvedValue({}),
+  cookies: vi.fn().mockResolvedValue(cookieJar),
 }));
 
 vi.mock('iron-session', () => ({
@@ -85,6 +86,9 @@ function makePostRequest(body: unknown): Request {
 describe('POST /api/auth/session', () => {
   beforeEach(() => {
     vi.mocked(getIronSession).mockReset();
+    vi.mocked(getSession).mockReset();
+    cookieJar.get.mockReset();
+    cookieJar.set.mockReset();
   });
 
   describe('request validation', () => {
@@ -331,6 +335,261 @@ describe('POST /api/auth/session', () => {
       expect(session.apiAuthoring).toBe(stored);
     });
   });
+
+  describe('tenant switching', () => {
+    const TENANTS = [
+      { id: 'kora-tenant-example', display_name: 'Example Platform' },
+      { id: 'kora-tenant-example-data', display_name: 'Example Data' },
+    ];
+
+    /** Captures the body the route sends to identity and answers with `reply`. */
+    function upstream(reply: () => Response) {
+      const sent: Record<string, unknown>[] = [];
+      server.use(
+        http.post('http://test-kora-api/identity/session', async ({ request }) => {
+          sent.push((await request.json()) as Record<string, unknown>);
+          return reply();
+        }),
+      );
+      return sent;
+    }
+
+    function captureSession() {
+      const captured: Record<string, unknown> = { save: vi.fn().mockResolvedValue(undefined) };
+      vi.mocked(getIronSession).mockResolvedValue(
+        captured as unknown as IronSession<SessionPayload>,
+      );
+      return captured;
+    }
+
+    function currentSession(overrides: Partial<SessionPayload> = {}) {
+      const s = {
+        ...createSessionPayload({ tenantId: 'kora-tenant-example', refreshToken: 'rt-old' }),
+        ...overrides,
+        save: vi.fn().mockResolvedValue(undefined),
+      };
+      vi.mocked(getSession).mockResolvedValue(s as unknown as IronSession<SessionPayload>);
+      return s;
+    }
+
+    it('sends the last-used tenant cookie as the hint', async () => {
+      cookieJar.get.mockReturnValue({ value: 'kora-tenant-example-data' });
+      const sent = upstream(() => HttpResponse.json(createBackendSessionResponse()));
+      captureSession();
+
+      await POST(makePostRequest({ id_token: 'tok', tenant_id: 'kora-tenant-example' }));
+
+      expect(sent[0]).toMatchObject({
+        tenant_id: 'kora-tenant-example',
+        tenant_hint: 'kora-tenant-example-data',
+      });
+      expect(sent[0]).not.toHaveProperty('replaces_refresh_token');
+    });
+
+    it('sends no hint without a cookie or a pick', async () => {
+      const sent = upstream(() => HttpResponse.json(createBackendSessionResponse()));
+      captureSession();
+
+      await POST(makePostRequest({ id_token: 'tok', tenant_id: 'kora-tenant-example' }));
+
+      expect(sent[0]).not.toHaveProperty('tenant_hint');
+    });
+
+    it('prefers the picked tenant over the cookie', async () => {
+      cookieJar.get.mockReturnValue({ value: 'kora-tenant-example' });
+      const sent = upstream(() => HttpResponse.json(createBackendSessionResponse()));
+      captureSession();
+
+      await POST(
+        makePostRequest({
+          id_token: 'tok',
+          tenant_id: 'kora-tenant-example',
+          tenant_hint: 'kora-tenant-example-data',
+        }),
+      );
+
+      expect(sent[0]?.tenant_hint).toBe('kora-tenant-example-data');
+    });
+
+    it('seals the eligible set and sets the last-used cookie to the issued tenant', async () => {
+      upstream(() =>
+        HttpResponse.json({
+          ...createBackendSessionResponse({}, createSessionUser(), 'kora-tenant-example-data'),
+          tenants: TENANTS,
+        }),
+      );
+      const captured = captureSession();
+
+      const res = await POST(
+        makePostRequest({ id_token: 'tok', tenant_id: 'kora-tenant-example' }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(captured.tenants).toEqual([
+        { id: 'kora-tenant-example', displayName: 'Example Platform' },
+        { id: 'kora-tenant-example-data', displayName: 'Example Data' },
+      ]);
+      expect(cookieJar.set).toHaveBeenCalledWith(
+        'kora_last_tenant',
+        'kora-tenant-example-data',
+        expect.objectContaining({ httpOnly: true, sameSite: 'lax', path: '/' }),
+      );
+    });
+
+    it('passes 409 matches to the callback', async () => {
+      upstream(() =>
+        HttpResponse.json(
+          {
+            code: 'multiple_tenants_match',
+            message: 'the account matches several tenants',
+            details: { tenants: TENANTS },
+          },
+          { status: 409 },
+        ),
+      );
+
+      const res = await POST(
+        makePostRequest({ id_token: 'tok', tenant_id: 'kora-tenant-example' }),
+      );
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({
+        error: 'multiple_tenants_match',
+        tenants: [
+          { id: 'kora-tenant-example', displayName: 'Example Platform' },
+          { id: 'kora-tenant-example-data', displayName: 'Example Data' },
+        ],
+      });
+      expect(cookieJar.set).not.toHaveBeenCalled();
+    });
+
+    it('requires a target for a switch', async () => {
+      const res = await POST(
+        makePostRequest({ id_token: 'tok', tenant_id: 'kora-tenant-example', switch: true }),
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it('switches with the session tenant and refresh token, then swaps the cookie', async () => {
+      currentSession();
+      const sent = upstream(() =>
+        HttpResponse.json({
+          ...createBackendSessionResponse({}, createSessionUser(), 'kora-tenant-example-data'),
+          tenants: TENANTS,
+        }),
+      );
+      const captured = captureSession();
+
+      const res = await POST(
+        makePostRequest({
+          id_token: 'tok',
+          tenant_id: 'discovered-tenant',
+          tenant_hint: 'kora-tenant-example-data',
+          switch: true,
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(sent[0]).toMatchObject({
+        tenant_id: 'kora-tenant-example',
+        tenant_hint: 'kora-tenant-example-data',
+        replaces_refresh_token: 'rt-old',
+      });
+      expect(captured.tenantId).toBe('kora-tenant-example-data');
+      expect(cookieJar.set).toHaveBeenCalledWith(
+        'kora_last_tenant',
+        'kora-tenant-example-data',
+        expect.anything(),
+      );
+    });
+
+    it('drops the eligible set when the cookie would be too big', async () => {
+      upstream(() => HttpResponse.json({ ...createBackendSessionResponse(), tenants: TENANTS }));
+      const save = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('iron-session: Cookie length is too big'))
+        .mockResolvedValue(undefined);
+      const captured: Record<string, unknown> = { save };
+      vi.mocked(getIronSession).mockResolvedValue(
+        captured as unknown as IronSession<SessionPayload>,
+      );
+
+      const res = await POST(
+        makePostRequest({ id_token: 'tok', tenant_id: 'kora-tenant-example' }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(save).toHaveBeenCalledTimes(2);
+      expect(captured).not.toHaveProperty('tenants');
+    });
+
+    it('rejects a cross-site post', async () => {
+      const req = new Request('http://localhost/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'cross-site' },
+        body: JSON.stringify({ id_token: 'tok', tenant_id: 'kora-tenant-example' }),
+      });
+      expect((await POST(req)).status).toBe(403);
+    });
+
+    it.each(['tenant_switch_denied', 'multiple_tenants_match', 'forbidden'])(
+      'keeps the session and stores the fresh set on %s during a switch',
+      async (code) => {
+        const current = currentSession({
+          tenants: [
+            { id: 'kora-tenant-example', displayName: 'Example Platform' },
+            { id: 'kora-tenant-example-data', displayName: 'Example Data' },
+          ],
+        });
+        upstream(() =>
+          HttpResponse.json(
+            { code, message: 'denied', details: { tenants: [TENANTS[0]] } },
+            { status: code === 'multiple_tenants_match' ? 409 : 403 },
+          ),
+        );
+
+        const res = await POST(
+          makePostRequest({
+            id_token: 'tok',
+            tenant_id: 'kora-tenant-example',
+            tenant_hint: 'kora-tenant-example-data',
+            switch: true,
+          }),
+        );
+
+        expect(res.status).toBe(403);
+        expect(await res.json()).toEqual({ error: 'tenant_switch_denied' });
+        expect(current.tenants).toEqual([
+          { id: 'kora-tenant-example', displayName: 'Example Platform' },
+        ]);
+        expect(current.save).toHaveBeenCalledOnce();
+        expect(current.accessToken).toBeTruthy();
+        expect(getIronSession).not.toHaveBeenCalled();
+        expect(cookieJar.set).not.toHaveBeenCalled();
+      },
+    );
+
+    it('runs a switch without a session as a sign-in with the target as hint', async () => {
+      vi.mocked(getSession).mockResolvedValue({} as unknown as IronSession<SessionPayload>);
+      const sent = upstream(() => HttpResponse.json(createBackendSessionResponse()));
+      captureSession();
+
+      await POST(
+        makePostRequest({
+          id_token: 'tok',
+          tenant_id: 'kora-tenant-example',
+          tenant_hint: 'kora-tenant-example-data',
+          switch: true,
+        }),
+      );
+
+      expect(sent[0]).toMatchObject({
+        tenant_id: 'kora-tenant-example',
+        tenant_hint: 'kora-tenant-example-data',
+      });
+      expect(sent[0]).not.toHaveProperty('replaces_refresh_token');
+    });
+  });
 });
 
 // ── GET /api/auth/session ─────────────────────────────────────────────────────
@@ -416,6 +675,25 @@ describe('GET /api/auth/session', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect((body.permissions as { scopes: string[] }).scopes).toEqual([]);
+  });
+
+  it('returns the eligible set with the active tenant marked', async () => {
+    const payload = createSessionPayload({
+      tenantId: 'kora-tenant-example',
+      tenants: [
+        { id: 'kora-tenant-example', displayName: 'Example Platform' },
+        { id: 'kora-tenant-example-data', displayName: 'Example Data' },
+      ],
+    });
+    vi.mocked(getSession).mockResolvedValue(payload as unknown as IronSession<SessionPayload>);
+    vi.mocked(isSessionValid).mockReturnValue(true);
+
+    const body = (await (await GET()).json()) as Record<string, unknown>;
+
+    expect(body.tenants).toEqual([
+      { id: 'kora-tenant-example', displayName: 'Example Platform', active: true },
+      { id: 'kora-tenant-example-data', displayName: 'Example Data', active: false },
+    ]);
   });
 
   it('does not expose accessToken, refreshToken, or tenantId in the response', async () => {

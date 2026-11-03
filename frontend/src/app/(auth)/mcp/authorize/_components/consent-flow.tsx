@@ -3,6 +3,8 @@
 
 import { useState } from 'react';
 import { Button, Icon, Stack, Text } from '@runkora/hades';
+import { TenantSwitcher, type TenantSwitcherOption } from '@runkora/components';
+import { startTenantSwitch } from '@runkora/lib/tenant-switch';
 import { useBrand } from '@runkora/theme/brand-provider';
 
 // ── Props (all fetched server-side, passed as serialisable data) ──────────────
@@ -25,6 +27,11 @@ export interface ConsentServer {
 export interface ConsentFlowProps {
   clientName: string;
   userEmail: string;
+  /** The session's tenant, which the client will act in. */
+  tenantName: string;
+  tenants: TenantSwitcherOption[];
+  /** This consent request; a tenant switch returns here. */
+  consentPath: string;
   server: ConsentServer | null;
   domains: ConsentDomain[];
   grantedCount: number;
@@ -170,6 +177,36 @@ function ConsentCard(
               Signed in · acting as delegated identity
             </Text>
           </Stack>
+        </Stack>
+
+        {/* Tenant the client will act in */}
+        <Stack
+          direction="horizontal"
+          align="center"
+          justify="between"
+          style={{
+            gap: 11,
+            padding: '11px 13px',
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--color-background)',
+            border: '1px solid var(--color-border-subtle)',
+          }}
+        >
+          <Stack style={{ minWidth: 0, gap: 0 }}>
+            <Text as="span" style={{ fontSize: 11.5, color: 'var(--color-subtle)' }}>
+              Tenant
+            </Text>
+            <Text as="span" truncate style={{ fontSize: 12.5, fontWeight: 600 }}>
+              {p.tenantName}
+            </Text>
+          </Stack>
+          <TenantSwitcher
+            label="Switch"
+            tenants={p.tenants}
+            onSelect={(tenantId) =>
+              startTenantSwitch({ email: p.userEmail, tenantId, returnPath: p.consentPath })
+            }
+          />
         </Stack>
 
         {/* Tool surface */}

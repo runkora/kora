@@ -13,6 +13,13 @@ interface SessionUser {
   name: string;
 }
 
+/** A tenant the person can switch to; `active` marks the session's tenant. */
+export interface SessionTenantOption {
+  id: string;
+  displayName: string;
+  active: boolean;
+}
+
 interface SessionContextValue {
   /** Complete set of scopes the current principal holds. */
   scopes: string[];
@@ -22,6 +29,8 @@ interface SessionContextValue {
   loaded: boolean;
   /** False when the tenant takes its changes from its configuration repository. */
   apiAuthoring?: boolean;
+  /** The eligible set from the last sign-in or switch. Empty for older sessions. */
+  tenants?: SessionTenantOption[];
 }
 
 // ── Context ──────────────────────────────────────────────────────────────────
@@ -64,6 +73,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
         user: data?.user ?? null,
         loaded: true,
         apiAuthoring: data?.apiAuthoring,
+        tenants: data?.tenants ?? [],
       });
 
       // Schedule a proactive re-fetch 4 minutes before the token expires so

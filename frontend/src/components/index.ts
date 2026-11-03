@@ -80,3 +80,7 @@ export type {
   ManagedInGitCalloutProps,
   ManagedInGitNoticeProps,
 } from './managed-in-git';
+
+/** The active tenant and a list of the person's other tenants to switch to. */
+export { TenantSwitcher } from './tenant-switcher';
+export type { TenantSwitcherProps, TenantSwitcherOption } from './tenant-switcher';

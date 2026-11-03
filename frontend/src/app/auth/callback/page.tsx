@@ -4,29 +4,31 @@
  * This Client Component is the registered `redirect_uri` for the browser-side
  * OIDC client. It runs entirely in the browser:
  *
- *   1. Reads the tenant OIDC config written to sessionStorage by the login page
- *      immediately before `signinRedirect()` (docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md sessionStorage handoff).
+ *   1. Reads the tenant OIDC config written to sessionStorage before
+ *      `signinRedirect()` (docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md sessionStorage handoff).
  *
- *   2. Calls `signinRedirectCallback()` on a reconstructed UserManager, which:
- *      - Reads `code` and `state` from the URL search params
- *      - Retrieves the PKCE verifier from sessionStorage (written by signinRedirect)
- *      - Exchanges the code at the OIDC token endpoint directly from the browser
- *      - Returns a `User` object containing the `id_token` and the original state
+ *   2. Calls `signinRedirectCallback()`, which completes PKCE from the browser
+ *      and returns the `id_token` and the original state.
  *
- *   3. POSTs `{ id_token, tenant_id }` to `/api/auth/session` (BFF route) which:
- *      - Forwards to Go `POST /identity/session` with `grant_type: oidc_id_token`
- *      - Receives a kora platform JWT in return
- *      - Seals it into an HttpOnly `iron-session` cookie with the backend's TTL
+ *   3. POSTs the ID token to `/api/auth/session` (BFF route), which exchanges
+ *      it for a kora session and seals it into an HttpOnly cookie.
  *
  *   4. Redirects to `state.next` (validated relative path) or `/`.
  *
- * Error handling: any failure redirects to `/login?error=<code>` so the user
- * always ends up on a recognisable page rather than a blank or broken view.
+ * Tenant switching (docs/adr/2026-11-04-tenant-switching.md): when several
+ * tenants match, the page shows a picker and re-posts the same ID token with
+ * the chosen tenant. A switch carries its target in `state.switchTo`; a denied
+ * switch keeps the current session, and a lapsed provider session falls back
+ * to an interactive sign-in with the same state.
+ *
+ * Other failures redirect to `/login?error=<code>`.
  */
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ErrorResponse } from 'oidc-client-ts';
+import { Button, Card, CardContent, CardHeader, Heading, Stack, Text } from '@runkora/hades';
 
 import {
   buildUserManager,
@@ -34,11 +36,71 @@ import {
   type TenantOidcConfig,
 } from '@runkora/lib/oidc-client';
 import { isSafeRedirectPath } from '@runkora/lib/routing';
+import { redirectToSignIn, type SignInState } from '@runkora/lib/tenant-switch';
+
+interface TenantOption {
+  id: string;
+  displayName: string;
+}
+
+interface Exchange {
+  idToken: string;
+  tenantId: string;
+  next: string;
+  switchTo?: string;
+}
+
+type View = { kind: 'working' } | { kind: 'pick'; tenants: TenantOption[] } | { kind: 'denied' };
 
 export default function CallbackPage() {
   const router = useRouter();
   // Guard against StrictMode double-invocation — only run the exchange once.
   const exchanged = useRef(false);
+  const exchange = useRef<Exchange | null>(null);
+  const [view, setView] = useState<View>({ kind: 'working' });
+  const [posting, setPosting] = useState(false);
+
+  // Posts the ID token to the BFF. `hint` is the tenant picked here; a switch
+  // always sends its target.
+  const seal = useCallback(
+    async (ex: Exchange, hint?: string) => {
+      setPosting(true);
+      try {
+        const res = await fetch('/api/auth/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id_token: ex.idToken,
+            tenant_id: ex.tenantId,
+            tenant_hint: hint ?? ex.switchTo,
+            switch: ex.switchTo ? true : undefined,
+          }),
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          tenants?: TenantOption[];
+        };
+        if (res.ok) {
+          // A switch reloads the page so no client state from the old tenant survives.
+          if (ex.switchTo) window.location.replace(ex.next);
+          else router.replace(ex.next);
+          return;
+        }
+        if (res.status === 409 && body.tenants?.length) {
+          setView({ kind: 'pick', tenants: body.tenants });
+        } else if (res.status === 403 && body.error === 'tenant_switch_denied') {
+          setView({ kind: 'denied' });
+        } else {
+          router.replace('/login?error=server_error');
+        }
+      } catch {
+        router.replace('/login?error=server_error');
+      } finally {
+        setPosting(false);
+      }
+    },
+    [router],
+  );
 
   useEffect(() => {
     if (exchanged.current) return;
@@ -85,7 +147,25 @@ export default function CallbackPage() {
 
         // ── Step 2: complete the PKCE exchange ─────────────────────────────
         const userManager = buildUserManager(tenantConfig);
-        const user = await userManager.signinRedirectCallback();
+        let user;
+        try {
+          user = await userManager.signinRedirectCallback();
+        } catch (err) {
+          // A silent switch without a live provider session retries interactively.
+          const lapsed =
+            err instanceof ErrorResponse &&
+            (err.error === 'login_required' || err.error === 'interaction_required');
+          const state = lapsed ? (err.state as Partial<SignInState> | undefined) : undefined;
+          if (
+            state?.switchTo &&
+            typeof state.next === 'string' &&
+            typeof state.tenantId === 'string'
+          ) {
+            await redirectToSignIn(tenantConfig, state as SignInState);
+            return;
+          }
+          throw err;
+        }
 
         const idToken = user.id_token;
         if (!idToken) {
@@ -117,24 +197,68 @@ export default function CallbackPage() {
         const tenantId = state.tenantId;
 
         // ── Step 4: seal into BFF session ──────────────────────────────────
-        const res = await fetch('/api/auth/session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id_token: idToken, tenant_id: tenantId }),
-        });
-
-        if (!res.ok) {
-          router.replace('/login?error=server_error');
-          return;
-        }
-
-        router.replace(next);
+        exchange.current = {
+          idToken,
+          tenantId,
+          next,
+          switchTo:
+            typeof state.switchTo === 'string' && state.switchTo ? state.switchTo : undefined,
+        };
+        await seal(exchange.current);
       } catch {
         router.replace('/login?error=server_error');
       }
     }
-  }, [router]);
+  }, [router, seal]);
 
-  // The user sees this only for the brief moment the exchange is in-flight.
-  return null;
+  // The user sees nothing for the brief moment the exchange is in-flight.
+  if (view.kind === 'working') return null;
+
+  return (
+    <Stack align="center" justify="center" minHeight="screen" padding="comfortable">
+      <Stack maxWidth="card" style={{ width: '100%' }}>
+        <Card>
+          <CardHeader>
+            <Heading variant="section">
+              {view.kind === 'pick' ? 'Choose a tenant' : 'Switch failed'}
+            </Heading>
+          </CardHeader>
+          <CardContent>
+            {view.kind === 'pick' ? (
+              <Stack gap="comfortable">
+                <Text size="supporting" color="muted">
+                  Your account can sign in to more than one tenant.
+                </Text>
+                <Stack gap="snug">
+                  {view.tenants.map((t) => (
+                    <Button
+                      key={t.id}
+                      variant="outline"
+                      fullWidth
+                      disabled={posting}
+                      onClick={() => exchange.current && void seal(exchange.current, t.id)}
+                    >
+                      {t.displayName}
+                    </Button>
+                  ))}
+                </Stack>
+              </Stack>
+            ) : (
+              <Stack gap="comfortable">
+                <Text size="supporting" color="muted">
+                  The switch to that tenant was refused. Your access may have changed.
+                </Text>
+                <Button
+                  fullWidth
+                  onClick={() => exchange.current && window.location.replace(exchange.current.next)}
+                >
+                  Continue
+                </Button>
+              </Stack>
+            )}
+          </CardContent>
+        </Card>
+      </Stack>
+    </Stack>
+  );
 }
