@@ -18,6 +18,7 @@ const (
 
 	startedByLabelTrigger = "trigger"
 	startedByLabelPerson  = "person"
+	startedByLabelUnknown = "unknown"
 )
 
 // runDurationBuckets are seconds-scale boundaries from one second to a day. The
@@ -59,18 +60,25 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 // long it lived. Unattributed beyond state and starter kind: tenant, agent and
 // trigger names are tenant-controlled and the endpoint is unauthenticated.
 func (m *Metrics) recordRunTerminal(ctx context.Context, run *Run, state RunState, at time.Time) {
-	if m == nil || run == nil {
+	if m == nil {
 		return
 	}
-	startedBy := startedByLabelPerson
-	if run.StartedBy != nil {
-		startedBy = startedByLabelTrigger
+	// A nil run means the run could not be read: count the outcome, skip the duration.
+	startedBy := startedByLabelUnknown
+	if run != nil {
+		startedBy = startedByLabelPerson
+		if run.StartedBy != nil {
+			startedBy = startedByLabelTrigger
+		}
 	}
 	attrs := metric.WithAttributes(
 		metricKeyState.String(string(state)),
 		metricKeyStartedBy.String(startedBy),
 	)
 	m.runs.Add(ctx, 1, attrs)
+	if run == nil {
+		return
+	}
 	if d := at.Sub(run.CreatedAt); d >= 0 {
 		m.runDuration.Record(ctx, d.Seconds(), attrs)
 	}

@@ -565,6 +565,8 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 				logging.Field{Key: "run_id", Value: runID},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
+			// The outcome is still known; only the starter and age are not.
+			s.metrics.recordRunTerminal(ctx, nil, to, time.Now())
 			return nil
 		}
 		s.metrics.recordRunTerminal(ctx, run, to, time.Now())

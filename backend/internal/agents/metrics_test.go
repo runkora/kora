@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -95,4 +96,33 @@ func TestTransition_NonTerminalStateRecordsNoRunMetrics(t *testing.T) {
 func TestMetrics_NilIsSafe(t *testing.T) {
 	var m *Metrics
 	m.recordRunTerminal(context.Background(), &Run{}, RunStateCompleted, time.Now())
+}
+
+func TestTransition_TerminalStateCountsRunWhenLookupFails(t *testing.T) {
+	f, repo, _, _ := newTestService(t)
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+	m, err := NewMetrics(provider.Meter("test"))
+	if err != nil {
+		t.Fatalf("NewMetrics: %v", err)
+	}
+	f.run.SetMetrics(m)
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t1", AgentTypeID: "at-1", State: RunStateActive})
+	repo.getRunErr = errors.New("db down")
+
+	if err := f.run.Transition(context.Background(), "run-1", RunStateActive, RunStateFailed); err != nil {
+		t.Fatalf("Transition: %v", err)
+	}
+	got := collectRunMetrics(t, reader)
+	runs, ok := got["kora.agents.runs"].Data.(metricdata.Sum[int64])
+	if !ok || len(runs.DataPoints) != 1 || runs.DataPoints[0].Value != 1 {
+		t.Fatalf("runs = %#v, want one point of 1", got["kora.agents.runs"].Data)
+	}
+	if v, _ := runs.DataPoints[0].Attributes.Value(metricKeyStartedBy); v.AsString() != startedByLabelUnknown {
+		t.Errorf("started_by = %q, want unknown", v.AsString())
+	}
+	if _, ok := got["kora.agents.run.duration"]; ok {
+		t.Error("duration must not be recorded without the run's creation time")
+	}
 }

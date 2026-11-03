@@ -31,11 +31,11 @@ Issue #894 asks for a counter and a duration histogram labelled by tenant, agent
 
 ### Option 1: Bounded labels (chosen)
 
-**Description:** Record `kora.agents.runs` and `kora.agents.run.duration` in `RunService.Transition` on a terminal state. Label by `state` and `started_by` (`trigger` or `person`).
+**Description:** Record `kora.agents.runs` and `kora.agents.run.duration` in `RunService.Transition` on a terminal state. Label by `state` and `started_by` (`trigger`, `person` or `unknown` when the run cannot be read).
 
 **Pros:**
 - Follows the accepted metrics ADR with no exception.
-- Cardinality is fixed at 6 series per instrument.
+- Cardinality is fixed at 9 series per instrument.
 
 **Cons:**
 - No per-agent or per-trigger breakdown.
