@@ -28,7 +28,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ErrorResponse } from 'oidc-client-ts';
-import { Button, Card, CardContent, CardHeader, Heading, Stack, Text } from '@runkora/hades';
+import { Stack } from '@runkora/hades';
 
 import {
   buildUserManager,
@@ -39,6 +39,9 @@ import { isSafeRedirectPath } from '@runkora/lib/routing';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import { redirectToSignIn } from '@runkora/lib/tenant-switch';
 import type { SessionTenant } from '@runkora/server/auth-config';
+
+import { SwitchDenied } from './_components/switch-denied';
+import { TenantPicker } from './_components/tenant-picker';
 
 interface Exchange {
   idToken: string;
@@ -63,13 +66,12 @@ export default function CallbackPage() {
   const exchanged = useRef(false);
   const exchange = useRef<Exchange | null>(null);
   const [view, setView] = useState<View>({ kind: 'working' });
-  const [posting, setPosting] = useState(false);
+  const [picking, setPicking] = useState<string | null>(null);
 
   // Posts the ID token to the BFF. `hint` is the tenant picked here; a switch
   // always sends its target.
   const seal = useCallback(
     async (ex: Exchange, hint?: string) => {
-      setPosting(true);
       try {
         const res = await fetch(ApiRoute.session.POST(), {
           method: 'POST',
@@ -100,8 +102,6 @@ export default function CallbackPage() {
         }
       } catch {
         router.replace('/login?error=server_error');
-      } finally {
-        setPosting(false);
       }
     },
     [router],
@@ -230,47 +230,21 @@ export default function CallbackPage() {
   return (
     <Stack align="center" justify="center" minHeight="screen" padding="comfortable">
       <Stack maxWidth="card">
-        <Card>
-          <CardHeader>
-            <Heading variant="section">
-              {view.kind === 'pick' ? 'Choose a tenant' : 'Switch failed'}
-            </Heading>
-          </CardHeader>
-          <CardContent>
-            {view.kind === 'pick' ? (
-              <Stack gap="comfortable">
-                <Text size="supporting" color="muted">
-                  Your account can sign in to more than one tenant.
-                </Text>
-                <Stack gap="snug">
-                  {view.tenants.map((t) => (
-                    <Button
-                      key={t.id}
-                      variant="outline"
-                      fullWidth
-                      disabled={posting}
-                      onClick={() => exchange.current && void seal(exchange.current, t.id)}
-                    >
-                      {t.displayName}
-                    </Button>
-                  ))}
-                </Stack>
-              </Stack>
-            ) : (
-              <Stack gap="comfortable">
-                <Text size="supporting" color="muted">
-                  The switch to that tenant was refused. Your access may have changed.
-                </Text>
-                <Button
-                  fullWidth
-                  onClick={() => exchange.current && window.location.replace(exchange.current.next)}
-                >
-                  Continue
-                </Button>
-              </Stack>
-            )}
-          </CardContent>
-        </Card>
+        {view.kind === 'pick' ? (
+          <TenantPicker
+            tenants={view.tenants}
+            pickingId={picking}
+            onPick={(tenantId) => {
+              if (!exchange.current) return;
+              setPicking(tenantId);
+              void seal(exchange.current, tenantId).finally(() => setPicking(null));
+            }}
+          />
+        ) : (
+          <SwitchDenied
+            onContinue={() => exchange.current && window.location.replace(exchange.current.next)}
+          />
+        )}
       </Stack>
     </Stack>
   );
