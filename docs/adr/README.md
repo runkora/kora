@@ -331,5 +331,6 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-26 | [Release Asset Downloads Without Connection Selection](2026-10-26-release-asset-downloads-without-connection-selection.md) | Proposed | — |
 | 2026-10-27 | [Generic Webhook Source](2026-10-27-generic-webhook-source.md) | Accepted | — |
 | 2026-10-31 | [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) | Accepted (Amended 2026-11-01) | — |
+| 2026-11-03 | [Run Outcome and Duration Metrics](2026-11-03-run-outcome-and-duration-metrics.md) | Accepted | — |
 | 2026-11-04 | [Tenant Switching](2026-11-04-tenant-switching.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

@@ -78,6 +78,7 @@ type RunService struct {
 	images     sandboxImageLookup
 	missing    missingProvisioner
 	queue      runQueue
+	metrics    *Metrics // run outcome and duration; nil = not recorded
 	// attempts and schedulerDone track the scheduler started by StartScheduler.
 	attempts      sync.WaitGroup
 	schedulerDone chan struct{}
@@ -98,6 +99,10 @@ func (s *RunService) SetScopeResolver(r *ScopeResolver) { s.resolver = r }
 // (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3). When unset,
 // starting a run of a delegated agent fails closed with ErrDelegationUnavailable.
 func (s *RunService) SetDelegationBroker(b *DelegationBroker) { s.delegation = b }
+
+// SetMetrics installs the instruments that record a run's outcome and duration
+// when it reaches a terminal state. When unset, nothing is recorded.
+func (s *RunService) SetMetrics(m *Metrics) { s.metrics = m }
 
 // systemPromptWithBrief returns the agent's system prompt with the runtime-
 // environment brief appended (governed network + injected credentials), so the
@@ -562,6 +567,7 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 			)
 			return nil
 		}
+		s.metrics.recordRunTerminal(ctx, run, to, time.Now())
 		// The delegation ends with the run (delegated-agent-identity ADR,
 		// Decision 3): tombstone the issuance so no access survives terminal state.
 		s.revokeRunDelegation(ctx, run)
