@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { DeliveryDetailPanel, runHrefFor } from './delivery-detail-panel';
 import { StaticPermissionsProvider } from '../../_components/permissions-provider';
@@ -129,6 +129,26 @@ describe('DeliveryDetailPanel fan-out and long keys', () => {
     const value = screen.getByText(key);
     expect(value).toHaveAttribute('title', key);
     expect(value.className).toMatch(/truncate/);
+  });
+});
+
+describe('DeliveryDetailPanel outcome and redeliver', () => {
+  it('replays a failed delivery from the modal and says so', async () => {
+    const onRedeliver = vi.fn().mockResolvedValue({ deliveryId: 'd-new', error: null });
+    renderPanel({ onRedeliver });
+    fireEvent.click(screen.getByRole('button', { name: 'Redeliver' }));
+    expect(onRedeliver).toHaveBeenCalledWith(failed);
+    expect(await screen.findByText('Replayed as a new delivery.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Replayed' })).toBeDisabled());
+  });
+
+  it('offers no replay for a delivery that already dispatched, and no empty block', () => {
+    renderPanel({
+      onRedeliver: vi.fn(),
+      delivery: makeDelivery({ id: 'd-7', triggerId: 't1', status: 'dispatched', runId: 'r1' }),
+    });
+    expect(screen.queryByRole('button', { name: 'Redeliver' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Request payload')).not.toBeInTheDocument();
   });
 });
 

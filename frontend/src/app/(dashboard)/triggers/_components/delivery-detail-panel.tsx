@@ -22,7 +22,16 @@ import {
 } from '@runkora/hades';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import Link from 'next/link';
-import { DeliveryDetail } from './delivery-detail';
+import {
+  DeliveryFailure,
+  DeliveryPayload,
+  DeliveryRoutings,
+  RedeliverButton,
+  RedeliverNotices,
+  deliveryOutcome,
+  hasPayload,
+  useRedeliver,
+} from './delivery-detail';
 import {
   deliveryDotStatus,
   deliveryDuration,
@@ -143,6 +152,17 @@ export function DeliveryDetailPanel({
       : (delivery.triggerName ??
         delivery.runs.find((r) => r.triggerId === triggerId)?.triggerName ??
         shortId(triggerId));
+  // What the delivery did, read for the whole delivery since the modal is not
+  // scoped to one trigger.
+  const outcome = deliveryOutcome(delivery);
+  const redeliver = useRedeliver(delivery, onRedeliver);
+  const canRedeliver = onRedeliver !== undefined && outcome.redeliverable;
+  const hasOutcome =
+    outcome.routed.length > 0 ||
+    (outcome.error ?? '') !== '' ||
+    (outcome.note ?? '') !== '' ||
+    hasPayload(delivery) ||
+    canRedeliver;
   const statusLabel = delivery.status.charAt(0).toUpperCase() + delivery.status.slice(1);
   const via =
     delivery.kind === 'scheduled'
@@ -245,21 +265,31 @@ export function DeliveryDetailPanel({
           ))}
         </Stack>
 
-        <Separator />
-
-        {/* The outcome and payload: the error if there was one, the request
-            payload, and the replay. */}
-        <Stack padding="comfortable">
-          <DeliveryDetail
-            delivery={delivery}
-            onRedeliver={onRedeliver}
-            redeliverAllowed={canWrite && redeliverAllowed}
-            agents={agents}
-            hideCoalescing
-            hideRun
-            plainHeadings
-          />
-        </Stack>
+        {/* The outcome and payload, composed from the delivery detail parts. Left out
+            entirely when there is nothing to say, so no empty block follows the facts. */}
+        {hasOutcome && (
+          <>
+            <Separator />
+            <Stack padding="comfortable" gap="cozy">
+              <DeliveryRoutings routed={outcome.routed} agents={agents} />
+              <DeliveryFailure error={outcome.error} note={outcome.note} />
+              <DeliveryPayload
+                delivery={delivery}
+                heading={
+                  <Text size="caption" color="muted">
+                    Request payload
+                  </Text>
+                }
+              />
+              <RedeliverNotices redeliver={redeliver} />
+              {canRedeliver && (
+                <Stack direction="horizontal" justify="end">
+                  <RedeliverButton redeliver={redeliver} allowed={canWrite && redeliverAllowed} />
+                </Stack>
+              )}
+            </Stack>
+          </>
+        )}
       </ModalBody>
     </Modal>
   );
