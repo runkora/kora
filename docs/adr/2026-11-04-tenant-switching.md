@@ -76,7 +76,7 @@ The `oidc_id_token` exchange at `POST /identity/session` and the device poll acc
 
 - `tenant_id` selects the tenant whose issuer and client verify the ID token. Its meaning is unchanged.
 - `tenant_hint` is optional and names the tenant the person wants among several matches.
-- `replaces_refresh_token` is optional. Its presence marks the exchange as a switch, and it carries the refresh token of the session the switch replaces.
+- `replaces_refresh_token` is optional and applies to the `oidc_id_token` exchange only. Its presence marks the exchange as a switch, and it carries the refresh token of the session the switch replaces. The device poll ignores it.
 
 ### Binding
 
@@ -115,8 +115,8 @@ The session response for a federated sign-in carries the eligible set as `tenant
 1.  The person chooses a tenant from the eligible set in the dashboard switcher.
 2.  The browser makes a full-page redirect to the identity provider with `prompt=none` and `login_hint` set to the person's email. Every tenant in the eligible set shares the current tenant's issuer and client, and the redirect uses them. The PKCE state carries the target tenant and the return path.
 3.  With the new ID token, the BFF calls the exchange with the current tenant as `tenant_id`, the target as `tenant_hint` and the session's refresh token as `replaces_refresh_token`.
-4.  Identity runs two checks before any write. The bound tenant must equal the hint. `replaces_refresh_token` must be an unexpired, unrevoked refresh token of an unrevoked session that belongs to the same principal subject. When either check fails, identity returns `403 tenant_switch_denied` and creates and revokes nothing. Its details carry the fresh eligible set as `tenants: [{id, display_name}]`. The set is empty when nothing matches.
-5.  When both checks pass, identity creates the new session first. It then revokes the replaced session and all its refresh tokens, and it writes the switch log entry last.
+4.  Identity runs two checks before any write. The bound tenant must equal the hint. `replaces_refresh_token` must be an unexpired, unrevoked refresh token of an unrevoked session that belongs to the same principal subject and issuer. When either check fails, identity returns `403 tenant_switch_denied` and creates and revokes nothing. Its details carry the fresh eligible set as `tenants: [{id, display_name}]`. The set is empty when nothing matches.
+5.  When both checks pass, identity creates the new session first. It then revokes the replaced session and all its refresh tokens and blocklists the replaced access token. It writes the switch log entry last.
 6.  After a switch succeeds, the BFF swaps in the new session and returns to the path. On `403 tenant_switch_denied` it keeps the current session, shows that the switch was denied, and stores the eligible set from the details.
 7.  When the identity provider answers `login_required`, `interaction_required`, `consent_required` or `account_selection_required`, the browser starts an interactive sign-in whose state carries the same target tenant and return path.
 
@@ -148,6 +148,7 @@ Identity writes one structured log entry for each successful switch inside the e
 - The eligible set in the cookie is as old as the last sign-in or switch. A tenant the person joined later appears only after the next sign-in or switch.
 - A browser cannot hold two tenants at once. A switch in one tab moves every tab.
 - A last-used tenant the person no longer matches costs one picker step at sign-in.
+- Two concurrent switches with the same refresh token can both succeed. Each new session comes from fresh claims for the same person.
 
 ### Neutral
 
