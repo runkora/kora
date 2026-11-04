@@ -33,7 +33,7 @@ export interface SessionPayload {
   /** UTC Unix seconds when the access token expires. */
   expiresAt: number;
   /**
-   * UTC Unix seconds when the refresh token, and so the cookie, expires. A later save without a
+   * UTC Unix seconds when the refresh token and the cookie expire. A later save without a
    * new token keeps this lifetime. Absent on sessions sealed before the field existed.
    */
   refreshExpiresAt?: number;

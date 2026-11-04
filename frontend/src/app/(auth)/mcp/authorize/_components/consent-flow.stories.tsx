@@ -4,9 +4,9 @@ import { mockApi } from '@runkora/storybook/mock-api';
 import { ConsentFlow, type ConsentFlowProps } from './consent-flow';
 
 /**
- * The MCP consent screen. The page renders it from server data, so the stories pass that data as
- * props. The decision POST and tenant discovery go through the mock API; discovery answers 404, so
- * choosing a tenant shows the switcher's error instead of leaving Storybook.
+ * The MCP consent screen. The stories pass the server data the page renders it from as props. The
+ * decision POST and tenant discovery go through the mock API. Discovery answers 404: choosing a
+ * tenant shows the switcher's error instead of leaving Storybook.
  */
 const meta: Meta<typeof ConsentFlow> = {
   title: 'Pages/MCP consent',

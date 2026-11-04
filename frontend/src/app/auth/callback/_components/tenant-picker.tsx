@@ -1,13 +1,9 @@
 /** @tier 3 — sign-in-callback-scoped. Promote to src/components/ if a second feature needs this. */
 'use client';
 
-import { useState } from 'react';
 import { Button, Card, Icon, Input, Stack, Text } from '@runkora/hades';
-import { AuthCardShell } from '@runkora/components';
+import { AuthCardShell, NO_TENANTS_MATCH, useTenantSearch } from '@runkora/components';
 import type { SessionTenant } from '@runkora/server/auth-config';
-
-/** Above this many tenants the picker gains a search field. */
-const SEARCH_THRESHOLD = 6;
 
 export interface TenantPickerProps {
   /** The tenants the person's claims matched. */
@@ -19,9 +15,7 @@ export interface TenantPickerProps {
 
 /** Lists the matching tenants in the sign-in card when a sign-in matches more than one. */
 export function TenantPicker({ tenants, pickingId, onPick }: TenantPickerProps) {
-  const [query, setQuery] = useState('');
-  const q = query.trim().toLowerCase();
-  const shown = q ? tenants.filter((t) => t.displayName.toLowerCase().includes(q)) : tenants;
+  const { query, setQuery, searchable, shown } = useTenantSearch(tenants);
 
   return (
     <AuthCardShell
@@ -34,7 +28,7 @@ export function TenantPicker({ tenants, pickingId, onPick }: TenantPickerProps) 
       }
     >
       <Stack gap="snug">
-        {tenants.length > SEARCH_THRESHOLD ? (
+        {searchable ? (
           <Input
             compact
             value={query}
@@ -79,7 +73,7 @@ export function TenantPicker({ tenants, pickingId, onPick }: TenantPickerProps) 
         </Card>
         {shown.length === 0 ? (
           <Text size="caption" color="subtle">
-            No tenants match.
+            {NO_TENANTS_MATCH}
           </Text>
         ) : null}
       </Stack>

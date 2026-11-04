@@ -11,10 +11,11 @@ import {
   type DiscoverResponse,
   type TenantOidcConfig,
 } from '@runkora/lib/oidc-client';
+import { isSafeRedirectPath } from '@runkora/lib/routing';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
 
 /** The state a sign-in round-trips through the identity provider. */
-export interface SignInState {
+interface SignInState {
   next: string;
   /** The tenant whose issuer and client verify the ID token. */
   tenantId: string;
@@ -22,6 +23,24 @@ export interface SignInState {
   switchTo?: string;
   /** Set on a switch: the person's email, sent as `login_hint`. */
   email?: string;
+}
+
+/**
+ * Reads the state the identity provider returned. Null without a tenant; an unsafe or missing
+ * return path becomes `/`.
+ */
+export function readSignInState(value: unknown): SignInState | null {
+  const s = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  const tenantId = text(s.tenantId);
+  if (!tenantId) return null;
+  const next = text(s.next);
+  return {
+    next: next && isSafeRedirectPath(next) ? next : '/',
+    tenantId,
+    switchTo: text(s.switchTo),
+    email: text(s.email),
+  };
 }
 
 /** The channel that tells this origin's other tabs a switch finished. */
@@ -53,7 +72,7 @@ export function onTenantSwitch(onSwitch: () => void): () => void {
   };
 }
 
-/** Checks the fields the sign-in redirect needs, so a malformed answer fails the switch. */
+/** Checks the fields the sign-in redirect needs and throws on a malformed answer. */
 function parseDiscover(body: unknown): DiscoverResponse {
   const d = (body ?? {}) as Partial<Record<keyof DiscoverResponse, unknown>>;
   const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== '';

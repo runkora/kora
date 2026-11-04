@@ -86,7 +86,7 @@ export const LongName: Story = {
   play: ({ canvasElement }) => openMenu(canvasElement).then(() => undefined),
 };
 
-/** Discovery never answers, so the switch stays starting. */
+/** Discovery never answers and the switch stays starting. */
 export const Switching: Story = {
   decorators: [
     withTenants(tenants(NAMES.slice(0, 2)), {
@@ -96,7 +96,7 @@ export const Switching: Story = {
   play: ({ canvasElement }) => pickSecond(canvasElement),
 };
 
-/** Discovery fails, so the switch never starts. */
+/** Discovery fails and the switch never starts. */
 export const SwitchFailed: Story = {
   decorators: [
     withTenants(tenants(NAMES.slice(0, 2)), {

@@ -124,7 +124,7 @@ describe('SidebarUserFooter', () => {
       expect(screen.getByText('Signed in as')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /View profile/ })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Log out/ })).toBeInTheDocument();
-      // The sheet is a dialog with no menu, so its rows are plain buttons.
+      // The sheet is a dialog without a menu: its rows are plain buttons.
       expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
     });
 
@@ -291,25 +291,17 @@ describe('SidebarUserFooter tenants', () => {
     });
   });
 
-  it('shows an error and re-enables the list when the switch cannot start', async () => {
+  it.each([
+    ['rejects', () => Promise.reject(new Error('discovery failed'))],
+    [
+      'throws before it starts',
+      () => {
+        throw new Error('no window');
+      },
+    ],
+  ])('shows an error and re-enables the list when the switch %s', async (_, fail) => {
     vi.mocked(useSession).mockReturnValue(TWO);
-    vi.mocked(startTenantSwitch).mockRejectedValue(new Error('discovery failed'));
-    const user = await openMenu();
-
-    await user.click(screen.getByRole('button', { name: 'Example Data' }));
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not start the switch.');
-    expect(screen.getByRole('button', { name: 'Example Data' })).toHaveAttribute(
-      'aria-disabled',
-      'false',
-    );
-  });
-
-  it('shows an error and re-enables the list when the switch throws before it starts', async () => {
-    vi.mocked(useSession).mockReturnValue(TWO);
-    vi.mocked(startTenantSwitch).mockImplementation(() => {
-      throw new Error('no window');
-    });
+    vi.mocked(startTenantSwitch).mockImplementation(fail);
     const user = await openMenu();
 
     await user.click(screen.getByRole('button', { name: 'Example Data' }));

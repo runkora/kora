@@ -2,8 +2,8 @@
  * Integration tests for the OIDC callback page: the tenant picker, the refused
  * switch and the interactive fallback after a failed `prompt=none` sign-in.
  *
- * The OIDC client and the redirect helper are mocked; MSW answers the BFF
- * session POST so the page's request bodies can be asserted.
+ * The OIDC client and the redirect helper are mocked. MSW answers the BFF
+ * session POST and records the page's request bodies.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -23,7 +23,8 @@ vi.mock('@runkora/lib/oidc-client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@runkora/lib/oidc-client')>()),
   buildUserManager: vi.fn(),
 }));
-vi.mock('@runkora/lib/tenant-switch', () => ({
+vi.mock('@runkora/lib/tenant-switch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@runkora/lib/tenant-switch')>()),
   redirectToSignIn: vi.fn(),
   announceTenantSwitch: vi.fn(),
 }));

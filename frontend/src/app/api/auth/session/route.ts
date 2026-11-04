@@ -290,8 +290,8 @@ export async function POST(request: Request): Promise<Response> {
   };
 
   const issuedTenant = tenantIdFromAccessToken(data.access_token) ?? tenantId;
-  // A switch that ran as a plain sign-in only succeeds if it reached the target. The session it
-  // was issued is revoked, as logout does, so no unused session outlives the refusal.
+  // A switch that ran as a plain sign-in succeeds only in the target tenant. Elsewhere the issued
+  // session is revoked the way logout revokes one.
   if (raw.switch === true && !replaced && issuedTenant !== requestedHint) {
     const results = await Promise.allSettled([
       revokeToken(data.access_token, 'access_token'),

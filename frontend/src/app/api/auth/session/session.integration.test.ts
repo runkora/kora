@@ -490,26 +490,6 @@ describe('POST /api/auth/session', () => {
       );
     });
 
-    it('drops the eligible set when the cookie would be too big', async () => {
-      upstream(() => HttpResponse.json({ ...createBackendSessionResponse(), tenants: TENANTS }));
-      const save = vi
-        .fn()
-        .mockRejectedValueOnce(new Error('iron-session: Cookie length is too big'))
-        .mockResolvedValue(undefined);
-      const captured: Record<string, unknown> = { save };
-      vi.mocked(getIronSession).mockResolvedValue(
-        captured as unknown as IronSession<SessionPayload>,
-      );
-
-      const res = await POST(
-        makePostRequest({ id_token: 'tok', tenant_id: 'kora-tenant-example' }),
-      );
-
-      expect(res.status).toBe(200);
-      expect(save).toHaveBeenCalledTimes(2);
-      expect(captured).not.toHaveProperty('tenants');
-    });
-
     it('rejects a cross-site post', async () => {
       const req = new Request('http://localhost/api/auth/session', {
         method: 'POST',
@@ -566,34 +546,13 @@ describe('POST /api/auth/session', () => {
       },
     );
 
-    it('runs a switch without a session as a sign-in with the target as hint', async () => {
-      vi.mocked(getSession).mockResolvedValue({} as unknown as IronSession<SessionPayload>);
-      const sent = upstream(() => HttpResponse.json(createBackendSessionResponse()));
-      captureSession();
-
-      await POST(
-        makePostRequest({
-          id_token: 'tok',
-          tenant_id: 'kora-tenant-example',
-          tenant_hint: 'kora-tenant-example-data',
-          switch: true,
-        }),
-      );
-
-      expect(sent[0]).toMatchObject({
-        tenant_id: 'kora-tenant-example',
-        tenant_hint: 'kora-tenant-example-data',
-      });
-      expect(sent[0]).not.toHaveProperty('replaces_refresh_token');
-    });
-
     it.each([
       ['seals the session when it reaches the target', 'kora-tenant-example-data', 200],
       ['refuses the switch when it lands in another tenant', 'kora-tenant-example', 403],
     ])('a switch without a session %s', async (_, issued, status) => {
       vi.mocked(getSession).mockResolvedValue({} as unknown as IronSession<SessionPayload>);
       const issuedSession = createBackendSessionResponse({}, createSessionUser(), issued);
-      upstream(() => HttpResponse.json(issuedSession));
+      const sent = upstream(() => HttpResponse.json(issuedSession));
       const revoked: string[] = [];
       server.use(
         http.post('http://test-kora-api/identity/revoke', async ({ request }) => {
@@ -612,6 +571,12 @@ describe('POST /api/auth/session', () => {
         }),
       );
 
+      // It runs as a plain sign-in with the target as hint.
+      expect(sent[0]).toMatchObject({
+        tenant_id: 'kora-tenant-example',
+        tenant_hint: 'kora-tenant-example-data',
+      });
+      expect(sent[0]).not.toHaveProperty('replaces_refresh_token');
       expect(res.status).toBe(status);
       if (status === 403) {
         expect(await res.json()).toEqual({ error: 'tenant_switch_denied' });
@@ -735,7 +700,7 @@ describe('GET /api/auth/session', () => {
 
   it('returns the session tenant but never the tokens', async () => {
     // Security assertion: the tokens stay sealed inside the HttpOnly iron-session cookie. The
-    // tenant id is returned so the switcher can name a tenant the eligible set left out.
+    // tenant id is returned for the switcher to name a tenant the eligible set left out.
     const payload = createSessionPayload();
     vi.mocked(getSession).mockResolvedValue(payload as unknown as IronSession<SessionPayload>);
     vi.mocked(isSessionValid).mockReturnValue(true);

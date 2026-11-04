@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * Seals real iron-session cookies (no iron-session mock) to check that an eligible set too large
- * for the 4096-byte cookie limit is dropped, so sign-in still succeeds and the switcher hides.
+ * for the 4096-byte cookie limit is dropped: sign-in still succeeds and the switcher hides.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';

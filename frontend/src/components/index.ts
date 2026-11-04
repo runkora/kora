@@ -82,7 +82,7 @@ export type {
 } from './managed-in-git';
 
 /** The person's tenants as a pickable list, and the hook that tracks a switch starting. */
-export { TenantList, useTenantSwitch } from './tenant-list';
+export { NO_TENANTS_MATCH, TenantList, useTenantSearch, useTenantSwitch } from './tenant-list';
 export type { TenantListProps } from './tenant-list';
 
 /** The sign-in card: brand panel, title, content and footer. */

@@ -20,10 +20,6 @@ export const authHandlers = [
     return HttpResponse.json({
       user: payload.user,
       expiresAt: payload.expiresAt,
-      tenants: [
-        { id: payload.tenantId, displayName: 'Example Platform', active: true },
-        { id: 'example-data', displayName: 'Example Data', active: false },
-      ],
     });
   }),
 

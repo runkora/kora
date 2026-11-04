@@ -159,74 +159,73 @@ function MenuItem({
   );
 }
 
-// ── Shared identity block ("Signed in as" / name / email) ──────────────────
+// ── Shared identity block ("Signed in as" / name / email, then the tenants) ──
 
 function IdentityBlock({
   name,
   email,
   compact,
-}: {
-  name: string;
-  email: string;
-  compact: boolean;
-}) {
-  return (
-    <Stack gap="cozy">
-      <SectionLabel>Signed in as</SectionLabel>
-      <Stack gap="tight">
-        {name && (
-          <Text
-            as="span"
-            style={{
-              display: 'block',
-              fontSize: compact ? 14 : 16,
-              lineHeight: compact ? '20px' : '24px',
-              fontWeight: 500,
-            }}
-          >
-            {name}
-          </Text>
-        )}
-        <Text
-          as="span"
-          color="subtle"
-          style={{
-            display: 'block',
-            fontSize: compact ? 12 : 13,
-            lineHeight: compact ? '16px' : '18px',
-            overflowWrap: 'anywhere',
-          }}
-        >
-          {withSoftEmailBreak(email)}
-        </Text>
-      </Stack>
-    </Stack>
-  );
-}
-
-// ── Tenant section (two or more tenants only) ──────────────────────────────
-
-function TenantSection({
   tenants,
   tenantSwitch,
   onPickActive,
 }: {
+  name: string;
+  email: string;
+  compact: boolean;
   tenants: TenantOption[];
   tenantSwitch: ReturnType<typeof useTenantSwitch>;
   onPickActive: () => void;
 }) {
   return (
-    <Stack gap="snug">
-      <SectionLabel>Tenant</SectionLabel>
-      {/* Rows bleed out by their own padding, as in the sidebar nav, so row text meets the labels' edge. */}
-      <Stack style={{ marginInline: -12 }}>
-        <TenantList
-          tenants={tenants}
-          switching={tenantSwitch.switching}
-          failed={tenantSwitch.failed}
-          onPick={(t) => (t.active ? onPickActive() : tenantSwitch.start(t.id))}
-        />
+    <Stack gap="comfortable">
+      {/* The desktop menu's description: who is signed in, without the tenant rows. */}
+      <Stack id="account-identity" gap="cozy">
+        <SectionLabel>Signed in as</SectionLabel>
+        <Stack gap="tight">
+          {name && (
+            <Text
+              as="span"
+              style={{
+                display: 'block',
+                fontSize: compact ? 14 : 16,
+                lineHeight: compact ? '20px' : '24px',
+                fontWeight: 500,
+              }}
+            >
+              {name}
+            </Text>
+          )}
+          <Text
+            as="span"
+            color="subtle"
+            style={{
+              display: 'block',
+              fontSize: compact ? 12 : 13,
+              lineHeight: compact ? '16px' : '18px',
+              overflowWrap: 'anywhere',
+            }}
+          >
+            {withSoftEmailBreak(email)}
+          </Text>
+        </Stack>
       </Stack>
+      {tenants.length > 1 ? (
+        <>
+          <Separator />
+          <Stack gap="snug">
+            <SectionLabel>Tenant</SectionLabel>
+            {/* Rows extend past the labels by their own padding, as sidebar nav rows do. */}
+            <Stack style={{ marginInline: -12 }}>
+              <TenantList
+                tenants={tenants}
+                switching={tenantSwitch.switching}
+                failed={tenantSwitch.failed}
+                onPick={(t) => (t.active ? onPickActive() : tenantSwitch.start(t.id))}
+              />
+            </Stack>
+          </Stack>
+        </>
+      ) : null}
     </Stack>
   );
 }
@@ -309,10 +308,10 @@ export function SidebarUserFooter() {
     }),
   );
 
-  // Another tab moved the session to another tenant, so this page's data is stale.
+  // Reloads when another tab switches tenant: this page holds the old tenant's data.
   useEffect(() => onTenantSwitch(() => window.location.reload()), []);
 
-  // A failed switch's error belongs to that attempt, so a fresh open starts without it.
+  // Opening the menu clears the error from the last switch attempt.
   const openMenu = () => {
     tenantSwitch.clearError();
     menu.openMenu();
@@ -462,8 +461,8 @@ export function SidebarUserFooter() {
         {trigger}
 
         {isDesktop && open && (
-          // One column anchored to the footer, so the action rows can take their own height. It
-          // stops at the viewport top and scrolls, so a short window keeps every row reachable.
+          // One column anchored to the footer, with the action rows at their own height. It is
+          // capped at the viewport height and scrolls on a short window.
           <Stack
             overflowY="auto"
             style={{
@@ -485,21 +484,14 @@ export function SidebarUserFooter() {
               {confirming ? (
                 <ConfirmLogoutBlock compact />
               ) : (
-                <Stack gap="comfortable">
-                  <Stack id="account-identity">
-                    <IdentityBlock name={name} email={email} compact />
-                  </Stack>
-                  {multiTenant ? (
-                    <>
-                      <Separator />
-                      <TenantSection
-                        tenants={tenants}
-                        tenantSwitch={tenantSwitch}
-                        onPickActive={closeAndFocusTrigger}
-                      />
-                    </>
-                  ) : null}
-                </Stack>
+                <IdentityBlock
+                  name={name}
+                  email={email}
+                  compact
+                  tenants={tenants}
+                  tenantSwitch={tenantSwitch}
+                  onPickActive={closeAndFocusTrigger}
+                />
               )}
             </Stack>
             <Separator />
@@ -568,19 +560,14 @@ export function SidebarUserFooter() {
             {confirming ? (
               <ConfirmLogoutBlock compact={false} />
             ) : (
-              <Stack gap="comfortable">
-                <IdentityBlock name={name} email={email} compact={false} />
-                {multiTenant ? (
-                  <>
-                    <Separator />
-                    <TenantSection
-                      tenants={tenants}
-                      tenantSwitch={tenantSwitch}
-                      onPickActive={menu.close}
-                    />
-                  </>
-                ) : null}
-              </Stack>
+              <IdentityBlock
+                name={name}
+                email={email}
+                compact={false}
+                tenants={tenants}
+                tenantSwitch={tenantSwitch}
+                onPickActive={menu.close}
+              />
             )}
           </Stack>
           <Separator />

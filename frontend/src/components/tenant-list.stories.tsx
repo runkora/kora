@@ -46,16 +46,3 @@ export const ManyTenants: Story = {
     ].map((name, i) => ({ id: `t-${i}`, displayName: `Example ${name}`, active: i === 0 })),
   },
 };
-
-export const LongName: Story = {
-  args: {
-    tenants: [
-      { ...TWO[0]!, displayName: 'Example Platform Engineering and Developer Experience' },
-      TWO[1]!,
-    ],
-  },
-};
-
-export const Switching: Story = { args: { tenants: TWO, switching: 'kora-tenant-example-data' } };
-
-export const SwitchFailed: Story = { args: { tenants: TWO, failed: true } };

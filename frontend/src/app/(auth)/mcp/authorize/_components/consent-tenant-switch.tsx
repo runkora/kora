@@ -22,7 +22,6 @@ export function ConsentTenantSwitch({ tenants, onSelect }: ConsentTenantSwitchPr
     <Popover
       open={open}
       onOpenChange={(next) => {
-        // A failed switch's error belongs to that attempt, so a fresh open starts without it.
         if (next) clearError();
         setOpen(next);
       }}

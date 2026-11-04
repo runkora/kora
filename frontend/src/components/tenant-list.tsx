@@ -1,12 +1,23 @@
-/** @tier 2 — kora-domain-aware: lists the person's tenants. Used by: dashboard account menu, MCP consent. */
+/** @tier 2 — kora-domain-aware: lists the person's tenants. Used by: dashboard account menu, MCP consent, sign-in tenant picker (search). */
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
 import { Icon, Input, NavItem, Stack, Text } from '@runkora/hades';
 import type { TenantOption } from '@runkora/server/auth-config';
 
-/** Above this many tenants the list gains a search field and scrolls. */
+/** Above this many tenants a tenant list gains a search field. */
 const SEARCH_THRESHOLD = 6;
+
+/** Shown when the search matches no tenant. */
+export const NO_TENANTS_MATCH = 'No tenants match.';
+
+/** The search over a tenant list: the query, whether the field shows, and the rows that match. */
+export function useTenantSearch<T extends { displayName: string }>(tenants: T[]) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const shown = q ? tenants.filter((t) => t.displayName.toLowerCase().includes(q)) : tenants;
+  return { query, setQuery, searchable: tenants.length > SEARCH_THRESHOLD, shown };
+}
 
 /** Fades the bottom edge of the scrolling list while more rows sit below it. */
 const FADE = 'linear-gradient(to bottom, black calc(100% - 2rem), transparent)';
@@ -20,14 +31,15 @@ export function useTenantSwitch(onSelect: (tenantId: string) => Promise<void> | 
   const [switching, setSwitching] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
-  const start = (tenantId: string) => {
+  const start = async (tenantId: string) => {
     setSwitching(tenantId);
     setFailed(false);
-    // The executor turns a synchronous throw into a rejection, so the list never stays disabled.
-    new Promise<void>((resolve) => resolve(onSelect(tenantId))).catch(() => {
+    try {
+      await onSelect(tenantId);
+    } catch {
       setSwitching(null);
       setFailed(true);
-    });
+    }
   };
   return { switching, failed, start, clearError: () => setFailed(false) };
 }
@@ -46,10 +58,7 @@ export interface TenantListProps {
  * line when a switch fails and a note that switching signs the person in again.
  */
 export function TenantList({ tenants, switching, failed, onPick }: TenantListProps) {
-  const [query, setQuery] = useState('');
-  const searchable = tenants.length > SEARCH_THRESHOLD;
-  const q = query.trim().toLowerCase();
-  const shown = q ? tenants.filter((t) => t.displayName.toLowerCase().includes(q)) : tenants;
+  const { query, setQuery, searchable, shown } = useTenantSearch(tenants);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [moreBelow, setMoreBelow] = useState(false);
 
@@ -107,7 +116,7 @@ export function TenantList({ tenants, switching, failed, onPick }: TenantListPro
           {shown.length === 0 ? (
             <Stack paddingInline="cozy" paddingBlock="snug">
               <Text size="caption" color="subtle">
-                No tenants match.
+                {NO_TENANTS_MATCH}
               </Text>
             </Stack>
           ) : null}

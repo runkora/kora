@@ -35,9 +35,12 @@ import {
   TENANT_CONFIG_STORAGE_KEY,
   type TenantOidcConfig,
 } from '@runkora/lib/oidc-client';
-import { isSafeRedirectPath } from '@runkora/lib/routing';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
-import { announceTenantSwitch, redirectToSignIn } from '@runkora/lib/tenant-switch';
+import {
+  announceTenantSwitch,
+  readSignInState,
+  redirectToSignIn,
+} from '@runkora/lib/tenant-switch';
 import type { SessionTenant } from '@runkora/server/auth-config';
 
 import { SwitchDenied } from './_components/switch-denied';
@@ -159,24 +162,12 @@ export default function CallbackPage() {
           user = await userManager.signinRedirectCallback();
         } catch (err) {
           // A silent switch the provider cannot complete without the person retries interactively.
-          const s: Record<string, unknown> =
-            err instanceof ErrorResponse &&
-            SILENT_SIGNIN_ERRORS.has(err.error ?? '') &&
-            err.state &&
-            typeof err.state === 'object'
-              ? (err.state as Record<string, unknown>)
-              : {};
-          if (
-            typeof s.switchTo === 'string' &&
-            typeof s.next === 'string' &&
-            typeof s.tenantId === 'string'
-          ) {
-            await redirectToSignIn(tenantConfig, {
-              next: s.next,
-              tenantId: s.tenantId,
-              switchTo: s.switchTo,
-              email: typeof s.email === 'string' ? s.email : undefined,
-            });
+          const s =
+            err instanceof ErrorResponse && SILENT_SIGNIN_ERRORS.has(err.error ?? '')
+              ? readSignInState(err.state)
+              : null;
+          if (s?.switchTo) {
+            await redirectToSignIn(tenantConfig, s);
             return;
           }
           throw err;
@@ -190,34 +181,21 @@ export default function CallbackPage() {
 
         // ── Step 3: extract post-login destination and tenant_id from state ─
         //
-        // oidc-client-ts restores the state object we passed to signinRedirect().
-        // Both `next` and `tenantId` were encoded there by EmailSignInForm.
-        const state =
-          user.state && typeof user.state === 'object'
-            ? (user.state as Record<string, unknown>)
-            : {};
-
-        const rawNext = typeof state.next === 'string' ? state.next : '/';
-        const next = isSafeRedirectPath(rawNext) ? rawNext : '/';
-
-        // tenant_id from the PKCE state is the authoritative source — it was
-        // resolved by HRD and round-tripped through the IdP unchanged.
-        // Reject outright if missing: a silent fallback to sessionStorage could
-        // allow a compromised or manipulated flow to authenticate against the
-        // wrong tenant.
-        if (typeof state.tenantId !== 'string' || !state.tenantId) {
+        // tenant_id from the PKCE state is the authoritative source: HRD resolved it and it
+        // round-tripped through the IdP unchanged. A state without one is rejected outright,
+        // since a fallback to sessionStorage could authenticate against the wrong tenant.
+        const state = readSignInState(user.state);
+        if (!state) {
           router.replace('/login?error=invalid_callback');
           return;
         }
-        const tenantId = state.tenantId;
 
         // ── Step 4: seal into BFF session ──────────────────────────────────
         exchange.current = {
           idToken,
-          tenantId,
-          next,
-          switchTo:
-            typeof state.switchTo === 'string' && state.switchTo ? state.switchTo : undefined,
+          tenantId: state.tenantId,
+          next: state.next,
+          switchTo: state.switchTo,
         };
         await seal(exchange.current);
       } catch {
