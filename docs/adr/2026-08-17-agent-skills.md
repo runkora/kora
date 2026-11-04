@@ -4,7 +4,7 @@
 
 **Status:** Accepted
 **Date:** 2026-08-17
-**Deciders:** Platform Engineering, Product Owner
+**Deciders:** Justin Wilkin
 **Technical Story:** [Agent Skills PRD](../prd/agent-skills.md)
 
 ---
