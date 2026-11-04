@@ -19,7 +19,7 @@ import { useSyncExternalStore } from 'react';
 import { usePreferences } from '../../../../_preferences/preferences-context';
 import { FavouriteButton, nameLine, SkillChips } from '../../../_components/skill-chips';
 import { skillKey, toggleFavouriteKey } from '../../../_types';
-import { relativeTime } from '../../../../mcp-gateway/_types';
+import { relativeTime } from '@runkora/lib/relative-time';
 
 const SHORT_COMMIT = 7;
 
