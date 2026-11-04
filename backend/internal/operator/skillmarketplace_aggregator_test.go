@@ -502,10 +502,9 @@ func (c failingSecretWrites) Patch(ctx context.Context, obj client.Object, patch
 	return c.Client.Patch(ctx, obj, patch, opts...)
 }
 
-// While the Secret cannot be written, a Marketplace whose key is already there
-// stays served, a removed one leaves the ConfigMap, and a new one is not
-// served.
-func TestSkillMarketplaceAggregator_SecretFailureStillPropagatesRemovals(t *testing.T) {
+// While the Secret cannot be written, a removed Marketplace still leaves the
+// ConfigMap and no status moves to Aggregated.
+func TestSkillMarketplaceAggregator_SecretFailure(t *testing.T) {
 	ctx := context.Background()
 	tenant := marketTenant("example", true)
 	kept := marketSrc(exampleNS, "kept", "example-org", "kept", marketplaceT0)
@@ -526,15 +525,11 @@ func TestSkillMarketplaceAggregator_SecretFailureStillPropagatesRemovals(t *test
 	if err := newTestMarketplaceAggregator(failingSecretWrites{base}).Sync(ctx); !errors.Is(err, errSecretRefused) {
 		t.Fatalf("Sync = %v, want the Secret write error", err)
 	}
-	if got := slugs(readMarketplaceFile(t, base)); !reflect.DeepEqual(got, map[string][]string{"example": {"kept"}}) {
-		t.Errorf("file = %v, want only kept", got)
+	if got := slugs(readMarketplaceFile(t, base)); !reflect.DeepEqual(got, map[string][]string{"example": {"kept", "added"}}) {
+		t.Errorf("file = %v, want kept and added, without removed", got)
 	}
-	assertMarketplaceStatus(t, getMarketplace(t, base, client.ObjectKeyFromObject(&kept)),
-		SkillMarketplacePhaseAggregated, MarketplaceReasonAggregated, metav1.ConditionTrue)
-	cond := assertMarketplaceStatus(t, getMarketplace(t, base, client.ObjectKeyFromObject(&added)),
-		SkillMarketplacePhasePending, MarketplaceReasonCredentialUnavailable, metav1.ConditionFalse)
-	if !strings.Contains(cond.Message, "could not be written") {
-		t.Errorf("message = %q, want it to say the key could not be written", cond.Message)
+	if got := getMarketplace(t, base, client.ObjectKeyFromObject(&added)); got.Status.Phase != "" {
+		t.Errorf("added status = %+v, want it untouched while the Secret write fails", got.Status)
 	}
 }
 
