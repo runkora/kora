@@ -19,3 +19,6 @@ Defines the KoraTenant, Connection, OAuthClient, MCPServer, InferenceProvider, S
 
 Kubernetes: `>=1.34.0-0`
 
+## Values
+
+This chart has no configurable values.
