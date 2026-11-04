@@ -23,11 +23,13 @@ marketplace:
   keysDir: /etc/kora/skill-marketplace-secrets
   cacheTTLSecs: 43200 # 12 hours
   failureTTLSecs: 60
-  # A crawl skips, and logs, skills and files over these limits.
+  # A crawl skips, and logs, skills and files over these limits. Zero is no
+  # cap. The chart sets them from skillsService.limits.
   limits:
     skillsPerMarketplace: 500
-    filesPerSkill: 100
+    filesPerSkill: 500
     bytesPerFile: 131072 # 128 KiB
+    skillMdBytesPerMarketplace: 8388608 # 8 MiB
 
 github:
   apiBaseURL: https://api.github.com

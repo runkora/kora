@@ -60,11 +60,12 @@ type Config struct {
 		CacheTTLSecs int `yaml:"cacheTTLSecs"`
 		// FailureTTLSecs is how long a failed crawl stays cached.
 		FailureTTLSecs int `yaml:"failureTTLSecs"`
-		// Limits cap the crawl of one Marketplace.
+		// Limits cap the crawl of one Marketplace. Zero is no cap.
 		Limits struct {
-			SkillsPerMarketplace int   `yaml:"skillsPerMarketplace"`
-			FilesPerSkill        int   `yaml:"filesPerSkill"`
-			BytesPerFile         int64 `yaml:"bytesPerFile"`
+			SkillsPerMarketplace       int   `yaml:"skillsPerMarketplace"`
+			FilesPerSkill              int   `yaml:"filesPerSkill"`
+			BytesPerFile               int64 `yaml:"bytesPerFile"`
+			SkillMdBytesPerMarketplace int64 `yaml:"skillMdBytesPerMarketplace"`
 		} `yaml:"limits"`
 	} `yaml:"marketplace"`
 

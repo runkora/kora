@@ -486,6 +486,10 @@ Kubernetes: `>=1.34.0-0`
 | skillsService.image.registry | string | `""` |  |
 | skillsService.image.repository | string | `"orbit-skills-service"` |  |
 | skillsService.image.tag | string | `""` |  |
+| skillsService.limits.bytesPerFile | int | `131072` | Bytes of one file. |
+| skillsService.limits.filesPerSkill | int | `500` | Supporting files listed for one skill. |
+| skillsService.limits.skillMdBytesPerMarketplace | int | `8388608` | Bytes of all SKILL.md files of one Marketplace. |
+| skillsService.limits.skillsPerMarketplace | int | `500` | Skills read from one Marketplace. |
 | skillsService.nodeSelector | object | `{}` |  |
 | skillsService.podAnnotations | object | `{}` |  |
 | skillsService.podLabels | object | `{}` |  |

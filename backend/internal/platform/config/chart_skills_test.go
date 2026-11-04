@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"testing"
 
@@ -102,5 +103,34 @@ func TestChartSkillsServiceWiring(t *testing.T) {
 	want := fmt.Sprintf("http://orbit-skills-service.orbit-system.svc.cluster.local:%d/v1", port)
 	if got := frontend.Data["SKILLS_SERVICE_URL"]; got != want {
 		t.Errorf("frontend Skills URL = %q, want %q", got, want)
+	}
+}
+
+// The chart renders skillsService.limits into the service config, and an empty
+// value renders zero, which skills-service reads as no cap.
+func TestChartSkillsServiceLimits(t *testing.T) {
+	render := func(values string) map[string]int64 {
+		t.Helper()
+		var cm corev1.ConfigMap
+		if err := yaml.Unmarshal([]byte(renderChart(t, values, "--show-only", "templates/skills-service/config.yaml")), &cm); err != nil {
+			t.Fatal(err)
+		}
+		var module struct {
+			Marketplace struct {
+				Limits map[string]int64 `json:"limits"`
+			} `json:"marketplace"`
+		}
+		if err := yaml.Unmarshal([]byte(cm.Data["cmd.skills-service.yaml"]), &module); err != nil {
+			t.Fatal(err)
+		}
+		return module.Marketplace.Limits
+	}
+	want := map[string]int64{"skillsPerMarketplace": 500, "filesPerSkill": 500, "bytesPerFile": 131072, "skillMdBytesPerMarketplace": 8388608}
+	if got := render("{}\n"); !maps.Equal(got, want) {
+		t.Errorf("default limits = %v, want %v", got, want)
+	}
+	want["filesPerSkill"] = 0
+	if got := render("skillsService:\n  limits:\n    filesPerSkill:\n"); !maps.Equal(got, want) {
+		t.Errorf("empty filesPerSkill = %v, want %v", got, want)
 	}
 }

@@ -119,9 +119,10 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.RedisClie
 func initControllers(ctx context.Context, logger logging.Logger, redis *storage.RedisClient, registry *skills.Registry, gh *ghclient.Client) []api.Controller {
 	limits := sc.Current.Marketplace.Limits
 	crawler := skills.NewCrawler(gh, skills.Limits{
-		SkillsPerMarketplace: limits.SkillsPerMarketplace,
-		FilesPerSkill:        limits.FilesPerSkill,
-		BytesPerFile:         limits.BytesPerFile,
+		SkillsPerMarketplace:       limits.SkillsPerMarketplace,
+		FilesPerSkill:              limits.FilesPerSkill,
+		BytesPerFile:               limits.BytesPerFile,
+		SkillMdBytesPerMarketplace: limits.SkillMdBytesPerMarketplace,
 	}, logger)
 	cache := skills.NewCache(redis, sc.Current.CacheTTL(), sc.Current.FailureTTL())
 

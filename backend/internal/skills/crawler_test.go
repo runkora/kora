@@ -49,7 +49,7 @@ func TestCrawl(t *testing.T) {
 		t.Errorf("skills = %v, want %v", crawlNames(list), want)
 	}
 	pdf := list.Skills[slices.IndexFunc(list.Skills, func(s skillRecord) bool { return s.Path == "skills/pdf" })]
-	if !slices.Equal(pdf.Files, []string{"reference.md", "scripts/run.py"}) {
+	if want := []SkillFileInfo{{Path: "reference.md", Size: 3}, {Path: "scripts/run.py", Size: 7}}; !slices.Equal(pdf.Files, want) {
 		t.Errorf("pdf files = %v, want text files relative to the folder, nested skill's files excluded", pdf.Files)
 	}
 	if !strings.Contains(pdf.Content, "Use pypdf.") {
@@ -93,11 +93,34 @@ func TestCrawl_Limits(t *testing.T) {
 	if want := []string{"a=a", "b=b"}; !slices.Equal(crawlNames(list), want) {
 		t.Errorf("skills = %v, want the first two folders; big skipped for size", crawlNames(list))
 	}
-	if !slices.Equal(list.Skills[0].Files, []string{"one.md", "three.md"}) {
+	if want := []SkillFileInfo{{Path: "one.md", Size: 1}, {Path: "three.md", Size: 1}}; !slices.Equal(list.Skills[0].Files, want) {
 		t.Errorf("files = %v, want two, huge.md skipped for size", list.Skills[0].Files)
 	}
 	if slices.Contains(g.fetchedPaths(), "big/SKILL.md") {
 		t.Error("an oversized SKILL.md was fetched")
+	}
+}
+
+// The SKILL.md budget keeps skills in path order until the next one would pass
+// it. A zero limit is no cap.
+func TestCrawl_SkillMdBudgetAndNoCap(t *testing.T) {
+	g := repo(map[string]string{
+		"a/SKILL.md": skillMD("a", "A.", strings.Repeat("x", 100)),
+		"b/SKILL.md": skillMD("b", "B.", strings.Repeat("x", 100)),
+		"c/SKILL.md": skillMD("c", "C.", ""),
+		"a/one.md":   "1",
+		"a/two.md":   "2",
+	})
+	budget := int64(len(g.files["a/SKILL.md"]) + len(g.files["c/SKILL.md"]))
+	list, err := NewCrawler(g, Limits{SkillMdBytesPerMarketplace: budget}, discard()).Crawl(context.Background(), testMarketplace(t, "example", "m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"a=a", "c=c"}; !slices.Equal(crawlNames(list), want) {
+		t.Errorf("skills = %v, want %v: b passes the budget, c still fits", crawlNames(list), want)
+	}
+	if len(list.Skills[0].Files) != 2 {
+		t.Errorf("files = %v, want both with no file cap", list.Skills[0].Files)
 	}
 }
 
@@ -128,7 +151,7 @@ func TestFetchFiles(t *testing.T) {
 		"skills/pdf/a.md":     "a",
 		"skills/pdf/bin.json": "\x00\x01",
 	})
-	skill := skillRecord{Path: "skills/pdf", Files: []string{"b.md", "a.md", "bin.json"}}
+	skill := skillRecord{Path: "skills/pdf", Files: []SkillFileInfo{{Path: "b.md", Size: 1}, {Path: "a.md", Size: 1}, {Path: "bin.json", Size: 2}}}
 	files, err := NewCrawler(g, testLimits, discard()).FetchFiles(context.Background(), testMarketplace(t, "example", "m"), testSHA, skill)
 	if err != nil {
 		t.Fatal(err)

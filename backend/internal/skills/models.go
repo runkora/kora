@@ -53,15 +53,21 @@ type skillList struct {
 	Skills []skillRecord `json:"skills"`
 }
 
+// SkillFileInfo is one supporting file of a skill, its path relative to the
+// skill folder.
+type SkillFileInfo struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+}
+
 // skillRecord is one skill. Content is the full SKILL.md, used for search and
-// the skill page. Files are the supporting files to fetch on first open,
-// relative to Path.
+// the skill page. Files are the supporting files to fetch on first open.
 type skillRecord struct {
-	Path        string   `json:"path"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Content     string   `json:"content"`
-	Files       []string `json:"files,omitempty"`
+	Path        string          `json:"path"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Content     string          `json:"content"`
+	Files       []SkillFileInfo `json:"files,omitempty"`
 }
 
 // crawlFailure is a failed crawl as cached in Redis.

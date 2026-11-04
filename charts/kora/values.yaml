@@ -939,6 +939,17 @@ skillsService:
   serviceAccount:
     annotations: {}
   configOverrides: {}
+  # Crawl limits per Marketplace. Skills and files over a limit are skipped and
+  # logged. An empty or zero value is no cap.
+  limits:
+    # -- Skills read from one Marketplace.
+    skillsPerMarketplace: 500
+    # -- Supporting files listed for one skill.
+    filesPerSkill: 500
+    # -- Bytes of one file.
+    bytesPerFile: 131072
+    # -- Bytes of all SKILL.md files of one Marketplace.
+    skillMdBytesPerMarketplace: 8388608
 
 triggers:
   image:

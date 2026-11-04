@@ -26,11 +26,17 @@ const (
 	globalFetches = 50
 )
 
-// Limits caps what one Marketplace may cost a crawl.
+// Limits caps what one Marketplace may cost a crawl. A zero limit is no cap.
 type Limits struct {
-	SkillsPerMarketplace int
-	FilesPerSkill        int
-	BytesPerFile         int64
+	SkillsPerMarketplace       int
+	FilesPerSkill              int
+	BytesPerFile               int64
+	SkillMdBytesPerMarketplace int64
+}
+
+// over reports whether n passes limit. A zero limit is no cap.
+func over[T int | int64](n, limit T) bool {
+	return limit > 0 && n > limit
 }
 
 // textExtensions are the supporting files fetched. Anything else is treated as
@@ -101,7 +107,7 @@ func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 	g, gctx := errgroup.WithContext(ctx)
 	for i, f := range folders {
 		g.Go(func() error {
-			raw, err := c.fetch(gctx, perCrawl, token, m, sha, path.Join(f.path, skillFileName))
+			raw, err := c.fetch(gctx, perCrawl, token, m, sha, path.Join(f.path, skillFileName), f.size)
 			if err != nil {
 				if errors.Is(err, ghclient.ErrUnavailable) || gctx.Err() != nil {
 					return err
@@ -138,10 +144,12 @@ func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 	return list, nil
 }
 
-// skillFolder is a folder holding a SKILL.md and its supporting files.
+// skillFolder is a folder holding a SKILL.md of size bytes and its supporting
+// files.
 type skillFolder struct {
 	path  string
-	files []string
+	size  int64
+	files []SkillFileInfo
 }
 
 // skillFolders finds every folder with a SKILL.md and assigns each other text
@@ -160,19 +168,19 @@ func (c *Crawler) skillFolders(ctx context.Context, m *Marketplace, tree []ghcli
 		owner := deepestSkill(e.Path, byPath)
 		switch {
 		case owner == nil:
-		case e.Size > c.limits.BytesPerFile:
+		case over(e.Size, c.limits.BytesPerFile):
 			c.skip(ctx, m, e.Path, fmt.Sprintf("over bytesPerFile (%d)", c.limits.BytesPerFile))
 		default:
-			owner.files = append(owner.files, strings.TrimPrefix(e.Path, owner.path+"/"))
+			owner.files = append(owner.files, SkillFileInfo{Path: strings.TrimPrefix(e.Path, owner.path+"/"), Size: e.Size})
 		}
 	}
 
 	out := make([]skillFolder, len(folders))
 	for i, f := range folders {
-		slices.Sort(f.files)
-		if len(f.files) > c.limits.FilesPerSkill {
-			for _, name := range f.files[c.limits.FilesPerSkill:] {
-				c.skip(ctx, m, path.Join(f.path, name), fmt.Sprintf("over filesPerSkill (%d)", c.limits.FilesPerSkill))
+		slices.SortFunc(f.files, func(a, b SkillFileInfo) int { return strings.Compare(a.Path, b.Path) })
+		if over(len(f.files), c.limits.FilesPerSkill) {
+			for _, file := range f.files[c.limits.FilesPerSkill:] {
+				c.skip(ctx, m, path.Join(f.path, file.Path), fmt.Sprintf("over filesPerSkill (%d)", c.limits.FilesPerSkill))
 			}
 			f.files = f.files[:c.limits.FilesPerSkill]
 		}
@@ -182,9 +190,9 @@ func (c *Crawler) skillFolders(ctx context.Context, m *Marketplace, tree []ghcli
 }
 
 // findSkills returns the folders holding a SKILL.md in path order, up to
-// skillsPerMarketplace.
+// skillsPerMarketplace and skillMdBytesPerMarketplace.
 func (c *Crawler) findSkills(ctx context.Context, m *Marketplace, tree []ghclient.TreeEntry) []*skillFolder {
-	var folders []*skillFolder
+	var found []*skillFolder
 	for _, e := range tree {
 		if e.Type != "blob" || path.Base(e.Path) != skillFileName {
 			continue
@@ -193,18 +201,26 @@ func (c *Crawler) findSkills(ctx context.Context, m *Marketplace, tree []ghclien
 		switch {
 		case dir == ".":
 			c.skip(ctx, m, e.Path, "a SKILL.md at the repository root is not in a skill folder")
-		case e.Size > c.limits.BytesPerFile:
+		case over(e.Size, c.limits.BytesPerFile):
 			c.skip(ctx, m, dir, fmt.Sprintf("SKILL.md is over bytesPerFile (%d)", c.limits.BytesPerFile))
 		default:
-			folders = append(folders, &skillFolder{path: dir})
+			found = append(found, &skillFolder{path: dir, size: e.Size})
 		}
 	}
-	slices.SortFunc(folders, func(a, b *skillFolder) int { return strings.Compare(a.path, b.path) })
-	if len(folders) > c.limits.SkillsPerMarketplace {
-		for _, f := range folders[c.limits.SkillsPerMarketplace:] {
+	slices.SortFunc(found, func(a, b *skillFolder) int { return strings.Compare(a.path, b.path) })
+
+	folders := make([]*skillFolder, 0, len(found))
+	var budget int64
+	for _, f := range found {
+		switch {
+		case over(len(folders)+1, c.limits.SkillsPerMarketplace):
 			c.skip(ctx, m, f.path, fmt.Sprintf("over skillsPerMarketplace (%d)", c.limits.SkillsPerMarketplace))
+		case over(budget+f.size, c.limits.SkillMdBytesPerMarketplace):
+			c.skip(ctx, m, f.path, fmt.Sprintf("over skillMdBytesPerMarketplace (%d)", c.limits.SkillMdBytesPerMarketplace))
+		default:
+			budget += f.size
+			folders = append(folders, f)
 		}
-		folders = folders[:c.limits.SkillsPerMarketplace]
 	}
 	return folders
 }
@@ -230,9 +246,10 @@ func (c *Crawler) FetchFiles(ctx context.Context, m *Marketplace, sha string, sk
 	files := make([]SkillFile, 0, len(skill.Files))
 	perSkill := semaphore.NewWeighted(perCrawlFetches)
 	g, gctx := errgroup.WithContext(ctx)
-	for _, name := range skill.Files {
+	for _, file := range skill.Files {
+		name := file.Path
 		g.Go(func() error {
-			content, err := c.fetch(gctx, perSkill, token, m, sha, path.Join(skill.Path, name))
+			content, err := c.fetch(gctx, perSkill, token, m, sha, path.Join(skill.Path, name), file.Size)
 			if err != nil {
 				if errors.Is(err, ghclient.ErrUnavailable) || gctx.Err() != nil {
 					return err
@@ -256,8 +273,8 @@ func (c *Crawler) FetchFiles(ctx context.Context, m *Marketplace, sha string, sk
 // errNotText is a fetched file that is not UTF-8 text.
 var errNotText = errors.New("file is not UTF-8 text")
 
-// fetch downloads one text file within bytesPerFile.
-func (c *Crawler) fetch(ctx context.Context, local *semaphore.Weighted, token string, m *Marketplace, sha, p string) (string, error) {
+// fetch downloads one text file of the size the tree reported.
+func (c *Crawler) fetch(ctx context.Context, local *semaphore.Weighted, token string, m *Marketplace, sha, p string, size int64) (string, error) {
 	// The per-crawl slot comes first, so a waiting crawl holds no global slot
 	// and cannot starve other tenants.
 	if err := local.Acquire(ctx, 1); err != nil {
@@ -269,7 +286,7 @@ func (c *Crawler) fetch(ctx context.Context, local *semaphore.Weighted, token st
 	}
 	defer c.global.Release(1)
 
-	raw, err := c.github.GetRawContent(ctx, token, m.Owner, m.Repo, sha, p, c.limits.BytesPerFile)
+	raw, err := c.github.GetRawContent(ctx, token, m.Owner, m.Repo, sha, p, size)
 	if err != nil {
 		return "", fmt.Errorf("download %s: %w", p, err)
 	}
