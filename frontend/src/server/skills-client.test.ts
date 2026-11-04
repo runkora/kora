@@ -32,7 +32,7 @@ describe('skills-client', () => {
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      'http://skills-service.test/v1/skills?offset=10&limit=10&marketplace=team-skills&keys=team-skills%3Askills%2Fpdf%2Cteam-skills%3Askills%2Fdocx&search=pdf',
+      'http://skills-service.test/v1/marketplaces/skills?offset=10&limit=10&marketplace=team-skills&keys=team-skills%3Askills%2Fpdf%2Cteam-skills%3Askills%2Fdocx&search=pdf',
     );
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer token-a');
   });

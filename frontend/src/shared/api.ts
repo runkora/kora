@@ -1236,7 +1236,7 @@ export interface AgentTypeGuardrails {
 }
 
 // ── Skills ──────────────────────────────────────────────────────────────
-// Mirrors the skills-service JSON (backend/internal/skills): GET /v1/marketplaces, /v1/skills,
+// Mirrors the skills-service JSON (backend/internal/skills): GET /v1/marketplaces, /v1/marketplaces/skills,
 // /v1/marketplaces/{slug}/skills/{path} and its ?file= form.
 
 export interface Marketplace {
@@ -1274,7 +1274,7 @@ export interface SkillSummary {
   manualOnly: boolean;
 }
 
-/** GET /v1/skills: one page across the tenant's Marketplaces, one Marketplace or a set of keys. */
+/** GET /v1/marketplaces/skills: one page across the tenant's Marketplaces, one Marketplace or a set of keys. */
 export interface SkillsPage {
   skills: SkillSummary[];
   total: number;

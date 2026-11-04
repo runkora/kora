@@ -16,7 +16,7 @@ createServer((req, res) => {
   if (!req.headers.authorization?.startsWith('Bearer ')) return json(401, { code: 'unauthorized' });
   if (url.pathname === '/v1/marketplaces') return json(200, { marketplaces: MARKETPLACES });
 
-  if (url.pathname === '/v1/skills') {
+  if (url.pathname === '/v1/marketplaces/skills') {
     const slug = url.searchParams.get('marketplace') ?? '';
     const keys = (url.searchParams.get('keys') ?? '').split(',').filter(Boolean);
     const search = (url.searchParams.get('search') ?? '').toLowerCase();

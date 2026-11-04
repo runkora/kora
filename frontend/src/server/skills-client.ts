@@ -38,7 +38,7 @@ export function fetchMarketplaces(accessToken: string): Promise<MarketplaceList>
   return request<MarketplaceList>('/marketplaces', accessToken);
 }
 
-/** What one page of GET /skills asks for. No marketplace and no keys means every Marketplace. */
+/** What one page of GET /marketplaces/skills asks for. No marketplace and no keys means every Marketplace. */
 export interface SkillsQuery {
   marketplace: string;
   keys: string[];
@@ -47,13 +47,13 @@ export interface SkillsQuery {
   limit: number;
 }
 
-/** GET /skills: one page of skills in title order. */
+/** GET /marketplaces/skills: one page of skills in title order. */
 export async function fetchSkills(accessToken: string, page: SkillsQuery): Promise<SkillsPage> {
   const query = new URLSearchParams({ offset: String(page.offset), limit: String(page.limit) });
   if (page.marketplace) query.set('marketplace', page.marketplace);
   if (page.keys.length > 0) query.set('keys', page.keys.join(','));
   if (page.search) query.set('search', page.search);
-  return request<SkillsPage>(`/skills?${query.toString()}`, accessToken);
+  return request<SkillsPage>(`/marketplaces/skills?${query.toString()}`, accessToken);
 }
 
 function skillPath(slug: string, path: string): string {
