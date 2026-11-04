@@ -61,7 +61,7 @@ export async function loadSkillFile(
   }
 }
 
-/** Copy for an upstream failure that carries no reason of its own. */
+/** Copy for an unavailable Marketplace whose 502 carries no reason of its own. */
 const UPSTREAM_FAILURE = 'This Marketplace could not be loaded. Try again later.';
 
 /**
@@ -75,7 +75,5 @@ function failure(caller: string, err: unknown, subject: string, listed = false):
     (err.code === 'marketplace_unavailable' || (listed && err.status === 404));
   if (unavailable) return { ok: false, status: 502, message: err.message || UPSTREAM_FAILURE };
   const failed = loadFailure(err, subject);
-  return !failed.ok && failed.status >= 500
-    ? { ok: false, status: 500, message: UPSTREAM_FAILURE }
-    : failed;
+  return !failed.ok && failed.status >= 500 ? { ...failed, status: 500 } : failed;
 }

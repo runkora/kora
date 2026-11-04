@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — skills/[marketplace]/[...path]-scoped. A skill that could not load, with a retry of the server render. */
+/** @tier 3 — skills/[marketplace]/[...path]-scoped. A skill or file that could not load, with a retry. */
 
 import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';

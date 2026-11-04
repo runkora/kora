@@ -7,7 +7,7 @@ import type { SkillsBrowse, SkillsLoadError } from '../_types';
 export type FetchResult<T> = { data: T; error: null } | { data: null; error: SkillsLoadError };
 
 /** Never throws; an aborted request returns an error the caller ignores. */
-async function getData<T>(url: string, signal: AbortSignal): Promise<FetchResult<T>> {
+async function getData<T>(url: string, signal?: AbortSignal): Promise<FetchResult<T>> {
   try {
     const res = await fetch(url, { cache: 'no-store', signal });
     const body = (await res.json().catch(() => ({}))) as { data?: T; message?: string };
@@ -31,9 +31,10 @@ export function fetchSkillsPage(
 }
 
 /** Fetches one supporting file of a skill. */
-export function fetchSkillFile(
-  file: { marketplace: string; path: string; file: string },
-  signal: AbortSignal,
-): Promise<FetchResult<SkillFile>> {
-  return getData(ApiRoute.skillFile.GET(file), signal);
+export function fetchSkillFile(file: {
+  marketplace: string;
+  path: string;
+  file: string;
+}): Promise<FetchResult<SkillFile>> {
+  return getData(ApiRoute.skillFile.GET(file));
 }

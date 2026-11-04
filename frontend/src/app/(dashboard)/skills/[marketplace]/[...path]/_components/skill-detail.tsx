@@ -2,7 +2,7 @@
 
 /** @tier 3 — skills/[marketplace]/[...path]-scoped. One skill's files and its source repository. */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Card, CardContent, CodeBlock, IconTile, Skeleton, Stack, Text } from '@runkora/hades';
 import type { Skill } from '@runkora/shared/api';
 import { fetchSkillFile } from '../../../_services/skills-api';
@@ -17,33 +17,36 @@ export function SkillDetail({ skill, marketplace }: { skill: Skill; marketplace:
   // SKILL.md arrives with the page; each other file loads once, when first selected.
   const [contents, setContents] = useState<Record<string, string>>({ [SKILL_MD]: skill.content });
   const [failures, setFailures] = useState<Record<string, SkillsLoadError | undefined>>({});
-  const inFlight = useRef<AbortController | null>(null);
-  const files = [
-    { path: SKILL_MD, size: new TextEncoder().encode(skill.content).length },
-    ...skill.files,
-  ];
+  const loading = useRef(new Set<string>());
+  const mounted = useRef(false);
+  const files = useMemo(
+    () => [
+      { path: SKILL_MD, size: new TextEncoder().encode(skill.content).length },
+      ...skill.files,
+    ],
+    [skill],
+  );
   const owner = skill.repository.split('/')[0];
 
   useEffect(() => {
-    const requests = inFlight;
-    return () => requests.current?.abort();
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
   }, []);
 
   function open(file: string) {
     setSelectedPath(file);
-    if (file in contents) return;
+    // Results are kept per file, so a file already loaded or loading needs no new request.
+    if (file in contents || loading.current.has(file)) return;
+    loading.current.add(file);
     setFailures((prev) => ({ ...prev, [file]: undefined }));
-    // Only the latest selection may land, so picking another file aborts this one.
-    inFlight.current?.abort();
-    const controller = new AbortController();
-    inFlight.current = controller;
-    void fetchSkillFile({ marketplace, path: skill.path, file }, controller.signal).then(
-      (result) => {
-        if (controller.signal.aborted) return;
-        if (result.data) setContents((prev) => ({ ...prev, [file]: result.data.content }));
-        else setFailures((prev) => ({ ...prev, [file]: result.error }));
-      },
-    );
+    void fetchSkillFile({ marketplace, path: skill.path, file }).then((result) => {
+      loading.current.delete(file);
+      if (!mounted.current) return;
+      if (result.data) setContents((prev) => ({ ...prev, [file]: result.data.content }));
+      else setFailures((prev) => ({ ...prev, [file]: result.error }));
+    });
   }
 
   const content = contents[selectedPath];
