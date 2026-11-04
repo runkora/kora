@@ -99,7 +99,7 @@ The `409` body carries the matches in its details:
 }
 ```
 
-The session response for a federated sign-in carries the eligible set as `tenants: [{id, display_name}]`. The BFF keeps the list in the sealed session cookie. No database column stores it.
+The session response for a federated sign-in carries the eligible set as `tenants: [{id, display_name}]`. The BFF keeps the list in the sealed session cookie. No database column stores it. When the sealed cookie with the list would exceed 4096 bytes, the BFF seals the session without it. Sign-in succeeds, and the switcher stays hidden until a later sign-in fits.
 
 ### Sign-in
 
@@ -114,14 +114,14 @@ The session response for a federated sign-in carries the eligible set as `tenant
 2.  The browser makes a full-page redirect to the identity provider with `prompt=none` and `login_hint` set to the person's email. Every tenant in the eligible set shares one issuer and client. The redirect takes them from Home Realm Discovery for the person's email. The PKCE state carries the target tenant and the return path.
 3.  With the new ID token, the BFF calls the exchange with the current tenant as `tenant_id`, the target as `tenant_hint` and the session's refresh token as `replaces_refresh_token`.
 4.  Identity runs two checks before any write. The bound tenant must equal the hint. `replaces_refresh_token` must be an unexpired, unrevoked refresh token of an unrevoked session that belongs to the same principal subject and issuer. When either check fails, identity returns `403 tenant_switch_denied` and creates and revokes nothing. Its details carry the fresh eligible set as `tenants: [{id, display_name}]`. The set is empty when nothing matches.
-5.  When both checks pass, identity creates the new session first. It then blocklists the replaced access token, revokes the replaced refresh tokens and revokes the replaced session. It writes the switch log entry last.
-6.  After a switch succeeds, the BFF swaps in the new session and returns to the path. On any `403` or `409` from a switch it keeps the current session, shows that the switch was denied, and stores the eligible set from the details.
-7.  A switch that reaches the BFF without a live session runs as a plain sign-in with the target as `tenant_hint`.
+5.  When both checks pass, identity creates the new session and refresh token and revokes the replaced refresh tokens and session in one Postgres transaction. After commit it blocklists the replaced access token and writes the switch log entry. A blocklist failure is logged, and the replaced access token expires on its own. The transaction revokes the replaced session only while it is still live. Of two concurrent switches from one session, exactly one commits and the other returns `403 tenant_switch_denied`.
+6.  After a switch succeeds, the BFF swaps in the new session and returns to the path. The client broadcasts the switch on a `BroadcastChannel`, and the other open tabs of the browser reload in the new tenant. On any `403` or `409` from a switch, the BFF keeps the current session, shows that the switch was denied, and stores the eligible set from the details.
+7.  A switch that reaches the BFF without a live session runs as a plain sign-in with the target as `tenant_hint`. When the issued tenant differs from the target, the BFF treats the result as a refused switch and revokes the issued session.
 8.  When the identity provider answers `login_required`, `interaction_required`, `consent_required` or `account_selection_required`, the browser starts an interactive sign-in whose state carries the same target tenant and return path.
 
 ### Device Flow
 
-`scripts/auth-device.sh` sends `--tenant-id` as `tenant_id` and as `tenant_hint` on the device poll. On `409 multiple_tenants_match` the script prints the matching tenants with their display names and asks for a re-run with `--tenant-id`.
+`scripts/auth-device.sh` sends `--tenant-id` as `tenant_id` and as `tenant_hint` on the device poll. On `409 multiple_tenants_match` the script prints the matching tenants with their display names and asks for a re-run with `--tenant-id`. On success it prints the issued tenant and warns when it differs from `--tenant-id`.
 
 ### MCP Consent
 
@@ -145,9 +145,8 @@ Identity writes one structured log entry for each successful switch inside the e
 
 - Every switch needs a live identity provider session or an interactive sign-in.
 - The eligible set in the cookie is as old as the last sign-in or switch. A tenant the person joined later appears only after the next sign-in or switch.
-- A browser cannot hold two tenants at once. A switch in one tab moves every tab.
+- A browser cannot hold two tenants at once. A switch in one tab reloads every other open tab in the new tenant.
 - A last-used tenant the person no longer matches costs one picker step at sign-in.
-- Two concurrent switches with the same refresh token can both succeed. Each new session comes from fresh claims for the same person.
 
 ### Neutral
 
