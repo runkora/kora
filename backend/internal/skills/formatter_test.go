@@ -130,6 +130,31 @@ func TestParseSkillFrontmatter_Metadata(t *testing.T) {
 			want:    skillFrontmatter{Name: "big", Description: "B.", Title: "big", Version: v("20241105"), Tags: []string{}, Tools: []string{}},
 		},
 		{
+			name:    "versions as written, comments and nulls",
+			content: "---\nname: w\ndescription: W.\nversion: 1.10 # bump\nmetadata:\n  version: 9.90\n---\n",
+			want:    skillFrontmatter{Name: "w", Description: "W.", Title: "w", Version: v("1.10"), Tags: []string{}, Tools: []string{}},
+		},
+		{
+			name:    "nested numeric version keeps trailing zeros",
+			content: "---\nname: m\ndescription: M.\nmetadata:\n  version: 1.10\n---\n",
+			want:    skillFrontmatter{Name: "m", Description: "M.", Title: "m", Version: v("1.10"), Tags: []string{}, Tools: []string{}},
+		},
+		{
+			name:    "tilde is absent",
+			content: "---\nname: t\ndescription: T.\nversion: ~\n---\n",
+			want:    skillFrontmatter{Name: "t", Description: "T.", Title: "t", Tags: []string{}, Tools: []string{}},
+		},
+		{
+			name:    "null is absent",
+			content: "---\nname: u\ndescription: U.\nversion: null\nmetadata:\n  version: null\n---\n",
+			want:    skillFrontmatter{Name: "u", Description: "U.", Title: "u", Tags: []string{}, Tools: []string{}},
+		},
+		{
+			name:    "quoted string version is taken as decoded",
+			content: "---\nname: q\ndescription: Q.\nversion: \"v2.0 # not a comment\"\n---\n",
+			want:    skillFrontmatter{Name: "q", Description: "Q.", Title: "q", Version: v("2.0 # not a comment"), Tags: []string{}, Tools: []string{}},
+		},
+		{
 			name:    "nothing declared",
 			content: "---\nname: bare\ndescription: Bare.\n---\n",
 			want:    skillFrontmatter{Name: "bare", Description: "Bare.", Title: "bare", Tags: []string{}, Tools: []string{}},

@@ -3,7 +3,6 @@ package skills
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -64,15 +63,17 @@ func parseSkillFrontmatter(content string) (skillFrontmatter, error) {
 	// unquoted "description: Use when: ..." line. Then only the line values
 	// above are used.
 	doc := map[string]any{}
-	if err := yaml.Unmarshal([]byte(strings.Join(lines[1:end], "\n")), &doc); err != nil {
+	decoded := yaml.Unmarshal([]byte(strings.Join(lines[1:end], "\n")), &doc) == nil
+	if !decoded {
 		doc = map[string]any{}
 	}
 	meta, _ := doc["metadata"].(map[string]any)
+	textOf := func(key string) string { s, _ := text[key].(string); return s }
 
 	fm := skillFrontmatter{
 		Name:        strings.TrimSpace(firstString(doc["name"], text["name"])),
 		Description: strings.TrimSpace(firstString(doc["description"], text["description"])),
-		Version:     version(text["version"], doc["version"], meta["version"]),
+		Version:     firstVersion(declaredVersion(doc["version"], textOf("version"), decoded), declaredVersion(meta["version"], textOf("metadata.version"), decoded)),
 		Tags:        listValue(doc["tags"], meta["tags"], text["tags"]),
 		Tools:       listValue(doc["allowed-tools"], text["allowed-tools"]),
 		ManualOnly:  doc["disable-model-invocation"] == true || strings.EqualFold(firstString(doc["disable-model-invocation"], text["disable-model-invocation"]), "true"),
@@ -121,23 +122,29 @@ func firstString(values ...any) string {
 	return ""
 }
 
-// version returns the first set value without a leading "v", or nil. A YAML
-// number is formatted without exponent.
-func version(values ...any) *string {
-	for _, v := range values {
-		var s string
-		switch v := v.(type) {
-		case string:
-			s = v
-		case float64:
-			s = strconv.FormatFloat(v, 'f', -1, 64)
-		case nil:
-			continue
-		default:
-			s = fmt.Sprint(v)
+// declaredVersion returns a version as written, without a leading "v". A
+// YAML string is taken as decoded. A number, or any value when the YAML did
+// not decode, is taken from the line text so 1.10 stays 1.10. A trailing
+// comment is dropped, and "~", "null" or no value is absent.
+func declaredVersion(value any, line string, decoded bool) *string {
+	s, isString := value.(string)
+	if !isString && (value != nil || !decoded) {
+		s = line
+		if i := strings.Index(s, " #"); i >= 0 {
+			s = s[:i]
 		}
-		if s = strings.TrimPrefix(strings.TrimSpace(s), "v"); s != "" && !strings.ContainsAny(s[:1], "[{|>") {
-			return &s
+	}
+	s = strings.TrimPrefix(strings.TrimSpace(unquote(strings.TrimSpace(s))), "v")
+	if s == "" || s == "~" || s == "null" || strings.ContainsAny(s[:1], "[{|>") {
+		return nil
+	}
+	return &s
+}
+
+func firstVersion(versions ...*string) *string {
+	for _, v := range versions {
+		if v != nil {
+			return v
 		}
 	}
 	return nil
@@ -196,19 +203,36 @@ func splitList(s string) []string {
 	return out
 }
 
-// parseFrontmatterLines reads top-level single-line "key: value" pairs,
-// splitting on the first colon. Indented lines are continuation text and are
-// skipped, so a colon inside them never creates a key.
+// parseFrontmatterLines reads single-line "key: value" pairs, splitting on the
+// first colon. An indented pair under a key with no value, such as
+// "metadata:", is read as "metadata.key". Other indented lines are
+// continuation text and are skipped.
 func parseFrontmatterLines(lines []string) map[string]any {
 	out := map[string]any{}
+	parent := ""
 	for _, line := range lines {
-		if line == "" || line[0] == ' ' || line[0] == '\t' {
+		if line == "" {
 			continue
+		}
+		prefix := ""
+		if line[0] == ' ' || line[0] == '\t' {
+			// One indented level under a block key, as "metadata.version".
+			if parent == "" {
+				continue
+			}
+			prefix, line = parent+".", strings.TrimSpace(line)
 		}
 		key, val, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
 		}
+		if prefix == "" {
+			parent = ""
+			if strings.TrimSpace(val) == "" {
+				parent = strings.TrimSpace(key)
+			}
+		}
+		key = prefix + key
 		// A block scalar's text is on the following lines, which only YAML reads.
 		if val = unquote(strings.TrimSpace(val)); val != "" && !strings.ContainsAny(val[:1], "|>") {
 			out[strings.TrimSpace(key)] = val
