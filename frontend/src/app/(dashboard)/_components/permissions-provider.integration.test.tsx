@@ -19,7 +19,7 @@ import { PermissionsProvider, useSession, useTenantLocked } from './permissions-
 // ── Test consumer ─────────────────────────────────────────────────────────────
 
 function Consumer() {
-  const { scopes, user, loaded } = useSession();
+  const { scopes, user, loaded, tenants, tenantId } = useSession();
   const locked = useTenantLocked();
   return (
     <>
@@ -27,6 +27,8 @@ function Consumer() {
       <Text data-testid="loaded">{String(loaded)}</Text>
       <Text data-testid="scopes">{scopes.join(',')}</Text>
       <Text data-testid="user-email">{user?.email ?? 'null'}</Text>
+      <Text data-testid="tenants">{JSON.stringify(tenants ?? null)}</Text>
+      <Text data-testid="tenant-id">{tenantId ?? 'none'}</Text>
     </>
   );
 }
@@ -85,6 +87,37 @@ describe('PermissionsProvider', () => {
     await waitFor(() => {
       expect(screen.getByTestId('user-email').textContent).toBe('alice@runkora.test');
     });
+  });
+
+  it('passes on the eligible set and the session tenant', async () => {
+    const tenants = [
+      { id: 'kora-tenant-example', displayName: 'Example Platform', active: true },
+      { id: 'kora-tenant-example-data', displayName: 'Example Data', active: false },
+    ];
+    server.use(
+      http.get('/api/auth/session', () =>
+        HttpResponse.json({
+          user: createSessionUser(),
+          expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          tenants,
+          tenantId: 'kora-tenant-example',
+        }),
+      ),
+    );
+
+    renderProvider();
+    await waitFor(() => {
+      expect(screen.getByTestId('tenants').textContent).toBe(JSON.stringify(tenants));
+    });
+    expect(screen.getByTestId('tenant-id').textContent).toBe('kora-tenant-example');
+  });
+
+  it('gives an empty eligible set when the session has none', async () => {
+    renderProvider();
+    await waitFor(() => {
+      expect(screen.getByTestId('loaded').textContent).toBe('true');
+    });
+    expect(screen.getByTestId('tenants').textContent).toBe('[]');
   });
 
   it('reports a locked tenant when the session says API authoring is off', async () => {

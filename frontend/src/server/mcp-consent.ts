@@ -11,7 +11,8 @@ import { createHmac, timingSafeEqual } from 'crypto';
  * decision handler re-derives and compares it. The HMAC key (BFF_SESSION_SECRET)
  * is server-only, so an attacker cannot forge a token for any parameters; binding
  * the user + the exact OAuth params also stops a token being replayed for a
- * different user or swapped onto different parameters.
+ * different user or swapped onto different parameters. Binding the tenant shown
+ * on the page fails a decision submitted after the session switched tenant.
  *
  * This is defense-in-depth on top of the SameSite=Lax session cookie (not sent on
  * cross-site POST) and the Sec-Fetch-Site check in the handler.
@@ -20,6 +21,8 @@ import { createHmac, timingSafeEqual } from 'crypto';
 interface ConsentTokenInput {
   /** A stable per-user session value (the human's email) — scopes the token. */
   userKey: string;
+  /** The session's tenant, which the page shows and the code is minted for. */
+  tenantId: string;
   clientId: string;
   redirectUri: string;
   codeChallenge: string;
@@ -35,9 +38,13 @@ function hmacKey(): string {
 
 /** mcpConsentToken derives the CSRF token for a consent request. */
 export function mcpConsentToken(input: ConsentTokenInput): string {
-  const message = [input.userKey, input.clientId, input.redirectUri, input.codeChallenge].join(
-    '\n',
-  );
+  const message = [
+    input.userKey,
+    input.tenantId,
+    input.clientId,
+    input.redirectUri,
+    input.codeChallenge,
+  ].join('\n');
   return createHmac('sha256', hmacKey()).update(message).digest('base64url');
 }
 

@@ -2,10 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
-import { BottomSheet, Button, Icon, SectionLabel, Separator, Stack, Text } from '@runkora/hades';
+import {
+  BottomSheet,
+  Button,
+  Icon,
+  NavItem,
+  SectionLabel,
+  Separator,
+  Stack,
+  Text,
+} from '@runkora/hades';
+import { TenantList, useTenantSwitch } from '@runkora/components';
 import { useBrand } from '@runkora/theme/brand-provider';
 import { APP_ROUTES } from '@runkora/lib/routing/routes';
+import { onTenantSwitch, startTenantSwitch } from '@runkora/lib/tenant-switch';
 import { useLogout } from '@runkora/lib/use-logout';
+import type { TenantOption } from '@runkora/server/auth-config';
 import { useSession } from './permissions-provider';
 import { FitEmailText } from './fit-email-text';
 
@@ -108,103 +120,113 @@ function useDismissOnOutsideOrEscape(
   }, [active, containerRef, onDismiss]);
 }
 
-// ── Menu item (desktop + mobile share the same semantics, different sizing) ─
+// ── Menu item ───────────────────────────────────────────────────────────────
 
-interface MenuItemProps {
-  icon: React.ReactNode;
-  tone?: 'default' | 'danger';
-  height: number;
-  fontSize: number;
-  onSelect: () => void;
-  itemRef?: React.Ref<HTMLButtonElement>;
-  /** `'menuitem'` inside a `role="menu"` ancestor (desktop); `undefined` when
-   *  reused as a plain action row with no owning menu (the mobile dialog). */
-  role?: 'menuitem';
-  children: React.ReactNode;
-}
-
+// Session actions use the sidebar's NavItem so their size and inset match the nav rows.
 function MenuItem({
   icon,
-  tone = 'default',
-  height,
-  fontSize,
+  danger,
   onSelect,
   itemRef,
-  role = 'menuitem',
+  role,
   children,
-}: MenuItemProps) {
+}: {
+  icon: React.ComponentProps<typeof Icon>['name'];
+  danger?: boolean;
+  onSelect: () => void;
+  itemRef?: React.Ref<HTMLElement>;
+  /** Set to `'menuitem'` only inside the desktop `role="menu"`; the mobile dialog leaves it unset. */
+  role?: 'menuitem';
+  children: React.ReactNode;
+}) {
   return (
-    <Button
+    <NavItem
       ref={itemRef}
-      variant="ghost"
-      fullWidth
       role={role}
       onClick={onSelect}
-      style={{
-        height,
-        padding: '0 12px',
-        gap: 10,
-        justifyContent: 'flex-start',
-        fontSize,
-        fontWeight: 500,
-        lineHeight: 1,
-      }}
+      // A NavItem button inherits the button's centred text; the sidebar's link rows start at the left.
+      style={{ textAlign: 'start' }}
+      icon={<Icon name={icon} color={danger ? 'status-error' : 'muted'} />}
     >
-      {icon}
       <Text
         as="span"
-        color={tone === 'danger' ? 'status-error' : 'muted'}
-        style={{ fontSize: 'inherit', fontWeight: 'inherit', lineHeight: 'inherit' }}
+        color={danger ? 'status-error' : undefined}
+        style={danger ? { font: 'inherit' } : { font: 'inherit', color: 'inherit' }}
       >
         {children}
       </Text>
-    </Button>
+    </NavItem>
   );
 }
 
-// ── Shared identity block ("Signed in as" / name / email) ──────────────────
+// ── Shared identity block ("Signed in as" / name / email, then the tenants) ──
 
 function IdentityBlock({
   name,
   email,
   compact,
+  tenants,
+  tenantSwitch,
+  onPickActive,
 }: {
   name: string;
   email: string;
   compact: boolean;
+  tenants: TenantOption[];
+  tenantSwitch: ReturnType<typeof useTenantSwitch>;
+  onPickActive: () => void;
 }) {
   return (
-    <>
-      <Stack asChild marginBottom="tight">
+    <Stack gap="comfortable">
+      {/* The desktop menu's description: who is signed in, without the tenant rows. */}
+      <Stack id="account-identity" gap="cozy">
         <SectionLabel>Signed in as</SectionLabel>
+        <Stack gap="tight">
+          {name && (
+            <Text
+              as="span"
+              style={{
+                display: 'block',
+                fontSize: compact ? 14 : 16,
+                lineHeight: compact ? '20px' : '24px',
+                fontWeight: 500,
+              }}
+            >
+              {name}
+            </Text>
+          )}
+          <Text
+            as="span"
+            color="subtle"
+            style={{
+              display: 'block',
+              fontSize: compact ? 12 : 13,
+              lineHeight: compact ? '16px' : '18px',
+              overflowWrap: 'anywhere',
+            }}
+          >
+            {withSoftEmailBreak(email)}
+          </Text>
+        </Stack>
       </Stack>
-      {name && (
-        <Text
-          as="span"
-          style={{
-            display: 'block',
-            fontSize: compact ? 14 : 16,
-            lineHeight: compact ? '20px' : '24px',
-            fontWeight: 500,
-          }}
-        >
-          {name}
-        </Text>
-      )}
-      <Text
-        as="span"
-        color="subtle"
-        style={{
-          display: 'block',
-          marginTop: name ? (compact ? 2 : 8) : 0,
-          fontSize: compact ? 12 : 13,
-          lineHeight: compact ? '16px' : '18px',
-          overflowWrap: 'anywhere',
-        }}
-      >
-        {withSoftEmailBreak(email)}
-      </Text>
-    </>
+      {tenants.length > 1 ? (
+        <>
+          <Separator />
+          <Stack gap="snug">
+            <SectionLabel>Tenant</SectionLabel>
+            {/* Rows extend past the labels by their own padding, as sidebar nav rows do. */}
+            <Stack style={{ marginInline: -12 }}>
+              <TenantList
+                tenants={tenants}
+                switching={tenantSwitch.switching}
+                failed={tenantSwitch.failed}
+                onPick={(t) => (t.active ? onPickActive() : tenantSwitch.start(t.id))}
+              />
+            </Stack>
+          </Stack>
+        </>
+      ) : null}
+    </Stack>
   );
 }
 
@@ -237,10 +259,9 @@ function ConfirmLogoutBlock({ compact }: { compact: boolean }) {
  * User identity + account menu rendered inside PageLayout's sidebarFooter
  * slot. PageLayout wraps this in a semantic <footer> element internally.
  *
- * Desktop (≥768px): the trigger opens a two-panel flyout to the right of the
- * sidebar (identity panel above a shared divider, actions panel below it,
- * sized to the footer's own height) — not modal, no scrim, dismissed by
- * outside-click or Escape.
+ * Desktop (≥768px): the trigger opens a flyout to the right of the sidebar
+ * (identity panel above a divider, actions panel below it). It is not modal,
+ * has no scrim, and is dismissed by outside-click or Escape.
  *
  * Mobile (<768px): the same trigger opens a `BottomSheet` (Hades) instead —
  * fully modal, with its own drag-to-dismiss, close button, and back-button
@@ -251,7 +272,7 @@ function ConfirmLogoutBlock({ compact }: { compact: boolean }) {
  * (ADR-0061).
  */
 export function SidebarUserFooter() {
-  const { user } = useSession();
+  const { user, tenants = [], tenantId } = useSession();
   const { logout } = useLogout();
   const router = useRouter();
   const isDesktop = useIsDesktop();
@@ -274,6 +295,27 @@ export function SidebarUserFooter() {
 
   const menu = useAccountMenu(handleLogout);
   const { open, confirming } = menu;
+
+  // With two or more tenants the trigger names the active one and the menu lists them all.
+  const multiTenant = tenants.length > 1;
+  const activeTenant = tenants.find((t) => t.active);
+  // A switch returns to the page it started on, now in the other tenant.
+  const tenantSwitch = useTenantSwitch((tenantId) =>
+    startTenantSwitch({
+      email: user?.email ?? '',
+      tenantId,
+      returnPath: window.location.pathname + window.location.search,
+    }),
+  );
+
+  // Reloads when another tab switches tenant: this page holds the old tenant's data.
+  useEffect(() => onTenantSwitch(() => window.location.reload()), []);
+
+  // Opening the menu clears the error from the last switch attempt.
+  const openMenu = () => {
+    tenantSwitch.clearError();
+    menu.openMenu();
+  };
 
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -303,7 +345,7 @@ export function SidebarUserFooter() {
   const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === 'ArrowDown' && !open) {
       event.preventDefault();
-      menu.openMenu();
+      openMenu();
       requestAnimationFrame(() => firstItemRef.current?.focus());
     }
   };
@@ -312,7 +354,7 @@ export function SidebarUserFooter() {
     if (open) {
       menu.close();
     } else {
-      menu.openMenu();
+      openMenu();
       if (document.activeElement === triggerRef.current) {
         requestAnimationFrame(() => firstItemRef.current?.focus());
       }
@@ -379,21 +421,34 @@ export function SidebarUserFooter() {
         grow
         minWidth="none"
         gap="none"
-        justify={hasName ? undefined : 'center'}
+        justify={hasName || multiTenant ? undefined : 'center'}
         style={{ overflow: 'hidden' }}
       >
-        {hasName && (
-          <Text
-            as="span"
-            truncate
-            style={{ display: 'block', fontSize: 13, lineHeight: '16px', fontWeight: 600 }}
-          >
-            {name}
-          </Text>
+        {multiTenant ? (
+          <>
+            <Text as="span" size="caption" weight="strong" truncate>
+              {email}
+            </Text>
+            <Text as="span" size="micro" color="subtle" truncate>
+              {activeTenant?.displayName ?? tenantId}
+            </Text>
+          </>
+        ) : (
+          <>
+            {hasName && (
+              <Text
+                as="span"
+                truncate
+                style={{ display: 'block', fontSize: 13, lineHeight: '16px', fontWeight: 600 }}
+              >
+                {name}
+              </Text>
+            )}
+            <Stack direction="horizontal" align="center" style={{ height: 16, overflow: 'hidden' }}>
+              <FitEmailText email={email} />
+            </Stack>
+          </>
         )}
-        <Stack direction="horizontal" align="center" style={{ height: 16, overflow: 'hidden' }}>
-          <FitEmailText email={email} />
-        </Stack>
       </Stack>
       <Icon name={isDesktop ? 'chevron-right' : 'chevron-up'} size="xs" color="subtle" shrink />
     </Button>
@@ -406,56 +461,51 @@ export function SidebarUserFooter() {
         {trigger}
 
         {isDesktop && open && (
-          <>
-            <Stack
-              id="account-identity"
-              style={{
-                position: 'absolute',
-                bottom: 'calc(100% + 1px)',
-                left: 'calc(100% + 1px)',
-                zIndex: 50,
-                width: 240,
-                padding: '12px 20px',
-                borderTop: '1px solid var(--color-border-subtle)',
-                borderRight: '1px solid var(--color-border-subtle)',
-                borderTopRightRadius: 8,
-                backgroundColor: 'var(--color-background)',
-                boxShadow: '12px 0 24px -12px var(--color-overlay-strong)',
-                animation: flyoutAnimation,
-              }}
-            >
+          // One column anchored to the footer, with the action rows at their own height. It is
+          // capped at the viewport height and scrolls on a short window.
+          <Stack
+            overflowY="auto"
+            style={{
+              maxHeight: '100dvh',
+              position: 'absolute',
+              bottom: 0,
+              left: 'calc(100% + 1px)',
+              zIndex: 50,
+              width: 280,
+              borderTop: '1px solid var(--color-border-subtle)',
+              borderRight: '1px solid var(--color-border-subtle)',
+              borderTopRightRadius: 8,
+              backgroundColor: 'var(--color-background)',
+              boxShadow: '12px 0 24px -12px var(--color-overlay-strong)',
+              animation: flyoutAnimation,
+            }}
+          >
+            <Stack padding="comfortable">
               {confirming ? (
                 <ConfirmLogoutBlock compact />
               ) : (
-                <IdentityBlock name={name} email={email} compact />
+                <IdentityBlock
+                  name={name}
+                  email={email}
+                  compact
+                  tenants={tenants}
+                  tenantSwitch={tenantSwitch}
+                  onPickActive={closeAndFocusTrigger}
+                />
               )}
             </Stack>
-
+            <Separator />
             <Stack
               id="account-menu"
               role={confirming ? undefined : 'menu'}
               aria-label={confirming ? undefined : 'Account'}
-              aria-describedby="account-identity"
+              aria-describedby={confirming ? undefined : 'account-identity'}
               onKeyDown={confirming ? undefined : handleMenuKeyDown}
-              gap="none"
-              style={{
-                position: 'absolute',
-                top: -1,
-                bottom: 0,
-                left: 'calc(100% + 1px)',
-                zIndex: 50,
-                width: 240,
-                padding: '4px 8px',
-                justifyContent: 'center',
-                borderTop: '1px solid var(--color-border-subtle)',
-                borderRight: '1px solid var(--color-border-subtle)',
-                backgroundColor: 'var(--color-background)',
-                boxShadow: '12px 0 24px -12px var(--color-overlay-strong)',
-                animation: flyoutAnimation,
-              }}
+              gap="tight"
+              padding={confirming ? 'comfortable' : 'tight'}
             >
               {confirming ? (
-                <Stack direction="horizontal" style={{ gap: 6, padding: '0 4px' }}>
+                <Stack direction="horizontal" gap="snug">
                   <Button
                     ref={cancelButtonRef}
                     variant="outline"
@@ -477,19 +527,17 @@ export function SidebarUserFooter() {
               ) : (
                 <>
                   <MenuItem
-                    icon={<Icon name="user" size="sm" color="muted" />}
-                    height={28}
-                    fontSize={14}
+                    icon="user"
+                    role="menuitem"
                     onSelect={handleViewProfile}
                     itemRef={firstItemRef}
                   >
                     View profile
                   </MenuItem>
                   <MenuItem
-                    icon={<Icon name="log-out" size="sm" color="status-error" />}
-                    tone="danger"
-                    height={28}
-                    fontSize={14}
+                    icon="log-out"
+                    role="menuitem"
+                    danger
                     onSelect={menu.requestLogout}
                     itemRef={secondItemRef}
                   >
@@ -498,21 +546,28 @@ export function SidebarUserFooter() {
                 </>
               )}
             </Stack>
-          </>
+          </Stack>
         )}
       </Stack>
 
       {!isDesktop && (
         <BottomSheet
           open={open}
-          onOpenChange={(next) => (next ? menu.openMenu() : menu.close())}
+          onOpenChange={(next) => (next ? openMenu() : menu.close())}
           title="Account"
         >
           <Stack style={{ padding: '12px 20px 16px' }}>
             {confirming ? (
               <ConfirmLogoutBlock compact={false} />
             ) : (
-              <IdentityBlock name={name} email={email} compact={false} />
+              <IdentityBlock
+                name={name}
+                email={email}
+                compact={false}
+                tenants={tenants}
+                tenantSwitch={tenantSwitch}
+                onPickActive={menu.close}
+              />
             )}
           </Stack>
           <Separator />
@@ -535,24 +590,11 @@ export function SidebarUserFooter() {
               </Button>
             </Stack>
           ) : (
-            <Stack style={{ padding: 8, gap: 12 }}>
-              <MenuItem
-                icon={<Icon name="user" size="md" color="muted" />}
-                height={48}
-                fontSize={15}
-                onSelect={handleViewProfile}
-                role={undefined}
-              >
+            <Stack padding="snug">
+              <MenuItem icon="user" onSelect={handleViewProfile}>
                 View profile
               </MenuItem>
-              <MenuItem
-                icon={<Icon name="log-out" size="md" color="status-error" />}
-                tone="danger"
-                height={48}
-                fontSize={15}
-                onSelect={menu.requestLogout}
-                role={undefined}
-              >
+              <MenuItem icon="log-out" danger onSelect={menu.requestLogout}>
                 Log out
               </MenuItem>
             </Stack>

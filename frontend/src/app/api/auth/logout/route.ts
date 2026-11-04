@@ -17,38 +17,18 @@ import 'server-only';
 
 import { type NextRequest } from 'next/server';
 
-import { config } from '@runkora/server/config';
+import { revokeToken } from '@runkora/server/revoke';
 import { getSession } from '@runkora/server/session';
 import { APP_ROUTES } from '@runkora/lib/routing';
-
-async function revokeToken(
-  revokeUrl: string,
-  token: string,
-  tokenTypeHint: 'access_token' | 'refresh_token',
-): Promise<void> {
-  const body = new URLSearchParams({ token, token_type_hint: tokenTypeHint });
-  const res = await fetch(revokeUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(5_000),
-  });
-  if (!res.ok) {
-    throw new Error(`revocation endpoint returned ${res.status}`);
-  }
-}
 
 export async function POST(request: NextRequest): Promise<Response> {
   const session = await getSession();
 
   if (session.user) {
-    const revokeUrl = `${config.koraApiUrl}/identity/revoke`;
-
     // Fire revocation requests concurrently; don't block logout on failures.
     const [refreshResult, accessResult] = await Promise.allSettled([
-      revokeToken(revokeUrl, session.refreshToken, 'refresh_token'),
-      revokeToken(revokeUrl, session.accessToken, 'access_token'),
+      revokeToken(session.refreshToken, 'refresh_token'),
+      revokeToken(session.accessToken, 'access_token'),
     ]);
     if (refreshResult.status === 'rejected') {
       console.error('[logout] refresh_token revocation failed:', refreshResult.reason);
