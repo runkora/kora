@@ -89,7 +89,7 @@ func dispatchSetup(t *testing.T, cond map[string][]string, prompt string) (*Serv
 func newAdmissionTrigger(t *testing.T, deps *testDeps, overflow string, maxParallel, depth int16) Trigger {
 	t.Helper()
 	trig := &Trigger{
-		ID: "adm-" + overflow, TenantID: testTenant, Kind: KindManual,
+		ID: "adm-" + overflow, Name: "adm-" + overflow, TenantID: testTenant, Kind: KindManual,
 		PrincipalID: "trigger:adm", AgentTypeID: "at-1", Enabled: true,
 		Overflow: overflow, MaxParallel: maxParallel, MaxQueueDepth: depth,
 		AutopauseEnabled: true,

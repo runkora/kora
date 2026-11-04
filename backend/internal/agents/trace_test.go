@@ -8,6 +8,9 @@ import (
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 var (
@@ -80,4 +83,20 @@ func TestSendMessage_LinksToRunTrace(t *testing.T) {
 	if span.SpanContext().TraceID().String() == runTrace || len(links) != 1 || links[0].SpanContext.TraceID().String() != runTrace {
 		t.Fatalf("trace %s links %v, want its own trace linked to %s", span.SpanContext().TraceID(), links, runTrace)
 	}
+}
+
+func TestStartRun_TriggerSpanCarriesTriggerName(t *testing.T) {
+	rec := spanRecorder()
+	f, repo, _, _ := newTestService(t)
+	at := seedAutonomousAgentType(t, repo, "at-1", "t1", "reviewer")
+	ctx := withPrincipalCtx(context.Background(), "t1", token.PrincipalTypeService, "trigger:trig-1")
+	if _, err := f.run.StartRun(ctx, StartRunRequest{AgentTypeID: at.ID, TriggerID: "trig-1", TriggerName: "Nightly review"}); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	for _, a := range endedSpan(t, rec, "agents.StartRun").Attributes() {
+		if a.Key == observability.TriggerNameKey && a.Value.AsString() == "Nightly review" {
+			return
+		}
+	}
+	t.Errorf("agents.StartRun span has no %s attribute", observability.TriggerNameKey)
 }

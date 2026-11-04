@@ -18,6 +18,7 @@ const (
 	AgentSlugKey               attribute.Key = "kora.agent.slug"
 	AgentUpdateKey             attribute.Key = "kora.agent.update"
 	TriggerIDKey               attribute.Key = "kora.trigger.id"
+	TriggerNameKey             attribute.Key = "kora.trigger.name"
 	TriggerDeliveryIDKey       attribute.Key = "kora.trigger.delivery.id"
 	EnvironmentIDKey           attribute.Key = "kora.environment.id"
 	EnvironmentNameKey         attribute.Key = "kora.environment.name"

@@ -77,6 +77,7 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 	if err != nil {
 		return nil, err
 	}
+	trace.SpanFromContext(ctx).SetAttributes(observability.TriggerNameKey.String(t.Name))
 	if t.Kind != KindManual {
 		return nil, fmt.Errorf("%w: only manual triggers can be fired directly", ErrWrongKind)
 	}
@@ -170,7 +171,10 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 	t := tick.Trigger
 	// Roots a scheduled fire's trace; other fires have a request span.
 	ctx, span := triggersTracer.Start(observability.WithTenant(ctx, t.TenantID), "triggers.Service.TickScheduled",
-		trace.WithAttributes(observability.TriggerIDKey.String(t.ID)))
+		trace.WithAttributes(
+			observability.TriggerIDKey.String(t.ID),
+			observability.TriggerNameKey.String(t.Name),
+		))
 	defer span.End()
 	scheduledAt := scheduledAtMinute(tick.ScheduledAt)
 
