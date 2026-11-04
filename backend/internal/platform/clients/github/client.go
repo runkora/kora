@@ -96,12 +96,18 @@ type InstallationToken struct {
 }
 
 // TreeEntry is one node of a recursive Git Trees API response. Type is "blob"
-// for a file and "tree" for a directory. Size is set for blobs.
+// for a file or symbolic link and "tree" for a directory. Size is set for
+// blobs.
 type TreeEntry struct {
 	Path string `json:"path"`
+	Mode string `json:"mode"`
 	Type string `json:"type"`
 	Size int64  `json:"size"`
 }
+
+// SymlinkMode is the tree mode of a symbolic link. Its size is the length of
+// the link path and the contents API returns the target.
+const SymlinkMode = "120000"
 
 // maxTreeBytes bounds a tree response. A larger tree returns ErrTreeTruncated.
 const maxTreeBytes = 16 << 20

@@ -128,11 +128,20 @@ func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 		return skillList{}, fmt.Errorf("fetch skills of %s/%s: %w", m.Owner, m.Repo, err)
 	}
 
+	// folders are in path order, so the budget keeps the same skills as the
+	// selection by tree size.
 	list := skillList{Source: m.source(), SHA: sha, Skills: make([]skillRecord, 0, len(records))}
+	var read int64
 	for i, r := range records {
-		if found[i] {
-			list.Skills = append(list.Skills, r)
+		if !found[i] {
+			continue
 		}
+		if over(read+int64(len(r.Content)), c.limits.SkillMdBytesPerMarketplace) {
+			c.skip(ctx, m, r.Path, fmt.Sprintf("over skillMdBytesPerMarketplace (%d)", c.limits.SkillMdBytesPerMarketplace))
+			continue
+		}
+		read += int64(len(r.Content))
+		list.Skills = append(list.Skills, r)
 	}
 	slices.SortFunc(list.Skills, func(a, b skillRecord) int {
 		if n := strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)); n != 0 {
@@ -161,7 +170,7 @@ func (c *Crawler) skillFolders(ctx context.Context, m *Marketplace, tree []ghcli
 		byPath[f.path] = f
 	}
 	for _, e := range tree {
-		if e.Type != "blob" || path.Base(e.Path) == skillFileName || !isTextPath(e.Path) {
+		if e.Type != "blob" || e.Mode == ghclient.SymlinkMode || path.Base(e.Path) == skillFileName || !isTextPath(e.Path) {
 			continue
 		}
 		owner := deepestSkill(e.Path, byPath)
@@ -198,6 +207,8 @@ func (c *Crawler) findSkills(ctx context.Context, m *Marketplace, tree []ghclien
 		}
 		dir := path.Dir(e.Path)
 		switch {
+		case e.Mode == ghclient.SymlinkMode:
+			c.skip(ctx, m, e.Path, "SKILL.md is a symbolic link")
 		case dir == ".":
 			c.skip(ctx, m, e.Path, "a SKILL.md at the repository root is not in a skill folder")
 		case over(e.Size, c.limits.BytesPerFile):
@@ -235,7 +246,7 @@ func deepestSkill(p string, byPath map[string]*skillFolder) *skillFolder {
 }
 
 // FetchFile fetches one supporting file of skill at sha. A file that turns
-// out not to be text, or larger than the read bound, returns ErrFileNotFound.
+// out not to be text, or longer than its tree size, returns ErrFileNotFound.
 func (c *Crawler) FetchFile(ctx context.Context, m *Marketplace, sha string, skill skillRecord, file SkillFileInfo) (string, error) {
 	token, err := m.Token(ctx)
 	if err != nil {
@@ -264,11 +275,11 @@ func (c *Crawler) fetch(ctx context.Context, local *semaphore.Weighted, token st
 	}
 	defer c.global.Release(1)
 
-	// The configured cap bounds the read when there is one. Otherwise the tree's
-	// size does.
+	// A read never exceeds the tree's size, so the SKILL.md budget counts what
+	// is read, and never exceeds the configured cap.
 	limit := size
 	if c.limits.BytesPerFile > 0 {
-		limit = c.limits.BytesPerFile
+		limit = min(size, c.limits.BytesPerFile)
 	}
 	raw, err := c.github.GetRawContent(ctx, token, m.Owner, m.Repo, sha, p, limit)
 	if err != nil {

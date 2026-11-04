@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"slices"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func crawlNames(l skillList) []string {
@@ -123,6 +125,38 @@ func TestCrawl_SkillMdBudgetAndNoCap(t *testing.T) {
 	}
 }
 
+// A symbolic link is never read: its tree size is the link path, while the
+// contents API returns the target.
+func TestCrawl_SkipsSymlinks(t *testing.T) {
+	g := repo(map[string]string{
+		"real/SKILL.md": skillMD("real", "Real.", ""),
+		"real/notes.md": "notes",
+		"link/SKILL.md": skillMD("link", "Linked.", strings.Repeat("x", 500)),
+		"real/alias.md": "target",
+	})
+	for i := range g.tree {
+		switch g.tree[i].Path {
+		case "link/SKILL.md", "real/alias.md":
+			g.tree[i].Mode = ghclient.SymlinkMode
+			g.tree[i].Size = 8
+		}
+	}
+	var logs bytes.Buffer
+	list, err := NewCrawler(g, testLimits, logging.NewLoggerWithOutput(&logs)).Crawl(context.Background(), testMarketplace(t, "example", "m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"real=real"}; !slices.Equal(crawlNames(list), want) {
+		t.Errorf("skills = %v, want %v", crawlNames(list), want)
+	}
+	if want := []SkillFileInfo{{Path: "notes.md", Size: 5}}; !slices.Equal(list.Skills[0].Files, want) {
+		t.Errorf("files = %v, want the symlinked file left out", list.Skills[0].Files)
+	}
+	if slices.Contains(g.fetchedPaths(), "link/SKILL.md") || !strings.Contains(logs.String(), "SKILL.md is a symbolic link") {
+		t.Errorf("symlinked SKILL.md was fetched or not logged: %v", g.fetchedPaths())
+	}
+}
+
 // An outage aborts the crawl; a broken skill is only skipped.
 func TestCrawl_Errors(t *testing.T) {
 	m := testMarketplace(t, "example", "m")
@@ -157,14 +191,10 @@ func TestFetchFile(t *testing.T) {
 	if _, err := c.FetchFile(context.Background(), m, testSHA, skill, SkillFileInfo{Path: "bin.json", Size: 2}); !errors.Is(err, ErrFileNotFound) {
 		t.Errorf("binary file = %v, want ErrFileNotFound", err)
 	}
-	// A tree size that differs from the content, as for a symlink, still reads
-	// within the configured cap.
-	if got, err := c.FetchFile(context.Background(), m, testSHA, skill, SkillFileInfo{Path: "a.md", Size: 0}); err != nil || got != "a" {
-		t.Errorf("FetchFile with a wrong tree size = %q, %v", got, err)
-	}
-	g.files["skills/pdf/big.md"] = strings.Repeat("x", int(testLimits.BytesPerFile)+1)
-	if _, err := c.FetchFile(context.Background(), m, testSHA, skill, SkillFileInfo{Path: "big.md", Size: 1}); !errors.Is(err, ErrFileNotFound) {
-		t.Errorf("file over the cap = %v, want ErrFileNotFound", err)
+	// A read longer than the tree size is refused.
+	g.files["skills/pdf/long.md"] = "longer than the tree says"
+	if _, err := c.FetchFile(context.Background(), m, testSHA, skill, SkillFileInfo{Path: "long.md", Size: 4}); !errors.Is(err, ErrFileNotFound) {
+		t.Errorf("read past the tree size = %v, want ErrFileNotFound", err)
 	}
 }
 
