@@ -239,6 +239,8 @@ func (s *Service) ChatCompletion(
 	uncachedPromptTokens := disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens)
 	estimatedCost := pricing.estimatedCostUSD(uncachedPromptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
+	recordSpanUsage(span, usedTarget.ModelID, promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
+
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
 		TenantID:                     p.TenantID,
@@ -415,6 +417,8 @@ func (s *Service) ChatCompletionStream(
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
 		uncachedPromptTokens := disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens)
 		estimatedCost := pricing.estimatedCostUSD(uncachedPromptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
+
+		recordSpanUsage(span, capturedTarget.ModelID, promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),
@@ -1829,6 +1833,8 @@ func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*Sy
 	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
 	estimatedCost := pricing.estimatedCostUSD(inputTokens, outputTokens, 0, 0)
 
+	recordSpanUsage(span, usedTarget.ModelID, inputTokens, outputTokens, 0, 0)
+
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
 		TenantID:                     p.TenantID,
@@ -1947,6 +1953,8 @@ func (s *Service) Responses(
 	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
 	uncachedPromptTokens := disjointPromptTokens(promptTokens, cacheReadTokens, cacheCreationTokens)
 	estimatedCost := pricing.estimatedCostUSD(uncachedPromptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
+
+	recordSpanUsage(span, usedTarget.ModelID, promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
@@ -2089,6 +2097,8 @@ func (s *Service) ResponsesStream(
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
 		uncachedInputTokens := disjointPromptTokens(inputTokens, cacheReadTokens, cacheCreationTokens)
 		estimatedCost := pricing.estimatedCostUSD(uncachedInputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
+
+		recordSpanUsage(span, capturedTarget.ModelID, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),
@@ -2288,6 +2298,8 @@ func (s *Service) AnthropicMessages(
 	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
 	estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
+	recordSpanUsage(span, usedTarget.ModelID, promptTokens+cacheReadTokens+cacheCreationTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
+
 	rec := InferenceUsageRecord{
 		ID:                           uuid.NewString(),
 		TenantID:                     p.TenantID,
@@ -2444,6 +2456,8 @@ func (s *Service) AnthropicMessagesStream(
 		cacheCreationTokens := int(accumulated.Usage.CacheCreationInputTokens)
 		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
 		estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
+
+		recordSpanUsage(span, capturedTarget.ModelID, promptTokens+cacheReadTokens+cacheCreationTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
 			ID:                           uuid.NewString(),
@@ -2613,4 +2627,17 @@ func (s *Service) AnalyticsPrincipalByID(ctx context.Context, principalID string
 // client model never names a span.
 func nameModelSpan(span trace.Span, operation, model string) {
 	span.SetName(operation + " " + model)
+}
+
+// recordSpanUsage puts the response's token usage on the chat span under
+// kora's model name, and names the provider's model id as the response model.
+// input counts every prompt token, cached or not, whatever the dialect reports.
+func recordSpanUsage(span trace.Span, providerModelID string, input, output, cacheRead, cacheWrite int) {
+	span.SetAttributes(
+		observability.GenAIResponseModelKey.String(providerModelID),
+		observability.GenAIUsageInputTokensKey.Int(input),
+		observability.GenAIUsageOutputTokensKey.Int(output),
+		observability.GenAIUsageCacheReadTokensKey.Int(cacheRead),
+		observability.GenAIUsageCacheCreationTokensKey.Int(cacheWrite),
+	)
 }

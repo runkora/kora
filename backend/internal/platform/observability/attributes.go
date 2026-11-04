@@ -79,5 +79,11 @@ const (
 	GenAIOperationNameKey attribute.Key = "gen_ai.operation.name"
 	GenAIRequestModelKey  attribute.Key = "gen_ai.request.model"
 	GenAIToolNameKey      attribute.Key = "gen_ai.tool.name"
-	MCPMethodNameKey      attribute.Key = "mcp.method.name"
+
+	GenAIResponseModelKey            attribute.Key = "gen_ai.response.model"
+	GenAIUsageInputTokensKey         attribute.Key = "gen_ai.usage.input_tokens"
+	GenAIUsageOutputTokensKey        attribute.Key = "gen_ai.usage.output_tokens"
+	GenAIUsageCacheReadTokensKey     attribute.Key = "gen_ai.usage.cache_read.input_tokens"
+	GenAIUsageCacheCreationTokensKey attribute.Key = "gen_ai.usage.cache_write.input_tokens"
+	MCPMethodNameKey                 attribute.Key = "mcp.method.name"
 )
