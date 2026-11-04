@@ -130,30 +130,46 @@ func TestDeleteDestinationRule_LeavesOtherTenants(t *testing.T) {
 	}
 }
 
-// A tenant and slug whose names render another agent's rule name fail instead
-// of adopting or deleting that agent's rule.
-func TestDestinationRule_NameCollisionIsRefused(t *testing.T) {
+// Namespace and slug pairs that differ only in where a hyphen falls get
+// different rule names, and none matches an earlier agent-<slug> name.
+func TestAgentDestinationRuleName_Distinct(t *testing.T) {
+	pairs := [][2]string{{"b-c", "kora-tenant-a"}, {"c", "kora-tenant-a-b"}, {"kora-tenant-a-b-c", ""}}
+	seen := map[string]bool{}
+	for _, pair := range pairs[:2] {
+		name := agentDestinationRuleName(pair[0], pair[1])
+		if seen[name] {
+			t.Fatalf("name %q produced twice", name)
+		}
+		seen[name] = true
+	}
+	if seen["agent-"+pairs[2][0]] {
+		t.Error("a per-tenant name matches a legacy agent-<slug> name")
+	}
+}
+
+// A rule under this agent's name for another host is refused, and a delete
+// leaves it in place.
+func TestDestinationRule_ForeignRuleIsRefused(t *testing.T) {
 	p, _, _ := ownerRefFixture(t, destinationRuleTestConfig(), "acme")
 	ctx := context.Background()
-	first := AgentType{ID: "1", Slug: "b-c", TenantID: "acme"}
-	if err := p.ensureDestinationRule(ctx, first, "kora-tenant-a", metav1.OwnerReference{}, true); err != nil {
-		t.Fatalf("ensureDestinationRule: %v", err)
+	name := agentDestinationRuleName("coder", "kora-tenant-acme")
+	foreign := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "networking.istio.io/v1beta1",
+		"kind":       "DestinationRule",
+		"metadata":   map[string]any{"name": name, "namespace": p.cfg.SystemNamespace},
+		"spec":       map[string]any{"host": "elsewhere.example.svc.cluster.local"},
+	}}
+	if _, err := p.dynamicClient.Resource(destinationRuleGVR).Namespace(p.cfg.SystemNamespace).Create(ctx, foreign, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("seed: %v", err)
 	}
-	second := AgentType{ID: "2", Slug: "c", TenantID: "acme"}
-	if agentDestinationRuleName("c", "kora-tenant-a-b") != agentDestinationRuleName("b-c", "kora-tenant-a") {
-		t.Fatal("fixture no longer collides")
+	at := AgentType{ID: "1", Slug: "coder", TenantID: "acme"}
+	if err := p.ensureDestinationRule(ctx, at, "kora-tenant-acme", metav1.OwnerReference{}, true); err == nil {
+		t.Error("rule for another host was accepted")
 	}
-	if err := p.ensureDestinationRule(ctx, second, "kora-tenant-a-b", metav1.OwnerReference{}, true); err == nil {
-		t.Error("colliding name was accepted")
-	}
-	if err := p.deleteDestinationRule(ctx, "c", "kora-tenant-a-b"); err != nil {
+	if err := p.deleteDestinationRule(ctx, "coder", "kora-tenant-acme"); err != nil {
 		t.Fatalf("deleteDestinationRule: %v", err)
 	}
-	dr, ok := getDestinationRule(t, p, agentDestinationRuleName("b-c", "kora-tenant-a"))
-	if !ok {
-		t.Fatal("first agent's rule was deleted")
-	}
-	if host, _ := destinationRuleTarget(t, dr); host != agentServiceHost("b-c", "kora-tenant-a") {
-		t.Errorf("host = %q, want the first agent's", host)
+	if _, ok := getDestinationRule(t, p, name); !ok {
+		t.Error("rule for another host was deleted")
 	}
 }

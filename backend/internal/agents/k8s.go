@@ -2150,8 +2150,8 @@ func (p *K8sProvisioner) ensureDestinationRule(ctx context.Context, at AgentType
 		if getErr != nil {
 			return fmt.Errorf("get existing destinationrule: %w", getErr)
 		}
-		// A hyphenated tenant and slug can render another agent's name. Refuse
-		// rather than leave this agent unreachable behind another's rule.
+		// A rule under this name for another host was not made by kora. Refuse
+		// rather than leave this agent unreachable behind it.
 		if existingHost, _, _ := unstructured.NestedString(existing.Object, "spec", "host"); existingHost != host {
 			return fmt.Errorf("destinationrule %s is for %s, not %s", name, existingHost, host)
 		}
@@ -2177,9 +2177,11 @@ func agentServiceHost(slug, namespace string) string {
 
 // agentDestinationRuleName is the DestinationRule for an agent type. Every
 // tenant's rule lives in the system namespace, so the name carries the tenant
-// namespace: two tenants can have an agent with the same slug.
+// namespace: two tenants can have an agent with the same slug. Slugs and
+// namespaces are DNS labels and hold no dots, so the dot keeps every pair
+// distinct and apart from the earlier agent-<slug> names.
 func agentDestinationRuleName(slug, namespace string) string {
-	return "agent-" + namespace + "-" + slug
+	return "agent-" + slug + "." + namespace
 }
 
 // deleteLegacyDestinationRule deletes the rule an earlier release named
