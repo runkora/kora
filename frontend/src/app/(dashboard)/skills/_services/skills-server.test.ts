@@ -1,170 +1,56 @@
-/**
- * Unit tests for the Marketplace choice in loadMarketplaceOverview.
- *
- * Order: the requested Marketplace, the saved Marketplace from the user
- * preferences, the first Marketplace in the skills-service order. Each choice
- * is a marketplaceSlug.
- *
- * Strategy:
- * - The Marketplace client is mocked (it now calls the live skills-service),
- *   so fetchMarketplaces/fetchSkills return fixed sample data below. In that
- *   sample order, the Marketplaces are "ClearRoute Core"
- *   (clearroute__core-skills), "ClearRoute Platform", "Partner Reference"
- *   (partner-org__reference-skills), and "Platform Engineering"
- *   (platform-engineering__skills).
- * - getPreferences is mocked, so each test sets the saved Marketplace.
- */
+/** Unit tests for the paging and failure mapping between the pages and skills-service. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PREFERENCE_DEFAULTS } from '../../_preferences/preferences.schema';
-import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types';
+import { ApiError } from '@runkora/server/api-error';
 
-const CORE = 'clearroute__core-skills';
-const PARTNER = 'partner-org__reference-skills';
-const PLATFORM = 'platform-engineering__skills';
-
-const { getPreferences, fetchMarketplaces, fetchSkills } = vi.hoisted(() => ({
-  getPreferences: vi.fn(),
-  fetchMarketplaces: vi.fn(),
-  fetchSkills: vi.fn(),
-}));
-vi.mock('../../_preferences/preferences-server', () => ({ getPreferences }));
+const { fetchSkillsPage } = vi.hoisted(() => ({ fetchSkillsPage: vi.fn() }));
 vi.mock('@runkora/server/skills-client', () => ({
-  fetchMarketplaces,
-  fetchSkills,
-  fetchSkillDetail: vi.fn(),
+  fetchMarketplaces: vi.fn(),
+  fetchSkill: vi.fn(),
+  fetchSkillsPage,
 }));
 
-import { loadMarketplaceOverview } from './skills-server';
+import { loadSkillsPage } from './skills-server';
 
-/** The browse values of `/skills` with no query keys. */
-const DEFAULT_BROWSE: MarketplaceBrowseParams = {
-  marketplace: '',
-  query: '',
-  page: 1,
-  pageSize: 24,
-  sort: 'name-asc',
-};
-
-function saveMarketplace(lastSelected: string) {
-  getPreferences.mockResolvedValue({ ...PREFERENCE_DEFAULTS, marketplace: { lastSelected } });
-}
-
-async function loadOverview(browse: MarketplaceBrowseParams): Promise<MarketplaceOverviewData> {
-  const result = await loadMarketplaceOverview('test-token', browse);
-  if (!result.ok) {
-    throw new Error(`Expected a successful load, got ${result.status}: ${result.message}`);
-  }
-  return result.overview;
-}
+const browse = { marketplace: 'team-skills', search: 'pdf', page: 3 };
 
 beforeEach(() => {
-  getPreferences.mockReset();
-  fetchMarketplaces.mockReset().mockResolvedValue({
-    marketplaces: [
-      {
-        name: 'ClearRoute Core',
-        marketplaceSlug: CORE,
-        link: 'https://github.com/clearroute/core-skills',
-      },
-      {
-        name: 'ClearRoute Platform',
-        marketplaceSlug: 'clearroute__platform-skills',
-        link: 'https://github.com/clearroute/platform-skills',
-      },
-      {
-        name: 'Partner Reference',
-        marketplaceSlug: PARTNER,
-        link: 'https://github.com/partner-org/reference-skills',
-      },
-      {
-        name: 'Platform Engineering',
-        marketplaceSlug: PLATFORM,
-        link: 'https://github.com/platform-engineering/skills',
-      },
-    ],
-  });
-  fetchSkills.mockReset().mockResolvedValue({ skills: [] });
+  fetchSkillsPage.mockReset();
+  vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
-describe('loadMarketplaceOverview Marketplace choice', () => {
+describe('loadSkillsPage', () => {
+  it('turns the page number into an offset of whole pages', async () => {
+    fetchSkillsPage.mockResolvedValue({ skills: [], total: 0 });
+
+    await loadSkillsPage('token', browse, 25);
+
+    expect(fetchSkillsPage).toHaveBeenCalledWith('token', 'team-skills', {
+      search: 'pdf',
+      offset: 50,
+      limit: 25,
+    });
+  });
+
   it.each([
-    { sort: 'relevance' as const, expected: ['Zulu', 'Alpha'] },
-    { sort: 'name-asc' as const, expected: ['Alpha', 'Zulu'] },
-    { sort: 'name-desc' as const, expected: ['Zulu', 'Alpha'] },
-  ])('keeps the selected $sort order for search results', async ({ sort, expected }) => {
-    fetchSkills.mockResolvedValue({
-      skills: [
-        {
-          name: 'Zulu',
-          description: 'Strong body match',
-          skillSlug: `${CORE}__zulu`,
-          skillName: 'zulu',
-        },
-        {
-          name: 'Alpha',
-          description: 'Weaker match',
-          skillSlug: `${CORE}__alpha`,
-          skillName: 'alpha',
-        },
-      ],
-    });
-    const overview = await loadOverview({
-      ...DEFAULT_BROWSE,
-      marketplace: CORE,
-      query: 'validation',
-      sort,
-    });
-    expect(overview.skills.map((skill) => skill.name)).toEqual(expected);
-    expect(overview.total).toBe(2);
-    expect(fetchSkills).toHaveBeenCalledWith('test-token', CORE, 'validation', undefined);
-  });
+    [
+      new ApiError(502, 'marketplace_unavailable', 'The GitHub App credential is unavailable.'),
+      { status: 502, message: 'The GitHub App credential is unavailable.' },
+    ],
+    [
+      new ApiError(403, 'forbidden', 'raw'),
+      { status: 403, message: 'You do not have access to the skills.' },
+    ],
+    [
+      new ApiError(404, 'not_found', 'raw'),
+      { status: 404, message: 'Could not load the skills. Try again.' },
+    ],
+    [
+      new TypeError('fetch failed'),
+      { status: 500, message: 'Could not load the skills. Try again.' },
+    ],
+  ])('maps %s to a page message', async (err, expected) => {
+    fetchSkillsPage.mockRejectedValue(err);
 
-  it('uses the first Marketplace on a first visit', async () => {
-    saveMarketplace('');
-
-    const overview = await loadOverview(DEFAULT_BROWSE);
-
-    expect(overview.browse.marketplace).toBe(CORE);
-  });
-
-  it('uses the requested Marketplace slug and does not read the preferences', async () => {
-    saveMarketplace(PARTNER);
-
-    const overview = await loadOverview({ ...DEFAULT_BROWSE, marketplace: PLATFORM });
-
-    expect(overview.browse.marketplace).toBe(PLATFORM);
-    expect(getPreferences).not.toHaveBeenCalled();
-  });
-
-  it('uses the first Marketplace when the saved Marketplace no longer exists', async () => {
-    saveMarketplace('removed__marketplace');
-
-    const overview = await loadOverview(DEFAULT_BROWSE);
-
-    expect(overview.browse.marketplace).toBe(CORE);
-  });
-
-  it('keeps the skills-service order of the Marketplaces', async () => {
-    saveMarketplace('');
-
-    const overview = await loadOverview(DEFAULT_BROWSE);
-
-    expect(overview.marketplaces.map((m) => m.name)).toEqual([
-      'ClearRoute Core',
-      'ClearRoute Platform',
-      'Partner Reference',
-      'Platform Engineering',
-    ]);
-  });
-
-  it('falls back to the first Marketplace for an unknown requested slug', async () => {
-    saveMarketplace('');
-
-    const overview = await loadOverview({
-      ...DEFAULT_BROWSE,
-      marketplace: 'nobody__nothing',
-    });
-
-    expect(overview.browse.marketplace).toBe(CORE);
+    expect(await loadSkillsPage('token', browse, 25)).toEqual({ ok: false, ...expected });
   });
 });

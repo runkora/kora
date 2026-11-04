@@ -1,49 +1,51 @@
-/** Test-only HTTP fixture for Next.js server fetches, which page.route cannot intercept. */
+/** Test-only stand-in for skills-service, reached by Next.js server fetches that page.route cannot see. */
 import { createServer } from 'node:http';
-import {
-  MARKETPLACE_FIXTURES,
-  SKILL_DETAIL_FIXTURES,
-  SKILL_FIXTURES_BY_MARKETPLACE,
-} from './skills-fixtures.ts';
+import { BROKEN, MARKETPLACES, SKILLS, UNAVAILABLE_MESSAGE } from './skills-fixtures.ts';
 
-const port = Number(process.env.PLAYWRIGHT_MARKETPLACE_PORT ?? '3101');
+const port = Number(process.env.PLAYWRIGHT_SKILLS_PORT ?? '3101');
 
 createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
-  const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
-  function json(status, body) {
+  const json = (status, body) => {
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(body));
-  }
+  };
 
   if (url.pathname === '/health') return json(200, {});
-  if (!req.headers.authorization?.startsWith('Bearer '))
-    return json(401, { message: 'Unauthorized' });
-  if (url.pathname === '/v1/marketplaces') return json(200, { marketplaces: MARKETPLACE_FIXTURES });
+  if (!req.headers.authorization?.startsWith('Bearer ')) return json(401, { code: 'unauthorized' });
+  if (url.pathname === '/v1/marketplaces') return json(200, { marketplaces: MARKETPLACES });
 
-  const [version, resource, marketplaceSlug, skillName] = parts;
-  const catalogue = SKILL_FIXTURES_BY_MARKETPLACE[marketplaceSlug];
-  if (version !== 'v1' || resource !== 'marketplaces' || !catalogue) {
-    return json(404, { message: 'Marketplace not found' });
+  const [, , slug, resource, ...path] = url.pathname
+    .split('/')
+    .filter(Boolean)
+    .map(decodeURIComponent);
+  const marketplace = MARKETPLACES.find((entry) => entry.slug === slug);
+  if (!marketplace) return json(404, { code: 'not_found', message: 'Marketplace not found.' });
+  if (marketplace === BROKEN) {
+    return json(502, { code: 'marketplace_unavailable', message: UNAVAILABLE_MESSAGE });
   }
-  if (parts.length === 3) {
-    const search = (url.searchParams.get('search') ?? '').toLowerCase();
-    return json(200, {
-      ...MARKETPLACE_FIXTURES.find((entry) => entry.marketplaceSlug === marketplaceSlug),
-      skills: catalogue.filter((skill) => skill.name.toLowerCase().includes(search)),
-    });
+  const skills = SKILLS[slug] ?? [];
+
+  if (resource === 'skills') {
+    const found = skills.find((entry) => entry.path === path.join('/'));
+    return found ? json(200, found) : json(404, { code: 'not_found', message: 'Skill not found.' });
   }
-  if (parts.length !== 4) return json(404, { message: 'Skill not found' });
-  const name = skillName.startsWith(`${marketplaceSlug}__`)
-    ? skillName.slice(marketplaceSlug.length + 2)
-    : skillName;
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
-    return json(400, { message: 'Invalid skill name' });
-  }
-  if (name === 'upstream-error') return json(503, { message: 'Temporary catalogue failure.' });
-  const skillSlug = `${marketplaceSlug}__${name}`;
-  const skill = catalogue.some((entry) => entry.skillSlug === skillSlug)
-    ? SKILL_DETAIL_FIXTURES.find((entry) => entry.skillSlug === skillSlug)
-    : undefined;
-  return skill ? json(200, skill) : json(404, { message: 'Skill not found' });
+
+  const search = (url.searchParams.get('search') ?? '').toLowerCase();
+  const offset = Number(url.searchParams.get('offset') ?? '0');
+  const limit = Number(url.searchParams.get('limit') ?? '25');
+  const matched = skills
+    .filter(
+      (entry) => !search || `${entry.name} ${entry.description}`.toLowerCase().includes(search),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name, 'en'));
+  return json(200, {
+    marketplace,
+    skills: matched
+      .slice(offset, offset + limit)
+      .map(({ path, name, description }) => ({ path, name, description })),
+    total: matched.length,
+    offset,
+    limit,
+  });
 }).listen(port, '127.0.0.1');

@@ -9,7 +9,9 @@ import { ApiError } from './api-error';
 import { fetchSkill, fetchSkillsPage } from './skills-client';
 
 function stubFetch(response: Response) {
-  const fetchMock = vi.fn((_url: string, _init: RequestInit) => Promise.resolve(response));
+  const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(() =>
+    Promise.resolve(response),
+  );
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
 }

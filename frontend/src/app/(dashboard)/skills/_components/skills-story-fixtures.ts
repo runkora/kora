@@ -1,57 +1,62 @@
-/** @tier 3 — skills-scoped. Browser-safe sample Skills shared by result stories. */
+/** @tier 3 — skills-scoped. Sample skills-service data shared by the Skills stories and tests. */
 
-import type { Marketplace, SkillSummary } from '@orbit/shared/api';
+import type { Marketplace, MarketplaceSkillsPage, Skill, SkillSummary } from '@runkora/shared/api';
+import type { SkillsOverview } from '../_types';
 
-export const marketplaceStorySkills: SkillSummary[] = [
-  {
-    skillSlug: 'platform-engineering__skills__api-contract-diff',
-    skillName: 'api-contract-diff',
-    name: 'API Contract Diff',
-    description: 'Diffs OpenAPI specifications and flags breaking changes.',
-  },
-  {
-    skillSlug: 'platform-engineering__skills__cluster-upgrade-planner',
-    skillName: 'cluster-upgrade-planner',
-    name: 'Cluster Upgrade Planning and Compatibility Review for Production Kubernetes Workloads',
-    description:
-      'Plans a Kubernetes upgrade by checking version compatibility, identifying workloads that need changes, and sequencing the rollout with validation and rollback steps. Highlights deprecated APIs and includes validation checkpoints and recovery steps for every stage of the rollout.',
-  },
-  {
-    skillSlug: 'platform-engineering__skills__react-expert',
-    skillName: 'react-expert',
-    name: 'React Expert',
-    description:
-      'Reviews React components for accessibility, state handling, and clear interfaces.',
-  },
-  {
-    skillSlug: 'platform-engineering__skills__react-reviewer',
-    skillName: 'react-reviewer',
-    name: 'React Reviewer',
-    description: 'Reviews React components for accessibility and state handling.',
-  },
-  {
-    skillSlug: 'platform-engineering__skills__reference-notes',
-    skillName: 'reference-notes',
-    name: 'Reference Notes',
-    description: '',
-  },
-  {
-    skillSlug: 'platform-engineering__skills__terraform-plan-reviewer',
-    skillName: 'terraform-plan-reviewer',
-    name: 'Terraform Plan Reviewer',
-    description: 'Reviews infrastructure changes and highlights unexpected resource replacements.',
-  },
-];
-
-/** Display names and identifiers stay distinct, matching the skills-service contract. */
-export const marketplaceStoryPlatform: Marketplace = {
-  name: 'Platform Engineering',
-  marketplaceSlug: 'platform-engineering__skills',
-  link: 'https://github.com/platform-engineering/skills',
+export const TEAM_MARKETPLACE: Marketplace = {
+  slug: 'team-skills',
+  name: 'skills',
+  repository: 'example-org/skills',
 };
 
-export const marketplaceStoryCore: Marketplace = {
-  name: 'ClearRoute Core',
-  marketplaceSlug: 'clearroute__core-skills',
-  link: 'https://github.com/clearroute/core-skills',
+export const PARTNER_MARKETPLACE: Marketplace = {
+  slug: 'partner-skills',
+  name: 'reference-skills',
+  repository: 'partner-org/reference-skills',
+};
+
+export const STORY_MARKETPLACES = [TEAM_MARKETPLACE, PARTNER_MARKETPLACE];
+
+export const STORY_SKILLS: SkillSummary[] = [
+  {
+    path: 'skills/api-contract-diff',
+    name: 'api-contract-diff',
+    description: 'Diffs OpenAPI specifications and flags breaking changes.',
+  },
+  { path: 'skills/docx', name: 'docx', description: 'Edits Word documents.' },
+  { path: 'skills/pdf', name: 'pdf', description: 'Reads and writes PDF files.' },
+];
+
+/** A first page of 3 skills out of 30 in total, so the page controls show several pages. */
+export function storyOverview(overrides: Partial<SkillsOverview> = {}): SkillsOverview {
+  return {
+    marketplaces: STORY_MARKETPLACES,
+    browse: { marketplace: TEAM_MARKETPLACE.slug, search: '', page: 1 },
+    skills: STORY_SKILLS,
+    total: 30,
+    ...overrides,
+  };
+}
+
+export function storyPage(overrides: Partial<MarketplaceSkillsPage> = {}): MarketplaceSkillsPage {
+  return {
+    marketplace: TEAM_MARKETPLACE,
+    skills: STORY_SKILLS,
+    total: 30,
+    offset: 0,
+    limit: 25,
+    ...overrides,
+  };
+}
+
+export const STORY_SKILL: Skill = {
+  path: 'skills/pdf',
+  name: 'pdf',
+  description: 'Reads and writes PDF files.',
+  repository: TEAM_MARKETPLACE.repository,
+  files: [
+    { path: 'SKILL.md', content: '# pdf\n\nRead the PDF, then answer from its text.' },
+    { path: 'reference/forms.md', content: '# Forms\n\nFill each field in order.' },
+    { path: 'scripts/extract.py', content: 'print("extract")\n' },
+  ],
 };

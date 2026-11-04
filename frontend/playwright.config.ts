@@ -2,16 +2,17 @@ import { defineConfig, devices } from '@playwright/test';
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000';
 const port = new URL(baseURL).port || '3000';
-const marketplacePort = process.env.PLAYWRIGHT_MARKETPLACE_PORT ?? '3101';
-const marketplaceURL = `http://127.0.0.1:${marketplacePort}`;
+const skillsPort = process.env.PLAYWRIGHT_SKILLS_PORT ?? '3101';
+const skillsURL = `http://127.0.0.1:${skillsPort}`;
 
 /**
  * Playwright E2E configuration.
  *
  * Category A constraint (docs/adr/2026-04-01-browser-auth-flow-and-bff-session-architecture.md): E2E tests in frontend/e2e/ must NEVER
  * require a live Go backend, Postgres, or Redis instance.  All Go API calls
- * use page.route() for browser calls and a test-only HTTP fixture for
- * Marketplace server renders. No production fixture path is introduced.
+ * are intercepted at the network level using page.route() inside each test,
+ * except skills-service, which a test-only HTTP fixture stands in for because
+ * the Skills pages call it from the server.
  *
  * The Next.js dev server is started automatically by the webServer block so
  * tests can run with a single `pnpm test:e2e` command.
@@ -56,9 +57,9 @@ export default defineConfig({
   webServer: [
     {
       command: 'node e2e/skills-upstream.mjs',
-      url: `${marketplaceURL}/health`,
+      url: `${skillsURL}/health`,
       timeout: 10_000,
-      env: { PLAYWRIGHT_MARKETPLACE_PORT: marketplacePort },
+      env: { PLAYWRIGHT_SKILLS_PORT: skillsPort },
     },
     {
       command: `pnpm run dev --port ${port}`,
@@ -71,9 +72,9 @@ export default defineConfig({
         // of whether BFF_SESSION_SECRET is set in the host environment (e.g.
         // when invoked via `make` which exports the root .env).
         BFF_SESSION_SECRET: 'playwright-test-session-secret-32ch',
-        ORBIT_API_URL: process.env.ORBIT_API_URL ?? 'http://localhost:8080',
-        // These URLs are not called during E2E tests (all BFF fetches are
-        // intercepted by page.route()), but config.ts requires them at boot.
+        KORA_API_URL: process.env.KORA_API_URL ?? 'http://localhost:8080',
+        // These URLs are not called during E2E tests, but config.ts requires
+        // them at boot.
         // A new requireEnv() in config.ts must be added here too: without it the
         // dev server never starts and every test fails on a missing element,
         // which reads as a UI regression rather than a missing variable.
@@ -83,9 +84,8 @@ export default defineConfig({
         ORBIT_AGENTS_URL: process.env.ORBIT_AGENTS_URL ?? 'http://localhost:8080',
         ORBIT_TRIGGERS_URL: process.env.ORBIT_TRIGGERS_URL ?? 'http://localhost:8097',
         TOOL_GATEWAY_URL: process.env.TOOL_GATEWAY_URL ?? 'http://localhost:8096',
-        // page.route cannot intercept an RSC fetch. Keep the upstream fixture
-        // outside production code and exercise the real server-rendered routes.
-        SKILLS_SERVICE_URL: `${marketplaceURL}/v1`,
+        // The skills-upstream.mjs fixture, called by the Skills RSC pages and BFF route.
+        SKILLS_SERVICE_URL: `${skillsURL}/v1`,
       },
     },
   ],

@@ -92,9 +92,9 @@ See [table-layout.md](../golden-paths/table-layout.md) for the sizing rules arou
 
 ## ViewToggle
 
-**Import:** `import { ViewToggle } from '@orbit/hades'`
+**Import:** `import { ViewToggle } from '@runkora/components'`
 
-**When to use:** Any result list that the user can show as cards or as a list. It renders two icon buttons in a Hades `ButtonGroup` and sets `aria-pressed` on the active button. The policy Grants and Roles tabs and the Marketplace overview use it.
+**When to use:** Any result list that the user can show as cards or as a list. It renders two icon buttons in a Hades `ButtonGroup` and sets `aria-pressed` on the active button. The policy Grants and Roles tabs, the Agents page, MCP Servers and the Skills overview use it.
 
 ```tsx
 interface ViewToggleProps {

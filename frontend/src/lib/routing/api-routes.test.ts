@@ -17,53 +17,18 @@ import { ApiRoute } from './api-routes';
  *      session verb symmetry, discover path coupling).
  */
 describe('ApiRoute', () => {
-  describe('marketplaceSkills', () => {
-    it('encodes browse values and returns the Marketplace BFF path', () => {
+  describe('skills', () => {
+    it('encodes the browse values and leaves out an empty search', () => {
       const url = new URL(
-        ApiRoute.skills.GET({
-          marketplace: 'A & B',
-          query: 'C# D',
-          page: 2,
-          pageSize: 12,
-          sort: 'name-desc',
-        }),
+        ApiRoute.skills.GET({ marketplace: 'a b', search: '', page: 2, pageSize: 25 }),
         'http://localhost',
       );
       expect(url.pathname).toBe('/api/skills');
       expect(Object.fromEntries(url.searchParams)).toEqual({
-        marketplace: 'A & B',
-        query: 'C# D',
+        marketplace: 'a b',
         page: '2',
-        pageSize: '12',
-        sort: 'name-desc',
+        pageSize: '25',
       });
-    });
-
-    it('omits an empty search', () => {
-      const url = new URL(
-        ApiRoute.skills.GET({
-          marketplace: '',
-          query: '',
-          page: 1,
-          pageSize: 24,
-          sort: 'name-asc',
-        }),
-        'http://localhost',
-      );
-      expect(url.searchParams.has('query')).toBe(false);
-      expect(url.searchParams.has('marketplace')).toBe(false);
-    });
-
-    it('starts with /api', () => {
-      expect(
-        ApiRoute.skills.GET({
-          marketplace: '',
-          query: '',
-          page: 1,
-          pageSize: 24,
-          sort: 'name-asc',
-        }),
-      ).toMatch(/^\/api\//);
     });
   });
   describe('discover', () => {

@@ -1,332 +1,103 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+/** Integration tests for the Skills overview states, rendered through SkillsShell with MSW. */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { renderWithProviders, server } from '@orbit/test-utils';
-import { PreferencesProvider } from '../../_preferences/preferences-context';
-import { PREFERENCE_DEFAULTS } from '../../_preferences/preferences.schema';
-import { MarketplaceShell } from './skills-shell';
-import { MarketplacePage } from './skills-page';
-import { MarketplaceProvider } from '../_context/skills-context';
-import type { MarketplaceOverviewData } from '../_types';
+import { renderWithProviders, server } from '@runkora/test-utils';
+import { SkillsShell } from './skills-shell';
+import { storyOverview, storyPage, TEAM_MARKETPLACE } from './skills-story-fixtures';
 
-vi.mock('next/navigation', () => ({
-  usePathname: () => window.location.pathname,
-  useRouter: () => ({ push: vi.fn() }),
-}));
+const push = vi.fn();
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push, refresh: vi.fn() }) }));
 
-const browse = { marketplace: 'Core', query: '', page: 1, pageSize: 24, sort: 'name-asc' as const };
-const partial: MarketplaceOverviewData = {
-  marketplaces: [
-    { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
-    { name: 'Other', marketplaceSlug: 'Other', link: 'https://github.com/example/other' },
-  ],
-  requested: browse,
-  browse,
-  skills: [],
-  total: 0,
-};
+const OVERVIEW = `/skills/${TEAM_MARKETPLACE.slug}`;
 
-afterEach(() => window.history.replaceState(null, '', '/'));
-
-function renderFailure(data: MarketplaceOverviewData) {
-  window.history.replaceState(null, '', '/skills');
-  return renderWithProviders(
-    <PreferencesProvider initialPreferences={PREFERENCE_DEFAULTS}>
-      <MarketplaceShell initialOverview={data} initialError="Failed to load Skills" />
-    </PreferencesProvider>,
-  );
-}
-
-describe('Marketplace initial failure recovery', () => {
-  it('does not claim the Marketplace is empty while retrying a failed first Skills load', async () => {
-    let finishRequest!: () => void;
-    const pending = new Promise<void>((resolve) => {
-      finishRequest = resolve;
-    });
-    server.use(
-      http.get('/api/skills', async () => {
-        await pending;
-        return HttpResponse.json({ data: partial });
-      }),
-    );
-    renderFailure(partial);
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(screen.getByText('Loading Skills…')).toBeVisible();
-    expect(screen.queryByText('No Skills in this Marketplace')).not.toBeInTheDocument();
-    finishRequest();
-    expect(await screen.findByText('No Skills in this Marketplace')).toBeVisible();
-  });
-
-  it('keeps the selector and allows a healthy Marketplace to load after a Skills failure', async () => {
-    server.use(
-      http.get('/api/skills', () =>
-        HttpResponse.json({ data: { ...partial, browse: { ...browse, marketplace: 'Other' } } }),
-      ),
-    );
-    renderFailure(partial);
-    expect(screen.getByText('Failed to load Skills')).toBeVisible();
-    expect(screen.queryByText('No Skills in this Marketplace')).not.toBeInTheDocument();
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Marketplace: Core' }));
-    await user.click(screen.getByRole('radio', { name: 'Other' }));
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Marketplace: Other' })).toBeVisible(),
-    );
-    expect(screen.queryByText('Failed to load Skills')).not.toBeInTheDocument();
-  });
-
-  it('keeps a newly loaded Marketplace list when a retry loads the list but still fails to load Skills', async () => {
-    server.use(
-      http.get('/api/skills', () =>
-        HttpResponse.json(
-          { code: 'upstream_error', message: 'Failed to load Skills', data: partial },
-          { status: 502 },
-        ),
-      ),
-    );
-    renderFailure({ ...partial, marketplaces: [] });
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Try again' }));
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Marketplace: Core' })).toBeVisible(),
-    );
-    expect(screen.getByText('Failed to load Skills')).toBeVisible();
-    expect(screen.queryByText('No Skills in this Marketplace')).not.toBeInTheDocument();
-  });
+beforeEach(() => {
+  push.mockReset();
+  window.history.replaceState(null, '', OVERVIEW);
 });
 
-// ── MarketplacePage (rendered directly via MarketplaceProvider) ────────────────
+describe('SkillsPage', () => {
+  it('lists a page of skills with the total, and a row opens the skill by its path', async () => {
+    renderWithProviders(<SkillsShell initialOverview={storyOverview()} initialError={null} />);
 
-function browseWith(overrides: Partial<MarketplaceOverviewData['browse']> = {}) {
-  return { ...browse, ...overrides };
-}
-
-function overviewWith(overrides: Partial<MarketplaceOverviewData> = {}): MarketplaceOverviewData {
-  const b = browseWith();
-  return {
-    marketplaces: [
-      { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
-    ],
-    requested: b,
-    browse: b,
-    skills: [],
-    total: 0,
-    ...overrides,
-  };
-}
-
-const SKILL = {
-  skillSlug: 'core/skills/react-expert',
-  skillName: 'react-expert',
-  name: 'React Expert',
-  description: 'Senior React developer.',
-};
-
-function renderOverview(data: MarketplaceOverviewData, initialError: string | null = null) {
-  window.history.replaceState(null, '', '/skills');
-  return renderWithProviders(
-    <MarketplaceProvider initialData={data} initialError={initialError}>
-      <MarketplacePage />
-    </MarketplaceProvider>,
-  );
-}
-
-describe('result states', () => {
-  it('renders populated results in the list view by default', () => {
-    renderOverview(overviewWith({ skills: [SKILL], total: 1 }));
-
-    expect(screen.getByRole('table')).toBeInTheDocument();
-    expect(screen.getByText('React Expert')).toBeInTheDocument();
+    expect(screen.getByText('1–3 of 30')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Page 2' })).toBeVisible();
+    await userEvent.click(screen.getByRole('row', { name: 'Open pdf' }));
+    expect(push).toHaveBeenCalledWith(`${OVERVIEW}/skills/pdf`);
   });
 
-  it('shows the empty-Marketplace message when the Marketplace has no Skills', () => {
-    renderOverview(overviewWith());
+  it('links each card to its skill in card view', async () => {
+    renderWithProviders(<SkillsShell initialOverview={storyOverview()} initialError={null} />);
 
-    expect(screen.getByText('No Skills in this Marketplace')).toBeInTheDocument();
-  });
+    await userEvent.click(screen.getByRole('button', { name: 'Card view' }));
 
-  it('shows the no-matches message and a Clear search action for an empty search result', () => {
-    renderOverview(
-      overviewWith({
-        requested: browseWith({ query: 'react' }),
-        browse: browseWith({ query: 'react' }),
-      }),
-    );
-
-    expect(screen.getByText('No Skills match your search')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Clear search' })).toBeInTheDocument();
-  });
-
-  it('shows the no-Marketplaces empty state when there are no Marketplaces', () => {
-    renderOverview(
-      overviewWith({
-        marketplaces: [],
-        requested: browseWith({ marketplace: '' }),
-        browse: browseWith({ marketplace: '' }),
-      }),
-    );
-
-    expect(screen.getByText('No Marketplaces available')).toBeInTheDocument();
-  });
-
-  it('shows an error notice with Try again when the first load failed entirely', () => {
-    renderOverview(
-      overviewWith({
-        marketplaces: [],
-        requested: browseWith({ marketplace: '' }),
-        browse: browseWith({ marketplace: '' }),
-      }),
-      'Failed to load Marketplaces',
-    );
-
-    expect(screen.getByText(/Could not load the Marketplace/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
-  });
-
-  it('shows a loading skeleton while retrying after a failed first load', async () => {
-    let finishRequest!: () => void;
-    const pending = new Promise<void>((resolve) => {
-      finishRequest = resolve;
-    });
-    server.use(
-      http.get('/api/skills', async () => {
-        await pending;
-        return HttpResponse.json({ data: overviewWith({ skills: [SKILL], total: 1 }) });
-      }),
-    );
-    renderOverview(
-      overviewWith({
-        marketplaces: [],
-        requested: browseWith({ marketplace: '' }),
-        browse: browseWith({ marketplace: '' }),
-      }),
-      'Failed to load Marketplaces',
-    );
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole('button', { name: 'Try again' }));
-
-    expect(screen.getByRole('status', { name: 'Loading the Marketplace' })).toBeInTheDocument();
-    finishRequest();
-    expect(await screen.findByText('React Expert')).toBeVisible();
-  });
-});
-
-describe('later browse changes', () => {
-  function populatedOverview() {
-    return overviewWith({
-      marketplaces: [
-        { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
-        { name: 'Other', marketplaceSlug: 'Other', link: 'https://github.com/example/other' },
-      ],
-      skills: [SKILL],
-      total: 1,
-    });
-  }
-
-  it('keeps the current results visible and shows a loading notice during a later refresh', async () => {
-    let finishRequest!: () => void;
-    const pending = new Promise<void>((resolve) => {
-      finishRequest = resolve;
-    });
-    server.use(
-      http.get('/api/skills', async () => {
-        await pending;
-        return HttpResponse.json({
-          data: overviewWith({
-            marketplaces: [
-              { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
-              { name: 'Other', marketplaceSlug: 'Other', link: 'https://github.com/example/other' },
-            ],
-            skills: [SKILL],
-            total: 1,
-            requested: browseWith({ sort: 'name-desc' }),
-            browse: browseWith({ sort: 'name-desc' }),
-          }),
-        });
-      }),
-    );
-    renderOverview(populatedOverview());
-    const user = userEvent.setup();
-
-    await user.selectOptions(screen.getByLabelText('Sort skills'), 'name-desc');
-
-    expect(screen.getByText('Loading Skills…')).toBeVisible();
-    expect(screen.getByText('React Expert')).toBeVisible();
-
-    finishRequest();
-    await waitFor(() => expect(screen.queryByText('Loading Skills…')).not.toBeInTheDocument());
-  });
-
-  it('shows an error notice above the existing results when a later refresh fails, with a working retry', async () => {
-    server.use(
-      http.get('/api/skills', () =>
-        HttpResponse.json(
-          { code: 'upstream_error', message: 'Failed to load Skills' },
-          { status: 500 },
-        ),
-      ),
-    );
-    renderOverview(populatedOverview());
-    const user = userEvent.setup();
-
-    await user.selectOptions(screen.getByLabelText('Sort skills'), 'name-desc');
-
-    expect(await screen.findByText(/last successful request/)).toBeVisible();
-    expect(screen.getByText('React Expert')).toBeVisible();
-
-    server.use(http.get('/api/skills', () => HttpResponse.json({ data: populatedOverview() })));
-    await user.click(screen.getByRole('button', { name: 'Try again' }));
-
-    await waitFor(() =>
-      expect(screen.queryByText(/last successful request/)).not.toBeInTheDocument(),
+    expect(screen.getByRole('link', { name: /pdf/ })).toHaveAttribute(
+      'href',
+      `${OVERVIEW}/skills/pdf`,
     );
   });
 
-  it('preserves the Marketplace and chosen view when Clear search runs', async () => {
-    const searching = overviewWith({
-      requested: browseWith({ query: 'react' }),
-      browse: browseWith({ query: 'react' }),
-      skills: [],
-      total: 0,
-    });
-    renderOverview(searching);
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole('button', { name: 'Card view' }));
-
-    const cleared = overviewWith({
-      skills: [SKILL],
-      total: 1,
-    });
-    server.use(http.get('/api/skills', () => HttpResponse.json({ data: cleared })));
-
-    await user.click(screen.getByRole('button', { name: 'Clear search' }));
-
-    expect(await screen.findByRole('link', { name: 'Open React Expert' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Marketplace: Core' })).toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: 'Results per page' })).not.toBeInTheDocument();
-  });
-});
-
-describe('rows per page', () => {
-  it('shows 24 results per page without a rows selector', () => {
-    renderOverview(
-      overviewWith({
-        skills: Array.from({ length: 24 }, (_, index) => ({
-          ...SKILL,
-          skillSlug: `Core__skill-${index + 1}`,
-          skillName: `skill-${index + 1}`,
-          name: `Skill ${index + 1}`,
-        })),
-        total: 50,
-      }),
+  it('shows an unavailable Marketplace with its reason, and Try again reloads the page', async () => {
+    server.use(http.get('/api/skills', () => HttpResponse.json({ data: storyPage() })));
+    renderWithProviders(
+      <SkillsShell
+        initialOverview={storyOverview({ skills: [], total: 0 })}
+        initialError={{ status: 502, message: 'The GitHub App credential is unavailable.' }}
+      />,
     );
 
-    expect(screen.getAllByRole('row', { name: /^Open Skill / })).toHaveLength(24);
-    expect(screen.getByText('1–24 of 50')).toBeVisible();
-    expect(screen.queryByRole('combobox', { name: 'Results per page' })).not.toBeInTheDocument();
+    expect(screen.getByText('This Marketplace is unavailable.')).toBeVisible();
+    expect(screen.getByText('The GitHub App credential is unavailable.')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    await waitFor(() => expect(screen.getByText('1–3 of 30')).toBeVisible());
+  });
+
+  it('offers to clear a search that matches nothing', async () => {
+    server.use(http.get('/api/skills', () => HttpResponse.json({ data: storyPage() })));
+    window.history.replaceState(null, '', `${OVERVIEW}?search=nothing`);
+    renderWithProviders(
+      <SkillsShell
+        initialOverview={storyOverview({
+          browse: { marketplace: TEAM_MARKETPLACE.slug, search: 'nothing', page: 1 },
+          skills: [],
+          total: 0,
+        })}
+        initialError={null}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+
+    expect(window.location.search).toBe('');
+    await waitFor(() => expect(screen.getByText('1–3 of 30')).toBeVisible());
+  });
+
+  it('says so when the address names no known Marketplace', () => {
+    window.history.replaceState(null, '', '/skills/gone');
+    renderWithProviders(
+      <SkillsShell
+        initialOverview={storyOverview({
+          browse: { marketplace: 'gone', search: '', page: 1 },
+          skills: [],
+          total: 0,
+        })}
+        initialError={null}
+      />,
+    );
+
+    expect(screen.getByText('Marketplace not found')).toBeVisible();
+  });
+
+  it('says so when the tenant has no Marketplaces', () => {
+    renderWithProviders(
+      <SkillsShell
+        initialOverview={storyOverview({ marketplaces: [], skills: [], total: 0 })}
+        initialError={null}
+      />,
+    );
+
+    expect(screen.getByText('No Marketplaces available')).toBeVisible();
   });
 });
