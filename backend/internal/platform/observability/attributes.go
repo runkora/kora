@@ -9,6 +9,7 @@ const (
 	RunStateKey                attribute.Key = "kora.run.state"
 	RunStateFromKey            attribute.Key = "kora.run.state_from"
 	RunStateToKey              attribute.Key = "kora.run.state_to"
+	RunStartedByKey            attribute.Key = "kora.run.started_by"
 	PrincipalIDKey             attribute.Key = "kora.principal.id"
 	PrincipalTypeKey           attribute.Key = "kora.principal.type"
 	PrincipalIdentitySourceKey attribute.Key = "kora.principal.identity_source"

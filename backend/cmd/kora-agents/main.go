@@ -268,6 +268,11 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize run service: %w", err)
 	}
+	runMetrics, err := agents.NewMetrics(metrics.Meter())
+	if err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("initialize run metrics: %w", err)
+	}
+	runSvc.SetMetrics(runMetrics)
 
 	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, atSvc, tenants, agents.EnvironmentServiceConfig{
 		TenantNamespaceFn: cfg.TenantNamespace,
