@@ -137,19 +137,19 @@ func (s *Service) GetSkillFile(ctx context.Context, tenantID, slug, path, file s
 	}
 	info := skill.Files[i]
 	full := skill.Path + "/" + info.Path
-	if content, ok, err := s.cache.GetFile(ctx, m, sha, full); err != nil || ok {
-		return SkillFileContent{Path: info.Path, Content: content}, err
+	if content, ok, cacheErr := s.cache.GetFile(ctx, m, sha, full); cacheErr != nil || ok {
+		return SkillFileContent{Path: info.Path, Content: content}, cacheErr
 	}
 	res, err := s.detached(ctx, "file/"+m.TenantID+"/"+m.Slug+"/"+sha+"/"+full, func(ctx context.Context) (any, error) {
-		content, err := s.crawler.FetchFile(ctx, m, sha, skill, info)
-		if err != nil {
-			if f, ok := classify(m, err); ok {
-				return nil, fmt.Errorf("%w: %w", f.err(), err)
+		content, fetchErr := s.crawler.FetchFile(ctx, m, sha, skill, info)
+		if fetchErr != nil {
+			if f, ok := classify(m, fetchErr); ok {
+				return nil, fmt.Errorf("%w: %w", f.err(), fetchErr)
 			}
-			return nil, err
+			return nil, fetchErr
 		}
-		if err := s.cache.SetFile(ctx, m, sha, full, content); err != nil {
-			s.logger.Warn(ctx, "failed to cache skill file", logging.Field{Key: "marketplace", Value: m.Slug}, logging.Field{Key: "error", Value: err.Error()})
+		if setErr := s.cache.SetFile(ctx, m, sha, full, content); setErr != nil {
+			s.logger.Warn(ctx, "failed to cache skill file", logging.Field{Key: "marketplace", Value: m.Slug}, logging.Field{Key: "error", Value: setErr.Error()})
 		}
 		return content, nil
 	})
