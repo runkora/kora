@@ -112,7 +112,7 @@ func TestAPI_Contract(t *testing.T) {
 
 	var page SkillPage
 	if code := f.get("/marketplaces/skills?marketplace=team-skills&search=pdf&offset=0&limit=1", &page); code != http.StatusOK || page.Total != 2 || page.Limit != 1 || len(page.Skills) != 1 || page.Skills[0].Path != "skills/pdf" || page.Skills[0].Marketplace != "team-skills" {
-		t.Errorf("GET /skills = %d %+v", code, page)
+		t.Errorf("GET /marketplaces/skills = %d %+v", code, page)
 	}
 	if code := f.get("/marketplaces/skills?limit=500", &page); code != http.StatusOK || page.Limit != MaxLimit {
 		t.Errorf("limit 500 = %d limit %d, want capped at %d", code, page.Limit, MaxLimit)
@@ -189,7 +189,7 @@ func TestAPI_AllMarketplacesReportFailures(t *testing.T) {
 
 	var page SkillPage
 	if code := f.get("/marketplaces/skills", &page); code != http.StatusOK || page.Total != 6 {
-		t.Fatalf("GET /skills = %d %+v", code, page)
+		t.Fatalf("GET /marketplaces/skills = %d %+v", code, page)
 	}
 	want := []MarketplaceFailure{{Marketplace: "no-key", Message: "The credential for this Marketplace is unavailable."}}
 	if !slices.Equal(page.Failures, want) {
@@ -312,7 +312,7 @@ func TestAPI_KeysAreCapped(t *testing.T) {
 	keys = append(keys, "team-skills:skills/pdf")
 	var page SkillPage
 	if code := f.get("/marketplaces/skills?keys="+strings.Join(keys, ","), &page); code != http.StatusOK || page.Total != 0 {
-		t.Errorf("GET /skills with %d keys = %d total %d, want 200 and the key past the cap ignored", len(keys), code, page.Total)
+		t.Errorf("GET /marketplaces/skills with %d keys = %d total %d, want 200 and the key past the cap ignored", len(keys), code, page.Total)
 	}
 }
 
@@ -327,7 +327,7 @@ func TestRoutes(t *testing.T) {
 }
 
 // The list route and the detail of a Marketplace named "skills" do not
-// collide, and the old /skills path is gone.
+// collide.
 func TestAPI_ListAndSkillsMarketplaceDetail(t *testing.T) {
 	f := newAPIFixture(t, true, testMarketplace(t, "example", "skills"))
 	var page SkillPage
@@ -337,8 +337,5 @@ func TestAPI_ListAndSkillsMarketplaceDetail(t *testing.T) {
 	var skill SkillDetail
 	if code := f.get("/marketplaces/skills/skills/skills/pdf", &skill); code != http.StatusOK || skill.Marketplace != "skills" || skill.Path != "skills/pdf" {
 		t.Errorf("detail of Marketplace skills = %d %+v", code, skill)
-	}
-	if code := f.get("/skills", nil); code != http.StatusNotFound {
-		t.Errorf("GET /skills = %d, want 404", code)
 	}
 }

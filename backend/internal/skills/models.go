@@ -19,7 +19,7 @@ type ListMarketplacesResponse struct {
 	Marketplaces []MarketplaceSummary `json:"marketplaces"`
 }
 
-// SkillSummary is one skill in GET /skills.
+// SkillSummary is one skill in GET /marketplaces/skills.
 type SkillSummary struct {
 	Marketplace string   `json:"marketplace"`
 	Path        string   `json:"path"`
@@ -38,7 +38,7 @@ type MarketplaceFailure struct {
 	Message     string `json:"message"`
 }
 
-// SkillPage is the response of GET /skills.
+// SkillPage is the response of GET /marketplaces/skills.
 type SkillPage struct {
 	Skills   []SkillSummary       `json:"skills"`
 	Total    int                  `json:"total"`
