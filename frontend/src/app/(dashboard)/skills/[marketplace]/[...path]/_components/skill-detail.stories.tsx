@@ -1,29 +1,66 @@
-/** @tier 3 — skills/[marketplace]/[...path]-scoped. One skill's files and its source repository. */
+/** @tier 3 — skills/[marketplace]/[...path]-scoped. The skill page in each of its states, loading files through the mocked BFF. */
 
 import type { Meta, StoryObj } from '@storybook/react';
-import { mockApi } from '@runkora/storybook/mock-api';
-import { STORY_SKILL } from '../../../_components/skills-story-fixtures';
+import { userEvent, within } from 'storybook/test';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
+import type { MockRequest } from '@runkora/storybook/mock-api';
+import {
+  MARKETPLACE_FIXTURES,
+  pdfFile,
+  pdfSkill,
+  PDF_SUMMARY,
+} from '../../../_components/skills-story-fixtures';
 import { SkillDetail } from './skill-detail';
 
+const FAILING_FILE = 'scripts/fill_fillable_fields.py';
+
 const meta: Meta<typeof SkillDetail> = {
-  title: 'Pages/Skills/SkillDetail',
+  title: 'Pages/Skills/Detail',
   component: SkillDetail,
-  tags: ['autodocs'],
-  parameters: { layout: 'padded' },
-  // Every selected file gets the same sample body.
+  parameters: {
+    layout: 'fullscreen',
+    nextjs: { appDirectory: true, navigation: { pathname: '/skills/anthropic-skills/skills/pdf' } },
+  },
+  args: { skill: pdfSkill(), marketplace: MARKETPLACE_FIXTURES[0], summary: PDF_SUMMARY },
   decorators: [
-    mockApi({
-      'GET /api/skills/file': {
-        data: { path: 'reference/forms.md', content: '# Forms\n\nFill each field in order.' },
-      },
+    dashboardPage({
+      'GET /api/skills/file': ({ url }: MockRequest) =>
+        pdfFile(url.searchParams.get('file') ?? '', [FAILING_FILE]),
+      'PUT /api/preferences': {},
     }),
   ],
 };
 export default meta;
 type Story = StoryObj<typeof SkillDetail>;
 
-export const Default: Story = { args: { skill: STORY_SKILL, marketplace: 'team-skills' } };
+/** Opens a file in the visible tree; the hidden copy of the rail is out of the accessibility tree. */
+async function openFile(canvasElement: HTMLElement, folder: string | null, file: RegExp) {
+  const canvas = within(canvasElement);
+  if (folder)
+    await userEvent.click(await canvas.findByRole('button', { name: `${folder} folder` }));
+  await userEvent.click(await canvas.findByRole('button', { name: file }));
+}
+
+export const Default: Story = {};
 
 export const OnlySkillMd: Story = {
-  args: { skill: { ...STORY_SKILL, files: [] }, marketplace: 'team-skills' },
+  args: { skill: pdfSkill({ files: [] }) },
+};
+
+export const SelectedFile: Story = {
+  play: async ({ canvasElement }) => {
+    await openFile(canvasElement, 'scripts', /convert_pdf_to_images\.py/);
+  },
+};
+
+export const SelectedMarkdownFile: Story = {
+  play: async ({ canvasElement }) => {
+    await openFile(canvasElement, null, /^forms\.md/);
+  },
+};
+
+export const FileFailsToLoad: Story = {
+  play: async ({ canvasElement }) => {
+    await openFile(canvasElement, 'scripts', /fill_fillable_fields\.py/);
+  },
 };

@@ -12,7 +12,7 @@ vi.mock('@runkora/server/config', () => ({ config: { koraApiUrl: 'http://test-id
 vi.mock('@runkora/server/skills-client', () => ({
   fetchMarketplaces: vi.fn(),
   fetchSkill: vi.fn(),
-  fetchSkillsPage: vi.fn(),
+  fetchSkills: vi.fn(),
   fetchSkillFile: mocks.fetchSkillFile,
 }));
 import { GET } from './route';

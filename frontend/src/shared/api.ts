@@ -1236,8 +1236,8 @@ export interface AgentTypeGuardrails {
 }
 
 // ── Skills ──────────────────────────────────────────────────────────────
-// Mirrors the skills-service JSON (backend/internal/skills): GET /v1/marketplaces,
-// /v1/marketplaces/{slug} and /v1/marketplaces/{slug}/skills/{path}.
+// Mirrors the skills-service JSON (backend/internal/skills): GET /v1/marketplaces, /v1/skills,
+// /v1/marketplaces/{slug}/skills/{path} and its ?file= form.
 
 export interface Marketplace {
   /** The SkillMarketplace resource name. */
@@ -1246,6 +1246,12 @@ export interface Marketplace {
   name: string;
   /** `owner/repo`. */
   repository: string;
+  /** The ref the resource names, or `""` for the default branch. */
+  ref: string;
+  /** Null until the Marketplace's list has been read into the cache, as are syncedAt and skillCount. */
+  commit: string | null;
+  syncedAt: string | null;
+  skillCount: number | null;
 }
 
 export interface MarketplaceList {
@@ -1253,19 +1259,29 @@ export interface MarketplaceList {
 }
 
 export interface SkillSummary {
-  /** The skill's folder path in the repository, and its identity. */
+  /** The Marketplace slug. With `path`, the skill's identity. */
+  marketplace: string;
+  /** The skill's folder path in the repository. */
   path: string;
   name: string;
+  /** The first `# ` heading of SKILL.md, or `name`. */
+  title: string;
   description: string;
+  version: string | null;
+  tags: string[];
+  tools: string[];
+  /** `disable-model-invocation: true`: only a user can start the skill. */
+  manualOnly: boolean;
 }
 
-/** One page of a Marketplace's skills, in name order. */
-export interface MarketplaceSkillsPage {
-  marketplace: Marketplace;
+/** GET /v1/skills: one page across the tenant's Marketplaces, one Marketplace or a set of keys. */
+export interface SkillsPage {
   skills: SkillSummary[];
   total: number;
   offset: number;
   limit: number;
+  /** Marketplaces left out of an all-Marketplaces page because they could not be read. */
+  failures?: { marketplace: string; message: string }[];
 }
 
 /** A supporting file in a skill folder, listed without its content. */
@@ -1277,11 +1293,15 @@ export interface SkillFileEntry {
 }
 
 export interface Skill {
+  marketplace: string;
   path: string;
   name: string;
+  title: string;
   description: string;
   repository: string;
-  /** The `SKILL.md` body. */
+  ref: string;
+  commit: string;
+  /** The full SKILL.md, frontmatter included. */
   content: string;
   /** The other text files, in path order. */
   files: SkillFileEntry[];

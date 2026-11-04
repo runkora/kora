@@ -6,7 +6,7 @@ vi.mock('@orbit/server/config', () => ({
 }));
 
 import { ApiError } from './api-error';
-import { fetchSkill, fetchSkillFile, fetchSkillsPage } from './skills-client';
+import { fetchSkill, fetchSkillFile, fetchSkills } from './skills-client';
 
 function stubFetch(response: Response) {
   const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(() =>
@@ -19,14 +19,20 @@ function stubFetch(response: Response) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('skills-client', () => {
-  it('asks for one page with offset, limit, search and the bearer token', async () => {
+  it('asks for one page with its Marketplace, keys, search and the bearer token', async () => {
     const fetchMock = stubFetch(Response.json({ skills: [], total: 0 }));
 
-    await fetchSkillsPage('token-a', 'team skills', { search: 'pdf', offset: 25, limit: 25 });
+    await fetchSkills('token-a', {
+      marketplace: 'team-skills',
+      keys: ['team-skills:skills/pdf', 'team-skills:skills/docx'],
+      search: 'pdf',
+      offset: 10,
+      limit: 10,
+    });
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      'http://skills-service.test/v1/marketplaces/team%20skills?offset=25&limit=25&search=pdf',
+      'http://skills-service.test/v1/skills?offset=10&limit=10&marketplace=team-skills&keys=team-skills%3Askills%2Fpdf%2Cteam-skills%3Askills%2Fdocx&search=pdf',
     );
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer token-a');
   });

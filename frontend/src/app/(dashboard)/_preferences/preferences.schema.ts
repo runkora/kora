@@ -35,6 +35,10 @@ export interface UserPreferences {
     /** IDs of models the user has favourited on the /models page. */
     favouriteModels: string[];
   };
+  skills: {
+    /** `marketplace:path` keys of the skills the user has favourited on the /skills page. */
+    favouriteSkills: string[];
+  };
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -53,6 +57,9 @@ export const PREFERENCE_DEFAULTS: UserPreferences = {
   modelGateway: {
     favouriteModels: [],
   },
+  skills: {
+    favouriteSkills: [],
+  },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -67,6 +74,7 @@ export function mergeWithDefaults(stored: Record<string, unknown>): UserPreferen
   const myUsage = (stored.myUsage as Partial<UserPreferences['myUsage']> | undefined) ?? {};
   const modelGateway =
     (stored.modelGateway as Partial<UserPreferences['modelGateway']> | undefined) ?? {};
+  const skills = (stored.skills as Partial<UserPreferences['skills']> | undefined) ?? {};
 
   return {
     tables: {
@@ -104,6 +112,11 @@ export function mergeWithDefaults(stored: Record<string, unknown>): UserPreferen
         ? modelGateway.favouriteModels.filter((x): x is string => typeof x === 'string')
         : PREFERENCE_DEFAULTS.modelGateway.favouriteModels,
     },
+    skills: {
+      favouriteSkills: Array.isArray(skills.favouriteSkills)
+        ? skills.favouriteSkills.filter((x): x is string => typeof x === 'string')
+        : PREFERENCE_DEFAULTS.skills.favouriteSkills,
+    },
   };
 }
 
@@ -139,6 +152,10 @@ export function serializeSparse(prefs: UserPreferences): Record<string, unknown>
     mgKeys.favouriteModels = prefs.modelGateway.favouriteModels;
   }
   if (Object.keys(mgKeys).length > 0) doc.modelGateway = mgKeys;
+
+  if (prefs.skills.favouriteSkills.length > 0) {
+    doc.skills = { favouriteSkills: prefs.skills.favouriteSkills };
+  }
 
   return doc;
 }

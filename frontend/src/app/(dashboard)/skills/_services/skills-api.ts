@@ -1,7 +1,7 @@
 // Client-side fetch helpers for the /api/skills BFF routes. Never calls skills-service directly.
 
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
-import type { MarketplaceSkillsPage, SkillFile } from '@runkora/shared/api';
+import type { SkillFile, SkillsPage } from '@runkora/shared/api';
 import type { SkillsBrowse, SkillsLoadError } from '../_types';
 
 export type FetchResult<T> = { data: T; error: null } | { data: null; error: SkillsLoadError };
@@ -21,13 +21,13 @@ async function getData<T>(url: string, signal?: AbortSignal): Promise<FetchResul
   }
 }
 
-/** Fetches one page of skills. */
-export function fetchSkillsPage(
+/** Fetches one page of the overview; the Favourites view sends the user's keys. */
+export function fetchSkills(
   browse: SkillsBrowse,
-  pageSize: number,
+  keys: string[],
   signal: AbortSignal,
-): Promise<FetchResult<MarketplaceSkillsPage>> {
-  return getData(ApiRoute.skills.GET({ ...browse, pageSize }), signal);
+): Promise<FetchResult<SkillsPage>> {
+  return getData(ApiRoute.skills.GET({ ...browse, keys }), signal);
 }
 
 /** Fetches one supporting file of a skill. */

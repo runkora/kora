@@ -1,6 +1,6 @@
 import 'server-only';
 
-import type { MarketplaceList, MarketplaceSkillsPage, Skill, SkillFile } from '@runkora/shared/api';
+import type { MarketplaceList, Skill, SkillFile, SkillsPage } from '@runkora/shared/api';
 import { config } from '@runkora/server/config';
 import { ApiError } from './api-error';
 
@@ -38,18 +38,22 @@ export function fetchMarketplaces(accessToken: string): Promise<MarketplaceList>
   return request<MarketplaceList>('/marketplaces', accessToken);
 }
 
-/** GET /marketplaces/{slug}: one page of skills, A to Z. */
-export async function fetchSkillsPage(
-  accessToken: string,
-  slug: string,
-  page: { search: string; offset: number; limit: number },
-): Promise<MarketplaceSkillsPage> {
+/** What one page of GET /skills asks for. No marketplace and no keys means every Marketplace. */
+export interface SkillsQuery {
+  marketplace: string;
+  keys: string[];
+  search: string;
+  offset: number;
+  limit: number;
+}
+
+/** GET /skills: one page of skills in title order. */
+export async function fetchSkills(accessToken: string, page: SkillsQuery): Promise<SkillsPage> {
   const query = new URLSearchParams({ offset: String(page.offset), limit: String(page.limit) });
+  if (page.marketplace) query.set('marketplace', page.marketplace);
+  if (page.keys.length > 0) query.set('keys', page.keys.join(','));
   if (page.search) query.set('search', page.search);
-  return request<MarketplaceSkillsPage>(
-    `/marketplaces/${segment(slug)}?${query.toString()}`,
-    accessToken,
-  );
+  return request<SkillsPage>(`/skills?${query.toString()}`, accessToken);
 }
 
 function skillPath(slug: string, path: string): string {

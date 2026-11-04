@@ -4,8 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Marketplace, SkillSummary } from '@runkora/shared/api';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { usePreferences } from '../../_preferences/preferences-context';
-import { fetchSkillsPage } from '../_services/skills-api';
+import { fetchSkills } from '../_services/skills-api';
 import {
+  browseQuery,
   toBrowse,
   toSearch,
   type SkillsBrowse,
@@ -21,41 +22,49 @@ export interface SkillsStateShape {
   browse: SkillsBrowse;
   skills: SkillSummary[];
   total: number;
-  pageSize: number;
+  failures: SkillsOverview['failures'];
   status: LoadStatus;
   error: SkillsLoadError | null;
+  /** The user's favourites as `marketplace:path` keys, from the preferences document. */
+  favourites: Set<string>;
+  toggleFavourite(key: string): void;
   /** The search box text. It becomes the search 300 ms after the last change. */
   searchText: string;
   setSearchText(text: string): void;
   clearSearch(): void;
-  selectMarketplace(slug: string): void;
+  /** A Marketplace slug, `''` for every Marketplace, or null for the Favourites view. */
+  selectChip(marketplace: string | null): void;
   goToPage(page: number): void;
   retry(): void;
 }
 
 const SEARCH_DEBOUNCE_MS = 300;
+const BROWSE_KEYS = ['marketplace', 'favourites', 'search', 'page'];
 
 /** The overview URL for the browse values, keeping any other query keys such as `agent`. */
 function browseUrl(browse: SkillsBrowse): string {
   const query = new URLSearchParams(window.location.search);
-  query.delete('search');
-  query.delete('page');
-  if (browse.search) query.set('search', browse.search);
-  if (browse.page > 1) query.set('page', String(browse.page));
+  BROWSE_KEYS.forEach((key) => query.delete(key));
+  new URLSearchParams(browseQuery(browse)).forEach((value, key) => query.set(key, value));
   const qs = query.toString();
-  return `${APP_ROUTES.skills.marketplace(browse.marketplace)}${qs ? `?${qs}` : ''}`;
+  return `${APP_ROUTES.skills.root}${qs ? `?${qs}` : ''}`;
 }
 
-/** The browse values in the address bar, or null during the server render. */
+/** The browse values in the address bar, or null during the server render and off the overview. */
 function browseFromLocation(): SkillsBrowse | null {
-  if (typeof window === 'undefined') return null;
-  const query = new URLSearchParams(window.location.search);
-  const marketplace = decodeURIComponent(window.location.pathname.split('/')[2] ?? '');
-  return toBrowse(marketplace, query.get('search'), query.get('page'));
+  if (typeof window === 'undefined' || window.location.pathname !== APP_ROUTES.skills.root) {
+    return null;
+  }
+  return toBrowse(Object.fromEntries(new URLSearchParams(window.location.search)));
 }
 
 function sameBrowse(a: SkillsBrowse, b: SkillsBrowse): boolean {
-  return a.marketplace === b.marketplace && a.search === b.search && a.page === b.page;
+  return (
+    a.marketplace === b.marketplace &&
+    a.favourites === b.favourites &&
+    a.search === b.search &&
+    a.page === b.page
+  );
 }
 
 /**
@@ -66,8 +75,8 @@ export function useSkills(
   initial: SkillsOverview,
   initialError: SkillsLoadError | null,
 ): SkillsStateShape {
-  const { preferences } = usePreferences();
-  const pageSize = preferences.tables.defaultPageSize;
+  const { preferences, updatePreferences } = usePreferences();
+  const favouriteKeys = preferences.skills.favouriteSkills;
   // Browser Back restores this page with the props of its first render while the address
   // holds later browse values, so the address wins and its page loads on mount.
   const [restored] = useState(() => {
@@ -81,6 +90,7 @@ export function useSkills(
   const [browse, setBrowse] = useState(restored ?? initial.browse);
   const [skills, setSkills] = useState(restored ? [] : initial.skills);
   const [total, setTotal] = useState(restored ? 0 : initial.total);
+  const [failures, setFailures] = useState(restored ? [] : initial.failures);
   const [status, setStatus] = useState<LoadStatus>(
     restored ? 'loading' : initialError ? 'error' : 'success',
   );
@@ -89,24 +99,27 @@ export function useSkills(
   const [typed, setTyped] = useState<string | null>(null);
   const searchText = typed ?? browse.search;
   const inFlight = useRef<AbortController | null>(null);
+  // Read at request time, so toggling a favourite does not change the fetch callbacks.
+  const keys = useRef(favouriteKeys);
+  useEffect(() => {
+    keys.current = favouriteKeys;
+  }, [favouriteKeys]);
 
-  const fetchPage = useCallback(
-    (next: SkillsBrowse) => {
-      // A newer request aborts this one, so only the latest page reaches the screen.
-      inFlight.current?.abort();
-      const controller = new AbortController();
-      inFlight.current = controller;
+  const fetchPage = useCallback((next: SkillsBrowse) => {
+    // A newer request aborts this one, so only the latest page reaches the screen.
+    inFlight.current?.abort();
+    const controller = new AbortController();
+    inFlight.current = controller;
 
-      void fetchSkillsPage(next, pageSize, controller.signal).then((result) => {
-        if (controller.signal.aborted) return;
-        setError(result.error);
-        setSkills(result.data?.skills ?? []);
-        setTotal(result.data?.total ?? 0);
-        setStatus(result.error ? 'error' : 'success');
-      });
-    },
-    [pageSize],
-  );
+    void fetchSkills(next, keys.current, controller.signal).then((result) => {
+      if (controller.signal.aborted) return;
+      setError(result.error);
+      setSkills(result.data?.skills ?? []);
+      setTotal(result.data?.total ?? 0);
+      setFailures(result.data?.failures ?? []);
+      setStatus(result.error ? 'error' : 'success');
+    });
+  }, []);
 
   const load = useCallback(
     (next: SkillsBrowse) => {
@@ -132,13 +145,29 @@ export function useSkills(
     return () => clearTimeout(timer);
   }, [typed, browse, load]);
 
+  const toggleFavourite = useCallback(
+    (key: string) =>
+      updatePreferences((prev) => {
+        const keys = prev.skills.favouriteSkills;
+        const next = keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key];
+        return { ...prev, skills: { favouriteSkills: next } };
+      }),
+    [updatePreferences],
+  );
+
   const clearSearch = useCallback(() => {
     setTyped(null);
     load({ ...browse, search: '', page: 1 });
   }, [browse, load]);
 
-  const selectMarketplace = useCallback(
-    (marketplace: string) => load({ ...browse, marketplace, page: 1 }),
+  const selectChip = useCallback(
+    (marketplace: string | null) =>
+      load({
+        ...browse,
+        marketplace: marketplace ?? '',
+        favourites: marketplace === null,
+        page: 1,
+      }),
     [browse, load],
   );
 
@@ -151,13 +180,15 @@ export function useSkills(
     browse,
     skills,
     total,
-    pageSize,
+    failures,
     status,
     error,
+    favourites: new Set(favouriteKeys),
+    toggleFavourite,
     searchText,
     setSearchText: setTyped,
     clearSearch,
-    selectMarketplace,
+    selectChip,
     goToPage,
     retry,
   };

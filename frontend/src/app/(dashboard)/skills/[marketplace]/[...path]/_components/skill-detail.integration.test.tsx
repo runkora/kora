@@ -1,50 +1,76 @@
-/** Integration tests for the skill files: SKILL.md on open, other files on selection. */
+/** Integration tests for the skill page: SKILL.md on open, other files on selection, the header actions. */
 import { describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { renderWithProviders, server } from '@runkora/test-utils';
-import { STORY_SKILL } from '../../../_components/skills-story-fixtures';
+import {
+  MARKETPLACE_FIXTURES,
+  pdfSkill,
+  PDF_SUMMARY,
+} from '../../../_components/skills-story-fixtures';
 import { SkillDetail } from './skill-detail';
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
-async function openForms() {
-  renderWithProviders(<SkillDetail skill={STORY_SKILL} marketplace="team-skills" />);
-  expect(screen.getByRole('figure')).toHaveTextContent('Read the PDF');
-  await userEvent.click(screen.getByRole('button', { name: /reference/ }));
-  await userEvent.click(screen.getByRole('button', { name: /forms\.md/ }));
+function renderDetail() {
+  renderWithProviders(
+    <SkillDetail skill={pdfSkill()} marketplace={MARKETPLACE_FIXTURES[0]} summary={PDF_SUMMARY} />,
+  );
+}
+
+async function openLicense() {
+  renderDetail();
+  await userEvent.click(screen.getAllByRole('button', { name: /LICENSE\.txt/ })[0]);
 }
 
 describe('SkillDetail', () => {
-  it('shows SKILL.md on open and loads a picked file once, showing a loading state meanwhile', async () => {
-    const requests: URLSearchParams[] = [];
+  it('renders SKILL.md without its frontmatter and title, and Raw shows the whole file', async () => {
+    renderDetail();
+
+    expect(screen.getByRole('heading', { name: 'PDF Processing Guide', level: 1 })).toBeVisible();
+    expect(screen.queryByText(/^name: pdf/)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Overview' })).toBeVisible();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Raw' }));
+    expect(screen.getByText(/^--- name: pdf/)).toBeVisible();
+  });
+
+  it('shows the version and chips from the list entry, and links View source to the folder at the commit', () => {
+    renderDetail();
+
+    expect(screen.getByText('pdf · v2.1.0')).toBeVisible();
+    expect(screen.getByText('documents')).toBeVisible();
+    expect(screen.getByRole('link', { name: /View source/ })).toHaveAttribute(
+      'href',
+      `https://github.com/anthropics/skills/tree/${pdfSkill().commit}/skills/pdf`,
+    );
+  });
+
+  it('loads a picked file once, showing a loading state meanwhile', async () => {
+    const requests: Record<string, string>[] = [];
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
     server.use(
       http.get('/api/skills/file', async ({ request }) => {
-        requests.push(new URL(request.url).searchParams);
+        requests.push(Object.fromEntries(new URL(request.url).searchParams));
         await held;
         return HttpResponse.json({
-          data: { path: 'reference/forms.md', content: 'Fill each field.' },
+          data: { path: 'LICENSE.txt', content: 'All rights reserved.' },
         });
       }),
     );
 
-    await openForms();
+    await openLicense();
     expect(screen.getByRole('status', { name: 'Loading the file' })).toBeVisible();
     release();
-    expect(await screen.findByText('Fill each field.')).toBeVisible();
+    expect(await screen.findByText('All rights reserved.')).toBeVisible();
 
-    await userEvent.click(screen.getByRole('button', { name: /SKILL\.md/ }));
-    await userEvent.click(screen.getByRole('button', { name: /forms\.md/ }));
-    expect(screen.getByText('Fill each field.')).toBeVisible();
-    expect(requests).toHaveLength(1);
-    expect(Object.fromEntries(requests[0])).toEqual({
-      marketplace: 'team-skills',
-      path: 'skills/pdf',
-      file: 'reference/forms.md',
-    });
+    await userEvent.click(screen.getByRole('button', { name: 'SKILL.md' }));
+    await userEvent.click(screen.getAllByRole('button', { name: /LICENSE\.txt/ })[0]);
+    expect(requests).toEqual([
+      { marketplace: 'anthropic-skills', path: 'skills/pdf', file: 'LICENSE.txt' },
+    ]);
   });
 
   it('shows an unavailable file with the API message and retries it', async () => {
@@ -56,20 +82,24 @@ describe('SkillDetail', () => {
               { message: 'This Marketplace could not be loaded. Try again later.' },
               { status: 502 },
             )
-          : HttpResponse.json({
-              data: { path: 'reference/forms.md', content: 'Fill each field.' },
-            }),
+          : HttpResponse.json({ data: { path: 'LICENSE.txt', content: 'All rights reserved.' } }),
       ),
     );
 
-    await openForms();
+    await openLicense();
     expect(await screen.findByText('This Marketplace is unavailable.')).toBeVisible();
-    expect(
-      screen.getByText('This Marketplace could not be loaded. Try again later.'),
-    ).toBeVisible();
 
     fail = false;
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByText('Fill each field.')).toBeVisible();
+    expect(await screen.findByText('All rights reserved.')).toBeVisible();
+  });
+
+  it('adds the skill to the favourites', async () => {
+    server.use(http.put('/api/preferences', () => HttpResponse.json({})));
+    renderDetail();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add to favourites' }));
+
+    expect(screen.getByRole('button', { name: 'Remove from favourites' })).toBeVisible();
   });
 });

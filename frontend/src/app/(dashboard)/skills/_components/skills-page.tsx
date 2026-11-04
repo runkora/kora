@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — skills-scoped. The overview: header, Marketplace picker, search and results. */
+/** @tier 3 — skills-scoped. The overview: header, Marketplace and Favourites chips, search and results. */
 
 import { useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
@@ -11,17 +11,11 @@ import {
   EmptyState,
   Icon,
   Input,
-  Label,
   PageSectionHeader,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  RadioGroup,
-  RadioGroupItem,
   Stack,
   Text,
 } from '@runkora/hades';
-import { ViewToggle, type ViewToggleProps } from '@runkora/components';
+import { FilterChip, ViewToggle, type ViewMode } from '@runkora/components';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { useSkillsContext } from '../_context/skills-context';
 import { MIN_SEARCH_LENGTH, type SkillsLoadError } from '../_types';
@@ -29,8 +23,6 @@ import { SkillGrid } from './skill-grid';
 import { SkillList } from './skill-list';
 import { SkillsPagination } from './skills-pagination';
 import { SkillsResultsSkeleton } from './skills-results-skeleton';
-
-type ViewMode = ViewToggleProps['viewMode'];
 
 // As on the MCP servers page: phones always get cards and no toggle. The server snapshot is
 // false, so the first paint is the card view.
@@ -43,47 +35,186 @@ const subscribeDesktop = (onChange: () => void) => {
 const getDesktop = () => window.matchMedia(DESKTOP_QUERY).matches;
 const getServerDesktop = () => false;
 
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
+
 export function SkillsPage() {
-  const { marketplaces, browse, skills, total, status, error } = useSkillsContext();
-  const [preferredView, setView] = useState<ViewMode>('cards');
-  const isDesktop = useSyncExternalStore(subscribeDesktop, getDesktop, getServerDesktop);
-  const view: ViewMode = isDesktop ? preferredView : 'cards';
-  const toggle = <ViewToggle viewMode={view} onToggle={setView} />;
-  const showResults = !error && total > 0 && !(status === 'loading' && skills.length === 0);
-  const selected = marketplaces.some((marketplace) => marketplace.slug === browse.marketplace);
+  const { marketplaces, browse } = useSkillsContext();
+  const known = !browse.marketplace || marketplaces.some((m) => m.slug === browse.marketplace);
 
   return (
     <Stack gap="comfortable">
-      <PageSectionHeader title="Skills" description="Browse the skills in your Marketplaces." />
+      <Stack gap="none">
+        <PageSectionHeader
+          title="Skills"
+          description="Find a skill for a job, read what it does and see where it comes from."
+        />
+        {marketplaces.length > 0 && <Summary />}
+      </Stack>
 
       {marketplaces.length === 0 ? (
         <NoMarketplaces />
-      ) : !selected ? (
+      ) : !known ? (
         <EmptyState
           icon="box"
           title="Marketplace not found"
           description="No Marketplace matches this address."
           action={
             <Button asChild variant="outline" size="sm">
-              <Link href={APP_ROUTES.skills.root}>Open Skills</Link>
+              <Link href={APP_ROUTES.skills.root}>Show all skills</Link>
             </Button>
           }
         />
       ) : (
-        <>
-          <Toolbar viewToggle={showResults && isDesktop && view === 'cards' && toggle} />
-          {showResults ? (
-            <Stack gap="comfortable">
-              {view === 'list' ? <SkillList toolbarActions={toggle} /> : <SkillGrid />}
-              <SkillsPagination />
-            </Stack>
-          ) : (
-            <NoResults />
-          )}
-        </>
+        <Browse />
       )}
     </Stack>
   );
+}
+
+/** "74 skills from 3 Marketplaces", or the Marketplace count while any list is still unread. */
+function Summary() {
+  const { marketplaces } = useSkillsContext();
+  const counts = marketplaces.map((m) => m.skillCount);
+  const sources = plural(marketplaces.length, 'Marketplace');
+  const text = counts.every((count) => count !== null)
+    ? `${plural(
+        counts.reduce<number>((sum, count) => sum + (count ?? 0), 0),
+        'skill',
+      )} from ${sources}`
+    : sources;
+  return (
+    <Text size="supporting" color="muted">
+      {text}
+    </Text>
+  );
+}
+
+function Browse() {
+  const { marketplaces, browse, skills, total, status, error, favourites, selectChip } =
+    useSkillsContext();
+  const [preferredView, setView] = useState<ViewMode>('cards');
+  const isDesktop = useSyncExternalStore(subscribeDesktop, getDesktop, getServerDesktop);
+  const view: ViewMode = isDesktop ? preferredView : 'cards';
+  const toggle = <ViewToggle viewMode={view} onToggle={setView} />;
+  const allCounts = marketplaces.map((m) => m.skillCount);
+  const chips = [
+    {
+      key: 'all',
+      label: 'All',
+      count: allCounts.every((c) => c !== null)
+        ? allCounts.reduce<number>((sum, c) => sum + (c ?? 0), 0)
+        : null,
+      active: !browse.favourites && !browse.marketplace,
+      select: () => selectChip(''),
+    },
+    ...marketplaces.map((m) => ({
+      key: m.slug,
+      label: m.repository,
+      count: m.skillCount,
+      active: !browse.favourites && browse.marketplace === m.slug,
+      select: () => selectChip(m.slug),
+    })),
+    {
+      key: 'favourites',
+      label: 'Favourites',
+      count: favourites.size,
+      active: browse.favourites,
+      select: () => selectChip(null),
+    },
+  ];
+  // The search row and the table stay while a search matches nothing, so it can be changed.
+  const searchable = total > 0 || !!browse.search;
+
+  return (
+    <>
+      <Stack direction="horizontal" align="center" justify="between" gap="snug">
+        <Stack direction="horizontal" align="center" gap="snug" wrap>
+          {chips.map((chip) => (
+            <FilterChip
+              key={chip.key}
+              label={chip.label}
+              count={chip.count}
+              active={chip.active}
+              onClick={chip.select}
+            />
+          ))}
+        </Stack>
+        <Text size="caption" color="subtle">
+          {plural(total, 'skill')}
+        </Text>
+      </Stack>
+
+      <Failures />
+
+      {error ? (
+        <LoadErrorAlert error={error} />
+      ) : status === 'loading' && skills.length === 0 ? (
+        <SkillsResultsSkeleton />
+      ) : !searchable ? (
+        <NoSkills />
+      ) : view === 'list' ? (
+        <Stack gap="comfortable">
+          <SkillList toolbarActions={toggle} />
+          {total > 0 && <SkillsPagination />}
+        </Stack>
+      ) : (
+        <>
+          <SearchRow toggle={isDesktop && toggle} />
+          {total === 0 ? (
+            <NoMatches />
+          ) : (
+            <Stack gap="comfortable">
+              <SkillGrid />
+              <SkillsPagination />
+            </Stack>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+function SearchRow({ toggle }: { toggle: React.ReactNode }) {
+  const { searchText, setSearchText } = useSkillsContext();
+  const searchLength = searchText.trim().length;
+
+  return (
+    <Stack gap="tight">
+      <Stack direction="horizontal" align="center" justify="between" gap="snug">
+        <Stack asChild grow maxWidth="compact">
+          <Input
+            placeholder="Search skills…"
+            aria-label="Search skills"
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+          />
+        </Stack>
+        {toggle}
+      </Stack>
+      {searchLength > 0 && searchLength < MIN_SEARCH_LENGTH && (
+        <Text size="caption" color="subtle">
+          Type at least {MIN_SEARCH_LENGTH} characters to search.
+        </Text>
+      )}
+    </Stack>
+  );
+}
+
+/** An all-Marketplaces page leaves out a Marketplace it could not read, and says so here. */
+function Failures() {
+  const { failures, marketplaces, retry } = useSkillsContext();
+  const repository = (slug: string) => marketplaces.find((m) => m.slug === slug)?.repository;
+
+  return failures.map((failure) => (
+    <LoadErrorAlert
+      key={failure.marketplace}
+      error={{
+        status: 502,
+        message: `${repository(failure.marketplace) ?? failure.marketplace}: ${failure.message}`,
+      }}
+      onRetry={retry}
+    />
+  ));
 }
 
 /** The Marketplace list is empty, or could not load; a retry reloads the page. */
@@ -101,7 +232,8 @@ function NoMarketplaces() {
   );
 }
 
-function LoadErrorAlert({ error, onRetry }: { error: SkillsLoadError; onRetry: () => void }) {
+function LoadErrorAlert({ error, onRetry }: { error: SkillsLoadError; onRetry?: () => void }) {
+  const { retry } = useSkillsContext();
   return (
     <Alert variant="error">
       <Icon name="triangle-alert" color="status-error" />
@@ -115,106 +247,46 @@ function LoadErrorAlert({ error, onRetry }: { error: SkillsLoadError; onRetry: (
           {error.message}
         </Text>
       </Stack>
-      <Button variant="outline" size="xs" onClick={onRetry}>
+      <Button variant="outline" size="xs" onClick={onRetry ?? retry}>
         Try again
       </Button>
     </Alert>
   );
 }
 
-function Toolbar({ viewToggle }: { viewToggle: React.ReactNode }) {
-  const { marketplaces, browse, searchText, setSearchText, selectMarketplace } = useSkillsContext();
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const current = marketplaces.find((marketplace) => marketplace.slug === browse.marketplace);
-  const searchLength = searchText.trim().length;
-
-  return (
-    <Stack gap="tight">
-      <Stack direction={{ base: 'vertical', lg: 'horizontal' }} align="center" gap="snug">
-        <Stack grow minWidth="none">
-          <Input
-            placeholder="Search skills"
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-            aria-label="Search skills"
-          />
-        </Stack>
-
-        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" aria-label={`Marketplace: ${current?.name}`}>
-              <Icon name="filter" size="2xs" />
-              {current?.name}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end">
-            <RadioGroup
-              value={browse.marketplace}
-              onValueChange={(slug) => {
-                selectMarketplace(slug);
-                setPickerOpen(false);
-              }}
-            >
-              <Stack gap="snug">
-                {marketplaces.map((marketplace) => (
-                  <Label key={marketplace.slug}>
-                    <Stack direction="horizontal" align="center" gap="snug">
-                      <RadioGroupItem value={marketplace.slug} />
-                      <Stack gap="none">
-                        <Text as="span" size="supporting">
-                          {marketplace.name}
-                        </Text>
-                        <Text as="span" size="caption" color="subtle" mono>
-                          {marketplace.repository}
-                        </Text>
-                      </Stack>
-                    </Stack>
-                  </Label>
-                ))}
-              </Stack>
-            </RadioGroup>
-          </PopoverContent>
-        </Popover>
-
-        {viewToggle}
-      </Stack>
-
-      {searchLength > 0 && searchLength < MIN_SEARCH_LENGTH && (
-        <Text size="caption" color="subtle">
-          Type at least {MIN_SEARCH_LENGTH} characters to search.
-        </Text>
-      )}
-    </Stack>
+function NoSkills() {
+  const { browse } = useSkillsContext();
+  return browse.favourites ? (
+    <EmptyState
+      icon="heart"
+      title="No favourite skills"
+      description="Select the heart on a skill to keep it here."
+    />
+  ) : (
+    <EmptyState
+      icon="box"
+      title={browse.marketplace ? 'No skills in this Marketplace' : 'No skills yet'}
+      description={
+        browse.marketplace
+          ? 'This Marketplace has no skills that you can view.'
+          : 'Your Marketplaces have no skills that you can view.'
+      }
+    />
   );
 }
 
-/** The error, loading or empty state shown in place of the results. */
-function NoResults() {
-  const { browse, skills, status, error, retry, clearSearch } = useSkillsContext();
-
-  if (error) return <LoadErrorAlert error={error} onRetry={retry} />;
-  if (status === 'loading' && skills.length === 0) return <SkillsResultsSkeleton />;
-
-  if (browse.search) {
-    return (
-      <EmptyState
-        icon="search"
-        title="No skills match your search"
-        description="Try a broader search, or clear the search."
-        action={
-          <Button variant="outline" size="sm" onClick={clearSearch}>
-            Clear search
-          </Button>
-        }
-      />
-    );
-  }
-
+function NoMatches() {
+  const { clearSearch } = useSkillsContext();
   return (
     <EmptyState
-      icon="box"
-      title="No skills in this Marketplace"
-      description="This Marketplace has no skills that you can view."
+      icon="search"
+      title="No skills match your search"
+      description="Try a broader search, or clear the search."
+      action={
+        <Button variant="outline" size="sm" onClick={clearSearch}>
+          Clear search
+        </Button>
+      }
     />
   );
 }

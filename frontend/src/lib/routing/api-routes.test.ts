@@ -18,16 +18,22 @@ import { ApiRoute } from './api-routes';
  */
 describe('ApiRoute', () => {
   describe('skills', () => {
-    it('encodes the browse values and leaves out an empty search', () => {
+    it('sends the favourite keys for the Favourites view and no Marketplace', () => {
       const url = new URL(
-        ApiRoute.skills.GET({ marketplace: 'a b', search: '', page: 2, pageSize: 25 }),
+        ApiRoute.skills.GET({
+          marketplace: 'a',
+          favourites: true,
+          keys: ['a:skills/pdf', 'b:tools/lint'],
+          search: '',
+          page: 2,
+        }),
         'http://localhost',
       );
       expect(url.pathname).toBe('/api/skills');
       expect(Object.fromEntries(url.searchParams)).toEqual({
-        marketplace: 'a b',
         page: '2',
-        pageSize: '25',
+        favourites: '1',
+        keys: 'a:skills/pdf,b:tools/lint',
       });
     });
   });

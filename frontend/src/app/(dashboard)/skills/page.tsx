@@ -1,26 +1,49 @@
-// RSC: /skills opens the first Marketplace, or says why there is none.
+// RSC: loads the Marketplaces and the page of skills the URL names.
 
-import { redirect } from 'next/navigation';
-import { APP_ROUTES } from '@runkora/lib/routing';
 import { loadErrorMessage } from '@runkora/lib/load-error';
 import { getSession, isSessionValid } from '@runkora/server/session';
-import { loadMarketplaces } from './_services/skills-server';
+import { getPreferences } from '../_preferences/preferences-server';
+import { loadMarketplaces, loadSkills } from './_services/skills-server';
 import { SkillsShell } from './_components/skills-shell';
+import { toBrowse } from './_types';
 
-const NO_MARKETPLACE = {
-  marketplaces: [],
-  browse: { marketplace: '', search: '', page: 1 },
-  skills: [],
-  total: 0,
-};
+interface SkillsPageProps {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
 
-export default async function SkillsIndexPage() {
+export default async function SkillsIndexPage({ searchParams }: SkillsPageProps) {
+  const browse = toBrowse(await searchParams);
+  const empty = { marketplaces: [], browse, skills: [], total: 0, failures: [] };
   const session = await getSession();
-  const result = isSessionValid(session)
-    ? await loadMarketplaces(session.accessToken)
-    : { ok: false as const, status: 401, message: loadErrorMessage(401, 'Skills') };
 
-  if (result.ok && result.data[0]) redirect(APP_ROUTES.skills.marketplace(result.data[0].slug));
+  if (!isSessionValid(session)) {
+    return (
+      <SkillsShell
+        initialOverview={empty}
+        initialError={{ status: 401, message: loadErrorMessage(401, 'Skills') }}
+      />
+    );
+  }
 
-  return <SkillsShell initialOverview={NO_MARKETPLACE} initialError={result.ok ? null : result} />;
+  const { skills: preferences } = await getPreferences(session.accessToken);
+  const [marketplaces, page] = await Promise.all([
+    loadMarketplaces(session.accessToken),
+    loadSkills(session.accessToken, browse, preferences.favouriteSkills),
+  ]);
+  // With no Marketplaces the page shows that, not the skills request's failure.
+  const listed = marketplaces.ok && marketplaces.data.length > 0;
+  const failed = !marketplaces.ok ? marketplaces : listed && !page.ok ? page : null;
+
+  return (
+    <SkillsShell
+      initialOverview={{
+        ...empty,
+        marketplaces: marketplaces.ok ? marketplaces.data : [],
+        skills: page.ok ? page.data.skills : [],
+        total: page.ok ? page.data.total : 0,
+        failures: page.ok ? (page.data.failures ?? []) : [],
+      }}
+      initialError={failed && { status: failed.status, message: failed.message }}
+    />
+  );
 }

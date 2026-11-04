@@ -1,8 +1,8 @@
 /**
- * /api/skills: BFF proxy for one page of a Marketplace's skills.
+ * /api/skills: BFF proxy for one page of the Skills overview.
  *
- * GET ?marketplace=&search=&page=&pageSize=
- *     200 { data: MarketplaceSkillsPage }
+ * GET ?marketplace=&favourites=1&keys=a:b,c:d&search=&page=
+ *     200 { data: SkillsPage }
  *     401 { code: 'unauthorized', message }
  *     4xx { code: 'upstream_error', message }  upstream refusal or not found
  *     502 { code: 'upstream_error', message }  Marketplace unavailable, with the reason
@@ -12,18 +12,19 @@ import 'server-only';
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@runkora/server/route-helpers';
-import { PREFERENCE_DEFAULTS } from '../../(dashboard)/_preferences/preferences.schema';
-import { loadSkillsPage } from '../../(dashboard)/skills/_services/skills-server';
+import { loadSkills } from '../../(dashboard)/skills/_services/skills-server';
 import { toBrowse } from '../../(dashboard)/skills/_types';
 
-export const GET = withAuth(async (req: NextRequest, session) => {
-  const query = req.nextUrl.searchParams;
-  const browse = toBrowse(query.get('marketplace') ?? '', query.get('search'), query.get('page'));
-  const size = Number(query.get('pageSize'));
-  const pageSize =
-    Number.isInteger(size) && size > 0 ? size : PREFERENCE_DEFAULTS.tables.defaultPageSize;
+/** skills-service takes at most 200 keys. */
+const MAX_KEYS = 200;
 
-  const result = await loadSkillsPage(session.accessToken, browse, pageSize);
+export const GET = withAuth(async (req: NextRequest, session) => {
+  const query = Object.fromEntries(req.nextUrl.searchParams);
+  const browse = toBrowse(query);
+  // The Favourites view carries the user's keys, which the browser holds in its preferences.
+  const keys = (query.keys ?? '').split(',').filter(Boolean).slice(0, MAX_KEYS);
+
+  const result = await loadSkills(session.accessToken, browse, keys);
   if (!result.ok) {
     return NextResponse.json(
       { code: 'upstream_error', message: result.message },

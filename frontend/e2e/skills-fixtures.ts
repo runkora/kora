@@ -1,63 +1,81 @@
 /**
  * skills-service sample data for skills-upstream.mjs, which stands in for the live Go
- * service behind both the Server Components and the /api/skills BFF route.
+ * service behind both the Server Components and the /api/skills BFF routes.
  */
-import type { Marketplace, Skill } from '@runkora/shared/api';
+import type { Marketplace, Skill, SkillSummary } from '@runkora/shared/api';
 
-export const TEAM: Marketplace = {
-  slug: 'team-skills',
-  name: 'skills',
-  repository: 'example-org/skills',
-};
-export const PARTNER: Marketplace = {
-  slug: 'partner-skills',
-  name: 'reference-skills',
-  repository: 'partner-org/reference-skills',
-};
+const COMMIT = '3f2a9c1e0b7d4f5a6c8e9d0f1a2b3c4d5e6f7a8b';
+
+function marketplace(slug: string, repository: string, skillCount: number | null): Marketplace {
+  return {
+    slug,
+    name: repository.split('/')[1] ?? repository,
+    repository,
+    ref: 'main',
+    commit: skillCount === null ? null : COMMIT,
+    syncedAt: skillCount === null ? null : '2026-11-05T01:12:00Z',
+    skillCount,
+  };
+}
+
+export const TEAM = marketplace('team-skills', 'example-org/skills', 30);
+export const PARTNER = marketplace('partner-skills', 'partner-org/reference-skills', 2);
 /** skills-service answers 502 for this Marketplace, as for an unavailable credential. */
-export const BROKEN: Marketplace = {
-  slug: 'broken-skills',
-  name: 'broken-skills',
-  repository: 'example-org/broken-skills',
-};
+export const BROKEN = marketplace('broken-skills', 'example-org/broken-skills', null);
 export const UNAVAILABLE_MESSAGE = 'This Marketplace could not be loaded. Try again later.';
 
 export const MARKETPLACES: Marketplace[] = [TEAM, PARTNER, BROKEN];
 
-/** A skill with its supporting file bodies, which the stand-in serves one at a time. */
-export interface FixtureSkill extends Skill {
+/** A skill with its detail and its supporting file bodies, which the stand-in serves one at a time. */
+export interface FixtureSkill {
+  summary: SkillSummary;
+  detail: Skill;
   bodies: Record<string, string>;
 }
 
-function skill(repository: string, path: string, description: string): FixtureSkill {
+function skill(source: Marketplace, path: string, title: string): FixtureSkill {
   const name = path.split('/').pop() ?? path;
+  const description = `Does the ${name} job.`;
   const notes = `Notes for ${name}.`;
   return {
-    path,
-    name,
-    description,
-    repository,
-    content: `# ${name}\n\n${description}`,
-    files: [{ path: 'reference/notes.md', size: notes.length }],
+    summary: {
+      marketplace: source.slug,
+      path,
+      name,
+      title,
+      description,
+      version: null,
+      tags: [],
+      tools: [],
+      manualOnly: false,
+    },
+    detail: {
+      marketplace: source.slug,
+      path,
+      name,
+      title,
+      description,
+      repository: source.repository,
+      ref: source.ref,
+      commit: COMMIT,
+      content: `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${title}\n\nUse ${name} when the job needs it.\n`,
+      files: [{ path: 'reference/notes.md', size: notes.length }],
+    },
     bodies: { 'reference/notes.md': notes },
   };
 }
 
-/** Thirty skills, so the default page size of 25 gives two pages. */
-export const SKILLS: Record<string, FixtureSkill[]> = {
-  [TEAM.slug]: [
-    skill(TEAM.repository, 'skills/pdf', 'Read and write PDF files.'),
-    skill(TEAM.repository, 'skills/docx', 'Edit Word documents.'),
-    ...Array.from({ length: 28 }, (_, i) =>
-      skill(
-        TEAM.repository,
-        `skills/review-${String(i + 1).padStart(2, '0')}`,
-        'Reviews a change.',
-      ),
+/** Thirty skills in one Marketplace, two in another: three pages of ten across both. */
+export const SKILLS: FixtureSkill[] = [
+  skill(TEAM, 'skills/pdf', 'PDF Processing Guide'),
+  skill(TEAM, 'skills/docx', 'DOCX editing'),
+  ...Array.from({ length: 28 }, (_, i) =>
+    skill(
+      TEAM,
+      `skills/review-${String(i + 1).padStart(2, '0')}`,
+      `Review ${String(i + 1).padStart(2, '0')}`,
     ),
-  ],
-  [PARTNER.slug]: [
-    skill(PARTNER.repository, 'tools/linter', 'Lints configuration files.'),
-    skill(PARTNER.repository, 'tools/café notes', 'Keeps notes.'),
-  ],
-};
+  ),
+  skill(PARTNER, 'tools/linter', 'Linter'),
+  skill(PARTNER, 'tools/café notes', 'Café notes'),
+];

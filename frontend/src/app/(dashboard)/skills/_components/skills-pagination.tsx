@@ -1,81 +1,47 @@
 'use client';
 
-/** @tier 3 — skills-scoped. The result range and numbered page controls. */
+/** @tier 3 — skills-scoped. The result range with previous and next, under both views. */
 
 import { Button, Icon, Stack, Text } from '@runkora/hades';
 import { useSkillsContext } from '../_context/skills-context';
-
-/** Page buttons shown on each side of the current page. */
-const PAGE_WINDOW = 2;
+import { PAGE_SIZE } from '../_types';
 
 export function SkillsPagination() {
-  const { browse, skills, total, pageSize, status, goToPage } = useSkillsContext();
+  const { browse, skills, total, status, goToPage } = useSkillsContext();
   const { page } = browse;
-  const pageCount = Math.max(1, Math.ceil(total / pageSize));
-  const first = skills.length === 0 ? 0 : (page - 1) * pageSize + 1;
-  const last = skills.length === 0 ? 0 : Math.min(total, first + skills.length - 1);
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const from = skills.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const to = skills.length === 0 ? 0 : Math.min(total, from + skills.length - 1);
   const loading = status === 'loading';
 
   return (
-    <Stack direction="horizontal" align="center" justify="between" wrap gap="comfortable">
-      <Text as="span" size="caption" color="subtle" tabular>
-        {first}–{last} of {total}
+    <Stack direction="horizontal" align="center" justify="between" gap="cozy">
+      <Text size="caption" color="subtle" tabular>
+        {from}–{to} of {total}
       </Text>
-
-      <Stack direction="horizontal" align="center" gap="snug" wrap>
+      <Stack direction="horizontal" align="center" gap="tight">
         <Button
-          variant="outline"
-          size="sm"
+          variant="ghost"
+          size="icon-sm"
           disabled={loading || page <= 1}
+          aria-label="Previous page"
           onClick={() => goToPage(page - 1)}
         >
           <Icon name="chevron-left" size="2xs" />
-          Previous
         </Button>
-
-        {pageItems(page, pageCount).map((item, index) =>
-          item === null ? (
-            <Text key={`gap-${index}`} as="span" size="caption" color="subtle" aria-hidden>
-              …
-            </Text>
-          ) : (
-            <Button
-              key={item}
-              variant={item === page ? 'secondary' : 'ghost'}
-              size="sm"
-              disabled={loading}
-              aria-current={item === page ? 'page' : undefined}
-              aria-label={`Page ${item}`}
-              onClick={() => item !== page && goToPage(item)}
-            >
-              {item}
-            </Button>
-          ),
-        )}
-
+        <Text size="caption" color="subtle" tabular>
+          Page {Math.min(page, pageCount)} of {pageCount}
+        </Text>
         <Button
-          variant="outline"
-          size="sm"
+          variant="ghost"
+          size="icon-sm"
           disabled={loading || page >= pageCount}
+          aria-label="Next page"
           onClick={() => goToPage(page + 1)}
         >
-          Next
           <Icon name="chevron-right" size="2xs" />
         </Button>
       </Stack>
     </Stack>
   );
-}
-
-/** The first, last and nearby pages, with null for each run of hidden pages: 1 … 5 6 7 8 9 … 20. */
-function pageItems(requested: number, pageCount: number): (number | null)[] {
-  const page = Math.min(requested, pageCount);
-  const start = Math.max(2, page - PAGE_WINDOW);
-  const end = Math.min(pageCount - 1, page + PAGE_WINDOW);
-  const items: (number | null)[] = [1];
-  if (start > 2) items.push(null);
-  for (let n = start; n <= end; n += 1) items.push(n);
-  if (end < pageCount - 1) items.push(null);
-  if (pageCount > 1) items.push(pageCount);
-  return items;
 }

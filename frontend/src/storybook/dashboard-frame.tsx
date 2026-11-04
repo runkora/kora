@@ -37,6 +37,7 @@ export const ALL_NAV_SCOPES = [
   'platform:write',
   'inference:list',
   'inference:use',
+  'skills:read',
 ];
 
 export const MOCK_USER = { sub: 'usr_42b7e9', email: 'dev@kora.example', name: 'Dev Operator' };

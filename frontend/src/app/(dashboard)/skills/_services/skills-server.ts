@@ -1,15 +1,15 @@
 import 'server-only';
 
-import type { Marketplace, MarketplaceSkillsPage, Skill, SkillFile } from '@runkora/shared/api';
+import type { Marketplace, Skill, SkillFile, SkillSummary, SkillsPage } from '@runkora/shared/api';
 import { ApiError } from '@runkora/server/api-error';
 import { loadFailure, type Loaded } from '@runkora/server/load-failure';
 import {
   fetchMarketplaces,
   fetchSkill,
   fetchSkillFile,
-  fetchSkillsPage,
+  fetchSkills,
 } from '@runkora/server/skills-client';
-import type { SkillsBrowse } from '../_types';
+import { PAGE_SIZE, type SkillsBrowse } from '../_types';
 
 export async function loadMarketplaces(accessToken: string): Promise<Loaded<Marketplace[]>> {
   try {
@@ -19,20 +19,50 @@ export async function loadMarketplaces(accessToken: string): Promise<Loaded<Mark
   }
 }
 
-export async function loadSkillsPage(
+const EMPTY_PAGE: SkillsPage = { skills: [], total: 0, offset: 0, limit: PAGE_SIZE };
+
+/**
+ * One page of the overview. The Favourites view asks for the user's keys; with none it is empty,
+ * since no keys would otherwise mean every skill.
+ */
+export async function loadSkills(
   accessToken: string,
   browse: SkillsBrowse,
-  pageSize: number,
-): Promise<Loaded<MarketplaceSkillsPage>> {
+  favourites: string[],
+): Promise<Loaded<SkillsPage>> {
+  if (browse.favourites && favourites.length === 0) return { ok: true, data: EMPTY_PAGE };
   try {
-    const data = await fetchSkillsPage(accessToken, browse.marketplace, {
+    const data = await fetchSkills(accessToken, {
+      marketplace: browse.marketplace,
+      keys: browse.favourites ? favourites : [],
       search: browse.search,
-      offset: (browse.page - 1) * pageSize,
-      limit: pageSize,
+      offset: (browse.page - 1) * PAGE_SIZE,
+      limit: PAGE_SIZE,
     });
     return { ok: true, data };
   } catch (err) {
-    return failure('[loadSkillsPage]', err, 'the skills', true);
+    return failure('[loadSkills]', err, 'the skills', !!browse.marketplace);
+  }
+}
+
+/** The list entry of one skill, which carries the version, tags and tools the detail does not. */
+export async function loadSkillSummary(
+  accessToken: string,
+  marketplace: string,
+  path: string,
+): Promise<SkillSummary | null> {
+  try {
+    const page = await fetchSkills(accessToken, {
+      marketplace,
+      keys: [`${marketplace}:${path}`],
+      search: '',
+      offset: 0,
+      limit: 1,
+    });
+    return page.skills[0] ?? null;
+  } catch (err) {
+    console.error('[loadSkillSummary] failed:', err);
+    return null;
   }
 }
 

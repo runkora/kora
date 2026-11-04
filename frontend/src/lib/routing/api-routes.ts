@@ -492,20 +492,21 @@ export const ApiRoute = {
   /**
    * `/api/skills`
    *
-   * GET: one page of a Marketplace's skills, A to Z.
+   * GET: one page of the Skills overview, in title order.
    */
   skills: {
     GET: (params: {
       marketplace: string;
+      favourites: boolean;
+      keys: string[];
       search: string;
       page: number;
-      pageSize: number;
     }): `${typeof API_BASE}/skills?${string}` => {
-      const qs = new URLSearchParams({
-        marketplace: params.marketplace,
-        page: String(params.page),
-        pageSize: String(params.pageSize),
-      });
+      const qs = new URLSearchParams({ page: String(params.page) });
+      if (params.favourites) {
+        qs.set('favourites', '1');
+        qs.set('keys', params.keys.join(','));
+      } else if (params.marketplace) qs.set('marketplace', params.marketplace);
       if (params.search) qs.set('search', params.search);
       return `${API_BASE}/skills?${qs.toString()}`;
     },

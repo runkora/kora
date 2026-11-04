@@ -1,20 +1,25 @@
 /** Unit tests for the skill page Server Component's three outcomes. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
+import { renderWithProviders } from '@runkora/test-utils';
 import { getSession, isSessionValid } from '@runkora/server/session';
 import { loadSkill } from '../../_services/skills-server';
-import { STORY_SKILL } from '../../_components/skills-story-fixtures';
+import { pdfSkill } from '../../_components/skills-story-fixtures';
 import SkillPage from './page';
 
 vi.mock('@runkora/server/session', () => ({ getSession: vi.fn(), isSessionValid: vi.fn() }));
-vi.mock('../../_services/skills-server', () => ({ loadSkill: vi.fn() }));
+vi.mock('../../_services/skills-server', () => ({
+  loadSkill: vi.fn(),
+  loadMarketplaces: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+  loadSkillSummary: vi.fn().mockResolvedValue(null),
+}));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 async function renderPage() {
-  render(
+  renderWithProviders(
     await SkillPage({
-      params: Promise.resolve({ marketplace: 'team-skills', path: ['skills', 'pdf'] }),
-      searchParams: Promise.resolve({ search: 'pdf', page: '2' }),
+      params: Promise.resolve({ marketplace: 'anthropic-skills', path: ['skills', 'pdf'] }),
+      searchParams: Promise.resolve({ marketplace: 'anthropic-skills', search: 'pdf', page: '2' }),
     }),
   );
 }
@@ -28,15 +33,15 @@ beforeEach(() => {
 
 describe('SkillPage', () => {
   it('loads the skill by its folder path and links back to the results it came from', async () => {
-    vi.mocked(loadSkill).mockResolvedValue({ ok: true, data: STORY_SKILL });
+    vi.mocked(loadSkill).mockResolvedValue({ ok: true, data: pdfSkill() });
 
     await renderPage();
 
-    expect(loadSkill).toHaveBeenCalledWith('token', 'team-skills', 'skills/pdf');
-    expect(screen.getByText('example-org/skills')).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Skills' })).toHaveAttribute(
+    expect(loadSkill).toHaveBeenCalledWith('token', 'anthropic-skills', 'skills/pdf');
+    expect(screen.getByRole('heading', { name: 'PDF Processing Guide', level: 1 })).toBeVisible();
+    expect(screen.getByRole('link', { name: /^Skills$/ })).toHaveAttribute(
       'href',
-      '/skills/team-skills?search=pdf&page=2',
+      '/skills?marketplace=anthropic-skills&search=pdf&page=2',
     );
   });
 
