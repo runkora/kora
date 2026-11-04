@@ -3,8 +3,8 @@ package config_test
 import (
 	"fmt"
 	"maps"
-	"strings"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"

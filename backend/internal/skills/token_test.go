@@ -37,8 +37,8 @@ type fakeMinter struct {
 	// scopedErr fails only the repository-scoped mint.
 	scopedErr error
 	err       error
-	requests []ghclient.InstallationTokenRequest
-	expires  time.Time
+	requests  []ghclient.InstallationTokenRequest
+	expires   time.Time
 }
 
 func (f *fakeMinter) CreateInstallationToken(_ context.Context, _ string, _ int64, body ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error) {
