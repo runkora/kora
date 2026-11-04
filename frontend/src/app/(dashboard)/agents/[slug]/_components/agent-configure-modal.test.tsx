@@ -12,6 +12,8 @@ const agent = {
 };
 let current = agent;
 let dirty = true;
+let saving = false;
+let storedMcpTools = ['mcp:github:issues.list:use', 'mcp:github:pulls.get:use', 'mcp:slack:use'];
 
 vi.mock('../_hooks/use-agent-configuration', () => ({
   useAgentConfiguration: () => ({
@@ -24,7 +26,7 @@ vi.mock('../_hooks/use-agent-configuration', () => ({
     framework: 'claude-code',
     setFramework: vi.fn(),
     modelId: 'anthropic/claude-sonnet-4-6',
-    mcpTools: ['mcp:github:issues.list:use', 'mcp:github:pulls.get:use', 'mcp:slack:use'],
+    mcpTools: storedMcpTools,
     mcpServers: [],
     mcpCatalog: [],
     availableConnections: [],
@@ -36,6 +38,7 @@ vi.mock('../_hooks/use-agent-configuration', () => ({
     maxConcurrentRuns: '10',
     loopGuardrails: {},
     isDirty: dirty,
+    saving,
     handleSave: vi.fn(),
     handleDiscard: vi.fn(),
     deleteOpen: false,
@@ -63,6 +66,7 @@ function renderModal(
 describe('AgentConfigureModal', () => {
   beforeEach(() => {
     dirty = true;
+    saving = false;
   });
 
   it('renders nothing while closed', () => {
@@ -148,5 +152,29 @@ describe('AgentConfigureModal', () => {
     renderModal({ initialSection: 'tools' });
     expect(screen.getByText('3')).toBeInTheDocument();
     for (const box of screen.queryAllByRole('checkbox')) expect(box).toBeDisabled();
+  });
+
+  it('does not close while a save is in flight', () => {
+    saving = true;
+    const onClose = vi.fn();
+    renderModal({ onClose });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Close' }).at(-1)!);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByText('Discard unsaved changes?')).toBeNull();
+  });
+
+  it("shows the stored model when it is not in the viewer's catalogue", () => {
+    current = { ...agent, canEdit: false };
+    renderModal({ initialSection: 'behaviour' });
+    expect(screen.getAllByText('anthropic/claude-sonnet-4-6').length).toBeGreaterThan(0);
+  });
+
+  it('shows server-wide and uncatalogued grants to a read-only viewer', () => {
+    current = { ...agent, canEdit: false };
+    renderModal({ initialSection: 'tools' });
+    fireEvent.click(screen.getByRole('button', { name: /Tools & access/ }));
+    expect(screen.getByText('slack')).toBeInTheDocument();
+    expect(screen.getByText('github')).toBeInTheDocument();
+    expect(screen.getByText('jira')).toBeInTheDocument();
   });
 });

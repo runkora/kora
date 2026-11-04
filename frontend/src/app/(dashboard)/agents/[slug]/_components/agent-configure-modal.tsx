@@ -32,11 +32,15 @@ import {
   Wizard,
 } from '@runkora/hades';
 import { useBrand } from '@runkora/theme/brand-provider';
-import type { AgentFramework } from '@runkora/shared/api';
+import type { AgentFramework, ConnectionCatalogEntry, ModelObject } from '@runkora/shared/api';
 import { FrameworkCards } from '../../_components/motif/framework-cards';
 import { IDENTITY_MODE_SUMMARIES } from '../../_components/motif/identity-mode-cards';
 import { ModelPicker } from '@runkora/components';
-import { McpToolTree, countGrantedServers } from '../../_components/motif/mcp-tool-tree';
+import {
+  McpToolTree,
+  countGrantedServers,
+  withGrantedScopes,
+} from '../../_components/motif/mcp-tool-tree';
 import { ConnectionCards } from '@runkora/components';
 import { EgressModeCards } from '../../_components/motif/egress-mode-cards';
 import { EnvironmentsCard } from '../../_components/motif/environments-card';
@@ -152,9 +156,6 @@ function ConfigureBody({
   const { productName } = useBrand();
   const [active, setActive] = useState(initialSection);
   const [discardOpen, setDiscardOpen] = useState(false);
-  // Capacity has a stored value on every live agent; "off" here means "leave
-  // it as it is", so the row dims but nothing is unset on save.
-  const [capacityOn, setCapacityOn] = useState(true);
   const locked = useTenantLocked();
 
   if (!cfg.agent) return null;
@@ -168,6 +169,42 @@ function ConfigureBody({
   const sections = managedInGit
     ? CONFIG_SECTIONS.filter((x) => x.tone !== 'danger')
     : CONFIG_SECTIONS;
+  // What the agent holds can be missing from the catalogues the viewer may read: a model they cannot
+  // use, tools or connections they cannot list. A read-only view shows the stored grants regardless.
+  const modelOptions: ModelObject[] =
+    cfg.modelId && !cfg.models.some((m) => m.id === cfg.modelId)
+      ? [
+          ...cfg.models,
+          {
+            id: cfg.modelId,
+            object: 'model',
+            created: 0,
+            owned_by: '',
+            family: '',
+            display_name: cfg.modelId,
+            status: 'available',
+            aliases: [],
+            input_modalities: [],
+            output_modalities: [],
+            dialects: [],
+          },
+        ]
+      : cfg.models;
+  const mcpCatalog = readOnly ? withGrantedScopes(cfg.mcpCatalog, cfg.mcpTools) : cfg.mcpCatalog;
+  const connections = readOnly
+    ? [
+        ...cfg.availableConnections,
+        ...cfg.connectors
+          .filter((c) => !cfg.availableConnections.some((a) => a.name === c.connection))
+          .map((c): ConnectionCatalogEntry => ({
+            name: c.connection,
+            adapter: '',
+            actions: c.actions,
+            baseline: [],
+            qualifier: c.resources?.length ? { name: 'resource', description: '' } : null,
+          })),
+      ]
+    : cfg.availableConnections;
   const activeSection = sections.find((x) => x.id === active) ?? sections[0]!;
   const descriptions: Record<string, string> = {
     identity:
@@ -180,7 +217,12 @@ function ConfigureBody({
     danger: 'Destructive actions. These cannot be undone.',
   };
   // Escape, the overlay and × all land here: unsaved edits ask before they are lost.
-  const handleClose = () => (dirty ? setDiscardOpen(true) : onClose());
+  // A save in flight cannot be taken back, so nothing closes the modal until it lands.
+  const handleClose = () => {
+    if (cfg.saving) return;
+    if (dirty) setDiscardOpen(true);
+    else onClose();
+  };
 
   const guardrailValues: GuardrailValues = {
     agentBudgetOn: cfg.budgetLimitUSD !== '',
@@ -188,7 +230,7 @@ function ConfigureBody({
     agentBudgetCadence: cfg.budgetCadence === 'weekly' ? 'weekly' : 'monthly',
     runBudgetOn: cfg.budgetPerRunUSD !== '',
     runBudgetUsd: cfg.budgetPerRunUSD || '5.00',
-    capacityOn,
+    capacityOn: true,
     capacity: cfg.maxConcurrentRuns,
     ...cfg.loopGuardrails,
   };
@@ -214,7 +256,7 @@ function ConfigureBody({
         cfg.setBudgetPerRunUSD(String(value));
         break;
       case 'capacityOn':
-        setCapacityOn(Boolean(value));
+        // Locked on: capacity always has a stored value, so there is nothing to switch off.
         break;
       case 'capacity':
         cfg.setMaxConcurrentRuns(String(value));
@@ -365,7 +407,7 @@ function ConfigureBody({
                   )}
                   <ModelPicker
                     disabled={readOnly}
-                    models={cfg.models}
+                    models={modelOptions}
                     value={cfg.modelId}
                     onChange={cfg.setModelId}
                   />
@@ -378,7 +420,7 @@ function ConfigureBody({
               <Stack gap="relaxed">
                 <Text as="span" size="supporting" color="muted">
                   <Text as="span" size="supporting" weight="heavy" color="accent">
-                    {countGrantedServers(cfg.mcpServers, cfg.mcpCatalog, cfg.mcpTools)}
+                    {countGrantedServers(cfg.mcpServers, mcpCatalog, cfg.mcpTools)}
                   </Text>{' '}
                   servers ·{' '}
                   <Text as="span" size="supporting" weight="heavy">
@@ -392,7 +434,7 @@ function ConfigureBody({
                 <McpToolTree
                   disabled={readOnly}
                   servers={cfg.mcpServers}
-                  catalog={cfg.mcpCatalog}
+                  catalog={mcpCatalog}
                   granted={cfg.mcpTools}
                   onChange={cfg.setMcpTools}
                 />
@@ -404,7 +446,7 @@ function ConfigureBody({
                   />
                   <ConnectionCards
                     disabled={readOnly}
-                    available={cfg.availableConnections}
+                    available={connections}
                     value={cfg.connectors}
                     onChange={cfg.setConnectors}
                   />
@@ -460,6 +502,7 @@ function ConfigureBody({
                   </Text>
                 </Stack>
                 <GuardrailsFields
+                  capacityAlwaysOn
                   disabled={readOnly}
                   values={guardrailValues}
                   onChange={onGuardrailChange}
@@ -533,7 +576,7 @@ function ConfigureBody({
                 </Button>
               </>
             )}
-            <Button variant="outline" size="sm" onClick={handleClose}>
+            <Button variant="outline" size="sm" onClick={handleClose} disabled={cfg.saving}>
               Close
             </Button>
           </Stack>

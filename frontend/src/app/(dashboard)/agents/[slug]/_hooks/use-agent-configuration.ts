@@ -28,7 +28,11 @@ import {
   fetchModels,
 } from '../../_services/agents-api';
 import type { LoadStatus } from '../../_hooks/use-agent-builder';
-import { previewEffectiveAccess, updateAgentType } from '../_services/agent-detail-api';
+import {
+  fetchAgentDetail,
+  previewEffectiveAccess,
+  updateAgentType,
+} from '../_services/agent-detail-api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import {
   loopGuardrailErrors,
@@ -270,7 +274,23 @@ export function useAgentConfiguration() {
       setSaveError(result.error);
       return;
     }
-    if (result.agentType) applyAgent(result.agentType);
+    // The PATCH response carries neither the caller's access flags nor the budget, so the page's copy
+    // comes from a fresh read. If that fails, keep what the page already knew.
+    const fresh = await fetchAgentDetail(agent.id);
+    const saved = fresh.agentType ?? result.agentType;
+    if (saved) {
+      applyAgent(
+        fresh.agentType
+          ? saved
+          : {
+              ...saved,
+              canRun: agent.canRun,
+              canEdit: agent.canEdit,
+              canDelete: agent.canDelete,
+              budget: saved.budget ?? agent.budget,
+            },
+      );
+    }
     setSavedBaseline({
       name: trimmedName,
       description: trimmedDescription,
