@@ -14,6 +14,7 @@ async function renderPage() {
   render(
     await SkillPage({
       params: Promise.resolve({ marketplace: 'team-skills', path: ['skills', 'pdf'] }),
+      searchParams: Promise.resolve({ search: 'pdf', page: '2' }),
     }),
   );
 }
@@ -26,7 +27,7 @@ beforeEach(() => {
 });
 
 describe('SkillPage', () => {
-  it('loads the skill by its folder path and links back to its Marketplace', async () => {
+  it('loads the skill by its folder path and links back to the results it came from', async () => {
     vi.mocked(loadSkill).mockResolvedValue({ ok: true, data: STORY_SKILL });
 
     await renderPage();
@@ -35,7 +36,7 @@ describe('SkillPage', () => {
     expect(screen.getByText('example-org/skills')).toBeVisible();
     expect(screen.getByRole('link', { name: 'Skills' })).toHaveAttribute(
       'href',
-      '/skills/team-skills',
+      '/skills/team-skills?search=pdf&page=2',
     );
   });
 

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, Grid, Stack, Text } from '@runkora/hades';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { useSkillsContext } from '../_context/skills-context';
+import { browseQuery } from '../_types';
 
 export function SkillGrid() {
   const { skills, browse } = useSkillsContext();
@@ -14,7 +15,9 @@ export function SkillGrid() {
     <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
       {skills.map((skill) => (
         <Stack asChild key={skill.path}>
-          <Link href={APP_ROUTES.skills.skill(browse.marketplace, skill.path)}>
+          <Link
+            href={`${APP_ROUTES.skills.skill(browse.marketplace, skill.path)}${browseQuery(browse)}`}
+          >
             <Card interactive column>
               <CardHeader title={skill.name} />
               <CardContent grow>

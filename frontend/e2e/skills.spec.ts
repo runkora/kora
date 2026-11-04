@@ -8,12 +8,16 @@ import { BROKEN, PARTNER, TEAM, UNAVAILABLE_MESSAGE } from './skills-fixtures';
 
 const rows = (page: Page) => page.getByRole('row', { name: /^Open / });
 
+/** Cards are the default view; these tests read the table. */
+const showList = (page: Page) => page.getByRole('button', { name: 'List view' }).click();
+
 test.beforeEach(async ({ context }) => {
   await injectSessionCookie(context);
 });
 
 test('/skills opens the first Marketplace and lists its skills A to Z', async ({ page }) => {
   await page.goto('/skills');
+  await showList(page);
 
   await expect(page).toHaveURL(`/skills/${TEAM.slug}`);
   await expect(page.getByRole('button', { name: `Marketplace: ${TEAM.name}` })).toBeVisible();
@@ -24,6 +28,7 @@ test('/skills opens the first Marketplace and lists its skills A to Z', async ({
 
 test('the URL holds search and page, and Back from a skill restores them', async ({ page }) => {
   await page.goto(`/skills/${TEAM.slug}`);
+  await showList(page);
 
   await page.getByRole('textbox', { name: 'Search skills' }).fill('review');
   await expect(page).toHaveURL(`/skills/${TEAM.slug}?search=review`);
@@ -34,7 +39,11 @@ test('the URL holds search and page, and Back from a skill restores them', async
   await expect(rows(page)).toHaveCount(3);
 
   await rows(page).first().click();
-  await expect(page).toHaveURL(`/skills/${TEAM.slug}/skills/review-26`);
+  await expect(page).toHaveURL(`/skills/${TEAM.slug}/skills/review-26?search=review&page=2`);
+  await expect(page.getByRole('link', { name: 'Skills', exact: true })).toHaveAttribute(
+    'href',
+    `/skills/${TEAM.slug}?search=review&page=2`,
+  );
   await expect(page.getByRole('heading', { name: 'File Explorer', exact: true })).toBeVisible();
 
   await page.goBack();
@@ -48,6 +57,7 @@ test('the URL holds search and page, and Back from a skill restores them', async
 
 test('choosing a Marketplace changes the path and resets the page', async ({ page }) => {
   await page.goto(`/skills/${TEAM.slug}?page=2`);
+  await showList(page);
 
   await page.getByRole('button', { name: `Marketplace: ${TEAM.name}` }).click();
   await page.getByRole('radio', { name: new RegExp(PARTNER.name) }).click();
@@ -82,6 +92,7 @@ test('a skill page shows SKILL.md first, its other files and the repository', as
 
 test('a skill whose folder needs encoding opens from its row', async ({ page }) => {
   await page.goto(`/skills/${PARTNER.slug}`);
+  await showList(page);
 
   await rows(page).filter({ hasText: 'café notes' }).click();
 

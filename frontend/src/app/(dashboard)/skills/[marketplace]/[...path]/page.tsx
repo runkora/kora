@@ -6,22 +6,24 @@ import { APP_ROUTES } from '@runkora/lib/routing';
 import { loadErrorMessage } from '@runkora/lib/load-error';
 import { getSession, isSessionValid } from '@runkora/server/session';
 import { loadSkill } from '../../_services/skills-server';
-import { decodeParam } from '../../_types';
+import { browseQuery, decodeParam, toBrowse } from '../../_types';
 import { SkillDetail } from './_components/skill-detail';
 import { SkillLoadError } from './_components/skill-load-error';
 
 interface SkillPageProps {
   params: Promise<{ marketplace: string; path: string[] }>;
+  /** The overview's search and page, carried so the Skills link returns to the same results. */
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export default async function SkillPage({ params }: SkillPageProps) {
-  const route = await params;
+export default async function SkillPage({ params, searchParams }: SkillPageProps) {
+  const [route, query] = await Promise.all([params, searchParams]);
   const marketplace = decodeParam(route.marketplace);
   const session = await getSession();
   const result = isSessionValid(session)
     ? await loadSkill(session.accessToken, marketplace, route.path.map(decodeParam).join('/'))
     : { ok: false as const, status: 401, message: loadErrorMessage(401, 'this skill') };
-  const overview = APP_ROUTES.skills.marketplace(marketplace);
+  const overview = `${APP_ROUTES.skills.marketplace(marketplace)}${browseQuery(toBrowse(marketplace, query.search, query.page))}`;
 
   return (
     <Stack gap="comfortable">

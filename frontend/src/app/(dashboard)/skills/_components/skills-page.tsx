@@ -2,7 +2,7 @@
 
 /** @tier 3 — skills-scoped. The overview: header, Marketplace picker, search and results. */
 
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -32,9 +32,24 @@ import { SkillsResultsSkeleton } from './skills-results-skeleton';
 
 type ViewMode = ViewToggleProps['viewMode'];
 
+// As on the MCP servers page: phones always get cards and no toggle. The server snapshot is
+// false, so the first paint is the card view.
+const DESKTOP_QUERY = '(min-width: 768px)';
+const subscribeDesktop = (onChange: () => void) => {
+  const mq = window.matchMedia(DESKTOP_QUERY);
+  mq.addEventListener('change', onChange);
+  return () => mq.removeEventListener('change', onChange);
+};
+const getDesktop = () => window.matchMedia(DESKTOP_QUERY).matches;
+const getServerDesktop = () => false;
+
 export function SkillsPage() {
-  const { marketplaces, browse } = useSkillsContext();
-  const [view, setView] = useState<ViewMode>('list');
+  const { marketplaces, browse, skills, total, status, error } = useSkillsContext();
+  const [preferredView, setView] = useState<ViewMode>('cards');
+  const isDesktop = useSyncExternalStore(subscribeDesktop, getDesktop, getServerDesktop);
+  const view: ViewMode = isDesktop ? preferredView : 'cards';
+  const toggle = <ViewToggle viewMode={view} onToggle={setView} />;
+  const showResults = !error && total > 0 && !(status === 'loading' && skills.length === 0);
   const selected = marketplaces.some((marketplace) => marketplace.slug === browse.marketplace);
 
   return (
@@ -56,10 +71,15 @@ export function SkillsPage() {
         />
       ) : (
         <>
-          <Toolbar
-            viewToggle={view === 'cards' && <ViewToggle viewMode={view} onToggle={setView} />}
-          />
-          <Results view={view} viewToggle={<ViewToggle viewMode={view} onToggle={setView} />} />
+          <Toolbar viewToggle={showResults && isDesktop && view === 'cards' && toggle} />
+          {showResults ? (
+            <Stack gap="comfortable">
+              {view === 'list' ? <SkillList toolbarActions={toggle} /> : <SkillGrid />}
+              <SkillsPagination />
+            </Stack>
+          ) : (
+            <NoResults />
+          )}
         </>
       )}
     </Stack>
@@ -168,13 +188,14 @@ function Toolbar({ viewToggle }: { viewToggle: React.ReactNode }) {
   );
 }
 
-function Results({ view, viewToggle }: { view: ViewMode; viewToggle: React.ReactNode }) {
-  const { browse, skills, total, status, error, retry, clearSearch } = useSkillsContext();
+/** The error, loading or empty state shown in place of the results. */
+function NoResults() {
+  const { browse, skills, status, error, retry, clearSearch } = useSkillsContext();
 
   if (error) return <LoadErrorAlert error={error} onRetry={retry} />;
   if (status === 'loading' && skills.length === 0) return <SkillsResultsSkeleton />;
 
-  if (total === 0 && browse.search) {
+  if (browse.search) {
     return (
       <EmptyState
         icon="search"
@@ -189,20 +210,11 @@ function Results({ view, viewToggle }: { view: ViewMode; viewToggle: React.React
     );
   }
 
-  if (total === 0) {
-    return (
-      <EmptyState
-        icon="box"
-        title="No skills in this Marketplace"
-        description="This Marketplace has no skills that you can view."
-      />
-    );
-  }
-
   return (
-    <Stack gap="comfortable">
-      {view === 'list' ? <SkillList toolbarActions={viewToggle} /> : <SkillGrid />}
-      <SkillsPagination />
-    </Stack>
+    <EmptyState
+      icon="box"
+      title="No skills in this Marketplace"
+      description="This Marketplace has no skills that you can view."
+    />
   );
 }

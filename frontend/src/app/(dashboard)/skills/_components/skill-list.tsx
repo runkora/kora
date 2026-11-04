@@ -7,6 +7,7 @@ import { DataTable, Stack, Text, type DataTableColumn } from '@runkora/hades';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import type { SkillSummary } from '@runkora/shared/api';
 import { useSkillsContext } from '../_context/skills-context';
+import { browseQuery } from '../_types';
 
 const COLUMNS: DataTableColumn<SkillSummary>[] = [
   {
@@ -51,7 +52,11 @@ export function SkillList({ toolbarActions }: { toolbarActions: React.ReactNode 
       noun="skills"
       toolbarActions={toolbarActions}
       emptyMessage="No skills on this page."
-      onRowClick={(skill) => router.push(APP_ROUTES.skills.skill(browse.marketplace, skill.path))}
+      onRowClick={(skill) =>
+        router.push(
+          `${APP_ROUTES.skills.skill(browse.marketplace, skill.path)}${browseQuery(browse)}`,
+        )
+      }
       rowLabel={(skill) => `Open ${skill.name}`}
     />
   );

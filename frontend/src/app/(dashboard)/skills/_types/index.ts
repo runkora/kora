@@ -24,6 +24,15 @@ export interface SkillsLoadError {
   message: string;
 }
 
+/** The search and page as a query string, so a skill page can link back to the same results. */
+export function browseQuery(browse: SkillsBrowse): string {
+  const query = new URLSearchParams();
+  if (browse.search) query.set('search', browse.search);
+  if (browse.page > 1) query.set('page', String(browse.page));
+  const qs = query.toString();
+  return qs ? `?${qs}` : '';
+}
+
 /** Next hands dynamic params over still percent-encoded. A malformed escape reads as not found. */
 export function decodeParam(value: string): string {
   try {

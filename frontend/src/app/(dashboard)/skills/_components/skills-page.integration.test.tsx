@@ -1,5 +1,5 @@
 /** Integration tests for the Skills overview states, rendered through SkillsShell with MSW. */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -18,24 +18,56 @@ beforeEach(() => {
 });
 
 describe('SkillsPage', () => {
-  it('lists a page of skills with the total, and a row opens the skill by its path', async () => {
+  it('opens cards by default and, on a phone, offers no table', () => {
     renderWithProviders(<SkillsShell initialOverview={storyOverview()} initialError={null} />);
 
     expect(screen.getByText('1–3 of 30')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Page 2' })).toBeVisible();
-    await userEvent.click(screen.getByRole('row', { name: 'Open pdf' }));
-    expect(push).toHaveBeenCalledWith(`${OVERVIEW}/skills/pdf`);
+    expect(screen.getByRole('link', { name: /pdf/ })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'List view' })).not.toBeInTheDocument();
   });
 
-  it('links each card to its skill in card view', async () => {
-    renderWithProviders(<SkillsShell initialOverview={storyOverview()} initialError={null} />);
+  describe('on a desktop', () => {
+    beforeEach(() => {
+      vi.spyOn(window, 'matchMedia').mockReturnValue({
+        matches: true,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      } as unknown as MediaQueryList);
+      window.history.replaceState(null, '', `${OVERVIEW}?search=pdf&page=2`);
+    });
+    afterEach(() => vi.restoreAllMocks());
 
-    await userEvent.click(screen.getByRole('button', { name: 'Card view' }));
+    const searched = () =>
+      storyOverview({ browse: { marketplace: TEAM_MARKETPLACE.slug, search: 'pdf', page: 2 } });
 
-    expect(screen.getByRole('link', { name: /pdf/ })).toHaveAttribute(
-      'href',
-      `${OVERVIEW}/skills/pdf`,
-    );
+    it('links each card to its skill with the search and page to return to', () => {
+      renderWithProviders(<SkillsShell initialOverview={searched()} initialError={null} />);
+
+      expect(screen.getByRole('link', { name: /pdf/ })).toHaveAttribute(
+        'href',
+        `${OVERVIEW}/skills/pdf?search=pdf&page=2`,
+      );
+    });
+
+    it('opens a table row the same way after switching to the list view', async () => {
+      renderWithProviders(<SkillsShell initialOverview={searched()} initialError={null} />);
+
+      await userEvent.click(screen.getByRole('button', { name: 'List view' }));
+      await userEvent.click(screen.getByRole('row', { name: 'Open pdf' }));
+
+      expect(push).toHaveBeenCalledWith(`${OVERVIEW}/skills/pdf?search=pdf&page=2`);
+    });
+
+    it('offers no view toggle in an error state', () => {
+      renderWithProviders(
+        <SkillsShell
+          initialOverview={searched()}
+          initialError={{ status: 502, message: 'No credential.' }}
+        />,
+      );
+
+      expect(screen.queryByRole('button', { name: 'Card view' })).not.toBeInTheDocument();
+    });
   });
 
   it('shows an unavailable Marketplace with its reason, and Try again fetches the page again', async () => {
