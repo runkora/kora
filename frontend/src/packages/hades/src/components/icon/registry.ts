@@ -57,6 +57,7 @@ import {
   Folder,
   FolderOpen,
   Gauge,
+  GitBranch,
   Globe,
   GripVertical,
   HardDrive,
@@ -100,6 +101,7 @@ import {
   Shield,
   ShieldCheck,
   ShieldOff,
+  SlidersHorizontal,
   Sparkles,
   SquareTerminal,
   Sun,
@@ -169,6 +171,7 @@ export type IconName =
   | 'folder'
   | 'folder-open'
   | 'gauge'
+  | 'git-branch'
   | 'globe'
   | 'grip-vertical'
   | 'hard-drive'
@@ -211,6 +214,7 @@ export type IconName =
   | 'shield'
   | 'shield-check'
   | 'shield-off'
+  | 'sliders-horizontal'
   | 'sparkles'
   | 'square-terminal'
   | 'sun'
@@ -277,6 +281,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   folder: Folder,
   'folder-open': FolderOpen,
   gauge: Gauge,
+  'git-branch': GitBranch,
   globe: Globe,
   'grip-vertical': GripVertical,
   'hard-drive': HardDrive,
@@ -319,6 +324,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   shield: Shield,
   'shield-check': ShieldCheck,
   'shield-off': ShieldOff,
+  'sliders-horizontal': SlidersHorizontal,
   sparkles: Sparkles,
   'square-terminal': SquareTerminal,
   sun: Sun,

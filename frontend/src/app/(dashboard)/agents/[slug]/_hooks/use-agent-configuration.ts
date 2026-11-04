@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — agents/[slug]-scoped. State for the Configuration tab: every
+/** @tier 3 — agents/[slug]-scoped. State for the Configure modal: every
  * editable facet of the agent behind ONE dirty baseline and ONE save, so an
  * editing session becomes a single reviewable re-provision
  * (docs/adr/2026-07-17-agent-detail-configuration.md §4). Replaces the split
@@ -106,7 +106,7 @@ function baselineFrom(agent: AgentTypeRow | null): ConfigurationBaseline {
 }
 
 export function useAgentConfiguration() {
-  const { agent, deleteAgent } = useAgentDetailContext();
+  const { agent, applyAgent, deleteAgent } = useAgentDetailContext();
   const router = useRouter();
 
   const initial = useMemo(() => baselineFrom(agent), [agent]);
@@ -270,6 +270,7 @@ export function useAgentConfiguration() {
       setSaveError(result.error);
       return;
     }
+    if (result.agentType) applyAgent(result.agentType);
     setSavedBaseline({
       name: trimmedName,
       description: trimmedDescription,
@@ -308,6 +309,7 @@ export function useAgentConfiguration() {
     budgetCadence,
     budgetPerRunUSD,
     savedBaseline,
+    applyAgent,
   ]);
 
   const handleDiscard = useCallback(() => {

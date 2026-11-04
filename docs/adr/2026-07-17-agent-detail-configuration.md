@@ -118,3 +118,13 @@ The bar itself is rebuilt on tokens (`bg-surface-overlay`, `border-border`, stat
 
 - Triggers and Runs are untouched.
 - The audit card is thinner than the mockup until a per-editor audit source exists.
+
+---
+
+## Amendment (2026-11-04): Configuration moves into a Configure modal
+
+The Configuration tab is replaced by a **Configure** button in the page header that opens a builder-sized modal (`agent-configure-modal.tsx`), the same shape the trigger detail view uses. The page now has three tabs: Overview, Runs and Triggers. The rail, sections, motif components and permission handling are unchanged; only the container moved.
+
+The decision in §4 stands: one dirty baseline, one save, one re-provision. The modal keeps a single Save and Discard in its footer instead of saving each section on its own, because a per-section save would re-provision the agent once per section. The floating save bar cannot be used here, as it sits beneath the modal overlay.
+
+Closing the modal (Escape, the overlay or ×) with unsaved edits asks before discarding them. A successful save also replaces the page's copy of the agent, so Overview shows the change without a reload.

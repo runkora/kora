@@ -23,7 +23,7 @@ interface AgentOverviewTabProps {
   overview: AgentOverview | undefined;
   /** The selected period's load state; the figures on screen dim while it loads. */
   status: WindowStatus;
-  /** Opens the Configuration tab at the Behaviour step. */
+  /** Opens the Configure modal at the Behaviour step. */
   onEditInstructions: () => void;
 }
 
@@ -169,11 +169,12 @@ export function AgentOverviewTab({ overview, status, onEditInstructions }: Agent
       <Stack direction={{ base: 'vertical', xl: 'horizontal' }} gap="comfortable">
         <Stack gap="comfortable" grow minWidth="none">
           <RecentRunsTable />
-          {/* Edit stays visible but disabled where the configuration form would be read only. */}
+          {/* Edit stays visible but disabled where the Configure form would be read only. */}
           <AgentInstructionsCard
             prompt={agent.systemPrompt}
             onEdit={onEditInstructions}
             editDisabled={!agent.canEdit || managedInGit(agent.declared, locked)}
+            fill
           />
         </Stack>
 
@@ -217,7 +218,7 @@ export function AgentOverviewTab({ overview, status, onEditInstructions }: Agent
             </>
           )}
           <GrantScopesCard agent={agent} />
-          <MetadataCard agent={agent} />
+          <MetadataCard agent={agent} fill />
         </Stack>
       </Stack>
     </Stack>
