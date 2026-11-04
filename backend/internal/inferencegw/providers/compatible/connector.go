@@ -392,6 +392,5 @@ func forward[E, R any](s stream[E], event func(E) R, fail func(error) R) <-chan 
 // dropAPIKey sends a messages request with no key, for an endpoint that needs none.
 func dropAPIKey(req *http.Request, next anthropicopt.MiddlewareNext) (*http.Response, error) {
 	req.Header.Del("X-Api-Key")
-	req.Header.Del("Authorization")
 	return next(req)
 }
