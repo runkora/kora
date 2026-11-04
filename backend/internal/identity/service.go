@@ -431,8 +431,6 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 	return session, nil
 }
 
-// ─── Federated authentication: browser id_token flow ────────────────────────
-
 // idTokenClaims are the standard claims a federated sign-in reads from a
 // verified ID token.
 type idTokenClaims struct {
@@ -461,6 +459,8 @@ func (c idTokenClaims) principal(tenantID, issuer string) *Principal {
 		Claims:         claims,
 	}
 }
+
+// ─── Federated authentication: browser id_token flow ────────────────────────
 
 // resolveDisplayName returns the first non-empty value from the ordered
 // candidate fields: name → preferred_username → email → sub. The subject
@@ -522,9 +522,7 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 	tenantID, eligible, err := s.bindTenant(tenant, req.TenantID, req.TenantHint, idToken)
 	if err != nil {
 		if switching && (errors.Is(err, ErrClaimBindingMismatch) || errors.Is(err, ErrMultipleTenantsMatch)) {
-			err = &TenantMatchError{Err: ErrTenantSwitchDenied, Tenants: eligible}
-			observability.RecordFailure(span, err, errSpanTenantSwitchDenied)
-			return nil, err
+			return nil, denySwitch(span, eligible)
 		}
 		observability.RecordFailure(span, err, errSpanTenantClaimBindingFailed)
 		return nil, err
@@ -532,13 +530,15 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 	var replaced *Session
 	var replacedRefresh *RefreshToken
 	if switching {
-		replaced, replacedRefresh, err = s.replacedSession(ctx, req.ReplacesRefreshToken, req.TenantHint, tenantID, eligible, claims.Sub, idToken.Issuer)
+		if tenantID != req.TenantHint {
+			return nil, denySwitch(span, eligible)
+		}
+		replaced, replacedRefresh, err = s.replacedSession(ctx, req.ReplacesRefreshToken, claims.Sub, idToken.Issuer)
+		if errors.Is(err, ErrTenantSwitchDenied) {
+			return nil, denySwitch(span, eligible)
+		}
 		if err != nil {
-			sentinel := errSpanDatabaseError
-			if errors.Is(err, ErrTenantSwitchDenied) {
-				sentinel = errSpanTenantSwitchDenied
-			}
-			observability.RecordFailure(span, err, sentinel)
+			observability.RecordFailure(span, err, errSpanDatabaseError)
 			return nil, err
 		}
 	}
@@ -546,10 +546,8 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 	principal := claims.principal(tenantID, idToken.Issuer)
 
 	resp, err := s.createSession(ctx, principal, replacedRefresh)
-	if replaced != nil && replacedGone(err) {
-		err = &TenantMatchError{Err: ErrTenantSwitchDenied, Tenants: eligible}
-		observability.RecordFailure(span, err, errSpanTenantSwitchDenied)
-		return nil, err
+	if refreshNotLive(err) {
+		return nil, denySwitch(span, eligible)
 	}
 	if err != nil {
 		return nil, err
@@ -578,39 +576,10 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 		return nil, err
 	}
 
-	hash := hashToken(req.RefreshToken)
-
-	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hash)
+	rt, session, err := s.liveRefreshSession(ctx, req.RefreshToken)
 	if err != nil {
-		if errors.Is(err, ErrRefreshTokenNotFound) {
-			observability.RecordFailure(span, err, errSpanRefreshTokenNotFound)
-			return nil, ErrRefreshTokenNotFound
-		}
-		observability.RecordFailure(span, err, errSpanDatabaseError)
-		return nil, fmt.Errorf("get refresh token: %w", err)
-	}
-
-	if rt.RevokedAt != nil {
-		observability.RecordFailure(span, ErrRefreshTokenRevoked, errSpanRefreshTokenRevoked)
-		return nil, ErrRefreshTokenRevoked
-	}
-	if time.Now().After(rt.ExpiresAt) {
-		observability.RecordFailure(span, ErrRefreshTokenExpired, errSpanRefreshTokenExpired)
-		return nil, ErrRefreshTokenExpired
-	}
-
-	session, err := s.sessions.GetSessionByID(ctx, rt.SessionID)
-	if err != nil {
-		if errors.Is(err, ErrSessionNotFound) {
-			observability.RecordFailure(span, err, errSpanSessionNotFound)
-			return nil, ErrSessionNotFound
-		}
-		observability.RecordFailure(span, err, errSpanDatabaseError)
-		return nil, fmt.Errorf("get session: %w", err)
-	}
-	if session.RevokedAt != nil {
-		observability.RecordFailure(span, ErrTokenRevoked, errSpanSessionRevoked)
-		return nil, ErrTokenRevoked
+		observability.RecordFailure(span, err, refreshFailureSpan(err))
+		return nil, err
 	}
 
 	span.SetAttributes(
@@ -637,6 +606,65 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 	}
 
 	return s.createSession(ctx, principal, nil)
+}
+
+// liveRefreshSession returns a refresh token and its session when both are
+// live. Each way either has ended returns its own sentinel for the caller.
+func (s *Service) liveRefreshSession(ctx context.Context, raw string) (*RefreshToken, *Session, error) {
+	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hashToken(raw))
+	if errors.Is(err, ErrRefreshTokenNotFound) {
+		return nil, nil, ErrRefreshTokenNotFound
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("get refresh token: %w", err)
+	}
+	if rt.RevokedAt != nil {
+		return nil, nil, ErrRefreshTokenRevoked
+	}
+	if time.Now().After(rt.ExpiresAt) {
+		return nil, nil, ErrRefreshTokenExpired
+	}
+
+	session, err := s.sessions.GetSessionByID(ctx, rt.SessionID)
+	if errors.Is(err, ErrSessionNotFound) {
+		return nil, nil, ErrSessionNotFound
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("get session: %w", err)
+	}
+	if session.RevokedAt != nil {
+		return nil, nil, ErrTokenRevoked
+	}
+	return rt, session, nil
+}
+
+// refreshNotLive reports whether err says a refresh token or its session has
+// ended, from liveRefreshSession or from the guards in SwitchSession.
+func refreshNotLive(err error) bool {
+	for _, ended := range []error{ErrRefreshTokenNotFound, ErrRefreshTokenRevoked, ErrRefreshTokenExpired, ErrSessionNotFound, ErrTokenRevoked} {
+		if errors.Is(err, ended) {
+			return true
+		}
+	}
+	return false
+}
+
+// refreshFailureSpan is the static span status for a liveRefreshSession error.
+func refreshFailureSpan(err error) error {
+	switch {
+	case errors.Is(err, ErrRefreshTokenNotFound):
+		return errSpanRefreshTokenNotFound
+	case errors.Is(err, ErrRefreshTokenRevoked):
+		return errSpanRefreshTokenRevoked
+	case errors.Is(err, ErrRefreshTokenExpired):
+		return errSpanRefreshTokenExpired
+	case errors.Is(err, ErrSessionNotFound):
+		return errSpanSessionNotFound
+	case errors.Is(err, ErrTokenRevoked):
+		return errSpanSessionRevoked
+	default:
+		return errSpanDatabaseError
+	}
 }
 
 // ─── SPIFFE exchange ──────────────────────────────────────────────────────────
@@ -836,44 +864,9 @@ func (s *Service) buildSession(principal *Principal) (*Session, string, error) {
 	return session, accessToken, nil
 }
 
-// buildAndPersistSession builds and persists a session for createAgentSession,
-// which issues no refresh token.
-func (s *Service) buildAndPersistSession(ctx context.Context, principal *Principal) (*Session, string, error) {
-	ctx, span := s.tracer.Start(observability.WithTenant(ctx, principal.TenantID), "identity.buildAndPersistSession",
-		trace.WithAttributes(
-			observability.PrincipalIDKey.String(principal.ID),
-			observability.PrincipalTypeKey.String(string(principal.Type)),
-			observability.PrincipalIdentitySourceKey.String(string(principal.IdentitySource)),
-		),
-	)
-	defer span.End()
-
-	// Sign before persisting so that a signing failure writes nothing.
-	session, accessToken, err := s.buildSession(principal)
-	if err != nil {
-		observability.RecordFailure(span, err, errSpanTokenSigningFailed)
-		return nil, "", err
-	}
-	span.SetAttributes(
-		observability.SessionIDKey.String(session.ID),
-		observability.TokenJTIKey.String(session.JTI),
-		observability.TokenTTLMinutesKey.Int64(int64(s.cfg.Token.AccessTokenTTLMinutes)),
-	)
-	if err := s.sessions.CreateSession(ctx, session); err != nil {
-		observability.RecordFailure(span, err, errSpanSessionPersistenceFailed)
-		return nil, "", fmt.Errorf("persist session: %w", err)
-	}
-
-	span.SetStatus(codes.Ok, "session created")
-	return session, accessToken, nil
-}
-
-// createSession creates a full human session: PostgreSQL session + refresh
-// token + signed JWT. With replaced set it is a tenant switch: the new rows,
-// consuming replaced and revoking its session commit together. A replaced token
-// already consumed is ErrRefreshTokenNotFound and a revoked session is
-// ErrSessionNotFound. For HUMAN/FEDERATED principals it also
-// upserts a user_profiles row; failures are non-fatal and logged.
+// createSession issues a human session with a refresh token. A non-nil replaced
+// commits it as a tenant switch through SwitchSession. For federated principals
+// it also upserts the user profile, logging rather than returning a failure.
 func (s *Service) createSession(ctx context.Context, principal *Principal, replaced *RefreshToken) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(observability.WithTenant(ctx, principal.TenantID), "identity.createSession",
 		trace.WithAttributes(
@@ -962,11 +955,18 @@ func (s *Service) createAgentSession(ctx context.Context, principal *Principal) 
 	)
 	defer span.End()
 
-	session, accessToken, err := s.buildAndPersistSession(ctx, principal)
+	session, accessToken, err := s.buildSession(principal)
+	if err == nil {
+		err = s.sessions.CreateSession(ctx, session)
+	}
 	if err != nil {
 		observability.RecordFailure(span, err, errSpanAgentSessionCreationFailed)
-		return nil, err
+		return nil, fmt.Errorf("create agent session: %w", err)
 	}
+	span.SetAttributes(
+		observability.SessionIDKey.String(session.ID),
+		observability.TokenJTIKey.String(session.JTI),
+	)
 
 	span.SetStatus(codes.Ok, "agent session created (no refresh token)")
 
@@ -1321,45 +1321,28 @@ func (s *Service) bindTenant(requested *tenantOIDCState, requestedID, hint strin
 	}
 }
 
-// replacedSession checks a switch before any write: the bound tenant must be
-// the hint, and the replaced refresh token must be live and belong to a live
-// session of the same subject on the same issuer. A failed check is
-// ErrTenantSwitchDenied carrying the fresh eligible set. It returns the session
-// and the refresh token the switch replaces.
-func (s *Service) replacedSession(ctx context.Context, refreshToken, hint, bound string, eligible []EligibleTenant, subject, issuer string) (*Session, *RefreshToken, error) {
-	denied := &TenantMatchError{Err: ErrTenantSwitchDenied, Tenants: eligible}
-	if bound != hint {
-		return nil, nil, denied
-	}
-
-	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hashToken(refreshToken))
-	if errors.Is(err, ErrRefreshTokenNotFound) {
-		return nil, nil, denied
+// replacedSession returns the session and refresh token a switch replaces. It
+// is ErrTenantSwitchDenied unless both are live and belong to subject on issuer.
+func (s *Service) replacedSession(ctx context.Context, refreshToken, subject, issuer string) (*Session, *RefreshToken, error) {
+	rt, session, err := s.liveRefreshSession(ctx, refreshToken)
+	if refreshNotLive(err) {
+		return nil, nil, ErrTenantSwitchDenied
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("get replaced refresh token: %w", err)
+		return nil, nil, err
 	}
-	if rt.RevokedAt != nil || !time.Now().Before(rt.ExpiresAt) {
-		return nil, nil, denied
-	}
-
-	session, err := s.sessions.GetSessionByID(ctx, rt.SessionID)
-	if errors.Is(err, ErrSessionNotFound) {
-		return nil, nil, denied
-	}
-	if err != nil {
-		return nil, nil, fmt.Errorf("get replaced session: %w", err)
-	}
-	if session.RevokedAt != nil || session.PrincipalID != subject || session.Claims["issuer"] != issuer {
-		return nil, nil, denied
+	if session.PrincipalID != subject || session.Claims["issuer"] != issuer {
+		return nil, nil, ErrTenantSwitchDenied
 	}
 	return session, rt, nil
 }
 
-// replacedGone reports whether a switch found the replaced refresh token or
-// session already ended when it committed.
-func replacedGone(err error) bool {
-	return errors.Is(err, ErrRefreshTokenNotFound) || errors.Is(err, ErrSessionNotFound)
+// denySwitch records a refused switch and returns it with the fresh eligible
+// set, which the dashboard shows in place of its stored list.
+func denySwitch(span trace.Span, eligible []EligibleTenant) error {
+	err := &TenantMatchError{Err: ErrTenantSwitchDenied, Tenants: eligible}
+	observability.RecordFailure(span, err, errSpanTenantSwitchDenied)
+	return err
 }
 
 // finishSwitch runs after the switch commits. It blocks the replaced access
