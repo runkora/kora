@@ -2,7 +2,7 @@
 
 **Status:** Approved  
 **Created:** 2026-08-06  
-**Last Updated:** 2026-11-04  
+**Last Updated:** 2026-11-05  
 **Owner:** Stoyan Grozdev  
 **Stakeholders:** Tenant Members, Tenant Administrators, Platform Operations, Security Reviewers
 
@@ -61,10 +61,11 @@ The first release does not:
 
 **Acceptance Criteria:**
 
-*   [ ] I can select a Marketplace and browse its skills in name order, A to Z.
-*   [ ] I can search skill names, descriptions and `SKILL.md` instructions in the selected Marketplace.
+*   [ ] I can browse the skills of all my tenant's Marketplaces together, or of one Marketplace, in title order, A to Z.
+*   [ ] I can search skill names, descriptions and `SKILL.md` instructions across all Marketplaces or in the one I selected.
 *   [ ] Results are shown one numbered page at a time with the total count.
-*   [ ] The address holds the Marketplace, search and page, and refresh, Back and shared links restore them.
+*   [ ] The address holds the Marketplace or Favourites view, the search and the page, and refresh, Back and shared links restore them.
+*   [ ] I can mark a skill as a favourite and see my favourites together.
 
 **As a** tenant member,  
 **I want to** open a skill page,  
@@ -74,7 +75,8 @@ The first release does not:
 
 *   [ ] The skill opens at its own shareable address.
 *   [ ] The page shows `SKILL.md` first, the skill's other text files and their paths, and the source repository.
-*   [ ] I can select a file, read it as plain text and copy its content.
+*   [ ] `SKILL.md` opens rendered, with a raw view. I can select another file, read it as plain text and copy its content.
+*   [ ] I can open the skill's folder in its source repository at the commit the page shows.
 
 **As a** tenant administrator,  
 **I want to** register GitHub repositories as Marketplaces for my tenant through GitOps,  
@@ -101,7 +103,7 @@ Kora adds a read-only Skills page to the dashboard. Tenant administrators declar
 
 The Skills page sits under Control Plane in the Kora dashboard.
 
-*   Results use the user's table page size preference.
+*   Results show ten skills per page as cards or as a list.
 *   When a search finds nothing, the page says so and offers to clear the search.
 *   When a Marketplace cannot be read, the page shows it as unavailable with the reason and offers to try again.
 
@@ -109,21 +111,21 @@ The Skills page sits under Control Plane in the Kora dashboard.
 
 1.  **Browse skills:**
     1.  The user opens Control Plane, then Skills.
-    2.  The page opens the Marketplace in the address, or the first available Marketplace when the address has none.
-    3.  The user can select another Marketplace.
+    2.  The page opens all Marketplaces together, or the Marketplace or Favourites view in the address.
+    3.  The user can narrow the results to one Marketplace or to their favourites.
     4.  The user enters a search of at least three characters.
-    5.  Kora shows a numbered page of matching skills in name order, A to Z.
-    6.  Each result shows the skill's name and summary.
+    5.  Kora shows a numbered page of matching skills in title order, A to Z.
+    6.  Each result shows the skill's title, name, version, summary and the tags its frontmatter declares.
 2.  **Review a skill:**
     1.  The user selects a skill.
-    2.  The page shows a file explorer and a plain-text preview.
+    2.  The page shows the skill's details, the open file and a file explorer. `SKILL.md` opens rendered.
     3.  The user can select and copy any text file. The page shows the source repository as `owner/repository`.
     4.  The user returns to the results through the Skills link or browser Back.
 
 ### Key Components
 
-*   **Skills overview:** Marketplace selection, search, list and card views, and numbered pages.
-*   **Skill page:** A file explorer, read-only text previews and the source repository.
+*   **Skills overview:** Marketplace and favourite filters, search, list and card views, and numbered pages.
+*   **Skill page:** The skill's details, a rendered `SKILL.md`, a file explorer, read-only text previews, and the source repository and commit with a link to the source.
 *   **Marketplaces:** GitHub repositories declared in a tenant namespace, each with its own GitHub App.
 
 ## Scope
@@ -142,7 +144,7 @@ The Skills page sits under Control Plane in the Kora dashboard.
 
 ### First-Release Limitations
 
-*   Repository changes appear after the cache lifetime expires. The dashboard does not show freshness or the source commit.
+*   Repository changes appear after the cache lifetime expires. The skill page shows the commit it was read at and when the Marketplace was last read.
 *   Initial loads of a large repository may be slow. Users can retry.
 *   Only text files can be previewed, and binary files are not listed.
 *   Very large repositories are served up to a fixed limit on skills and file size. Skills and files over the limit are not shown.
@@ -153,7 +155,9 @@ The Skills page sits under Control Plane in the Kora dashboard.
 *   **Skills in agents:** Add skills to agent types and agent runs.
 *   **Plugins:** Agent plugins and their declared parts.
 *   **Search ranking:** Order search results by relevance.
-*   **More skill details:** Publisher, license, needs, checks and a link to the original source.
+*   **More skill details:** Publisher, license, needs and checks.
+*   **Shared favourites:** How many people in the tenant favourite each skill.
+*   **Local install:** Download a skill or copy it into a local client such as Claude Code.
 *   **Sources:** A source status view in the dashboard, Marketplaces shared by every tenant, and providers other than GitHub.
 *   **Reports:** Skill adoption, and reports of skill use in agent runs.
 
@@ -202,7 +206,7 @@ The Skills page sits under Control Plane in the Kora dashboard.
 
 ### External Dependencies
 
-*   **GitHub:** Hosts the Marketplace repositories in the first release. Each Marketplace needs a GitHub App installation with read access to its repository.
+*   **GitHub:** Hosts the Marketplace repositories in the first release. Each Marketplace needs a GitHub App. The App reads any public repository and must be installed on a private one.
 *   **Skill authors:** Each skill needs its own repository folder and a valid `SKILL.md` with a name and a description. Supporting files are optional. A `SKILL.md` at the repository root is not listed.
 *   **Self-hosting environment:** A self-hosted Kora must be able to reach GitHub.
 
