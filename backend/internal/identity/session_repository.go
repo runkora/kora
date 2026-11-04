@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // ─── Session repository interface ─────────────────────────────────────────────
@@ -31,6 +34,13 @@ type SessionRepository interface {
 	// Refresh token revocation is a separate operation — callers must invoke
 	// RefreshTokenRepository.RevokeAllForSession before or after.
 	RevokeSession(ctx context.Context, id string, revokedAt time.Time) error
+
+	// SwitchSession commits a tenant switch in one transaction: it consumes the
+	// replaced refresh token, revokes its session and that session's other
+	// refresh tokens, and inserts the next session and refresh token. A replaced
+	// token already consumed is ErrRefreshTokenNotFound, a session already
+	// revoked is ErrSessionNotFound, and either writes nothing.
+	SwitchSession(ctx context.Context, next *Session, nextRefresh *RefreshToken, replaced *RefreshToken, at time.Time) error
 }
 
 // ─── PostgreSQL implementation ────────────────────────────────────────────────
@@ -45,33 +55,25 @@ func NewPostgresSessionRepository(pool *pgxpool.Pool) SessionRepository {
 }
 
 func (r *postgresSessionRepository) CreateSession(ctx context.Context, s *Session) error {
-	claimsJSON, err := json.Marshal(s.Claims)
-	if err != nil {
-		return fmt.Errorf("marshal claims: %w", err)
-	}
+	return insertSession(ctx, r.pool, s)
+}
 
-	_, err = r.pool.Exec(ctx, `
-		INSERT INTO identity_sessions
-			(id, jti, principal_id, principal_type, tenant_id, display_name,
-			 identity_source, claims, created_at, expires_at)
-		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`,
-		s.ID,
-		s.JTI,
-		s.PrincipalID,
-		string(s.PrincipalType),
-		s.TenantID,
-		s.DisplayName,
-		string(s.IdentitySource),
-		claimsJSON,
-		s.CreatedAt,
-		s.ExpiresAt,
-	)
-	if err != nil {
-		return fmt.Errorf("create session: %w", err)
-	}
-	return nil
+func (r *postgresSessionRepository) SwitchSession(ctx context.Context, next *Session, nextRefresh *RefreshToken, replaced *RefreshToken, at time.Time) error {
+	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+		if err := revokeRefreshToken(ctx, tx, replaced.ID, at); err != nil {
+			return err
+		}
+		if err := revokeSession(ctx, tx, replaced.SessionID, at); err != nil {
+			return err
+		}
+		if err := revokeAllForSession(ctx, tx, replaced.SessionID, at); err != nil {
+			return err
+		}
+		if err := insertSession(ctx, tx, next); err != nil {
+			return err
+		}
+		return insertRefreshToken(ctx, tx, nextRefresh)
+	})
 }
 
 func (r *postgresSessionRepository) GetSessionByID(ctx context.Context, id string) (*Session, error) {
@@ -93,19 +95,7 @@ func (r *postgresSessionRepository) GetSessionByJTI(ctx context.Context, jti str
 }
 
 func (r *postgresSessionRepository) RevokeSession(ctx context.Context, id string, revokedAt time.Time) error {
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE identity_sessions
-		SET    revoked_at = $1
-		WHERE  id = $2
-		  AND  revoked_at IS NULL
-	`, revokedAt, id)
-	if err != nil {
-		return fmt.Errorf("revoke session: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrSessionNotFound
-	}
-	return nil
+	return revokeSession(ctx, r.pool, id, revokedAt)
 }
 
 // scanSession executes query with a single string argument and hydrates a Session.
@@ -144,4 +134,57 @@ func (r *postgresSessionRepository) scanSession(ctx context.Context, query, arg 
 	}
 
 	return &s, nil
+}
+
+// ─── Statements shared with the switch transaction ───────────────────────────
+
+// execer runs one statement on a pool or inside a transaction.
+type execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+func insertSession(ctx context.Context, db execer, s *Session) error {
+	claimsJSON, err := json.Marshal(s.Claims)
+	if err != nil {
+		return fmt.Errorf("marshal claims: %w", err)
+	}
+
+	_, err = db.Exec(ctx, `
+		INSERT INTO identity_sessions
+			(id, jti, principal_id, principal_type, tenant_id, display_name,
+			 identity_source, claims, created_at, expires_at)
+		VALUES
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`,
+		s.ID,
+		s.JTI,
+		s.PrincipalID,
+		string(s.PrincipalType),
+		s.TenantID,
+		s.DisplayName,
+		string(s.IdentitySource),
+		claimsJSON,
+		s.CreatedAt,
+		s.ExpiresAt,
+	)
+	if err != nil {
+		return fmt.Errorf("create session: %w", err)
+	}
+	return nil
+}
+
+func revokeSession(ctx context.Context, db execer, id string, revokedAt time.Time) error {
+	tag, err := db.Exec(ctx, `
+		UPDATE identity_sessions
+		SET    revoked_at = $1
+		WHERE  id = $2
+		  AND  revoked_at IS NULL
+	`, revokedAt, id)
+	if err != nil {
+		return fmt.Errorf("revoke session: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSessionNotFound
+	}
+	return nil
 }

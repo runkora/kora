@@ -403,14 +403,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		return nil, fmt.Errorf("verify id token: %w", err)
 	}
 
-	var claims struct {
-		Sub               string   `json:"sub"`
-		Email             string   `json:"email"`
-		Name              string   `json:"name"`
-		PreferredUsername string   `json:"preferred_username"`
-		Roles             []string `json:"roles"`
-		Groups            []string `json:"groups"`
-	}
+	var claims idTokenClaims
 	if err = idToken.Claims(&claims); err != nil {
 		observability.RecordFailure(span, err, errSpanClaimsExtractionFailed)
 		return nil, fmt.Errorf("extract id token claims: %w", err)
@@ -422,35 +415,49 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		observability.PrincipalIdentitySourceKey.String(string(IdentitySourceFederated)),
 	)
 
-	tenantID, err := s.bindTenant(ts, req.TenantID, idToken)
+	tenantID, eligible, err := s.bindTenant(ts, req.TenantID, req.TenantHint, idToken)
 	if err != nil {
 		observability.RecordFailure(span, err, errSpanTenantClaimBindingFailed)
 		return nil, err
 	}
 
-	displayName := resolveDisplayName(claims.Name, claims.PreferredUsername, claims.Email, claims.Sub)
+	principal := claims.principal(tenantID, idToken.Issuer)
 
-	principalClaims := map[string]string{
-		"email":  claims.Email,
-		"issuer": idToken.Issuer,
+	session, err := s.createSession(ctx, principal, nil)
+	if err != nil {
+		return nil, err
 	}
+	session.Tenants = eligible
+	return session, nil
+}
+
+// idTokenClaims are the standard claims a federated sign-in reads from a
+// verified ID token.
+type idTokenClaims struct {
+	Sub               string   `json:"sub"`
+	Email             string   `json:"email"`
+	Name              string   `json:"name"`
+	PreferredUsername string   `json:"preferred_username"`
+	Roles             []string `json:"roles"`
+	Groups            []string `json:"groups"`
+}
+
+// principal returns the human principal these claims sign in to tenantID.
+func (c idTokenClaims) principal(tenantID, issuer string) *Principal {
+	claims := map[string]string{"email": c.Email, "issuer": issuer}
 	// OIDC providers use either "roles" (Auth0, Entra) or "groups" (Dex, Okta)
 	// for role-like claims. Merge both into a single roles string.
-	allRoles := slices.Concat(claims.Roles, claims.Groups)
-	if len(allRoles) > 0 {
-		principalClaims["roles"] = strings.Join(allRoles, ",")
+	if roles := slices.Concat(c.Roles, c.Groups); len(roles) > 0 {
+		claims["roles"] = strings.Join(roles, ",")
 	}
-
-	principal := &Principal{
-		ID:             claims.Sub,
+	return &Principal{
+		ID:             c.Sub,
 		Type:           PrincipalTypeHuman,
 		TenantID:       tenantID,
-		DisplayName:    displayName,
+		DisplayName:    resolveDisplayName(c.Name, c.PreferredUsername, c.Email, c.Sub),
 		IdentitySource: IdentitySourceFederated,
-		Claims:         principalClaims,
+		Claims:         claims,
 	}
-
-	return s.createSession(ctx, principal)
 }
 
 // ─── Federated authentication: browser id_token flow ────────────────────────
@@ -499,14 +506,7 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 		return nil, fmt.Errorf("%w: %w", ErrIDTokenInvalid, err)
 	}
 
-	var claims struct {
-		Sub               string   `json:"sub"`
-		Email             string   `json:"email"`
-		Name              string   `json:"name"`
-		PreferredUsername string   `json:"preferred_username"`
-		Roles             []string `json:"roles"`
-		Groups            []string `json:"groups"`
-	}
+	var claims idTokenClaims
 	if err = idToken.Claims(&claims); err != nil {
 		observability.RecordFailure(span, err, errSpanClaimsExtractionFailed)
 		return nil, fmt.Errorf("extract id_token claims: %w", err)
@@ -518,36 +518,46 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 		observability.PrincipalIdentitySourceKey.String(string(IdentitySourceFederated)),
 	)
 
-	tenantID, err := s.bindTenant(tenant, req.TenantID, idToken)
+	switching := req.ReplacesRefreshToken != ""
+	tenantID, eligible, err := s.bindTenant(tenant, req.TenantID, req.TenantHint, idToken)
 	if err != nil {
+		if switching && (errors.Is(err, ErrClaimBindingMismatch) || errors.Is(err, ErrMultipleTenantsMatch)) {
+			return nil, denySwitch(span, eligible)
+		}
 		observability.RecordFailure(span, err, errSpanTenantClaimBindingFailed)
 		return nil, err
 	}
-
-	displayName := resolveDisplayName(claims.Name, claims.PreferredUsername, claims.Email, claims.Sub)
-
-	principalClaims := map[string]string{
-		"email":  claims.Email,
-		"issuer": idToken.Issuer,
-	}
-	// OIDC providers use either "roles" (Auth0, Entra) or "groups" (Dex, Okta)
-	// for role-like claims. Merge both into a single roles string.
-	allRoles := slices.Concat(claims.Roles, claims.Groups)
-	if len(allRoles) > 0 {
-		principalClaims["roles"] = strings.Join(allRoles, ",")
-	}
-
-	principal := &Principal{
-		ID:             claims.Sub,
-		Type:           PrincipalTypeHuman,
-		TenantID:       tenantID,
-		DisplayName:    displayName,
-		IdentitySource: IdentitySourceFederated,
-		Claims:         principalClaims,
+	var replaced *Session
+	var replacedRefresh *RefreshToken
+	if switching {
+		if tenantID != req.TenantHint {
+			return nil, denySwitch(span, eligible)
+		}
+		replaced, replacedRefresh, err = s.replacedSession(ctx, req.ReplacesRefreshToken, claims.Sub, idToken.Issuer)
+		if errors.Is(err, ErrTenantSwitchDenied) {
+			return nil, denySwitch(span, eligible)
+		}
+		if err != nil {
+			observability.RecordFailure(span, err, errSpanDatabaseError)
+			return nil, err
+		}
 	}
 
-	span.SetStatus(codes.Ok, "id_token verified, creating session")
-	return s.createSession(ctx, principal)
+	principal := claims.principal(tenantID, idToken.Issuer)
+
+	resp, err := s.createSession(ctx, principal, replacedRefresh)
+	if refreshNotLive(err) {
+		return nil, denySwitch(span, eligible)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if replaced != nil {
+		s.finishSwitch(ctx, replaced, tenantID)
+	}
+	resp.Tenants = eligible
+	span.SetStatus(codes.Ok, "id_token verified, session created")
+	return resp, nil
 }
 
 // RefreshSession exchanges a valid refresh token for a new access token and
@@ -566,39 +576,10 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 		return nil, err
 	}
 
-	hash := hashToken(req.RefreshToken)
-
-	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hash)
+	rt, session, err := s.liveRefreshSession(ctx, req.RefreshToken)
 	if err != nil {
-		if errors.Is(err, ErrRefreshTokenNotFound) {
-			observability.RecordFailure(span, err, errSpanRefreshTokenNotFound)
-			return nil, ErrRefreshTokenNotFound
-		}
-		observability.RecordFailure(span, err, errSpanDatabaseError)
-		return nil, fmt.Errorf("get refresh token: %w", err)
-	}
-
-	if rt.RevokedAt != nil {
-		observability.RecordFailure(span, ErrRefreshTokenRevoked, errSpanRefreshTokenRevoked)
-		return nil, ErrRefreshTokenRevoked
-	}
-	if time.Now().After(rt.ExpiresAt) {
-		observability.RecordFailure(span, ErrRefreshTokenExpired, errSpanRefreshTokenExpired)
-		return nil, ErrRefreshTokenExpired
-	}
-
-	session, err := s.sessions.GetSessionByID(ctx, rt.SessionID)
-	if err != nil {
-		if errors.Is(err, ErrSessionNotFound) {
-			observability.RecordFailure(span, err, errSpanSessionNotFound)
-			return nil, ErrSessionNotFound
-		}
-		observability.RecordFailure(span, err, errSpanDatabaseError)
-		return nil, fmt.Errorf("get session: %w", err)
-	}
-	if session.RevokedAt != nil {
-		observability.RecordFailure(span, ErrTokenRevoked, errSpanSessionRevoked)
-		return nil, ErrTokenRevoked
+		observability.RecordFailure(span, err, refreshFailureSpan(err))
+		return nil, err
 	}
 
 	span.SetAttributes(
@@ -624,7 +605,66 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 		Claims:         session.Claims,
 	}
 
-	return s.createSession(ctx, principal)
+	return s.createSession(ctx, principal, nil)
+}
+
+// liveRefreshSession returns a refresh token and its session when both are
+// live. Each way either has ended returns its own sentinel for the caller.
+func (s *Service) liveRefreshSession(ctx context.Context, raw string) (*RefreshToken, *Session, error) {
+	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hashToken(raw))
+	if errors.Is(err, ErrRefreshTokenNotFound) {
+		return nil, nil, ErrRefreshTokenNotFound
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("get refresh token: %w", err)
+	}
+	if rt.RevokedAt != nil {
+		return nil, nil, ErrRefreshTokenRevoked
+	}
+	if time.Now().After(rt.ExpiresAt) {
+		return nil, nil, ErrRefreshTokenExpired
+	}
+
+	session, err := s.sessions.GetSessionByID(ctx, rt.SessionID)
+	if errors.Is(err, ErrSessionNotFound) {
+		return nil, nil, ErrSessionNotFound
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("get session: %w", err)
+	}
+	if session.RevokedAt != nil {
+		return nil, nil, ErrTokenRevoked
+	}
+	return rt, session, nil
+}
+
+// refreshNotLive reports whether err says a refresh token or its session has
+// ended, from liveRefreshSession or from the guards in SwitchSession.
+func refreshNotLive(err error) bool {
+	for _, ended := range []error{ErrRefreshTokenNotFound, ErrRefreshTokenRevoked, ErrRefreshTokenExpired, ErrSessionNotFound, ErrTokenRevoked} {
+		if errors.Is(err, ended) {
+			return true
+		}
+	}
+	return false
+}
+
+// refreshFailureSpan is the static span status for a liveRefreshSession error.
+func refreshFailureSpan(err error) error {
+	switch {
+	case errors.Is(err, ErrRefreshTokenNotFound):
+		return errSpanRefreshTokenNotFound
+	case errors.Is(err, ErrRefreshTokenRevoked):
+		return errSpanRefreshTokenRevoked
+	case errors.Is(err, ErrRefreshTokenExpired):
+		return errSpanRefreshTokenExpired
+	case errors.Is(err, ErrSessionNotFound):
+		return errSpanSessionNotFound
+	case errors.Is(err, ErrTokenRevoked):
+		return errSpanSessionRevoked
+	default:
+		return errSpanDatabaseError
+	}
 }
 
 // ─── SPIFFE exchange ──────────────────────────────────────────────────────────
@@ -800,43 +840,14 @@ func (s *Service) JWKSJSON() []byte {
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
-// buildAndPersistSession generates IDs, computes TTL, persists the Session
-// record to PostgreSQL, and signs the platform JWT. It is shared by
-// createSession (human, with refresh token) and createAgentSession (no refresh
-// token). Returns the session ID, signed access token, issue time, and TTL.
-func (s *Service) buildAndPersistSession(ctx context.Context, principal *Principal) (sessionID, accessToken string, now time.Time, ttl time.Duration, err error) {
-	ctx, span := s.tracer.Start(observability.WithTenant(ctx, principal.TenantID), "identity.buildAndPersistSession",
-		trace.WithAttributes(
-			observability.PrincipalIDKey.String(principal.ID),
-			observability.PrincipalTypeKey.String(string(principal.Type)),
-			observability.PrincipalIdentitySourceKey.String(string(principal.IdentitySource)),
-		),
-	)
-	defer span.End()
-
-	sessionID = uuid.NewString()
-	jti := uuid.NewString()
-	now = time.Now().UTC()
-
-	ttl = time.Duration(s.cfg.Token.AccessTokenTTLMinutes) * time.Minute
-
-	span.SetAttributes(
-		observability.SessionIDKey.String(sessionID),
-		observability.TokenJTIKey.String(jti),
-		observability.TokenTTLMinutesKey.Int64(int64(s.cfg.Token.AccessTokenTTLMinutes)),
-	)
-
-	// Sign before persisting — if signing fails nothing is written to the DB.
-	accessToken, err = s.signToken(principal, jti, sessionID, "", now, ttl)
-	if err != nil {
-		observability.RecordFailure(span, err, errSpanTokenSigningFailed)
-		err = fmt.Errorf("sign access token: %w", err)
-		return
-	}
-
+// buildSession signs a platform token for principal and returns it with its
+// session record, not yet persisted.
+func (s *Service) buildSession(principal *Principal) (*Session, string, error) {
+	now := time.Now().UTC()
+	ttl := time.Duration(s.cfg.Token.AccessTokenTTLMinutes) * time.Minute
 	session := &Session{
-		ID:             sessionID,
-		JTI:            jti,
+		ID:             uuid.NewString(),
+		JTI:            uuid.NewString(),
 		PrincipalID:    principal.ID,
 		PrincipalType:  principal.Type,
 		TenantID:       principal.TenantID,
@@ -846,38 +857,74 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 		CreatedAt:      now,
 		ExpiresAt:      now.Add(ttl),
 	}
-	if err = s.sessions.CreateSession(ctx, session); err != nil {
-		observability.RecordFailure(span, err, errSpanSessionPersistenceFailed)
-		err = fmt.Errorf("persist session: %w", err)
-		return
+	accessToken, err := s.signToken(principal, session.JTI, session.ID, "", now, ttl)
+	if err != nil {
+		return nil, "", fmt.Errorf("sign access token: %w", err)
 	}
-
-	span.SetStatus(codes.Ok, "session created")
-	return
+	return session, accessToken, nil
 }
 
-// createSession creates a full human session: PostgreSQL session + refresh
-// token + signed JWT. For HUMAN/FEDERATED principals it also upserts a
-// user_profiles row — failures are non-fatal and logged.
-func (s *Service) createSession(ctx context.Context, principal *Principal) (*SessionResponse, error) {
-	ctx, span := s.tracer.Start(ctx, "identity.createSession",
+// createSession issues a human session with a refresh token. A non-nil replaced
+// commits it as a tenant switch through SwitchSession. For federated principals
+// it also upserts the user profile, logging rather than returning a failure.
+func (s *Service) createSession(ctx context.Context, principal *Principal, replaced *RefreshToken) (*SessionResponse, error) {
+	ctx, span := s.tracer.Start(observability.WithTenant(ctx, principal.TenantID), "identity.createSession",
 		trace.WithAttributes(
+			observability.PrincipalIDKey.String(principal.ID),
 			observability.PrincipalTypeKey.String(string(principal.Type)),
+			observability.PrincipalIdentitySourceKey.String(string(principal.IdentitySource)),
 		),
 	)
 	defer span.End()
 
-	sessionID, accessToken, now, ttl, err := s.buildAndPersistSession(ctx, principal)
+	// Sign before persisting so that a signing failure writes nothing.
+	session, accessToken, err := s.buildSession(principal)
 	if err != nil {
-		observability.RecordFailure(span, err, errSpanSessionCreationFailed)
+		observability.RecordFailure(span, err, errSpanTokenSigningFailed)
 		return nil, err
 	}
 
-	// Upsert user profile for federated human principals so that downstream
-	// systems (policy dashboard, audit logs) can resolve user_id → display name.
+	// Refresh tokens are opaque random bytes; only the hash is stored.
+	rawRefresh, err := generateOpaqueToken()
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanRefreshTokenGenerationFailed)
+		return nil, fmt.Errorf("generate refresh token: %w", err)
+	}
+	refreshTTL := time.Duration(s.cfg.Token.RefreshTokenTTLDays) * 24 * time.Hour
+	rt := &RefreshToken{
+		ID:        uuid.NewString(),
+		SessionID: session.ID,
+		TokenHash: hashToken(rawRefresh),
+		CreatedAt: session.CreatedAt,
+		ExpiresAt: session.CreatedAt.Add(refreshTTL),
+	}
+	span.SetAttributes(
+		observability.SessionIDKey.String(session.ID),
+		observability.TokenJTIKey.String(session.JTI),
+		observability.RefreshTokenIDKey.String(rt.ID),
+		observability.RefreshTokenTTLDaysKey.Int64(int64(s.cfg.Token.RefreshTokenTTLDays)),
+	)
+
+	if replaced != nil {
+		if err := s.sessions.SwitchSession(ctx, session, rt, replaced, session.CreatedAt); err != nil {
+			observability.RecordFailure(span, err, errSpanSessionPersistenceFailed)
+			return nil, fmt.Errorf("persist switched session: %w", err)
+		}
+	} else {
+		if err := s.sessions.CreateSession(ctx, session); err != nil {
+			observability.RecordFailure(span, err, errSpanSessionPersistenceFailed)
+			return nil, fmt.Errorf("persist session: %w", err)
+		}
+		if err := s.refreshTokens.CreateRefreshToken(ctx, rt); err != nil {
+			observability.RecordFailure(span, err, errSpanRefreshTokenPersistenceFailed)
+			return nil, fmt.Errorf("persist refresh token: %w", err)
+		}
+	}
+
+	// Downstream systems (policy dashboard, audit logs) resolve user_id to a
+	// display name through the profile.
 	if principal.IdentitySource == IdentitySourceFederated {
-		profile := userProfileFromPrincipal(principal)
-		if upsertErr := s.profiles.Upsert(ctx, profile); upsertErr != nil {
+		if upsertErr := s.profiles.Upsert(ctx, userProfileFromPrincipal(principal)); upsertErr != nil {
 			s.logger.Error(ctx, "failed to upsert user profile",
 				logging.Field{Key: "user_id", Value: principal.ID},
 				logging.Field{Key: "tenant_id", Value: principal.TenantID},
@@ -886,38 +933,13 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 		}
 	}
 
-	// Issue refresh token (opaque random bytes; only the hash is stored).
-	rawRefresh, err := generateOpaqueToken()
-	if err != nil {
-		observability.RecordFailure(span, err, errSpanRefreshTokenGenerationFailed)
-		return nil, fmt.Errorf("generate refresh token: %w", err)
-	}
-
-	rt := &RefreshToken{
-		ID:        uuid.NewString(),
-		SessionID: sessionID,
-		TokenHash: hashToken(rawRefresh),
-		CreatedAt: now,
-		ExpiresAt: now.Add(time.Duration(s.cfg.Token.RefreshTokenTTLDays) * 24 * time.Hour),
-	}
-	if err := s.refreshTokens.CreateRefreshToken(ctx, rt); err != nil {
-		observability.RecordFailure(span, err, errSpanRefreshTokenPersistenceFailed)
-		return nil, fmt.Errorf("persist refresh token: %w", err)
-	}
-
-	span.SetAttributes(
-		observability.RefreshTokenIDKey.String(rt.ID),
-		observability.RefreshTokenTTLDaysKey.Int64(int64(s.cfg.Token.RefreshTokenTTLDays)),
-	)
 	span.SetStatus(codes.Ok, "session with refresh token created")
-
-	refreshTTL := time.Duration(s.cfg.Token.RefreshTokenTTLDays) * 24 * time.Hour
 	return &SessionResponse{
 		AccessToken:           accessToken,
 		TokenType:             "Bearer",
-		ExpiresIn:             int(ttl.Seconds()),
+		ExpiresIn:             int(session.ExpiresAt.Sub(session.CreatedAt).Seconds()),
 		RefreshToken:          rawRefresh,
-		IssuedAt:              now.Unix(),
+		IssuedAt:              session.CreatedAt.Unix(),
 		RefreshTokenExpiresIn: int(refreshTTL.Seconds()),
 		APIAuthoring:          s.authoring.APIAuthoringEnabled(principal.TenantID),
 	}, nil
@@ -933,19 +955,26 @@ func (s *Service) createAgentSession(ctx context.Context, principal *Principal) 
 	)
 	defer span.End()
 
-	_, accessToken, now, ttl, err := s.buildAndPersistSession(ctx, principal)
+	session, accessToken, err := s.buildSession(principal)
+	if err == nil {
+		err = s.sessions.CreateSession(ctx, session)
+	}
 	if err != nil {
 		observability.RecordFailure(span, err, errSpanAgentSessionCreationFailed)
-		return nil, err
+		return nil, fmt.Errorf("create agent session: %w", err)
 	}
+	span.SetAttributes(
+		observability.SessionIDKey.String(session.ID),
+		observability.TokenJTIKey.String(session.JTI),
+	)
 
 	span.SetStatus(codes.Ok, "agent session created (no refresh token)")
 
 	return &SessionResponse{
 		AccessToken:  accessToken,
 		TokenType:    "Bearer",
-		ExpiresIn:    int(ttl.Seconds()),
-		IssuedAt:     now.Unix(),
+		ExpiresIn:    int(session.ExpiresAt.Sub(session.CreatedAt).Seconds()),
+		IssuedAt:     session.CreatedAt.Unix(),
 		APIAuthoring: s.authoring.APIAuthoringEnabled(principal.TenantID),
 	}, nil
 }
@@ -1241,25 +1270,27 @@ func (s *Service) DiscoverTenantByEmail(ctx context.Context, email string) (*Ten
 	return nil, ErrTenantNotFound
 }
 
-// bindTenant returns the tenant that owns a verified ID token. A tenant without
-// a claimBinding owns its own tokens. For a bound tenant, the owner is the one
-// tenant whose binding matches the token claims, chosen among the tenants on the
-// same issuer and client that claim the email domain of the token's email claim.
-// A token without an email claim considers only the requested tenant.
-// No match is ErrClaimBindingMismatch and several are ErrMultipleTenantsMatch.
-func (s *Service) bindTenant(requested *tenantOIDCState, requestedID string, idToken *gooidc.IDToken) (string, error) {
+// bindTenant returns the tenant that owns a verified ID token and the eligible
+// set the token matches. A tenant without a claimBinding owns its own tokens.
+// For a bound tenant, the candidates are the tenants on the same issuer and
+// client that claim the email domain of the token's email claim, or only the
+// requested tenant when the token has no email claim. The hint chooses among
+// several matches and never adds one. No match is ErrClaimBindingMismatch and
+// several without the hint among them are ErrMultipleTenantsMatch.
+// See docs/adr/2026-11-04-tenant-switching.md
+func (s *Service) bindTenant(requested *tenantOIDCState, requestedID, hint string, idToken *gooidc.IDToken) (string, []EligibleTenant, error) {
 	if requested.cfg.ClaimBinding == nil {
-		return requestedID, nil
+		return requestedID, []EligibleTenant{{ID: requestedID, DisplayName: requested.cfg.DisplayName}}, nil
 	}
 	var claims map[string]any
 	if err := idToken.Claims(&claims); err != nil {
-		return "", fmt.Errorf("extract id_token claims: %w", err)
+		return "", nil, fmt.Errorf("extract id_token claims: %w", err)
 	}
 
 	domain := tokenEmailDomain(claims)
 
 	s.mu.RLock()
-	var matched []string
+	matched := []EligibleTenant{}
 	for id, ts := range s.oidcTenants {
 		if ts.cfg.IssuerURL != requested.cfg.IssuerURL || ts.cfg.ClientID != requested.cfg.ClientID {
 			continue
@@ -1272,20 +1303,65 @@ func (s *Service) bindTenant(requested *tenantOIDCState, requestedID string, idT
 			continue
 		}
 		if ts.cfg.ClaimBinding.Matches(claims) {
-			matched = append(matched, id)
+			matched = append(matched, EligibleTenant{ID: id, DisplayName: ts.cfg.DisplayName})
 		}
 	}
 	s.mu.RUnlock()
+	slices.SortFunc(matched, func(a, b EligibleTenant) int { return strings.Compare(a.ID, b.ID) })
 
-	switch len(matched) {
-	case 0:
-		return "", ErrClaimBindingMismatch
-	case 1:
-		return matched[0], nil
+	switch {
+	case len(matched) == 0:
+		return "", matched, ErrClaimBindingMismatch
+	case len(matched) == 1:
+		return matched[0].ID, matched, nil
+	case slices.ContainsFunc(matched, func(t EligibleTenant) bool { return t.ID == hint }):
+		return hint, matched, nil
 	default:
-		slices.Sort(matched)
-		return "", fmt.Errorf("%w: %s", ErrMultipleTenantsMatch, strings.Join(matched, ", "))
+		return "", matched, &TenantMatchError{Err: ErrMultipleTenantsMatch, Tenants: matched}
 	}
+}
+
+// replacedSession returns the session and refresh token a switch replaces. It
+// is ErrTenantSwitchDenied unless both are live and belong to subject on issuer.
+func (s *Service) replacedSession(ctx context.Context, refreshToken, subject, issuer string) (*Session, *RefreshToken, error) {
+	rt, session, err := s.liveRefreshSession(ctx, refreshToken)
+	if refreshNotLive(err) {
+		return nil, nil, ErrTenantSwitchDenied
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if session.PrincipalID != subject || session.Claims["issuer"] != issuer {
+		return nil, nil, ErrTenantSwitchDenied
+	}
+	return session, rt, nil
+}
+
+// denySwitch records a refused switch and returns it with the fresh eligible
+// set, which the dashboard shows in place of its stored list.
+func denySwitch(span trace.Span, eligible []EligibleTenant) error {
+	err := &TenantMatchError{Err: ErrTenantSwitchDenied, Tenants: eligible}
+	observability.RecordFailure(span, err, errSpanTenantSwitchDenied)
+	return err
+}
+
+// finishSwitch runs after the switch commits. It blocks the replaced access
+// token, since the auth middleware checks only the blocklist, and records the
+// switch for audit. A blocklist failure is logged; the token still expires.
+func (s *Service) finishSwitch(ctx context.Context, replaced *Session, toTenant string) {
+	if ttl := time.Until(replaced.ExpiresAt); ttl > 0 {
+		if err := s.blocklist.BlockJTI(ctx, replaced.JTI, ttl); err != nil {
+			s.logger.Error(ctx, "failed to block the replaced access token after a tenant switch",
+				logging.Field{Key: "session_id", Value: replaced.ID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	}
+	s.logger.Info(ctx, "tenant switched",
+		logging.Field{Key: "principal_id", Value: replaced.PrincipalID},
+		logging.Field{Key: "from_tenant_id", Value: replaced.TenantID},
+		logging.Field{Key: "to_tenant_id", Value: toTenant},
+	)
 }
 
 // tokenEmailDomain returns the lowercased domain of the email claim, or "" when

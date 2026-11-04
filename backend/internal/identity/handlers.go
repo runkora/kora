@@ -523,8 +523,12 @@ func (c *Controller) handleSessionError(w http.ResponseWriter, r *http.Request, 
 		apiErr := api.ForbiddenError(api.ErrCodeForbidden, "the account is not a member of this tenant", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 
+	case errors.Is(err, ErrTenantSwitchDenied):
+		apiErr := api.ForbiddenError("tenant_switch_denied", "the account cannot switch to this tenant", eligibleDetails(err))
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+
 	case errors.Is(err, ErrMultipleTenantsMatch):
-		apiErr := api.ConflictError("multiple_tenants_match", err.Error(), nil)
+		apiErr := api.ConflictError("multiple_tenants_match", "the account matches several tenants", eligibleDetails(err))
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 
 	// Refresh token errors.
@@ -548,4 +552,15 @@ func (c *Controller) handleSessionError(w http.ResponseWriter, r *http.Request, 
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to create session", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 	}
+}
+
+// eligibleDetails renders the eligible set a binding or switch error carries as
+// the error details, with an empty list when there is none.
+func eligibleDetails(err error) map[string]any {
+	tenants := []EligibleTenant{}
+	var tme *TenantMatchError
+	if errors.As(err, &tme) && tme.Tenants != nil {
+		tenants = tme.Tenants
+	}
+	return map[string]any{"tenants": tenants}
 }

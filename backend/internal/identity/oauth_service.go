@@ -209,10 +209,9 @@ func (s *Service) ExchangeAuthCode(ctx context.Context, req TokenRequest) (*Toke
 		IdentitySource: IdentitySourceFederated,
 		Claims:         claims,
 	}
-	// createSession (vs buildAndPersistSession) also mints a rotating refresh token,
-	// so the MCP client can refresh silently instead of re-running the consent flow
-	// when the short-lived access token expires.
-	sess, err := s.createSession(ctx, principal)
+	// The refresh token createSession mints lets the MCP client renew silently
+	// instead of re-running the consent flow when the access token expires.
+	sess, err := s.createSession(ctx, principal, nil)
 	if err != nil {
 		return nil, fmt.Errorf("mint token: %w", err)
 	}

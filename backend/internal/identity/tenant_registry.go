@@ -30,7 +30,7 @@ import (
 //	    apiAuthoring: "Enabled"   # Enabled | Disabled
 //	    budget: {limitUSD: 1000, resetCadence: monthly}  # optional
 //
-// identity reads id, state and oidc here, and apiAuthoring through
+// identity reads id, displayName, state and oidc here, and apiAuthoring through
 // internal/platform/declarative. Services that own declarative resources read
 // apiAuthoring and budget the same way.
 //
@@ -74,6 +74,8 @@ type tenantOIDCEntry struct {
 // the service layer. ClientSecret is resolved from the aggregated client
 // secrets map keyed by tenant ID.
 type TenantOIDCConfig struct {
+	// DisplayName labels the tenant in the eligible set a sign-in returns.
+	DisplayName  string
 	IssuerURL    string
 	ClientID     string
 	ClientSecret string
@@ -140,6 +142,7 @@ func loadTenantRegistry(path string, clientSecrets map[string]string) (map[strin
 		active = append(active, cur)
 
 		out[t.ID] = TenantOIDCConfig{
+			DisplayName:  t.DisplayName,
 			IssuerURL:    t.OIDC.IssuerURL,
 			ClientID:     t.OIDC.ClientID,
 			ClientSecret: clientSecrets[t.ID],
