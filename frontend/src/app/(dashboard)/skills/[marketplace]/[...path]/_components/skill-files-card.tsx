@@ -16,7 +16,7 @@ import {
   type IconName,
 } from '@runkora/hades';
 import type { SkillFileEntry } from '@runkora/shared/api';
-import { formatBytes, plural } from './skill-format';
+import { formatBytes, plural } from '../../../_components/skill-format';
 
 interface FileNode {
   kind: 'file';
@@ -204,9 +204,9 @@ function Row({
       {chevron === undefined ? (
         <Stack shrink style={{ width: CHEVRON_WIDTH }} />
       ) : (
-        <Icon name="chevron-right" size="sm" color="muted" rotate={chevron ? 90 : 0} label="" />
+        <Icon name="chevron-right" size="sm" color="muted" rotate={chevron ? 90 : 0} />
       )}
-      <Icon name={icon} size="sm" color={selected ? 'accent' : 'muted'} label="" />
+      <Icon name={icon} size="sm" color={selected ? 'accent' : 'muted'} />
       {children}
     </Stack>
   );

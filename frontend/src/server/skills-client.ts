@@ -23,8 +23,8 @@ async function request<T>(path: string, accessToken: string): Promise<T> {
 }
 
 /**
- * Encodes one URL path segment. encodeURIComponent leaves '.' and '..' as they are, and fetch
- * would resolve them out of the intended route with the user's token, so they read as not found.
+ * Encodes one URL path segment. encodeURIComponent leaves '.' and '..' as they are and fetch would
+ * resolve them out of the intended route with the user's token; they read as not found instead.
  */
 function segment(value: string): string {
   if (value === '' || value === '.' || value === '..') {

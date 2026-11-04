@@ -4,19 +4,13 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { renderWithProviders, server } from '@runkora/test-utils';
-import {
-  MARKETPLACE_FIXTURES,
-  pdfSkill,
-  PDF_SUMMARY,
-} from '../../../_components/skills-story-fixtures';
+import { MARKETPLACE_FIXTURES, pdfSkill } from '../../../_components/skills-story-fixtures';
 import { SkillDetail } from './skill-detail';
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 function renderDetail() {
-  renderWithProviders(
-    <SkillDetail skill={pdfSkill()} marketplace={MARKETPLACE_FIXTURES[0]} summary={PDF_SUMMARY} />,
-  );
+  renderWithProviders(<SkillDetail skill={pdfSkill()} marketplace={MARKETPLACE_FIXTURES[0]} />);
 }
 
 async function openLicense() {

@@ -30,10 +30,9 @@ export function fetchSkills(
 }
 
 /** Fetches one supporting file of a skill. */
-export function fetchSkillFile(file: {
-  marketplace: string;
-  path: string;
-  file: string;
-}): Promise<FetchResult<SkillFile>> {
-  return getData(ApiRoute.skillFile.GET(file));
+export function fetchSkillFile(
+  file: { marketplace: string; path: string; file: string },
+  signal: AbortSignal,
+): Promise<FetchResult<SkillFile>> {
+  return getData(ApiRoute.skillFile.GET(file), signal);
 }

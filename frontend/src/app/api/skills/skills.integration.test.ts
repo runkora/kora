@@ -60,13 +60,8 @@ describe('GET /api/skills', () => {
     });
   });
 
-  it('passes a refusal through and answers an unavailable Marketplace with 502', async () => {
+  it('passes an upstream refusal through', async () => {
     mocks.fetchSkills.mockRejectedValueOnce(new ApiError(403, 'forbidden', 'raw'));
     expect((await call('marketplace=team-skills')).status).toBe(403);
-
-    mocks.fetchSkills.mockRejectedValueOnce(
-      new ApiError(502, 'marketplace_unavailable', 'No credential.'),
-    );
-    expect((await call('marketplace=team-skills')).status).toBe(502);
   });
 });

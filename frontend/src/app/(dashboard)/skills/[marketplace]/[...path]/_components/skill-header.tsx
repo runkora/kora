@@ -14,25 +14,29 @@ import {
   Text,
   useCopy,
 } from '@runkora/hades';
-import type { Marketplace, Skill, SkillSummary } from '@runkora/shared/api';
+import type { Marketplace, Skill } from '@runkora/shared/api';
+import { useSyncExternalStore } from 'react';
 import { usePreferences } from '../../../../_preferences/preferences-context';
 import { FavouriteButton, nameLine, SkillChips } from '../../../_components/skill-chips';
 import { skillKey, toggleFavouriteKey } from '../../../_types';
-import { timeAgo } from './skill-format';
+import { relativeTime } from '../../../../mcp-gateway/_types';
 
 const SHORT_COMMIT = 7;
 
 /** The ref as the resource names it; an empty ref follows the repository's default branch. */
 const refLabel = (ref: string) => ref || 'default branch';
 
-/** The skill folder on its host at the served commit, so the link shows exactly what this page shows. */
+const encode = (value: string) => value.split('/').map(encodeURIComponent).join('/');
+
+const repoUrl = (skill: Skill) => `https://github.com/${encode(skill.repository)}`;
+
+/** The skill folder on its host at the served commit: the link shows what this page shows. */
 function folderUrl(skill: Skill): string {
-  const encode = (value: string) => value.split('/').map(encodeURIComponent).join('/');
   const at = skill.commit || skill.ref || 'HEAD';
-  return `https://github.com/${encode(skill.repository)}/tree/${encode(at)}/${encode(skill.path)}`;
+  return `${repoUrl(skill)}/tree/${encode(at)}/${encode(skill.path)}`;
 }
 
-export function SkillHeader({ skill, summary }: { skill: Skill; summary: SkillSummary | null }) {
+export function SkillHeader({ skill }: { skill: Skill }) {
   const { preferences, updatePreferences } = usePreferences();
   const key = skillKey(skill);
   const favourite = preferences.skills.favouriteSkills.includes(key);
@@ -47,13 +51,13 @@ export function SkillHeader({ skill, summary }: { skill: Skill; summary: SkillSu
     <Stack direction="horizontal" align="start" justify="between" gap="comfortable">
       <Stack direction="horizontal" align="start" gap="comfortable" grow minWidth="none">
         <Stack shrink>
-          <Icon name="file" size="lg" color="accent" container containerVariant="accent" label="" />
+          <Icon name="file" size="lg" color="accent" container containerVariant="accent" />
         </Stack>
         <Stack gap="snug" grow minWidth="none">
           <Heading variant="title">{skill.title}</Heading>
           <Stack direction="horizontal" align="center" gap="snug" wrap>
             <Text as="span" mono size="supporting" color="subtle">
-              {nameLine({ name: skill.name, version: summary?.version ?? null })}
+              {nameLine(skill)}
             </Text>
             {separator}
             <Text as="span" mono size="supporting" color="subtle">
@@ -69,9 +73,7 @@ export function SkillHeader({ skill, summary }: { skill: Skill; summary: SkillSu
               {skill.description || 'No description in SKILL.md.'}
             </Text>
           </Stack>
-          <SkillChips
-            skill={summary ?? { path: skill.path, manualOnly: false, tags: [], tools: [] }}
-          />
+          <SkillChips skill={skill} />
         </Stack>
       </Stack>
       <Stack direction="horizontal" align="center" gap="snug" shrink>
@@ -102,7 +104,15 @@ function CopySkillMd({ content }: { content: string }) {
   );
 }
 
+const noSubscription = () => () => {};
+
 export function SourceCard({ skill, marketplace }: { skill: Skill; marketplace?: Marketplace }) {
+  // Synced is relative to now; it renders after hydration to match the server's HTML.
+  const hydrated = useSyncExternalStore(
+    noSubscription,
+    () => true,
+    () => false,
+  );
   const link = (href: string, text: string) => (
     <Anchor href={href} target="_blank" rel="noopener noreferrer">
       {text}
@@ -112,12 +122,14 @@ export function SourceCard({ skill, marketplace }: { skill: Skill; marketplace?:
     { label: 'Marketplace', value: skill.marketplace },
     {
       label: 'Repository',
-      value: link(`https://github.com/${skill.repository}`, skill.repository),
+      value: link(repoUrl(skill), skill.repository),
     },
     { label: 'Ref', value: refLabel(skill.ref) },
     { label: 'Commit', value: skill.commit.slice(0, SHORT_COMMIT) },
     { label: 'Folder', value: link(folderUrl(skill), skill.path) },
-    ...(marketplace?.syncedAt ? [{ label: 'Synced', value: timeAgo(marketplace.syncedAt) }] : []),
+    ...(marketplace?.syncedAt
+      ? [{ label: 'Synced', value: hydrated ? relativeTime(marketplace.syncedAt) : '' }]
+      : []),
   ];
 
   return (

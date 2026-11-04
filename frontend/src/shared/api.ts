@@ -1301,6 +1301,11 @@ export interface Skill {
   repository: string;
   ref: string;
   commit: string;
+  /** The same frontmatter values as the skill's list item. */
+  version: string | null;
+  tags: string[];
+  tools: string[];
+  manualOnly: boolean;
   /** The full SKILL.md, frontmatter included. */
   content: string;
   /** The other text files, in path order. */

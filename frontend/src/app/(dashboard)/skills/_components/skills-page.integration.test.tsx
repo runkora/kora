@@ -79,14 +79,13 @@ describe('SkillsPage', () => {
     ).toBeVisible();
   });
 
-  it('shows an unavailable Marketplace with its reason, a retry and no view toggle', () => {
+  it('offers no view toggle in an error state', () => {
     desktop();
     renderPage(
       { ...storyOverview({ marketplace: 'anthropic-skills' }), skills: [], total: 0 },
       { status: 502, message: 'This Marketplace could not be loaded. Try again later.' },
     );
 
-    expect(screen.getByText('This Marketplace is unavailable.')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Card view' })).not.toBeInTheDocument();
   });

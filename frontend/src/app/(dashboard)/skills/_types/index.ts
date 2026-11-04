@@ -2,7 +2,7 @@ import type { Marketplace, SkillSummary } from '@runkora/shared/api';
 import type { UserPreferences } from '../../_preferences/preferences.schema';
 import { APP_ROUTES } from '@runkora/lib/routing';
 
-/** skills-service treats a shorter search as no search, so the page does too. */
+/** The shortest search skills-service applies; the page uses the same rule. */
 export const MIN_SEARCH_LENGTH = 3;
 
 /** Both views show ten skills a page, an even number that keeps the two-column grid full. */

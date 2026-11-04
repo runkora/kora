@@ -2,7 +2,7 @@
 
 /** @tier 3 — skills/[marketplace]/[...path]-scoped. The skill page: header, the open file, and the Files and Source rail. */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   Button,
   Card,
@@ -18,19 +18,14 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
-import type { Marketplace, Skill, SkillSummary } from '@runkora/shared/api';
-import {
-  CODE_LINE_HEIGHT,
-  InstructionsMarkdown,
-} from '../../../../agents/[slug]/_components/instructions-markdown';
-import { fetchSkillFile } from '../../../_services/skills-api';
+import { CODE_LINE_HEIGHT, InstructionsMarkdown } from '@runkora/components';
+import type { Marketplace, Skill } from '@runkora/shared/api';
+import { LoadErrorAlert } from '../../../_components/load-error-alert';
+import { formatBytes } from '../../../_components/skill-format';
+import { SKILL_MD, useSkillFiles } from '../../../_hooks/use-skill-files';
 import type { SkillsLoadError } from '../../../_types';
-import { formatBytes } from './skill-format';
 import { SkillFilesCard } from './skill-files-card';
 import { SkillHeader, SourceCard } from './skill-header';
-import { SkillLoadError } from './skill-load-error';
-
-const SKILL_MD = 'SKILL.md';
 
 type MarkdownView = 'rendered' | 'raw';
 
@@ -38,63 +33,25 @@ interface SkillDetailProps {
   skill: Skill;
   /** Undefined when the Marketplace list could not be read; the Synced row then goes. */
   marketplace?: Marketplace;
-  /** The skill's list entry, for its version and chips. Null when it could not be read. */
-  summary: SkillSummary | null;
 }
 
-const byteLength = (text: string) => new TextEncoder().encode(text).length;
-
-/** The SKILL.md body without its frontmatter and its first heading, which the header shows. */
+/** The SKILL.md body without the frontmatter and first heading the header already shows. */
 function bodyWithoutTitle(content: string): string {
   const frontmatter = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(content);
   const body = frontmatter ? content.slice(frontmatter[0].length).trimStart() : content;
   return body.replace(/^# .+\r?\n/, '').trimStart();
 }
 
-export function SkillDetail({ skill, marketplace, summary }: SkillDetailProps) {
-  const [selectedPath, setSelectedPath] = useState(SKILL_MD);
-  // SKILL.md arrives with the page; each other file loads once, when first opened.
-  const [contents, setContents] = useState<Record<string, string>>({ [SKILL_MD]: skill.content });
-  const [failures, setFailures] = useState<Record<string, SkillsLoadError | undefined>>({});
-  const loading = useRef(new Set<string>());
-  const mounted = useRef(false);
-  const files = useMemo(
-    () => [{ path: SKILL_MD, size: byteLength(skill.content) }, ...skill.files],
-    [skill],
-  );
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
-  function open(file: string) {
-    setSelectedPath(file);
-    // Results are kept per file, so a file already loaded or loading needs no new request.
-    if (file in contents || loading.current.has(file)) return;
-    loading.current.add(file);
-    setFailures((prev) => ({ ...prev, [file]: undefined }));
-    void fetchSkillFile({ marketplace: skill.marketplace, path: skill.path, file }).then(
-      (result) => {
-        loading.current.delete(file);
-        if (!mounted.current) return;
-        if (result.data) setContents((prev) => ({ ...prev, [file]: result.data.content }));
-        else setFailures((prev) => ({ ...prev, [file]: result.error }));
-      },
-    );
-  }
-
-  const selected = files.find((file) => file.path === selectedPath) ?? files[0];
-  const filesCard = <SkillFilesCard files={files} selectedPath={selectedPath} onSelect={open} />;
+export function SkillDetail({ skill, marketplace }: SkillDetailProps) {
+  const { files, selected, content, failure, open } = useSkillFiles(skill);
+  const filesCard = <SkillFilesCard files={files} selectedPath={selected.path} onSelect={open} />;
   const sourceCard = <SourceCard skill={skill} marketplace={marketplace} />;
 
   return (
     <Stack gap="relaxed">
-      <SkillHeader skill={skill} summary={summary} />
+      <SkillHeader skill={skill} />
 
-      {/* Below xl the rail would squeeze the file to a narrow column, so it moves above it. */}
+      {/* Below xl the rail would squeeze the file to a narrow column; it moves above it. */}
       <Show below="xl">
         <Grid cols={{ base: 1, md: 2 }} gap="comfortable">
           {filesCard}
@@ -107,10 +64,10 @@ export function SkillDetail({ skill, marketplace, summary }: SkillDetailProps) {
           <OpenFile
             path={selected.path}
             size={selected.size}
-            content={contents[selected.path]}
-            failure={failures[selected.path]}
+            content={content}
+            failure={failure}
             onRetry={() => open(selected.path)}
-            onBack={() => setSelectedPath(SKILL_MD)}
+            onBack={() => open(SKILL_MD)}
           />
         </Stack>
         <Show above="xl">
@@ -154,7 +111,6 @@ function OpenFile({ path, size, content, failure, onRetry, onBack }: OpenFilePro
           ]}
         />
       )}
-      {/* CodeBlock carries its own copy button, so only Markdown needs one here. */}
       {isMarkdown && content !== undefined && <CopyButton value={content} label={`Copy ${path}`} />}
       {!isSkillMd && (
         <Button variant="ghost" size="sm" onClick={onBack}>
@@ -177,7 +133,7 @@ function OpenFile({ path, size, content, failure, onRetry, onBack }: OpenFilePro
       />
       <CardContent padded>
         {failure ? (
-          <SkillLoadError status={failure.status} message={failure.message} onRetry={onRetry} />
+          <LoadErrorAlert error={failure} onRetry={onRetry} />
         ) : content === undefined ? (
           <Stack role="status" aria-label="Loading the file" gap="snug">
             <Skeleton shape="line" width="full" />

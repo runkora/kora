@@ -8,7 +8,6 @@ import {
   MARKETPLACE_FIXTURES,
   pdfFile,
   pdfSkill,
-  PDF_SUMMARY,
 } from '../../../_components/skills-story-fixtures';
 import { SkillDetail } from './skill-detail';
 
@@ -21,7 +20,7 @@ const meta: Meta<typeof SkillDetail> = {
     layout: 'fullscreen',
     nextjs: { appDirectory: true, navigation: { pathname: '/skills/anthropic-skills/skills/pdf' } },
   },
-  args: { skill: pdfSkill(), marketplace: MARKETPLACE_FIXTURES[0], summary: PDF_SUMMARY },
+  args: { skill: pdfSkill(), marketplace: MARKETPLACE_FIXTURES[0] },
   decorators: [
     dashboardPage({
       'GET /api/skills/file': ({ url }: MockRequest) =>

@@ -26,7 +26,10 @@ function serveSkills(
       requests.push(query);
       return respond(query);
     }),
-    http.put('/api/preferences', () => HttpResponse.json({})),
+    http.put('/api/preferences', () => {
+      requests.push({ saved: 'preferences' });
+      return HttpResponse.json({});
+    }),
   );
   return requests;
 }
@@ -44,17 +47,17 @@ function renderSkills(overview = storyOverview()) {
   });
 }
 
-beforeEach(() => window.history.replaceState(null, '', '/skills?agent=draft-1'));
+beforeEach(() => window.history.replaceState(null, '', '/skills'));
 afterEach(() => vi.useRealTimers());
 
 describe('useSkills', () => {
-  it('goes to a page with one request and writes it to the URL, keeping other query keys', async () => {
+  it('goes to a page with one request and writes it to the URL', async () => {
     const requests = serveSkills();
     const { result } = renderSkills();
 
     act(() => result.current.goToPage(2));
 
-    expect(window.location.search).toBe('?agent=draft-1&page=2');
+    expect(window.location.search).toBe('?page=2');
     await waitFor(() => expect(result.current.status).toBe('success'));
     expect(requests).toEqual([{ page: '2' }]);
   });
@@ -104,6 +107,7 @@ describe('useSkills', () => {
     const { result } = renderSkills();
 
     act(() => result.current.goToPage(2));
+    await waitFor(() => expect(calls).toBe(1));
     act(() => result.current.goToPage(3));
 
     await waitFor(() => expect(result.current.total).toBe(2));
@@ -139,6 +143,17 @@ describe('useSkills', () => {
 
     await waitFor(() => expect(result.current.error).toBeNull());
     expect(requests.map((query) => query.page)).toEqual(['2', '2']);
+  });
+
+  it('saves a new favourite before the Favourites view asks for the stored ones', async () => {
+    const requests = serveSkills();
+    const { result } = renderSkills();
+
+    act(() => result.current.toggleFavourite('partner-skills:skills/tdd'));
+    act(() => result.current.selectChip(null));
+
+    await waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests).toEqual([{ saved: 'preferences' }, { page: '1', favourites: '1' }]);
   });
 
   it('adds and removes a favourite in the preferences', () => {

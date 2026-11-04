@@ -5,7 +5,7 @@
 import { Badge, Button, Icon, Stack, type IconName } from '@runkora/hades';
 
 /** The folder between the skills root and the skill, as `engineering` in `skills/engineering/tdd`, in sentence case. */
-export function folderLabel(path: string): string | null {
+function folderLabel(path: string): string | null {
   const parts = path.split('/');
   if (parts.length < 3) return null;
   const words = parts[parts.length - 2].replace(/[-_]/g, ' ');

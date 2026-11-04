@@ -4,28 +4,20 @@
 
 import { useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import {
-  Alert,
-  Button,
-  EmptyState,
-  Icon,
-  Input,
-  PageSectionHeader,
-  Stack,
-  Text,
-} from '@runkora/hades';
+import { Button, EmptyState, Input, PageSectionHeader, Stack, Text } from '@runkora/hades';
 import { FilterChip, ViewToggle, type ViewMode } from '@runkora/components';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { useSkillsContext } from '../_context/skills-context';
-import { MIN_SEARCH_LENGTH, type SkillsLoadError } from '../_types';
+import { MIN_SEARCH_LENGTH } from '../_types';
 import { SkillGrid } from './skill-grid';
 import { SkillList } from './skill-list';
 import { SkillsPagination } from './skills-pagination';
 import { SkillsResultsSkeleton } from './skills-results-skeleton';
+import { LoadErrorAlert } from './load-error-alert';
+import { plural } from './skill-format';
 
 // As on the MCP servers page: phones always get cards and no toggle. The server snapshot is
-// false, so the first paint is the card view.
+// false: the first paint is the card view.
 const DESKTOP_QUERY = '(min-width: 768px)';
 const subscribeDesktop = (onChange: () => void) => {
   const mq = window.matchMedia(DESKTOP_QUERY);
@@ -35,11 +27,14 @@ const subscribeDesktop = (onChange: () => void) => {
 const getDesktop = () => window.matchMedia(DESKTOP_QUERY).matches;
 const getServerDesktop = () => false;
 
-const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
-
 export function SkillsPage() {
   const { marketplaces, browse } = useSkillsContext();
   const known = !browse.marketplace || marketplaces.some((m) => m.slug === browse.marketplace);
+  const counts = marketplaces.map((m) => m.skillCount);
+  // Every Marketplace's skills, or null while any list is still unread.
+  const allSkills = counts.every((count) => count !== null)
+    ? counts.reduce<number>((sum, count) => sum + (count ?? 0), 0)
+    : null;
 
   return (
     <Stack gap="comfortable">
@@ -48,7 +43,7 @@ export function SkillsPage() {
           title="Skills"
           description="Find a skill for a job, read what it does and see where it comes from."
         />
-        {marketplaces.length > 0 && <Summary />}
+        {marketplaces.length > 0 && <Summary allSkills={allSkills} />}
       </Stack>
 
       {marketplaces.length === 0 ? (
@@ -65,23 +60,17 @@ export function SkillsPage() {
           }
         />
       ) : (
-        <Browse />
+        <Browse allSkills={allSkills} />
       )}
     </Stack>
   );
 }
 
 /** "74 skills from 3 Marketplaces", or the Marketplace count while any list is still unread. */
-function Summary() {
+function Summary({ allSkills }: { allSkills: number | null }) {
   const { marketplaces } = useSkillsContext();
-  const counts = marketplaces.map((m) => m.skillCount);
   const sources = plural(marketplaces.length, 'Marketplace');
-  const text = counts.every((count) => count !== null)
-    ? `${plural(
-        counts.reduce<number>((sum, count) => sum + (count ?? 0), 0),
-        'skill',
-      )} from ${sources}`
-    : sources;
+  const text = allSkills === null ? sources : `${plural(allSkills, 'skill')} from ${sources}`;
   return (
     <Text size="supporting" color="muted">
       {text}
@@ -89,21 +78,18 @@ function Summary() {
   );
 }
 
-function Browse() {
-  const { marketplaces, browse, skills, total, status, error, favourites, selectChip } =
+function Browse({ allSkills }: { allSkills: number | null }) {
+  const { marketplaces, browse, skills, total, status, error, favourites, selectChip, retry } =
     useSkillsContext();
   const [preferredView, setView] = useState<ViewMode>('cards');
   const isDesktop = useSyncExternalStore(subscribeDesktop, getDesktop, getServerDesktop);
   const view: ViewMode = isDesktop ? preferredView : 'cards';
   const toggle = <ViewToggle viewMode={view} onToggle={setView} />;
-  const allCounts = marketplaces.map((m) => m.skillCount);
   const chips = [
     {
       key: 'all',
       label: 'All',
-      count: allCounts.every((c) => c !== null)
-        ? allCounts.reduce<number>((sum, c) => sum + (c ?? 0), 0)
-        : null,
+      count: allSkills,
       active: !browse.favourites && !browse.marketplace,
       select: () => selectChip(''),
     },
@@ -147,7 +133,7 @@ function Browse() {
       <Failures />
 
       {error ? (
-        <LoadErrorAlert error={error} />
+        <LoadErrorAlert error={error} onRetry={retry} />
       ) : status === 'loading' && skills.length === 0 ? (
         <SkillsResultsSkeleton />
       ) : !searchable ? (
@@ -220,37 +206,14 @@ function Failures() {
 /** The Marketplace list is empty, or could not load; a retry reloads the page. */
 function NoMarketplaces() {
   const { error } = useSkillsContext();
-  const router = useRouter();
 
-  if (error) return <LoadErrorAlert error={error} onRetry={() => router.refresh()} />;
+  if (error) return <LoadErrorAlert error={error} />;
   return (
     <EmptyState
       icon="box"
       title="No Marketplaces available"
       description="No Marketplace sources are configured."
     />
-  );
-}
-
-function LoadErrorAlert({ error, onRetry }: { error: SkillsLoadError; onRetry?: () => void }) {
-  const { retry } = useSkillsContext();
-  return (
-    <Alert variant="error">
-      <Icon name="triangle-alert" color="status-error" />
-      <Stack grow>
-        {error.status === 502 && (
-          <Text size="caption" weight="heavy" color="status-error">
-            This Marketplace is unavailable.
-          </Text>
-        )}
-        <Text size="caption" color="status-error">
-          {error.message}
-        </Text>
-      </Stack>
-      <Button variant="outline" size="xs" onClick={onRetry ?? retry}>
-        Try again
-      </Button>
-    </Alert>
   );
 }
 

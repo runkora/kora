@@ -1,19 +1,19 @@
 'use client';
 
-/** @tier 3 — skills/[marketplace]/[...path]-scoped. A skill or file that could not load, with a retry. */
+/** @tier 3 — skills-scoped. A failed load with its reason and a retry, on the overview and the skill page. */
 
 import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Alert, Button, Icon, Stack, Text } from '@runkora/hades';
+import type { SkillsLoadError } from '../_types';
 
-interface SkillLoadErrorProps {
-  status: number;
-  message: string;
+interface LoadErrorAlertProps {
+  error: SkillsLoadError;
   /** Defaults to re-rendering the page on the server. */
   onRetry?: () => void;
 }
 
-export function SkillLoadError({ status, message, onRetry }: SkillLoadErrorProps) {
+export function LoadErrorAlert({ error, onRetry }: LoadErrorAlertProps) {
   const router = useRouter();
   const [pending, startRetry] = useTransition();
 
@@ -21,13 +21,13 @@ export function SkillLoadError({ status, message, onRetry }: SkillLoadErrorProps
     <Alert variant="error">
       <Icon name="triangle-alert" color="status-error" />
       <Stack grow>
-        {status === 502 && (
+        {error.status === 502 && (
           <Text size="caption" weight="heavy" color="status-error">
             This Marketplace is unavailable.
           </Text>
         )}
         <Text size="caption" color="status-error">
-          {message}
+          {error.message}
         </Text>
       </Stack>
       <Button

@@ -174,11 +174,9 @@ const MATTPOCOCK_SKILLS = [
 ];
 
 /** The three sample Marketplaces, with their skills in title order as skills-service returns them. */
-export const SKILL_FIXTURES = [
-  ...ANTHROPIC_SKILLS,
-  ...SUPERPOWERS_SKILLS,
-  ...MATTPOCOCK_SKILLS,
-].sort((a, b) => a.title.localeCompare(b.title, 'en', { sensitivity: 'base' }));
+const SKILL_FIXTURES = [...ANTHROPIC_SKILLS, ...SUPERPOWERS_SKILLS, ...MATTPOCOCK_SKILLS].sort(
+  (a, b) => a.title.localeCompare(b.title, 'en', { sensitivity: 'base' }),
+);
 export const MARKETPLACE_FIXTURES = [
   marketplace('anthropic-skills', 'anthropics/skills', ANTHROPIC_SKILLS),
   marketplace('partner-skills', 'obra/superpowers', SUPERPOWERS_SKILLS),
@@ -230,7 +228,7 @@ export const STORY_FAVOURITES = [
 
 const kb = (value: number) => Math.round(value * 1024);
 
-export const PDF_FILES: SkillFileEntry[] = [
+const PDF_FILES: SkillFileEntry[] = [
   { path: 'LICENSE.txt', size: kb(1.5) },
   { path: 'forms.md', size: kb(11.6) },
   { path: 'reference.md', size: kb(16.3) },
@@ -239,7 +237,7 @@ export const PDF_FILES: SkillFileEntry[] = [
   { path: 'scripts/fill_fillable_fields.py', size: kb(4.0) },
 ];
 
-export const PDF_SKILL_MD = `---
+const PDF_SKILL_MD = `---
 name: pdf
 description: ${PDF.description}
 license: Proprietary. LICENSE.txt has complete terms
@@ -362,7 +360,7 @@ if __name__ == "__main__":
 `,
 };
 
-/** The pdf detail as skills-service returns it; its list entry is PDF_SUMMARY. */
+/** The pdf detail as skills-service returns it. */
 export function pdfSkill(overrides: Partial<Skill> = {}): Skill {
   return {
     marketplace: PDF.marketplace,
@@ -373,13 +371,15 @@ export function pdfSkill(overrides: Partial<Skill> = {}): Skill {
     repository: 'anthropics/skills',
     ref: 'main',
     commit: COMMIT,
+    version: PDF.version,
+    tags: PDF.tags,
+    tools: PDF.tools,
+    manualOnly: PDF.manualOnly,
     content: PDF_SKILL_MD,
     files: PDF_FILES,
     ...overrides,
   };
 }
-
-export const PDF_SUMMARY = PDF;
 
 /** One file body, or a 502 for the paths in `failing`, as GET /api/skills/file answers. */
 export function pdfFile(path: string, failing: string[] = []) {

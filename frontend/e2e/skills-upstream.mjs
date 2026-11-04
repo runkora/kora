@@ -7,8 +7,8 @@ import { BROKEN, MARKETPLACES, SKILLS, UNAVAILABLE_MESSAGE } from './skills-fixt
 
 const port = Number(process.env.PLAYWRIGHT_SKILLS_PORT ?? '3101');
 const unavailable = { code: 'marketplace_unavailable', message: UNAVAILABLE_MESSAGE };
-// The one preferences document every test session shares.
-let preferences = {};
+// One preferences document per session token, as identity keeps one per user.
+const preferences = new Map();
 
 createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -20,11 +20,12 @@ createServer((req, res) => {
   if (url.pathname === '/health') return json(200, {});
   if (!req.headers.authorization?.startsWith('Bearer ')) return json(401, { code: 'unauthorized' });
   if (url.pathname === '/identity/preferences') {
-    if (req.method !== 'PUT') return json(200, preferences);
+    const user = req.headers.authorization;
+    if (req.method !== 'PUT') return json(200, preferences.get(user) ?? {});
     let body = '';
     req.on('data', (chunk) => (body += chunk));
     req.on('end', () => {
-      preferences = JSON.parse(body || '{}');
+      preferences.set(user, JSON.parse(body || '{}'));
       json(200, {});
     });
     return;

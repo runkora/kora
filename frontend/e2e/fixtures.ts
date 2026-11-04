@@ -32,11 +32,18 @@ const TEST_SESSION_PAYLOAD = {
  * Seals a test session payload and injects it as the iron-session cookie into
  * the given browser context.  Call before page.goto() on any protected route.
  */
-export async function injectSessionCookie(context: BrowserContext): Promise<void> {
-  const sealedSession = await sealData(TEST_SESSION_PAYLOAD, {
-    password: TEST_SESSION_SECRET,
-    ttl: TTL_S,
-  });
+export async function injectSessionCookie(
+  context: BrowserContext,
+  /** A test that needs its own user data on the server gives its session its own token. */
+  accessToken = TEST_SESSION_PAYLOAD.accessToken,
+): Promise<void> {
+  const sealedSession = await sealData(
+    { ...TEST_SESSION_PAYLOAD, accessToken },
+    {
+      password: TEST_SESSION_SECRET,
+      ttl: TTL_S,
+    },
+  );
 
   await context.addCookies([
     {

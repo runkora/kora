@@ -1,14 +1,14 @@
-// RSC: loads one skill by its folder path, with its Marketplace and its list entry for the header.
+// RSC: loads one skill by its folder path, with its Marketplace for the Synced row.
 
 import Link from 'next/link';
 import { Button, EmptyState, Icon, Stack } from '@runkora/hades';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { loadErrorMessage } from '@runkora/lib/load-error';
 import { getSession, isSessionValid } from '@runkora/server/session';
-import { loadMarketplaces, loadSkill, loadSkillSummary } from '../../_services/skills-server';
+import { loadMarketplaces, loadSkill } from '../../_services/skills-server';
 import { browseQuery, decodeParam, toBrowse } from '../../_types';
 import { SkillDetail } from './_components/skill-detail';
-import { SkillLoadError } from './_components/skill-load-error';
+import { LoadErrorAlert } from '../../_components/load-error-alert';
 
 interface SkillPageProps {
   params: Promise<{ marketplace: string; path: string[] }>;
@@ -21,17 +21,12 @@ export default async function SkillPage({ params, searchParams }: SkillPageProps
   const marketplace = decodeParam(route.marketplace);
   const path = route.path.map(decodeParam).join('/');
   const session = await getSession();
-  const [result, marketplaces, summary] = isSessionValid(session)
+  const [result, marketplaces] = isSessionValid(session)
     ? await Promise.all([
         loadSkill(session.accessToken, marketplace, path),
         loadMarketplaces(session.accessToken),
-        loadSkillSummary(session.accessToken, marketplace, path),
       ])
-    : [
-        { ok: false as const, status: 401, message: loadErrorMessage(401, 'this skill') },
-        null,
-        null,
-      ];
+    : [{ ok: false as const, status: 401, message: loadErrorMessage(401, 'this skill') }, null];
   const overview = `${APP_ROUTES.skills.root}${browseQuery(toBrowse(query))}`;
 
   return (
@@ -51,7 +46,6 @@ export default async function SkillPage({ params, searchParams }: SkillPageProps
           marketplace={
             marketplaces?.ok ? marketplaces.data.find((m) => m.slug === marketplace) : undefined
           }
-          summary={summary}
         />
       ) : result.status === 404 ? (
         <EmptyState
@@ -65,7 +59,7 @@ export default async function SkillPage({ params, searchParams }: SkillPageProps
           }
         />
       ) : (
-        <SkillLoadError status={result.status} message={result.message} />
+        <LoadErrorAlert error={{ status: result.status, message: result.message }} />
       )}
     </Stack>
   );

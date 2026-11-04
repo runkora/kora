@@ -44,16 +44,6 @@ export interface SkillsStateShape {
 }
 
 const SEARCH_DEBOUNCE_MS = 300;
-const BROWSE_KEYS = ['marketplace', 'favourites', 'search', 'page'];
-
-/** The overview URL for the browse values, keeping any other query keys such as `agent`. */
-function browseUrl(browse: SkillsBrowse): string {
-  const query = new URLSearchParams(window.location.search);
-  BROWSE_KEYS.forEach((key) => query.delete(key));
-  new URLSearchParams(browseQuery(browse)).forEach((value, key) => query.set(key, value));
-  const qs = query.toString();
-  return `${APP_ROUTES.skills.root}${qs ? `?${qs}` : ''}`;
-}
 
 /** The browse values in the address bar, or null during the server render and off the overview. */
 function browseFromLocation(): SkillsBrowse | null {
@@ -80,10 +70,10 @@ export function useSkills(
   initial: SkillsOverview,
   initialError: SkillsLoadError | null,
 ): SkillsStateShape {
-  const { preferences, updatePreferences } = usePreferences();
+  const { preferences, updatePreferences, flush } = usePreferences();
   const favouriteKeys = preferences.skills.favouriteSkills;
   // Browser Back restores this page with the props of its first render while the address
-  // holds later browse values, so the address wins and its page loads on mount.
+  // holds later browse values; the address wins and its page loads on mount.
   const [restored] = useState(() => {
     const fromLocation = browseFromLocation();
     return fromLocation &&
@@ -101,37 +91,40 @@ export function useSkills(
     restored ? 'loading' : initialError ? 'error' : 'success',
   );
   const [error, setError] = useState(restored ? null : initialError);
-  // Null until the user types, so the box follows the search the URL restores.
+  // Null until the user types: the box follows the search the URL restores.
   const [typed, setTyped] = useState<string | null>(null);
   const searchText = typed ?? browse.search;
   const inFlight = useRef<AbortController | null>(null);
 
-  const fetchPage = useCallback((next: SkillsBrowse) => {
-    // A newer request aborts this one, so only the latest page reaches the screen.
+  const fetchPage = useCallback((next: SkillsBrowse, ready: Promise<void> = Promise.resolve()) => {
+    // A newer request aborts this one: only the latest page reaches the screen.
     inFlight.current?.abort();
     const controller = new AbortController();
     inFlight.current = controller;
 
-    void fetchSkills(next, controller.signal).then((result) => {
-      if (controller.signal.aborted) return;
-      setError(result.error);
-      setSkills(result.data?.skills ?? []);
-      setTotal(result.data?.total ?? 0);
-      setOffset(result.data?.offset ?? 0);
-      setFailures(result.data?.failures ?? []);
-      setStatus(result.error ? 'error' : 'success');
-    });
+    void ready
+      .then(() => (controller.signal.aborted ? null : fetchSkills(next, controller.signal)))
+      .then((result) => {
+        if (!result || controller.signal.aborted) return;
+        setError(result.error);
+        setSkills(result.data?.skills ?? []);
+        setTotal(result.data?.total ?? 0);
+        setOffset(result.data?.offset ?? 0);
+        setFailures(result.data?.failures ?? []);
+        setStatus(result.error ? 'error' : 'success');
+      });
   }, []);
 
   const load = useCallback(
     (next: SkillsBrowse) => {
-      window.history.replaceState(null, '', browseUrl(next));
+      window.history.replaceState(null, '', `${APP_ROUTES.skills.root}${browseQuery(next)}`);
       setBrowse(next);
       setStatus('loading');
       setError(null);
-      fetchPage(next);
+      // The BFF reads the stored favourites: a favourite saved a moment ago must land first.
+      fetchPage(next, next.favourites ? flush() : undefined);
     },
-    [fetchPage],
+    [fetchPage, flush],
   );
 
   useEffect(() => {

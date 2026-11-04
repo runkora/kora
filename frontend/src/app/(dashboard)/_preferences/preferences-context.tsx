@@ -15,6 +15,8 @@ interface PreferencesContextValue {
    * debounced PUT to the backend (500 ms).
    */
   updatePreferences: (updater: (prev: UserPreferences) => UserPreferences) => void;
+  /** Sends a pending save at once and resolves when the last save has landed. */
+  flush: () => Promise<void>;
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -32,6 +34,23 @@ export function PreferencesProvider({ initialPreferences, children }: Preference
   const [preferences, setPreferences] = useState<UserPreferences>(initialPreferences);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMounted = useRef(false);
+  const pendingBody = useRef<string | null>(null);
+  const lastSave = useRef<Promise<void>>(Promise.resolve());
+
+  const save = useCallback((body: string) => {
+    pendingBody.current = null;
+    lastSave.current = fetch('/api/preferences', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    }).then(
+      () => undefined,
+      () => {
+        // Best-effort write — silently dropped per ADR-0061.
+      },
+    );
+    return lastSave.current;
+  }, []);
 
   useEffect(() => {
     // Skip the initial mount — preferences were just seeded from SSR.
@@ -40,27 +59,26 @@ export function PreferencesProvider({ initialPreferences, children }: Preference
       return;
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      const body = JSON.stringify(serializeSparse(preferences));
-      void fetch('/api/preferences', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-      }).catch(() => {
-        // Best-effort write — silently dropped per ADR-0061.
-      });
-    }, 500);
+    const body = JSON.stringify(serializeSparse(preferences));
+    pendingBody.current = body;
+    debounceRef.current = setTimeout(() => void save(body), 500);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [preferences]);
+  }, [preferences, save]);
+
+  const flush = useCallback(() => {
+    if (pendingBody.current === null) return lastSave.current;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    return save(pendingBody.current);
+  }, [save]);
 
   const updatePreferences = useCallback((updater: (prev: UserPreferences) => UserPreferences) => {
     setPreferences((prev) => updater(prev));
   }, []);
 
   return (
-    <PreferencesContext.Provider value={{ preferences, updatePreferences }}>
+    <PreferencesContext.Provider value={{ preferences, updatePreferences, flush }}>
       {children}
     </PreferencesContext.Provider>
   );

@@ -22,7 +22,7 @@ import { useSession } from './permissions-provider';
  */
 export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  // The Skills entry stays active on every Marketplace overview, since /skills opens one.
+  // The Skills entry stays active on every skill page.
   const activePathname = pathname.startsWith(`${APP_ROUTES.skills.root}/`)
     ? APP_ROUTES.skills.root
     : pathname;

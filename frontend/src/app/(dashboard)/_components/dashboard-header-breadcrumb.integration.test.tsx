@@ -1,8 +1,8 @@
 /**
  * Integration tests for the header of DashboardHeader in Skills.
  *
- * The overview shows the section title; the dedicated Skill path shows the
- * section and requested Skill identifier, following the Agents detail pattern.
+ * The overview shows the section title; a skill page shows the section and the
+ * skill's folder name, following the Agents detail pattern.
  *
  * `next/navigation` is mocked, so each test controls the path.
  */
@@ -45,18 +45,11 @@ describe('DashboardHeader in Skills', () => {
     expect(screen.queryByRole('link', { name: 'Back' })).not.toBeInTheDocument();
   });
 
-  it('selected overview: shows Marketplace and the slug from the path', () => {
-    renderHeader('/skills/team__repo');
-    expect(screen.getByText('Skills')).toBeInTheDocument();
-    expect(screen.getByText('team__repo')).toBeInTheDocument();
-  });
-
-  it('detail: shows the Skill identifier as the breadcrumb label', () => {
-    const skillName = 'react-expert';
-    renderHeader(APP_ROUTES.skills.skill('platform-engineering__skills', skillName));
+  it("skill page: shows the skill's folder name as the breadcrumb label", () => {
+    renderHeader(APP_ROUTES.skills.skill('team-skills', 'skills/react-expert'));
 
     expect(screen.getByText('Skills')).toBeInTheDocument();
-    expect(screen.getByText(skillName)).toBeInTheDocument();
-    expect(screen.queryByText('platform-engineering__skills')).not.toBeInTheDocument();
+    expect(screen.getByText('react-expert')).toBeInTheDocument();
+    expect(screen.queryByText('team-skills')).not.toBeInTheDocument();
   });
 });

@@ -245,8 +245,8 @@ describe('DashboardSidebar', () => {
   });
 
   describe('active state', () => {
-    it('keeps Skills active on a Marketplace overview path', () => {
-      vi.mocked(usePathname).mockReturnValue('/skills/team__repo');
+    it('keeps Skills active on a skill page', () => {
+      vi.mocked(usePathname).mockReturnValue(APP_ROUTES.skills.skill('team-skills', 'skills/pdf'));
       // Both entries are scope-gated: grant them so the test can check which is active.
       vi.mocked(useSession).mockReturnValueOnce({
         scopes: ['agents:read', 'skills:read'],

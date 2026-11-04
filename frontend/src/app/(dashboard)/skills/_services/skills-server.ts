@@ -1,6 +1,6 @@
 import 'server-only';
 
-import type { Marketplace, Skill, SkillFile, SkillSummary, SkillsPage } from '@runkora/shared/api';
+import type { Marketplace, Skill, SkillFile, SkillsPage } from '@runkora/shared/api';
 import { ApiError } from '@runkora/server/api-error';
 import { loadFailure, type Loaded } from '@runkora/server/load-failure';
 import {
@@ -49,27 +49,6 @@ export async function loadSkills(
   }
 }
 
-/** The list entry of one skill, which carries the version, tags and tools the detail does not. */
-export async function loadSkillSummary(
-  accessToken: string,
-  marketplace: string,
-  path: string,
-): Promise<SkillSummary | null> {
-  try {
-    const page = await fetchSkills(accessToken, {
-      marketplace,
-      keys: [`${marketplace}:${path}`],
-      search: '',
-      offset: 0,
-      limit: 1,
-    });
-    return page.skills[0] ?? null;
-  } catch (err) {
-    console.error('[loadSkillSummary] failed:', err);
-    return null;
-  }
-}
-
 export async function loadSkill(
   accessToken: string,
   marketplace: string,
@@ -100,7 +79,7 @@ const UPSTREAM_FAILURE = 'This Marketplace could not be loaded. Try again later.
 
 /**
  * A 502 means the Marketplace is unavailable, with skills-service's reason for the user. A listed
- * Marketplace's 404 is a missing repository or ref, so the skills page reads it the same way.
+ * Marketplace's 404 is a missing repository or ref, which reads the same way on the skills page.
  */
 function failure(caller: string, err: unknown, subject: string, listed = false): Loaded<never> {
   console.error(`${caller} failed:`, err);

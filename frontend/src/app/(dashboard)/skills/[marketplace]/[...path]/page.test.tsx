@@ -11,7 +11,6 @@ vi.mock('@runkora/server/session', () => ({ getSession: vi.fn(), isSessionValid:
 vi.mock('../../_services/skills-server', () => ({
   loadSkill: vi.fn(),
   loadMarketplaces: vi.fn().mockResolvedValue({ ok: true, data: [] }),
-  loadSkillSummary: vi.fn().mockResolvedValue(null),
 }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
