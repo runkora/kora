@@ -109,7 +109,7 @@ func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewP
 
 	switch c.dispatchBackend(params.Model) {
 	case backendMantleOpenAIV1:
-		// GPT-5.x and xAI Grok use /openai/v1/responses — a separate client with a different base path.
+		// GPT and xAI Grok models use /openai/v1/responses — a separate client with a different base path.
 		resp, err := c.mantleOpenAIV1Client.Responses.New(ctx, stripMantleUnsupportedInputItems(withMantleModelID(params)))
 		if err != nil {
 			c.logger.Error(ctx, "bedrock: responses error",
@@ -148,7 +148,7 @@ func (c *Connector) ResponsesStream(ctx context.Context, params responses.Respon
 
 	switch c.dispatchBackend(params.Model) {
 	case backendMantleOpenAIV1:
-		// GPT-5.x and xAI Grok use /openai/v1/responses — a separate client with a different base path.
+		// GPT and xAI Grok models use /openai/v1/responses — a separate client with a different base path.
 		stream := c.mantleOpenAIV1Client.Responses.NewStreaming(ctx, stripMantleUnsupportedInputItems(withMantleModelID(params)))
 		ch := make(chan inferencegw.ResponsesStreamResult, 32)
 		go func() {
