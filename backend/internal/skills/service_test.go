@@ -12,17 +12,22 @@ import (
 
 type countingCrawler struct {
 	inner       skillCrawler
+	mu          sync.Mutex
 	crawls      int
 	fileFetches int
 }
 
 func (c *countingCrawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) {
+	c.mu.Lock()
 	c.crawls++
+	c.mu.Unlock()
 	return c.inner.Crawl(ctx, m)
 }
 
 func (c *countingCrawler) FetchFile(ctx context.Context, m *Marketplace, sha string, s skillRecord, f SkillFileInfo) (string, error) {
+	c.mu.Lock()
 	c.fileFetches++
+	c.mu.Unlock()
 	return c.inner.FetchFile(ctx, m, sha, s, f)
 }
 
