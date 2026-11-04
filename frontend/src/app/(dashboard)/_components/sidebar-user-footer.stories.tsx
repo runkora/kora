@@ -52,6 +52,10 @@ function withTenants(list: ReturnType<typeof tenants>, extra: MockRoutes = {}) {
 async function openMenu(canvasElement: HTMLElement) {
   const page = within(canvasElement.ownerDocument.body);
   await userEvent.click(await page.findByRole('button', { name: new RegExp(MOCK_USER.email) }));
+  // The scripted open leaves a focus ring on the first item, which a real pointer open does not show.
+  await page.findByRole('menuitem', { name: 'View profile' });
+  await new Promise(requestAnimationFrame);
+  (canvasElement.ownerDocument.activeElement as HTMLElement | null)?.blur();
   return page;
 }
 

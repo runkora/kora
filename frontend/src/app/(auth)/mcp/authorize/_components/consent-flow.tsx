@@ -178,7 +178,7 @@ function ConsentCard(
             <Stack direction="horizontal" align="center" gap="tight" minWidth="none">
               <Icon name="building" size="2xs" color="subtle" />
               <Text as="span" size="micro" color="subtle" truncate title={p.tenantName}>
-                {p.tenantName} · acting as delegated identity
+                {p.tenantName}
               </Text>
             </Stack>
           </Stack>

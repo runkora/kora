@@ -177,37 +177,36 @@ function IdentityBlock({
   compact: boolean;
 }) {
   return (
-    <>
-      <Stack asChild marginBottom="tight">
-        <SectionLabel>Signed in as</SectionLabel>
-      </Stack>
-      {name && (
+    <Stack gap="cozy">
+      <SectionLabel>Signed in as</SectionLabel>
+      <Stack gap="tight">
+        {name && (
+          <Text
+            as="span"
+            style={{
+              display: 'block',
+              fontSize: compact ? 14 : 16,
+              lineHeight: compact ? '20px' : '24px',
+              fontWeight: 500,
+            }}
+          >
+            {name}
+          </Text>
+        )}
         <Text
           as="span"
+          color="subtle"
           style={{
             display: 'block',
-            fontSize: compact ? 14 : 16,
-            lineHeight: compact ? '20px' : '24px',
-            fontWeight: 500,
+            fontSize: compact ? 12 : 13,
+            lineHeight: compact ? '16px' : '18px',
+            overflowWrap: 'anywhere',
           }}
         >
-          {name}
+          {withSoftEmailBreak(email)}
         </Text>
-      )}
-      <Text
-        as="span"
-        color="subtle"
-        style={{
-          display: 'block',
-          marginTop: name ? (compact ? 2 : 8) : 0,
-          fontSize: compact ? 12 : 13,
-          lineHeight: compact ? '16px' : '18px',
-          overflowWrap: 'anywhere',
-        }}
-      >
-        {withSoftEmailBreak(email)}
-      </Text>
-    </>
+      </Stack>
+    </Stack>
   );
 }
 
@@ -225,15 +224,18 @@ function TenantSection({
   touch: boolean;
 }) {
   return (
-    <Stack gap="tight">
+    <Stack gap="snug">
       <SectionLabel>Tenant</SectionLabel>
-      <TenantList
-        tenants={tenants}
-        switching={tenantSwitch.switching}
-        failed={tenantSwitch.failed}
-        size={touch ? 'touch' : 'compact'}
-        onPick={(t) => (t.active ? onPickActive() : tenantSwitch.start(t.id))}
-      />
+      {/* The sheet's rows bleed into its padding by their own inset, so row text meets the labels' edge. */}
+      <Stack style={touch ? { marginInline: -12 } : undefined}>
+        <TenantList
+          tenants={tenants}
+          switching={tenantSwitch.switching}
+          failed={tenantSwitch.failed}
+          size={touch ? 'touch' : 'compact'}
+          onPick={(t) => (t.active ? onPickActive() : tenantSwitch.start(t.id))}
+        />
+      </Stack>
     </Stack>
   );
 }
@@ -267,10 +269,9 @@ function ConfirmLogoutBlock({ compact }: { compact: boolean }) {
  * User identity + account menu rendered inside PageLayout's sidebarFooter
  * slot. PageLayout wraps this in a semantic <footer> element internally.
  *
- * Desktop (≥768px): the trigger opens a two-panel flyout to the right of the
- * sidebar (identity panel above a shared divider, actions panel below it,
- * sized to the footer's own height) — not modal, no scrim, dismissed by
- * outside-click or Escape.
+ * Desktop (≥768px): the trigger opens a flyout to the right of the sidebar
+ * (identity panel above a divider, actions panel below it). It is not modal,
+ * has no scrim, and is dismissed by outside-click or Escape.
  *
  * Mobile (<768px): the same trigger opens a `BottomSheet` (Hades) instead —
  * fully modal, with its own drag-to-dismiss, close button, and back-button
@@ -461,31 +462,28 @@ export function SidebarUserFooter() {
         {trigger}
 
         {isDesktop && open && (
-          <>
-            <Stack
-              id="account-identity"
-              style={{
-                position: 'absolute',
-                bottom: 'calc(100% + 1px)',
-                left: 'calc(100% + 1px)',
-                zIndex: 50,
-                width: 240,
-                padding: '12px 20px',
-                borderTop: '1px solid var(--color-border-subtle)',
-                borderRight: '1px solid var(--color-border-subtle)',
-                borderTopRightRadius: 8,
-                backgroundColor: 'var(--color-background)',
-                boxShadow: '12px 0 24px -12px var(--color-overlay-strong)',
-                animation: flyoutAnimation,
-              }}
-            >
+          // One column anchored to the footer, so the action rows can take their own height.
+          <Stack
+            style={{
+              position: 'absolute',
+              bottom: 0,
+              left: 'calc(100% + 1px)',
+              zIndex: 50,
+              width: 280,
+              borderTop: '1px solid var(--color-border-subtle)',
+              borderRight: '1px solid var(--color-border-subtle)',
+              borderTopRightRadius: 8,
+              backgroundColor: 'var(--color-background)',
+              boxShadow: '12px 0 24px -12px var(--color-overlay-strong)',
+              animation: flyoutAnimation,
+            }}
+          >
+            <Stack id="account-identity" padding="comfortable">
               {confirming ? (
                 <ConfirmLogoutBlock compact />
               ) : (
-                <Stack gap="cozy">
-                  <Stack gap="snug">
-                    <IdentityBlock name={name} email={email} compact />
-                  </Stack>
+                <Stack gap="comfortable">
+                  <IdentityBlock name={name} email={email} compact />
                   {multiTenant ? (
                     <>
                       <Separator />
@@ -500,32 +498,18 @@ export function SidebarUserFooter() {
                 </Stack>
               )}
             </Stack>
-
+            <Separator />
             <Stack
               id="account-menu"
               role={confirming ? undefined : 'menu'}
               aria-label={confirming ? undefined : 'Account'}
               aria-describedby="account-identity"
               onKeyDown={confirming ? undefined : handleMenuKeyDown}
-              gap="none"
-              style={{
-                position: 'absolute',
-                top: -1,
-                bottom: 0,
-                left: 'calc(100% + 1px)',
-                zIndex: 50,
-                width: 240,
-                padding: '4px 8px',
-                justifyContent: 'center',
-                borderTop: '1px solid var(--color-border-subtle)',
-                borderRight: '1px solid var(--color-border-subtle)',
-                backgroundColor: 'var(--color-background)',
-                boxShadow: '12px 0 24px -12px var(--color-overlay-strong)',
-                animation: flyoutAnimation,
-              }}
+              gap="tight"
+              padding={confirming ? 'comfortable' : 'tight'}
             >
               {confirming ? (
-                <Stack direction="horizontal" style={{ gap: 6, padding: '0 4px' }}>
+                <Stack direction="horizontal" gap="snug">
                   <Button
                     ref={cancelButtonRef}
                     variant="outline"
@@ -548,7 +532,7 @@ export function SidebarUserFooter() {
                 <>
                   <MenuItem
                     icon={<Icon name="user" size="sm" color="muted" />}
-                    height={28}
+                    height={32}
                     fontSize={14}
                     onSelect={handleViewProfile}
                     itemRef={firstItemRef}
@@ -558,7 +542,7 @@ export function SidebarUserFooter() {
                   <MenuItem
                     icon={<Icon name="log-out" size="sm" color="status-error" />}
                     tone="danger"
-                    height={28}
+                    height={32}
                     fontSize={14}
                     onSelect={menu.requestLogout}
                     itemRef={secondItemRef}
@@ -568,7 +552,7 @@ export function SidebarUserFooter() {
                 </>
               )}
             </Stack>
-          </>
+          </Stack>
         )}
       </Stack>
 
@@ -582,10 +566,8 @@ export function SidebarUserFooter() {
             {confirming ? (
               <ConfirmLogoutBlock compact={false} />
             ) : (
-              <Stack gap="cozy">
-                <Stack gap="snug">
-                  <IdentityBlock name={name} email={email} compact={false} />
-                </Stack>
+              <Stack gap="comfortable">
+                <IdentityBlock name={name} email={email} compact={false} />
                 {multiTenant ? (
                   <>
                     <Separator />

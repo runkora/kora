@@ -1,12 +1,15 @@
 /** @tier 2 — kora-domain-aware: lists the person's tenants. Used by: dashboard account menu, MCP consent. */
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Icon, Input, Stack, Text } from '@runkora/hades';
 import type { TenantOption } from '@runkora/server/auth-config';
 
 /** Above this many tenants the list gains a search field and scrolls. */
 const SEARCH_THRESHOLD = 6;
+
+/** Fades the bottom edge of the scrolling list while more rows sit below it. */
+const FADE = 'linear-gradient(to bottom, black calc(100% - 2rem), transparent)';
 
 /**
  * Tracks a tenant switch: the tenant it is starting and whether the last one failed to start.
@@ -62,8 +65,18 @@ export function TenantList({
   const searchable = tenants.length > SEARCH_THRESHOLD;
   const q = query.trim().toLowerCase();
   const shown = q ? tenants.filter((t) => t.displayName.toLowerCase().includes(q)) : tenants;
-  // Lines up the empty, error and note lines with the row text.
-  const inset = size === 'touch' ? 'relaxed' : 'cozy';
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [moreBelow, setMoreBelow] = useState(false);
+
+  // Shows the fade only while the list overflows and is not scrolled to the end.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !searchable) return;
+    const update = () => setMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 1);
+    update();
+    el.addEventListener('scroll', update);
+    return () => el.removeEventListener('scroll', update);
+  }, [searchable, shown.length]);
 
   return (
     <Stack gap="tight">
@@ -76,7 +89,11 @@ export function TenantList({
           aria-label="Search tenants"
         />
       ) : null}
-      <Stack {...(searchable ? ({ maxHeight: 'scroll-md', overflowY: 'auto' } as const) : {})}>
+      <Stack
+        ref={scrollRef}
+        {...(searchable ? ({ maxHeight: 'scroll-md', overflowY: 'auto' } as const) : {})}
+        style={moreBelow ? { maskImage: FADE, WebkitMaskImage: FADE } : undefined}
+      >
         <Stack gap="none" shrink aria-label="Tenants">
           {shown.map((t) => (
             <Button
@@ -88,6 +105,8 @@ export function TenantList({
               aria-current={t.active ? 'true' : undefined}
               disabled={switching !== null}
               title={t.displayName}
+              // Touch rows keep the compact row's inset so the sheet can line the text up with its labels.
+              style={size === 'touch' ? { paddingInline: 12 } : undefined}
               onClick={() => onPick(t)}
             >
               <Stack
@@ -107,7 +126,7 @@ export function TenantList({
             </Button>
           ))}
           {shown.length === 0 ? (
-            <Stack paddingInline={inset} paddingBlock="snug">
+            <Stack paddingInline="cozy" paddingBlock="snug">
               <Text size="caption" color="subtle">
                 No tenants match.
               </Text>
@@ -116,13 +135,13 @@ export function TenantList({
         </Stack>
       </Stack>
       {failed ? (
-        <Stack paddingInline={inset} paddingBlock="snug">
+        <Stack paddingInline="cozy" paddingBlock="snug">
           <Text size="caption" color="status-error" role="alert">
             Could not start the switch. Try again.
           </Text>
         </Stack>
       ) : null}
-      <Stack paddingInline={inset} paddingBottom="tight">
+      <Stack paddingInline="cozy" paddingBottom="tight">
         <Text size="micro" color="subtle">
           {switching ? 'Signing you in to that tenant.' : 'Switching signs you in again.'}
         </Text>
