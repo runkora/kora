@@ -1,6 +1,6 @@
 # Tenant Switching
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-04
 **Deciders:** Justin Wilkin
 **Technical Story:** [Tenant Switching PRD](../prd/tenant-switching.md). Amends [2026-10-26: Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md).

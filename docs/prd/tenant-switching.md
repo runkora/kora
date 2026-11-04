@@ -1,6 +1,6 @@
 # Tenant Switching - Product Requirements Document
 
-**Status:** Draft  
+**Status:** Approved  
 **Created:** 2026-11-04  
 **Last Updated:** 2026-11-04  
 **Owner:** Justin Wilkin  
