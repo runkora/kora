@@ -238,6 +238,16 @@ while true; do
     success "Authenticated successfully!"
     echo ""
 
+    # A tenant hint only chooses among several matches, so an account that
+    # matches one tenant is signed in there whatever --tenant-id named.
+    PAYLOAD=$(echo "$ACCESS_TOKEN" | cut -d. -f2 | tr '_-' '/+')
+    while (( ${#PAYLOAD} % 4 )); do PAYLOAD+="="; done
+    ISSUED_TENANT=$(echo "$PAYLOAD" | base64 --decode 2>/dev/null | jq -r '.kora.tenant_id // ""' 2>/dev/null || true)
+    if [[ -n "$ISSUED_TENANT" && "$ISSUED_TENANT" != "$TENANT_ID" ]]; then
+      warn "Signed in to tenant ${BOLD}${ISSUED_TENANT}${RESET}, not ${TENANT_ID}: it is the only tenant your account matches."
+      echo ""
+    fi
+
     if [[ -n "$ACCESS_TOKEN" ]]; then
       echo -e "  ${BOLD}Access token${RESET} (expires in ${EXPIRES}s):"
       echo ""
