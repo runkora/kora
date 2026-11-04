@@ -164,7 +164,7 @@ skills-service mounts the Marketplaces ConfigMap and the keys Secret and reloads
 The API is under `/v1` and requires the `skills:read` scope. The tenant comes from the verified platform token.
 
 - `GET /v1/marketplaces` returns the tenant's Marketplaces. Each has its slug, repository, ref, the commit and time of its last crawl, and its skill count. The commit, time and count are empty until the Marketplace has been crawled.
-- `GET /v1/skills?marketplace=&keys=&search=&offset=&limit=` returns one page of skills across the tenant's Marketplaces, in title order, with `total`. `marketplace` narrows it to one Marketplace, and `keys` narrows it to a list of `marketplace:path` keys. Each skill carries its Marketplace, path, name, title (the first `SKILL.md` heading), description, and the frontmatter version, tags, allowed tools and manual-only flag.
+- `GET /v1/marketplaces/skills?marketplace=&keys=&search=&offset=&limit=` returns one page of skills across the tenant's Marketplaces, in title order, with `total`. `marketplace` narrows it to one Marketplace, and `keys` narrows it to a list of `marketplace:path` keys. Each skill carries its Marketplace, path, name, title (the first `SKILL.md` heading), description, and the frontmatter version, tags, allowed tools and manual-only flag.
 - `GET /v1/marketplaces/{marketplace}/skills/{path...}` returns one skill's title, `SKILL.md`, file list and the commit it was read at.
 - `GET /v1/marketplaces/{marketplace}/skills/{path...}?file={path}` returns one listed file.
 
@@ -233,7 +233,7 @@ The API is under `/v1` and requires the `skills:read` scope. The tenant comes fr
 
 - `charts/kora/templates/skills-service/` renders the Deployment, Service, ServiceAccount, config ConfigMap and client-mTLS DestinationRule.
 - The Deployment mounts `kora-skill-marketplaces` and `kora-skill-marketplace-secrets` read-only.
-- `charts/kora/templates/api/virtualservice.yaml` routes `/v1/marketplaces` and `/v1/skills` to skills-service. `charts/kora/templates/platform/netpols.yaml` opens the skills-service port to mesh callers.
+- `charts/kora/templates/api/virtualservice.yaml` routes `/v1/marketplaces` to skills-service. `charts/kora/templates/platform/netpols.yaml` opens the skills-service port to mesh callers.
 - The frontend deployment receives `SKILLS_SERVICE_URL`.
 - The chart renders a ServiceEntry for `api.github.com:443` so skills-service works under `REGISTRY_ONLY` outbound traffic.
 
