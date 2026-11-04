@@ -71,11 +71,11 @@ func NewController(
 
 // Routes declares the scope every route requires.
 func Routes(basePath string) []routescopes.RouteScope {
-	base := strings.TrimRight(basePath, "/")
-	return []routescopes.RouteScope{
-		{PathPrefix: base + "/marketplaces", Method: http.MethodGet, RequiredScope: skillsReadScope},
-		{PathPrefix: base + "/skills", Method: http.MethodGet, RequiredScope: skillsReadScope},
-	}
+	return []routescopes.RouteScope{{
+		PathPrefix:    strings.TrimRight(basePath, "/") + "/marketplaces",
+		Method:        http.MethodGet,
+		RequiredScope: skillsReadScope,
+	}}
 }
 
 // Scopes declares the scope vocabulary skills-service owns.
@@ -97,7 +97,9 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return c.middleware }
 // Boot registers the routes.
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /marketplaces", c.handleListMarketplaces)
-	mux.Handle("GET /skills", c.handleListSkills)
+	// Two segments, so it never overlaps the skill detail route below, which has
+	// at least four.
+	mux.Handle("GET /marketplaces/skills", c.handleListSkills)
 	mux.Handle("GET /marketplaces/{slug}/skills/{path...}", c.handleGetSkill)
 }
 

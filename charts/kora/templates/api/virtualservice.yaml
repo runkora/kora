@@ -168,8 +168,6 @@ spec:
     - match:
         - uri:
             prefix: /v1/marketplaces
-        - uri:
-            prefix: /v1/skills
       {{- include "kora.edgeHeaders" . | nindent 6 }}
       route:
         - destination:
