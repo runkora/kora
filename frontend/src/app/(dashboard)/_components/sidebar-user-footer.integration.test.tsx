@@ -13,7 +13,7 @@
  *   pattern in `sidebar-state.test.tsx`) drives the desktop flyout tests.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@runkora/test-utils';
 import { APP_ROUTES } from '@runkora/lib/routing/routes';
@@ -306,28 +306,5 @@ describe('SidebarUserFooter tenants', () => {
 
     expect(await screen.findByRole('button', { name: 'Example Data' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  });
-
-  it('re-enables the list when the page returns from the back-forward cache', async () => {
-    vi.mocked(useSession).mockReturnValue(TWO);
-    vi.mocked(startTenantSwitch).mockReturnValue(new Promise(() => {}));
-    const user = await openMenu();
-
-    await user.click(screen.getByRole('button', { name: 'Example Data' }));
-    expect(screen.getByRole('button', { name: 'Example Data' })).toHaveAttribute(
-      'aria-disabled',
-      'true',
-    );
-
-    const restored = new Event('pageshow');
-    Object.defineProperty(restored, 'persisted', { value: true });
-    act(() => {
-      window.dispatchEvent(restored);
-    });
-
-    expect(screen.getByRole('button', { name: 'Example Data' })).toHaveAttribute(
-      'aria-disabled',
-      'false',
-    );
   });
 });

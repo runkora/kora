@@ -20,15 +20,6 @@ export function useTenantSwitch(onSelect: (tenantId: string) => Promise<void> | 
   const [switching, setSwitching] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
-  // A page restored from the back-forward cache after the redirect keeps its old state.
-  useEffect(() => {
-    const reset = (event: PageTransitionEvent) => {
-      if (event.persisted) setSwitching(null);
-    };
-    window.addEventListener('pageshow', reset);
-    return () => window.removeEventListener('pageshow', reset);
-  }, []);
-
   const start = (tenantId: string) => {
     setSwitching(tenantId);
     setFailed(false);

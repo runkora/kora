@@ -35,12 +35,22 @@ export function announceTenantSwitch(): void {
   channel.close();
 }
 
-/** Calls `onSwitch` when another tab finishes a switch. Returns the unsubscribe. */
+/**
+ * Calls `onSwitch` when another tab finishes a switch, or when Back restores this page from the
+ * back-forward cache, where it may predate a switch. Returns the unsubscribe.
+ */
 export function onTenantSwitch(onSwitch: () => void): () => void {
-  if (typeof BroadcastChannel === 'undefined') return () => {};
-  const channel = new BroadcastChannel(SWITCH_CHANNEL);
-  channel.onmessage = onSwitch;
-  return () => channel.close();
+  const restored = (event: PageTransitionEvent) => {
+    if (event.persisted) onSwitch();
+  };
+  window.addEventListener('pageshow', restored);
+  const channel =
+    typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(SWITCH_CHANNEL);
+  if (channel) channel.onmessage = onSwitch;
+  return () => {
+    window.removeEventListener('pageshow', restored);
+    channel?.close();
+  };
 }
 
 /** Checks the fields the sign-in redirect needs, so a malformed answer fails the switch. */

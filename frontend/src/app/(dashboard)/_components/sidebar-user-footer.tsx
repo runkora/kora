@@ -462,9 +462,12 @@ export function SidebarUserFooter() {
         {trigger}
 
         {isDesktop && open && (
-          // One column anchored to the footer, so the action rows can take their own height.
+          // One column anchored to the footer, so the action rows can take their own height. It
+          // stops at the viewport top and scrolls, so a short window keeps every row reachable.
           <Stack
+            overflowY="auto"
             style={{
+              maxHeight: '100dvh',
               position: 'absolute',
               bottom: 0,
               left: 'calc(100% + 1px)',

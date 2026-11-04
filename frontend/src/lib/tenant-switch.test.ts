@@ -61,4 +61,23 @@ describe('tenant switch broadcast', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(onSwitch).toHaveBeenCalledOnce();
   });
+
+  it('treats a page restored from the back-forward cache as possibly switched', () => {
+    const onSwitch = vi.fn();
+    const unsubscribe = onTenantSwitch(onSwitch);
+    const pageshow = (persisted: boolean) => {
+      const event = new Event('pageshow');
+      Object.defineProperty(event, 'persisted', { value: persisted });
+      window.dispatchEvent(event);
+    };
+
+    pageshow(false);
+    expect(onSwitch).not.toHaveBeenCalled();
+    pageshow(true);
+    expect(onSwitch).toHaveBeenCalledOnce();
+
+    unsubscribe();
+    pageshow(true);
+    expect(onSwitch).toHaveBeenCalledOnce();
+  });
 });
