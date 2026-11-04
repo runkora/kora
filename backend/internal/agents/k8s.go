@@ -318,7 +318,7 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 			return p.deleteAgentGrant(ctx, at, namespace)
 		},
 		func() error {
-			return p.deleteDestinationRule(ctx, at.Slug)
+			return p.deleteDestinationRule(ctx, at.Slug, namespace)
 		},
 		func() error {
 			return p.deleteAuthorizationPolicy(ctx, at.Slug, namespace)
@@ -2107,9 +2107,10 @@ func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, 
 // SPIRE-issued SPIFFE ID (spiffe://<td>/tenant/<ns>/agent/<slug>).
 func (p *K8sProvisioner) ensureDestinationRule(ctx context.Context, at AgentType, namespace string, owner metav1.OwnerReference, update bool) error {
 	spiffeID := p.agentSpiffeID(at, namespace)
-	host := fmt.Sprintf("%s.%s.svc.cluster.local", at.Slug, namespace)
+	host := agentServiceHost(at.Slug, namespace)
+	name := agentDestinationRuleName(at.Slug, namespace)
 	metadata := map[string]any{
-		"name":      "agent-" + at.Slug,
+		"name":      name,
 		"namespace": p.cfg.SystemNamespace,
 	}
 	setUnstructuredOwnerRef(metadata, owner)
@@ -2139,26 +2140,56 @@ func (p *K8sProvisioner) ensureDestinationRule(ctx context.Context, at AgentType
 	_, err := p.dynamicClient.Resource(destinationRuleGVR).
 		Namespace(p.cfg.SystemNamespace).
 		Create(ctx, dr, metav1.CreateOptions{})
-	if err == nil || !apierrors.IsAlreadyExists(err) {
+	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	if !update {
+	if err != nil && update && owner.Kind != "" {
+		existing, getErr := p.dynamicClient.Resource(destinationRuleGVR).
+			Namespace(p.cfg.SystemNamespace).
+			Get(ctx, name, metav1.GetOptions{})
+		if getErr != nil {
+			return fmt.Errorf("get existing destinationrule: %w", getErr)
+		}
+		existing.SetOwnerReferences(mergeOwnerRefs(existing.GetOwnerReferences(), owner))
+		if _, err = p.dynamicClient.Resource(destinationRuleGVR).
+			Namespace(p.cfg.SystemNamespace).
+			Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+			return err
+		}
+	}
+	// Istio applies one DestinationRule per host, so the rule under the earlier
+	// tenant-less name must go once this one exists.
+	return p.deleteLegacyDestinationRule(ctx, at.Slug, namespace)
+}
+
+// agentServiceHost is the FQDN of an agent type's headless service.
+func agentServiceHost(slug, namespace string) string {
+	return fmt.Sprintf("%s.%s.svc.cluster.local", slug, namespace)
+}
+
+// agentDestinationRuleName is the DestinationRule for an agent type. Every
+// tenant's rule lives in the system namespace, so the name carries the tenant
+// namespace: two tenants can have an agent with the same slug.
+func agentDestinationRuleName(slug, namespace string) string {
+	return "agent-" + namespace + "-" + slug
+}
+
+// deleteLegacyDestinationRule deletes the rule an earlier release named
+// agent-<slug>, when it is this agent's. Another tenant's agent with the same
+// slug may hold that name, so the rule's host decides.
+func (p *K8sProvisioner) deleteLegacyDestinationRule(ctx context.Context, slug, namespace string) error {
+	rules := p.dynamicClient.Resource(destinationRuleGVR).Namespace(p.cfg.SystemNamespace)
+	legacy, err := rules.Get(ctx, "agent-"+slug, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
 		return nil
 	}
-	if owner.Kind == "" {
-		return nil
-	}
-	existing, err := p.dynamicClient.Resource(destinationRuleGVR).
-		Namespace(p.cfg.SystemNamespace).
-		Get(ctx, "agent-"+at.Slug, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("get existing destinationrule: %w", err)
+		return fmt.Errorf("get legacy destinationrule: %w", err)
 	}
-	existing.SetOwnerReferences(mergeOwnerRefs(existing.GetOwnerReferences(), owner))
-	_, err = p.dynamicClient.Resource(destinationRuleGVR).
-		Namespace(p.cfg.SystemNamespace).
-		Update(ctx, existing, metav1.UpdateOptions{})
-	return err
+	if host, _, _ := unstructured.NestedString(legacy.Object, "spec", "host"); host != agentServiceHost(slug, namespace) {
+		return nil
+	}
+	return ignoreNotFound(rules.Delete(ctx, legacy.GetName(), metav1.DeleteOptions{}))
 }
 
 // agentAuthorizationPolicyName is the AuthorizationPolicy created beside each
@@ -2280,11 +2311,14 @@ func (p *K8sProvisioner) deleteAuthorizationPolicy(ctx context.Context, slug, na
 	return ignoreNotFound(err)
 }
 
-func (p *K8sProvisioner) deleteDestinationRule(ctx context.Context, slug string) error {
+func (p *K8sProvisioner) deleteDestinationRule(ctx context.Context, slug, namespace string) error {
 	err := p.dynamicClient.Resource(destinationRuleGVR).
 		Namespace(p.cfg.SystemNamespace).
-		Delete(ctx, "agent-"+slug, metav1.DeleteOptions{})
-	return ignoreNotFound(err)
+		Delete(ctx, agentDestinationRuleName(slug, namespace), metav1.DeleteOptions{})
+	if err = ignoreNotFound(err); err != nil {
+		return err
+	}
+	return p.deleteLegacyDestinationRule(ctx, slug, namespace)
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

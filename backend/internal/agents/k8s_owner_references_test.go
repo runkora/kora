@@ -130,7 +130,7 @@ func TestProvisionAgentType_SetsTenantOwnerReferenceOnEveryObject(t *testing.T) 
 
 	// DestinationRule lives in kora-system; a cluster-scoped KoraTenant owner
 	// is legal for a namespaced child in any namespace.
-	dr, err := dc.Resource(destinationRuleGVR).Namespace(cfg.SystemNamespace).Get(context.Background(), "agent-coder", metav1.GetOptions{})
+	dr, err := dc.Resource(destinationRuleGVR).Namespace(cfg.SystemNamespace).Get(context.Background(), agentDestinationRuleName("coder", ns), metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get destinationrule: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 	dr := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "networking.istio.io/v1beta1",
 		"kind":       "DestinationRule",
-		"metadata":   map[string]any{"name": "agent-coder", "namespace": cfg.SystemNamespace},
+		"metadata":   map[string]any{"name": agentDestinationRuleName("coder", ns), "namespace": cfg.SystemNamespace},
 	}}
 	ap := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "security.istio.io/v1beta1",
@@ -361,7 +361,7 @@ func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 	pdb, _ := typed.PolicyV1().PodDisruptionBudgets(ns).Get(context.Background(), "coder", metav1.GetOptions{})
 	assertTenantOwnerRef(t, pdb.OwnerReferences, tenantID)
 
-	drOut, _ := dc.Resource(destinationRuleGVR).Namespace(cfg.SystemNamespace).Get(context.Background(), "agent-coder", metav1.GetOptions{})
+	drOut, _ := dc.Resource(destinationRuleGVR).Namespace(cfg.SystemNamespace).Get(context.Background(), agentDestinationRuleName("coder", ns), metav1.GetOptions{})
 	assertTenantOwnerRef(t, drOut.GetOwnerReferences(), tenantID)
 
 	apOut, _ := dc.Resource(authorizationPolicyGVR).Namespace(ns).Get(context.Background(), agentAuthorizationPolicyName("coder"), metav1.GetOptions{})
