@@ -14,18 +14,18 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 
 | Binary | Role | Local port | Owns tables |
 |--------|------|------------|-------------|
-| `identity` | **Main control-plane API**: identity, sessions, PATs, user profiles, tenant registry, JWKS | `8080` (`/api/v1`) | ✅ |
-| `inference-gateway` | OpenAI/Anthropic-compatible LLM gateway: chat/completions, embeddings, responses, model catalog, usage logs, analytics | `8081` (`/v1`) | ✅ |
-| `policy-service` | Authorization data plane (PDP/PAP): grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`) | ✅ |
-| `policy-gateway` | In-app authorization API (PEP): `/policy/check`, `/query`, `/scopes`, `/explain`, `/simulate` | `8084` (`/v1`) | none |
-| `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer); backed by `internal/credentials` | `8085` | none |
-| `orbit-mcp` | Platform-management MCP server: exposes Orbit's own APIs as governed MCP tools | `8095` | none |
-| `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`) | ✅ |
-| `orbit-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster) | ✅ |
-| `orbit-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097` | ✅ |
-| `skills-service` | Read-only Agent Marketplace: browses and serves skills from GitHub-hosted repositories; cache-aside via Redis | `8098` | none |
-| `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090` | none |
-| `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar) | health `8081`, webhook `9443` | none |
+| `identity` | **Main control-plane API**: identity, sessions, PATs, user profiles, tenant registry, JWKS | `8080` (`/api/v1`); metrics `9464` | ✅ |
+| `inference-gateway` | OpenAI/Anthropic-compatible LLM gateway: chat/completions, embeddings, responses, model catalog, usage logs, analytics | `8081` (`/v1`); metrics `9464` | ✅ |
+| `policy-service` | Authorization data plane (PDP/PAP): grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`); metrics `9464` | ✅ |
+| `policy-gateway` | In-app authorization API (PEP): `/policy/check`, `/query`, `/scopes`, `/explain`, `/simulate` | `8084` (`/v1`); metrics `9464` | none |
+| `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer); backed by `internal/credentials` | `8085`; metrics `9464` | none |
+| `kora-mcp` | Platform-management MCP server: exposes kora's own APIs as governed MCP tools | `8095`; metrics `9464` | none |
+| `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`); metrics `9464` | ✅ |
+| `kora-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster); metrics `9464` | ✅ |
+| `kora-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097`; metrics `9464` | ✅ |
+| `skills-service` | Agent Skills: serves each tenant's skill Marketplaces from GitHub repositories with a Redis cache, backed by `internal/skills` | `8098` (`/v1`) | none |
+| `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090`; metrics `9464` (Go-side only, no chart wiring: there is no `charts/kora/templates/session-manager/`, so no Service port, scrape annotation, or NetworkPolicy allowance) | none |
+| `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar), projects declared resources into their owning services | health `8081`, webhook `9443` | none |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |
 | `sandbox-exec` | gRPC exec server inside a sandbox pod: streams stdout/stderr/exit for commands | gRPC `50051` | none |
 | `kora-runtime-mcp` | MCP server (stdio) spawned by the agent CLI: exposes the `list_environments`, `provision_sandbox` and `replace_environment` tools | stdio | none |
@@ -51,7 +51,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `example` | Reference implementation, not production. Full feature layout (`models`, `repository`, `postgres`, `service`, `handlers`) with tests, demonstrating the pattern |
 | `credentials` | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, and the non-registrable `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
 | `toolgateway` | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) |
-| `skills` | Read-only Agent Marketplace behind `skills-service`: tenant-scoped source registry, GitHub App token provider, crawler, Redis cache and search, marketplace controller ([agent skills ADR](adr/2026-08-17-agent-skills.md)) |
+| `skills` | Agent Skills behind `skills-service`: Marketplace registry, per-Marketplace GitHub App tokens, crawler, Redis cache, in-memory search and the Marketplace API ([agent skills ADR](adr/2026-08-17-agent-skills.md)) |
 | `errors` | Nothing yet: an empty placeholder directory. |
 
 > `internal/errors` is an intentional empty placeholder (a `git`-tracked directory with no Go files).
@@ -74,9 +74,9 @@ kora/
 │   │   ├── egress-gateway/           # JIT credential broker (no DB)
 │   │   ├── kora-mcp/                 # platform-management MCP server (no DB)
 │   │   ├── tool-gateway/             # governed MCP/tool gateway; owns tables (migrations/)
-│   │   ├── orbit-agents/             # ... owns tables (migrations/)
-│   │   ├── orbit-triggers/           # ... owns tables (migrations/)
-│   │   ├── skills-service/           # Agent Marketplace (no DB; Redis cache)
+│   │   ├── kora-agents/              # ... owns tables (migrations/)
+│   │   ├── kora-triggers/            # ... owns tables (migrations/)
+│   │   ├── skills-service/           # Agent Skills (no DB; Redis cache)
 │   │   ├── session-manager/          # config only
 │   │   ├── operator/                 # K8s operator (controller-runtime)
 │   │   ├── identity-proxy/           # ext_proc sidecar
@@ -109,7 +109,7 @@ kora/
 │   │   ├── identityproxy/            # ✅ feature: ext_proc sidecar
 │   │   ├── credentials/              # ✅ feature: JIT credential broker (egress-gateway)
 │   │   ├── toolgateway/              # ✅ feature: governed MCP/tool gateway (tool-gateway)
-│   │   ├── skills/                   # ✅ feature: Agent Marketplace (skills-service)
+│   │   ├── skills/                   # ✅ feature: Agent Skills (skills-service)
 │   │   ├── example/                  # reference feature
 │   │   └── errors/                   # empty placeholder
 │   │

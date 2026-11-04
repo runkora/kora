@@ -106,6 +106,14 @@ policyService:
 
 A service with an unknown or mistyped key fails at startup and logs the key. Use a component's `extraEnv` for secrets only.
 
+### Skill Marketplaces
+
+Tenant administrators register [skill Marketplaces](skill-marketplace-sources.md) with `SkillMarketplace` resources that each carry a GitHub App. The chart takes no Marketplace values.
+
+The operator renders the `kora-skill-marketplaces` ConfigMap and the `kora-skill-marketplace-secrets` Secret in `kora-system`. skills-service mounts both and reloads them on change.
+
+With `istio.outboundTrafficPolicy: REGISTRY_ONLY`, add a `ServiceEntry` for `api.github.com` that lets skills-service reach GitHub over HTTPS.
+
 ## Run behind an existing gateway
 
 kora creates its own ingress gateway by default. To use an Istio gateway you already run, set `gateway.create: false`, and kora binds its `VirtualService`s to your gateway:

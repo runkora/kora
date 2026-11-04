@@ -19,6 +19,7 @@ Tasks for platform teams running kora.
 - [Tenants](guides/tenants.md): onboard a tenant so its team can sign in and get their own workspace.
 - [Register an inference provider](guides/register-inference-provider.md): connect the platform to upstream inference providers and offer models to agents.
 - [Register an MCP server](guides/register-mcp-server.md): give agents and humans governed access to a set of tools.
+- [Skill Marketplaces](guides/skill-marketplace-sources.md): register a GitHub repository of skills for your tenant's Skills page.
 - [Register a connection](guides/register-connection.md): give agents access to an external system without holding its credentials.
 - [OAuth clients](guides/oauth-clients.md): configure clients that authenticate users against kora.
 - [MCP servers](guides/mcp-servers.md): give agents and humans governed access to a set of tools.

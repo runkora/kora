@@ -1,89 +1,108 @@
-# Skill marketplace sources
+# Skill Marketplaces
 
-A skill marketplace is a GitHub repository of skills that a tenant's users browse in the dashboard. A tenant registers one with a `SkillMarketplaceSource` in its own namespace. kora serves it only after a platform administrator approves the repository for that tenant.
+A skill Marketplace is a GitHub repository of skills that a tenant's members browse, search and read on the Skills page. A tenant administrator registers one with a `SkillMarketplace` in the tenant namespace, together with the GitHub App that reads the repository. A tenant can register several Marketplaces from different GitHub organizations, each with its own App.
 
-The following guide assumes your tenant exists. See [Tenants](tenants.md) to set one up.
+The steps below assume a tenant created as described in [Tenants](tenants.md).
 
-## Registering a marketplace
+## How to Create the GitHub App
 
-A marketplace is defined using the `SkillMarketplaceSource` CRD, short name `osms`. Apply one in your tenant's namespace:
+1.  Create a GitHub App in the organization that owns the repository. Give it the **Contents: Read-only** repository permission and no other permission.
+2.  Install the App on the organization and select the skill repository.
+3.  Copy the App ID from the App settings page and the installation ID from the installation URL (`https://github.com/organizations/<org>/settings/installations/<id>`).
+4.  Generate a private key and download the PEM file.
 
-```yaml
-apiVersion: orbit.io/v1alpha1
-kind: SkillMarketplaceSource
-metadata:
-  name: acme-internal
-  namespace: orbit-tenant-acme
-spec:
-  github:
-    owner: acme-corp
-    repo: internal-skills
-```
+skills-service mints each installation token with `contents: read` for the Marketplace repository alone.
 
-- `github.owner` and `github.repo`: the repository holding your skills. Both are validated when you apply the source. Every folder that contains a `SKILL.md`, at any depth, is a skill. A `SKILL.md` at the repository root is skipped, because a skill needs its own folder.
+## How to Register a Marketplace
 
-The tenant is the namespace the source is applied in. The spec has no tenant field, so a source cannot name another tenant.
+1.  **Store the Private Key:** Create a Secret in the tenant namespace:
 
-The spec has no display name and no branch. The skills service names a marketplace after its repository, in lowercase, so `acme-corp/internal-skills` appears as `internal-skills`, and identifies it as `acme-corp__internal-skills`. It always reads the repository's default branch.
+    ```bash
+    kubectl create secret generic skills-github-app \
+      --namespace kora-tenant-example \
+      --from-file=private-key.pem=./app-private-key.pem
+    ```
 
-A `SkillMarketplaceSource` is declarative, applied the way you manage the rest of your cluster. Commit it to your GitOps repository, or `kubectl apply` it for a quick start.
+2.  **Declare the Marketplace:** Apply a `SkillMarketplace` (short name `kskm`) in the same namespace:
+
+    ```yaml
+    apiVersion: runkora.io/v1alpha1
+    kind: SkillMarketplace
+    metadata:
+      name: team-skills
+      namespace: kora-tenant-example
+    spec:
+      github:
+        owner: example-org
+        repo: skills
+        ref: main
+        app:
+          appID: "4015347"
+          installationID: 139299720
+          privateKeySecretRef:
+            name: skills-github-app
+            key: private-key.pem
+    ```
+
+3.  Commit both resources to your GitOps repository, or apply them with `kubectl apply -f`.
+
+The fields are:
+
+*   **`metadata.name`:** The Marketplace slug in API paths and dashboard URLs, at most 63 characters. The Skills page shows the repository name.
+*   **`spec.github.owner` and `spec.github.repo`:** The repository that holds the skills.
+*   **`spec.github.ref`:** Optional. A 40-character hex value pins a commit SHA, any other value tracks a branch, and no value tracks the default branch.
+*   **`spec.github.app.appID` and `spec.github.app.installationID`:** The App and its installation on the repository owner.
+*   **`spec.github.app.privateKeySecretRef`:** The Secret and data key that hold the PEM private key. The Secret must be in the Marketplace's namespace.
+
+The tenant is the namespace the Marketplace is applied in. Every folder that holds a `SKILL.md` with `name` and `description` frontmatter is a skill, and the folder path identifies it. A `SKILL.md` at the repository root is skipped.
 
 ## Permissions
 
-To manage sources, your Kubernetes role needs access to `skillmarketplacesources` in the `orbit.io` API group, in your tenant's namespace:
+A tenant administrator needs write access to `skillmarketplaces` and `secrets` in the tenant namespace:
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: skill-marketplace-source-admin
-  namespace: orbit-tenant-acme
+  name: skill-marketplace-admin
+  namespace: kora-tenant-example
 rules:
-  - apiGroups: [orbit.io]
-    resources: [skillmarketplacesources]
+  - apiGroups: [runkora.io]
+    resources: [skillmarketplaces]
     verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, update, patch, delete]
 ```
 
-`kubectl apply` and `kubectl edit` send changes to an existing source as patches, so the role includes `patch` alongside `update`. Bind the role to your tenant's administrators with a `RoleBinding` in the same namespace.
+Bind the role to the tenant's administrators with a `RoleBinding` in the same namespace.
 
-The role must not give write access to `orbittenants`. That resource is cluster-scoped, and the list of approved repositories lives on it, so only platform administrators edit it.
-
-## Requesting approval
-
-Check what kora made of your source:
+## How to Check the Status
 
 ```bash
-kubectl get skillmarketplacesources -n orbit-tenant-acme
-kubectl describe skillmarketplacesource acme-internal -n orbit-tenant-acme
+kubectl get kskm -n kora-tenant-example
+kubectl describe skillmarketplace team-skills -n kora-tenant-example
 ```
 
-The `Phase` and `Reason` columns show the verdict, and `describe` shows its full message on the `Aggregated` condition. Unless another check in [Status](#status) applies first, a new source is `Pending` with reason `NotAllowlisted`.
+The `Phase` and `Reason` columns show the operator's verdict, and `describe` shows the message of the `Aggregated` condition. The operator applies these checks in order:
 
-Registering a source notifies nobody. Ask your platform administrator, through your usual support channel, to approve `acme-corp/internal-skills` for your tenant. Every repository needs approval, public ones included: kora reads all marketplaces with one platform GitHub App and makes no GitHub call when it judges a source, so it cannot tell whether a repository is public.
+1.  **`Invalid`, `GlobalSourcesNotSupported`:** The Marketplace is in `kora-system` and must move to the tenant namespace.
+2.  **`Pending`, `TenantNotActive`:** No active tenant owns the namespace.
+3.  **`Invalid`, `DuplicateRepository`:** An older Marketplace in the namespace registers the same repository. A Marketplace created earlier is older, and within one second the name that sorts first is older.
+4.  **`Aggregated`, `CredentialUnavailable`:** The Marketplace is listed and browsing it fails. The message cites the Secret and key that are missing or do not hold a PEM RSA private key.
+5.  **`Aggregated`, `Aggregated`:** The Marketplace is served.
 
-Once your platform administrator approves the repository, the source moves to `Aggregated` and the skills service reloads its list of marketplaces without a restart. Kubernetes propagates a ConfigMap change to a mounted volume on its own schedule, so allow for a delay before the marketplace appears in the dashboard.
+The operator rechecks each Secret every five minutes. A fixed or rotated key takes effect after that pass and the kubelet's Secret sync.
 
-The platform GitHub App must be able to read the repository. A private repository is readable only if the App's installation covers it, so ask your platform administrator.
+The operator makes no GitHub call. The Skills page reports what GitHub returns:
 
-## Status
+*   A missing repository or ref shows as not found.
+*   A key that GitHub rejects, an App installation that does not cover the repository, or a GitHub outage shows the Marketplace as unavailable with the reason.
 
-The `Phase` and `Reason` columns report the operator's verdict. kora applies the checks in the order below, and a source gets the first row that matches.
+## Limits and Caching
 
-| Phase | Reason | Meaning |
-| --- | --- | --- |
-| `Invalid` | `GlobalSourcesNotSupported` | The source was applied in `orbit-system`. Apply it in your tenant's namespace. |
-| `Pending` | `TenantNotActive` | No active tenant owns the namespace: the tenant is suspended, or none owns it. |
-| `Invalid` | `DuplicateRepository` | An older source in your namespace already registers this repository. Use one source per repository. |
-| `Pending` | `NotAllowlisted` | Waiting for a platform administrator to approve the repository. |
-| `Pending` | `MappingManagedByChart` | Approved, but the platform sets the marketplace list in its Helm release instead. Ask your platform administrator. |
-| `Aggregated` | `Aggregated` | Served to your tenant. |
+skills-service caches each Marketplace's skill list and each skill's files in Redis for 12 hours, separately for each tenant. A change on a tracked branch appears after the cache entry expires. A failed read of the repository is cached for one minute.
 
-"Older" means created earlier. Sources created in the same second are ordered by `metadata.name`, and the name that sorts first counts as older. A source that is waiting for approval still holds its repository, so a newer source in the namespace cannot register it in the meantime.
+Each crawl reads at most 500 skills per Marketplace, 100 files per skill and 128 KiB per file. Skills and files over a limit are skipped and logged. skills-service reads only files with a text extension (e.g., `.md`, `.py`, `.json`) and never downloads binary files.
 
-Your tenant's marketplaces appear in the order of their sources' creation, oldest first, and the dashboard opens the first one.
-
-`Aggregated` means kora handed the repository to the skills service. It does not mean GitHub can serve the repository, because kora checks nothing with GitHub when it sets the status. If the platform App cannot read the repository, loading the marketplace's skills fails with `failed to read marketplace` (HTTP 500). A GitHub outage or rate limit gives `marketplace is temporarily unavailable` (HTTP 503) instead.
-
-## Caching
-
-The skills service caches each marketplace's skill list and each skill's content in Redis, separately for each tenant. Entries expire after 12 hours by default, and the platform's configuration can change that. A change in the repository can take that long to appear, because a request is served from the cache until the entry expires and only then reads the repository again.
+Members browse a Marketplace with the `skills:read` scope. See [Granting `skills:read`](tenants.md#granting-skillsread).

@@ -45,6 +45,6 @@ A connection without its credential is skipped, not failed.
 
 `fixtures/orbit-tenant-example.yaml` is the example tenant's workload: a self-contained `Deployment` and `Service` for local testing.
 
-## Skill marketplace sources
+## Skill Marketplaces
 
-`marketplace/` holds `SkillMarketplaceSource` examples for the example tenant. See [Skill marketplace sources](../../docs/guides/skill-marketplace-sources.md).
+`marketplace/team-skills.yaml` is the example tenant's `SkillMarketplace`. It reads with the GitHub App key at `secrets/kora-github-app.pem` and reports `CredentialUnavailable` without it. See [Skill Marketplaces](../../docs/guides/skill-marketplace-sources.md).
