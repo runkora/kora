@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-11-03-agent-attribution-on-spans.md  (decision date + slug; no sequential number) -->
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-03
 **Deciders:** Justin Wilkin
 **Technical Story:** [Issue #892](https://github.com/runkora/kora/issues/892). Extends [One Trace per Agent Run](2026-10-31-one-trace-per-run.md).

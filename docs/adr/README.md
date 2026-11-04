@@ -112,7 +112,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) — `Accepted (Amended 2026-10-31)` · 2026-09-18
 - [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) — `Accepted` · 2026-09-18
 - [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) — `Accepted (Amended 2026-11-01)` · 2026-10-31
-- [Agent Attribution on Model and Harness Spans](2026-11-03-agent-attribution-on-spans.md) — `Proposed` · 2026-11-03
+- [Agent Attribution on Model and Harness Spans](2026-11-03-agent-attribution-on-spans.md) — `Accepted` · 2026-11-03
 - [Run Activity Events](2026-09-29-run-activity-events.md) — `Accepted` · 2026-09-29
 - [kora-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
 - [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) — `Accepted` · 2026-06-04
