@@ -70,7 +70,6 @@ export function MarketplaceSkillList() {
       columns={columns}
       getRowKey={(skill) => skill.skillSlug}
       noun="skills"
-      hideToolbar
       emptyMessage="No skills to show."
       onRowClick={(skill) =>
         router.push(APP_ROUTES.marketplace.detail(browse.marketplace, skill.skillName))

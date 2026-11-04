@@ -1,9 +1,12 @@
 import 'server-only';
 
-import type { Marketplace, Skill, SkillSummary } from '@orbit/shared/api';
-import { ApiError } from '@orbit/server/api-error';
-import { fetchMarketplaces, fetchSkillDetail, fetchSkills } from '@orbit/server/marketplace-client';
-import { getPreferences } from '../../_preferences/preferences-server';
+import type { Marketplace, Skill, SkillSummary } from '@runkora/shared/api';
+import { ApiError } from '@runkora/server/api-error';
+import {
+  fetchMarketplaces,
+  fetchSkillDetail,
+  fetchSkills,
+} from '@runkora/server/marketplace-client';
 import { parseBrowseParams } from '../_utils/browse-params';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData, SkillSort } from '../_types';
 
@@ -85,8 +88,7 @@ export async function loadMarketplaceOverview(
     return fromApiError(err, 'Failed to load Marketplaces');
   }
 
-  const saved = await readSavedMarketplace(accessToken, browse);
-  const marketplace = selectMarketplace(marketplaces, browse.marketplace, saved);
+  const marketplace = selectMarketplace(marketplaces, browse.marketplace, '');
   if (!marketplace) {
     // No Marketplaces exist, so there are no Skills to load.
     return {
@@ -177,27 +179,6 @@ async function loadSkillDetail(
     return { ok: false, status: 404, message: 'Skill not found' };
   }
   return { ok: true, skill };
-}
-
-/**
- * Returns the Marketplace that the user selected last, from the user
- * preferences. An explicit Marketplace in the browse request wins, so this
- * reads preferences only when the request names no Marketplace. Returns '' when
- * nothing is saved.
- */
-async function readSavedMarketplace(
-  accessToken: string,
-  browse: MarketplaceBrowseParams,
-): Promise<string> {
-  if (browse.marketplace) {
-    // The browse request names a Marketplace. The saved selection does not apply.
-    return '';
-  }
-  // getPreferences never throws. On a failure it returns the defaults, which
-  // have no saved Marketplace. In an RSC render, the dashboard layout has
-  // already read the preferences, and React cache() reuses that result.
-  const preferences = await getPreferences(accessToken);
-  return preferences.marketplace.lastSelected;
 }
 
 /**

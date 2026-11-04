@@ -68,7 +68,7 @@ describe('initial Marketplace page data', () => {
   );
 
   it.each([
-    { slug: '', selected: 'Solo' },
+    { slug: '', selected: 'Core' },
     { slug: 'Core', selected: 'Core' },
   ])('loads the initial $slug selection with fixed browse defaults', async ({ slug, selected }) => {
     vi.mocked(fetchMarketplaces).mockResolvedValue({

@@ -127,16 +127,6 @@ describe('loadMarketplaceOverview Marketplace choice', () => {
     expect(overview.browse.marketplace).toBe(CORE);
   });
 
-  it('uses the saved Marketplace when the browse request names no Marketplace', async () => {
-    saveMarketplace(PARTNER);
-
-    const overview = await loadOverview(DEFAULT_BROWSE);
-
-    expect(overview.browse.marketplace).toBe(PARTNER);
-    // Keep the requested values distinct from the resolved server selection.
-    expect(overview.requested.marketplace).toBe('');
-  });
-
   it('uses the requested Marketplace slug and does not read the preferences', async () => {
     saveMarketplace(PARTNER);
 

@@ -35,10 +35,6 @@ export interface UserPreferences {
     /** IDs of models the user has favourited on the /models page. */
     favouriteModels: string[];
   };
-  marketplace: {
-    /** marketplaceSlug of the Marketplace that the user selected last on the /marketplace page. '' means none. */
-    lastSelected: string;
-  };
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -57,9 +53,6 @@ export const PREFERENCE_DEFAULTS: UserPreferences = {
   modelGateway: {
     favouriteModels: [],
   },
-  marketplace: {
-    lastSelected: '',
-  },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -74,17 +67,6 @@ export function mergeWithDefaults(stored: Record<string, unknown>): UserPreferen
   const myUsage = (stored.myUsage as Partial<UserPreferences['myUsage']> | undefined) ?? {};
   const modelGateway =
     (stored.modelGateway as Partial<UserPreferences['modelGateway']> | undefined) ?? {};
-
-  const storedMarketplace = stored.marketplace as
-    Partial<UserPreferences['marketplace']> | null | undefined;
-  let lastSelectedMarketplace: string;
-  if (storedMarketplace && typeof storedMarketplace.lastSelected === 'string') {
-    // The stored document has a Marketplace name.
-    lastSelectedMarketplace = storedMarketplace.lastSelected;
-  } else {
-    // No stored name, or a value that is not a string. Use the default.
-    lastSelectedMarketplace = PREFERENCE_DEFAULTS.marketplace.lastSelected;
-  }
 
   return {
     tables: {
@@ -122,9 +104,6 @@ export function mergeWithDefaults(stored: Record<string, unknown>): UserPreferen
         ? modelGateway.favouriteModels.filter((x): x is string => typeof x === 'string')
         : PREFERENCE_DEFAULTS.modelGateway.favouriteModels,
     },
-    marketplace: {
-      lastSelected: lastSelectedMarketplace,
-    },
   };
 }
 
@@ -160,10 +139,6 @@ export function serializeSparse(prefs: UserPreferences): Record<string, unknown>
     mgKeys.favouriteModels = prefs.modelGateway.favouriteModels;
   }
   if (Object.keys(mgKeys).length > 0) doc.modelGateway = mgKeys;
-
-  if (prefs.marketplace.lastSelected !== PREFERENCE_DEFAULTS.marketplace.lastSelected) {
-    doc.marketplace = { lastSelected: prefs.marketplace.lastSelected };
-  }
 
   return doc;
 }

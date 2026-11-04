@@ -32,7 +32,7 @@ afterEach(() => window.history.replaceState(null, '', '/'));
 function renderFailure(data: MarketplaceOverviewData) {
   window.history.replaceState(null, '', '/marketplace');
   return renderWithProviders(
-    <PreferencesProvider initialPreferences={PREFERENCE_DEFAULTS} loaded={false}>
+    <PreferencesProvider initialPreferences={PREFERENCE_DEFAULTS}>
       <MarketplaceShell initialOverview={data} initialError="Failed to load Skills" />
     </PreferencesProvider>,
   );

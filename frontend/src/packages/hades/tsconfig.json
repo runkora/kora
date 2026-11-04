@@ -19,6 +19,7 @@
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
     "paths": {
       "@runkora/hades": ["./src/index.ts"],
       "@runkora/hades/*": ["./src/*"]

@@ -461,23 +461,75 @@ describe('DataTable pinned-column elevation', () => {
   });
 });
 
-describe('DataTable toolbar', () => {
-  const columns: DataTableColumn<Row>[] = [
-    { id: 'name', header: 'Name', cell: (r) => r.name, locked: true },
-    { id: 'status', header: 'Status', cell: (r) => r.status },
+describe('DataTable search', () => {
+  const rows: Row[] = [
+    { name: 'apollo', rank: 1, status: 'healthy' },
+    { name: 'borealis', rank: 2, status: 'stale' },
   ];
+  const columns: DataTableColumn<Row>[] = [{ id: 'name', header: 'Name', cell: (r) => r.name }];
+  const searchFn = (r: Row, q: string) => r.name.includes(q);
+  const box = () => screen.getByRole('textbox');
 
-  it('shows the toolbar by default', () => {
-    render(<DataTable data={data} columns={columns} getRowKey={(r) => r.name} />);
-    expect(screen.getByRole('button', { name: 'Toggle column visibility' })).toBeInTheDocument();
+  it('keeps its own query when uncontrolled', async () => {
+    const onSearchChange = vi.fn();
+    render(
+      <DataTable
+        data={rows}
+        columns={columns}
+        getRowKey={(r) => r.name}
+        searchFn={searchFn}
+        onSearchChange={onSearchChange}
+      />,
+    );
+    await userEvent.type(box(), 'bor');
+    expect(box()).toHaveValue('bor');
+    expect(onSearchChange).toHaveBeenLastCalledWith('bor');
+    expect(screen.queryByRole('cell', { name: 'apollo' })).not.toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'borealis' })).toBeInTheDocument();
   });
 
-  it('leaves the toolbar out with hideToolbar, keeping the header and rows', () => {
-    render(<DataTable data={data} columns={columns} getRowKey={(r) => r.name} hideToolbar />);
-    expect(
-      screen.queryByRole('button', { name: 'Toggle column visibility' }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText('Name')).toBeInTheDocument();
-    expect(screen.getByText('apollo')).toBeInTheDocument();
+  it('shows the controlled query and filters by it', () => {
+    render(
+      <DataTable
+        data={rows}
+        columns={columns}
+        getRowKey={(r) => r.name}
+        searchFn={searchFn}
+        searchQuery="apo"
+      />,
+    );
+    expect(box()).toHaveValue('apo');
+    expect(screen.getByRole('cell', { name: 'apollo' })).toBeInTheDocument();
+    expect(screen.queryByRole('cell', { name: 'borealis' })).not.toBeInTheDocument();
+  });
+
+  it('defers to the parent when controlled and follows its updates', async () => {
+    const onSearchChange = vi.fn();
+    const { rerender } = render(
+      <DataTable
+        data={rows}
+        columns={columns}
+        getRowKey={(r) => r.name}
+        searchFn={searchFn}
+        searchQuery=""
+        onSearchChange={onSearchChange}
+      />,
+    );
+    await userEvent.type(box(), 'b');
+    expect(onSearchChange).toHaveBeenLastCalledWith('b');
+    // The parent has not accepted the change, so the box keeps showing its value.
+    expect(box()).toHaveValue('');
+    rerender(
+      <DataTable
+        data={rows}
+        columns={columns}
+        getRowKey={(r) => r.name}
+        searchFn={searchFn}
+        searchQuery="b"
+        onSearchChange={onSearchChange}
+      />,
+    );
+    expect(box()).toHaveValue('b');
+    expect(screen.queryByRole('cell', { name: 'apollo' })).not.toBeInTheDocument();
   });
 });
