@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * @tier 2 — App-level shared (no kora domain knowledge). Used by: agents, skills.
+ * @tier 2 — shared by agents and skills (D66).
  *
  * Renders markdown instructions in Hades text, with the numbers of ordered lists drawn in React.
  */

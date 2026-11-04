@@ -30,7 +30,7 @@ const encode = (value: string) => value.split('/').map(encodeURIComponent).join(
 
 const repoUrl = (skill: Skill) => `https://github.com/${encode(skill.repository)}`;
 
-/** The skill folder on its host at the served commit: the link shows what this page shows. */
+/** The skill folder on its host at the served commit, the same files this page shows. */
 function folderUrl(skill: Skill): string {
   const at = skill.commit || skill.ref || 'HEAD';
   return `${repoUrl(skill)}/tree/${encode(at)}/${encode(skill.path)}`;

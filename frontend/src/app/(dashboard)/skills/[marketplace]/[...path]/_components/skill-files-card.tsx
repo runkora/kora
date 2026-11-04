@@ -109,8 +109,7 @@ interface SkillFilesCardProps {
 export function SkillFilesCard({ files, selectedPath, onSelect }: SkillFilesCardProps) {
   const tree = useMemo(() => buildTree(files), [files]);
   const total = files.reduce((sum, file) => sum + file.size, 0);
-  // Folders start closed so a long folder does not push the Source card away, except the one
-  // holding the open file.
+  // Folders start closed, apart from the one holding the open file, to keep the Source card in view.
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const isOpen = (folder: FolderNode) =>
     open[folder.path] ?? selectedPath.startsWith(`${folder.path}/`);

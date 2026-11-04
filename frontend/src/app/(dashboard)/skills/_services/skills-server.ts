@@ -78,8 +78,8 @@ export async function loadSkillFile(
 const UPSTREAM_FAILURE = 'This Marketplace could not be loaded. Try again later.';
 
 /**
- * A 502 means the Marketplace is unavailable, with skills-service's reason for the user. A listed
- * Marketplace's 404 is a missing repository or ref, which reads the same way on the skills page.
+ * A 502 means the Marketplace is unavailable, with skills-service's reason for the user. On the
+ * skills page a listed Marketplace's 404 means a missing repository or ref and reads the same.
  */
 function failure(caller: string, err: unknown, subject: string, listed = false): Loaded<never> {
   console.error(`${caller} failed:`, err);

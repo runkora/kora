@@ -30,7 +30,7 @@ describe('SkillDetail', () => {
     expect(screen.getByText(/^--- name: pdf/)).toBeVisible();
   });
 
-  it('shows the version and chips from the list entry, and links View source to the folder at the commit', () => {
+  it('shows the version and chips from the skill detail, and links View source to the folder at the commit', () => {
     renderDetail();
 
     expect(screen.getByText('pdf · v2.1.0')).toBeVisible();

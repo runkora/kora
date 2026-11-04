@@ -39,15 +39,18 @@ export function PreferencesProvider({ initialPreferences, children }: Preference
 
   const save = useCallback((body: string) => {
     pendingBody.current = null;
-    lastSave.current = fetch('/api/preferences', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    }).then(
-      () => undefined,
-      () => {
-        // Best-effort write — silently dropped per ADR-0061.
-      },
+    // Saves run one after another: an earlier document can never land after a later one.
+    lastSave.current = lastSave.current.then(() =>
+      fetch('/api/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      }).then(
+        () => undefined,
+        () => {
+          // Best-effort write, dropped on failure (ADR-0061).
+        },
+      ),
     );
     return lastSave.current;
   }, []);

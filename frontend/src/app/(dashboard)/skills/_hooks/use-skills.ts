@@ -72,8 +72,8 @@ export function useSkills(
 ): SkillsStateShape {
   const { preferences, updatePreferences, flush } = usePreferences();
   const favouriteKeys = preferences.skills.favouriteSkills;
-  // Browser Back restores this page with the props of its first render while the address
-  // holds later browse values; the address wins and its page loads on mount.
+  // Browser Back restores the props of the first render while the address holds later browse
+  // values. The address wins: its page loads on mount.
   const [restored] = useState(() => {
     const fromLocation = browseFromLocation();
     return fromLocation &&
@@ -91,7 +91,7 @@ export function useSkills(
     restored ? 'loading' : initialError ? 'error' : 'success',
   );
   const [error, setError] = useState(restored ? null : initialError);
-  // Null until the user types: the box follows the search the URL restores.
+  // Null until the user types; until then the box shows the search the URL restored.
   const [typed, setTyped] = useState<string | null>(null);
   const searchText = typed ?? browse.search;
   const inFlight = useRef<AbortController | null>(null);
@@ -121,7 +121,7 @@ export function useSkills(
       setBrowse(next);
       setStatus('loading');
       setError(null);
-      // The BFF reads the stored favourites: a favourite saved a moment ago must land first.
+      // The BFF reads the stored favourites. A favourite added a moment ago is saved first.
       fetchPage(next, next.favourites ? flush() : undefined);
     },
     [fetchPage, flush],

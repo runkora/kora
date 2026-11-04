@@ -16,8 +16,8 @@ import { SkillsResultsSkeleton } from './skills-results-skeleton';
 import { LoadErrorAlert } from './load-error-alert';
 import { plural } from './skill-format';
 
-// As on the MCP servers page: phones always get cards and no toggle. The server snapshot is
-// false: the first paint is the card view.
+// As on the MCP servers page: phones always get cards and no toggle. The first paint, from the
+// server snapshot, is the card view.
 const DESKTOP_QUERY = '(min-width: 768px)';
 const subscribeDesktop = (onChange: () => void) => {
   const mq = window.matchMedia(DESKTOP_QUERY);

@@ -51,7 +51,7 @@ export function SkillDetail({ skill, marketplace }: SkillDetailProps) {
     <Stack gap="relaxed">
       <SkillHeader skill={skill} />
 
-      {/* Below xl the rail would squeeze the file to a narrow column; it moves above it. */}
+      {/* Below xl the rail sits above the open file, which needs the full width. */}
       <Show below="xl">
         <Grid cols={{ base: 1, md: 2 }} gap="comfortable">
           {filesCard}
