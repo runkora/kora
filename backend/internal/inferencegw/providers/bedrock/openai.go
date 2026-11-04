@@ -200,6 +200,7 @@ func (c *Connector) mantleChatCompletion(ctx context.Context, params openai.Chat
 		logging.Field{Key: "msg_count", Value: fmt.Sprintf("%d", len(params.Messages))},
 	)
 
+	params.Model = mantleModelID(params.Model)
 	resp, err := c.mantleClient.Chat.Completions.New(ctx, params)
 	if err != nil {
 		c.logger.Error(ctx, "bedrock: mantleChatCompletion error",
@@ -223,6 +224,7 @@ func (c *Connector) mantleChatCompletionStream(ctx context.Context, params opena
 		logging.Field{Key: "msg_count", Value: fmt.Sprintf("%d", len(params.Messages))},
 	)
 
+	params.Model = mantleModelID(params.Model)
 	stream := c.mantleClient.Chat.Completions.NewStreaming(ctx, params)
 
 	ch := make(chan inferencegw.OpenAIStreamResult, 32)

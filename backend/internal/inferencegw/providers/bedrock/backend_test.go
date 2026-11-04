@@ -123,3 +123,35 @@ func TestDispatchBackend_MantleOpenAIV1_RegistryMiss_FallsBackToInfer(t *testing
 		t.Errorf("dispatchBackend(\"openai.gpt-5.6-luna\") with empty registry = %v, want backendMantleOpenAIV1", got)
 	}
 }
+
+func TestMantleModelID(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"us.openai.gpt-6-sol":       "openai.gpt-6-sol",
+		"global.openai.gpt-5.6-sol": "openai.gpt-5.6-sol",
+		"openai.gpt-6.1-terra":      "openai.gpt-6.1-terra",
+		"openai.gpt-oss-20b-1:0":    "openai.gpt-oss-20b",
+		"openai.gpt-oss-120b":       "openai.gpt-oss-120b",
+		"xai.grok-4.3":              "xai.grok-4.3",
+	}
+	for in, want := range cases {
+		if got := mantleModelID(in); got != want {
+			t.Errorf("mantleModelID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestInferBackendID_MantleRules(t *testing.T) {
+	t.Parallel()
+	cases := map[string]backendID{
+		"us.openai.gpt-6-sol":       backendMantleOpenAIV1,
+		"global.openai.gpt-5.6-sol": backendMantleOpenAIV1,
+		"openai.gpt-6.1-terra":      backendMantleOpenAIV1,
+		"openai.gpt-oss-20b-1:0":    backendMantle,
+	}
+	for in, want := range cases {
+		if got := inferBackendID(in); got != want {
+			t.Errorf("inferBackendID(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
