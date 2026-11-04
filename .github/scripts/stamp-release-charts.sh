@@ -16,6 +16,11 @@ for chart in kora kora-crds; do
   yq -i ".version = \"${VERSION}\" | .appVersion = \"${TAG}\"" "charts/${chart}/Chart.yaml"
 done
 
+# The committed READMEs carry the placeholder 0.0.0 badges; regenerate them so
+# the packaged charts (and Artifact Hub) show the release version.
+helm_docs_version=$(sed -n 's/^HELM_DOCS_VERSION := //p' Makefile)
+go run "github.com/norwoodj/helm-docs/cmd/helm-docs@${helm_docs_version}" --chart-search-root=charts
+
 work=$(mktemp)
 cp charts/kora/values.yaml "${work}"
 : > images.txt
