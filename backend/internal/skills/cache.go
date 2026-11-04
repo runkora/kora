@@ -88,7 +88,7 @@ func (c *Cache) get(ctx context.Context, key string, dest any) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("cache get %q: %w: %w", key, storage.ErrRedisUnavailable, err)
 	}
-	// An entry in an older shape is a miss and is rewritten.
+	// An entry that does not decode is a miss. source() rejects an older shape.
 	if err := json.Unmarshal(data, dest); err != nil {
 		return false, nil
 	}

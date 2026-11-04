@@ -22,13 +22,13 @@ const (
 	// crawlTimeout bounds one crawl. A crawl outlives the request that started
 	// it, so a client that gives up does not waste the work.
 	crawlTimeout = 5 * time.Minute
-	// MaxKeys bounds the skill keys of one request.
-	MaxKeys = 200
+	// maxKeys bounds the skill keys of one request.
+	maxKeys = 200
 	// minSearchLength is the shortest query that filters.
 	minSearchLength = 3
-	// DefaultLimit and MaxLimit bound a page of skills.
-	DefaultLimit = 10
-	MaxLimit     = 100
+	// defaultLimit and maxLimit bound a page of skills.
+	defaultLimit = 10
+	maxLimit     = 100
 )
 
 // marketplaceFinder is the registry surface the service uses.

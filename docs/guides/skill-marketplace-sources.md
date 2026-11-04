@@ -91,7 +91,7 @@ The `Phase` and `Reason` columns show the operator's verdict, and `describe` sho
 1.  **`Invalid`, `GlobalSourcesNotSupported`:** The Marketplace is in `kora-system` and must move to the tenant namespace.
 2.  **`Pending`, `TenantNotActive`:** No active tenant owns the namespace.
 3.  **`Invalid`, `DuplicateRepository`:** An older Marketplace in the namespace registers the same repository. A Marketplace created earlier is older, and within one second the name that sorts first is older.
-4.  **`Aggregated`, `CredentialUnavailable`:** The Marketplace is listed and browsing it fails. The message cites the Secret and key that are missing or do not hold a PEM RSA private key.
+4.  **`Aggregated`, `CredentialUnavailable`:** The Marketplace is listed and browsing it fails. The message cites the Secret and key and the cause: the Secret or key is missing, the key is over 16 KiB or is not a PEM RSA private key, or the Secret is one the operator manages.
 5.  **`Aggregated`, `Aggregated`:** The Marketplace is served.
 
 The operator rechecks each Secret every five minutes. A fixed or rotated key takes effect after that pass and the kubelet's Secret sync.

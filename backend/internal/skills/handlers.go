@@ -123,16 +123,16 @@ func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	query := r.URL.Query()
 	offset, okOffset := parseInt(query.Get("offset"), 0, 0)
-	limit, okLimit := parseInt(query.Get("limit"), DefaultLimit, 1)
+	limit, okLimit := parseInt(query.Get("limit"), defaultLimit, 1)
 	if !okOffset || !okLimit {
 		c.respondError(w, r, ErrInvalidPage)
 		return
 	}
-	q := SkillQuery{Marketplace: query.Get("marketplace"), Search: query.Get("search"), Offset: offset, Limit: min(limit, MaxLimit)}
+	q := SkillQuery{Marketplace: query.Get("marketplace"), Search: query.Get("search"), Offset: offset, Limit: min(limit, maxLimit)}
 	if query.Has("keys") {
 		q.Keys = []string{}
 		for k := range strings.SplitSeq(query.Get("keys"), ",") {
-			if k = strings.TrimSpace(k); k != "" && len(q.Keys) < MaxKeys {
+			if k = strings.TrimSpace(k); k != "" && len(q.Keys) < maxKeys {
 				q.Keys = append(q.Keys, k)
 			}
 		}

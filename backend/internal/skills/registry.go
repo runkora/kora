@@ -45,8 +45,12 @@ func (m *Marketplace) Repository() string {
 // which list shape, so a cache entry from another repository, ref, credential
 // or an older shape is ignored.
 func (m *Marketplace) source() string {
-	return fmt.Sprintf("v3 %s/%s@%s app %s/%d", m.Owner, m.Repo, m.Ref, m.AppID, m.InstallationID)
+	return fmt.Sprintf("%s %s/%s@%s app %s/%d", listShape, m.Owner, m.Repo, m.Ref, m.AppID, m.InstallationID)
 }
+
+// listShape marks the cached list shape. Bump it on any change to skillList
+// or skillRecord, so older cached lists are crawled again.
+const listShape = "v3"
 
 // Token returns an installation token that reads only this repository.
 func (m *Marketplace) Token(ctx context.Context) (string, error) {

@@ -114,10 +114,10 @@ func TestAPI_Contract(t *testing.T) {
 	if code := f.get("/marketplaces/skills?marketplace=team-skills&search=pdf&offset=0&limit=1", &page); code != http.StatusOK || page.Total != 2 || page.Limit != 1 || len(page.Skills) != 1 || page.Skills[0].Path != "skills/pdf" || page.Skills[0].Marketplace != "team-skills" {
 		t.Errorf("GET /marketplaces/skills = %d %+v", code, page)
 	}
-	if code := f.get("/marketplaces/skills?limit=500", &page); code != http.StatusOK || page.Limit != MaxLimit {
-		t.Errorf("limit 500 = %d limit %d, want capped at %d", code, page.Limit, MaxLimit)
+	if code := f.get("/marketplaces/skills?limit=500", &page); code != http.StatusOK || page.Limit != maxLimit {
+		t.Errorf("limit 500 = %d limit %d, want capped at %d", code, page.Limit, maxLimit)
 	}
-	if code := f.get("/marketplaces/skills", &page); page.Limit != DefaultLimit || page.Offset != 0 || code != http.StatusOK || page.Total != 6 {
+	if code := f.get("/marketplaces/skills", &page); page.Limit != defaultLimit || page.Offset != 0 || code != http.StatusOK || page.Total != 6 {
 		t.Errorf("defaults = %d %+v", code, page)
 	}
 	if code := f.get("/marketplaces/skills?keys=team-skills:skills/pdf,team-skills:skills/missing,other:skills/pdf", &page); code != http.StatusOK || page.Total != 1 || page.Skills[0].Path != "skills/pdf" {
@@ -303,11 +303,11 @@ func TestRespondError_CancelledWritesNothing(t *testing.T) {
 	}
 }
 
-// keys past MaxKeys are dropped; the request still succeeds.
+// keys past maxKeys are dropped; the request still succeeds.
 func TestAPI_KeysAreCapped(t *testing.T) {
 	f := newAPIFixture(t, true, testMarketplace(t, "example", "team-skills"))
-	keys := make([]string, 0, MaxKeys+1)
-	for i := range MaxKeys {
+	keys := make([]string, 0, maxKeys+1)
+	for i := range maxKeys {
 		keys = append(keys, fmt.Sprintf("team-skills:skills/none-%d", i))
 	}
 	keys = append(keys, "team-skills:skills/pdf")
