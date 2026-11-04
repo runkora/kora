@@ -52,6 +52,7 @@ metadata:
   labels:
     {{- include "kora.labels" . | nindent 4 }}
 spec:
+  exportTo: ["."]
   hosts:
     - api.github.com
   location: MESH_EXTERNAL

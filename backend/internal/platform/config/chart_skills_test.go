@@ -132,6 +132,7 @@ func TestChartGitHubServiceEntry(t *testing.T) {
 				Name string `json:"name"`
 			} `json:"metadata"`
 			Spec struct {
+				ExportTo []string `json:"exportTo"`
 				Hosts    []string `json:"hosts"`
 				Location string   `json:"location"`
 				Ports    []struct {
@@ -147,6 +148,9 @@ func TestChartGitHubServiceEntry(t *testing.T) {
 		if len(entry.Spec.Hosts) != 1 || entry.Spec.Hosts[0] != "api.github.com" || entry.Spec.Location != "MESH_EXTERNAL" ||
 			len(entry.Spec.Ports) != 1 || entry.Spec.Ports[0].Number != 443 || entry.Spec.Ports[0].Protocol != "TLS" {
 			t.Errorf("ServiceEntry = %+v, want api.github.com:443 TLS, mesh external", entry.Spec)
+		}
+		if len(entry.Spec.ExportTo) != 1 || entry.Spec.ExportTo[0] != "." {
+			t.Errorf("exportTo = %v, want only the system namespace", entry.Spec.ExportTo)
 		}
 	}
 	if !found {
