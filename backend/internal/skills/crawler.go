@@ -87,13 +87,9 @@ func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 	if err != nil {
 		return skillList{}, err
 	}
-	ref := m.Ref
-	if ref == "" {
-		ref = "HEAD"
-	}
-	sha, err := c.github.ResolveRef(ctx, token, m.Owner, m.Repo, ref)
+	sha, err := c.resolve(ctx, token, m)
 	if err != nil {
-		return skillList{}, fmt.Errorf("resolve %s/%s@%s: %w", m.Owner, m.Repo, ref, err)
+		return skillList{}, err
 	}
 	tree, err := c.github.GetTree(ctx, token, m.Owner, m.Repo, sha)
 	if err != nil {
@@ -174,6 +170,27 @@ func (c *Crawler) readSkills(ctx context.Context, token string, m *Marketplace, 
 
 // errNoSkillsRead is a crawl that found skills and could read none of them.
 var errNoSkillsRead = errors.New("no skill could be read")
+
+// ResolveCommit returns the commit the Marketplace ref points at.
+func (c *Crawler) ResolveCommit(ctx context.Context, m *Marketplace) (string, error) {
+	token, err := m.Token(ctx)
+	if err != nil {
+		return "", err
+	}
+	return c.resolve(ctx, token, m)
+}
+
+func (c *Crawler) resolve(ctx context.Context, token string, m *Marketplace) (string, error) {
+	ref := m.Ref
+	if ref == "" {
+		ref = "HEAD"
+	}
+	sha, err := c.github.ResolveRef(ctx, token, m.Owner, m.Repo, ref)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s/%s@%s: %w", m.Owner, m.Repo, ref, err)
+	}
+	return sha, nil
+}
 
 // skillFolder is a folder holding a SKILL.md of size bytes and its supporting
 // files.

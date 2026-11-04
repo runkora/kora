@@ -50,11 +50,13 @@ type skillStore interface {
 // skillCrawler is the crawler surface the service uses.
 type skillCrawler interface {
 	Crawl(ctx context.Context, m *Marketplace) (skillList, error)
+	ResolveCommit(ctx context.Context, m *Marketplace) (string, error)
 	FetchFile(ctx context.Context, m *Marketplace, sha string, skill skillRecord, file SkillFileInfo) (string, error)
 }
 
 // Service serves a tenant's Marketplaces from the cache, crawling on a miss.
 type Service struct {
+	freshFor time.Duration
 	registry marketplaceFinder
 	cache    skillStore
 	crawler  skillCrawler
@@ -63,8 +65,10 @@ type Service struct {
 }
 
 // NewService returns a Service.
-func NewService(registry marketplaceFinder, cache skillStore, crawler skillCrawler, logger logging.Logger) *Service {
-	return &Service{registry: registry, cache: cache, crawler: crawler, logger: logger}
+// NewService returns a Service that crawls a Marketplace again, or checks its
+// commit, once its list is older than freshFor.
+func NewService(registry marketplaceFinder, cache skillStore, crawler skillCrawler, freshFor time.Duration, logger logging.Logger) *Service {
+	return &Service{registry: registry, cache: cache, crawler: crawler, freshFor: freshFor, logger: logger}
 }
 
 // ListMarketplaces returns the tenant's Marketplaces, oldest first, with the
@@ -305,36 +309,95 @@ func (s *Service) skill(ctx context.Context, tenantID, slug, path string) (*Mark
 	return m, list.SHA, list.Skills[i], nil
 }
 
-// list returns the cached crawl of m, a cached failure, or a new crawl.
-// Concurrent callers for one Marketplace share one crawl.
+// list returns the cached crawl of m, a cached failure, or a new crawl. A
+// cached list older than freshFor is kept when the ref still resolves to its
+// commit. Concurrent callers for one Marketplace share one crawl.
 func (s *Service) list(ctx context.Context, m *Marketplace) (skillList, error) {
 	// A Marketplace without a usable key fails closed, cached content included.
 	if m.tokens == nil {
 		return skillList{}, ErrCredentialUnavailable
 	}
-	if list, ok, err := s.cache.GetList(ctx, m); err != nil || (ok && list.Source == m.source()) {
-		return list, err
-	}
-	if f, ok, err := s.cache.GetFailure(ctx, m); err != nil {
+	list, cached, err := s.cache.GetList(ctx, m)
+	if err != nil {
 		return skillList{}, err
-	} else if ok && f.Source == m.source() {
+	}
+	cached = cached && list.Source == m.source()
+	if cached && time.Since(list.SyncedAt) < s.freshFor {
+		return list, nil
+	}
+	f, failed, err := s.cache.GetFailure(ctx, m)
+	if err != nil {
+		return skillList{}, err
+	}
+	if failed && f.Source == m.source() {
+		// A stale list stays served while GitHub is failing. A missing
+		// repository or a refused credential fails closed.
+		if cached && errors.Is(f.err(), ErrGitHubFailure) {
+			return list, nil
+		}
 		return skillList{}, f.err()
 	}
 
 	res, err := s.detached(ctx, "list/"+m.TenantID+"/"+m.Slug+"/"+m.source(), func(ctx context.Context) (any, error) {
-		list, err := s.crawler.Crawl(ctx, m)
-		if err != nil {
-			return nil, s.crawlFailed(ctx, m, err)
+		if cached {
+			return s.revalidate(ctx, m, list)
 		}
-		if err := s.cache.SetList(ctx, m, list); err != nil {
-			s.logger.Warn(ctx, "failed to cache skill list", logging.Field{Key: "marketplace", Value: m.Slug}, logging.Field{Key: "error", Value: err.Error()})
-		}
-		return list, nil
+		return s.crawl(ctx, m)
 	})
 	if err != nil {
 		return skillList{}, err
 	}
 	return res.(skillList), nil
+}
+
+// revalidate keeps a stale list when its commit is still current: always for
+// a ref pinned to that commit, otherwise when the ref resolves to it. A
+// changed commit crawls again. A GitHub failure keeps the stale list and is
+// cached, so GitHub is not asked again until it expires.
+func (s *Service) revalidate(ctx context.Context, m *Marketplace, list skillList) (skillList, error) {
+	if m.Ref != list.SHA {
+		sha, err := s.crawler.ResolveCommit(ctx, m)
+		if err != nil {
+			failure := s.crawlFailed(ctx, m, err)
+			if errors.Is(failure, ErrGitHubFailure) {
+				return list, nil
+			}
+			return skillList{}, failure
+		}
+		if sha != list.SHA {
+			return s.crawl(ctx, m)
+		}
+	}
+	list.SyncedAt = time.Now().UTC().Truncate(time.Second)
+	s.logger.Info(ctx, "skill marketplace commit unchanged, cached list kept",
+		logging.Field{Key: "tenant", Value: m.TenantID},
+		logging.Field{Key: "marketplace", Value: m.Slug},
+		logging.Field{Key: "commit", Value: list.SHA},
+	)
+	s.setList(ctx, m, list)
+	return list, nil
+}
+
+// crawl reads the Marketplace from GitHub and caches the result.
+func (s *Service) crawl(ctx context.Context, m *Marketplace) (skillList, error) {
+	list, err := s.crawler.Crawl(ctx, m)
+	if err != nil {
+		return skillList{}, s.crawlFailed(ctx, m, err)
+	}
+	s.logger.Info(ctx, "skill marketplace crawled",
+		logging.Field{Key: "tenant", Value: m.TenantID},
+		logging.Field{Key: "marketplace", Value: m.Slug},
+		logging.Field{Key: "commit", Value: list.SHA},
+		logging.Field{Key: "skills", Value: len(list.Skills)},
+	)
+	s.setList(ctx, m, list)
+	return list, nil
+}
+
+func (s *Service) setList(ctx context.Context, m *Marketplace, list skillList) {
+	if err := s.cache.SetList(ctx, m, list); err != nil {
+		s.logger.Warn(ctx, "failed to cache skill list", logging.Field{Key: "marketplace", Value: m.Slug}, logging.Field{Key: "error", Value: err.Error()})
+	}
 }
 
 // detached runs fn once per key, under crawlTimeout and free of the caller's

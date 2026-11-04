@@ -46,10 +46,15 @@ func (c *Cache) GetList(ctx context.Context, m *Marketplace) (skillList, bool, e
 	return list, ok, err
 }
 
-// SetList caches a crawl of m.
+// SetList caches a crawl of m. The list outlives its freshness by
+// listRetention, so an expired list can be kept when its commit has not
+// changed.
 func (c *Cache) SetList(ctx context.Context, m *Marketplace, list skillList) error {
-	return c.set(ctx, cacheKey(m, "list"), list, c.ttl)
+	return c.set(ctx, cacheKey(m, "list"), list, listRetention*c.ttl)
 }
+
+// listRetention is how many cache TTLs a list is kept for.
+const listRetention = 2
 
 // GetFailure returns the cached failed crawl of m, if any.
 func (c *Cache) GetFailure(ctx context.Context, m *Marketplace) (crawlFailure, bool, error) {

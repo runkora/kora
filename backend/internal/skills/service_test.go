@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
 	"github.com/runkora/kora/backend/internal/platform/storage"
@@ -17,7 +18,15 @@ type countingCrawler struct {
 	inner       skillCrawler
 	mu          sync.Mutex
 	crawls      int
+	resolves    int
 	fileFetches int
+}
+
+func (c *countingCrawler) ResolveCommit(ctx context.Context, m *Marketplace) (string, error) {
+	c.mu.Lock()
+	c.resolves++
+	c.mu.Unlock()
+	return c.inner.ResolveCommit(ctx, m)
 }
 
 func (c *countingCrawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) {
@@ -41,7 +50,7 @@ func newTestService(t *testing.T, g *fakeGitHub, ms ...*Marketplace) (*Service, 
 	}
 	crawler := &countingCrawler{inner: NewCrawler(g, testLimits, discard())}
 	store := newMemStore()
-	return NewService(reg, store, crawler, discard()), crawler, store
+	return NewService(reg, store, crawler, time.Hour, discard()), crawler, store
 }
 
 func sampleRepo() *fakeGitHub {
@@ -271,7 +280,7 @@ func TestListSkills_SharedDetachedCrawl(t *testing.T) {
 	m := testMarketplace(t, "example", "team-skills")
 	crawler := &blockingCrawler{skillCrawler: NewCrawler(sampleRepo(), testLimits, discard()), release: make(chan struct{})}
 	store := newMemStore()
-	svc := NewService(fakeRegistry{"example": {m}}, store, crawler, discard())
+	svc := NewService(fakeRegistry{"example": {m}}, store, crawler, time.Hour, discard())
 
 	cancelled, cancel := context.WithCancel(context.Background())
 	errs := make(chan error, 3)
@@ -365,7 +374,7 @@ func (f failingCrawler) Crawl(context.Context, *Marketplace) (skillList, error) 
 // Marketplace alone.
 func TestListSkills_UnclassifiedErrorIsAFailure(t *testing.T) {
 	m := testMarketplace(t, "example", "broken")
-	svc := NewService(fakeRegistry{"example": {m}}, newMemStore(), failingCrawler{err: errors.New("sign github app jwt: bad key")}, discard())
+	svc := NewService(fakeRegistry{"example": {m}}, newMemStore(), failingCrawler{err: errors.New("sign github app jwt: bad key")}, time.Hour, discard())
 	page, failed, err := svc.ListSkills(context.Background(), "example", SkillQuery{Limit: 10})
 	if err != nil || len(failed) != 1 || page.Total != 0 {
 		t.Errorf("ListSkills = %+v, %v, %v, want one failure", page, failed, err)
@@ -374,7 +383,7 @@ func TestListSkills_UnclassifiedErrorIsAFailure(t *testing.T) {
 		t.Errorf("message = %q", msg)
 	}
 
-	svc = NewService(fakeRegistry{"example": {m}}, newMemStore(), failingCrawler{err: fmt.Errorf("x: %w", storage.ErrRedisUnavailable)}, discard())
+	svc = NewService(fakeRegistry{"example": {m}}, newMemStore(), failingCrawler{err: fmt.Errorf("x: %w", storage.ErrRedisUnavailable)}, time.Hour, discard())
 	if _, _, err := svc.ListSkills(context.Background(), "example", SkillQuery{Limit: 10}); !errors.Is(err, storage.ErrRedisUnavailable) {
 		t.Errorf("Redis error = %v, want it to fail the request", err)
 	}
@@ -448,5 +457,93 @@ func TestGetSkill_CarriesListFields(t *testing.T) {
 	}
 	if !reflect.DeepEqual(skill.SkillSummary, page.Skills[0]) {
 		t.Errorf("detail = %+v, want the list item %+v", skill.SkillSummary, page.Skills[0])
+	}
+}
+
+// An expired list whose commit is unchanged is kept after one ref check. A
+// changed commit crawls again, and a pinned commit is never checked.
+func TestList_RevalidatesAnExpiredList(t *testing.T) {
+	ctx := context.Background()
+	m := testMarketplace(t, "example", "team-skills")
+	g := sampleRepo()
+	crawler := &countingCrawler{inner: NewCrawler(g, testLimits, discard())}
+	store := newMemStore()
+	svc := NewService(fakeRegistry{"example": {m}}, store, crawler, time.Minute, discard())
+	expire := func() {
+		l := store.lists[cacheKey(m, "list")]
+		l.SyncedAt = l.SyncedAt.Add(-time.Hour)
+		store.lists[cacheKey(m, "list")] = l
+	}
+
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil {
+		t.Fatal(err)
+	}
+	expire()
+	fetches := len(g.fetchedPaths())
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil {
+		t.Fatal(err)
+	}
+	if crawler.crawls != 1 || crawler.resolves != 1 || len(g.fetchedPaths()) != fetches {
+		t.Errorf("unchanged commit: crawls %d, resolves %d, file fetches %d, want 1, 1 and none new", crawler.crawls, crawler.resolves, len(g.fetchedPaths())-fetches)
+	}
+	if l := store.lists[cacheKey(m, "list")]; time.Since(l.SyncedAt) > time.Minute {
+		t.Error("the kept list was not marked synced")
+	}
+
+	// Pinned to the cached commit: never checked.
+	m.Ref = testSHA
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil {
+		t.Fatal(err)
+	}
+	expire()
+	resolves := crawler.resolves
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil {
+		t.Fatal(err)
+	}
+	if crawler.resolves != resolves {
+		t.Errorf("a pinned commit was resolved")
+	}
+
+	// A changed commit crawls again.
+	m.Ref = ""
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil {
+		t.Fatal(err)
+	}
+	l := store.lists[cacheKey(m, "list")]
+	l.SHA = "0000000000000000000000000000000000000000"
+	l.SyncedAt = l.SyncedAt.Add(-time.Hour)
+	store.lists[cacheKey(m, "list")] = l
+	crawls := crawler.crawls
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil {
+		t.Fatal(err)
+	}
+	if crawler.crawls != crawls+1 {
+		t.Errorf("a changed commit did not crawl again")
+	}
+}
+
+// While GitHub fails, an expired list is still served.
+func TestList_StaleListSurvivesAnOutage(t *testing.T) {
+	ctx := context.Background()
+	m := testMarketplace(t, "example", "team-skills")
+	g := sampleRepo()
+	store := newMemStore()
+	svc := NewService(fakeRegistry{"example": {m}}, store, NewCrawler(g, testLimits, discard()), time.Minute, discard())
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil {
+		t.Fatal(err)
+	}
+	l := store.lists[cacheKey(m, "list")]
+	l.SyncedAt = l.SyncedAt.Add(-time.Hour)
+	store.lists[cacheKey(m, "list")] = l
+	g.refErr = ghclient.ErrUnavailable
+	for range 2 {
+		if page, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil || page.Total != 6 {
+			t.Errorf("during an outage = %d, %v, want the stale list", page.Total, err)
+		}
+	}
+	g.refErr = ghclient.ErrNotFound
+	delete(store.failures, cacheKey(m, "failure"))
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); !errors.Is(err, ErrRepositoryNotFound) {
+		t.Errorf("a removed repository = %v, want ErrRepositoryNotFound", err)
 	}
 }

@@ -134,7 +134,7 @@ func initControllers(ctx context.Context, logger logging.Logger, redis *storage.
 	pol.Start(ctx)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
-	svc := skills.NewService(registry, cache, crawler, logger)
+	svc := skills.NewService(registry, cache, crawler, sc.Current.CacheTTL(), logger)
 
 	// Shared revoked-JTI blocklist: rejects logged-out platform tokens and
 	// revoked delegation tokens before natural expiry.
