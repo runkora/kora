@@ -393,3 +393,41 @@ func TestListMarketplaces_NoKeyHidesSyncState(t *testing.T) {
 		t.Errorf("ListMarketplaces = %+v, %v, want null sync state", got, err)
 	}
 }
+
+// A crawl that finds skills and reads none is a failed crawl: cached as a
+// failure, a 502 for one Marketplace and listed in failures across them.
+func TestListSkills_NoReadableSkillIsAFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(*fakeGitHub)
+	}{
+		{"every fetch fails", func(g *fakeGitHub) { g.fetchErr = ghclient.ErrUnexpectedStatus }},
+		{"every skill is invalid", func(g *fakeGitHub) {
+			for p := range g.files {
+				g.files[p] = "no frontmatter"
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := sampleRepo()
+			tc.setup(g)
+			m := testMarketplace(t, "example", "team-skills")
+			svc, crawler, store := newTestService(t, g, m)
+			ctx := context.Background()
+
+			if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); !errors.Is(err, ErrGitHubFailure) {
+				t.Fatalf("one Marketplace = %v, want ErrGitHubFailure", err)
+			}
+			if _, ok, _ := store.GetList(ctx, m); ok {
+				t.Error("an unreadable crawl was cached as a list")
+			}
+			page, failed, err := svc.ListSkills(ctx, "example", SkillQuery{Limit: 10})
+			if err != nil || len(failed) != 1 || page.Total != 0 {
+				t.Errorf("all Marketplaces = %+v, %v, %v, want one failure", page, failed, err)
+			}
+			if crawler.crawls != 1 {
+				t.Errorf("crawls = %d, want 1: the failure is cached", crawler.crawls)
+			}
+		})
+	}
+}

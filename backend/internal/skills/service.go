@@ -388,7 +388,7 @@ func classify(m *Marketplace, err error) (crawlFailure, bool) {
 		f.NotFound = true
 	case errors.Is(err, ghclient.ErrUnavailable), errors.Is(err, ghclient.ErrUnexpectedStatus),
 		errors.Is(err, ghclient.ErrTreeTruncated), errors.Is(err, ghclient.ErrBadCommit),
-		errors.Is(err, httpclient.ErrDecodeBody):
+		errors.Is(err, httpclient.ErrDecodeBody), errors.Is(err, errNoSkillsRead):
 	default:
 		return f, false
 	}

@@ -101,6 +101,21 @@ func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 	}
 
 	folders := c.skillFolders(ctx, m, tree)
+	skills, err := c.readSkills(ctx, token, m, sha, folders)
+	if err != nil {
+		return skillList{}, fmt.Errorf("fetch skills of %s/%s: %w", m.Owner, m.Repo, err)
+	}
+	// Skills were found but none could be read: a failed crawl, not an empty
+	// Marketplace.
+	if len(folders) > 0 && len(skills) == 0 {
+		return skillList{}, fmt.Errorf("%s/%s: %w (%d found)", m.Owner, m.Repo, errNoSkillsRead, len(folders))
+	}
+	return skillList{Source: m.source(), SHA: sha, SyncedAt: time.Now().UTC().Truncate(time.Second), Skills: skills}, nil
+}
+
+// readSkills fetches and parses every folder's SKILL.md in path order. A skill
+// that cannot be read is skipped and logged. An outage aborts.
+func (c *Crawler) readSkills(ctx context.Context, token string, m *Marketplace, sha string, folders []skillFolder) ([]skillRecord, error) {
 	records := make([]skillRecord, len(folders))
 	found := make([]bool, len(folders))
 	perCrawl := semaphore.NewWeighted(perCrawlFetches)
@@ -130,12 +145,12 @@ func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return skillList{}, fmt.Errorf("fetch skills of %s/%s: %w", m.Owner, m.Repo, err)
+		return nil, err
 	}
 
 	// folders are in path order, so the budget keeps the same skills as the
 	// selection by tree size.
-	list := skillList{Source: m.source(), SHA: sha, SyncedAt: time.Now().UTC().Truncate(time.Second), Skills: make([]skillRecord, 0, len(records))}
+	skills := make([]skillRecord, 0, len(records))
 	var read int64
 	for i, r := range records {
 		if !found[i] {
@@ -146,16 +161,19 @@ func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 			continue
 		}
 		read += int64(len(r.Content))
-		list.Skills = append(list.Skills, r)
+		skills = append(skills, r)
 	}
-	slices.SortFunc(list.Skills, func(a, b skillRecord) int {
+	slices.SortFunc(skills, func(a, b skillRecord) int {
 		if n := strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title)); n != 0 {
 			return n
 		}
 		return strings.Compare(a.Path, b.Path)
 	})
-	return list, nil
+	return skills, nil
 }
+
+// errNoSkillsRead is a crawl that found skills and could read none of them.
+var errNoSkillsRead = errors.New("no skill could be read")
 
 // skillFolder is a folder holding a SKILL.md of size bytes and its supporting
 // files.
