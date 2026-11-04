@@ -1,8 +1,13 @@
 /** @tier 3 — sign-in-callback-scoped. Promote to src/components/ if a second feature needs this. */
 'use client';
 
-import { Button, Card, CardContent, CardHeader, Heading, Icon, Stack, Text } from '@runkora/hades';
+import { useState } from 'react';
+import { Button, Card, Icon, Input, Stack, Text } from '@runkora/hades';
+import { AuthCardShell } from '@runkora/components';
 import type { SessionTenant } from '@runkora/server/auth-config';
+
+/** Above this many tenants the picker gains a search field. */
+const SEARCH_THRESHOLD = 6;
 
 export interface TenantPickerProps {
   /** The tenants the person's claims matched. */
@@ -12,36 +17,72 @@ export interface TenantPickerProps {
   onPick: (tenantId: string) => void;
 }
 
-/** Lists the matching tenants when a sign-in matches more than one. */
+/** Lists the matching tenants in the sign-in card when a sign-in matches more than one. */
 export function TenantPicker({ tenants, pickingId, onPick }: TenantPickerProps) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const shown = q ? tenants.filter((t) => t.displayName.toLowerCase().includes(q)) : tenants;
+
   return (
-    <Card>
-      <CardHeader>
-        <Heading variant="section">Choose a tenant</Heading>
-      </CardHeader>
-      <CardContent>
-        <Stack gap="comfortable">
-          <Text size="supporting" color="muted">
-            Your account can sign in to more than one tenant.
-          </Text>
-          <Stack gap="snug">
-            {tenants.map((t) => (
-              <Button
-                key={t.id}
-                variant="outline"
-                fullWidth
-                disabled={Boolean(pickingId)}
-                onClick={() => onPick(t.id)}
+    <AuthCardShell
+      title="Choose a tenant"
+      description="Your account can sign in to more than one tenant."
+      footer={
+        <Text size="micro" color="subtle">
+          You can switch tenant later from the account menu.
+        </Text>
+      }
+    >
+      <Stack gap="snug">
+        {tenants.length > SEARCH_THRESHOLD ? (
+          <Input
+            compact
+            value={query}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
+            placeholder="Search tenants"
+            aria-label="Search tenants"
+          />
+        ) : null}
+        <Card divide>
+          {shown.map((t) => (
+            <Button
+              key={t.id}
+              variant="ghost"
+              shape="square"
+              fullWidth
+              disabled={Boolean(pickingId)}
+              title={t.displayName}
+              onClick={() => onPick(t.id)}
+            >
+              <Stack
+                direction="horizontal"
+                align="center"
+                justify="between"
+                gap="snug"
+                grow
+                minWidth="none"
               >
-                <Text as="span" truncate>
-                  {t.displayName}
-                </Text>
-                {pickingId === t.id ? <Icon name="loader" size="xs" color="subtle" /> : null}
-              </Button>
-            ))}
-          </Stack>
-        </Stack>
-      </CardContent>
-    </Card>
+                <Stack direction="horizontal" align="center" gap="snug" minWidth="none">
+                  <Icon name="building" size="xs" color="subtle" />
+                  <Text as="span" truncate>
+                    {t.displayName}
+                  </Text>
+                </Stack>
+                <Icon
+                  name={pickingId === t.id ? 'loader' : 'chevron-right'}
+                  size="xs"
+                  color="subtle"
+                />
+              </Stack>
+            </Button>
+          ))}
+        </Card>
+        {shown.length === 0 ? (
+          <Text size="caption" color="subtle">
+            No tenants match.
+          </Text>
+        ) : null}
+      </Stack>
+    </AuthCardShell>
   );
 }

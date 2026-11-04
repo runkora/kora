@@ -13,7 +13,7 @@
  *   pattern in `sidebar-state.test.tsx`) drives the desktop flyout tests.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@runkora/test-utils';
 import { APP_ROUTES } from '@runkora/lib/routing/routes';
@@ -39,7 +39,10 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
 }));
 
+vi.mock('@runkora/lib/tenant-switch', () => ({ startTenantSwitch: vi.fn() }));
+
 import { useSession } from './permissions-provider';
+import { startTenantSwitch } from '@runkora/lib/tenant-switch';
 
 afterEach(() => {
   vi.mocked(useSession).mockReturnValue(DEFAULT_SESSION);
@@ -200,5 +203,88 @@ describe('SidebarUserFooter', () => {
       await waitFor(() => expect(cancelButton).toHaveFocus());
       restore();
     });
+  });
+});
+
+describe('SidebarUserFooter tenants', () => {
+  const TWO = {
+    ...DEFAULT_SESSION,
+    tenants: [
+      { id: 'example', displayName: 'Example Platform', active: true },
+      { id: 'example-data', displayName: 'Example Data', active: false },
+    ],
+  };
+
+  async function openMenu() {
+    const user = userEvent.setup();
+    renderFooter();
+    await user.click(screen.getByRole('button', { name: /dev@runkora\.test/ }));
+    return user;
+  }
+
+  it('shows no tenant section for a single tenant', async () => {
+    vi.mocked(useSession).mockReturnValue({
+      ...DEFAULT_SESSION,
+      tenants: [TWO.tenants[0]!],
+    });
+    await openMenu();
+    expect(screen.queryByText('Tenant')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Example Platform' })).not.toBeInTheDocument();
+  });
+
+  it('names the active tenant under the email and lists every tenant in the menu', async () => {
+    vi.mocked(useSession).mockReturnValue(TWO);
+    await openMenu();
+
+    expect(screen.getAllByText('Example Platform').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Example Platform' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: 'Example Data' })).not.toHaveAttribute(
+      'aria-current',
+    );
+  });
+
+  it('starts a switch to the chosen tenant from the current path', async () => {
+    vi.mocked(useSession).mockReturnValue(TWO);
+    vi.mocked(startTenantSwitch).mockResolvedValue();
+    const user = await openMenu();
+
+    await user.click(screen.getByRole('button', { name: 'Example Data' }));
+
+    expect(startTenantSwitch).toHaveBeenCalledWith({
+      email: 'dev@runkora.test',
+      tenantId: 'example-data',
+      returnPath: '/',
+    });
+  });
+
+  it('shows an error and re-enables the list when the switch cannot start', async () => {
+    vi.mocked(useSession).mockReturnValue(TWO);
+    vi.mocked(startTenantSwitch).mockRejectedValue(new Error('discovery failed'));
+    const user = await openMenu();
+
+    await user.click(screen.getByRole('button', { name: 'Example Data' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not start the switch.');
+    expect(screen.getByRole('button', { name: 'Example Data' })).toBeEnabled();
+  });
+
+  it('re-enables the list when the page returns from the back-forward cache', async () => {
+    vi.mocked(useSession).mockReturnValue(TWO);
+    vi.mocked(startTenantSwitch).mockReturnValue(new Promise(() => {}));
+    const user = await openMenu();
+
+    await user.click(screen.getByRole('button', { name: 'Example Data' }));
+    expect(screen.getByRole('button', { name: 'Example Data' })).toBeDisabled();
+
+    const restored = new Event('pageshow');
+    Object.defineProperty(restored, 'persisted', { value: true });
+    act(() => {
+      window.dispatchEvent(restored);
+    });
+
+    expect(screen.getByRole('button', { name: 'Example Data' })).toBeEnabled();
   });
 });

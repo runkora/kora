@@ -2,10 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import { Badge, Button, Icon, Show, Stack, Text } from '@runkora/hades';
-import { TenantSwitcher } from '@runkora/components';
-import { startTenantSwitch } from '@runkora/lib/tenant-switch';
 import { ThemeToggle } from './theme-toggle';
-import { useSession } from './permissions-provider';
 import { useSidebarState } from './sidebar-state';
 
 /**
@@ -27,7 +24,6 @@ const SECTIONS: Record<string, SectionHeader> = {
 export function DashboardHeader() {
   const pathname = usePathname();
   const { toggle, isOpen } = useSidebarState();
-  const { user, tenants = [] } = useSession();
 
   const segments = pathname.split('/').filter(Boolean);
   const section = segments[0] ?? '';
@@ -91,17 +87,6 @@ export function DashboardHeader() {
       </Stack>
 
       <Stack direction="horizontal" align="center" gap="snug">
-        {/* A switch returns to the page it started on, now in the other tenant. */}
-        <TenantSwitcher
-          tenants={tenants}
-          onSelect={(tenantId) =>
-            startTenantSwitch({
-              email: user?.email ?? '',
-              tenantId,
-              returnPath: window.location.pathname + window.location.search,
-            })
-          }
-        />
         <Badge variant="outline" size="sm">
           {process.env.NEXT_PUBLIC_KORA_VERSION ?? 'dev'}
         </Badge>

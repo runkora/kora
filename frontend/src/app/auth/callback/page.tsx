@@ -229,23 +229,23 @@ export default function CallbackPage() {
 
   return (
     <Stack align="center" justify="center" minHeight="screen" padding="comfortable">
-      <Stack maxWidth="card">
-        {view.kind === 'pick' ? (
-          <TenantPicker
-            tenants={view.tenants}
-            pickingId={picking}
-            onPick={(tenantId) => {
-              if (!exchange.current) return;
-              setPicking(tenantId);
-              void seal(exchange.current, tenantId).finally(() => setPicking(null));
-            }}
-          />
-        ) : (
+      {view.kind === 'pick' ? (
+        <TenantPicker
+          tenants={view.tenants}
+          pickingId={picking}
+          onPick={(tenantId) => {
+            if (!exchange.current) return;
+            setPicking(tenantId);
+            void seal(exchange.current, tenantId).finally(() => setPicking(null));
+          }}
+        />
+      ) : (
+        <Stack maxWidth="card">
           <SwitchDenied
             onContinue={() => exchange.current && window.location.replace(exchange.current.next)}
           />
-        )}
-      </Stack>
+        </Stack>
+      )}
     </Stack>
   );
 }

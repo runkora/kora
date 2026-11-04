@@ -5,7 +5,7 @@
  */
 import { Alert, Icon, Stack, Text } from '@runkora/hades';
 
-import { AuthCardShell } from './auth-card-shell';
+import { AuthCardShell } from '@runkora/components';
 import { EmailSignInForm } from './email-sign-in-form';
 
 interface LoginCardProps {

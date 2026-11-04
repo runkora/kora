@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { BottomSheet, Button, Icon, SectionLabel, Separator, Stack, Text } from '@runkora/hades';
+import { TenantList, useTenantSwitch } from '@runkora/components';
 import { useBrand } from '@runkora/theme/brand-provider';
 import { APP_ROUTES } from '@runkora/lib/routing/routes';
+import { startTenantSwitch } from '@runkora/lib/tenant-switch';
 import { useLogout } from '@runkora/lib/use-logout';
+import type { TenantOption } from '@runkora/server/auth-config';
 import { useSession } from './permissions-provider';
 import { FitEmailText } from './fit-email-text';
 
@@ -208,6 +211,33 @@ function IdentityBlock({
   );
 }
 
+// ── Tenant section (two or more tenants only) ──────────────────────────────
+
+function TenantSection({
+  tenants,
+  tenantSwitch,
+  onPickActive,
+  touch,
+}: {
+  tenants: TenantOption[];
+  tenantSwitch: ReturnType<typeof useTenantSwitch>;
+  onPickActive: () => void;
+  touch: boolean;
+}) {
+  return (
+    <Stack gap="tight">
+      <SectionLabel>Tenant</SectionLabel>
+      <TenantList
+        tenants={tenants}
+        switching={tenantSwitch.switching}
+        failed={tenantSwitch.failed}
+        size={touch ? 'touch' : 'compact'}
+        onPick={(t) => (t.active ? onPickActive() : tenantSwitch.start(t.id))}
+      />
+    </Stack>
+  );
+}
+
 // ── Shared confirm-logout block ──────────────────────────────────────────────
 
 function ConfirmLogoutBlock({ compact }: { compact: boolean }) {
@@ -251,7 +281,7 @@ function ConfirmLogoutBlock({ compact }: { compact: boolean }) {
  * (ADR-0061).
  */
 export function SidebarUserFooter() {
-  const { user } = useSession();
+  const { user, tenants = [] } = useSession();
   const { logout } = useLogout();
   const router = useRouter();
   const isDesktop = useIsDesktop();
@@ -274,6 +304,18 @@ export function SidebarUserFooter() {
 
   const menu = useAccountMenu(handleLogout);
   const { open, confirming } = menu;
+
+  // With two or more tenants the trigger names the active one and the menu lists them all.
+  const multiTenant = tenants.length > 1;
+  const activeTenant = tenants.find((t) => t.active);
+  // A switch returns to the page it started on, now in the other tenant.
+  const tenantSwitch = useTenantSwitch((tenantId) =>
+    startTenantSwitch({
+      email: user?.email ?? '',
+      tenantId,
+      returnPath: window.location.pathname + window.location.search,
+    }),
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -379,21 +421,34 @@ export function SidebarUserFooter() {
         grow
         minWidth="none"
         gap="none"
-        justify={hasName ? undefined : 'center'}
+        justify={hasName || multiTenant ? undefined : 'center'}
         style={{ overflow: 'hidden' }}
       >
-        {hasName && (
-          <Text
-            as="span"
-            truncate
-            style={{ display: 'block', fontSize: 13, lineHeight: '16px', fontWeight: 600 }}
-          >
-            {name}
-          </Text>
+        {multiTenant ? (
+          <>
+            <Text as="span" size="caption" weight="strong" truncate>
+              {email}
+            </Text>
+            <Text as="span" size="micro" color="subtle" truncate>
+              {activeTenant?.displayName}
+            </Text>
+          </>
+        ) : (
+          <>
+            {hasName && (
+              <Text
+                as="span"
+                truncate
+                style={{ display: 'block', fontSize: 13, lineHeight: '16px', fontWeight: 600 }}
+              >
+                {name}
+              </Text>
+            )}
+            <Stack direction="horizontal" align="center" style={{ height: 16, overflow: 'hidden' }}>
+              <FitEmailText email={email} />
+            </Stack>
+          </>
         )}
-        <Stack direction="horizontal" align="center" style={{ height: 16, overflow: 'hidden' }}>
-          <FitEmailText email={email} />
-        </Stack>
       </Stack>
       <Icon name={isDesktop ? 'chevron-right' : 'chevron-up'} size="xs" color="subtle" shrink />
     </Button>
@@ -427,7 +482,22 @@ export function SidebarUserFooter() {
               {confirming ? (
                 <ConfirmLogoutBlock compact />
               ) : (
-                <IdentityBlock name={name} email={email} compact />
+                <Stack gap="cozy">
+                  <Stack gap="snug">
+                    <IdentityBlock name={name} email={email} compact />
+                  </Stack>
+                  {multiTenant ? (
+                    <>
+                      <Separator />
+                      <TenantSection
+                        tenants={tenants}
+                        tenantSwitch={tenantSwitch}
+                        onPickActive={closeAndFocusTrigger}
+                        touch={false}
+                      />
+                    </>
+                  ) : null}
+                </Stack>
               )}
             </Stack>
 
@@ -512,7 +582,22 @@ export function SidebarUserFooter() {
             {confirming ? (
               <ConfirmLogoutBlock compact={false} />
             ) : (
-              <IdentityBlock name={name} email={email} compact={false} />
+              <Stack gap="cozy">
+                <Stack gap="snug">
+                  <IdentityBlock name={name} email={email} compact={false} />
+                </Stack>
+                {multiTenant ? (
+                  <>
+                    <Separator />
+                    <TenantSection
+                      tenants={tenants}
+                      tenantSwitch={tenantSwitch}
+                      onPickActive={menu.close}
+                      touch
+                    />
+                  </>
+                ) : null}
+              </Stack>
             )}
           </Stack>
           <Separator />

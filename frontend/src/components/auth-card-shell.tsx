@@ -1,7 +1,8 @@
 'use client';
 
 /**
- * @tier 3 — login-scoped. The sign-in card shared by the login and already-signed-in
+ * @tier 2 — kora-domain-aware: the brand lockup and product tagline. Used by: login, sign-in callback.
+ * The sign-in card shared by the login, already-signed-in and tenant picker
  * screens: a brand panel on the left, a title, content and a footer on the right.
  * The panel is hidden on small screens, where the logo moves into the form column.
  * The logo and product name come from the effective brand.

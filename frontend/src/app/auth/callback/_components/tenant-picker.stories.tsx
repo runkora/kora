@@ -2,15 +2,15 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { Stack } from '@runkora/hades';
 import { TenantPicker } from './tenant-picker';
 
-/** The sign-in picker shown when the person's claims match several tenants. */
+/** The sign-in picker, in the sign-in card, shown when the person's claims match several tenants. */
 const meta: Meta<typeof TenantPicker> = {
   title: 'Pages/Sign-in/Tenant picker',
   component: TenantPicker,
-  parameters: { layout: 'centered' },
+  parameters: { layout: 'fullscreen' },
   args: { onPick: () => undefined },
   decorators: [
     (Story) => (
-      <Stack maxWidth="card">
+      <Stack align="center" justify="center" minHeight="screen" padding="comfortable">
         <Story />
       </Stack>
     ),
