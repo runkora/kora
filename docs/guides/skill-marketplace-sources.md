@@ -98,13 +98,22 @@ The operator rechecks each Secret every five minutes. A fixed or rotated key tak
 
 The operator makes no GitHub call. The Skills page reports what GitHub returns:
 
-*   A missing repository or ref shows as not found.
-*   A key that GitHub rejects, an App installation that does not cover the repository, or a GitHub outage shows the Marketplace as unavailable with the reason.
+*   A missing repository or ref shows as not found. A private repository that the App installation does not cover also shows as not found.
+*   A key that GitHub rejects or a GitHub outage shows the Marketplace as unavailable.
 
 ## Limits and Caching
 
-skills-service caches each Marketplace's skill list and each skill's files in Redis for 12 hours, separately for each tenant. A change on a tracked branch appears after the cache entry expires. A failed read of the repository is cached for one minute.
+skills-service caches each Marketplace's skill list in Redis for 12 hours, separately for each tenant. A change on a tracked branch appears after the cache entry expires. A failed read of the repository is cached for one minute.
 
-Each crawl reads at most 500 skills per Marketplace, 100 files per skill and 128 KiB per file. Skills and files over a limit are skipped and logged. skills-service reads only files with a text extension (e.g., `.md`, `.py`, `.json`) and never downloads binary files.
+Opening a skill shows its `SKILL.md` and the list of its other files. skills-service fetches each of those files the first time a member selects it and caches it for 12 hours.
+
+The platform sets the crawl limits in the chart's `skillsService.limits` values:
+
+*   **`skillsPerMarketplace`:** 500 skills per Marketplace.
+*   **`filesPerSkill`:** 500 files listed per skill.
+*   **`bytesPerFile`:** 128 KiB per file.
+*   **`skillMdBytesPerMarketplace`:** 8 MiB of `SKILL.md` files per Marketplace.
+
+An empty or zero value removes that limit. Skills and files over a limit are skipped and logged. skills-service reads only files with a text extension (e.g., `.md`, `.py`, `.json`) and never downloads binary files.
 
 Members browse a Marketplace with the `skills:read` scope. See [Granting `skills:read`](tenants.md#granting-skillsread).

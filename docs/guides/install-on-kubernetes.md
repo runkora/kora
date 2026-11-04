@@ -108,11 +108,11 @@ A service with an unknown or mistyped key fails at startup and logs the key. Use
 
 ### Skill Marketplaces
 
-Tenant administrators register [skill Marketplaces](skill-marketplace-sources.md) with `SkillMarketplace` resources that each carry a GitHub App. The chart takes no Marketplace values.
+Tenant administrators register [skill Marketplaces](skill-marketplace-sources.md) with `SkillMarketplace` resources that each carry a GitHub App. The chart sets only the crawl limits through `skillsService.limits`.
 
 The operator renders the `kora-skill-marketplaces` ConfigMap and the `kora-skill-marketplace-secrets` Secret in `kora-system`. skills-service mounts both and reloads them on change.
 
-With `istio.outboundTrafficPolicy: REGISTRY_ONLY`, add a `ServiceEntry` for `api.github.com` that lets skills-service reach GitHub over HTTPS.
+With `istio.outboundTrafficPolicy: REGISTRY_ONLY`, the chart registers `api.github.com` with a `ServiceEntry` in `kora-system` for skills-service.
 
 ## Run behind an existing gateway
 
