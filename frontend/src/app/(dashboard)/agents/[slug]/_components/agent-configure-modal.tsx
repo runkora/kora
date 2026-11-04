@@ -164,7 +164,11 @@ function ConfigureBody({
   // Without edit access, or managed in git, every field is read only; the notice above the form says why.
   const readOnly = !agent.canEdit || managedInGit;
   const dirty = !readOnly && cfg.isDirty;
-  const activeSection = CONFIG_SECTIONS.find((x) => x.id === active) ?? CONFIG_SECTIONS[0]!;
+  // An agent managed in git is deleted in its repository, so it has no Danger zone.
+  const sections = managedInGit
+    ? CONFIG_SECTIONS.filter((x) => x.tone !== 'danger')
+    : CONFIG_SECTIONS;
+  const activeSection = sections.find((x) => x.id === active) ?? sections[0]!;
   const descriptions: Record<string, string> = {
     identity:
       'Who this agent is on the control plane. The slug is its permanent identity and cannot change.',
@@ -255,7 +259,7 @@ function ConfigureBody({
         <Stack direction={{ base: 'vertical', lg: 'horizontal' }} grow overflow="hidden" gap="none">
           <ConfigurationRail
             label="Configuration"
-            sections={CONFIG_SECTIONS}
+            sections={sections}
             current={active}
             onSelect={setActive}
           />
@@ -276,7 +280,7 @@ function ConfigureBody({
               </Alert>
             )}
             {/* ── Identity ─────────────────────────────────────────────────────── */}
-            {active === 'identity' && (
+            {activeSection.id === 'identity' && (
               <Stack gap="relaxed">
                 <Grid cols={2} gap="comfortable">
                   <FormField label="Display name" required>
@@ -322,7 +326,7 @@ function ConfigureBody({
             )}
 
             {/* ── Behaviour ────────────────────────────────────────────────────── */}
-            {active === 'behaviour' && (
+            {activeSection.id === 'behaviour' && (
               <Stack gap="relaxed">
                 <FormField label="System instructions" required>
                   <Textarea
@@ -370,7 +374,7 @@ function ConfigureBody({
             )}
 
             {/* ── Tools & access ───────────────────────────────────────────────── */}
-            {active === 'tools' && (
+            {activeSection.id === 'tools' && (
               <Stack gap="relaxed">
                 <Text as="span" size="supporting" color="muted">
                   <Text as="span" size="supporting" weight="heavy" color="accent">
@@ -409,7 +413,7 @@ function ConfigureBody({
             )}
 
             {/* ── Network access ───────────────────────────────────────────────── */}
-            {active === 'network' && (
+            {activeSection.id === 'network' && (
               <Stack gap="relaxed">
                 <Stack gap="cozy">
                   <SectionLabel
@@ -447,7 +451,7 @@ function ConfigureBody({
             )}
 
             {/* ── Guardrails ───────────────────────────────────────────────────── */}
-            {active === 'guardrails' && (
+            {activeSection.id === 'guardrails' && (
               <Stack gap="relaxed">
                 <Stack direction="horizontal" align="baseline" gap="snug">
                   <Eyebrow>Limits</Eyebrow>
@@ -465,24 +469,22 @@ function ConfigureBody({
             )}
 
             {/* ── Danger zone ──────────────────────────────────────────────────── */}
-            {active === 'danger' && (
+            {activeSection.id === 'danger' && (
               <Stack gap="relaxed">
                 <DangerZone
                   title="Delete this agent"
                   description="Deregisters the agent, tears down its workload, and terminates all associated runs."
                   action={
-                    !managedInGit && (
-                      <PermissionHint allowed={agent.canDelete} action="delete this agent">
-                        <Button
-                          variant="destructive"
-                          size="xs"
-                          disabled={!agent.canDelete}
-                          onClick={() => cfg.setDeleteOpen(true)}
-                        >
-                          Delete agent
-                        </Button>
-                      </PermissionHint>
-                    )
+                    <PermissionHint allowed={agent.canDelete} action="delete this agent">
+                      <Button
+                        variant="destructive"
+                        size="xs"
+                        disabled={!agent.canDelete}
+                        onClick={() => cfg.setDeleteOpen(true)}
+                      >
+                        Delete agent
+                      </Button>
+                    </PermissionHint>
                   }
                 />
               </Stack>

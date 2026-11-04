@@ -107,11 +107,17 @@ describe('AgentConfigureModal', () => {
     expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull();
   });
 
-  it('hides delete for an agent managed in git', () => {
+  it('has no Danger zone for an agent managed in git', () => {
     current = { ...agent, declared: true };
-    renderWithProviders(<AgentConfigureModal open onClose={vi.fn()} />);
-    fireEvent.click(screen.getAllByText('Danger zone').at(-1)!);
-    expect(screen.queryByRole('button', { name: 'Delete agent' })).toBeNull();
+    renderModal();
+    expect(screen.queryByText('Danger zone')).toBeNull();
+  });
+
+  it('offers a Danger zone to an editor', () => {
+    current = { ...agent, canDelete: true } as typeof agent;
+    renderModal();
+    fireEvent.click(screen.getByRole('button', { name: /Danger zone/ }));
+    expect(screen.getByRole('button', { name: 'Delete agent' })).toBeInTheDocument();
   });
 
   it('marks the slug and identity model read-only and disabled', () => {
