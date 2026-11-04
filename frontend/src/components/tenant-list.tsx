@@ -13,7 +13,8 @@ const FADE = 'linear-gradient(to bottom, black calc(100% - 2rem), transparent)';
 
 /**
  * Tracks a tenant switch: the tenant it is starting and whether the last one failed to start.
- * `onSelect` starts the switch; a rejection marks it failed.
+ * `onSelect` starts the switch; a rejection or a throw marks it failed. `clearError` hides the
+ * error line, for a menu that opens again.
  */
 export function useTenantSwitch(onSelect: (tenantId: string) => Promise<void> | void) {
   const [switching, setSwitching] = useState<string | null>(null);
@@ -31,12 +32,13 @@ export function useTenantSwitch(onSelect: (tenantId: string) => Promise<void> | 
   const start = (tenantId: string) => {
     setSwitching(tenantId);
     setFailed(false);
-    Promise.resolve(onSelect(tenantId)).catch(() => {
+    // The executor turns a synchronous throw into a rejection, so the list never stays disabled.
+    new Promise<void>((resolve) => resolve(onSelect(tenantId))).catch(() => {
       setSwitching(null);
       setFailed(true);
     });
   };
-  return { switching, failed, start };
+  return { switching, failed, start, clearError: () => setFailed(false) };
 }
 
 export interface TenantListProps {

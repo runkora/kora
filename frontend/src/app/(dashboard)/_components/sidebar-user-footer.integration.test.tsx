@@ -274,6 +274,37 @@ describe('SidebarUserFooter tenants', () => {
     );
   });
 
+  it('shows an error and re-enables the list when the switch throws before it starts', async () => {
+    vi.mocked(useSession).mockReturnValue(TWO);
+    vi.mocked(startTenantSwitch).mockImplementation(() => {
+      throw new Error('no window');
+    });
+    const user = await openMenu();
+
+    await user.click(screen.getByRole('button', { name: 'Example Data' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not start the switch.');
+    expect(screen.getByRole('button', { name: 'Example Data' })).toHaveAttribute(
+      'aria-disabled',
+      'false',
+    );
+  });
+
+  it('clears the switch error when the menu opens again', async () => {
+    vi.mocked(useSession).mockReturnValue(TWO);
+    vi.mocked(startTenantSwitch).mockRejectedValue(new Error('discovery failed'));
+    const user = await openMenu();
+    await user.click(screen.getByRole('button', { name: 'Example Data' }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /dev@runkora\.test/ }));
+
+    expect(await screen.findByRole('button', { name: 'Example Data' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('re-enables the list when the page returns from the back-forward cache', async () => {
     vi.mocked(useSession).mockReturnValue(TWO);
     vi.mocked(startTenantSwitch).mockReturnValue(new Promise(() => {}));

@@ -16,7 +16,7 @@
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import type { IronSession } from 'iron-session';
+import type { IronSession, SessionOptions } from 'iron-session';
 import { server } from '@runkora/test-utils';
 import {
   createBackendSessionResponse,
@@ -299,6 +299,9 @@ describe('POST /api/auth/session', () => {
       expect(capturedSession.user).toEqual({ sub: user.sub, email: user.email, name: user.name });
       expect(capturedSession.tenantId).toBe('tenant-1');
       expect(typeof capturedSession.expiresAt).toBe('number');
+      expect(capturedSession.refreshExpiresAt).toBe(
+        backendData.issued_at + (backendData.refresh_token_expires_in ?? 0),
+      );
     });
 
     it('stores the tenant from the issued token, not the request', async () => {
@@ -522,11 +525,15 @@ describe('POST /api/auth/session', () => {
       'keeps the session and stores the fresh set on %s during a switch',
       async (code) => {
         const current = currentSession({
+          refreshExpiresAt: Math.floor(Date.now() / 1000) + 1000,
           tenants: [
             { id: 'kora-tenant-example', displayName: 'Example Platform' },
             { id: 'kora-tenant-example-data', displayName: 'Example Data' },
           ],
         });
+        // The re-read cookie holds the same session as the one being replaced.
+        const kept = { ...current, save: vi.fn().mockResolvedValue(undefined) };
+        vi.mocked(getIronSession).mockResolvedValue(kept as unknown as IronSession<SessionPayload>);
         upstream(() =>
           HttpResponse.json(
             { code, message: 'denied', details: { tenants: [TENANTS[0]] } },
@@ -545,12 +552,16 @@ describe('POST /api/auth/session', () => {
 
         expect(res.status).toBe(403);
         expect(await res.json()).toEqual({ error: 'tenant_switch_denied' });
-        expect(current.tenants).toEqual([
+        expect(kept.tenants).toEqual([
           { id: 'kora-tenant-example', displayName: 'Example Platform' },
         ]);
-        expect(current.save).toHaveBeenCalledOnce();
-        expect(current.refreshToken).toBe('rt-old');
-        expect(getIronSession).not.toHaveBeenCalled();
+        expect(kept.save).toHaveBeenCalledOnce();
+        expect(kept.refreshToken).toBe('rt-old');
+        // The save keeps the cookie lifetime sign-in set, not the 30-day default.
+        const options = vi.mocked(getIronSession).mock.calls[0]?.[1] as unknown as SessionOptions;
+        const maxAge = options.cookieOptions?.maxAge;
+        expect(maxAge).toBeGreaterThan(990);
+        expect(maxAge).toBeLessThanOrEqual(1000);
         expect(cookieJar.set).not.toHaveBeenCalled();
       },
     );

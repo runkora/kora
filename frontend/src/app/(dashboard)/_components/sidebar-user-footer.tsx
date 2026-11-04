@@ -309,6 +309,12 @@ export function SidebarUserFooter() {
     }),
   );
 
+  // A failed switch's error belongs to that attempt, so a fresh open starts without it.
+  const openMenu = () => {
+    tenantSwitch.clearError();
+    menu.openMenu();
+  };
+
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const firstItemRef = useRef<HTMLButtonElement>(null);
@@ -337,7 +343,7 @@ export function SidebarUserFooter() {
   const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === 'ArrowDown' && !open) {
       event.preventDefault();
-      menu.openMenu();
+      openMenu();
       requestAnimationFrame(() => firstItemRef.current?.focus());
     }
   };
@@ -346,7 +352,7 @@ export function SidebarUserFooter() {
     if (open) {
       menu.close();
     } else {
-      menu.openMenu();
+      openMenu();
       if (document.activeElement === triggerRef.current) {
         requestAnimationFrame(() => firstItemRef.current?.focus());
       }
@@ -541,7 +547,7 @@ export function SidebarUserFooter() {
       {!isDesktop && (
         <BottomSheet
           open={open}
-          onOpenChange={(next) => (next ? menu.openMenu() : menu.close())}
+          onOpenChange={(next) => (next ? openMenu() : menu.close())}
           title="Account"
         >
           <Stack style={{ padding: '12px 20px 16px' }}>

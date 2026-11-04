@@ -15,11 +15,18 @@ export interface ConsentTenantSwitchProps {
 /** The consent row's Switch control. It opens the tenant list beside the row. */
 export function ConsentTenantSwitch({ tenants, onSelect }: ConsentTenantSwitchProps) {
   const [open, setOpen] = useState(false);
-  const { switching, failed, start } = useTenantSwitch(onSelect);
+  const { switching, failed, start, clearError } = useTenantSwitch(onSelect);
   const activeName = tenants.find((t) => t.active)?.displayName ?? 'this tenant';
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        // A failed switch's error belongs to that attempt, so a fresh open starts without it.
+        if (next) clearError();
+        setOpen(next);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button variant="outline-muted" size="sm" aria-label={`Switch tenant from ${activeName}`}>
           <Text as="span" size="caption">

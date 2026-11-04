@@ -32,6 +32,11 @@ export interface SessionPayload {
   refreshToken: string;
   /** UTC Unix seconds when the access token expires. */
   expiresAt: number;
+  /**
+   * UTC Unix seconds when the refresh token, and so the cookie, expires. A later save without a
+   * new token keeps this lifetime. Absent on sessions sealed before the field existed.
+   */
+  refreshExpiresAt?: number;
   /** Tenant ID the session was created against (used for token refresh). */
   tenantId: string;
   /**
@@ -162,6 +167,14 @@ export function lastTenantCookieOptions() {
 
 // ── Session options factory ───────────────────────────────────────────────────
 
+/** 30 days, the Go backend's default RefreshTokenTTLDays. */
+const DEFAULT_SESSION_MAX_AGE = 60 * 60 * 24 * 30;
+
+/** The refresh token's expiry in Unix seconds, using the same default as the cookie. */
+export function refreshExpiresAt(issuedAt: number, refreshTokenExpiresIn?: number): number {
+  return issuedAt + (refreshTokenExpiresIn || DEFAULT_SESSION_MAX_AGE);
+}
+
 /**
  * Returns iron-session options, reading `BFF_SESSION_SECRET` at call time.
  * Throws early with a descriptive error if the secret is absent or too short.
@@ -180,9 +193,8 @@ export function getSessionOptions(refreshTokenExpiresIn?: number): SessionOption
     );
   }
 
-  // Default to 30 days — matches the Go backend's default RefreshTokenTTLDays.
   // Use || not ?? so that 0 (misconfigured backend) also falls back to the default.
-  const maxAge = refreshTokenExpiresIn || 60 * 60 * 24 * 30;
+  const maxAge = refreshTokenExpiresIn || DEFAULT_SESSION_MAX_AGE;
 
   return {
     cookieName: SESSION_COOKIE_NAME,

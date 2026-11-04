@@ -21,6 +21,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 
 import {
   getSessionOptions,
+  refreshExpiresAt,
   tenantIdFromAccessToken,
   SESSION_COOKIE_NAME,
   type SessionPayload,
@@ -135,6 +136,10 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     refreshedSession.accessToken = refreshed.access_token;
     refreshedSession.refreshToken = refreshed.refresh_token;
     refreshedSession.expiresAt = refreshed.issued_at + refreshed.expires_in;
+    refreshedSession.refreshExpiresAt = refreshExpiresAt(
+      refreshed.issued_at,
+      refreshed.refresh_token_expires_in,
+    );
 
     await refreshedSession.save();
 

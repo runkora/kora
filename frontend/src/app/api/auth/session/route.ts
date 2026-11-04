@@ -37,6 +37,7 @@ import { cookies } from 'next/headers';
 
 import {
   getSessionOptions,
+  refreshExpiresAt,
   LAST_TENANT_COOKIE_NAME,
   lastTenantCookieOptions,
   parseTenants,
@@ -243,8 +244,16 @@ export async function POST(request: Request): Promise<Response> {
       // Any 403 or 409 during a switch means the target is not among the matches.
       if (replaced) {
         if (tenants) {
-          replaced.tenants = tenants;
-          await saveWithTenants(replaced);
+          // Re-read with the lifetime sign-in gave the cookie; the default options would reset it.
+          const left = replaced.refreshExpiresAt
+            ? replaced.refreshExpiresAt - Math.floor(Date.now() / 1000)
+            : 0;
+          const kept = await getIronSession<SessionPayload>(
+            cookieStore,
+            getSessionOptions(left > 0 ? left : undefined),
+          );
+          kept.tenants = tenants;
+          await saveWithTenants(kept);
         }
         return Response.json({ error: 'tenant_switch_denied' }, { status: 403 });
       }
@@ -285,6 +294,7 @@ export async function POST(request: Request): Promise<Response> {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     expiresAt: data.issued_at + data.expires_in,
+    refreshExpiresAt: refreshExpiresAt(data.issued_at, data.refresh_token_expires_in),
     // The token's tenant wins: a claim binding can move the person off the
     // tenant Home Realm Discovery picked, which is only a hint.
     tenantId: issuedTenant,

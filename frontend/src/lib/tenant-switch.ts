@@ -24,6 +24,27 @@ export interface SignInState {
   email?: string;
 }
 
+/** Checks the fields the sign-in redirect needs, so a malformed answer fails the switch. */
+function parseDiscover(body: unknown): DiscoverResponse {
+  const d = (body ?? {}) as Partial<Record<keyof DiscoverResponse, unknown>>;
+  const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== '';
+  if (
+    !nonEmpty(d.tenant_id) ||
+    !nonEmpty(d.issuer_url) ||
+    !nonEmpty(d.client_id) ||
+    !Array.isArray(d.scopes) ||
+    !d.scopes.every((x) => typeof x === 'string')
+  ) {
+    throw new Error('tenant discovery returned an incomplete config');
+  }
+  return {
+    tenant_id: d.tenant_id,
+    issuer_url: d.issuer_url,
+    client_id: d.client_id,
+    scopes: d.scopes,
+  };
+}
+
 /** Stores the tenant config for the callback page and redirects to the identity provider. */
 export async function redirectToSignIn(
   cfg: TenantOidcConfig,
@@ -51,7 +72,7 @@ export async function startTenantSwitch({
     headers: { Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`tenant discovery failed: ${res.status}`);
-  const d = (await res.json()) as DiscoverResponse;
+  const d = parseDiscover(await res.json());
   await redirectToSignIn(
     { tenantId: d.tenant_id, issuerUrl: d.issuer_url, clientId: d.client_id, scopes: d.scopes },
     { next: returnPath, tenantId: d.tenant_id, switchTo: tenantId, email },
