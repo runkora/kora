@@ -65,6 +65,10 @@ var (
 	// error also matches ErrUnexpectedStatus.
 	ErrUnavailable = errors.New("github is unavailable or rate-limited")
 
+	// ErrUnauthorized is returned for a 401, or a 403 that is not a rate limit:
+	// GitHub refuses the token.
+	ErrUnauthorized = errors.New("github refused the credential")
+
 	// ErrRateLimited is returned, together with ErrUnavailable, when GitHub
 	// rate-limits the call. Retrying at once does not help.
 	ErrRateLimited = errors.New("github rate limit")
@@ -423,14 +427,17 @@ func transportError(ctx context.Context, err error) error {
 
 // statusError wraps err, the error of a non-2xx response, in ErrUnavailable
 // when the status shows an outage or a rate limit (a rate limit also wraps
-// ErrRateLimited), and in ErrNotFound when the status is one of notFound. Any
-// other status stays unwrapped.
+// ErrRateLimited), in ErrUnauthorized for any other 401 or 403, and in
+// ErrNotFound when the status is one of notFound. Any other status stays
+// unwrapped.
 func statusError(resp *http.Response, err error, notFound ...int) error {
 	switch {
 	case isRateLimited(resp, err):
 		return fmt.Errorf("%w: %w: %w", ErrUnavailable, ErrRateLimited, err)
 	case resp.StatusCode >= http.StatusInternalServerError:
 		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	case resp.StatusCode == http.StatusUnauthorized, resp.StatusCode == http.StatusForbidden:
+		return fmt.Errorf("%w: %w", ErrUnauthorized, err)
 	case slices.Contains(notFound, resp.StatusCode):
 		return fmt.Errorf("%w: %w", ErrNotFound, err)
 	}

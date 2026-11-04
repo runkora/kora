@@ -330,9 +330,9 @@ func (s *Service) list(ctx context.Context, m *Marketplace) (skillList, error) {
 		return skillList{}, err
 	}
 	if failed && f.Source == m.source() {
-		// A stale list stays served while GitHub is failing. A missing
-		// repository or a refused credential fails closed.
-		if cached && errors.Is(f.err(), ErrGitHubFailure) {
+		// A stale list stays served through an outage, timeout or rate limit.
+		// Any other failure fails closed.
+		if cached && f.Transient {
 			return list, nil
 		}
 		return skillList{}, f.err()
@@ -350,23 +350,22 @@ func (s *Service) list(ctx context.Context, m *Marketplace) (skillList, error) {
 	return res.(skillList), nil
 }
 
-// revalidate keeps a stale list when its commit is still current: always for
-// a ref pinned to that commit, otherwise when the ref resolves to it. A
-// changed commit crawls again. A GitHub failure keeps the stale list and is
-// cached, so GitHub is not asked again until it expires.
+// revalidate keeps a stale list when the ref still resolves to its commit.
+// The check mints a token and reads the commit, a pinned one included, so a
+// revoked App, key or repository stops the list being served. A changed
+// commit crawls again. An outage, timeout or rate limit keeps the stale list
+// and is cached, so GitHub is not asked again until it expires.
 func (s *Service) revalidate(ctx context.Context, m *Marketplace, list skillList) (skillList, error) {
-	if m.Ref != list.SHA {
-		sha, err := s.crawler.ResolveCommit(ctx, m)
-		if err != nil {
-			failure := s.crawlFailed(ctx, m, err)
-			if errors.Is(failure, ErrGitHubFailure) {
-				return list, nil
-			}
-			return skillList{}, failure
+	sha, err := s.crawler.ResolveCommit(ctx, m)
+	if err != nil {
+		failure := s.crawlFailed(ctx, m, err)
+		if f, ok := classify(m, err); (ok && f.Transient) || errors.Is(err, context.DeadlineExceeded) {
+			return list, nil
 		}
-		if sha != list.SHA {
-			return s.crawl(ctx, m)
-		}
+		return skillList{}, failure
+	}
+	if sha != list.SHA {
+		return s.crawl(ctx, m)
 	}
 	list.SyncedAt = time.Now().UTC().Truncate(time.Second)
 	s.logger.Info(ctx, "skill marketplace commit unchanged, cached list kept",
@@ -441,11 +440,13 @@ func classify(m *Marketplace, err error) (crawlFailure, bool) {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return f, false
-	case errors.Is(err, ErrCredentialUnavailable):
+	case errors.Is(err, ErrCredentialUnavailable), errors.Is(err, ghclient.ErrUnauthorized):
 		f.Credential = true
 	case errors.Is(err, ghclient.ErrNotFound):
 		f.NotFound = true
-	case errors.Is(err, ghclient.ErrUnavailable), errors.Is(err, ghclient.ErrUnexpectedStatus),
+	case errors.Is(err, ghclient.ErrUnavailable):
+		f.Transient = true
+	case errors.Is(err, ghclient.ErrUnexpectedStatus),
 		errors.Is(err, ghclient.ErrTreeTruncated), errors.Is(err, ghclient.ErrBadCommit),
 		errors.Is(err, httpclient.ErrDecodeBody), errors.Is(err, errNoSkillsRead):
 	default:

@@ -268,3 +268,14 @@ func TestRateLimitIsDistinguished(t *testing.T) {
 		}
 	}
 }
+
+func TestRefusedCredentialIsUnauthorized(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) }))
+		_, err := NewClient(server.URL, logging.NewLogger()).ResolveRef(context.Background(), "t", "o", "r", "main")
+		server.Close()
+		if !errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrUnavailable) {
+			t.Errorf("status %d = %v, want ErrUnauthorized only", status, err)
+		}
+	}
+}

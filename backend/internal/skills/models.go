@@ -106,4 +106,7 @@ type crawlFailure struct {
 	NotFound bool   `json:"notFound,omitempty"`
 	// Credential marks a credential failure; otherwise GitHub failed.
 	Credential bool `json:"credential,omitempty"`
+	// Transient marks an outage, timeout or rate limit, during which a stale
+	// list may still be served.
+	Transient bool `json:"transient,omitempty"`
 }

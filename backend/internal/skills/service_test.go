@@ -490,18 +490,19 @@ func TestList_RevalidatesAnExpiredList(t *testing.T) {
 		t.Error("the kept list was not marked synced")
 	}
 
-	// Pinned to the cached commit: never checked.
+	// Pinned to the cached commit: one call reads the commit, nothing else.
 	m.Ref = testSHA
 	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil {
 		t.Fatal(err)
 	}
 	expire()
-	resolves := crawler.resolves
+	resolves, crawls, fetches := crawler.resolves, crawler.crawls, len(g.fetchedPaths())
 	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil {
 		t.Fatal(err)
 	}
-	if crawler.resolves != resolves {
-		t.Errorf("a pinned commit was resolved")
+	if crawler.resolves != resolves+1 || crawler.crawls != crawls || len(g.fetchedPaths()) != fetches {
+		t.Errorf("pinned commit: resolves +%d, crawls +%d, fetches +%d, want one resolve only",
+			crawler.resolves-resolves, crawler.crawls-crawls, len(g.fetchedPaths())-fetches)
 	}
 
 	// A changed commit crawls again.
@@ -513,7 +514,7 @@ func TestList_RevalidatesAnExpiredList(t *testing.T) {
 	l.SHA = "0000000000000000000000000000000000000000"
 	l.SyncedAt = l.SyncedAt.Add(-time.Hour)
 	store.lists[cacheKey(m, "list")] = l
-	crawls := crawler.crawls
+	crawls = crawler.crawls
 	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil {
 		t.Fatal(err)
 	}
@@ -545,5 +546,35 @@ func TestList_StaleListSurvivesAnOutage(t *testing.T) {
 	delete(store.failures, cacheKey(m, "failure"))
 	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); !errors.Is(err, ErrRepositoryNotFound) {
 		t.Errorf("a removed repository = %v, want ErrRepositoryNotFound", err)
+	}
+}
+
+// A credential that GitHub refuses at revalidation stops serving the cached
+// list, a pinned one included.
+func TestList_RevokedCredentialAtRevalidationFailsClosed(t *testing.T) {
+	for _, ref := range []string{"", testSHA} {
+		ctx := context.Background()
+		m := testMarketplace(t, "example", "team-skills")
+		m.Ref = ref
+		g := sampleRepo()
+		store := newMemStore()
+		svc := NewService(fakeRegistry{"example": {m}}, store, NewCrawler(g, testLimits, discard()), time.Minute, discard())
+		if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil {
+			t.Fatal(err)
+		}
+		l := store.lists[cacheKey(m, "list")]
+		l.SyncedAt = l.SyncedAt.Add(-time.Hour)
+		store.lists[cacheKey(m, "list")] = l
+
+		g.refErr = fmt.Errorf("%w: status 401", ghclient.ErrUnauthorized)
+		for range 2 {
+			_, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10)
+			if !errors.Is(err, ErrCredentialUnavailable) {
+				t.Errorf("ref %q: revoked credential = %v, want ErrCredentialUnavailable", ref, err)
+			}
+			if msg := apiError(err).Message; msg != "The credential for this Marketplace is unavailable." {
+				t.Errorf("message = %q", msg)
+			}
+		}
 	}
 }
