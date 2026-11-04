@@ -98,7 +98,7 @@ The operator rechecks each Secret every five minutes. A fixed or rotated key tak
 
 The operator makes no GitHub call. The Skills page reports what GitHub returns:
 
-*   A missing repository or ref shows as not found. A private repository that the App installation does not cover also shows as not found.
+*   A missing repository or ref shows as not found. A private repository also shows as not found when the App installation does not cover it or the App lacks the **Contents: Read-only** permission.
 *   A key that GitHub rejects or a GitHub outage shows the Marketplace as unavailable.
 
 ## Limits and Caching

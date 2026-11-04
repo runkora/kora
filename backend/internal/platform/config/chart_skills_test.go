@@ -122,7 +122,6 @@ func TestChartSkillsServiceLimits(t *testing.T) {
 }
 
 // Under REGISTRY_ONLY the chart registers api.github.com for skills-service.
-// Under ALLOW_ANY it renders no ServiceEntry.
 func TestChartGitHubServiceEntry(t *testing.T) {
 	out := renderChart(t, "istio:\n  outboundTrafficPolicy: REGISTRY_ONLY\n", "--show-only", "templates/platform/serviceentries.yaml")
 	var found bool

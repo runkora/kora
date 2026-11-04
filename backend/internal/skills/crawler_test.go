@@ -100,8 +100,8 @@ func TestCrawl_Limits(t *testing.T) {
 	}
 }
 
-// The SKILL.md budget keeps skills in path order until the next one would pass
-// it. A zero limit is no cap.
+// The SKILL.md budget skips a skill, in path order, that would pass it and
+// keeps any later one that fits. A zero limit is no cap.
 func TestCrawl_SkillMdBudgetAndNoCap(t *testing.T) {
 	g := repo(map[string]string{
 		"a/SKILL.md": skillMD("a", "A.", strings.Repeat("x", 100)),
@@ -156,6 +156,15 @@ func TestFetchFile(t *testing.T) {
 	}
 	if _, err := c.FetchFile(context.Background(), m, testSHA, skill, SkillFileInfo{Path: "bin.json", Size: 2}); !errors.Is(err, ErrFileNotFound) {
 		t.Errorf("binary file = %v, want ErrFileNotFound", err)
+	}
+	// A tree size that differs from the content, as for a symlink, still reads
+	// within the configured cap.
+	if got, err := c.FetchFile(context.Background(), m, testSHA, skill, SkillFileInfo{Path: "a.md", Size: 0}); err != nil || got != "a" {
+		t.Errorf("FetchFile with a wrong tree size = %q, %v", got, err)
+	}
+	g.files["skills/pdf/big.md"] = strings.Repeat("x", int(testLimits.BytesPerFile)+1)
+	if _, err := c.FetchFile(context.Background(), m, testSHA, skill, SkillFileInfo{Path: "big.md", Size: 1}); !errors.Is(err, ErrFileNotFound) {
+		t.Errorf("file over the cap = %v, want ErrFileNotFound", err)
 	}
 }
 

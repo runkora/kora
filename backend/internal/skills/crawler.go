@@ -235,14 +235,14 @@ func deepestSkill(p string, byPath map[string]*skillFolder) *skillFolder {
 }
 
 // FetchFile fetches one supporting file of skill at sha. A file that turns
-// out not to be text returns ErrFileNotFound.
+// out not to be text, or larger than the read bound, returns ErrFileNotFound.
 func (c *Crawler) FetchFile(ctx context.Context, m *Marketplace, sha string, skill skillRecord, file SkillFileInfo) (string, error) {
 	token, err := m.Token(ctx)
 	if err != nil {
 		return "", err
 	}
 	content, err := c.fetch(ctx, semaphore.NewWeighted(1), token, m, sha, path.Join(skill.Path, file.Path), file.Size)
-	if errors.Is(err, errNotText) {
+	if errors.Is(err, errNotText) || errors.Is(err, ghclient.ErrTooLarge) {
 		return "", fmt.Errorf("%s: %w", file.Path, ErrFileNotFound)
 	}
 	return content, err
@@ -251,7 +251,7 @@ func (c *Crawler) FetchFile(ctx context.Context, m *Marketplace, sha string, ski
 // errNotText is a fetched file that is not UTF-8 text.
 var errNotText = errors.New("file is not UTF-8 text")
 
-// fetch downloads one text file of the size the tree reported.
+// fetch downloads one text file.
 func (c *Crawler) fetch(ctx context.Context, local *semaphore.Weighted, token string, m *Marketplace, sha, p string, size int64) (string, error) {
 	// The per-crawl slot comes first, so a waiting crawl holds no global slot
 	// and cannot starve other tenants.
@@ -264,7 +264,13 @@ func (c *Crawler) fetch(ctx context.Context, local *semaphore.Weighted, token st
 	}
 	defer c.global.Release(1)
 
-	raw, err := c.github.GetRawContent(ctx, token, m.Owner, m.Repo, sha, p, size)
+	// The configured cap bounds the read when there is one. Otherwise the tree's
+	// size does.
+	limit := size
+	if c.limits.BytesPerFile > 0 {
+		limit = c.limits.BytesPerFile
+	}
+	raw, err := c.github.GetRawContent(ctx, token, m.Owner, m.Repo, sha, p, limit)
 	if err != nil {
 		return "", fmt.Errorf("download %s: %w", p, err)
 	}
