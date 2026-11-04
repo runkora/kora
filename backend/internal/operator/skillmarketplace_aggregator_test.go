@@ -491,6 +491,31 @@ func TestSkillMarketplaceAggregator_ConfigMapFailureLeavesStatusesUntouched(t *t
 	}
 }
 
+var errSecretRefused = errors.New("secret write refused")
+
+type failingSecretWrites struct{ client.Client }
+
+func (c failingSecretWrites) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	if _, ok := obj.(*corev1.Secret); ok {
+		return errSecretRefused
+	}
+	return c.Client.Create(ctx, obj, opts...)
+}
+
+// A status must never read Aggregated before the Secret holds the key.
+func TestSkillMarketplaceAggregator_SecretFailureLeavesStatusesUntouched(t *testing.T) {
+	tenant := marketTenant("example", true)
+	m := marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)
+	base := newMarketplaceClient(t, &tenant, &m, appKeySecret(t, exampleNS))
+
+	if err := newTestMarketplaceAggregator(failingSecretWrites{base}).Sync(context.Background()); !errors.Is(err, errSecretRefused) {
+		t.Fatalf("Sync = %v, want the Secret write error", err)
+	}
+	if got := getMarketplace(t, base, client.ObjectKeyFromObject(&m)); got.Status.Phase != "" {
+		t.Errorf("status = %+v, want it untouched", got.Status)
+	}
+}
+
 // concurrentConfigMapWriter lets another writer update the ConfigMap between
 // this writer's read and its patch.
 type concurrentConfigMapWriter struct{ client.Client }

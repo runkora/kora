@@ -160,11 +160,14 @@ func (a *SkillMarketplaceAggregator) Sync(ctx context.Context) error {
 
 	file, verdicts := buildMarketplaces(items.Items, tenants.Items)
 	keys, readErr := a.collectKeys(ctx, items.Items, verdicts)
-	secretErr := a.upsertSecret(ctx, keys)
+	// Without the keys written, no status may claim the Marketplace is served.
+	if err := a.upsertSecret(ctx, keys); err != nil {
+		return errors.Join(readErr, err)
+	}
 	if err := a.upsertConfigMap(ctx, file); err != nil {
 		return err
 	}
-	return errors.Join(readErr, secretErr, a.updateStatuses(ctx, items.Items, verdicts))
+	return errors.Join(readErr, a.updateStatuses(ctx, items.Items, verdicts))
 }
 
 // collectKeys reads the private key of every Marketplace being served. An
