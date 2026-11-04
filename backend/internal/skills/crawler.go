@@ -120,7 +120,8 @@ func (c *Crawler) readSkills(ctx context.Context, token string, m *Marketplace, 
 		g.Go(func() error {
 			raw, err := c.fetch(gctx, token, m, sha, path.Join(f.path, skillFileName), f.size)
 			if err != nil {
-				if errors.Is(err, ghclient.ErrUnavailable) || gctx.Err() != nil {
+				// An outage or a refused credential fails the whole crawl.
+				if errors.Is(err, ghclient.ErrUnavailable) || errors.Is(err, ghclient.ErrUnauthorized) || gctx.Err() != nil {
 					return err
 				}
 				c.skip(gctx, m, f.path, err.Error())
@@ -287,7 +288,12 @@ func (c *Crawler) FetchFile(ctx context.Context, m *Marketplace, sha string, ski
 const retryDelay = 250 * time.Millisecond
 
 func retryable(err error) bool {
-	return !errors.Is(err, ghclient.ErrNotFound) && !errors.Is(err, ghclient.ErrTooLarge) && !errors.Is(err, ghclient.ErrRateLimited)
+	for _, final := range []error{ghclient.ErrNotFound, ghclient.ErrTooLarge, ghclient.ErrRateLimited, ghclient.ErrUnauthorized} {
+		if errors.Is(err, final) {
+			return false
+		}
+	}
+	return true
 }
 
 // errNotText is a fetched file that is not UTF-8 text.
@@ -308,7 +314,7 @@ func (c *Crawler) fetch(ctx context.Context, token string, m *Marketplace, sha, 
 	}
 	raw, err := c.github.GetRawContent(ctx, token, m.Owner, m.Repo, sha, p, limit)
 	// One retry for a failure that may pass. A missing file, a file over its
-	// bound or a rate limit gives the same answer again.
+	// bound, a refused credential or a rate limit gives the same answer again.
 	if err != nil && retryable(err) && ctx.Err() == nil {
 		select {
 		case <-ctx.Done():

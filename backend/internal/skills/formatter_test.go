@@ -160,6 +160,16 @@ func TestParseSkillFrontmatter_Metadata(t *testing.T) {
 			want:    skillFrontmatter{Name: "bom", Description: "B.", Title: "bom", Tags: []string{}, Tools: []string{}},
 		},
 		{
+			name:    "tab comment, commented block key and upper-case null",
+			content: "---\nname: c\ndescription: C.\nversion: 1.0\t# bump\nmetadata: # info\n  version: 1.10\n---\n",
+			want:    skillFrontmatter{Name: "c", Description: "C.", Title: "c", Version: v("1.0"), Tags: []string{}, Tools: []string{}},
+		},
+		{
+			name:    "non-strict YAML with NULL",
+			content: "---\nname: n2\ndescription: Use when: x\nversion: NULL\n---\n",
+			want:    skillFrontmatter{Name: "n2", Description: "Use when: x", Title: "n2", Tags: []string{}, Tools: []string{}},
+		},
+		{
 			name:    "nothing declared",
 			content: "---\nname: bare\ndescription: Bare.\n---\n",
 			want:    skillFrontmatter{Name: "bare", Description: "Bare.", Title: "bare", Tags: []string{}, Tools: []string{}},

@@ -447,7 +447,7 @@ func statusError(resp *http.Response, err error, notFound ...int) error {
 // isRateLimited reports whether a non-2xx response shows a GitHub rate limit:
 // a 429, or a 403 with GitHub's signal (x-ratelimit-remaining 0, a
 // retry-after header, or a "secondary rate limit" message). Any other 403 is,
-// for example, lost access or a file that is too large. err is the error of
+// for example, lost access. err is the error of
 // that response, its text holds the start of GitHub's error body. See
 // https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#exceeding-the-rate-limit
 func isRateLimited(resp *http.Response, err error) bool {

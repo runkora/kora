@@ -461,7 +461,8 @@ func TestGetSkill_CarriesListFields(t *testing.T) {
 }
 
 // An expired list whose commit is unchanged is kept after one ref check. A
-// changed commit crawls again, and a pinned commit is never checked.
+// changed commit crawls again, and a pinned commit is checked with one ref
+// read.
 func TestList_RevalidatesAnExpiredList(t *testing.T) {
 	ctx := context.Background()
 	m := testMarketplace(t, "example", "team-skills")
@@ -576,5 +577,55 @@ func TestList_RevokedCredentialAtRevalidationFailsClosed(t *testing.T) {
 				t.Errorf("message = %q", msg)
 			}
 		}
+	}
+}
+
+// A refused credential during a crawl fails it as a credential failure, it is
+// not a skipped skill.
+func TestCrawl_RefusedCredentialFailsTheCrawl(t *testing.T) {
+	g := sampleRepo()
+	g.failOnce = map[string]error{"skills/pdf/SKILL.md": fmt.Errorf("%w: status 403", ghclient.ErrUnauthorized)}
+	m := testMarketplace(t, "example", "team-skills")
+	svc, _, store := newTestService(t, g, m)
+	if _, err := listOne(context.Background(), svc, "example", "team-skills", "", 0, 10); !errors.Is(err, ErrCredentialUnavailable) {
+		t.Errorf("crawl = %v, want ErrCredentialUnavailable", err)
+	}
+	if _, ok, _ := store.GetList(context.Background(), m); ok {
+		t.Error("a partial list was cached")
+	}
+}
+
+// A changed commit whose crawl hits an outage keeps serving the stale list,
+// and a non-transient failure hides the sync state of GET /marketplaces.
+func TestList_ChangedCommitOutageAndSyncState(t *testing.T) {
+	ctx := context.Background()
+	m := testMarketplace(t, "example", "team-skills")
+	g := sampleRepo()
+	store := newMemStore()
+	svc := NewService(fakeRegistry{"example": {m}}, store, NewCrawler(g, testLimits, discard()), time.Minute, discard())
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil {
+		t.Fatal(err)
+	}
+	l := store.lists[cacheKey(m, "list")]
+	l.SHA = "0000000000000000000000000000000000000000"
+	l.SyncedAt = l.SyncedAt.Add(-time.Hour)
+	store.lists[cacheKey(m, "list")] = l
+
+	g.fetchErr = ghclient.ErrUnavailable
+	for range 2 {
+		if page, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil || page.Total != 6 {
+			t.Errorf("changed commit during an outage = %d, %v, want the stale list", page.Total, err)
+		}
+	}
+
+	g.fetchErr = nil
+	g.refErr = ghclient.ErrNotFound
+	delete(store.failures, cacheKey(m, "failure"))
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); !errors.Is(err, ErrRepositoryNotFound) {
+		t.Fatalf("removed repository = %v", err)
+	}
+	got, err := svc.ListMarketplaces(ctx, "example")
+	if err != nil || got[0].Commit != nil || got[0].SkillCount != nil {
+		t.Errorf("ListMarketplaces after a closed failure = %+v, %v, want null sync state", got, err)
 	}
 }

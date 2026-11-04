@@ -254,9 +254,14 @@ func TestRateLimitIsDistinguished(t *testing.T) {
 		{http.StatusTooManyRequests, "", true},
 		{http.StatusForbidden, "0", true},
 		{http.StatusServiceUnavailable, "", false},
+		{http.StatusForbidden, "retry", true},
 	} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			if tc.header != "" {
+			switch tc.header {
+			case "":
+			case "retry":
+				w.Header().Set("Retry-After", "30")
+			default:
 				w.Header().Set("X-RateLimit-Remaining", tc.header)
 			}
 			w.WriteHeader(tc.status)

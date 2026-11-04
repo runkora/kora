@@ -133,16 +133,23 @@ func firstString(values ...any) string {
 func declaredVersion(value any, line string, decoded bool) *string {
 	s, isString := value.(string)
 	if !isString && (value != nil || !decoded) {
-		s = line
-		if i := strings.Index(s, " #"); i >= 0 {
-			s = s[:i]
-		}
+		s = stripComment(line)
 	}
 	s = strings.TrimPrefix(strings.TrimSpace(unquote(strings.TrimSpace(s))), "v")
-	if s == "" || s == "~" || s == "null" || strings.ContainsAny(s[:1], "[{|>") {
+	if s == "" || s == "~" || strings.EqualFold(s, "null") || strings.ContainsAny(s[:1], "[{|>") {
 		return nil
 	}
 	return &s
+}
+
+// stripComment drops a YAML comment: a "#" at the start or after whitespace.
+func stripComment(s string) string {
+	for i, r := range s {
+		if r == '#' && (i == 0 || s[i-1] == ' ' || s[i-1] == '\t') {
+			return s[:i]
+		}
+	}
+	return s
 }
 
 func firstVersion(versions ...*string) *string {
@@ -232,7 +239,7 @@ func parseFrontmatterLines(lines []string) map[string]any {
 		}
 		if prefix == "" {
 			parent = ""
-			if strings.TrimSpace(val) == "" {
+			if strings.TrimSpace(stripComment(val)) == "" {
 				parent = strings.TrimSpace(key)
 			}
 		}

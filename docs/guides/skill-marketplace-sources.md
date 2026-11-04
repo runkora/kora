@@ -103,7 +103,7 @@ The operator makes no GitHub call. The Skills page reports what GitHub returns:
 
 ## Limits and Caching
 
-skills-service caches each Marketplace's skill list in Redis for 12 hours, separately for each tenant. A change on a tracked branch appears after the cache entry expires. A failed read of the repository is cached for one minute.
+skills-service caches each Marketplace's skill list in Redis, separately for each tenant. After 12 hours it checks the commit the ref points at and reads the repository again only when the commit has changed. A change on a tracked branch appears within 12 hours. During a GitHub outage the cached list stays served for up to 24 hours. A failed read of the repository is cached for one minute.
 
 Opening a skill shows its `SKILL.md` and the list of its other files. skills-service fetches each of those files the first time a member selects it and caches it for 12 hours.
 

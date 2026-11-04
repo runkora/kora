@@ -64,7 +64,6 @@ type Service struct {
 	flights  singleflight.Group
 }
 
-// NewService returns a Service.
 // NewService returns a Service that crawls a Marketplace again, or checks its
 // commit, once its list is older than freshFor.
 func NewService(registry marketplaceFinder, cache skillStore, crawler skillCrawler, freshFor time.Duration, logger logging.Logger) *Service {
@@ -82,9 +81,14 @@ func (s *Service) ListMarketplaces(ctx context.Context, tenantID string) ([]Mark
 		if err != nil {
 			return nil, err
 		}
-		// A Marketplace without a usable key reports no sync state, as browsing
-		// it fails closed.
-		if ok && list.Source == m.source() && m.tokens != nil {
+		f, failed, err := s.cache.GetFailure(ctx, m)
+		if err != nil {
+			return nil, err
+		}
+		// A Marketplace that fails closed, for a missing key or a cached
+		// non-transient failure, reports no sync state.
+		closed := m.tokens == nil || (failed && f.Source == m.source() && !f.Transient)
+		if ok && list.Source == m.source() && !closed {
 			count, synced := len(list.Skills), list.SyncedAt
 			summary.Commit, summary.SyncedAt, summary.SkillCount = &list.SHA, &synced, &count
 		}
@@ -351,30 +355,36 @@ func (s *Service) list(ctx context.Context, m *Marketplace) (skillList, error) {
 }
 
 // revalidate keeps a stale list when the ref still resolves to its commit.
-// The check mints a token and reads the commit, a pinned one included, so a
-// revoked App, key or repository stops the list being served. A changed
-// commit crawls again. An outage, timeout or rate limit keeps the stale list
-// and is cached, so GitHub is not asked again until it expires.
-func (s *Service) revalidate(ctx context.Context, m *Marketplace, list skillList) (skillList, error) {
+// The check reads the commit with an installation token, a pinned commit
+// included, so a revoked App, key or repository stops the list being served.
+// A changed commit crawls again. Through an outage, timeout or rate limit,
+// during the check or the new crawl, the stale list stays served.
+func (s *Service) revalidate(ctx context.Context, m *Marketplace, stale skillList) (skillList, error) {
 	sha, err := s.crawler.ResolveCommit(ctx, m)
 	if err != nil {
-		failure := s.crawlFailed(ctx, m, err)
-		if f, ok := classify(m, err); (ok && f.Transient) || errors.Is(err, context.DeadlineExceeded) {
-			return list, nil
+		return s.keepOnOutage(ctx, m, stale, err)
+	}
+	if sha != stale.SHA {
+		list, err := s.crawler.Crawl(ctx, m)
+		if err != nil {
+			return s.keepOnOutage(ctx, m, stale, err)
 		}
-		return skillList{}, failure
+		s.stored(ctx, m, list, "skill marketplace crawled")
+		return list, nil
 	}
-	if sha != list.SHA {
-		return s.crawl(ctx, m)
+	stale.SyncedAt = time.Now().UTC().Truncate(time.Second)
+	s.stored(ctx, m, stale, "skill marketplace commit unchanged, cached list kept")
+	return stale, nil
+}
+
+// keepOnOutage records a failed check or crawl and keeps the stale list when
+// the failure may pass. Any other failure fails closed.
+func (s *Service) keepOnOutage(ctx context.Context, m *Marketplace, stale skillList, err error) (skillList, error) {
+	failure := s.crawlFailed(ctx, m, err)
+	if f, ok := classify(m, err); (ok && f.Transient) || errors.Is(err, context.DeadlineExceeded) {
+		return stale, nil
 	}
-	list.SyncedAt = time.Now().UTC().Truncate(time.Second)
-	s.logger.Info(ctx, "skill marketplace commit unchanged, cached list kept",
-		logging.Field{Key: "tenant", Value: m.TenantID},
-		logging.Field{Key: "marketplace", Value: m.Slug},
-		logging.Field{Key: "commit", Value: list.SHA},
-	)
-	s.setList(ctx, m, list)
-	return list, nil
+	return skillList{}, failure
 }
 
 // crawl reads the Marketplace from GitHub and caches the result.
@@ -383,14 +393,19 @@ func (s *Service) crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 	if err != nil {
 		return skillList{}, s.crawlFailed(ctx, m, err)
 	}
-	s.logger.Info(ctx, "skill marketplace crawled",
+	s.stored(ctx, m, list, "skill marketplace crawled")
+	return list, nil
+}
+
+// stored logs and caches a crawled or kept list.
+func (s *Service) stored(ctx context.Context, m *Marketplace, list skillList, message string) {
+	s.logger.Info(ctx, message,
 		logging.Field{Key: "tenant", Value: m.TenantID},
 		logging.Field{Key: "marketplace", Value: m.Slug},
 		logging.Field{Key: "commit", Value: list.SHA},
 		logging.Field{Key: "skills", Value: len(list.Skills)},
 	)
 	s.setList(ctx, m, list)
-	return list, nil
 }
 
 func (s *Service) setList(ctx context.Context, m *Marketplace, list skillList) {
@@ -418,7 +433,7 @@ func (s *Service) detached(ctx context.Context, key string, fn func(context.Cont
 // crawlFailed logs a failed crawl, caches it when GitHub or the credential
 // caused it, and returns the error the API maps.
 func (s *Service) crawlFailed(ctx context.Context, m *Marketplace, err error) error {
-	s.logger.Warn(ctx, "skill marketplace crawl failed",
+	s.logger.Warn(ctx, "skill marketplace read failed",
 		logging.Field{Key: "tenant", Value: m.TenantID},
 		logging.Field{Key: "marketplace", Value: m.Slug},
 		logging.Field{Key: "error", Value: err.Error()},
