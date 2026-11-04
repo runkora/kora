@@ -495,24 +495,46 @@ var errSecretRefused = errors.New("secret write refused")
 
 type failingSecretWrites struct{ client.Client }
 
-func (c failingSecretWrites) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+func (c failingSecretWrites) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 	if _, ok := obj.(*corev1.Secret); ok {
 		return errSecretRefused
 	}
-	return c.Client.Create(ctx, obj, opts...)
+	return c.Client.Patch(ctx, obj, patch, opts...)
 }
 
-// A status must never read Aggregated before the Secret holds the key.
-func TestSkillMarketplaceAggregator_SecretFailureLeavesStatusesUntouched(t *testing.T) {
+// While the Secret cannot be written, a Marketplace whose key is already there
+// stays served, a removed one leaves the ConfigMap, and a new one is not
+// served.
+func TestSkillMarketplaceAggregator_SecretFailureStillPropagatesRemovals(t *testing.T) {
+	ctx := context.Background()
 	tenant := marketTenant("example", true)
-	m := marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)
-	base := newMarketplaceClient(t, &tenant, &m, appKeySecret(t, exampleNS))
+	kept := marketSrc(exampleNS, "kept", "example-org", "kept", marketplaceT0)
+	removed := marketSrc(exampleNS, "removed", "example-org", "removed", marketplaceT0)
+	base := newMarketplaceClient(t, &tenant, &kept, &removed, appKeySecret(t, exampleNS))
+	if err := newTestMarketplaceAggregator(base).Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
 
-	if err := newTestMarketplaceAggregator(failingSecretWrites{base}).Sync(context.Background()); !errors.Is(err, errSecretRefused) {
+	if err := base.Delete(ctx, getMarketplace(t, base, client.ObjectKeyFromObject(&removed))); err != nil {
+		t.Fatal(err)
+	}
+	added := marketSrc(exampleNS, "added", "example-org", "added", laterBy(marketplaceT0, 5))
+	if err := base.Create(ctx, &added); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := newTestMarketplaceAggregator(failingSecretWrites{base}).Sync(ctx); !errors.Is(err, errSecretRefused) {
 		t.Fatalf("Sync = %v, want the Secret write error", err)
 	}
-	if got := getMarketplace(t, base, client.ObjectKeyFromObject(&m)); got.Status.Phase != "" {
-		t.Errorf("status = %+v, want it untouched", got.Status)
+	if got := slugs(readMarketplaceFile(t, base)); !reflect.DeepEqual(got, map[string][]string{"example": {"kept"}}) {
+		t.Errorf("file = %v, want only kept", got)
+	}
+	assertMarketplaceStatus(t, getMarketplace(t, base, client.ObjectKeyFromObject(&kept)),
+		SkillMarketplacePhaseAggregated, MarketplaceReasonAggregated, metav1.ConditionTrue)
+	cond := assertMarketplaceStatus(t, getMarketplace(t, base, client.ObjectKeyFromObject(&added)),
+		SkillMarketplacePhasePending, MarketplaceReasonCredentialUnavailable, metav1.ConditionFalse)
+	if !strings.Contains(cond.Message, "could not be written") {
+		t.Errorf("message = %q, want it to say the key could not be written", cond.Message)
 	}
 }
 

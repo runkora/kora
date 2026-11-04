@@ -18,11 +18,13 @@
 package operator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 	corev1 "k8s.io/api/core/v1"
@@ -62,7 +64,8 @@ func (v marketplaceVerdict) aggregated() bool {
 //  3. An older Marketplace in the namespace holds the repository: Invalid,
 //     DuplicateRepository.
 //  4. Otherwise: Aggregated. Sync downgrades the reason to
-//     CredentialUnavailable when the key cannot be read.
+//     CredentialUnavailable when the key cannot be read, and to Pending with
+//     CredentialUnavailable when the key cannot be written.
 //
 // Older is declaredBefore. Each tenant's Marketplaces render oldest first,
 // which is the order skills-service lists them in.
@@ -147,7 +150,8 @@ func NewSkillMarketplaceAggregator(c client.Client, logger logging.Logger) *Skil
 }
 
 // Sync writes the Secret, then the ConfigMap, then each changed status, so a
-// status never reads Aggregated before skills-service can see the Marketplace.
+// status never reads Aggregated before skills-service can see the Marketplace
+// and its key.
 func (a *SkillMarketplaceAggregator) Sync(ctx context.Context) error {
 	tenants := &OrbitTenantList{}
 	if err := a.client.List(ctx, tenants); err != nil {
@@ -160,14 +164,39 @@ func (a *SkillMarketplaceAggregator) Sync(ctx context.Context) error {
 
 	file, verdicts := buildMarketplaces(items.Items, tenants.Items)
 	keys, readErr := a.collectKeys(ctx, items.Items, verdicts)
-	// Without the keys written, no status may claim the Marketplace is served.
-	if err := a.upsertSecret(ctx, keys); err != nil {
-		return errors.Join(readErr, err)
+	secretErr := a.upsertSecret(ctx, keys)
+	if secretErr != nil {
+		file = withholdUnwrittenKeys(file, verdicts, keys, a.aggregatedKeys(ctx))
 	}
 	if err := a.upsertConfigMap(ctx, file); err != nil {
 		return err
 	}
-	return errors.Join(readErr, a.updateStatuses(ctx, items.Items, verdicts))
+	return errors.Join(readErr, secretErr, a.updateStatuses(ctx, items.Items, verdicts))
+}
+
+// withholdUnwrittenKeys runs after a failed Secret write. It drops from file
+// every Marketplace whose key the Secret does not already hold, so the
+// ConfigMap still drops removed Marketplaces without naming a key
+// skills-service lacks. A dropped Marketplace reports CredentialUnavailable.
+func withholdUnwrittenKeys(file marketplace.File, verdicts map[client.ObjectKey]marketplaceVerdict, want, written map[string][]byte) marketplace.File {
+	out := marketplace.File{Tenants: make([]marketplace.Tenant, 0, len(file.Tenants))}
+	for _, tenant := range file.Tenants {
+		kept := marketplace.Tenant{ID: tenant.ID}
+		for _, m := range tenant.Marketplaces {
+			key, ok := want[m.PrivateKeySecretKey]
+			if !ok || bytes.Equal(key, written[m.PrivateKeySecretKey]) {
+				kept.Marketplaces = append(kept.Marketplaces, m)
+				continue
+			}
+			namespace, name, _ := strings.Cut(m.PrivateKeySecretKey, ".")
+			verdicts[client.ObjectKey{Namespace: namespace, Name: name}] = marketplaceVerdict{SkillMarketplacePhasePending, MarketplaceReasonCredentialUnavailable,
+				fmt.Sprintf("the private key could not be written to %s", marketplace.SecretName)}
+		}
+		if len(kept.Marketplaces) > 0 {
+			out.Tenants = append(out.Tenants, kept)
+		}
+	}
+	return out
 }
 
 // collectKeys reads the private key of every Marketplace being served. An
