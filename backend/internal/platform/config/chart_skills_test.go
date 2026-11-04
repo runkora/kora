@@ -3,6 +3,7 @@ package config_test
 import (
 	"fmt"
 	"maps"
+	"strings"
 	"path/filepath"
 	"testing"
 
@@ -78,21 +79,6 @@ func TestChartSkillsServiceWiring(t *testing.T) {
 	if sources["skill-marketplaces"] != marketplace.ConfigMapName || sources["skill-marketplace-secrets"] != marketplace.SecretName {
 		t.Errorf("volumes = %v, want the operator's ConfigMap and Secret", sources)
 	}
-	var entry struct {
-		Spec struct {
-			Hosts    []string `json:"hosts"`
-			Location string   `json:"location"`
-			Ports    []struct {
-				Number   int    `json:"number"`
-				Protocol string `json:"protocol"`
-			} `json:"ports"`
-		} `json:"spec"`
-	}
-	decode("templates/skills-service/serviceentry.yaml", &entry)
-	if len(entry.Spec.Hosts) != 1 || entry.Spec.Hosts[0] != "api.github.com" || entry.Spec.Location != "MESH_EXTERNAL" ||
-		len(entry.Spec.Ports) != 1 || entry.Spec.Ports[0].Number != 443 || entry.Spec.Ports[0].Protocol != "TLS" {
-		t.Errorf("ServiceEntry = %+v, want api.github.com:443 TLS, mesh external", entry.Spec)
-	}
 	var service corev1.Service
 	decode("templates/skills-service/service.yaml", &service)
 	if len(service.Spec.Ports) != 1 || service.Spec.Ports[0].Port != port || service.Spec.Ports[0].TargetPort.IntVal != port {
@@ -132,5 +118,38 @@ func TestChartSkillsServiceLimits(t *testing.T) {
 	want["filesPerSkill"] = 0
 	if got := render("skillsService:\n  limits:\n    filesPerSkill:\n"); !maps.Equal(got, want) {
 		t.Errorf("empty filesPerSkill = %v, want %v", got, want)
+	}
+}
+
+// Under REGISTRY_ONLY the chart registers api.github.com for skills-service.
+// Under ALLOW_ANY it renders no ServiceEntry.
+func TestChartGitHubServiceEntry(t *testing.T) {
+	out := renderChart(t, "istio:\n  outboundTrafficPolicy: REGISTRY_ONLY\n", "--show-only", "templates/platform/serviceentries.yaml")
+	var found bool
+	for doc := range strings.SplitSeq(out, "\n---\n") {
+		var entry struct {
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+			Spec struct {
+				Hosts    []string `json:"hosts"`
+				Location string   `json:"location"`
+				Ports    []struct {
+					Number   int    `json:"number"`
+					Protocol string `json:"protocol"`
+				} `json:"ports"`
+			} `json:"spec"`
+		}
+		if err := yaml.Unmarshal([]byte(doc), &entry); err != nil || entry.Metadata.Name != "kora-github-api" {
+			continue
+		}
+		found = true
+		if len(entry.Spec.Hosts) != 1 || entry.Spec.Hosts[0] != "api.github.com" || entry.Spec.Location != "MESH_EXTERNAL" ||
+			len(entry.Spec.Ports) != 1 || entry.Spec.Ports[0].Number != 443 || entry.Spec.Ports[0].Protocol != "TLS" {
+			t.Errorf("ServiceEntry = %+v, want api.github.com:443 TLS, mesh external", entry.Spec)
+		}
+	}
+	if !found {
+		t.Errorf("no kora-github-api ServiceEntry under REGISTRY_ONLY:\n%s", out)
 	}
 }

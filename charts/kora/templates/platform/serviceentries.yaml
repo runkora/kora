@@ -1,7 +1,7 @@
 {{- if eq .Values.istio.outboundTrafficPolicy "REGISTRY_ONLY" }}
-# Under REGISTRY_ONLY the mesh drops calls to unknown hosts. Covers only the
-# external hosts derivable from values. The operator registers model provider
-# hosts.
+# Under REGISTRY_ONLY the mesh drops calls to unknown hosts. Covers the
+# external hosts derivable from values and the GitHub API skills-service reads.
+# The operator registers model provider hosts.
 {{- $ns := include "kora.systemNamespace" . }}
 {{- $db := .Values.config.db.host }}
 {{- if and $db (contains "." $db) (not (contains ".svc" $db)) (not (eq (regexFind "^[0-9.]+$" $db) $db)) }}
@@ -43,4 +43,21 @@ spec:
       name: tcp-redis
       protocol: TCP
 {{- end }}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: kora-github-api
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  hosts:
+    - api.github.com
+  location: MESH_EXTERNAL
+  resolution: DNS
+  ports:
+    - number: 443
+      name: tls-443
+      protocol: TLS
 {{- end }}
