@@ -256,17 +256,18 @@ func (c *Crawler) FetchFiles(ctx context.Context, m *Marketplace, sha string, sk
 // errNotText is a fetched file that is not UTF-8 text.
 var errNotText = errors.New("file is not UTF-8 text")
 
-// fetch downloads one text file within bytesPerFile, holding the global and
-// the per-crawl semaphores.
+// fetch downloads one text file within bytesPerFile.
 func (c *Crawler) fetch(ctx context.Context, local *semaphore.Weighted, token string, m *Marketplace, sha, p string) (string, error) {
-	if err := c.global.Acquire(ctx, 1); err != nil {
-		return "", err
-	}
-	defer c.global.Release(1)
+	// The per-crawl slot comes first, so a waiting crawl holds no global slot
+	// and cannot starve other tenants.
 	if err := local.Acquire(ctx, 1); err != nil {
 		return "", err
 	}
 	defer local.Release(1)
+	if err := c.global.Acquire(ctx, 1); err != nil {
+		return "", err
+	}
+	defer c.global.Release(1)
 
 	raw, err := c.github.GetRawContent(ctx, token, m.Owner, m.Repo, sha, p, c.limits.BytesPerFile)
 	if err != nil {

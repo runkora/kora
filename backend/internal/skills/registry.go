@@ -41,10 +41,10 @@ func (m *Marketplace) Summary() MarketplaceSummary {
 	return MarketplaceSummary{Slug: m.Slug, Name: m.Repo, Repository: m.Owner + "/" + m.Repo}
 }
 
-// source identifies what a crawl reads, so a cache entry from another
-// repository or ref is ignored.
+// source identifies what a crawl reads and with which App installation, so a
+// cache entry from another repository, ref or credential is ignored.
 func (m *Marketplace) source() string {
-	return m.Owner + "/" + m.Repo + "@" + m.Ref
+	return fmt.Sprintf("%s/%s@%s app %s/%d", m.Owner, m.Repo, m.Ref, m.AppID, m.InstallationID)
 }
 
 // Token returns an installation token that reads only this repository.

@@ -49,6 +49,9 @@ type marketplaceVerdict struct {
 	phase   string
 	reason  string
 	message string
+	// hold keeps the current status: the key could not be read and no earlier
+	// copy is aggregated, so the run cannot say whether it is served.
+	hold bool
 }
 
 func (v marketplaceVerdict) aggregated() bool {
@@ -86,13 +89,13 @@ func buildMarketplaces(items []SkillMarketplace, tenants []KoraTenant) (marketpl
 		key := client.ObjectKeyFromObject(m)
 		if m.Namespace == systemNamespace {
 			verdicts[key] = marketplaceVerdict{SkillMarketplacePhaseInvalid, MarketplaceReasonGlobalSourcesNotSupported,
-				fmt.Sprintf("Marketplaces in %s are not supported; apply it in a tenant namespace", systemNamespace)}
+				fmt.Sprintf("Marketplaces in %s are not supported; apply it in a tenant namespace", systemNamespace), false}
 			continue
 		}
 		tenant, ok := owner[m.Namespace]
 		if !ok {
 			verdicts[key] = marketplaceVerdict{SkillMarketplacePhasePending, MarketplaceReasonTenantNotActive,
-				fmt.Sprintf("namespace %q has no active KoraTenant", m.Namespace)}
+				fmt.Sprintf("namespace %q has no active KoraTenant", m.Namespace), false}
 			continue
 		}
 		if heldRepos[m.Namespace] == nil {
@@ -101,7 +104,7 @@ func buildMarketplaces(items []SkillMarketplace, tenants []KoraTenant) (marketpl
 		repo := m.Spec.GitHub.repoKey()
 		if holder, taken := heldRepos[m.Namespace][repo]; taken {
 			verdicts[key] = marketplaceVerdict{SkillMarketplacePhaseInvalid, MarketplaceReasonDuplicateRepository,
-				fmt.Sprintf("%s is already registered by older Marketplace %q", repo, holder)}
+				fmt.Sprintf("%s is already registered by older Marketplace %q", repo, holder), false}
 			continue
 		}
 		heldRepos[m.Namespace][repo] = m.Name
@@ -117,7 +120,7 @@ func buildMarketplaces(items []SkillMarketplace, tenants []KoraTenant) (marketpl
 			PrivateKeySecretKey: marketplace.SecretKey(m.Namespace, m.Name),
 		})
 		verdicts[key] = marketplaceVerdict{SkillMarketplacePhaseAggregated, MarketplaceReasonAggregated,
-			fmt.Sprintf("rendered for tenant %q into %s", tenant, marketplace.ConfigMapName)}
+			fmt.Sprintf("rendered for tenant %q into %s", tenant, marketplace.ConfigMapName), false}
 	}
 
 	ids := make([]string, 0, len(rendered))
@@ -194,10 +197,13 @@ func (a *SkillMarketplaceAggregator) collectKeys(ctx context.Context, items []Sk
 		case err == nil:
 			data[dataKey] = pem
 		case errors.Is(err, ErrMarketplaceCredentialUnavailable):
-			verdicts[objKey] = marketplaceVerdict{v.phase, MarketplaceReasonCredentialUnavailable, v.message + "; " + err.Error()}
+			verdicts[objKey] = marketplaceVerdict{phase: v.phase, reason: MarketplaceReasonCredentialUnavailable, message: v.message + "; " + err.Error()}
 		default:
 			if old, ok := previous[dataKey]; ok {
 				data[dataKey] = old
+			} else {
+				v.hold = true
+				verdicts[objKey] = v
 			}
 			errs = append(errs, fmt.Errorf("SkillMarketplace %s: %w", objKey, err))
 		}
@@ -250,6 +256,9 @@ func (a *SkillMarketplaceAggregator) updateStatuses(ctx context.Context, items [
 	for i := range items {
 		m := &items[i]
 		v := verdicts[client.ObjectKeyFromObject(m)]
+		if v.hold {
+			continue
+		}
 		if v.reason != MarketplaceReasonAggregated {
 			a.logger.Warn(ctx, "SkillMarketplace not served",
 				logging.Field{Key: "marketplace", Value: m.Name},

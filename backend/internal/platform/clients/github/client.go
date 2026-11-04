@@ -55,8 +55,8 @@ var (
 	ErrInstallationPermissions = errors.New("github installation lacks the requested permission level")
 
 	// ErrTreeTruncated is returned when GitHub marks a Trees API response
-	// truncated: the repository has more than 100,000 entries or the tree
-	// exceeds 7 MB. A partial tree cannot be filtered safely.
+	// truncated, or the response is over maxTreeBytes. A partial tree cannot
+	// be filtered safely.
 	ErrTreeTruncated = errors.New("github tree response was truncated")
 
 	// ErrUnavailable is returned by CreateInstallationToken, ResolveRef, GetTree
@@ -103,8 +103,8 @@ type TreeEntry struct {
 	Size int64  `json:"size"`
 }
 
-// maxTreeBytes bounds a tree response. GitHub truncates trees over 7 MB.
-const maxTreeBytes = 8 << 20
+// maxTreeBytes bounds a tree response. A larger tree returns ErrTreeTruncated.
+const maxTreeBytes = 16 << 20
 
 // treeResponse is the wire shape of GET /repos/{org}/{repo}/git/trees/{ref}?recursive=1.
 type treeResponse struct {
@@ -351,12 +351,16 @@ func (c *Client) GetTree(ctx context.Context, token, owner, repo, sha string) ([
 	if resp.StatusCode != http.StatusOK {
 		return nil, statusError(resp, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus), http.StatusNotFound)
 	}
+	limited := &io.LimitedReader{R: resp.Body, N: maxTreeBytes}
 	resp.Body = struct {
 		io.Reader
 		io.Closer
-	}{io.LimitReader(resp.Body, maxTreeBytes), resp.Body}
+	}{limited, resp.Body}
 	var body treeResponse
 	if err := c.DecodeJSON(span, resp, &body); err != nil {
+		if limited.N == 0 {
+			return nil, c.RecordError(span, ErrTreeTruncated)
+		}
 		return nil, err
 	}
 	if body.Truncated {

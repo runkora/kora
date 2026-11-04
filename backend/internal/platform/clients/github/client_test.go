@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -164,6 +165,16 @@ func TestGetTree(t *testing.T) {
 	}
 	if _, err := client.GetTree(context.Background(), "truncated", "org", "repo", "abc"); !errors.Is(err, ErrTreeTruncated) {
 		t.Errorf("truncated tree = %v, want ErrTreeTruncated", err)
+	}
+}
+
+func TestGetTree_OverTheByteCap(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"tree":[{"path":"` + strings.Repeat("a", maxTreeBytes) + `","type":"blob"}]}`))
+	}))
+	defer server.Close()
+	if _, err := NewClient(server.URL, logging.NewLogger()).GetTree(context.Background(), "t", "org", "repo", "abc"); !errors.Is(err, ErrTreeTruncated) {
+		t.Errorf("GetTree over the cap = %v, want ErrTreeTruncated", err)
 	}
 }
 

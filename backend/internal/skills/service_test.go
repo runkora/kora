@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync"
 	"testing"
 
 	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
@@ -200,5 +201,59 @@ func TestListSkills_RemovedKeyFailsClosed(t *testing.T) {
 	}
 	if _, err := svc.GetSkill(ctx, "example", "team-skills", "skills/pdf"); !errors.Is(err, ErrCredentialUnavailable) {
 		t.Errorf("GetSkill = %v, want ErrCredentialUnavailable", err)
+	}
+}
+
+// blockingCrawler holds every crawl until release is closed.
+type blockingCrawler struct {
+	skillCrawler
+	release chan struct{}
+	mu      sync.Mutex
+	crawls  int
+}
+
+func (b *blockingCrawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) {
+	b.mu.Lock()
+	b.crawls++
+	b.mu.Unlock()
+	<-b.release
+	return b.skillCrawler.Crawl(ctx, m)
+}
+
+// Concurrent callers share one crawl, and a caller that gives up does not
+// stop it: the result still reaches the cache.
+func TestListSkills_SharedDetachedCrawl(t *testing.T) {
+	m := testMarketplace(t, "example", "team-skills")
+	crawler := &blockingCrawler{skillCrawler: NewCrawler(sampleRepo(), testLimits, discard()), release: make(chan struct{})}
+	store := newMemStore()
+	svc := NewService(fakeRegistry{"example": {m}}, store, crawler, discard())
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	errs := make(chan error, 3)
+	go func() {
+		_, err := svc.ListSkills(cancelled, "example", "team-skills", "", 0, 25)
+		errs <- err
+	}()
+	for range 2 {
+		go func() {
+			_, err := svc.ListSkills(context.Background(), "example", "team-skills", "", 0, 25)
+			errs <- err
+		}()
+	}
+	cancel()
+	if err := <-errs; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled caller = %v, want context.Canceled", err)
+	}
+	close(crawler.release)
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if crawler.crawls != 1 {
+		t.Errorf("crawls = %d, want 1", crawler.crawls)
+	}
+	if _, ok, _ := store.GetList(context.Background(), m); !ok {
+		t.Error("the shared crawl did not reach the cache")
 	}
 }

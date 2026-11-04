@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -148,7 +149,7 @@ func (s *Service) list(ctx context.Context, m *Marketplace) (skillList, error) {
 		return skillList{}, f.err()
 	}
 
-	res, err := s.detached(ctx, "list/"+m.TenantID+"/"+m.Slug, func(ctx context.Context) (any, error) {
+	res, err := s.detached(ctx, "list/"+m.TenantID+"/"+m.Slug+"/"+m.source(), func(ctx context.Context) (any, error) {
 		list, err := s.crawler.Crawl(ctx, m)
 		if err != nil {
 			return nil, s.crawlFailed(ctx, m, err)
@@ -237,7 +238,8 @@ func classify(m *Marketplace, err error) (crawlFailure, bool) {
 	case errors.Is(err, ghclient.ErrNotFound):
 		f.NotFound = true
 	case errors.Is(err, ghclient.ErrUnavailable), errors.Is(err, ghclient.ErrUnexpectedStatus),
-		errors.Is(err, ghclient.ErrTreeTruncated), errors.Is(err, ghclient.ErrBadCommit):
+		errors.Is(err, ghclient.ErrTreeTruncated), errors.Is(err, ghclient.ErrBadCommit),
+		errors.Is(err, httpclient.ErrDecodeBody):
 	default:
 		return f, false
 	}

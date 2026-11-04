@@ -445,6 +445,24 @@ func TestSkillMarketplaceAggregator_FailedReadKeepsThePreviousKey(t *testing.T) 
 	}
 }
 
+// A failed first read leaves the status alone: the Secret holds no key, so the
+// Marketplace must not read Aggregated.
+func TestSkillMarketplaceAggregator_FailedFirstReadHoldsTheStatus(t *testing.T) {
+	tenant := marketTenant("example", true)
+	m := marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)
+	base := newMarketplaceClient(t, &tenant, &m, appKeySecret(t, exampleNS))
+
+	if err := newTestMarketplaceAggregator(failingKeyReads{base}).Sync(context.Background()); !errors.Is(err, errSecretRead) {
+		t.Fatalf("Sync = %v, want the read error", err)
+	}
+	if got := getMarketplace(t, base, client.ObjectKeyFromObject(&m)); got.Status.Phase != "" {
+		t.Errorf("status = %+v, want it untouched", got.Status)
+	}
+	if got := readMarketplaceSecret(t, base); len(got) != 0 {
+		t.Errorf("Secret holds %d keys, want none", len(got))
+	}
+}
+
 // Both reconcilers run Sync often; an unchanged verdict must not write again.
 func TestSkillMarketplaceAggregator_UnchangedVerdictSkipsStatusWrite(t *testing.T) {
 	ctx := context.Background()
