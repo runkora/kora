@@ -19,10 +19,9 @@ import (
 
 const (
 	skillFileName = "SKILL.md"
-	// perCrawlFetches bounds concurrent file fetches of one crawl.
+	// perCrawlFetches bounds concurrent SKILL.md fetches of one crawl.
 	perCrawlFetches = 10
-	// globalFetches bounds concurrent file fetches across the process, which
-	// share GitHub rate limits.
+	// globalFetches bounds concurrent file fetches across the process.
 	globalFetches = 50
 )
 
@@ -81,7 +80,7 @@ func NewCrawler(github githubReader, limits Limits, logger logging.Logger) *Craw
 }
 
 // Crawl resolves the Marketplace ref to one commit, reads the tree at that
-// commit and fetches every SKILL.md. Skills come back in title order.
+// commit and fetches every SKILL.md. Skills come back in path order.
 func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) {
 	token, err := m.Token(ctx)
 	if err != nil {
@@ -109,16 +108,17 @@ func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 	return skillList{Source: m.source(), SHA: sha, SyncedAt: time.Now().UTC().Truncate(time.Second), Skills: skills}, nil
 }
 
-// readSkills fetches and parses every folder's SKILL.md in path order. A skill
-// that cannot be read is skipped and logged. An outage aborts.
+// readSkills fetches and parses every folder's SKILL.md and returns the
+// skills in path order. A skill that cannot be read is skipped and logged. An
+// outage aborts.
 func (c *Crawler) readSkills(ctx context.Context, token string, m *Marketplace, sha string, folders []skillFolder) ([]skillRecord, error) {
 	records := make([]skillRecord, len(folders))
 	found := make([]bool, len(folders))
-	perCrawl := semaphore.NewWeighted(perCrawlFetches)
 	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(perCrawlFetches)
 	for i, f := range folders {
 		g.Go(func() error {
-			raw, err := c.fetch(gctx, perCrawl, token, m, sha, path.Join(f.path, skillFileName), f.size)
+			raw, err := c.fetch(gctx, token, m, sha, path.Join(f.path, skillFileName), f.size)
 			if err != nil {
 				if errors.Is(err, ghclient.ErrUnavailable) || gctx.Err() != nil {
 					return err
@@ -143,28 +143,12 @@ func (c *Crawler) readSkills(ctx context.Context, token string, m *Marketplace, 
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
-
-	// folders are in path order, so the budget keeps the same skills as the
-	// selection by tree size.
 	skills := make([]skillRecord, 0, len(records))
-	var read int64
 	for i, r := range records {
-		if !found[i] {
-			continue
+		if found[i] {
+			skills = append(skills, r)
 		}
-		if over(read+int64(len(r.Content)), c.limits.SkillMdBytesPerMarketplace) {
-			c.skip(ctx, m, r.Path, fmt.Sprintf("over skillMdBytesPerMarketplace (%d)", c.limits.SkillMdBytesPerMarketplace))
-			continue
-		}
-		read += int64(len(r.Content))
-		skills = append(skills, r)
 	}
-	slices.SortFunc(skills, func(a, b skillRecord) int {
-		if n := strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title)); n != 0 {
-			return n
-		}
-		return strings.Compare(a.Path, b.Path)
-	})
 	return skills, nil
 }
 
@@ -292,7 +276,7 @@ func (c *Crawler) FetchFile(ctx context.Context, m *Marketplace, sha string, ski
 	if err != nil {
 		return "", err
 	}
-	content, err := c.fetch(ctx, semaphore.NewWeighted(1), token, m, sha, path.Join(skill.Path, file.Path), file.Size)
+	content, err := c.fetch(ctx, token, m, sha, path.Join(skill.Path, file.Path), file.Size)
 	if errors.Is(err, errNotText) || errors.Is(err, ghclient.ErrTooLarge) {
 		return "", fmt.Errorf("%s: %w", file.Path, ErrFileNotFound)
 	}
@@ -310,13 +294,7 @@ func retryable(err error) bool {
 var errNotText = errors.New("file is not UTF-8 text")
 
 // fetch downloads one text file.
-func (c *Crawler) fetch(ctx context.Context, local *semaphore.Weighted, token string, m *Marketplace, sha, p string, size int64) (string, error) {
-	// The per-crawl slot comes first, so a waiting crawl holds no global slot
-	// and cannot starve other tenants.
-	if err := local.Acquire(ctx, 1); err != nil {
-		return "", err
-	}
-	defer local.Release(1)
+func (c *Crawler) fetch(ctx context.Context, token string, m *Marketplace, sha, p string, size int64) (string, error) {
 	if err := c.global.Acquire(ctx, 1); err != nil {
 		return "", err
 	}

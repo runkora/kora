@@ -22,7 +22,7 @@ func crawlNames(l skillList) []string {
 }
 
 // A crawl resolves the ref once and reads the tree and every file at that
-// commit. Skills are identified by folder and sorted by name, ignoring case.
+// commit. Skills are identified by folder and come back in path order.
 func TestCrawl(t *testing.T) {
 	g := repo(map[string]string{
 		"SKILL.md":                    skillMD("root", "at the root", ""),
@@ -47,7 +47,7 @@ func TestCrawl(t *testing.T) {
 	if list.SHA != testSHA || !slices.Equal(g.refs, []string{"main"}) {
 		t.Errorf("SHA %q refs %v, want the ref resolved once", list.SHA, g.refs)
 	}
-	if want := []string{"skills/Alpha=Alpha", "skills/pdf/nested=nested", "other/pdf=pdf", "skills/pdf=pdf"}; !slices.Equal(crawlNames(list), want) {
+	if want := []string{"other/pdf=pdf", "skills/Alpha=Alpha", "skills/pdf=pdf", "skills/pdf/nested=nested"}; !slices.Equal(crawlNames(list), want) {
 		t.Errorf("skills = %v, want %v", crawlNames(list), want)
 	}
 	pdf := list.Skills[slices.IndexFunc(list.Skills, func(s skillRecord) bool { return s.Path == "skills/pdf" })]
