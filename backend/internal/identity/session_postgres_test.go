@@ -18,6 +18,8 @@ import (
 //
 //	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora?sslmode=disable' \
 //	  go test ./internal/identity/ -run Postgres
+
+// testSwitchRepos connects the repositories under a random principal it deletes on cleanup.
 func testSwitchRepos(t *testing.T) (*pgxpool.Pool, SessionRepository, RefreshTokenRepository, string) {
 	t.Helper()
 	dsn := os.Getenv("KORA_TEST_DB_URL")
@@ -53,7 +55,7 @@ func testSessionRows(principal, tenant string) (*Session, *RefreshToken) {
 	return s, rt
 }
 
-// seedSession persists a live session with one refresh token.
+// seedSwitchSession persists a live session with one refresh token.
 func seedSwitchSession(t *testing.T, sessions SessionRepository, refresh RefreshTokenRepository, principal, tenant string) (*Session, *RefreshToken) {
 	t.Helper()
 	s, rt := testSessionRows(principal, tenant)
@@ -117,26 +119,6 @@ func TestPostgres_SwitchSession_RollsBack(t *testing.T) {
 	}
 }
 
-func TestPostgres_SwitchSession_ReplacedNotLive(t *testing.T) {
-	pool, sessions, refresh, principal := testSwitchRepos(t)
-	ctx := context.Background()
-	replaced, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
-	if err := sessions.RevokeSession(ctx, replaced.ID, time.Now()); err != nil {
-		t.Fatalf("RevokeSession: %v", err)
-	}
-
-	next, nextRT := testSessionRows(principal, "sre")
-	if err := sessions.SwitchSession(ctx, next, nextRT, oldRT, time.Now()); !errors.Is(err, ErrSessionNotFound) {
-		t.Fatalf("err = %v, want ErrSessionNotFound", err)
-	}
-	if _, err := sessions.GetSessionByID(ctx, next.ID); !errors.Is(err, ErrSessionNotFound) {
-		t.Errorf("next session was written: %v", err)
-	}
-	if s, rt := liveRows(t, pool, principal); s != 0 || rt != 1 {
-		t.Errorf("%d live sessions, %d live refresh tokens, want 0 and 1 (the seed token is untouched)", s, rt)
-	}
-}
-
 func TestPostgres_SwitchSession_ConcurrentSwitchesFromOneSession(t *testing.T) {
 	pool, sessions, refresh, principal := testSwitchRepos(t)
 	_, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
@@ -169,41 +151,40 @@ func TestPostgres_SwitchSession_ConcurrentSwitchesFromOneSession(t *testing.T) {
 	}
 }
 
-func TestPostgres_SwitchSession_AfterRefreshConsumedTheToken(t *testing.T) {
-	pool, sessions, refresh, principal := testSwitchRepos(t)
-	ctx := context.Background()
-	replaced, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
+func TestPostgres_SwitchSession_RefusesReplacedNotLive(t *testing.T) {
+	tests := []struct {
+		name string
+		end  func(ctx context.Context, sessions SessionRepository, refresh RefreshTokenRepository, replaced *Session, rt *RefreshToken) error
+		want error
+	}{
+		{"refresh consumed the token", func(ctx context.Context, _ SessionRepository, refresh RefreshTokenRepository, _ *Session, rt *RefreshToken) error {
+			return refresh.RevokeRefreshToken(ctx, rt.ID, time.Now())
+		}, ErrRefreshTokenNotFound},
+		{"session revoked", func(ctx context.Context, sessions SessionRepository, _ RefreshTokenRepository, replaced *Session, _ *RefreshToken) error {
+			return sessions.RevokeSession(ctx, replaced.ID, time.Now())
+		}, ErrSessionNotFound},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pool, sessions, refresh, principal := testSwitchRepos(t)
+			ctx := context.Background()
+			replaced, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
+			if err := tc.end(ctx, sessions, refresh, replaced, oldRT); err != nil {
+				t.Fatalf("end the replaced row: %v", err)
+			}
+			liveSessions, liveTokens := liveRows(t, pool, principal)
 
-	// Refresh rotation consumes the token and leaves the session row live.
-	if err := refresh.RevokeRefreshToken(ctx, oldRT.ID, time.Now()); err != nil {
-		t.Fatalf("RevokeRefreshToken: %v", err)
-	}
-	next, nextRT := testSessionRows(principal, "sre")
-	if err := sessions.SwitchSession(ctx, next, nextRT, oldRT, time.Now()); !errors.Is(err, ErrRefreshTokenNotFound) {
-		t.Fatalf("err = %v, want ErrRefreshTokenNotFound", err)
-	}
-	if got, _ := sessions.GetSessionByID(ctx, replaced.ID); got.RevokedAt != nil {
-		t.Error("the refused switch revoked the replaced session")
-	}
-	if _, err := sessions.GetSessionByID(ctx, next.ID); !errors.Is(err, ErrSessionNotFound) {
-		t.Errorf("next session was written: %v", err)
-	}
-	if s, _ := liveRows(t, pool, principal); s != 1 {
-		t.Errorf("%d live sessions, want 1", s)
-	}
-}
-
-func TestPostgres_SwitchSession_RefreshAfterSwitchFails(t *testing.T) {
-	_, sessions, refresh, principal := testSwitchRepos(t)
-	ctx := context.Background()
-	_, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
-
-	next, nextRT := testSessionRows(principal, "sre")
-	if err := sessions.SwitchSession(ctx, next, nextRT, oldRT, time.Now()); err != nil {
-		t.Fatalf("SwitchSession: %v", err)
-	}
-	if err := refresh.RevokeRefreshToken(ctx, oldRT.ID, time.Now()); !errors.Is(err, ErrRefreshTokenNotFound) {
-		t.Errorf("refresh rotation after the switch: err = %v, want ErrRefreshTokenNotFound", err)
+			next, nextRT := testSessionRows(principal, "sre")
+			if err := sessions.SwitchSession(ctx, next, nextRT, oldRT, time.Now()); !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+			if _, err := sessions.GetSessionByID(ctx, next.ID); !errors.Is(err, ErrSessionNotFound) {
+				t.Errorf("next session was written: %v", err)
+			}
+			if s, rt := liveRows(t, pool, principal); s != liveSessions || rt != liveTokens {
+				t.Errorf("live sessions %d to %d, live refresh tokens %d to %d, want no change", liveSessions, s, liveTokens, rt)
+			}
+		})
 	}
 }
 

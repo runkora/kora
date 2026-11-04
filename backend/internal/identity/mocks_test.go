@@ -43,8 +43,13 @@ type mockSessionRepository struct {
 	revokeErr   error
 	switchErr   error
 
-	// refresh receives the refresh token writes of SwitchSession when set.
-	refresh *mockRefreshTokenRepository
+	// switched is the last SwitchSession call, for asserting what the service committed.
+	switched *switchCall
+}
+
+type switchCall struct {
+	next                  *Session
+	nextRefresh, replaced *RefreshToken
 }
 
 func newMockSessionRepo() *mockSessionRepository {
@@ -106,44 +111,13 @@ func (m *mockSessionRepository) RevokeSession(_ context.Context, id string, revo
 	return nil
 }
 
-// SwitchSession applies every write or, on switchErr or a replaced token or
-// session that is not live, none.
-func (m *mockSessionRepository) SwitchSession(_ context.Context, next *Session, nextRefresh *RefreshToken, replacedRefresh *RefreshToken, at time.Time) error {
-	if m.switchErr != nil {
-		return m.switchErr
-	}
+// SwitchSession records the call and returns switchErr; the Postgres tests own
+// the transaction itself.
+func (m *mockSessionRepository) SwitchSession(_ context.Context, next *Session, nextRefresh *RefreshToken, replaced *RefreshToken, _ time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.refresh != nil {
-		m.refresh.mu.Lock()
-		stored, found := m.refresh.byID[replacedRefresh.ID]
-		m.refresh.mu.Unlock()
-		if !found || stored.RevokedAt != nil {
-			return ErrRefreshTokenNotFound
-		}
-	}
-	replacedID := replacedRefresh.SessionID
-	replaced, ok := m.sessions[replacedID]
-	if !ok || replaced.RevokedAt != nil {
-		return ErrSessionNotFound
-	}
-	replaced.RevokedAt = &at
-	cp := *next
-	m.sessions[next.ID] = &cp
-	m.byJTI[next.JTI] = &cp
-	if m.refresh != nil {
-		m.refresh.mu.Lock()
-		defer m.refresh.mu.Unlock()
-		for _, rt := range m.refresh.byHash {
-			if rt.SessionID == replacedID && rt.RevokedAt == nil {
-				rt.RevokedAt = &at
-			}
-		}
-		rtCopy := *nextRefresh
-		m.refresh.byHash[nextRefresh.TokenHash] = &rtCopy
-		m.refresh.byID[nextRefresh.ID] = &rtCopy
-	}
-	return nil
+	m.switched = &switchCall{next: next, nextRefresh: nextRefresh, replaced: replaced}
+	return m.switchErr
 }
 
 // ── mockRefreshTokenRepository ────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -34,12 +35,11 @@ func sharedRegistry(issuer string, bindings map[string]string) string {
 
 func newTestServiceWithRegistry(t *testing.T, registry string) (*Service, error) {
 	t.Helper()
-	return newTestServiceWithRegistryRepos(t, registry, newMockSessionRepo(), newMockRefreshTokenRepo(), io.Discard)
+	return newTestServiceWithRegistryLog(t, registry, io.Discard)
 }
 
-// newTestServiceWithRegistryRepos builds a service over the given session and
-// refresh token repositories and writes its log to out.
-func newTestServiceWithRegistryRepos(t *testing.T, registry string, sessions SessionRepository, refreshTokens RefreshTokenRepository, out io.Writer) (*Service, error) {
+// newTestServiceWithRegistryLog is newTestServiceWithRegistry writing its log to out.
+func newTestServiceWithRegistryLog(t *testing.T, registry string, out io.Writer) (*Service, error) {
 	t.Helper()
 	t.Setenv("KORA_ALLOW_EPHEMERAL_KEY", "true")
 	t.Setenv("KORA_TOKEN_SIGNING_KEY_FILE", "")
@@ -53,7 +53,7 @@ func newTestServiceWithRegistryRepos(t *testing.T, registry string, sessions Ses
 		Token:    TokenConfig{AccessTokenTTLMinutes: 60, RefreshTokenTTLDays: 30, Audience: "kora-platform"},
 	}
 	return NewService(context.Background(), cfg,
-		sessions, refreshTokens, newMockBlocklistRepo(),
+		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
 		newMockAuthCodeRepo(), newMockClientRepo(), newMockPATRepo(),
 		nil, nil, nil, &mockPolicyClient{}, &mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{}, logging.NewLoggerWithOutput(out))
@@ -86,23 +86,43 @@ func sessionTenant(t *testing.T, resp *SessionResponse) string {
 	return id
 }
 
+// eligible is the eligible set sharedRegistry yields, where a display name is its ID.
+func eligible(ids ...string) []EligibleTenant {
+	out := []EligibleTenant{}
+	for _, id := range ids {
+		out = append(out, EligibleTenant{ID: id, DisplayName: id})
+	}
+	return out
+}
+
 func TestExchangeIDToken_ClaimBinding(t *testing.T) {
 	issuer, _, key := newSigningOIDCTestServerWithKey(t)
 	shared := map[string]string{"engineering": `groups:"engineering"`, "sre": `groups:"sre"`}
+	three := map[string]string{"engineering": `groups:"engineering"`, "sre": `groups:"sre"`, "ops": `groups:"ops"`}
+	both := jwt.MapClaims{"groups": []string{"sre", "engineering"}}
 	tests := []struct {
-		name     string
-		bindings map[string]string
-		claims   jwt.MapClaims
-		wantErr  error
-		wantID   string
+		name        string
+		bindings    map[string]string
+		hint        string
+		claims      jwt.MapClaims
+		wantErr     error
+		wantID      string
+		wantTenants []EligibleTenant
 	}{
-		{"array claim matches one tenant", shared, jwt.MapClaims{"groups": []string{"sre", "all"}}, nil, "sre"},
-		{"array claim matches no tenant", shared, jwt.MapClaims{"groups": []string{"sales"}}, ErrClaimBindingMismatch, ""},
-		{"missing claim", shared, jwt.MapClaims{}, ErrClaimBindingMismatch, ""},
-		{"array claim matches several tenants", shared, jwt.MapClaims{"groups": []string{"sre", "engineering"}}, ErrMultipleTenantsMatch, ""},
-		{"scalar claim matches", map[string]string{"a": `hd:"acme.com"`, "b": `hd:"other.com"`}, jwt.MapClaims{"hd": "acme.com"}, nil, "a"},
-		{"scalar claim differs", map[string]string{"a": `hd:"acme.com"`, "b": `hd:"other.com"`}, jwt.MapClaims{"hd": "x.com"}, ErrClaimBindingMismatch, ""},
-		{"tenant without binding keeps issuer membership", map[string]string{"plain": ""}, jwt.MapClaims{}, nil, "plain"},
+		{"array claim matches one tenant", shared, "", jwt.MapClaims{"groups": []string{"sre", "all"}}, nil, "sre", eligible("sre")},
+		{"array claim matches no tenant", shared, "", jwt.MapClaims{"groups": []string{"sales"}}, ErrClaimBindingMismatch, "", nil},
+		{"missing claim", shared, "", jwt.MapClaims{}, ErrClaimBindingMismatch, "", nil},
+		{"array claim matches several tenants", shared, "", both, ErrMultipleTenantsMatch, "", eligible("engineering", "sre")},
+		{"scalar claim matches", map[string]string{"a": `hd:"acme.com"`, "b": `hd:"other.com"`}, "", jwt.MapClaims{"hd": "acme.com"}, nil, "a", eligible("a")},
+		{"scalar claim differs", map[string]string{"a": `hd:"acme.com"`, "b": `hd:"other.com"`}, "", jwt.MapClaims{"hd": "x.com"}, ErrClaimBindingMismatch, "", nil},
+		{"tenant without binding keeps issuer membership", map[string]string{"plain": ""}, "", jwt.MapClaims{}, nil, "plain", eligible("plain")},
+		{"hint never adds a tenant the claims miss", shared, "sre", jwt.MapClaims{"groups": []string{"sales"}}, ErrClaimBindingMismatch, "", nil},
+		{"one match ignores a hint outside it", three, "ops", jwt.MapClaims{"groups": []string{"sre"}}, nil, "sre", eligible("sre")},
+		{"several matches take a hint among them", three, "sre", both, nil, "sre", eligible("engineering", "sre")},
+		{"several matches with a hint outside them", three, "ops", both, ErrMultipleTenantsMatch, "", eligible("engineering", "sre")},
+		{"several matches ignore an unknown hint", three, "nope", both, ErrMultipleTenantsMatch, "", eligible("engineering", "sre")},
+		{"no email claim ignores the hint", shared, "sre", jwt.MapClaims{"email": nil, "groups": []string{"sre", "engineering"}}, nil, "engineering", eligible("engineering")},
+		{"tenant without binding ignores the hint", map[string]string{"plain": ""}, "engineering", jwt.MapClaims{}, nil, "plain", eligible("plain")},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -116,12 +136,17 @@ func TestExchangeIDToken_ClaimBinding(t *testing.T) {
 				requested = lowestKey(tc.bindings)
 			}
 			resp, err := svc.ExchangeIDToken(context.Background(), SessionRequest{
-				TenantID: requested,
-				IDToken:  issueIDTokenWithClaims(t, issuer, key, tc.claims),
+				TenantID:   requested,
+				TenantHint: tc.hint,
+				IDToken:    issueIDTokenWithClaims(t, issuer, key, tc.claims),
 			})
 			if tc.wantErr != nil {
 				if !errors.Is(err, tc.wantErr) {
 					t.Fatalf("err = %v, want %v", err, tc.wantErr)
+				}
+				var tme *TenantMatchError
+				if tc.wantTenants != nil && (!errors.As(err, &tme) || !reflect.DeepEqual(tme.Tenants, tc.wantTenants)) {
+					t.Errorf("error tenants = %+v, want %+v", tme, tc.wantTenants)
 				}
 				return
 			}
@@ -130,6 +155,9 @@ func TestExchangeIDToken_ClaimBinding(t *testing.T) {
 			}
 			if got := sessionTenant(t, resp); got != tc.wantID {
 				t.Errorf("session tenant = %q, want %q", got, tc.wantID)
+			}
+			if !reflect.DeepEqual(resp.Tenants, tc.wantTenants) {
+				t.Errorf("response tenants = %+v, want %+v", resp.Tenants, tc.wantTenants)
 			}
 		})
 	}

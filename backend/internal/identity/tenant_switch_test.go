@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"bytes"
 	"context"
 	"crypto/rsa"
 	"encoding/json"
@@ -19,183 +20,38 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-// switchRegistry holds three bound tenants sharing acme.com and one unbound
-// tenant on the same issuer and client.
-func switchRegistry(issuer string) string {
-	return fmt.Sprintf(`version: "v1"
-tenants:
-  - id: eng
-    displayName: Engineering
-    state: active
-    oidc: {issuerURL: %[1]q, clientID: test-client, emailDomains: [acme.com], claimBinding: {claim: groups, values: [eng]}}
-  - id: sre
-    displayName: SRE
-    state: active
-    oidc: {issuerURL: %[1]q, clientID: test-client, emailDomains: [acme.com], claimBinding: {claim: groups, values: [sre]}}
-  - id: ops
-    displayName: Ops
-    state: active
-    oidc: {issuerURL: %[1]q, clientID: test-client, emailDomains: [acme.com], claimBinding: {claim: groups, values: [ops]}}
-  - id: plain
-    displayName: Plain
-    state: active
-    oidc: {issuerURL: %[1]q, clientID: test-client, emailDomains: [plain.com]}
-`, issuer)
-}
-
 var (
-	tenantEng   = EligibleTenant{ID: "eng", DisplayName: "Engineering"}
-	tenantSRE   = EligibleTenant{ID: "sre", DisplayName: "SRE"}
-	tenantPlain = EligibleTenant{ID: "plain", DisplayName: "Plain"}
+	switchTenants = map[string]string{"eng": `groups:"eng"`, "sre": `groups:"sre"`, "ops": `groups:"ops"`}
+	engAndSRE     = eligible("eng", "sre")
 )
 
 func groups(g ...string) jwt.MapClaims { return jwt.MapClaims{"groups": g} }
 
-func TestExchangeIDToken_TenantHint(t *testing.T) {
-	issuer, _, key := newSigningOIDCTestServerWithKey(t)
-	none, one, several := groups("sales"), groups("sre"), groups("eng", "sre")
-	noEmail := jwt.MapClaims{"email": nil, "groups": []string{"eng", "sre"}}
-	tests := []struct {
-		name        string
-		requested   string
-		hint        string
-		claims      jwt.MapClaims
-		wantErr     error
-		wantTenant  string
-		wantTenants []EligibleTenant
-	}{
-		{"no match, no hint", "eng", "", none, ErrClaimBindingMismatch, "", nil},
-		{"no match, hint outside", "eng", "sre", none, ErrClaimBindingMismatch, "", nil},
-		{"no match, unknown hint", "eng", "nope", none, ErrClaimBindingMismatch, "", nil},
-		{"one match, no hint", "eng", "", one, nil, "sre", []EligibleTenant{tenantSRE}},
-		{"one match, hint inside", "eng", "sre", one, nil, "sre", []EligibleTenant{tenantSRE}},
-		{"one match, hint outside", "eng", "ops", one, nil, "sre", []EligibleTenant{tenantSRE}},
-		{"one match, unknown hint", "eng", "nope", one, nil, "sre", []EligibleTenant{tenantSRE}},
-		{"several, no hint", "eng", "", several, ErrMultipleTenantsMatch, "", []EligibleTenant{tenantEng, tenantSRE}},
-		{"several, hint inside", "eng", "sre", several, nil, "sre", []EligibleTenant{tenantEng, tenantSRE}},
-		{"several, hint outside", "eng", "ops", several, ErrMultipleTenantsMatch, "", []EligibleTenant{tenantEng, tenantSRE}},
-		{"several, unknown hint", "eng", "nope", several, ErrMultipleTenantsMatch, "", []EligibleTenant{tenantEng, tenantSRE}},
-		{"no email claim keeps the requested tenant", "eng", "sre", noEmail, nil, "eng", []EligibleTenant{tenantEng}},
-		{"unbound tenant ignores the hint", "plain", "eng", jwt.MapClaims{"email": "alice@plain.com", "groups": []string{"eng"}}, nil, "plain", []EligibleTenant{tenantPlain}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			svc, err := newTestServiceWithRegistry(t, switchRegistry(issuer))
-			if err != nil {
-				t.Fatalf("NewService: %v", err)
-			}
-			resp, err := svc.ExchangeIDToken(context.Background(), SessionRequest{
-				TenantID:   tc.requested,
-				TenantHint: tc.hint,
-				IDToken:    issueIDTokenWithClaims(t, issuer, key, tc.claims),
-			})
-			if tc.wantErr != nil {
-				if !errors.Is(err, tc.wantErr) {
-					t.Fatalf("err = %v, want %v", err, tc.wantErr)
-				}
-				var tme *TenantMatchError
-				if tc.wantTenants != nil && (!errors.As(err, &tme) || !reflect.DeepEqual(tme.Tenants, tc.wantTenants)) {
-					t.Errorf("error tenants = %+v, want %+v", tme, tc.wantTenants)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("ExchangeIDToken: %v", err)
-			}
-			if got := sessionTenant(t, resp); got != tc.wantTenant {
-				t.Errorf("session tenant = %q, want %q", got, tc.wantTenant)
-			}
-			if !reflect.DeepEqual(resp.Tenants, tc.wantTenants) {
-				t.Errorf("response tenants = %+v, want %+v", resp.Tenants, tc.wantTenants)
-			}
-		})
-	}
+// lockedBuffer captures the service log, which the registry watcher can also write.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
 }
 
-// eventLog records repository writes and the switch log entry in call order.
-type eventLog struct {
-	mu     sync.Mutex
-	events []string
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
 }
 
-func (l *eventLog) add(e string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.events = append(l.events, e)
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
-func (l *eventLog) take() []string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	out := l.events
-	l.events = nil
-	return out
-}
-
-// Write records the switch log entry from the service logger.
-func (l *eventLog) Write(p []byte) (int, error) {
-	if strings.Contains(string(p), `"tenant switched"`) {
-		l.add("log " + string(p))
-	}
-	return len(p), nil
-}
-
-type recordingSessions struct {
-	*mockSessionRepository
-	log *eventLog
-}
-
-func (r recordingSessions) CreateSession(ctx context.Context, s *Session) error {
-	r.log.add("create session " + s.TenantID)
-	return r.mockSessionRepository.CreateSession(ctx, s)
-}
-
-func (r recordingSessions) RevokeSession(ctx context.Context, id string, at time.Time) error {
-	r.log.add("revoke session " + id)
-	return r.mockSessionRepository.RevokeSession(ctx, id, at)
-}
-
-func (r recordingSessions) SwitchSession(ctx context.Context, next *Session, nextRefresh *RefreshToken, replaced *RefreshToken, at time.Time) error {
-	r.log.add("switch session " + replaced.SessionID + " to " + next.TenantID)
-	return r.mockSessionRepository.SwitchSession(ctx, next, nextRefresh, replaced, at)
-}
-
-type recordingBlocklist struct {
-	*mockJTIBlocklistRepository
-	log *eventLog
-}
-
-func (r recordingBlocklist) BlockJTI(ctx context.Context, jti string, ttl time.Duration) error {
-	r.log.add("block jti " + jti)
-	return r.mockJTIBlocklistRepository.BlockJTI(ctx, jti, ttl)
-}
-
-type recordingRefreshTokens struct {
-	*mockRefreshTokenRepository
-	log *eventLog
-}
-
-func (r recordingRefreshTokens) CreateRefreshToken(ctx context.Context, rt *RefreshToken) error {
-	r.log.add("create refresh token")
-	return r.mockRefreshTokenRepository.CreateRefreshToken(ctx, rt)
-}
-
-func (r recordingRefreshTokens) RevokeRefreshToken(ctx context.Context, id string, at time.Time) error {
-	r.log.add("revoke refresh token " + id)
-	return r.mockRefreshTokenRepository.RevokeRefreshToken(ctx, id, at)
-}
-
-func (r recordingRefreshTokens) RevokeAllForSession(ctx context.Context, sessionID string, at time.Time) error {
-	r.log.add("revoke refresh tokens " + sessionID)
-	return r.mockRefreshTokenRepository.RevokeAllForSession(ctx, sessionID, at)
-}
-
+// switchFixture is a service over the package mocks with its log captured.
 type switchFixture struct {
 	svc       *Service
 	sessions  *mockSessionRepository
 	refresh   *mockRefreshTokenRepository
 	blocklist *mockJTIBlocklistRepository
-	log       *eventLog
+	log       *lockedBuffer
 	issuer    string
 	key       *rsa.PrivateKey
 }
@@ -203,19 +59,24 @@ type switchFixture struct {
 func newSwitchFixture(t *testing.T) *switchFixture {
 	t.Helper()
 	issuer, _, key := newSigningOIDCTestServerWithKey(t)
-	f := &switchFixture{sessions: newMockSessionRepo(), refresh: newMockRefreshTokenRepo(), blocklist: newMockBlocklistRepo(), log: &eventLog{}, issuer: issuer, key: key}
-	f.sessions.refresh = f.refresh
-	svc, err := newTestServiceWithRegistryRepos(t, switchRegistry(issuer),
-		recordingSessions{f.sessions, f.log}, recordingRefreshTokens{f.refresh, f.log}, f.log)
+	log := &lockedBuffer{}
+	svc, err := newTestServiceWithRegistryLog(t, sharedRegistry(issuer, switchTenants), log)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
-	svc.blocklist = recordingBlocklist{f.blocklist, f.log}
-	f.svc = svc
+	f := &switchFixture{
+		svc:       svc,
+		sessions:  svc.sessions.(*mockSessionRepository),
+		refresh:   svc.refreshTokens.(*mockRefreshTokenRepository),
+		blocklist: svc.blocklist.(*mockJTIBlocklistRepository),
+		log:       log,
+		issuer:    issuer,
+		key:       key,
+	}
 	return f
 }
 
-// signIn creates a session in eng for sub and returns it, clearing the event log.
+// signIn creates a session in eng for sub.
 func (f *switchFixture) signIn(t *testing.T, sub string) *SessionResponse {
 	t.Helper()
 	resp, err := f.svc.ExchangeIDToken(context.Background(), SessionRequest{
@@ -226,7 +87,6 @@ func (f *switchFixture) signIn(t *testing.T, sub string) *SessionResponse {
 	if err != nil {
 		t.Fatalf("sign in: %v", err)
 	}
-	f.log.take()
 	return resp
 }
 
@@ -249,124 +109,99 @@ func (f *switchFixture) refreshRow(t *testing.T, raw string) *RefreshToken {
 	return rt
 }
 
-func TestExchangeIDToken_SwitchSucceeds(t *testing.T) {
-	f := newSwitchFixture(t)
-	old := f.signIn(t, "user-1")
-	oldRT := f.refreshRow(t, old.RefreshToken)
-
-	resp, err := f.switchTo(t, "sre", old.RefreshToken, jwt.MapClaims{"groups": []string{"eng", "sre"}})
-	if err != nil {
-		t.Fatalf("switch: %v", err)
+// assertNothingAfterCommit fails when a switch that did not commit blocked a
+// token or wrote the switch log entry.
+func (f *switchFixture) assertNothingAfterCommit(t *testing.T) {
+	t.Helper()
+	if len(f.blocklist.blocked) != 0 {
+		t.Errorf("blocklist written: %v", f.blocklist.blocked)
 	}
-	if got := sessionTenant(t, resp); got != "sre" {
-		t.Errorf("session tenant = %q, want sre", got)
-	}
-	if want := []EligibleTenant{tenantEng, tenantSRE}; !reflect.DeepEqual(resp.Tenants, want) {
-		t.Errorf("response tenants = %+v, want %+v", resp.Tenants, want)
-	}
-
-	events := f.log.take()
-	oldSession, _ := f.sessions.GetSessionByID(context.Background(), oldRT.SessionID)
-	want := []string{
-		"switch session " + oldRT.SessionID + " to sre",
-		"block jti " + oldSession.JTI,
-	}
-	if len(events) != 3 || !reflect.DeepEqual(events[:2], want) {
-		t.Fatalf("events = %q, want %q then the switch log entry", events, want)
-	}
-	for _, field := range []string{`"principal_id":"user-1"`, `"from_tenant_id":"eng"`, `"to_tenant_id":"sre"`} {
-		if !strings.Contains(events[2], field) {
-			t.Errorf("switch log entry %s lacks %s", events[2], field)
-		}
-	}
-
-	if _, err := f.svc.RefreshSession(context.Background(), SessionRequest{RefreshToken: old.RefreshToken}); !errors.Is(err, ErrRefreshTokenRevoked) {
-		t.Errorf("refresh with the replaced token: err = %v, want ErrRefreshTokenRevoked", err)
-	}
-	if oldSession.RevokedAt == nil {
-		t.Error("replaced session is not revoked")
-	}
-	if blocked, _ := f.svc.blocklist.IsBlocked(context.Background(), oldSession.JTI); !blocked {
-		t.Error("replaced access token is not blocked")
+	if strings.Contains(f.log.String(), `"tenant switched"`) {
+		t.Error("switch log entry written")
 	}
 }
 
-func TestExchangeIDToken_SwitchTransactionFails(t *testing.T) {
-	f := newSwitchFixture(t)
-	old := f.signIn(t, "user-1")
-	oldRT := f.refreshRow(t, old.RefreshToken)
-	f.sessions.switchErr = errors.New("tx failed")
-
-	_, err := f.switchTo(t, "sre", old.RefreshToken, groups("eng", "sre"))
-	if err == nil || errors.Is(err, ErrTenantSwitchDenied) {
-		t.Fatalf("err = %v, want the transaction error", err)
+func TestExchangeIDToken_Switch(t *testing.T) {
+	const blockFailure = "failed to block the replaced access token"
+	tests := []struct {
+		name        string
+		inject      func(f *switchFixture)
+		wantErr     error
+		wantAttempt bool
+	}{
+		{"switches", func(*switchFixture) {}, nil, true},
+		{"blocklist failure still switches", func(f *switchFixture) { f.blocklist.blockErr = errors.New("redis down") }, nil, true},
+		{"transaction fails", func(f *switchFixture) { f.sessions.switchErr = errors.New("tx failed") }, errors.New("tx failed"), true},
+		{"refresh token consumed at commit", func(f *switchFixture) { f.sessions.switchErr = fmt.Errorf("switch: %w", ErrRefreshTokenNotFound) }, ErrTenantSwitchDenied, true},
+		{"session revoked at commit", func(f *switchFixture) { f.sessions.switchErr = fmt.Errorf("switch: %w", ErrSessionNotFound) }, ErrTenantSwitchDenied, true},
+		{"storage error before the switch", func(f *switchFixture) { f.sessions.getByIDErr = errors.New("db down") }, errors.New("db down"), false},
 	}
-	if events, want := f.log.take(), []string{"switch session " + oldRT.SessionID + " to sre"}; !reflect.DeepEqual(events, want) {
-		t.Errorf("events = %q, want only the failed transaction %q", events, want)
-	}
-	if len(f.sessions.sessions) != 1 || oldRT.RevokedAt != nil {
-		t.Errorf("a failed transaction changed state: %d sessions, old refresh token revoked %v", len(f.sessions.sessions), oldRT.RevokedAt)
-	}
-	f.sessions.switchErr = nil
-	if _, err := f.svc.RefreshSession(context.Background(), SessionRequest{RefreshToken: old.RefreshToken}); err != nil {
-		t.Errorf("the old session no longer refreshes: %v", err)
-	}
-}
-
-func TestExchangeIDToken_SwitchReplacedGoneAtCommit(t *testing.T) {
-	for _, gone := range []error{ErrRefreshTokenNotFound, ErrSessionNotFound} {
-		t.Run(gone.Error(), func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			f := newSwitchFixture(t)
 			old := f.signIn(t, "user-1")
-			f.sessions.switchErr = fmt.Errorf("switch: %w", gone)
+			oldRT := f.refreshRow(t, old.RefreshToken)
+			oldSession, _ := f.sessions.GetSessionByID(context.Background(), oldRT.SessionID)
+			tc.inject(f)
 
-			_, err := f.switchTo(t, "sre", old.RefreshToken, groups("eng", "sre"))
-			var tme *TenantMatchError
-			if !errors.As(err, &tme) || !errors.Is(err, ErrTenantSwitchDenied) || len(tme.Tenants) != 2 {
-				t.Fatalf("err = %v, want ErrTenantSwitchDenied with the eligible set", err)
+			resp, err := f.switchTo(t, "sre", old.RefreshToken, groups("eng", "sre"))
+			if (f.sessions.switched != nil) != tc.wantAttempt {
+				t.Fatalf("SwitchSession called = %v, want %v", f.sessions.switched != nil, tc.wantAttempt)
+			}
+			if tc.wantErr != nil {
+				switch {
+				case errors.Is(tc.wantErr, ErrTenantSwitchDenied):
+					var tme *TenantMatchError
+					if !errors.As(err, &tme) || !errors.Is(err, ErrTenantSwitchDenied) || !reflect.DeepEqual(tme.Tenants, engAndSRE) {
+						t.Fatalf("err = %v, want ErrTenantSwitchDenied with the eligible set", err)
+					}
+				case err == nil || errors.Is(err, ErrTenantSwitchDenied):
+					t.Fatalf("err = %v, want the storage error", err)
+				}
+				f.assertNothingAfterCommit(t)
+				return
+			}
+			if err != nil {
+				t.Fatalf("switch: %v", err)
+			}
+
+			call := f.sessions.switched
+			if call.replaced.ID != oldRT.ID || call.next.TenantID != "sre" || call.nextRefresh.SessionID != call.next.ID {
+				t.Errorf("SwitchSession(next %s/%s, refresh for %s, replaced %s), want next in sre with its refresh token replacing %s",
+					call.next.ID, call.next.TenantID, call.nextRefresh.SessionID, call.replaced.ID, oldRT.ID)
+			}
+			if got := sessionTenant(t, resp); got != "sre" {
+				t.Errorf("session tenant = %q, want sre", got)
+			}
+			if !reflect.DeepEqual(resp.Tenants, engAndSRE) {
+				t.Errorf("response tenants = %+v, want %+v", resp.Tenants, engAndSRE)
+			}
+
+			logged := f.log.String()
+			switchedAt := strings.Index(logged, `"tenant switched"`)
+			if switchedAt < 0 {
+				t.Fatalf("no switch log entry in %s", logged)
+			}
+			line := logged[strings.LastIndex(logged[:switchedAt], "\n")+1:]
+			line, _, _ = strings.Cut(line, "\n")
+			for _, field := range []string{`"principal_id":"user-1"`, `"from_tenant_id":"eng"`, `"to_tenant_id":"sre"`} {
+				if !strings.Contains(line, field) {
+					t.Errorf("switch log entry lacks %s", field)
+				}
+			}
+			if f.blocklist.blockErr != nil {
+				if at := strings.Index(logged, blockFailure); at < 0 || at > switchedAt {
+					t.Errorf("the blocklist failure is not logged before the switch entry: %s", logged)
+				}
+			} else if !f.blocklist.blocked[oldSession.JTI] {
+				t.Error("replaced access token is not blocked")
 			}
 		})
 	}
 }
 
-func TestExchangeIDToken_SwitchBlocklistFailureStillSwitches(t *testing.T) {
-	f := newSwitchFixture(t)
-	old := f.signIn(t, "user-1")
-	oldRT := f.refreshRow(t, old.RefreshToken)
-	f.blocklist.blockErr = errors.New("redis down")
-
-	resp, err := f.switchTo(t, "sre", old.RefreshToken, groups("eng", "sre"))
-	if err != nil {
-		t.Fatalf("switch: %v", err)
-	}
-	if got := sessionTenant(t, resp); got != "sre" {
-		t.Errorf("session tenant = %q, want sre", got)
-	}
-	if s, _ := f.sessions.GetSessionByID(context.Background(), oldRT.SessionID); s.RevokedAt == nil {
-		t.Error("replaced session is not revoked")
-	}
-	events := f.log.take()
-	if len(events) != 3 || !strings.Contains(events[2], `"tenant switched"`) {
-		t.Errorf("events = %q, want switch, failed block, then the switch log entry", events)
-	}
-}
-
-func TestExchangeIDToken_SwitchStorageErrorIsNotDenied(t *testing.T) {
-	f := newSwitchFixture(t)
-	own := f.signIn(t, "user-1")
-	f.sessions.getByIDErr = errors.New("db down")
-
-	_, err := f.switchTo(t, "sre", own.RefreshToken, groups("eng", "sre"))
-	if err == nil || errors.Is(err, ErrTenantSwitchDenied) {
-		t.Fatalf("err = %v, want a storage error", err)
-	}
-	if events := f.log.take(); len(events) != 0 {
-		t.Errorf("a failed switch wrote %q", events)
-	}
-}
-
 func TestExchangeIDToken_SwitchDenied(t *testing.T) {
-	both := jwt.MapClaims{"groups": []string{"eng", "sre"}}
+	both := groups("eng", "sre")
 	tests := []struct {
 		name        string
 		hint        string
@@ -374,43 +209,42 @@ func TestExchangeIDToken_SwitchDenied(t *testing.T) {
 		replaces    func(t *testing.T, f *switchFixture, own string) string
 		wantTenants []EligibleTenant
 	}{
-		{"hint outside the matches", "ops", both, ownToken, []EligibleTenant{tenantEng, tenantSRE}},
-		{"one match other than the hint", "eng", groups("sre"), ownToken, []EligibleTenant{tenantSRE}},
-		{"no match", "sre", groups("sales"), ownToken, []EligibleTenant{}},
-		{"unknown hint", "nope", both, ownToken, []EligibleTenant{tenantEng, tenantSRE}},
-		{"no hint", "", both, ownToken, []EligibleTenant{tenantEng, tenantSRE}},
-		{"unknown refresh token", "sre", both, func(*testing.T, *switchFixture, string) string { return "not-a-token" }, []EligibleTenant{tenantEng, tenantSRE}},
+		{"hint outside the matches", "ops", both, ownToken, engAndSRE},
+		{"one match other than the hint", "eng", groups("sre"), ownToken, eligible("sre")},
+		{"no match", "sre", groups("sales"), ownToken, eligible()},
+		{"unknown hint", "nope", both, ownToken, engAndSRE},
+		{"no hint", "", both, ownToken, engAndSRE},
+		{"unknown refresh token", "sre", both, func(*testing.T, *switchFixture, string) string { return "not-a-token" }, engAndSRE},
 		{"revoked refresh token", "sre", both, func(t *testing.T, f *switchFixture, own string) string {
 			now := time.Now()
 			f.refreshRow(t, own).RevokedAt = &now
 			return own
-		}, []EligibleTenant{tenantEng, tenantSRE}},
+		}, engAndSRE},
 		{"expired refresh token", "sre", both, func(t *testing.T, f *switchFixture, own string) string {
 			f.refreshRow(t, own).ExpiresAt = time.Now().Add(-time.Minute)
 			return own
-		}, []EligibleTenant{tenantEng, tenantSRE}},
+		}, engAndSRE},
 		{"revoked session", "sre", both, func(t *testing.T, f *switchFixture, own string) string {
 			s, _ := f.sessions.GetSessionByID(context.Background(), f.refreshRow(t, own).SessionID)
 			now := time.Now()
 			s.RevokedAt = &now
 			return own
-		}, []EligibleTenant{tenantEng, tenantSRE}},
+		}, engAndSRE},
 		{"session on another issuer", "sre", both, func(t *testing.T, f *switchFixture, own string) string {
 			s, _ := f.sessions.GetSessionByID(context.Background(), f.refreshRow(t, own).SessionID)
 			s.Claims["issuer"] = "https://other.example.com"
 			return own
-		}, []EligibleTenant{tenantEng, tenantSRE}},
+		}, engAndSRE},
 		{"session of another subject", "sre", both, func(t *testing.T, f *switchFixture, _ string) string {
-			other := f.signIn(t, "user-2")
-			return other.RefreshToken
-		}, []EligibleTenant{tenantEng, tenantSRE}},
+			return f.signIn(t, "user-2").RefreshToken
+		}, engAndSRE},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newSwitchFixture(t)
 			own := f.signIn(t, "user-1")
 			replaces := tc.replaces(t, f, own.RefreshToken)
-			f.log.take()
+			sessions, refreshTokens := len(f.sessions.sessions), len(f.refresh.byHash)
 
 			_, err := f.switchTo(t, tc.hint, replaces, tc.claims)
 			if !errors.Is(err, ErrTenantSwitchDenied) {
@@ -420,9 +254,11 @@ func TestExchangeIDToken_SwitchDenied(t *testing.T) {
 			if !errors.As(err, &tme) || !reflect.DeepEqual(tme.Tenants, tc.wantTenants) {
 				t.Errorf("denied tenants = %+v, want %+v", tme, tc.wantTenants)
 			}
-			if events := f.log.take(); len(events) != 0 {
-				t.Errorf("a denied switch wrote %q", events)
+			if f.sessions.switched != nil || len(f.sessions.sessions) != sessions || len(f.refresh.byHash) != refreshTokens {
+				t.Errorf("a denied switch wrote: switch %v, sessions %d to %d, refresh tokens %d to %d",
+					f.sessions.switched != nil, sessions, len(f.sessions.sessions), refreshTokens, len(f.refresh.byHash))
 			}
+			f.assertNothingAfterCommit(t)
 		})
 	}
 }
@@ -435,8 +271,8 @@ func TestHandleSession_TenantErrorBodies(t *testing.T) {
 	own := f.signIn(t, "user-1")
 	both := []string{"eng", "sre"}
 	tenants := []any{
-		map[string]any{"id": "eng", "display_name": "Engineering"},
-		map[string]any{"id": "sre", "display_name": "SRE"},
+		map[string]any{"id": "eng", "display_name": "eng"},
+		map[string]any{"id": "sre", "display_name": "sre"},
 	}
 	tests := []struct {
 		name     string
@@ -470,7 +306,7 @@ func TestHandleSession_TenantErrorBodies(t *testing.T) {
 
 func TestPollDeviceAuth_TenantHint(t *testing.T) {
 	issuer, _, key := newSigningOIDCTestServerWithKey(t)
-	svc, err := newTestServiceWithRegistry(t, switchRegistry(issuer))
+	svc, err := newTestServiceWithRegistry(t, sharedRegistry(issuer, switchTenants))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -485,16 +321,9 @@ func TestPollDeviceAuth_TenantHint(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	_, err = svc.PollDeviceAuth(ctx, SessionRequest{TenantID: "eng", DeviceCode: "dc"})
-	if !errors.Is(err, ErrMultipleTenantsMatch) {
+	if _, err := svc.PollDeviceAuth(ctx, SessionRequest{TenantID: "eng", DeviceCode: "dc"}); !errors.Is(err, ErrMultipleTenantsMatch) {
 		t.Fatalf("no hint: err = %v, want ErrMultipleTenantsMatch", err)
 	}
-
-	_, err = svc.PollDeviceAuth(ctx, SessionRequest{TenantID: "eng", TenantHint: "ops", DeviceCode: "dc"})
-	if !errors.Is(err, ErrMultipleTenantsMatch) {
-		t.Fatalf("hint outside: err = %v, want ErrMultipleTenantsMatch", err)
-	}
-
 	resp, err := svc.PollDeviceAuth(ctx, SessionRequest{TenantID: "sre", TenantHint: "sre", DeviceCode: "dc"})
 	if err != nil {
 		t.Fatalf("hint sre: %v", err)
@@ -502,7 +331,7 @@ func TestPollDeviceAuth_TenantHint(t *testing.T) {
 	if got := sessionTenant(t, resp); got != "sre" {
 		t.Errorf("session tenant = %q, want sre", got)
 	}
-	if want := []EligibleTenant{tenantEng, tenantSRE}; !reflect.DeepEqual(resp.Tenants, want) {
-		t.Errorf("response tenants = %+v, want %+v", resp.Tenants, want)
+	if !reflect.DeepEqual(resp.Tenants, engAndSRE) {
+		t.Errorf("response tenants = %+v, want %+v", resp.Tenants, engAndSRE)
 	}
 }
