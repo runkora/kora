@@ -32,6 +32,7 @@ type skillReader interface {
 	ListMarketplaces(tenantID string) []MarketplaceSummary
 	ListSkills(ctx context.Context, tenantID, slug, search string, offset, limit int) (SkillPage, error)
 	GetSkill(ctx context.Context, tenantID, slug, path string) (SkillDetail, error)
+	GetSkillFile(ctx context.Context, tenantID, slug, path, file string) (SkillFileContent, error)
 }
 
 // Controller serves the Marketplace API. Every route needs skills:read.
@@ -138,6 +139,20 @@ func (c *Controller) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 		c.respondError(w, r, ErrSkillNotFound)
 		return
 	}
+	if query := r.URL.Query(); query.Has("file") {
+		file := query.Get("file")
+		if !isSkillPath(file) {
+			c.respondError(w, r, ErrFileNotFound)
+			return
+		}
+		content, err := c.service.GetSkillFile(r.Context(), tenantID, r.PathValue("slug"), path, file)
+		if err != nil {
+			c.respondError(w, r, err)
+			return
+		}
+		api.JSON(r.Context(), w, c.logger, http.StatusOK, content)
+		return
+	}
 	skill, err := c.service.GetSkill(r.Context(), tenantID, r.PathValue("slug"), path)
 	if err != nil {
 		c.respondError(w, r, err)
@@ -146,8 +161,9 @@ func (c *Controller) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 	api.JSON(r.Context(), w, c.logger, http.StatusOK, skill)
 }
 
-// isSkillPath rejects a path with an empty, "." or ".." segment. Only paths
-// from the crawled tree are ever fetched, so this is defense in depth.
+// isSkillPath rejects a skill or file path with an empty, "." or ".." segment.
+// Only paths from the crawled tree are ever fetched, so this is defense in
+// depth.
 func isSkillPath(p string) bool {
 	for seg := range strings.SplitSeq(p, "/") {
 		if seg == "" || seg == "." || seg == ".." {

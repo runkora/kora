@@ -2,14 +2,15 @@ package skills
 
 import (
 	"context"
-	"fmt"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -117,9 +118,16 @@ func TestAPI_Contract(t *testing.T) {
 		t.Errorf("defaults = %d offset %d limit %d", code, page.Offset, page.Limit)
 	}
 
-	var skill SkillDetail
-	if code := f.get("/marketplaces/team-skills/skills/skills/pdf", &skill); code != http.StatusOK || skill.Path != "skills/pdf" || len(skill.Files) != 2 || skill.Files[0].Path != "SKILL.md" {
+	var skill map[string]any
+	if code := f.get("/marketplaces/team-skills/skills/skills/pdf", &skill); code != http.StatusOK || skill["path"] != "skills/pdf" || skill["content"] == "" {
 		t.Errorf("GET skill = %d %+v", code, skill)
+	}
+	if files, _ := skill["files"].([]any); len(files) != 1 || !reflect.DeepEqual(files[0], map[string]any{"path": "forms.md", "size": float64(5)}) {
+		t.Errorf("files = %v, want one entry with path and size only", skill["files"])
+	}
+	var file SkillFileContent
+	if code := f.get("/marketplaces/team-skills/skills/skills/pdf?file=forms.md", &file); code != http.StatusOK || file != (SkillFileContent{Path: "forms.md", Content: "forms"}) {
+		t.Errorf("GET ?file= = %d %+v", code, file)
 	}
 
 	if len(f.eval.inputs) == 0 || f.eval.inputs[0].Claims.Kora.TenantID != "example" {
@@ -142,6 +150,9 @@ func TestAPI_Errors(t *testing.T) {
 		{"/marketplaces/team-skills?limit=ten", http.StatusBadRequest, codeInvalidRequest},
 		{"/marketplaces/unknown", http.StatusNotFound, codeNotFound},
 		{"/marketplaces/team-skills/skills/skills/missing", http.StatusNotFound, codeNotFound},
+		{"/marketplaces/team-skills/skills/skills/pdf?file=unlisted.md", http.StatusNotFound, codeNotFound},
+		{"/marketplaces/team-skills/skills/skills/pdf?file=../docx/SKILL.md", http.StatusNotFound, codeNotFound},
+		{"/marketplaces/team-skills/skills/skills/pdf?file=", http.StatusNotFound, codeNotFound},
 		// A Marketplace listed without its key fails closed.
 		{"/marketplaces/no-key", http.StatusBadGateway, codeMarketplaceUnavailable},
 		{"/marketplaces/no-key/skills/skills/pdf", http.StatusBadGateway, codeMarketplaceUnavailable},

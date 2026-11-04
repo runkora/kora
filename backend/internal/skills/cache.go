@@ -17,7 +17,7 @@ import (
 //
 //	skills:{tenant}:{slug}:list               skillList
 //	skills:{tenant}:{slug}:failure            crawlFailure (failure TTL)
-//	skills:{tenant}:{slug}:files:{sha}:{path} []SkillFile
+//	skills:{tenant}:{slug}:file:{sha}:{path}  file content
 type Cache struct {
 	redis      *storage.RedisClient
 	ttl        time.Duration
@@ -63,16 +63,16 @@ func (c *Cache) SetFailure(ctx context.Context, m *Marketplace, f crawlFailure) 
 	return c.set(ctx, cacheKey(m, "failure"), f, c.failureTTL)
 }
 
-// GetFiles returns the cached supporting files of the skill at path and sha.
-func (c *Cache) GetFiles(ctx context.Context, m *Marketplace, sha, path string) ([]SkillFile, bool, error) {
-	var files []SkillFile
-	ok, err := c.get(ctx, cacheKey(m, "files", sha, path), &files)
-	return files, ok, err
+// GetFile returns the cached content of one skill file at sha.
+func (c *Cache) GetFile(ctx context.Context, m *Marketplace, sha, path string) (string, bool, error) {
+	var content string
+	ok, err := c.get(ctx, cacheKey(m, "file", sha, path), &content)
+	return content, ok, err
 }
 
-// SetFiles caches the supporting files of the skill at path and sha.
-func (c *Cache) SetFiles(ctx context.Context, m *Marketplace, sha, path string, files []SkillFile) error {
-	return c.set(ctx, cacheKey(m, "files", sha, path), files, c.ttl)
+// SetFile caches the content of one skill file at sha.
+func (c *Cache) SetFile(ctx context.Context, m *Marketplace, sha, path, content string) error {
+	return c.set(ctx, cacheKey(m, "file", sha, path), content, c.ttl)
 }
 
 func (c *Cache) get(ctx context.Context, key string, dest any) (bool, error) {

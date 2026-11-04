@@ -3,7 +3,6 @@ package skills
 import (
 	"context"
 	"errors"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -145,19 +144,18 @@ func TestCrawl_Errors(t *testing.T) {
 	}
 }
 
-func TestFetchFiles(t *testing.T) {
-	g := repo(map[string]string{
-		"skills/pdf/b.md":     "b",
-		"skills/pdf/a.md":     "a",
-		"skills/pdf/bin.json": "\x00\x01",
-	})
-	skill := skillRecord{Path: "skills/pdf", Files: []SkillFileInfo{{Path: "b.md", Size: 1}, {Path: "a.md", Size: 1}, {Path: "bin.json", Size: 2}}}
-	files, err := NewCrawler(g, testLimits, discard()).FetchFiles(context.Background(), testMarketplace(t, "example", "m"), testSHA, skill)
-	if err != nil {
-		t.Fatal(err)
+func TestFetchFile(t *testing.T) {
+	g := repo(map[string]string{"skills/pdf/a.md": "a", "skills/pdf/bin.json": "\x00\x01"})
+	c := NewCrawler(g, testLimits, discard())
+	m := testMarketplace(t, "example", "m")
+	skill := skillRecord{Path: "skills/pdf"}
+
+	got, err := c.FetchFile(context.Background(), m, testSHA, skill, SkillFileInfo{Path: "a.md", Size: 1})
+	if err != nil || got != "a" {
+		t.Errorf("FetchFile = %q, %v", got, err)
 	}
-	if want := []SkillFile{{Path: "a.md", Content: "a"}, {Path: "b.md", Content: "b"}}; !reflect.DeepEqual(files, want) {
-		t.Errorf("files = %+v, want %+v", files, want)
+	if _, err := c.FetchFile(context.Background(), m, testSHA, skill, SkillFileInfo{Path: "bin.json", Size: 2}); !errors.Is(err, ErrFileNotFound) {
+		t.Errorf("binary file = %v, want ErrFileNotFound", err)
 	}
 }
 

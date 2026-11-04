@@ -7,7 +7,6 @@ import (
 	"path"
 	"slices"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
 	"golang.org/x/sync/errgroup"
@@ -235,39 +234,18 @@ func deepestSkill(p string, byPath map[string]*skillFolder) *skillFolder {
 	return nil
 }
 
-// FetchFiles fetches a skill's supporting files at sha. A file that turns out
-// not to be text is left out.
-func (c *Crawler) FetchFiles(ctx context.Context, m *Marketplace, sha string, skill skillRecord) ([]SkillFile, error) {
+// FetchFile fetches one supporting file of skill at sha. A file that turns
+// out not to be text returns ErrFileNotFound.
+func (c *Crawler) FetchFile(ctx context.Context, m *Marketplace, sha string, skill skillRecord, file SkillFileInfo) (string, error) {
 	token, err := m.Token(ctx)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	var mu sync.Mutex
-	files := make([]SkillFile, 0, len(skill.Files))
-	perSkill := semaphore.NewWeighted(perCrawlFetches)
-	g, gctx := errgroup.WithContext(ctx)
-	for _, file := range skill.Files {
-		name := file.Path
-		g.Go(func() error {
-			content, err := c.fetch(gctx, perSkill, token, m, sha, path.Join(skill.Path, name), file.Size)
-			if err != nil {
-				if errors.Is(err, ghclient.ErrUnavailable) || gctx.Err() != nil {
-					return err
-				}
-				c.skip(gctx, m, path.Join(skill.Path, name), err.Error())
-				return nil
-			}
-			mu.Lock()
-			files = append(files, SkillFile{Path: name, Content: content})
-			mu.Unlock()
-			return nil
-		})
+	content, err := c.fetch(ctx, semaphore.NewWeighted(1), token, m, sha, path.Join(skill.Path, file.Path), file.Size)
+	if errors.Is(err, errNotText) {
+		return "", fmt.Errorf("%s: %w", file.Path, ErrFileNotFound)
 	}
-	if err := g.Wait(); err != nil {
-		return nil, fmt.Errorf("fetch files of %s: %w", skill.Path, err)
-	}
-	slices.SortFunc(files, func(a, b SkillFile) int { return strings.Compare(a.Path, b.Path) })
-	return files, nil
+	return content, err
 }
 
 // errNotText is a fetched file that is not UTF-8 text.

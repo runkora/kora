@@ -39,14 +39,14 @@ type skillStore interface {
 	SetList(ctx context.Context, m *Marketplace, list skillList) error
 	GetFailure(ctx context.Context, m *Marketplace) (crawlFailure, bool, error)
 	SetFailure(ctx context.Context, m *Marketplace, f crawlFailure) error
-	GetFiles(ctx context.Context, m *Marketplace, sha, path string) ([]SkillFile, bool, error)
-	SetFiles(ctx context.Context, m *Marketplace, sha, path string, files []SkillFile) error
+	GetFile(ctx context.Context, m *Marketplace, sha, path string) (string, bool, error)
+	SetFile(ctx context.Context, m *Marketplace, sha, path, content string) error
 }
 
 // skillCrawler is the crawler surface the service uses.
 type skillCrawler interface {
 	Crawl(ctx context.Context, m *Marketplace) (skillList, error)
-	FetchFiles(ctx context.Context, m *Marketplace, sha string, skill skillRecord) ([]SkillFile, error)
+	FetchFile(ctx context.Context, m *Marketplace, sha string, skill skillRecord, file SkillFileInfo) (string, error)
 }
 
 // Service serves a tenant's Marketplaces from the cache, crawling on a miss.
@@ -103,34 +103,78 @@ func (s *Service) ListSkills(ctx context.Context, tenantID, slug, search string,
 	return page, nil
 }
 
-// GetSkill returns the skill at path with its text files, SKILL.md first.
-// Supporting files are fetched on first open and cached.
+// GetSkill returns the skill at path with its SKILL.md and the list of its
+// supporting files.
 func (s *Service) GetSkill(ctx context.Context, tenantID, slug, path string) (SkillDetail, error) {
-	m, ok := s.registry.Find(tenantID, slug)
-	if !ok {
-		return SkillDetail{}, ErrMarketplaceNotFound
-	}
-	list, err := s.list(ctx, m)
+	m, _, skill, err := s.skill(ctx, tenantID, slug, path)
 	if err != nil {
 		return SkillDetail{}, err
 	}
-	i := slices.IndexFunc(list.Skills, func(r skillRecord) bool { return r.Path == path })
-	if i < 0 {
-		return SkillDetail{}, ErrSkillNotFound
-	}
-	skill := list.Skills[i]
-
-	files, err := s.files(ctx, m, list.SHA, skill)
-	if err != nil {
-		return SkillDetail{}, err
+	files := skill.Files
+	if files == nil {
+		files = []SkillFileInfo{}
 	}
 	return SkillDetail{
 		Path:        skill.Path,
 		Name:        skill.Name,
 		Description: skill.Description,
 		Repository:  m.Owner + "/" + m.Repo,
-		Files:       append([]SkillFile{{Path: skillFileName, Content: skill.Content}}, files...),
+		Content:     skill.Content,
+		Files:       files,
 	}, nil
+}
+
+// GetSkillFile returns one listed supporting file of the skill at path. The
+// content is fetched on first request and cached.
+func (s *Service) GetSkillFile(ctx context.Context, tenantID, slug, path, file string) (SkillFileContent, error) {
+	m, sha, skill, err := s.skill(ctx, tenantID, slug, path)
+	if err != nil {
+		return SkillFileContent{}, err
+	}
+	i := slices.IndexFunc(skill.Files, func(f SkillFileInfo) bool { return f.Path == file })
+	if i < 0 {
+		return SkillFileContent{}, ErrFileNotFound
+	}
+	info := skill.Files[i]
+	full := skill.Path + "/" + info.Path
+	if content, ok, err := s.cache.GetFile(ctx, m, sha, full); err != nil || ok {
+		return SkillFileContent{Path: info.Path, Content: content}, err
+	}
+	res, err := s.detached(ctx, "file/"+m.TenantID+"/"+m.Slug+"/"+sha+"/"+full, func(ctx context.Context) (any, error) {
+		content, err := s.crawler.FetchFile(ctx, m, sha, skill, info)
+		if err != nil {
+			if f, ok := classify(m, err); ok {
+				return nil, fmt.Errorf("%w: %w", f.err(), err)
+			}
+			return nil, err
+		}
+		if err := s.cache.SetFile(ctx, m, sha, full, content); err != nil {
+			s.logger.Warn(ctx, "failed to cache skill file", logging.Field{Key: "marketplace", Value: m.Slug}, logging.Field{Key: "error", Value: err.Error()})
+		}
+		return content, nil
+	})
+	if err != nil {
+		return SkillFileContent{}, err
+	}
+	return SkillFileContent{Path: info.Path, Content: res.(string)}, nil
+}
+
+// skill returns the tenant's Marketplace, the commit of its cached crawl and
+// the skill at path.
+func (s *Service) skill(ctx context.Context, tenantID, slug, path string) (*Marketplace, string, skillRecord, error) {
+	m, ok := s.registry.Find(tenantID, slug)
+	if !ok {
+		return nil, "", skillRecord{}, ErrMarketplaceNotFound
+	}
+	list, err := s.list(ctx, m)
+	if err != nil {
+		return nil, "", skillRecord{}, err
+	}
+	i := slices.IndexFunc(list.Skills, func(r skillRecord) bool { return r.Path == path })
+	if i < 0 {
+		return nil, "", skillRecord{}, ErrSkillNotFound
+	}
+	return m, list.SHA, list.Skills[i], nil
 }
 
 // list returns the cached crawl of m, a cached failure, or a new crawl.
@@ -163,33 +207,6 @@ func (s *Service) list(ctx context.Context, m *Marketplace) (skillList, error) {
 		return skillList{}, err
 	}
 	return res.(skillList), nil
-}
-
-// files returns the cached supporting files of skill or fetches them.
-func (s *Service) files(ctx context.Context, m *Marketplace, sha string, skill skillRecord) ([]SkillFile, error) {
-	if len(skill.Files) == 0 {
-		return nil, nil
-	}
-	if files, ok, err := s.cache.GetFiles(ctx, m, sha, skill.Path); err != nil || ok {
-		return files, err
-	}
-	res, err := s.detached(ctx, "files/"+m.TenantID+"/"+m.Slug+"/"+sha+"/"+skill.Path, func(ctx context.Context) (any, error) {
-		files, err := s.crawler.FetchFiles(ctx, m, sha, skill)
-		if err != nil {
-			if f, ok := classify(m, err); ok {
-				return nil, fmt.Errorf("%w: %w", f.err(), err)
-			}
-			return nil, err
-		}
-		if err := s.cache.SetFiles(ctx, m, sha, skill.Path, files); err != nil {
-			s.logger.Warn(ctx, "failed to cache skill files", logging.Field{Key: "marketplace", Value: m.Slug}, logging.Field{Key: "error", Value: err.Error()})
-		}
-		return files, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return res.([]SkillFile), nil
 }
 
 // detached runs fn once per key, under crawlTimeout and free of the caller's

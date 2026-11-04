@@ -21,9 +21,9 @@ func (c *countingCrawler) Crawl(ctx context.Context, m *Marketplace) (skillList,
 	return c.inner.Crawl(ctx, m)
 }
 
-func (c *countingCrawler) FetchFiles(ctx context.Context, m *Marketplace, sha string, s skillRecord) ([]SkillFile, error) {
+func (c *countingCrawler) FetchFile(ctx context.Context, m *Marketplace, sha string, s skillRecord, f SkillFileInfo) (string, error) {
 	c.fileFetches++
-	return c.inner.FetchFiles(ctx, m, sha, s)
+	return c.inner.FetchFile(ctx, m, sha, s, f)
 }
 
 func newTestService(t *testing.T, g *fakeGitHub, ms ...*Marketplace) (*Service, *countingCrawler, *memStore) {
@@ -164,26 +164,55 @@ func TestListSkills_EditedMarketplaceCrawlsAgain(t *testing.T) {
 	}
 }
 
+// The skill page lists files without content. Each listed file is fetched
+// once on request and then served from the cache.
 func TestGetSkill(t *testing.T) {
 	m := testMarketplace(t, "example", "team-skills")
 	svc, crawler, _ := newTestService(t, sampleRepo(), m)
 	ctx := context.Background()
 
+	skill, err := svc.GetSkill(ctx, "example", "team-skills", "skills/pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skill.Content != skillMD("pdf", "Read and write PDF files.", "Use pypdf for forms.") || skill.Repository != "example-org/skills" ||
+		!slices.Equal(skill.Files, []SkillFileInfo{{Path: "forms.md", Size: 5}}) {
+		t.Errorf("skill = %+v", skill)
+	}
+	if crawler.fileFetches != 0 {
+		t.Errorf("file fetches = %d, want none until a file is requested", crawler.fileFetches)
+	}
+
 	for range 2 {
-		skill, err := svc.GetSkill(ctx, "example", "team-skills", "skills/pdf")
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := []SkillFile{{Path: "SKILL.md", Content: skillMD("pdf", "Read and write PDF files.", "Use pypdf for forms.")}, {Path: "forms.md", Content: "forms"}}
-		if !slices.Equal(skill.Files, want) || skill.Name != "pdf" || skill.Repository != "example-org/skills" {
-			t.Errorf("skill = %+v", skill)
+		file, err := svc.GetSkillFile(ctx, "example", "team-skills", "skills/pdf", "forms.md")
+		if err != nil || file != (SkillFileContent{Path: "forms.md", Content: "forms"}) {
+			t.Errorf("GetSkillFile = %+v, %v", file, err)
 		}
 	}
 	if crawler.crawls != 1 || crawler.fileFetches != 1 {
 		t.Errorf("crawls %d, file fetches %d, want one each", crawler.crawls, crawler.fileFetches)
 	}
-	if _, err := svc.GetSkill(ctx, "example", "team-skills", "skills/missing"); !errors.Is(err, ErrSkillNotFound) {
-		t.Errorf("missing skill = %v, want ErrSkillNotFound", err)
+
+	for _, tc := range []struct {
+		path, file string
+		want       error
+	}{
+		{"skills/missing", "", ErrSkillNotFound},
+		{"skills/pdf", "SKILL.md", ErrFileNotFound},
+		{"skills/pdf", "other.md", ErrFileNotFound},
+	} {
+		var err error
+		if tc.file == "" {
+			_, err = svc.GetSkill(ctx, "example", "team-skills", tc.path)
+		} else {
+			_, err = svc.GetSkillFile(ctx, "example", "team-skills", tc.path, tc.file)
+		}
+		if !errors.Is(err, tc.want) {
+			t.Errorf("%s %s = %v, want %v", tc.path, tc.file, err, tc.want)
+		}
+	}
+	if skill, _ := svc.GetSkill(ctx, "example", "team-skills", "skills/docx"); skill.Files == nil {
+		t.Error("a skill with no files returns null files, want []")
 	}
 }
 

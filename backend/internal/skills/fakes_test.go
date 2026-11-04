@@ -53,11 +53,11 @@ type memStore struct {
 	mu       sync.Mutex
 	lists    map[string]skillList
 	failures map[string]crawlFailure
-	files    map[string][]SkillFile
+	files    map[string]string
 }
 
 func newMemStore() *memStore {
-	return &memStore{lists: map[string]skillList{}, failures: map[string]crawlFailure{}, files: map[string][]SkillFile{}}
+	return &memStore{lists: map[string]skillList{}, failures: map[string]crawlFailure{}, files: map[string]string{}}
 }
 
 func (s *memStore) GetList(_ context.Context, m *Marketplace) (skillList, bool, error) {
@@ -88,17 +88,17 @@ func (s *memStore) SetFailure(_ context.Context, m *Marketplace, f crawlFailure)
 	return nil
 }
 
-func (s *memStore) GetFiles(_ context.Context, m *Marketplace, sha, path string) ([]SkillFile, bool, error) {
+func (s *memStore) GetFile(_ context.Context, m *Marketplace, sha, path string) (string, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	f, ok := s.files[cacheKey(m, "files", sha, path)]
+	f, ok := s.files[cacheKey(m, "file", sha, path)]
 	return f, ok, nil
 }
 
-func (s *memStore) SetFiles(_ context.Context, m *Marketplace, sha, path string, files []SkillFile) error {
+func (s *memStore) SetFile(_ context.Context, m *Marketplace, sha, path, content string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.files[cacheKey(m, "files", sha, path)] = files
+	s.files[cacheKey(m, "file", sha, path)] = content
 	return nil
 }
 

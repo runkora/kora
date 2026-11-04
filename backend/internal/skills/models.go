@@ -28,20 +28,21 @@ type SkillPage struct {
 	Limit       int                `json:"limit"`
 }
 
-// SkillFile is one text file of a skill, its path relative to the skill
-// folder.
-type SkillFile struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
+// SkillDetail is the response of GET /marketplaces/{slug}/skills/{path...}.
+// Content is the SKILL.md. Files lists the supporting files without content.
+type SkillDetail struct {
+	Path        string          `json:"path"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Repository  string          `json:"repository"`
+	Content     string          `json:"content"`
+	Files       []SkillFileInfo `json:"files"`
 }
 
-// SkillDetail is the response of GET /marketplaces/{slug}/skills/{path...}.
-type SkillDetail struct {
-	Path        string      `json:"path"`
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	Repository  string      `json:"repository"`
-	Files       []SkillFile `json:"files"`
+// SkillFileContent is the response of a skill request with ?file=.
+type SkillFileContent struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
 }
 
 // skillList is one crawl of a Marketplace as cached in Redis. Source records
