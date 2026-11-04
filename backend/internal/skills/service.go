@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -20,10 +21,12 @@ const (
 	// crawlTimeout bounds one crawl. A crawl outlives the request that started
 	// it, so a client that gives up does not waste the work.
 	crawlTimeout = 5 * time.Minute
+	// MaxKeys bounds the skill keys of one request.
+	MaxKeys = 200
 	// minSearchLength is the shortest query that filters.
 	minSearchLength = 3
 	// DefaultLimit and MaxLimit bound a page of skills.
-	DefaultLimit = 25
+	DefaultLimit = 10
 	MaxLimit     = 100
 )
 
@@ -63,50 +66,168 @@ func NewService(registry marketplaceFinder, cache skillStore, crawler skillCrawl
 	return &Service{registry: registry, cache: cache, crawler: crawler, logger: logger}
 }
 
-// ListMarketplaces returns the tenant's Marketplaces, oldest first.
-func (s *Service) ListMarketplaces(tenantID string) []MarketplaceSummary {
+// ListMarketplaces returns the tenant's Marketplaces, oldest first, with the
+// commit, sync time and skill count of a cached crawl. It never crawls.
+func (s *Service) ListMarketplaces(ctx context.Context, tenantID string) ([]MarketplaceSummary, error) {
 	ms := s.registry.Marketplaces(tenantID)
 	out := make([]MarketplaceSummary, 0, len(ms))
 	for _, m := range ms {
-		out = append(out, m.Summary())
+		summary := MarketplaceSummary{Slug: m.Slug, Name: m.Repo, Repository: m.Repository(), Ref: m.Ref}
+		list, ok, err := s.cache.GetList(ctx, m)
+		if err != nil {
+			return nil, err
+		}
+		if ok && list.Source == m.source() {
+			count, synced := len(list.Skills), list.SyncedAt
+			summary.Commit, summary.SyncedAt, summary.SkillCount = &list.SHA, &synced, &count
+		}
+		out = append(out, summary)
 	}
-	return out
+	return out, nil
 }
 
-// ListSkills returns one page of the Marketplace's skills in name order. A
-// search of three or more characters keeps skills whose name, description or
-// SKILL.md contains it, ignoring case.
-func (s *Service) ListSkills(ctx context.Context, tenantID, slug, search string, offset, limit int) (SkillPage, error) {
-	m, ok := s.registry.Find(tenantID, slug)
-	if !ok {
-		return SkillPage{}, ErrMarketplaceNotFound
-	}
-	list, err := s.list(ctx, m)
+// SkillQuery selects a page of skills. An empty Marketplace means every
+// Marketplace of the tenant. Keys, as "<slug>:<path>", keep only those skills.
+type SkillQuery struct {
+	Marketplace string
+	Keys        []string
+	Search      string
+	Offset      int
+	Limit       int
+}
+
+// failedMarketplace is a Marketplace whose list could not be read.
+type failedMarketplace struct {
+	slug string
+	err  error
+}
+
+// ListSkills returns one page of skills in title order. A single Marketplace
+// that fails returns its error. Across Marketplaces a failed one is left out
+// and reported in the second result.
+func (s *Service) ListSkills(ctx context.Context, tenantID string, q SkillQuery) (SkillPage, []failedMarketplace, error) {
+	keys := parseKeys(q.Keys)
+	ms, err := s.selectMarketplaces(tenantID, q, keys)
 	if err != nil {
-		return SkillPage{}, err
+		return SkillPage{}, nil, err
 	}
+	lists, errs := s.readLists(ctx, ms)
 
-	matches := list.Skills
-	if q := strings.ToLower(strings.TrimSpace(search)); utf8.RuneCountInString(q) >= minSearchLength {
-		matches = slices.DeleteFunc(slices.Clone(list.Skills), func(r skillRecord) bool {
-			return !strings.Contains(strings.ToLower(r.Name), q) &&
-				!strings.Contains(strings.ToLower(r.Description), q) &&
-				!strings.Contains(strings.ToLower(r.Content), q)
-		})
+	var failed []failedMarketplace
+	var matches []SkillSummary
+	query := strings.ToLower(strings.TrimSpace(q.Search))
+	searching := utf8.RuneCountInString(query) >= minSearchLength
+	for i, m := range ms {
+		if err := errs[i]; err != nil {
+			if q.Marketplace != "" || !isMarketplaceFailure(err) {
+				return SkillPage{}, nil, err
+			}
+			failed = append(failed, failedMarketplace{slug: m.Slug, err: err})
+			continue
+		}
+		for _, r := range lists[i].Skills {
+			if (q.Keys == nil || keys[m.Slug][r.Path]) && (!searching || matchesSearch(r, query)) {
+				matches = append(matches, summarize(m.Slug, r))
+			}
+		}
 	}
+	slices.SortFunc(matches, compareSkills)
 
-	page := SkillPage{Marketplace: m.Summary(), Skills: []SkillSummary{}, Total: len(matches), Offset: offset, Limit: limit}
-	start := min(offset, len(matches))
-	for _, r := range matches[start : start+min(limit, len(matches)-start)] {
-		page.Skills = append(page.Skills, SkillSummary{Path: r.Path, Name: r.Name, Description: r.Description})
+	page := SkillPage{Skills: []SkillSummary{}, Total: len(matches), Offset: q.Offset, Limit: q.Limit}
+	start := min(q.Offset, len(matches))
+	page.Skills = append(page.Skills, matches[start:start+min(q.Limit, len(matches)-start)]...)
+	return page, failed, nil
+}
+
+// parseKeys groups "<slug>:<path>" keys by Marketplace. Malformed keys are
+// dropped.
+func parseKeys(raw []string) map[string]map[string]bool {
+	keys := map[string]map[string]bool{}
+	for _, k := range raw {
+		if slug, p, ok := strings.Cut(k, ":"); ok && slug != "" && p != "" {
+			if keys[slug] == nil {
+				keys[slug] = map[string]bool{}
+			}
+			keys[slug][p] = true
+		}
 	}
-	return page, nil
+	return keys
+}
+
+// selectMarketplaces returns the Marketplaces a query reads. Keys narrow it to
+// the Marketplaces they name, so a favorites view crawls nothing else.
+func (s *Service) selectMarketplaces(tenantID string, q SkillQuery, keys map[string]map[string]bool) ([]*Marketplace, error) {
+	ms := s.registry.Marketplaces(tenantID)
+	if q.Marketplace != "" {
+		m, ok := s.registry.Find(tenantID, q.Marketplace)
+		if !ok {
+			return nil, ErrMarketplaceNotFound
+		}
+		ms = []*Marketplace{m}
+	}
+	if q.Keys != nil {
+		ms = slices.DeleteFunc(slices.Clone(ms), func(m *Marketplace) bool { return keys[m.Slug] == nil })
+	}
+	return ms, nil
+}
+
+// readLists reads every Marketplace's list concurrently.
+func (s *Service) readLists(ctx context.Context, ms []*Marketplace) ([]skillList, []error) {
+	lists := make([]skillList, len(ms))
+	errs := make([]error, len(ms))
+	var wg sync.WaitGroup
+	for i, m := range ms {
+		wg.Go(func() { lists[i], errs[i] = s.list(ctx, m) })
+	}
+	wg.Wait()
+	return lists, errs
+}
+
+// compareSkills orders by title ignoring case, then Marketplace, then path.
+func compareSkills(a, b SkillSummary) int {
+	if n := strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title)); n != 0 {
+		return n
+	}
+	if n := strings.Compare(a.Marketplace, b.Marketplace); n != 0 {
+		return n
+	}
+	return strings.Compare(a.Path, b.Path)
+}
+
+// isMarketplaceFailure reports an error that belongs to one Marketplace and
+// leaves the others readable.
+func isMarketplaceFailure(err error) bool {
+	return errors.Is(err, ErrCredentialUnavailable) || errors.Is(err, ErrGitHubFailure) ||
+		errors.Is(err, ErrRepositoryNotFound) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func matchesSearch(r skillRecord, query string) bool {
+	for _, field := range []string{r.Title, r.Name, r.Description, r.Content} {
+		if strings.Contains(strings.ToLower(field), query) {
+			return true
+		}
+	}
+	return false
+}
+
+func summarize(slug string, r skillRecord) SkillSummary {
+	return SkillSummary{
+		Marketplace: slug, Path: r.Path, Name: r.Name, Title: r.Title, Description: r.Description,
+		Version: r.Version, Tags: nonNil(r.Tags), Tools: nonNil(r.Tools), ManualOnly: r.ManualOnly,
+	}
+}
+
+func nonNil(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
 }
 
 // GetSkill returns the skill at path with its SKILL.md and the list of its
 // supporting files.
 func (s *Service) GetSkill(ctx context.Context, tenantID, slug, path string) (SkillDetail, error) {
-	m, _, skill, err := s.skill(ctx, tenantID, slug, path)
+	m, sha, skill, err := s.skill(ctx, tenantID, slug, path)
 	if err != nil {
 		return SkillDetail{}, err
 	}
@@ -115,10 +236,14 @@ func (s *Service) GetSkill(ctx context.Context, tenantID, slug, path string) (Sk
 		files = []SkillFileInfo{}
 	}
 	return SkillDetail{
+		Marketplace: m.Slug,
 		Path:        skill.Path,
 		Name:        skill.Name,
+		Title:       skill.Title,
 		Description: skill.Description,
-		Repository:  m.Owner + "/" + m.Repo,
+		Repository:  m.Repository(),
+		Ref:         m.Ref,
+		Commit:      sha,
 		Content:     skill.Content,
 		Files:       files,
 	}, nil

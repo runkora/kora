@@ -103,23 +103,39 @@ func TestAPI_Contract(t *testing.T) {
 	f := newAPIFixture(t, true, testMarketplace(t, "example", "team-skills"))
 
 	var list ListMarketplacesResponse
-	if code := f.get("/marketplaces", &list); code != http.StatusOK || !slices.Equal(list.Marketplaces, []MarketplaceSummary{{Slug: "team-skills", Name: "skills", Repository: "example-org/skills"}}) {
-		t.Errorf("GET /marketplaces = %d %+v", code, list)
+	if code := f.get("/marketplaces", &list); code != http.StatusOK || len(list.Marketplaces) != 1 || list.Marketplaces[0].Commit != nil || list.Marketplaces[0].SkillCount != nil {
+		t.Errorf("GET /marketplaces before a crawl = %d %+v, want null commit and count", code, list)
+	}
+	if fetched := f.github.fetchedPaths(); len(fetched) != 0 {
+		t.Errorf("listing Marketplaces crawled: %v", fetched)
 	}
 
 	var page SkillPage
-	if code := f.get("/marketplaces/team-skills?search=pdf&offset=0&limit=1", &page); code != http.StatusOK || page.Total != 2 || page.Limit != 1 || len(page.Skills) != 1 || page.Skills[0].Path != "skills/pdf" {
-		t.Errorf("GET page = %d %+v", code, page)
+	if code := f.get("/skills?marketplace=team-skills&search=pdf&offset=0&limit=1", &page); code != http.StatusOK || page.Total != 2 || page.Limit != 1 || len(page.Skills) != 1 || page.Skills[0].Path != "skills/pdf" || page.Skills[0].Marketplace != "team-skills" {
+		t.Errorf("GET /skills = %d %+v", code, page)
 	}
-	if code := f.get("/marketplaces/team-skills?limit=500", &page); code != http.StatusOK || page.Limit != MaxLimit {
+	if code := f.get("/skills?limit=500", &page); code != http.StatusOK || page.Limit != MaxLimit {
 		t.Errorf("limit 500 = %d limit %d, want capped at %d", code, page.Limit, MaxLimit)
 	}
-	if code := f.get("/marketplaces/team-skills", &page); page.Limit != DefaultLimit || page.Offset != 0 || code != http.StatusOK {
-		t.Errorf("defaults = %d offset %d limit %d", code, page.Offset, page.Limit)
+	if code := f.get("/skills", &page); page.Limit != DefaultLimit || page.Offset != 0 || code != http.StatusOK || page.Total != 6 {
+		t.Errorf("defaults = %d %+v", code, page)
+	}
+	if code := f.get("/skills?keys=team-skills:skills/pdf,team-skills:skills/missing,other:skills/pdf", &page); code != http.StatusOK || page.Total != 1 || page.Skills[0].Path != "skills/pdf" {
+		t.Errorf("keys = %d %+v, want only the known key", code, page)
+	}
+
+	var raw map[string]any
+	if code := f.get("/marketplaces", &raw); code != http.StatusOK {
+		t.Fatalf("GET /marketplaces = %d", code)
+	}
+	after := raw["marketplaces"].([]any)[0].(map[string]any)
+	if after["commit"] != testSHA || after["skillCount"] != float64(6) || after["syncedAt"] == nil || after["ref"] != "" {
+		t.Errorf("GET /marketplaces after a crawl = %+v", after)
 	}
 
 	var skill map[string]any
-	if code := f.get("/marketplaces/team-skills/skills/skills/pdf", &skill); code != http.StatusOK || skill["path"] != "skills/pdf" || skill["content"] == "" {
+	if code := f.get("/marketplaces/team-skills/skills/skills/pdf", &skill); code != http.StatusOK || skill["path"] != "skills/pdf" || skill["content"] == "" ||
+		skill["marketplace"] != "team-skills" || skill["title"] != "pdf" || skill["commit"] != testSHA || skill["ref"] != "" {
 		t.Errorf("GET skill = %d %+v", code, skill)
 	}
 	if files, _ := skill["files"].([]any); len(files) != 1 || !reflect.DeepEqual(files[0], map[string]any{"path": "forms.md", "size": float64(5)}) {
@@ -145,22 +161,46 @@ func TestAPI_Errors(t *testing.T) {
 		code   int
 		error  string
 	}{
-		{"/marketplaces/team-skills?offset=-1", http.StatusBadRequest, codeInvalidRequest},
-		{"/marketplaces/team-skills?limit=0", http.StatusBadRequest, codeInvalidRequest},
-		{"/marketplaces/team-skills?limit=ten", http.StatusBadRequest, codeInvalidRequest},
-		{"/marketplaces/unknown", http.StatusNotFound, codeNotFound},
+		{"/skills?offset=-1", http.StatusBadRequest, codeInvalidRequest},
+		{"/skills?limit=0", http.StatusBadRequest, codeInvalidRequest},
+		{"/skills?limit=ten", http.StatusBadRequest, codeInvalidRequest},
+		{"/skills?marketplace=unknown", http.StatusNotFound, codeNotFound},
 		{"/marketplaces/team-skills/skills/skills/missing", http.StatusNotFound, codeNotFound},
 		{"/marketplaces/team-skills/skills/skills/pdf?file=unlisted.md", http.StatusNotFound, codeNotFound},
 		{"/marketplaces/team-skills/skills/skills/pdf?file=../docx/SKILL.md", http.StatusNotFound, codeNotFound},
 		{"/marketplaces/team-skills/skills/skills/pdf?file=", http.StatusNotFound, codeNotFound},
 		// A Marketplace listed without its key fails closed.
-		{"/marketplaces/no-key", http.StatusBadGateway, codeMarketplaceUnavailable},
+		{"/skills?marketplace=no-key", http.StatusBadGateway, codeMarketplaceUnavailable},
 		{"/marketplaces/no-key/skills/skills/pdf", http.StatusBadGateway, codeMarketplaceUnavailable},
 	} {
 		var body api.APIError
 		if code := f.get(tc.target, &body); code != tc.code || body.Code != tc.error || body.Message == "" {
 			t.Errorf("%s = %d %+v, want %d %s", tc.target, code, body, tc.code, tc.error)
 		}
+	}
+}
+
+// Across Marketplaces a failed one is listed in failures and the others are
+// served.
+func TestAPI_AllMarketplacesReportFailures(t *testing.T) {
+	noKey := testMarketplace(t, "example", "no-key")
+	noKey.tokens = nil
+	f := newAPIFixture(t, true, testMarketplace(t, "example", "team-skills"), noKey)
+
+	var page SkillPage
+	if code := f.get("/skills", &page); code != http.StatusOK || page.Total != 6 {
+		t.Fatalf("GET /skills = %d %+v", code, page)
+	}
+	want := []MarketplaceFailure{{Marketplace: "no-key", Message: "The credential for this Marketplace is unavailable."}}
+	if !slices.Equal(page.Failures, want) {
+		t.Errorf("failures = %+v, want %+v", page.Failures, want)
+	}
+
+	var raw map[string]any
+	f2 := newAPIFixture(t, true, testMarketplace(t, "example", "team-skills"))
+	f2.get("/skills", &raw)
+	if _, ok := raw["failures"]; ok {
+		t.Errorf("failures present with none: %v", raw)
 	}
 }
 
@@ -205,7 +245,7 @@ func TestAPI_SkillPathSegments(t *testing.T) {
 
 func TestAPI_DeniedScope(t *testing.T) {
 	f := newAPIFixture(t, false, testMarketplace(t, "example", "team-skills"))
-	if code := f.get("/marketplaces/team-skills", nil); code != http.StatusForbidden {
+	if code := f.get("/skills", nil); code != http.StatusForbidden {
 		t.Errorf("denied scope = %d, want 403", code)
 	}
 	input := f.eval.inputs[0]
@@ -259,5 +299,29 @@ func TestRespondError_CancelledWritesNothing(t *testing.T) {
 	(&Controller{logger: discard()}).respondError(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, "/", nil), context.Canceled)
 	if rr.Body.Len() != 0 || rr.Result().Header.Get("Content-Type") != "" {
 		t.Errorf("cancelled request wrote %d %q", rr.Code, rr.Body.String())
+	}
+}
+
+// keys past MaxKeys are dropped; the request still succeeds.
+func TestAPI_KeysAreCapped(t *testing.T) {
+	f := newAPIFixture(t, true, testMarketplace(t, "example", "team-skills"))
+	keys := make([]string, 0, MaxKeys+1)
+	for i := range MaxKeys {
+		keys = append(keys, fmt.Sprintf("team-skills:skills/none-%d", i))
+	}
+	keys = append(keys, "team-skills:skills/pdf")
+	var page SkillPage
+	if code := f.get("/skills?keys="+strings.Join(keys, ","), &page); code != http.StatusOK || page.Total != 0 {
+		t.Errorf("GET /skills with %d keys = %d total %d, want 200 and the key past the cap ignored", len(keys), code, page.Total)
+	}
+}
+
+func TestRoutes(t *testing.T) {
+	var got []string
+	for _, r := range Routes("/v1") {
+		got = append(got, r.Method+" "+r.PathPrefix+" "+r.RequiredScope)
+	}
+	if want := []string{"GET /v1/marketplaces skills:read", "GET /v1/skills skills:read"}; !slices.Equal(got, want) {
+		t.Errorf("routes = %v, want %v", got, want)
 	}
 }

@@ -29,8 +29,8 @@ const (
 
 // skillReader is the service surface the handlers use.
 type skillReader interface {
-	ListMarketplaces(tenantID string) []MarketplaceSummary
-	ListSkills(ctx context.Context, tenantID, slug, search string, offset, limit int) (SkillPage, error)
+	ListMarketplaces(ctx context.Context, tenantID string) ([]MarketplaceSummary, error)
+	ListSkills(ctx context.Context, tenantID string, q SkillQuery) (SkillPage, []failedMarketplace, error)
 	GetSkill(ctx context.Context, tenantID, slug, path string) (SkillDetail, error)
 	GetSkillFile(ctx context.Context, tenantID, slug, path, file string) (SkillFileContent, error)
 }
@@ -71,11 +71,11 @@ func NewController(
 
 // Routes declares the scope every route requires.
 func Routes(basePath string) []routescopes.RouteScope {
-	return []routescopes.RouteScope{{
-		PathPrefix:    strings.TrimRight(basePath, "/") + "/marketplaces",
-		Method:        http.MethodGet,
-		RequiredScope: skillsReadScope,
-	}}
+	base := strings.TrimRight(basePath, "/")
+	return []routescopes.RouteScope{
+		{PathPrefix: base + "/marketplaces", Method: http.MethodGet, RequiredScope: skillsReadScope},
+		{PathPrefix: base + "/skills", Method: http.MethodGet, RequiredScope: skillsReadScope},
+	}
 }
 
 // Scopes declares the scope vocabulary skills-service owns.
@@ -97,7 +97,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return c.middleware }
 // Boot registers the routes.
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /marketplaces", c.handleListMarketplaces)
-	mux.Handle("GET /marketplaces/{slug}", c.handleListSkills)
+	mux.Handle("GET /skills", c.handleListSkills)
 	mux.Handle("GET /marketplaces/{slug}/skills/{path...}", c.handleGetSkill)
 }
 
@@ -106,7 +106,12 @@ func (c *Controller) handleListMarketplaces(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	api.JSON(r.Context(), w, c.logger, http.StatusOK, ListMarketplacesResponse{Marketplaces: c.service.ListMarketplaces(tenantID)})
+	marketplaces, err := c.service.ListMarketplaces(r.Context(), tenantID)
+	if err != nil {
+		c.respondError(w, r, err)
+		return
+	}
+	api.JSON(r.Context(), w, c.logger, http.StatusOK, ListMarketplacesResponse{Marketplaces: marketplaces})
 }
 
 func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
@@ -121,10 +126,24 @@ func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
 		c.respondError(w, r, ErrInvalidPage)
 		return
 	}
-	page, err := c.service.ListSkills(r.Context(), tenantID, r.PathValue("slug"), query.Get("search"), offset, min(limit, MaxLimit))
+	q := SkillQuery{Marketplace: query.Get("marketplace"), Search: query.Get("search"), Offset: offset, Limit: min(limit, MaxLimit)}
+	if query.Has("keys") {
+		q.Keys = []string{}
+		for k := range strings.SplitSeq(query.Get("keys"), ",") {
+			if k = strings.TrimSpace(k); k != "" && len(q.Keys) < MaxKeys {
+				q.Keys = append(q.Keys, k)
+			}
+		}
+	}
+	page, failed, err := c.service.ListSkills(r.Context(), tenantID, q)
 	if err != nil {
 		c.respondError(w, r, err)
 		return
+	}
+	for _, f := range failed {
+		c.logger.Warn(r.Context(), "skill marketplace left out of the skill list",
+			logging.Field{Key: "marketplace", Value: f.slug}, logging.Field{Key: "error", Value: f.err.Error()})
+		page.Failures = append(page.Failures, MarketplaceFailure{Marketplace: f.slug, Message: apiError(f.err).Message})
 	}
 	api.JSON(r.Context(), w, c.logger, http.StatusOK, page)
 }
@@ -199,30 +218,33 @@ func (c *Controller) respondError(w http.ResponseWriter, r *http.Request, err er
 		c.logger.Debug(r.Context(), "skills request cancelled", logging.Field{Key: "error", Value: err.Error()})
 		return
 	}
-	var apiErr *api.APIError
+	api.ErrorResponse(r.Context(), w, c.logger, apiError(err), err)
+}
+
+// apiError maps an error to its status, code and product message.
+func apiError(err error) *api.APIError {
 	switch {
 	case errors.Is(err, ErrInvalidPage):
-		apiErr = api.ValidationError(codeInvalidRequest, "offset must be 0 or more and limit 1 or more.", nil)
+		return api.ValidationError(codeInvalidRequest, "offset must be 0 or more and limit 1 or more.", nil)
 	case errors.Is(err, ErrMarketplaceNotFound):
-		apiErr = api.NotFoundError(codeNotFound, "Marketplace not found.", nil)
+		return api.NotFoundError(codeNotFound, "Marketplace not found.", nil)
 	case errors.Is(err, ErrRepositoryNotFound):
-		apiErr = api.NotFoundError(codeNotFound, "The repository or ref of this Marketplace was not found.", nil)
+		return api.NotFoundError(codeNotFound, "The repository or ref of this Marketplace was not found.", nil)
 	case errors.Is(err, ErrSkillNotFound):
-		apiErr = api.NotFoundError(codeNotFound, "Skill not found.", nil)
+		return api.NotFoundError(codeNotFound, "Skill not found.", nil)
 	case errors.Is(err, ErrFileNotFound):
-		apiErr = api.NotFoundError(codeNotFound, "File not found.", nil)
+		return api.NotFoundError(codeNotFound, "File not found.", nil)
 	case errors.Is(err, ErrCredentialUnavailable):
-		apiErr = statusError(http.StatusBadGateway, codeMarketplaceUnavailable, "The credential for this Marketplace is unavailable.")
+		return statusError(http.StatusBadGateway, codeMarketplaceUnavailable, "The credential for this Marketplace is unavailable.")
 	case errors.Is(err, ErrGitHubFailure):
-		apiErr = statusError(http.StatusBadGateway, codeMarketplaceUnavailable, "This Marketplace could not be loaded. Try again later.")
+		return statusError(http.StatusBadGateway, codeMarketplaceUnavailable, "This Marketplace could not be loaded. Try again later.")
 	case errors.Is(err, storage.ErrRedisUnavailable):
-		apiErr = statusError(http.StatusServiceUnavailable, codeUnavailable, "Skills are unavailable right now. Try again later.")
+		return statusError(http.StatusServiceUnavailable, codeUnavailable, "Skills are unavailable right now. Try again later.")
 	case errors.Is(err, context.DeadlineExceeded):
-		apiErr = statusError(http.StatusGatewayTimeout, codeTimeout, "Loading this Marketplace took too long. Try again later.")
+		return statusError(http.StatusGatewayTimeout, codeTimeout, "Loading this Marketplace took too long. Try again later.")
 	default:
-		apiErr = api.InternalError(api.ErrCodeInternalError, "Failed to read the Marketplace.", nil)
+		return api.InternalError(api.ErrCodeInternalError, "Failed to read the Marketplace.", nil)
 	}
-	api.ErrorResponse(r.Context(), w, c.logger, apiErr, err)
 }
 
 func statusError(status int, code, message string) *api.APIError {

@@ -2,6 +2,7 @@ package skills
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -93,4 +94,46 @@ func TestParseSkillFrontmatterErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseSkillFrontmatter_Metadata(t *testing.T) {
+	v := func(s string) *string { return &s }
+	for _, tc := range []struct {
+		name    string
+		content string
+		want    skillFrontmatter
+	}{
+		{
+			name:    "top-level fields and first heading",
+			content: "---\nname: pdf\ndescription: PDFs.\nversion: v2.1.0\ntags: [documents, forms]\nallowed-tools: Bash, Read\ndisable-model-invocation: true\n---\nIntro\n## Not this\n# PDF Processing Guide \n# Second\n",
+			want:    skillFrontmatter{Name: "pdf", Description: "PDFs.", Title: "PDF Processing Guide", Version: v("2.1.0"), Tags: []string{"documents", "forms"}, Tools: []string{"Bash", "Read"}, ManualOnly: true},
+		},
+		{
+			name:    "metadata fallbacks and a space separated string",
+			content: "---\nname: docx\ndescription: Word.\nmetadata:\n  version: \"1.4\"\n  tags: office docs\n---\nNo heading here.\n",
+			want:    skillFrontmatter{Name: "docx", Description: "Word.", Title: "docx", Version: v("1.4"), Tags: []string{"office", "docs"}, Tools: []string{}},
+		},
+		{
+			name:    "nothing declared",
+			content: "---\nname: bare\ndescription: Bare.\n---\n",
+			want:    skillFrontmatter{Name: "bare", Description: "Bare.", Title: "bare", Tags: []string{}, Tools: []string{}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseSkillFrontmatter(tc.content)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("got %+v (version %v), want %+v (version %v)", got, deref(got.Version), tc.want, deref(tc.want.Version))
+			}
+		})
+	}
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return "<nil>"
+	}
+	return *s
 }

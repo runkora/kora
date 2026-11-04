@@ -48,6 +48,12 @@ func sampleRepo() *fakeGitHub {
 	})
 }
 
+// listOne lists one Marketplace's skills.
+func listOne(ctx context.Context, svc *Service, tenant, slug, search string, offset, limit int) (SkillPage, error) {
+	page, _, err := svc.ListSkills(ctx, tenant, SkillQuery{Marketplace: slug, Search: search, Offset: offset, Limit: limit})
+	return page, err
+}
+
 func pagePaths(p SkillPage) []string {
 	var out []string
 	for _, s := range p.Skills {
@@ -76,15 +82,17 @@ func TestListSkills_SearchAndPaging(t *testing.T) {
 		{"short search filters nothing", "pd", 0, 25, []string{"skills/brand", "skills/docx", "skills/pdf", "skills/release", "skills/slack-gif", "skills/xlsx"}, 6},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			page, err := svc.ListSkills(ctx, "example", "team-skills", tc.search, tc.offset, tc.limit)
+			page, err := listOne(ctx, svc, "example", "team-skills", tc.search, tc.offset, tc.limit)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(pagePaths(page), tc.want) || page.Total != tc.total || page.Offset != tc.offset || page.Limit != tc.limit {
 				t.Errorf("page = %v total %d offset %d limit %d, want %v total %d", pagePaths(page), page.Total, page.Offset, page.Limit, tc.want, tc.total)
 			}
-			if page.Marketplace != (MarketplaceSummary{Slug: "team-skills", Name: "skills", Repository: "example-org/skills"}) {
-				t.Errorf("marketplace = %+v", page.Marketplace)
+			for _, skill := range page.Skills {
+				if skill.Marketplace != "team-skills" {
+					t.Errorf("skill marketplace = %q", skill.Marketplace)
+				}
 			}
 		})
 	}
@@ -101,11 +109,11 @@ func TestListSkills_TenantIsolation(t *testing.T) {
 	svc, crawler, store := newTestService(t, sampleRepo(), a, b)
 	ctx := context.Background()
 
-	if _, err := svc.ListSkills(ctx, "tenant-c", "skills", "", 0, 25); !errors.Is(err, ErrMarketplaceNotFound) {
+	if _, err := listOne(ctx, svc, "tenant-c", "skills", "", 0, 25); !errors.Is(err, ErrMarketplaceNotFound) {
 		t.Errorf("other tenant = %v, want ErrMarketplaceNotFound", err)
 	}
 	for _, tenant := range []string{"tenant-a", "tenant-b"} {
-		if _, err := svc.ListSkills(ctx, tenant, "skills", "", 0, 25); err != nil {
+		if _, err := listOne(ctx, svc, tenant, "skills", "", 0, 25); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -136,7 +144,7 @@ func TestListSkills_FailureIsCached(t *testing.T) {
 			tc.setup(g, m)
 			svc, crawler, _ := newTestService(t, g, m)
 			for range 2 {
-				if _, err := svc.ListSkills(context.Background(), "example", "team-skills", "", 0, 25); !errors.Is(err, tc.target) {
+				if _, err := listOne(context.Background(), svc, "example", "team-skills", "", 0, 25); !errors.Is(err, tc.target) {
 					t.Fatalf("ListSkills = %v, want %v", err, tc.target)
 				}
 			}
@@ -152,11 +160,11 @@ func TestListSkills_EditedMarketplaceCrawlsAgain(t *testing.T) {
 	m := testMarketplace(t, "example", "team-skills")
 	svc, crawler, _ := newTestService(t, sampleRepo(), m)
 	ctx := context.Background()
-	if _, err := svc.ListSkills(ctx, "example", "team-skills", "", 0, 25); err != nil {
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 25); err != nil {
 		t.Fatal(err)
 	}
 	m.Ref = "release"
-	if _, err := svc.ListSkills(ctx, "example", "team-skills", "", 0, 25); err != nil {
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 25); err != nil {
 		t.Fatal(err)
 	}
 	if crawler.crawls != 2 {
@@ -221,11 +229,11 @@ func TestListSkills_RemovedKeyFailsClosed(t *testing.T) {
 	m := testMarketplace(t, "example", "team-skills")
 	svc, _, _ := newTestService(t, sampleRepo(), m)
 	ctx := context.Background()
-	if _, err := svc.ListSkills(ctx, "example", "team-skills", "", 0, 25); err != nil {
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 25); err != nil {
 		t.Fatal(err)
 	}
 	m.tokens = nil
-	if _, err := svc.ListSkills(ctx, "example", "team-skills", "", 0, 25); !errors.Is(err, ErrCredentialUnavailable) {
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 25); !errors.Is(err, ErrCredentialUnavailable) {
 		t.Errorf("ListSkills = %v, want ErrCredentialUnavailable", err)
 	}
 	if _, err := svc.GetSkill(ctx, "example", "team-skills", "skills/pdf"); !errors.Is(err, ErrCredentialUnavailable) {
@@ -260,12 +268,12 @@ func TestListSkills_SharedDetachedCrawl(t *testing.T) {
 	cancelled, cancel := context.WithCancel(context.Background())
 	errs := make(chan error, 3)
 	go func() {
-		_, err := svc.ListSkills(cancelled, "example", "team-skills", "", 0, 25)
+		_, err := listOne(cancelled, svc, "example", "team-skills", "", 0, 25)
 		errs <- err
 	}()
 	for range 2 {
 		go func() {
-			_, err := svc.ListSkills(context.Background(), "example", "team-skills", "", 0, 25)
+			_, err := listOne(context.Background(), svc, "example", "team-skills", "", 0, 25)
 			errs <- err
 		}()
 	}
@@ -284,5 +292,44 @@ func TestListSkills_SharedDetachedCrawl(t *testing.T) {
 	}
 	if _, ok, _ := store.GetList(context.Background(), m); !ok {
 		t.Error("the shared crawl did not reach the cache")
+	}
+}
+
+// Across Marketplaces skills sort by title, then Marketplace, then path, and
+// keys load only the Marketplaces they name.
+func TestListSkills_AcrossMarketplaces(t *testing.T) {
+	a := testMarketplace(t, "example", "alpha")
+	b := testMarketplace(t, "example", "beta")
+	svc, _, _ := newTestService(t, repo(map[string]string{
+		"x/SKILL.md": skillMD("x", "X.", "# Zebra Guide\n"),
+		"y/SKILL.md": skillMD("y", "Y.", "# apple notes\n"),
+	}), a, b)
+	ctx := context.Background()
+
+	page, failed, err := svc.ListSkills(ctx, "example", SkillQuery{Limit: 10})
+	if err != nil || len(failed) != 0 {
+		t.Fatal(err, failed)
+	}
+	var got []string
+	for _, s := range page.Skills {
+		got = append(got, s.Title+"@"+s.Marketplace)
+	}
+	if want := []string{"apple notes@alpha", "apple notes@beta", "Zebra Guide@alpha", "Zebra Guide@beta"}; !slices.Equal(got, want) {
+		t.Errorf("order = %v, want %v", got, want)
+	}
+
+	page, _, _ = svc.ListSkills(ctx, "example", SkillQuery{Search: "zebra", Limit: 10})
+	if page.Total != 2 {
+		t.Errorf("search on title = %d, want 2", page.Total)
+	}
+
+	fresh, fc, _ := newTestService(t, sampleRepo(), testMarketplace(t, "example", "alpha"), testMarketplace(t, "example", "beta"))
+	page, _, _ = fresh.ListSkills(ctx, "example", SkillQuery{Keys: []string{"alpha:skills/pdf", "bad-key"}, Limit: 10})
+	if page.Total != 1 || fc.crawls != 1 {
+		t.Errorf("keys = %+v after %d crawls, want one skill from one crawl", page, fc.crawls)
+	}
+	page, _, _ = fresh.ListSkills(ctx, "example", SkillQuery{Marketplace: "beta", Keys: []string{"alpha:skills/pdf"}, Limit: 10})
+	if page.Total != 0 {
+		t.Errorf("keys outside the Marketplace = %d, want 0", page.Total)
 	}
 }

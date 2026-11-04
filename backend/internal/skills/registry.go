@@ -36,15 +36,16 @@ type Marketplace struct {
 	tokens *tokenProvider
 }
 
-// Summary is the Marketplace as the API shows it.
-func (m *Marketplace) Summary() MarketplaceSummary {
-	return MarketplaceSummary{Slug: m.Slug, Name: m.Repo, Repository: m.Owner + "/" + m.Repo}
+// Repository is owner/repo.
+func (m *Marketplace) Repository() string {
+	return m.Owner + "/" + m.Repo
 }
 
-// source identifies what a crawl reads and with which App installation, so a
-// cache entry from another repository, ref or credential is ignored.
+// source identifies what a crawl reads, with which App installation and in
+// which list shape, so a cache entry from another repository, ref, credential
+// or an older shape is ignored.
 func (m *Marketplace) source() string {
-	return fmt.Sprintf("%s/%s@%s app %s/%d", m.Owner, m.Repo, m.Ref, m.AppID, m.InstallationID)
+	return fmt.Sprintf("v2 %s/%s@%s app %s/%d", m.Owner, m.Repo, m.Ref, m.AppID, m.InstallationID)
 }
 
 // Token returns an installation token that reads only this repository.

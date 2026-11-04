@@ -65,7 +65,7 @@ func TestRegistry_LoadsMarketplacesAndKeys(t *testing.T) {
 		t.Error("another tenant sees Marketplaces")
 	}
 	m, ok := r.Find("example", "with-key")
-	if !ok || m.Summary() != (MarketplaceSummary{Slug: "with-key", Name: "with-key", Repository: "example-org/with-key"}) {
+	if !ok || m.Slug != "with-key" || m.Repository() != "example-org/with-key" {
 		t.Fatalf("Find = %+v %v", m, ok)
 	}
 	if _, err := m.Token(context.Background()); err != nil {

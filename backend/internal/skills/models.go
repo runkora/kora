@@ -1,10 +1,17 @@
 package skills
 
-// MarketplaceSummary is one Marketplace in API responses.
+import "time"
+
+// MarketplaceSummary is one Marketplace in GET /marketplaces. Commit, SyncedAt
+// and SkillCount are nil until the Marketplace has been crawled.
 type MarketplaceSummary struct {
-	Slug       string `json:"slug"`
-	Name       string `json:"name"`
-	Repository string `json:"repository"`
+	Slug       string     `json:"slug"`
+	Name       string     `json:"name"`
+	Repository string     `json:"repository"`
+	Ref        string     `json:"ref"`
+	Commit     *string    `json:"commit"`
+	SyncedAt   *time.Time `json:"syncedAt"`
+	SkillCount *int       `json:"skillCount"`
 }
 
 // ListMarketplacesResponse is the response of GET /marketplaces.
@@ -12,29 +19,46 @@ type ListMarketplacesResponse struct {
 	Marketplaces []MarketplaceSummary `json:"marketplaces"`
 }
 
-// SkillSummary is one skill in a Marketplace page.
+// SkillSummary is one skill in GET /skills.
 type SkillSummary struct {
-	Path        string `json:"path"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Marketplace string   `json:"marketplace"`
+	Path        string   `json:"path"`
+	Name        string   `json:"name"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Version     *string  `json:"version"`
+	Tags        []string `json:"tags"`
+	Tools       []string `json:"tools"`
+	ManualOnly  bool     `json:"manualOnly"`
 }
 
-// SkillPage is the response of GET /marketplaces/{slug}.
+// MarketplaceFailure is a Marketplace left out of an all-Marketplaces page.
+type MarketplaceFailure struct {
+	Marketplace string `json:"marketplace"`
+	Message     string `json:"message"`
+}
+
+// SkillPage is the response of GET /skills.
 type SkillPage struct {
-	Marketplace MarketplaceSummary `json:"marketplace"`
-	Skills      []SkillSummary     `json:"skills"`
-	Total       int                `json:"total"`
-	Offset      int                `json:"offset"`
-	Limit       int                `json:"limit"`
+	Skills   []SkillSummary       `json:"skills"`
+	Total    int                  `json:"total"`
+	Offset   int                  `json:"offset"`
+	Limit    int                  `json:"limit"`
+	Failures []MarketplaceFailure `json:"failures,omitempty"`
 }
 
 // SkillDetail is the response of GET /marketplaces/{slug}/skills/{path...}.
-// Content is the SKILL.md. Files lists the supporting files without content.
+// Content is the full SKILL.md. Files lists the supporting files without
+// content.
 type SkillDetail struct {
+	Marketplace string          `json:"marketplace"`
 	Path        string          `json:"path"`
 	Name        string          `json:"name"`
+	Title       string          `json:"title"`
 	Description string          `json:"description"`
 	Repository  string          `json:"repository"`
+	Ref         string          `json:"ref"`
+	Commit      string          `json:"commit"`
 	Content     string          `json:"content"`
 	Files       []SkillFileInfo `json:"files"`
 }
@@ -49,9 +73,10 @@ type SkillFileContent struct {
 // the repository and ref it was read from, so an edited Marketplace is crawled
 // again instead of serving the old repository.
 type skillList struct {
-	Source string        `json:"source"`
-	SHA    string        `json:"sha"`
-	Skills []skillRecord `json:"skills"`
+	Source   string        `json:"source"`
+	SHA      string        `json:"sha"`
+	SyncedAt time.Time     `json:"syncedAt"`
+	Skills   []skillRecord `json:"skills"`
 }
 
 // SkillFileInfo is one supporting file of a skill, its path relative to the
@@ -66,7 +91,12 @@ type SkillFileInfo struct {
 type skillRecord struct {
 	Path        string          `json:"path"`
 	Name        string          `json:"name"`
+	Title       string          `json:"title"`
 	Description string          `json:"description"`
+	Version     *string         `json:"version,omitempty"`
+	Tags        []string        `json:"tags"`
+	Tools       []string        `json:"tools"`
+	ManualOnly  bool            `json:"manualOnly,omitempty"`
 	Content     string          `json:"content"`
 	Files       []SkillFileInfo `json:"files,omitempty"`
 }

@@ -7,6 +7,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"golang.org/x/sync/errgroup"
@@ -119,7 +120,11 @@ func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 				c.skip(gctx, m, f.path, err.Error())
 				return nil
 			}
-			records[i] = skillRecord{Path: f.path, Name: fm.Name, Description: fm.Description, Content: raw, Files: f.files}
+			records[i] = skillRecord{
+				Path: f.path, Name: fm.Name, Title: fm.Title, Description: fm.Description,
+				Version: fm.Version, Tags: fm.Tags, Tools: fm.Tools, ManualOnly: fm.ManualOnly,
+				Content: raw, Files: f.files,
+			}
 			found[i] = true
 			return nil
 		})
@@ -130,7 +135,7 @@ func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 
 	// folders are in path order, so the budget keeps the same skills as the
 	// selection by tree size.
-	list := skillList{Source: m.source(), SHA: sha, Skills: make([]skillRecord, 0, len(records))}
+	list := skillList{Source: m.source(), SHA: sha, SyncedAt: time.Now().UTC().Truncate(time.Second), Skills: make([]skillRecord, 0, len(records))}
 	var read int64
 	for i, r := range records {
 		if !found[i] {
@@ -144,7 +149,7 @@ func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 		list.Skills = append(list.Skills, r)
 	}
 	slices.SortFunc(list.Skills, func(a, b skillRecord) int {
-		if n := strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)); n != 0 {
+		if n := strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title)); n != 0 {
 			return n
 		}
 		return strings.Compare(a.Path, b.Path)

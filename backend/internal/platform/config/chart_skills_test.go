@@ -156,3 +156,41 @@ func TestChartGitHubServiceEntry(t *testing.T) {
 		t.Errorf("no kora-github-api ServiceEntry under REGISTRY_ONLY:\n%s", out)
 	}
 }
+
+// The API VirtualService sends both skills-service prefixes to skills-service.
+func TestChartSkillsServiceRoutes(t *testing.T) {
+	out := renderChart(t, "{}\n", "--show-only", "templates/api/virtualservice.yaml")
+	var found int
+	for doc := range strings.SplitSeq(out, "\n---\n") {
+		var vs struct {
+			Spec struct {
+				HTTP []struct {
+					Match []struct {
+						URI struct {
+							Prefix string `json:"prefix"`
+						} `json:"uri"`
+					} `json:"match"`
+					Route []struct {
+						Destination struct {
+							Host string `json:"host"`
+						} `json:"destination"`
+					} `json:"route"`
+				} `json:"http"`
+			} `json:"spec"`
+		}
+		if err := yaml.Unmarshal([]byte(doc), &vs); err != nil {
+			continue
+		}
+		for _, h := range vs.Spec.HTTP {
+			for _, m := range h.Match {
+				if (m.URI.Prefix == "/v1/marketplaces" || m.URI.Prefix == "/v1/skills") && len(h.Route) == 1 &&
+					strings.HasPrefix(h.Route[0].Destination.Host, "kora-skills-service.") {
+					found++
+				}
+			}
+		}
+	}
+	if found != 2 {
+		t.Errorf("skills-service prefixes routed = %d, want /v1/marketplaces and /v1/skills", found)
+	}
+}
