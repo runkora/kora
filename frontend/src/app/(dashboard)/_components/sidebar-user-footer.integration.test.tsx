@@ -241,7 +241,9 @@ describe('SidebarUserFooter tenants', () => {
     vi.mocked(useSession).mockReturnValue(TWO);
     await openMenu();
 
-    expect(screen.getAllByText('Example Platform').length).toBeGreaterThan(0);
+    // The open sheet hides the trigger from the accessibility tree; it still names the tenant.
+    const trigger = screen.getByRole('button', { name: /dev@runkora\.test/, hidden: true });
+    expect(within(trigger).getByText('Example Platform')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Example Platform' })).toHaveAttribute(
       'aria-current',
       'true',

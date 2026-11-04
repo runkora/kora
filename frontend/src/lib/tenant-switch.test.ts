@@ -28,12 +28,26 @@ afterEach(() => {
 });
 
 describe('startTenantSwitch', () => {
-  it('redirects with the discovered issuer and client', async () => {
+  it('redirects with the discovered issuer and client and the switch in the state', async () => {
     discoverReturns(VALID);
     await startTenantSwitch(SWITCH);
-    expect(signinRedirect).toHaveBeenCalledWith(
-      expect.objectContaining({ prompt: 'none', login_hint: 'dev@example.com' }),
-    );
+    expect(signinRedirect).toHaveBeenCalledWith({
+      prompt: 'none',
+      login_hint: 'dev@example.com',
+      state: {
+        next: '/',
+        tenantId: 'kora-tenant-example',
+        switchTo: 'kora-tenant-example-data',
+        email: 'dev@example.com',
+      },
+    });
+    // The callback page rebuilds the same client from this config.
+    expect(JSON.parse(sessionStorage.getItem('tenant-config') ?? 'null')).toEqual({
+      tenantId: 'kora-tenant-example',
+      issuerUrl: 'https://auth.example.com',
+      clientId: 'dashboard',
+      scopes: ['openid', 'email'],
+    });
   });
 
   it.each([

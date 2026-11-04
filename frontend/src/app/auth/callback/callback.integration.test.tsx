@@ -116,12 +116,17 @@ describe('CallbackPage', () => {
     expect(announceTenantSwitch).not.toHaveBeenCalled();
   });
 
-  it('tells the other tabs when a switch succeeds', async () => {
+  it('tells the other tabs and reloads into the return path when a switch succeeds', async () => {
+    const reload = vi.fn();
+    vi.stubGlobal('location', { ...window.location, replace: reload });
     callbackReturns({ state: SWITCH_STATE });
     sessionReplies(HttpResponse.json({}));
     render(<CallbackPage />);
 
     await vi.waitFor(() => expect(announceTenantSwitch).toHaveBeenCalledOnce());
+    expect(reload).toHaveBeenCalledWith('/agents');
+    expect(replace).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it.each([
