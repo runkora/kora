@@ -155,6 +155,11 @@ func (r recordingSessions) RevokeSession(ctx context.Context, id string, at time
 	return r.mockSessionRepository.RevokeSession(ctx, id, at)
 }
 
+func (r recordingSessions) SwitchSession(ctx context.Context, next *Session, nextRefresh *RefreshToken, replacedID string, at time.Time) error {
+	r.log.add("switch session " + replacedID + " to " + next.TenantID)
+	return r.mockSessionRepository.SwitchSession(ctx, next, nextRefresh, replacedID, at)
+}
+
 type recordingBlocklist struct {
 	*mockJTIBlocklistRepository
 	log *eventLog
@@ -186,24 +191,26 @@ func (r recordingRefreshTokens) RevokeAllForSession(ctx context.Context, session
 }
 
 type switchFixture struct {
-	svc      *Service
-	sessions *mockSessionRepository
-	refresh  *mockRefreshTokenRepository
-	log      *eventLog
-	issuer   string
-	key      *rsa.PrivateKey
+	svc       *Service
+	sessions  *mockSessionRepository
+	refresh   *mockRefreshTokenRepository
+	blocklist *mockJTIBlocklistRepository
+	log       *eventLog
+	issuer    string
+	key       *rsa.PrivateKey
 }
 
 func newSwitchFixture(t *testing.T) *switchFixture {
 	t.Helper()
 	issuer, _, key := newSigningOIDCTestServerWithKey(t)
-	f := &switchFixture{sessions: newMockSessionRepo(), refresh: newMockRefreshTokenRepo(), log: &eventLog{}, issuer: issuer, key: key}
+	f := &switchFixture{sessions: newMockSessionRepo(), refresh: newMockRefreshTokenRepo(), blocklist: newMockBlocklistRepo(), log: &eventLog{}, issuer: issuer, key: key}
+	f.sessions.refresh = f.refresh
 	svc, err := newTestServiceWithRegistryRepos(t, switchRegistry(issuer),
 		recordingSessions{f.sessions, f.log}, recordingRefreshTokens{f.refresh, f.log}, f.log)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
-	svc.blocklist = recordingBlocklist{newMockBlocklistRepo(), f.log}
+	svc.blocklist = recordingBlocklist{f.blocklist, f.log}
 	f.svc = svc
 	return f
 }
@@ -260,19 +267,16 @@ func TestExchangeIDToken_SwitchSucceeds(t *testing.T) {
 
 	events := f.log.take()
 	oldSession, _ := f.sessions.GetSessionByID(context.Background(), oldRT.SessionID)
-	wantPrefix := []string{
-		"create session sre",
-		"create refresh token",
+	want := []string{
+		"switch session " + oldRT.SessionID + " to sre",
 		"block jti " + oldSession.JTI,
-		"revoke refresh tokens " + oldRT.SessionID,
-		"revoke session " + oldRT.SessionID,
 	}
-	if len(events) != 6 || !reflect.DeepEqual(events[:5], wantPrefix) {
-		t.Fatalf("events = %q, want %q then the switch log entry", events, wantPrefix)
+	if len(events) != 3 || !reflect.DeepEqual(events[:2], want) {
+		t.Fatalf("events = %q, want %q then the switch log entry", events, want)
 	}
 	for _, field := range []string{`"principal_id":"user-1"`, `"from_tenant_id":"eng"`, `"to_tenant_id":"sre"`} {
-		if !strings.Contains(events[5], field) {
-			t.Errorf("switch log entry %s lacks %s", events[5], field)
+		if !strings.Contains(events[2], field) {
+			t.Errorf("switch log entry %s lacks %s", events[2], field)
 		}
 	}
 
@@ -284,6 +288,62 @@ func TestExchangeIDToken_SwitchSucceeds(t *testing.T) {
 	}
 	if blocked, _ := f.svc.blocklist.IsBlocked(context.Background(), oldSession.JTI); !blocked {
 		t.Error("replaced access token is not blocked")
+	}
+}
+
+func TestExchangeIDToken_SwitchTransactionFails(t *testing.T) {
+	f := newSwitchFixture(t)
+	old := f.signIn(t, "user-1")
+	oldRT := f.refreshRow(t, old.RefreshToken)
+	f.sessions.switchErr = errors.New("tx failed")
+
+	_, err := f.switchTo(t, "sre", old.RefreshToken, groups("eng", "sre"))
+	if err == nil || errors.Is(err, ErrTenantSwitchDenied) {
+		t.Fatalf("err = %v, want the transaction error", err)
+	}
+	if events, want := f.log.take(), []string{"switch session " + oldRT.SessionID + " to sre"}; !reflect.DeepEqual(events, want) {
+		t.Errorf("events = %q, want only the failed transaction %q", events, want)
+	}
+	if len(f.sessions.sessions) != 1 || oldRT.RevokedAt != nil {
+		t.Errorf("a failed transaction changed state: %d sessions, old refresh token revoked %v", len(f.sessions.sessions), oldRT.RevokedAt)
+	}
+	f.sessions.switchErr = nil
+	if _, err := f.svc.RefreshSession(context.Background(), SessionRequest{RefreshToken: old.RefreshToken}); err != nil {
+		t.Errorf("the old session no longer refreshes: %v", err)
+	}
+}
+
+func TestExchangeIDToken_SwitchReplacedSessionGoneAtCommit(t *testing.T) {
+	f := newSwitchFixture(t)
+	old := f.signIn(t, "user-1")
+	f.sessions.switchErr = fmt.Errorf("revoke: %w", ErrSessionNotFound)
+
+	_, err := f.switchTo(t, "sre", old.RefreshToken, groups("eng", "sre"))
+	var tme *TenantMatchError
+	if !errors.As(err, &tme) || !errors.Is(err, ErrTenantSwitchDenied) || len(tme.Tenants) != 2 {
+		t.Fatalf("err = %v, want ErrTenantSwitchDenied with the eligible set", err)
+	}
+}
+
+func TestExchangeIDToken_SwitchBlocklistFailureStillSwitches(t *testing.T) {
+	f := newSwitchFixture(t)
+	old := f.signIn(t, "user-1")
+	oldRT := f.refreshRow(t, old.RefreshToken)
+	f.blocklist.blockErr = errors.New("redis down")
+
+	resp, err := f.switchTo(t, "sre", old.RefreshToken, groups("eng", "sre"))
+	if err != nil {
+		t.Fatalf("switch: %v", err)
+	}
+	if got := sessionTenant(t, resp); got != "sre" {
+		t.Errorf("session tenant = %q, want sre", got)
+	}
+	if s, _ := f.sessions.GetSessionByID(context.Background(), oldRT.SessionID); s.RevokedAt == nil {
+		t.Error("replaced session is not revoked")
+	}
+	events := f.log.take()
+	if len(events) != 3 || !strings.Contains(events[2], `"tenant switched"`) {
+		t.Errorf("events = %q, want switch, failed block, then the switch log entry", events)
 	}
 }
 

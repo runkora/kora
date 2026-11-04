@@ -33,7 +33,7 @@ tenants:
 
 	for tenant, want := range map[string]bool{"locked": false, "open": true, "unset": true, "not-in-registry": true} {
 		t.Run(tenant, func(t *testing.T) {
-			resp, err := svc.createSession(context.Background(), &Principal{ID: "user-1", Type: PrincipalTypeHuman, TenantID: tenant})
+			resp, err := svc.createSession(context.Background(), &Principal{ID: "user-1", Type: PrincipalTypeHuman, TenantID: tenant}, nil)
 			if err != nil {
 				t.Fatalf("createSession: %v", err)
 			}

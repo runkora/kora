@@ -41,6 +41,10 @@ type mockSessionRepository struct {
 	getByIDErr  error
 	getByJTIErr error
 	revokeErr   error
+	switchErr   error
+
+	// refresh receives the refresh token writes of SwitchSession when set.
+	refresh *mockRefreshTokenRepository
 }
 
 func newMockSessionRepo() *mockSessionRepository {
@@ -99,6 +103,37 @@ func (m *mockSessionRepository) RevokeSession(_ context.Context, id string, revo
 		return ErrSessionNotFound
 	}
 	s.RevokedAt = &revokedAt
+	return nil
+}
+
+// SwitchSession applies every write or, on switchErr or a replaced session
+// that is not live, none.
+func (m *mockSessionRepository) SwitchSession(_ context.Context, next *Session, nextRefresh *RefreshToken, replacedID string, at time.Time) error {
+	if m.switchErr != nil {
+		return m.switchErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	replaced, ok := m.sessions[replacedID]
+	if !ok || replaced.RevokedAt != nil {
+		return ErrSessionNotFound
+	}
+	replaced.RevokedAt = &at
+	cp := *next
+	m.sessions[next.ID] = &cp
+	m.byJTI[next.JTI] = &cp
+	if m.refresh != nil {
+		m.refresh.mu.Lock()
+		defer m.refresh.mu.Unlock()
+		for _, rt := range m.refresh.byHash {
+			if rt.SessionID == replacedID && rt.RevokedAt == nil {
+				rt.RevokedAt = &at
+			}
+		}
+		rtCopy := *nextRefresh
+		m.refresh.byHash[nextRefresh.TokenHash] = &rtCopy
+		m.refresh.byID[nextRefresh.ID] = &rtCopy
+	}
 	return nil
 }
 

@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // ─── Session repository interface ─────────────────────────────────────────────
@@ -31,6 +33,12 @@ type SessionRepository interface {
 	// Refresh token revocation is a separate operation — callers must invoke
 	// RefreshTokenRepository.RevokeAllForSession before or after.
 	RevokeSession(ctx context.Context, id string, revokedAt time.Time) error
+
+	// SwitchSession commits a tenant switch in one transaction: it revokes the
+	// replaced session and its refresh tokens and inserts the next session and
+	// refresh token. A replaced session that is not live is ErrSessionNotFound
+	// and nothing is written.
+	SwitchSession(ctx context.Context, next *Session, nextRefresh *RefreshToken, replacedID string, at time.Time) error
 }
 
 // ─── PostgreSQL implementation ────────────────────────────────────────────────
@@ -72,6 +80,56 @@ func (r *postgresSessionRepository) CreateSession(ctx context.Context, s *Sessio
 		return fmt.Errorf("create session: %w", err)
 	}
 	return nil
+}
+
+func (r *postgresSessionRepository) SwitchSession(ctx context.Context, next *Session, nextRefresh *RefreshToken, replacedID string, at time.Time) error {
+	claimsJSON, err := json.Marshal(next.Claims)
+	if err != nil {
+		return fmt.Errorf("marshal claims: %w", err)
+	}
+	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+		// The conditional update is what makes two switches from one session
+		// mutually exclusive: the second finds no live row.
+		tag, err := tx.Exec(ctx, `
+			UPDATE identity_sessions
+			SET    revoked_at = $1
+			WHERE  id = $2
+			  AND  revoked_at IS NULL
+		`, at, replacedID)
+		if err != nil {
+			return fmt.Errorf("revoke replaced session: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrSessionNotFound
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE identity_refresh_tokens
+			SET    revoked_at = $1
+			WHERE  session_id = $2
+			  AND  revoked_at IS NULL
+		`, at, replacedID); err != nil {
+			return fmt.Errorf("revoke replaced refresh tokens: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO identity_sessions
+				(id, jti, principal_id, principal_type, tenant_id, display_name,
+				 identity_source, claims, created_at, expires_at)
+			VALUES
+				($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`, next.ID, next.JTI, next.PrincipalID, string(next.PrincipalType), next.TenantID, next.DisplayName,
+			string(next.IdentitySource), claimsJSON, next.CreatedAt, next.ExpiresAt); err != nil {
+			return fmt.Errorf("create session: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO identity_refresh_tokens
+				(id, session_id, token_hash, created_at, expires_at)
+			VALUES
+				($1, $2, $3, $4, $5)
+		`, nextRefresh.ID, nextRefresh.SessionID, nextRefresh.TokenHash, nextRefresh.CreatedAt, nextRefresh.ExpiresAt); err != nil {
+			return fmt.Errorf("create refresh token: %w", err)
+		}
+		return nil
+	})
 }
 
 func (r *postgresSessionRepository) GetSessionByID(ctx context.Context, id string) (*Session, error) {
