@@ -32,7 +32,7 @@ type TenantReconciler struct {
 	ConnAggregator  *ConnectionAggregator
 	MCPAggregator   *MCPServerAggregator
 	OAuthAggregator *OAuthClientAggregator
-	// MarketplaceAggregator renders tenants' SkillMarketplaceSources.
+	// MarketplaceAggregator renders tenants' SkillMarketplaces.
 	MarketplaceAggregator *SkillMarketplaceAggregator
 	Logger                logging.Logger
 
@@ -274,12 +274,11 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			run:  func(ctx context.Context) error { return r.OAuthAggregator.Sync(ctx) },
 		},
 		{
-			// Aggregated skill marketplace sources: each tenant's
-			// SkillMarketplaceSource CRs are rendered into the
-			// kora-skill-marketplace-sources ConfigMap skills-service mounts.
+			// Each tenant's SkillMarketplaces are rendered into the
+			// kora-skill-marketplaces ConfigMap skills-service mounts.
 			// Re-aggregated here because a suspend and a reactivation
 			// change which sources are served.
-			name: "aggregated skill marketplace sources",
+			name: "aggregated skill marketplaces",
 			run:  func(ctx context.Context) error { return r.MarketplaceAggregator.Sync(ctx) },
 		},
 	}
@@ -527,7 +526,7 @@ func (r *TenantReconciler) reconcileSuspended(ctx context.Context, tenant *KoraT
 	}
 	if err := r.MarketplaceAggregator.Sync(ctx); err != nil {
 		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
-		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync skill marketplace sources for suspended tenant: %w", err)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync skill marketplaces for suspended tenant: %w", err)
 	}
 	_ = r.setTenantPhase(ctx, tenant, TenantPhaseSuspended)
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil

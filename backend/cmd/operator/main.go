@@ -385,7 +385,8 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 		return err
 	}
 
-	marketplaceReconciler := &operator.SkillMarketplaceSourceReconciler{
+	marketplaceReconciler := &operator.SkillMarketplaceReconciler{
+		Client:     mgr.GetClient(),
 		Aggregator: marketplaceAggregator,
 		Logger:     logger,
 	}

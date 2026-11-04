@@ -28,19 +28,18 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        {{- include "orbit.spireVolumes" . | nindent 8 }}
-        {{- include "orbit.configVolume" (dict "root" $ "name" "skillsService" "configMap" "orbit-skills-service-config" "modules" (include "orbit.skillsService.configModules" . | fromYaml)) | nindent 8 }}
-        {{- include "orbit.redisCAVolume" . | nindent 8 }}
-        - name: marketplace-sources
+        {{- include "kora.spireVolumes" . | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "skillsService" "configMap" "kora-skills-service-config" "modules" (include "kora.skillsService.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "kora.redisCAVolume" . | nindent 8 }}
+        - name: skill-marketplaces
           configMap:
-            name: kora-skill-marketplace-sources
+            name: kora-skill-marketplaces
             optional: true
-        {{- range .Values.skillsService.githubApps }}
-        - name: github-app-{{ .secretName }}
+        - name: skill-marketplace-secrets
           secret:
-            secretName: {{ .secretName }}
-        {{- end }}
-        {{- include "orbit.extraVolumes" (dict "root" $ "name" "skillsService") | nindent 8 }}
+            secretName: kora-skill-marketplace-secrets
+            optional: true
+        {{- include "kora.extraVolumes" (dict "root" $ "name" "skillsService") | nindent 8 }}
       containers:
         - name: orbit-skills-service
           image: {{ include "orbit.image" (dict "root" $ "name" "skillsService") | quote }}
@@ -50,21 +49,9 @@ spec:
           env:
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
-            - name: GITHUB_APP_ID
-              valueFrom:
-                secretKeyRef:
-                  name: {{ index .Values.skillsService.githubApps 0 "secretName" }}
-                  key: GITHUB_APP_ID
-            - name: GITHUB_APP_INSTALLATION_ID
-              valueFrom:
-                secretKeyRef:
-                  name: {{ index .Values.skillsService.githubApps 0 "secretName" }}
-                  key: GITHUB_APP_INSTALLATION_ID
-            - name: GITHUB_APP_PRIVATE_KEY_PATH
-              value: {{ index .Values.skillsService.githubApps 0 "mountPath" }}/private-key.pem
-            - name: ORBIT_MARKETPLACE_SOURCES_CONFIG
-              value: "/etc/orbit/marketplace"
-            {{- include "orbit.platformEnv" (dict "root" $ "name" "skillsService" "keys" (list "REDIS_PASSWORD")) | nindent 12 }}
+            - name: KORA_MARKETPLACE_SOURCES_CONFIG
+              value: "/etc/kora/skill-marketplaces"
+            {{- include "kora.platformEnv" (dict "root" $ "name" "skillsService" "keys" (list "REDIS_PASSWORD")) | nindent 12 }}
           ports:
             - name: skills-http
               containerPort: 8098
@@ -88,14 +75,13 @@ spec:
           resources:
             {{- toYaml .Values.skillsService.resources | nindent 12 }}
           volumeMounts:
-            {{- include "orbit.spireVolumeMount" . | nindent 12 }}
-            {{- include "orbit.configVolumeMount" . | nindent 12 }}
-            {{- include "orbit.redisCAVolumeMount" . | nindent 12 }}
-            - name: marketplace-sources
-              mountPath: /etc/orbit/marketplace
-            {{- range .Values.skillsService.githubApps }}
-            - name: github-app-{{ .secretName }}
-              mountPath: {{ .mountPath }}
+            {{- include "kora.spireVolumeMount" . | nindent 12 }}
+            {{- include "kora.configVolumeMount" . | nindent 12 }}
+            {{- include "kora.redisCAVolumeMount" . | nindent 12 }}
+            - name: skill-marketplaces
+              mountPath: /etc/kora/skill-marketplaces
               readOnly: true
-            {{- end }}
-            {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "skillsService") | nindent 12 }}
+            - name: skill-marketplace-secrets
+              mountPath: /etc/kora/skill-marketplace-secrets
+              readOnly: true
+            {{- include "kora.extraVolumeMounts" (dict "root" $ "name" "skillsService") | nindent 12 }}

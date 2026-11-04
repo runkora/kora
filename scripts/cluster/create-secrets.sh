@@ -22,8 +22,10 @@
 #   KORA_OIDC_CLIENT_SECRET Dex client secret        (optional — public client)
 #
 # Required files:
-#   secrets/signing.key      RSA private key for JWT signing (orbit-system only)
-#   secrets/orbit-github-app.pem  GitHub App private key for skills-service (orbit-system only)
+#   secrets/signing.key      RSA private key for JWT signing (kora-system only)
+#
+# Optional files:
+#   secrets/kora-github-app.pem  GitHub App key for the example Marketplace (kora-tenant-example)
 # =============================================================================
 set -euo pipefail
 
@@ -77,17 +79,6 @@ step "Checking prerequisites"
 if should_run "kora-system"; then
   [[ -f "${SECRETS_DIR}/signing.key" ]] \
     || fail "secrets/signing.key not found — run 'make gen-signing-key' first"
-  # skills-service reads this key at startup and exits without it. Its pod would
-  # never become Ready and the orbit release's --wait would run out its 10
-  # minutes before reporting anything, so stop here instead.
-  [[ -f "${SECRETS_DIR}/orbit-github-app.pem" ]] \
-    || fail "secrets/orbit-github-app.pem not found — skills-service cannot start without the GitHub App key"
-  # The IDs come from the local github Connection so the App is named in one place.
-  GITHUB_CONNECTION="${REPO_ROOT}/deploy/local/connections/github.yaml"
-  GITHUB_APP_ID="$(yq '.spec.config.app_id' "${GITHUB_CONNECTION}")"
-  GITHUB_APP_INSTALLATION_ID="$(yq '.spec.config.installation_id' "${GITHUB_CONNECTION}")"
-  [[ "${GITHUB_APP_ID}" =~ ^[0-9]+$ && "${GITHUB_APP_INSTALLATION_ID}" =~ ^[0-9]+$ ]] \
-    || fail "could not read numeric app_id and installation_id from deploy/local/connections/github.yaml"
   [[ -n "${REDIS_PASSWORD:-}" ]] \
     || fail "REDIS_PASSWORD is not set (required for kora-system)"
   [[ -n "${BFF_SESSION_SECRET:-}" ]] \
@@ -152,18 +143,7 @@ if should_run "kora-system"; then
     --from-literal=BFF_SESSION_SECRET="${BFF_SESSION_SECRET}" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  ok "orbit-frontend-secrets in orbit-system"
-
-  # orbit-skills-github-app — skills-service's GitHub App credential. The chart
-  # mounts private-key.pem and reads both IDs from this Secret's keys.
-  kubectl create secret generic orbit-skills-github-app \
-    --namespace orbit-system \
-    --from-file=private-key.pem="${SECRETS_DIR}/orbit-github-app.pem" \
-    --from-literal=GITHUB_APP_ID="${GITHUB_APP_ID}" \
-    --from-literal=GITHUB_APP_INSTALLATION_ID="${GITHUB_APP_INSTALLATION_ID}" \
-    --dry-run=client -o yaml | kubectl apply -f -
-
-  ok "orbit-skills-github-app in orbit-system"
+  ok "kora-frontend-secrets in kora-system"
 fi
 
 # ── kora-tenant-example (example agent) ─────────────────────────────────────
@@ -172,6 +152,18 @@ if should_run "kora-tenant-example"; then
   step "Creating secrets for kora-tenant-example"
   create_secret "kora-tenant-example" \
     --from-literal=DB_PASSWORD="${DB_PASSWORD}"
+
+  # The example Marketplace (deploy/local/marketplace/) reads with this key.
+  # Without the file it reports CredentialUnavailable and bring-up continues.
+  if [[ -f "${SECRETS_DIR}/kora-github-app.pem" ]]; then
+    kubectl create secret generic skills-github-app \
+      --namespace kora-tenant-example \
+      --from-file=private-key.pem="${SECRETS_DIR}/kora-github-app.pem" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    ok "skills-github-app in kora-tenant-example"
+  else
+    warn "no secrets/kora-github-app.pem: the example Marketplace reports CredentialUnavailable"
+  fi
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
@@ -181,8 +173,8 @@ if [[ -z "${TARGET_NAMESPACE}" ]]; then
   echo -e "${GREEN}  Secrets applied to all namespaces               ${RESET}"
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
   echo ""
-  echo "  orbit-system         → orbit-secrets (DB + Redis + signing key) + orbit-frontend-secrets (BFF session) + orbit-skills-github-app (GitHub App key)"
-  echo "  orbit-tenant-example → DB only"
+  echo "  kora-system         → kora-secrets (DB + Redis + signing key) + kora-frontend-secrets (BFF session)"
+  echo "  kora-tenant-example → DB + skills-github-app (when secrets/kora-github-app.pem exists)"
 else
   echo -e "${GREEN}  Secrets applied to ${TARGET_NAMESPACE}${RESET}"
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"

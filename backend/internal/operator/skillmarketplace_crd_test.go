@@ -1,11 +1,9 @@
 package operator
 
 import (
-	"maps"
 	"os"
 	"reflect"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 
@@ -14,7 +12,7 @@ import (
 )
 
 const (
-	skillMarketplaceSourceCRDPath = "../../../charts/kora-crds/generated/runkora.io_skillmarketplacesources.yaml"
+	skillMarketplaceCRDPath = "../../../charts/kora-crds/generated/runkora.io_skillmarketplaces.yaml"
 )
 
 type crdNode = map[string]any
@@ -104,16 +102,16 @@ func assertRuleDeclared(t *testing.T, n crdNode, fragment string) {
 }
 
 func marketplaceGitHubSchema(t *testing.T) crdNode {
-	return crdProp(crdProp(loadCRDSchema(t, skillMarketplaceSourceCRDPath), "spec"), "github")
+	return crdProp(crdProp(loadCRDSchema(t, skillMarketplaceCRDPath), "spec"), "github")
 }
 
-func TestSkillMarketplaceSourceCRD_Owner(t *testing.T) {
+func TestSkillMarketplaceCRD_Owner(t *testing.T) {
 	assertMatches(t, crdPattern(t, crdProp(marketplaceGitHubSchema(t), "owner")),
 		[]string{"acme-corp", "a", "A1", strings.Repeat("a", 39)},
 		[]string{"", "-acme", "acme-", "acme_corp", "acme/corp", strings.Repeat("a", 40)})
 }
 
-func TestSkillMarketplaceSourceCRD_Repo(t *testing.T) {
+func TestSkillMarketplaceCRD_Repo(t *testing.T) {
 	repo := crdProp(marketplaceGitHubSchema(t), "repo")
 	assertMatches(t, crdPattern(t, repo),
 		[]string{"internal-skills", "skills.v2", "a_b"},
@@ -121,21 +119,25 @@ func TestSkillMarketplaceSourceCRD_Repo(t *testing.T) {
 	assertRuleDeclared(t, repo, "self != '.' && self != '..'")
 }
 
-// skills-service names a marketplace after its repository and reads the default
-// branch, so a field the operator cannot pass on must not appear in the spec: a
-// tenant would set it and see nothing happen.
-func TestSkillMarketplaceSourceCRD_SpecCarriesOnlyTheRepository(t *testing.T) {
-	spec := crdProp(loadCRDSchema(t, skillMarketplaceSourceCRDPath), "spec")
-	if got := slices.Sorted(maps.Keys(crdChild(spec, "properties"))); !slices.Equal(got, []string{"github"}) {
-		t.Errorf("spec properties = %v, want only github", got)
+func TestSkillMarketplaceCRD_Ref(t *testing.T) {
+	assertMatches(t, crdPattern(t, crdProp(marketplaceGitHubSchema(t), "ref")),
+		[]string{"main", "release/1.2", "0123456789abcdef0123456789abcdef01234567"},
+		[]string{"", "-main", "/main", "main branch", "main?"})
+}
+
+func TestSkillMarketplaceCRD_App(t *testing.T) {
+	app := crdProp(marketplaceGitHubSchema(t), "app")
+	assertMatches(t, crdPattern(t, crdProp(app, "appID")), []string{"4015347"}, []string{"", "app-1", "12a"})
+	key := crdProp(crdProp(app, "privateKeySecretRef"), "key")
+	assertMatches(t, crdPattern(t, key), []string{"private-key.pem", "key_1"}, []string{"", "a/b", "with space"})
+	if got := app["required"]; !reflect.DeepEqual(got, []any{"appID", "installationID", "privateKeySecretRef"}) {
+		t.Errorf("app required = %v", got)
 	}
-	if got := spec["required"]; !reflect.DeepEqual(got, []any{"github"}) {
-		t.Errorf("spec required = %v, want [github]", got)
-	}
-	github := crdProp(spec, "github")
-	if got := slices.Sorted(maps.Keys(crdChild(github, "properties"))); !slices.Equal(got, []string{"owner", "repo"}) {
-		t.Errorf("github properties = %v, want owner and repo", got)
-	}
+}
+
+// The name is the slug and part of the aggregated Secret's data key.
+func TestSkillMarketplaceCRD_NameLength(t *testing.T) {
+	assertRuleDeclared(t, loadCRDSchema(t, skillMarketplaceCRDPath), "size(self.metadata.name) <= 63")
 }
 
 func assertMaxLength(t *testing.T, n crdNode, want int) {
@@ -157,7 +159,7 @@ func assertMaxLength(t *testing.T, n crdNode, want int) {
 	}
 }
 
-func TestSkillMarketplaceSourceCRD_MaxLengths(t *testing.T) {
+func TestSkillMarketplaceCRD_MaxLengths(t *testing.T) {
 	github := marketplaceGitHubSchema(t)
 	for _, c := range []struct {
 		name string
@@ -171,8 +173,8 @@ func TestSkillMarketplaceSourceCRD_MaxLengths(t *testing.T) {
 	}
 }
 
-func TestSkillMarketplaceSourceCRD_ConditionsCoverMetav1Condition(t *testing.T) {
-	status := crdProp(loadCRDSchema(t, skillMarketplaceSourceCRDPath), "status")
+func TestSkillMarketplaceCRD_ConditionsCoverMetav1Condition(t *testing.T) {
+	status := crdProp(loadCRDSchema(t, skillMarketplaceCRDPath), "status")
 	props := crdChild(crdChild(crdProp(status, "conditions"), "items"), "properties")
 	typ := reflect.TypeFor[metav1.Condition]()
 	checked := 0

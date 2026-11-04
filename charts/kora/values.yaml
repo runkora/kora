@@ -939,12 +939,6 @@ skillsService:
   serviceAccount:
     annotations: {}
   configOverrides: {}
-  # githubApps lists the GitHub App Secrets to mount into the pod.
-  # Each entry mounts one Kubernetes Secret as a read-only directory.
-  # The first entry is also used as the default App (GITHUB_APP_PRIVATE_KEY_PATH).
-  githubApps:
-    - secretName: kora-skills-github-app
-      mountPath: /var/run/secrets/skills/github-apps/default
 
 triggers:
   image:

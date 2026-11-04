@@ -1,0 +1,20 @@
+# Example Marketplace for the local example tenant. It reads the repository with
+# the local GitHub App named in ../connections/github.yaml, whose IDs it repeats.
+# scripts/cluster/create-secrets.sh creates the skills-github-app Secret when
+# secrets/kora-github-app.pem exists. Without it the Marketplace reports
+# CredentialUnavailable.
+apiVersion: runkora.io/v1alpha1
+kind: SkillMarketplace
+metadata:
+  name: team-skills
+  namespace: kora-tenant-example
+spec:
+  github:
+    owner: anthropics
+    repo: skills
+    app:
+      appID: "4015347"
+      installationID: 139299720
+      privateKeySecretRef:
+        name: skills-github-app
+        key: private-key.pem

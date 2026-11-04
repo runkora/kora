@@ -481,8 +481,6 @@ Kubernetes: `>=1.34.0-0`
 | skillsService.extraEnv | list | `[]` |  |
 | skillsService.extraVolumeMounts | list | `[]` |  |
 | skillsService.extraVolumes | list | `[]` |  |
-| skillsService.githubApps[0].mountPath | string | `"/var/run/secrets/skills/github-apps/default"` |  |
-| skillsService.githubApps[0].secretName | string | `"orbit-skills-github-app"` |  |
 | skillsService.image.digest | string | `""` |  |
 | skillsService.image.pullPolicy | string | `""` |  |
 | skillsService.image.registry | string | `""` |  |

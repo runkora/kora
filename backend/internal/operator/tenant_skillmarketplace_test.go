@@ -14,16 +14,16 @@ import (
 )
 
 // Tenant changes must re-evaluate sources even without a source event.
-func TestTenantReconciler_MarketplaceSourcesFollowTenantChanges(t *testing.T) {
+func TestTenantReconciler_MarketplacesFollowTenantChanges(t *testing.T) {
 	ctx := context.Background()
-	tenant := marketTenant("acme", true)
-	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	tenant := marketTenant("example", true)
+	src := marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)
 	otherTenant := marketTenant("other", true)
-	otherSrc := marketSrc("kora-tenant-other", "other", "other-corp", "skills", marketplaceT0)
+	otherSrc := marketSrc("kora-tenant-other", "other", "other-org", "skills", marketplaceT0)
 	scheme := NewScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(&tenant, &src, &otherTenant, &otherSrc).
-		WithStatusSubresource(&OrbitTenant{}, &SkillMarketplaceSource{}).
+		WithObjects(&tenant, &src, &otherTenant, &otherSrc, appKeySecret(t, exampleNS), appKeySecret(t, "kora-tenant-other")).
+		WithStatusSubresource(&KoraTenant{}, &SkillMarketplace{}).
 		Build()
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	r := &TenantReconciler{
@@ -71,22 +71,22 @@ func TestTenantReconciler_MarketplaceSourcesFollowTenantChanges(t *testing.T) {
 				t.Fatalf("Reconcile: %v", err)
 			}
 
-			wantPhase := SkillMarketplaceSourcePhasePending
+			wantPhase := SkillMarketplacePhasePending
 			wantStatus := metav1.ConditionFalse
 			wantSources := 0
 			if step.wantReason == MarketplaceReasonAggregated {
-				wantPhase = SkillMarketplaceSourcePhaseAggregated
+				wantPhase = SkillMarketplacePhaseAggregated
 				wantStatus = metav1.ConditionTrue
 				wantSources = 1
 			}
-			assertMarketplaceStatus(t, getMarketplaceSource(t, c, client.ObjectKeyFromObject(&src)),
+			assertMarketplaceStatus(t, getMarketplace(t, c, client.ObjectKeyFromObject(&src)),
 				wantPhase, step.wantReason, wantStatus)
-			links := marketplaceLinks(readMarketplaceFile(t, c))
-			if got := len(links["acme"]); got != wantSources {
-				t.Errorf("published acme sources = %d, want %d", got, wantSources)
+			links := slugs(readMarketplaceFile(t, c))
+			if got := len(links["example"]); got != wantSources {
+				t.Errorf("published example Marketplaces = %d, want %d", got, wantSources)
 			}
 			if got := len(links["other"]); got != 1 {
-				t.Errorf("published other sources = %d, want 1", got)
+				t.Errorf("published other Marketplaces = %d, want 1", got)
 			}
 			if !step.delete {
 				if err := c.Get(ctx, key, current); err != nil {

@@ -3,12 +3,18 @@ package operator
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,218 +24,202 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/yaml"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/marketplace"
 )
 
+const exampleNS = "kora-tenant-example"
+
 var marketplaceT0 = metav1.NewTime(time.Date(2026, 10, 13, 9, 0, 0, 0, time.UTC))
 
-// laterBy returns t plus the given number of seconds, the precision of a
-// creation timestamp.
 func laterBy(t metav1.Time, seconds int) metav1.Time {
 	return metav1.NewTime(t.Add(time.Duration(seconds) * time.Second))
 }
 
-func marketSrc(namespace, name, owner, repo string, created metav1.Time) SkillMarketplaceSource {
-	return SkillMarketplaceSource{
+func marketSrc(namespace, name, owner, repo string, created metav1.Time) SkillMarketplace {
+	return SkillMarketplace{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name, CreationTimestamp: created},
-		Spec: SkillMarketplaceSourceSpec{
-			GitHub: SkillMarketplaceSourceGitHub{Owner: owner, Repo: repo},
-		},
+		Spec: SkillMarketplaceSpec{GitHub: SkillMarketplaceGitHub{
+			Owner: owner, Repo: repo,
+			App: SkillMarketplaceApp{
+				AppID: "4015347", InstallationID: 139299720,
+				PrivateKeySecretRef: SkillMarketplaceSecretRef{Name: "skills-github-app", Key: "private-key.pem"},
+			},
+		}},
 	}
 }
 
 func marketTenant(name string, active bool) KoraTenant {
-	return KoraTenant{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Spec:       KoraTenantSpec{Active: active},
+	return KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: name}, Spec: KoraTenantSpec{Active: active}}
+}
+
+var (
+	testKeyOnce sync.Once
+	testKeyPEM  []byte
+)
+
+// appKeyPEM is one RSA private key, generated once for the package's tests.
+func appKeyPEM(t *testing.T) []byte {
+	t.Helper()
+	testKeyOnce.Do(func() {
+		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatal(err)
+		}
+		testKeyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	})
+	return testKeyPEM
+}
+
+func appKeySecret(t *testing.T, namespace string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "skills-github-app"},
+		Data:       map[string][]byte{"private-key.pem": appKeyPEM(t)},
 	}
 }
 
-// marketplaceLinks flattens the rendered file to tenant → links, in the order
-// skills-service will show them.
-func marketplaceLinks(file marketplace.SourcesFile) map[string][]string {
+// slugs flattens a rendered file to tenant -> Marketplace slugs in order.
+func slugs(file marketplace.File) map[string][]string {
 	out := map[string][]string{}
-	for _, tenant := range file.SkillsMapping.Tenants {
-		out[tenant.ID] = tenant.Marketplaces
+	for _, tenant := range file.Tenants {
+		for _, m := range tenant.Marketplaces {
+			out[tenant.ID] = append(out[tenant.ID], m.Slug)
+		}
 	}
 	return out
 }
 
-// wantPhase is the ADR's status table: every reason has exactly one phase.
 var wantPhase = map[string]string{
-	MarketplaceReasonAggregated:                SkillMarketplaceSourcePhaseAggregated,
-	MarketplaceReasonTenantNotActive:           SkillMarketplaceSourcePhasePending,
-	MarketplaceReasonGlobalSourcesNotSupported: SkillMarketplaceSourcePhaseInvalid,
-	MarketplaceReasonDuplicateRepository:       SkillMarketplaceSourcePhaseInvalid,
+	MarketplaceReasonAggregated:                SkillMarketplacePhaseAggregated,
+	MarketplaceReasonTenantNotActive:           SkillMarketplacePhasePending,
+	MarketplaceReasonGlobalSourcesNotSupported: SkillMarketplacePhaseInvalid,
+	MarketplaceReasonDuplicateRepository:       SkillMarketplacePhaseInvalid,
 }
 
-func TestBuildMarketplaceSources(t *testing.T) {
-	const acme = "orbit-tenant-acme"
-	link := marketplace.RepoURL
-	internal := link("acme-corp", "internal-skills")
-
-	customNamespace := marketTenant("acme", true)
-	customNamespace.Spec.Namespace = "acme-custom"
-	sharedActive := marketTenant("acme", true)
-	sharedActive.Spec.Namespace = "shared-ns"
-	sharedInactive := marketTenant("aaa-retired", false)
-	sharedInactive.Spec.Namespace = "shared-ns"
+func TestBuildMarketplaces(t *testing.T) {
+	custom := marketTenant("example", true)
+	custom.Spec.Namespace = "example-custom"
+	older := marketTenant("older", true)
+	older.CreationTimestamp = marketplaceT0
+	older.Spec.Namespace = "shared-ns"
+	newer := marketTenant("newer", true)
+	newer.CreationTimestamp = laterBy(marketplaceT0, 1)
+	newer.Spec.Namespace = "shared-ns"
 
 	cases := []struct {
 		name     string
-		tenants  []OrbitTenant
-		sources  []SkillMarketplaceSource
-		want     map[string]string   // namespace/name → reason
-		messages map[string][]string // namespace/name → substrings its message must contain
-		rendered map[string][]string // tenant → links, in display order
+		tenants  []KoraTenant
+		items    []SkillMarketplace
+		want     map[string]string
+		rendered map[string][]string
 	}{
 		{
-			name:     "source is rendered for its tenant",
-			tenants:  []KoraTenant{marketTenant("acme", true)},
-			sources:  []SkillMarketplaceSource{marketSrc(acme, "acme-internal", "acme-corp", "internal-skills", marketplaceT0)},
-			want:     map[string]string{acme + "/acme-internal": MarketplaceReasonAggregated},
-			rendered: map[string][]string{"acme": {internal}},
-		},
-		{
-			name:     "repository renders lowercase",
-			tenants:  []KoraTenant{marketTenant("acme", true)},
-			sources:  []SkillMarketplaceSource{marketSrc(acme, "acme-internal", "ACME-corp", "internal-SKILLS", marketplaceT0)},
-			want:     map[string]string{acme + "/acme-internal": MarketplaceReasonAggregated},
-			rendered: map[string][]string{"acme": {internal}},
+			name:     "served for its tenant",
+			tenants:  []KoraTenant{marketTenant("example", true)},
+			items:    []SkillMarketplace{marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)},
+			want:     map[string]string{exampleNS + "/team-skills": MarketplaceReasonAggregated},
+			rendered: map[string][]string{"example": {"team-skills"}},
 		},
 		{
 			name:    "suspended tenant",
-			tenants: []KoraTenant{marketTenant("acme", false)},
-			sources: []SkillMarketplaceSource{marketSrc(acme, "acme-internal", "acme-corp", "internal-skills", marketplaceT0)},
-			want:    map[string]string{acme + "/acme-internal": MarketplaceReasonTenantNotActive},
+			tenants: []KoraTenant{marketTenant("example", false)},
+			items:   []SkillMarketplace{marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)},
+			want:    map[string]string{exampleNS + "/team-skills": MarketplaceReasonTenantNotActive},
 		},
 		{
-			name:     "namespace with no tenant",
-			tenants:  []KoraTenant{marketTenant("acme", true)},
-			sources:  []SkillMarketplaceSource{marketSrc("kora-tenant-ghost", "s", "acme-corp", "internal-skills", marketplaceT0)},
-			want:     map[string]string{"kora-tenant-ghost/s": MarketplaceReasonTenantNotActive},
-			messages: map[string][]string{"kora-tenant-ghost/s": {"kora-tenant-ghost"}},
+			name:  "namespace with no tenant",
+			items: []SkillMarketplace{marketSrc("kora-tenant-ghost", "s", "example-org", "skills", marketplaceT0)},
+			want:  map[string]string{"kora-tenant-ghost/s": MarketplaceReasonTenantNotActive},
 		},
 		{
-			name:     "orbit-system source is invalid",
-			sources:  []SkillMarketplaceSource{marketSrc(systemNamespace, "global", "clear-route", "skills", marketplaceT0)},
-			want:     map[string]string{systemNamespace + "/global": MarketplaceReasonGlobalSourcesNotSupported},
-			messages: map[string][]string{systemNamespace + "/global": {systemNamespace}},
+			name:  "kora-system Marketplace is invalid",
+			items: []SkillMarketplace{marketSrc(systemNamespace, "global", "example-org", "skills", marketplaceT0)},
+			want:  map[string]string{systemNamespace + "/global": MarketplaceReasonGlobalSourcesNotSupported},
 		},
 		{
-			// One kubectl apply gives sources the same second; the name breaks
-			// the tie so the winner is stable across runs.
+			name:    "second Marketplace for one repository is invalid, ignoring case",
+			tenants: []KoraTenant{marketTenant("example", true)},
+			items: []SkillMarketplace{
+				marketSrc(exampleNS, "second", "example-org", "skills", laterBy(marketplaceT0, 1)),
+				marketSrc(exampleNS, "first", "Example-Org", "Skills", marketplaceT0),
+			},
+			want: map[string]string{
+				exampleNS + "/first":  MarketplaceReasonAggregated,
+				exampleNS + "/second": MarketplaceReasonDuplicateRepository,
+			},
+			rendered: map[string][]string{"example": {"first"}},
+		},
+		{
 			name:    "same-second tie goes to the lower name",
-			tenants: []KoraTenant{marketTenant("acme", true)},
-			sources: []SkillMarketplaceSource{
-				marketSrc(acme, "z-src", "acme-corp", "one", marketplaceT0),
-				marketSrc(acme, "a-src", "acme-corp", "one", marketplaceT0),
+			tenants: []KoraTenant{marketTenant("example", true)},
+			items: []SkillMarketplace{
+				marketSrc(exampleNS, "z", "example-org", "skills", marketplaceT0),
+				marketSrc(exampleNS, "a", "example-org", "skills", marketplaceT0),
 			},
 			want: map[string]string{
-				acme + "/a-src": MarketplaceReasonAggregated,
-				acme + "/z-src": MarketplaceReasonDuplicateRepository,
+				exampleNS + "/a": MarketplaceReasonAggregated,
+				exampleNS + "/z": MarketplaceReasonDuplicateRepository,
 			},
-			messages: map[string][]string{acme + "/z-src": {"a-src", "acme-corp/one"}},
-			rendered: map[string][]string{"acme": {link("acme-corp", "one")}},
+			rendered: map[string][]string{"example": {"a"}},
 		},
 		{
-			name:    "second source for one repository is invalid",
-			tenants: []KoraTenant{marketTenant("acme", true)},
-			sources: []SkillMarketplaceSource{
-				marketSrc(acme, "acme-internal", "acme-corp", "internal-skills", marketplaceT0),
-				marketSrc(acme, "second", "acme-corp", "internal-skills", laterBy(marketplaceT0, 1)),
+			name:    "two tenants may register the same repository",
+			tenants: []KoraTenant{marketTenant("example", true), marketTenant("other", true)},
+			items: []SkillMarketplace{
+				marketSrc(exampleNS, "skills", "example-org", "skills", marketplaceT0),
+				marketSrc("kora-tenant-other", "skills", "example-org", "skills", marketplaceT0),
 			},
 			want: map[string]string{
-				acme + "/acme-internal": MarketplaceReasonAggregated,
-				acme + "/second":        MarketplaceReasonDuplicateRepository,
+				exampleNS + "/skills":      MarketplaceReasonAggregated,
+				"kora-tenant-other/skills": MarketplaceReasonAggregated,
 			},
-			messages: map[string][]string{acme + "/second": {"acme-internal", "acme-corp/internal-skills"}},
-			rendered: map[string][]string{"acme": {internal}},
+			rendered: map[string][]string{"example": {"skills"}, "other": {"skills"}},
 		},
 		{
-			name: "two tenants may register the same repository",
-			tenants: []KoraTenant{
-				marketTenant("acme", true),
-				marketTenant("globex", true),
-			},
-			sources: []SkillMarketplaceSource{
-				marketSrc(acme, "skills", "shared", "skills", marketplaceT0),
-				marketSrc("orbit-tenant-globex", "skills", "shared", "skills", marketplaceT0),
+			name:    "Marketplaces from several organizations render oldest first",
+			tenants: []KoraTenant{marketTenant("example", true)},
+			items: []SkillMarketplace{
+				marketSrc(exampleNS, "a-newest", "third-org", "skills", laterBy(marketplaceT0, 20)),
+				marketSrc(exampleNS, "z-oldest", "example-org", "skills", marketplaceT0),
+				marketSrc(exampleNS, "m-middle", "other-org", "skills", laterBy(marketplaceT0, 10)),
 			},
 			want: map[string]string{
-				acme + "/skills":             MarketplaceReasonAggregated,
-				"orbit-tenant-globex/skills": MarketplaceReasonAggregated,
+				exampleNS + "/a-newest": MarketplaceReasonAggregated,
+				exampleNS + "/z-oldest": MarketplaceReasonAggregated,
+				exampleNS + "/m-middle": MarketplaceReasonAggregated,
 			},
-			rendered: map[string][]string{
-				"acme":   {link("shared", "skills")},
-				"globex": {link("shared", "skills")},
-			},
-		},
-		{
-			name:    "repository clash ignores case",
-			tenants: []KoraTenant{marketTenant("acme", true)},
-			sources: []SkillMarketplaceSource{
-				marketSrc(acme, "first", "Acme", "Repo", marketplaceT0),
-				marketSrc(acme, "second", "acme", "repo", laterBy(marketplaceT0, 1)),
-			},
-			want: map[string]string{
-				acme + "/first":  MarketplaceReasonAggregated,
-				acme + "/second": MarketplaceReasonDuplicateRepository,
-			},
-			messages: map[string][]string{acme + "/second": {"first", "acme/repo"}},
-			rendered: map[string][]string{"acme": {link("acme", "repo")}},
-		},
-		{
-			name:    "sources render oldest first",
-			tenants: []KoraTenant{marketTenant("acme", true)},
-			// The names sort in the opposite order to the ages, so ordering by name
-			// instead of age would show.
-			sources: []SkillMarketplaceSource{
-				marketSrc(acme, "a-newest", "acme-corp", "three", laterBy(marketplaceT0, 20)),
-				marketSrc(acme, "z-oldest", "acme-corp", "one", marketplaceT0),
-				marketSrc(acme, "m-middle", "acme-corp", "two", laterBy(marketplaceT0, 10)),
-			},
-			want: map[string]string{
-				acme + "/z-oldest": MarketplaceReasonAggregated,
-				acme + "/m-middle": MarketplaceReasonAggregated,
-				acme + "/a-newest": MarketplaceReasonAggregated,
-			},
-			rendered: map[string][]string{"acme": {link("acme-corp", "one"), link("acme-corp", "two"), link("acme-corp", "three")}},
+			rendered: map[string][]string{"example": {"z-oldest", "m-middle", "a-newest"}},
 		},
 		{
 			name:    "tenant namespace override decides which namespace is served",
-			tenants: []OrbitTenant{customNamespace},
-			sources: []SkillMarketplaceSource{
-				marketSrc("acme-custom", "custom", "acme-corp", "internal-skills", marketplaceT0),
-				marketSrc(acme, "default", "acme-corp", "internal-skills", laterBy(marketplaceT0, 1)),
+			tenants: []KoraTenant{custom},
+			items: []SkillMarketplace{
+				marketSrc("example-custom", "custom", "example-org", "skills", marketplaceT0),
+				marketSrc(exampleNS, "default", "example-org", "skills", marketplaceT0),
 			},
 			want: map[string]string{
-				"acme-custom/custom": MarketplaceReasonAggregated,
-				acme + "/default":    MarketplaceReasonTenantNotActive,
+				"example-custom/custom": MarketplaceReasonAggregated,
+				exampleNS + "/default":  MarketplaceReasonTenantNotActive,
 			},
-			rendered: map[string][]string{"acme": {internal}},
+			rendered: map[string][]string{"example": {"custom"}},
 		},
 		{
-			name:     "an inactive tenant does not shadow an active one that shares its namespace",
-			tenants:  []OrbitTenant{sharedInactive, sharedActive},
-			sources:  []SkillMarketplaceSource{marketSrc("shared-ns", "shared", "acme-corp", "internal-skills", marketplaceT0)},
-			want:     map[string]string{"shared-ns/shared": MarketplaceReasonAggregated},
-			rendered: map[string][]string{"acme": {internal}},
+			// servedTenants gives a shared namespace to the tenant created first.
+			name:     "a shared namespace is served to the older tenant",
+			tenants:  []KoraTenant{newer, older},
+			items:    []SkillMarketplace{marketSrc("shared-ns", "skills", "example-org", "skills", marketplaceT0)},
+			want:     map[string]string{"shared-ns/skills": MarketplaceReasonAggregated},
+			rendered: map[string][]string{"older": {"skills"}},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			file, verdicts := buildMarketplaceSources(tc.sources, tc.tenants)
-
+			file, verdicts := buildMarketplaces(tc.items, tc.tenants)
 			got := map[string]string{}
-			messages := map[string]string{}
 			for key, v := range verdicts {
 				got[key.String()] = v.reason
-				messages[key.String()] = v.message
 				if v.phase != wantPhase[v.reason] {
 					t.Errorf("%s: phase %q for reason %q, want %q", key, v.phase, v.reason, wantPhase[v.reason])
 				}
@@ -240,87 +230,32 @@ func TestBuildMarketplaceSources(t *testing.T) {
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("reasons = %v, want %v", got, tc.want)
 			}
-			for key, substrings := range tc.messages {
-				for _, substring := range substrings {
-					if !strings.Contains(messages[key], substring) {
-						t.Errorf("%s: message %q does not contain %q", key, messages[key], substring)
-					}
-				}
+			if r := slugs(file); (len(r) != 0 || len(tc.rendered) != 0) && !reflect.DeepEqual(r, tc.rendered) {
+				t.Errorf("rendered = %v, want %v", r, tc.rendered)
 			}
 
-			rendered := marketplaceLinks(file)
-			if (len(rendered) != 0 || len(tc.rendered) != 0) && !reflect.DeepEqual(rendered, tc.rendered) {
-				t.Errorf("rendered = %+v, want %+v", rendered, tc.rendered)
-			}
-
-			reversedSources := slices.Clone(tc.sources)
-			slices.Reverse(reversedSources)
-			reversedTenants := slices.Clone(tc.tenants)
-			slices.Reverse(reversedTenants)
-			reversedFile, reversedVerdicts := buildMarketplaceSources(reversedSources, reversedTenants)
-			if !reflect.DeepEqual(reversedFile, file) {
-				t.Errorf("reversed run: rendered file = %+v, want %+v, the same as the first run", reversedFile, file)
-			}
-			if !reflect.DeepEqual(reversedVerdicts, verdicts) {
-				t.Errorf("reversed run: verdicts = %v, want %v, the same as the first run", reversedVerdicts, verdicts)
+			items, tenants := slices.Clone(tc.items), slices.Clone(tc.tenants)
+			slices.Reverse(items)
+			slices.Reverse(tenants)
+			reversedFile, reversedVerdicts := buildMarketplaces(items, tenants)
+			if !reflect.DeepEqual(reversedFile, file) || !reflect.DeepEqual(reversedVerdicts, verdicts) {
+				t.Error("reversed input changed the result")
 			}
 		})
 	}
 }
 
-// Tenants render in ID order whatever order the API lists them in, so the same
-// sources always give the same text and an unchanged list costs no write.
-func TestBuildMarketplaceSources_TenantsRenderInIDOrder(t *testing.T) {
-	tenants := []KoraTenant{
-		marketTenant("globex", true),
-		marketTenant("acme", true),
-	}
-	sources := []SkillMarketplaceSource{
-		marketSrc("orbit-tenant-globex", "gadgets", "initech", "gadgets", marketplaceT0),
-		marketSrc("orbit-tenant-acme", "internal", "acme-corp", "internal-skills", marketplaceT0),
-	}
-
-	file, _ := buildMarketplaceSources(sources, tenants)
-
-	var ids []string
-	for _, tenant := range file.SkillsMapping.Tenants {
-		ids = append(ids, tenant.ID)
-	}
-	if want := []string{"acme", "globex"}; !slices.Equal(ids, want) {
-		t.Errorf("tenant order = %v, want %v", ids, want)
-	}
-}
-
-func TestMarketplaceVerdict_Aggregated(t *testing.T) {
-	cases := []struct {
-		phase string
-		want  bool
-	}{
-		{SkillMarketplaceSourcePhaseAggregated, true},
-		{SkillMarketplaceSourcePhasePending, false},
-		{SkillMarketplaceSourcePhaseInvalid, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.phase, func(t *testing.T) {
-			if got := (marketplaceVerdict{phase: tc.phase}).aggregated(); got != tc.want {
-				t.Errorf("aggregated() for phase %q = %v, want %v", tc.phase, got, tc.want)
-			}
-		})
-	}
-}
-
-// skills-service parses a list, so an empty registry must not render as null.
-func TestBuildMarketplaceSources_EmptyRendersEmptyList(t *testing.T) {
-	file, verdicts := buildMarketplaceSources(nil, nil)
-	raw, err := yaml.Marshal(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := "skillsMapping:\n  tenants: []\n"; string(raw) != want {
-		t.Errorf("empty file = %q, want %q", raw, want)
-	}
-	if len(verdicts) != 0 {
-		t.Errorf("verdicts = %v, want none", verdicts)
+func TestBuildMarketplaces_RendersTheSpec(t *testing.T) {
+	m := marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)
+	m.Spec.GitHub.Ref = "main"
+	file, _ := buildMarketplaces([]SkillMarketplace{m}, []KoraTenant{marketTenant("example", true)})
+	want := marketplace.File{Tenants: []marketplace.Tenant{{ID: "example", Marketplaces: []marketplace.Marketplace{{
+		Slug: "team-skills", Owner: "example-org", Repo: "skills", Ref: "main",
+		AppID: "4015347", InstallationID: 139299720,
+		PrivateKeySecretKey: "kora-tenant-example.team-skills",
+	}}}}}
+	if !reflect.DeepEqual(file, want) {
+		t.Errorf("file = %+v, want %+v", file, want)
 	}
 }
 
@@ -329,7 +264,7 @@ func newMarketplaceClient(t *testing.T, objs ...client.Object) client.Client {
 	return fake.NewClientBuilder().
 		WithScheme(NewScheme()).
 		WithObjects(objs...).
-		WithStatusSubresource(&SkillMarketplaceSource{}).
+		WithStatusSubresource(&SkillMarketplace{}).
 		Build()
 }
 
@@ -337,93 +272,202 @@ func newTestMarketplaceAggregator(c client.Client) *SkillMarketplaceAggregator {
 	return NewSkillMarketplaceAggregator(c, logging.NewLoggerWithOutput(io.Discard))
 }
 
-func readMarketplaceFile(t *testing.T, c client.Client) marketplace.SourcesFile {
+func readMarketplaceFile(t *testing.T, c client.Client) marketplace.File {
 	t.Helper()
 	cm := &corev1.ConfigMap{}
-	key := client.ObjectKey{Namespace: systemNamespace, Name: marketplace.SourcesConfigMapName}
-	if err := c.Get(context.Background(), key, cm); err != nil {
-		t.Fatalf("get %s: %v", marketplace.SourcesConfigMapName, err)
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: systemNamespace, Name: "kora-skill-marketplaces"}, cm); err != nil {
+		t.Fatalf("get ConfigMap: %v", err)
 	}
-	var file marketplace.SourcesFile
-	if err := yaml.Unmarshal([]byte(cm.Data[marketplace.SourcesFileName]), &file); err != nil {
-		t.Fatalf("parse %s: %v", marketplace.SourcesFileName, err)
+	var file marketplace.File
+	if err := json.Unmarshal([]byte(cm.Data["marketplaces.json"]), &file); err != nil {
+		t.Fatalf("parse marketplaces.json: %v", err)
 	}
 	return file
 }
 
-func getMarketplaceSource(t *testing.T, c client.Client, key client.ObjectKey) *SkillMarketplaceSource {
+func readMarketplaceSecret(t *testing.T, c client.Client) map[string][]byte {
 	t.Helper()
-	src := &SkillMarketplaceSource{}
-	if err := c.Get(context.Background(), key, src); err != nil {
-		t.Fatalf("get %s: %v", key, err)
+	s := &corev1.Secret{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: systemNamespace, Name: "kora-skill-marketplace-secrets"}, s); err != nil {
+		t.Fatalf("get Secret: %v", err)
 	}
-	return src
+	return s.Data
 }
 
-func assertMarketplaceStatus(t *testing.T, src *SkillMarketplaceSource, phase, reason string, status metav1.ConditionStatus) {
+func getMarketplace(t *testing.T, c client.Client, key client.ObjectKey) *SkillMarketplace {
 	t.Helper()
-	if src.Status.Phase != phase {
-		t.Errorf("phase = %q, want %q", src.Status.Phase, phase)
+	m := &SkillMarketplace{}
+	if err := c.Get(context.Background(), key, m); err != nil {
+		t.Fatalf("get %s: %v", key, err)
 	}
-	cond := meta.FindStatusCondition(src.Status.Conditions, conditionAggregated)
+	return m
+}
+
+func assertMarketplaceStatus(t *testing.T, m *SkillMarketplace, phase, reason string, status metav1.ConditionStatus) *metav1.Condition {
+	t.Helper()
+	if m.Status.Phase != phase {
+		t.Errorf("phase = %q, want %q", m.Status.Phase, phase)
+	}
+	cond := meta.FindStatusCondition(m.Status.Conditions, conditionAggregated)
 	if cond == nil {
 		t.Fatal("no Aggregated condition")
 	}
 	if cond.Reason != reason || cond.Status != status {
-		t.Errorf("condition = %s/%s, want %s/%s", cond.Status, cond.Reason, status, reason)
+		t.Errorf("condition = %s/%s (%s), want %s/%s", cond.Status, cond.Reason, cond.Message, status, reason)
 	}
-	if src.Status.LastReconciledAt == nil {
+	if m.Status.LastReconciledAt == nil {
 		t.Error("LastReconciledAt not set")
 	}
+	return cond
 }
 
+func TestSkillMarketplaceAggregator_CopiesTheKey(t *testing.T) {
+	tenant := marketTenant("example", true)
+	m := marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)
+	c := newMarketplaceClient(t, &tenant, &m, appKeySecret(t, exampleNS))
 
-// Both reconcilers run Sync on every event and the tenant requeue; an
-// unchanged verdict must not write the status again.
-func TestSkillMarketplaceAggregator_UnchangedVerdictSkipsStatusWrite(t *testing.T) {
-	ctx := context.Background()
-	tenant := marketTenant("acme", true)
-	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
-	c := newMarketplaceClient(t, &tenant, &src)
-	a := newTestMarketplaceAggregator(c)
-	key := client.ObjectKeyFromObject(&src)
-
-	if err := a.Sync(ctx); err != nil {
+	if err := newTestMarketplaceAggregator(c).Sync(context.Background()); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
-	before := getMarketplaceSource(t, c, key).ResourceVersion
-	if err := a.Sync(ctx); err != nil {
-		t.Fatalf("Sync: %v", err)
+	assertMarketplaceStatus(t, getMarketplace(t, c, client.ObjectKeyFromObject(&m)),
+		SkillMarketplacePhaseAggregated, MarketplaceReasonAggregated, metav1.ConditionTrue)
+	if got := readMarketplaceSecret(t, c); !reflect.DeepEqual(got, map[string][]byte{"kora-tenant-example.team-skills": appKeyPEM(t)}) {
+		t.Errorf("Secret data keys = %v, want only kora-tenant-example.team-skills with the key", slices.Collect(maps.Keys(got)))
 	}
-	if after := getMarketplaceSource(t, c, key).ResourceVersion; after != before {
-		t.Errorf("resourceVersion moved from %s to %s on an unchanged verdict", before, after)
+	if got := slugs(readMarketplaceFile(t, c)); !reflect.DeepEqual(got, map[string][]string{"example": {"team-skills"}}) {
+		t.Errorf("file = %v", got)
 	}
 }
 
-func TestSkillMarketplaceAggregator_DeletedSourceLeavesTheFile(t *testing.T) {
+// A missing or invalid key keeps the Marketplace listed and leaves its key out
+// of the Secret, so browsing fails closed.
+func TestSkillMarketplaceAggregator_CredentialUnavailable(t *testing.T) {
+	managed := appKeySecret(t, exampleNS)
+	managed.Labels = map[string]string{"app.kubernetes.io/managed-by": "kora-operator"}
+	notPEM := appKeySecret(t, exampleNS)
+	notPEM.Data["private-key.pem"] = []byte("not a key")
+	wrongKey := appKeySecret(t, exampleNS)
+	wrongKey.Data = map[string][]byte{"key.pem": appKeyPEM(t)}
+
+	cases := []struct {
+		name   string
+		secret *corev1.Secret
+		want   []string
+	}{
+		{"missing Secret", nil, []string{`Secret "skills-github-app" not found`}},
+		{"missing key", wrongKey, []string{`"skills-github-app"`, `"private-key.pem"`}},
+		{"not a PEM key", notPEM, []string{`"private-key.pem"`, "not a PEM RSA private key"}},
+		{"operator-managed Secret", managed, []string{"managed by the operator"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tenant := marketTenant("example", true)
+			m := marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)
+			objs := []client.Object{&tenant, &m}
+			if tc.secret != nil {
+				objs = append(objs, tc.secret)
+			}
+			c := newMarketplaceClient(t, objs...)
+
+			if err := newTestMarketplaceAggregator(c).Sync(context.Background()); err != nil {
+				t.Fatalf("Sync: %v", err)
+			}
+			cond := assertMarketplaceStatus(t, getMarketplace(t, c, client.ObjectKeyFromObject(&m)),
+				SkillMarketplacePhaseAggregated, MarketplaceReasonCredentialUnavailable, metav1.ConditionTrue)
+			for _, s := range tc.want {
+				if !strings.Contains(cond.Message, s) {
+					t.Errorf("message %q does not contain %q", cond.Message, s)
+				}
+			}
+			if got := readMarketplaceSecret(t, c); len(got) != 0 {
+				t.Errorf("Secret holds %d keys, want none", len(got))
+			}
+			if got := slugs(readMarketplaceFile(t, c)); len(got["example"]) != 1 {
+				t.Errorf("file = %v, want the Marketplace still listed", got)
+			}
+		})
+	}
+}
+
+// Restoring the key returns the Marketplace to Aggregated on the next run.
+func TestSkillMarketplaceAggregator_RestoredKeyClearsTheReason(t *testing.T) {
 	ctx := context.Background()
-	tenant := marketTenant("acme", true)
-	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
-	c := newMarketplaceClient(t, &tenant, &src)
+	tenant := marketTenant("example", true)
+	m := marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)
+	c := newMarketplaceClient(t, &tenant, &m)
 	a := newTestMarketplaceAggregator(c)
+	key := client.ObjectKeyFromObject(&m)
 
 	if err := a.Sync(ctx); err != nil {
-		t.Fatalf("Sync: %v", err)
+		t.Fatal(err)
 	}
-	if err := c.Delete(ctx, getMarketplaceSource(t, c, client.ObjectKeyFromObject(&src))); err != nil {
+	assertMarketplaceStatus(t, getMarketplace(t, c, key), SkillMarketplacePhaseAggregated, MarketplaceReasonCredentialUnavailable, metav1.ConditionTrue)
+	if err := c.Create(ctx, appKeySecret(t, exampleNS)); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.Sync(ctx); err != nil {
-		t.Fatalf("Sync: %v", err)
+		t.Fatal(err)
 	}
-	if file := readMarketplaceFile(t, c); len(file.SkillsMapping.Tenants) != 0 {
-		t.Errorf("after delete the file has %v, want no tenants", file.SkillsMapping.Tenants)
+	assertMarketplaceStatus(t, getMarketplace(t, c, key), SkillMarketplacePhaseAggregated, MarketplaceReasonAggregated, metav1.ConditionTrue)
+	if len(readMarketplaceSecret(t, c)) != 1 {
+		t.Error("restored key not copied")
+	}
+}
+
+var errSecretRead = errors.New("API server unavailable")
+
+// failingKeyReads fails reads of tenant Secrets, as a transient API error would.
+type failingKeyReads struct{ client.Client }
+
+func (c failingKeyReads) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, ok := obj.(*corev1.Secret); ok && key.Namespace != systemNamespace {
+		return errSecretRead
+	}
+	return c.Client.Get(ctx, key, obj, opts...)
+}
+
+// A transient read failure keeps the key already aggregated and fails the run
+// so it is retried.
+func TestSkillMarketplaceAggregator_FailedReadKeepsThePreviousKey(t *testing.T) {
+	ctx := context.Background()
+	tenant := marketTenant("example", true)
+	m := marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)
+	base := newMarketplaceClient(t, &tenant, &m, appKeySecret(t, exampleNS))
+	if err := newTestMarketplaceAggregator(base).Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := newTestMarketplaceAggregator(failingKeyReads{base}).Sync(ctx); !errors.Is(err, errSecretRead) {
+		t.Fatalf("Sync = %v, want the read error", err)
+	}
+	if got := readMarketplaceSecret(t, base); len(got["kora-tenant-example.team-skills"]) == 0 {
+		t.Error("previous key dropped after a failed read")
+	}
+}
+
+// Both reconcilers run Sync often; an unchanged verdict must not write again.
+func TestSkillMarketplaceAggregator_UnchangedVerdictSkipsStatusWrite(t *testing.T) {
+	ctx := context.Background()
+	tenant := marketTenant("example", true)
+	m := marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)
+	c := newMarketplaceClient(t, &tenant, &m, appKeySecret(t, exampleNS))
+	a := newTestMarketplaceAggregator(c)
+	key := client.ObjectKeyFromObject(&m)
+
+	if err := a.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first := getMarketplace(t, c, key).ResourceVersion
+	if err := a.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := getMarketplace(t, c, key).ResourceVersion; got != first {
+		t.Errorf("resourceVersion %s -> %s, want no status write", first, got)
 	}
 }
 
 var errConfigMapRefused = errors.New("configmap write refused")
 
-// failingConfigMapWrites rejects every ConfigMap create.
 type failingConfigMapWrites struct{ client.Client }
 
 func (c failingConfigMapWrites) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
@@ -433,8 +477,22 @@ func (c failingConfigMapWrites) Create(ctx context.Context, obj client.Object, o
 	return c.Client.Create(ctx, obj, opts...)
 }
 
-// concurrentConfigMapWriter has a second controller rewrite the ConfigMap right
-// after every read of it, so the caller's copy is stale when it writes.
+// A status must never read Aggregated before the ConfigMap holds the Marketplace.
+func TestSkillMarketplaceAggregator_ConfigMapFailureLeavesStatusesUntouched(t *testing.T) {
+	tenant := marketTenant("example", true)
+	m := marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)
+	base := newMarketplaceClient(t, &tenant, &m, appKeySecret(t, exampleNS))
+
+	if err := newTestMarketplaceAggregator(failingConfigMapWrites{base}).Sync(context.Background()); !errors.Is(err, errConfigMapRefused) {
+		t.Fatalf("Sync = %v, want the ConfigMap write error", err)
+	}
+	if got := getMarketplace(t, base, client.ObjectKeyFromObject(&m)); got.Status.Phase != "" {
+		t.Errorf("status = %+v, want it untouched", got.Status)
+	}
+}
+
+// concurrentConfigMapWriter lets another writer update the ConfigMap between
+// this writer's read and its patch.
 type concurrentConfigMapWriter struct{ client.Client }
 
 func (c concurrentConfigMapWriter) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -443,183 +501,71 @@ func (c concurrentConfigMapWriter) Get(ctx context.Context, key client.ObjectKey
 	}
 	if cm, ok := obj.(*corev1.ConfigMap); ok {
 		other := cm.DeepCopy()
-		other.Data = map[string]string{marketplace.SourcesFileName: "skillsMapping:\n  tenants:\n  - id: other\n    marketplaces: []\n"}
+		other.Data = map[string]string{"marketplaces.json": `{"tenants":[{"id":"other","marketplaces":[]}]}`}
 		return c.Client.Update(ctx, other)
 	}
 	return nil
 }
 
-// A status must never read Aggregated before the ConfigMap holds the source.
-func TestSkillMarketplaceAggregator_ConfigMapFailureLeavesStatusesUntouched(t *testing.T) {
-	ctx := context.Background()
-	tenant := marketTenant("acme", true)
-	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
-	base := newMarketplaceClient(t, &tenant, &src)
-	a := newTestMarketplaceAggregator(failingConfigMapWrites{base})
-
-	if err := a.Sync(ctx); !errors.Is(err, errConfigMapRefused) {
-		t.Fatalf("Sync = %v, want the ConfigMap write error", err)
-	}
-	got := getMarketplaceSource(t, base, client.ObjectKeyFromObject(&src))
-	if got.Status.Phase != "" || len(got.Status.Conditions) != 0 {
-		t.Errorf("status = %+v, want it untouched while the ConfigMap is unwritten", got.Status)
-	}
-}
-
-// The lock turns a writer holding a stale copy into a conflict instead of a
-// silent overwrite of the other controller's file.
 func TestSkillMarketplaceAggregator_StaleConfigMapWriteConflicts(t *testing.T) {
-	ctx := context.Background()
-	tenant := marketTenant("acme", true)
-	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	tenant := marketTenant("example", true)
+	m := marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)
 	existing := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: marketplace.SourcesConfigMapName, Namespace: systemNamespace},
-		Data:       map[string]string{marketplace.SourcesFileName: "skillsMapping:\n  tenants: []\n"},
+		ObjectMeta: metav1.ObjectMeta{Name: "kora-skill-marketplaces", Namespace: systemNamespace},
+		Data:       map[string]string{"marketplaces.json": `{"tenants":[]}`},
 	}
-	base := newMarketplaceClient(t, &tenant, &src, existing)
-	a := newTestMarketplaceAggregator(concurrentConfigMapWriter{base})
+	base := newMarketplaceClient(t, &tenant, &m, existing)
 
-	if err := a.Sync(ctx); !apierrors.IsConflict(err) {
+	if err := newTestMarketplaceAggregator(concurrentConfigMapWriter{base}).Sync(context.Background()); !apierrors.IsConflict(err) {
 		t.Fatalf("Sync = %v, want a conflict", err)
 	}
-	if _, ok := marketplaceLinks(readMarketplaceFile(t, base))["other"]; !ok {
-		t.Error("the other controller's write was overwritten")
+	if file := readMarketplaceFile(t, base); len(file.Tenants) != 1 || file.Tenants[0].ID != "other" {
+		t.Errorf("the other writer's file was overwritten: %+v", file)
 	}
 }
 
-// An existing ConfigMap, such as the one the chart creates, keeps its labels and
-// annotations: only the data key is patched.
-func TestSkillMarketplaceAggregator_PatchKeepsTheExistingMetadata(t *testing.T) {
-	ctx := context.Background()
-	tenant := marketTenant("acme", true)
-	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
-	existing := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        marketplace.SourcesConfigMapName,
-			Namespace:   systemNamespace,
-			Labels:      map[string]string{"app.kubernetes.io/managed-by": "Helm"},
-			Annotations: map[string]string{"meta.helm.sh/release-name": "orbit"},
-		},
-		Data: map[string]string{marketplace.SourcesFileName: "skillsMapping:\n  tenants: []\n"},
-	}
-	c := newMarketplaceClient(t, &tenant, &src, existing)
-
-	if err := newTestMarketplaceAggregator(c).Sync(ctx); err != nil {
+// With nothing registered both objects still exist, so the mounts resolve.
+func TestSkillMarketplaceAggregator_NoMarketplacesWritesEmptyObjects(t *testing.T) {
+	c := newMarketplaceClient(t)
+	if err := newTestMarketplaceAggregator(c).Sync(context.Background()); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
-
-	got := &corev1.ConfigMap{}
-	if err := c.Get(ctx, client.ObjectKeyFromObject(existing), got); err != nil {
-		t.Fatal(err)
+	if file := readMarketplaceFile(t, c); file.Tenants == nil || len(file.Tenants) != 0 {
+		t.Errorf("file = %+v, want an empty tenants list", file)
 	}
-	if got.Labels["app.kubernetes.io/managed-by"] != "Helm" || got.Annotations["meta.helm.sh/release-name"] != "orbit" {
-		t.Errorf("metadata = labels %v annotations %v, want the chart's kept", got.Labels, got.Annotations)
-	}
-	if !strings.Contains(got.Data[marketplace.SourcesFileName], "https://github.com/acme-corp/internal-skills") {
-		t.Errorf("data = %q, want the approved source rendered", got.Data[marketplace.SourcesFileName])
+	if got := readMarketplaceSecret(t, c); len(got) != 0 {
+		t.Errorf("Secret = %v, want empty", got)
 	}
 }
 
-// The ADR's primary friction signal: every excluded source is logged with its
-// reason on every run, whether or not its status needed a write.
-func TestSkillMarketplaceAggregator_LogsEveryExcludedSource(t *testing.T) {
+// Every Marketplace not served cleanly is logged with its reason on every run.
+func TestSkillMarketplaceAggregator_LogsEveryUnservedMarketplace(t *testing.T) {
 	ctx := context.Background()
-	tenant := marketTenant("acme", true)
-	approved := marketSrc("kora-tenant-acme", "approved", "acme-corp", "approved", marketplaceT0)
-	waiting := marketSrc("kora-tenant-acme", "waiting", "acme-corp", "approved", laterBy(marketplaceT0, 1))
-	c := newMarketplaceClient(t, &tenant, &approved, &waiting)
+	tenant := marketTenant("example", true)
+	served := marketSrc(exampleNS, "served", "example-org", "skills", marketplaceT0)
+	dup := marketSrc(exampleNS, "dup", "example-org", "skills", laterBy(marketplaceT0, 1))
+	c := newMarketplaceClient(t, &tenant, &served, &dup, appKeySecret(t, exampleNS))
 	var logs bytes.Buffer
 	a := NewSkillMarketplaceAggregator(c, logging.NewLoggerWithOutput(&logs))
-
 	if err := a.Sync(ctx); err != nil {
-		t.Fatalf("Sync: %v", err)
+		t.Fatal(err)
 	}
 	logs.Reset()
 	if err := a.Sync(ctx); err != nil {
-		t.Fatalf("Sync: %v", err)
+		t.Fatal(err)
 	}
 
-	var excluded []map[string]any
+	var logged []map[string]any
 	for line := range strings.SplitSeq(strings.TrimSpace(logs.String()), "\n") {
 		var entry map[string]any
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			t.Fatalf("log line %q: %v", line, err)
 		}
-		if entry["message"] == "SkillMarketplaceSource excluded from marketplace sources" {
-			excluded = append(excluded, entry)
+		if entry["message"] == "SkillMarketplace not served" {
+			logged = append(logged, entry)
 		}
 	}
-	if len(excluded) != 1 {
-		t.Fatalf("logged %d excluded sources, want 1 (the waiting one): %s", len(excluded), logs.String())
-	}
-	got := excluded[0]
-	if got["source"] != "waiting" || got["namespace"] != "kora-tenant-acme" || got["reason"] != MarketplaceReasonDuplicateRepository {
-		t.Errorf("excluded log = %v, want source waiting, namespace kora-tenant-acme, reason %s", got, MarketplaceReasonDuplicateRepository)
-	}
-	if detail, _ := got["detail"].(string); !strings.Contains(detail, "acme-corp/approved") {
-		t.Errorf("excluded log detail = %v, want the verdict message naming acme-corp/approved: %v", got["detail"], got)
+	if len(logged) != 1 || logged[0]["marketplace"] != "dup" || logged[0]["reason"] != MarketplaceReasonDuplicateRepository {
+		t.Errorf("logged = %v, want only dup with DuplicateRepository", logged)
 	}
 }
-
-// A verdict can keep its reason and change only its message, here when the
-// older source that holds a repository is replaced by another one.
-func TestSkillMarketplaceAggregator_ChangedMessageRewritesStatus(t *testing.T) {
-	ctx := context.Background()
-	const ns = "kora-tenant-acme"
-	tenant := marketTenant("acme", true)
-	first := marketSrc(ns, "first", "acme-corp", "one", marketplaceT0)
-	clash := marketSrc(ns, "clash", "acme-corp", "one", laterBy(marketplaceT0, 5))
-	c := newMarketplaceClient(t, &tenant, &first, &clash)
-	a := newTestMarketplaceAggregator(c)
-	key := client.ObjectKeyFromObject(&clash)
-
-	if err := a.Sync(ctx); err != nil {
-		t.Fatalf("Sync: %v", err)
-	}
-	cond := meta.FindStatusCondition(getMarketplaceSource(t, c, key).Status.Conditions, conditionAggregated)
-	if cond == nil || cond.Reason != MarketplaceReasonDuplicateRepository || !strings.Contains(cond.Message, `"first"`) {
-		t.Fatalf("condition = %+v, want DuplicateRepository held by first", cond)
-	}
-
-	if err := c.Delete(ctx, &first); err != nil {
-		t.Fatal(err)
-	}
-	second := marketSrc(ns, "second", "acme-corp", "one", laterBy(marketplaceT0, 1))
-	if err := c.Create(ctx, &second); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.Sync(ctx); err != nil {
-		t.Fatalf("Sync: %v", err)
-	}
-	cond = meta.FindStatusCondition(getMarketplaceSource(t, c, key).Status.Conditions, conditionAggregated)
-	if cond == nil || cond.Reason != MarketplaceReasonDuplicateRepository || !strings.Contains(cond.Message, `"second"`) {
-		t.Errorf("condition = %+v, want DuplicateRepository now held by second", cond)
-	}
-}
-
-// With nothing registered the ConfigMap is still written, as an empty list
-// skills-service can parse. The literals are the name and key skills-service
-// mounts and reads, so a rename of the marketplace constants alone cannot go
-// unnoticed.
-func TestSkillMarketplaceAggregator_NoSourcesStillWritesEmptyList(t *testing.T) {
-	c := newMarketplaceClient(t)
-	if err := newTestMarketplaceAggregator(c).Sync(context.Background()); err != nil {
-		t.Fatalf("Sync: %v", err)
-	}
-
-	cm := &corev1.ConfigMap{}
-	key := client.ObjectKey{Namespace: systemNamespace, Name: "orbit-skill-marketplace-sources"}
-	if err := c.Get(context.Background(), key, cm); err != nil {
-		t.Fatalf("get %s: %v", key, err)
-	}
-	if len(cm.Data) != 1 {
-		t.Errorf("data keys = %v, want only skills-mapping.yaml", cm.Data)
-	}
-	if want := "skillsMapping:\n  tenants: []\n"; cm.Data["skills-mapping.yaml"] != want {
-		t.Errorf("skills-mapping.yaml = %q, want %q", cm.Data["skills-mapping.yaml"], want)
-	}
-}
-
-
-
-

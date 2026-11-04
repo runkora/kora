@@ -1,46 +1,49 @@
 // Package marketplace is the contract between the operator and skills-service
-// for skill marketplace sources. The operator renders every tenant's
-// allow-listed SkillMarketplaceSources into the system-namespace ConfigMap
-// SourcesConfigMapName, under the data key SourcesFileName, in the shape
-// skills-service already reads. skills-service mounts the ConfigMap and reloads
-// it on change. Neither side imports the other.
+// for SkillMarketplaces. The operator renders every served Marketplace into
+// the ConfigMap ConfigMapName and copies each GitHub App private key into the
+// Secret SecretName, both in the system namespace. skills-service mounts both
+// and reads the file through File.
 //
 // See docs/adr/2026-08-17-agent-skills.md.
 package marketplace
 
-import "strings"
-
 const (
-	// SourcesConfigMapName is the ConfigMap the operator renders in the system
-	// namespace. skills-service mounts it by this name.
-	SourcesConfigMapName = "orbit-skill-marketplace-sources"
-	// SourcesFileName is its data key, and the file skills-service reads from the
-	// mounted directory.
-	SourcesFileName = "skills-mapping.yaml"
+	// ConfigMapName is the system-namespace ConfigMap holding FileName.
+	ConfigMapName = "kora-skill-marketplaces"
+	// FileName is the ConfigMap data key, and the file skills-service reads.
+	FileName = "marketplaces.json"
+	// SecretName is the system-namespace Secret holding every private key,
+	// keyed by SecretKey.
+	SecretName = "kora-skill-marketplace-secrets"
 )
 
-// SourcesFile is the wire shape of skills-mapping.yaml.
-type SourcesFile struct {
-	SkillsMapping SkillsMapping `json:"skillsMapping"`
+// File is the content of FileName. Tenants are in ID order.
+type File struct {
+	Tenants []Tenant `json:"tenants"`
 }
 
-// SkillsMapping lists which marketplaces each tenant sees.
-type SkillsMapping struct {
-	Tenants []TenantMarketplaces `json:"tenants"`
+// Tenant is one tenant's Marketplaces, oldest first. ID is the KoraTenant name.
+type Tenant struct {
+	ID           string        `json:"id"`
+	Marketplaces []Marketplace `json:"marketplaces"`
 }
 
-// TenantMarketplaces is one tenant's marketplaces. ID is the tenant ID, the
-// OrbitTenant name. Marketplaces keeps display order: skills-service shows them
-// as listed and the frontend opens the first.
-type TenantMarketplaces struct {
-	ID           string   `json:"id"`
-	Marketplaces []string `json:"marketplaces"`
+// Marketplace is one SkillMarketplace as skills-service needs it.
+type Marketplace struct {
+	// Slug is the SkillMarketplace metadata.name.
+	Slug  string `json:"slug"`
+	Owner string `json:"owner"`
+	Repo  string `json:"repo"`
+	// Ref is a branch or commit SHA. Empty means the default branch.
+	Ref            string `json:"ref,omitempty"`
+	AppID          string `json:"appID"`
+	InstallationID int64  `json:"installationID"`
+	// PrivateKeySecretKey is the data key of the App private key in SecretName.
+	PrivateKeySecretKey string `json:"privateKeySecretKey"`
 }
 
-// RepoURL is the link skills-service accepts for a repository:
-// https://github.com/{owner}/{repo}, lowercase. skills-service lowercases both
-// segments itself and derives the marketplace's name and URL segment from them,
-// so a source carries no display name and always reads the default branch.
-func RepoURL(owner, repo string) string {
-	return "https://github.com/" + strings.ToLower(owner) + "/" + strings.ToLower(repo)
+// SecretKey is the SecretName data key for a Marketplace's private key.
+// Namespaces hold no dots, so the first dot separates the two parts.
+func SecretKey(namespace, name string) string {
+	return namespace + "." + name
 }
