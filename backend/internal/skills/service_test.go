@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
@@ -429,5 +430,23 @@ func TestListSkills_NoReadableSkillIsAFailure(t *testing.T) {
 				t.Errorf("crawls = %d, want 1: the failure is cached", crawler.crawls)
 			}
 		})
+	}
+}
+
+// The detail carries the same frontmatter fields as the list item.
+func TestGetSkill_CarriesListFields(t *testing.T) {
+	g := repo(map[string]string{"s/SKILL.md": "---\nname: s\ndescription: S.\nversion: 1.2\ntags: [a, b]\nallowed-tools: Read\ndisable-model-invocation: true\n---\n# Title\n"})
+	svc, _, _ := newTestService(t, g, testMarketplace(t, "example", "m"))
+	ctx := context.Background()
+	page, err := listOne(ctx, svc, "example", "m", "", 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill, err := svc.GetSkill(ctx, "example", "m", "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(skill.SkillSummary, page.Skills[0]) {
+		t.Errorf("detail = %+v, want the list item %+v", skill.SkillSummary, page.Skills[0])
 	}
 }

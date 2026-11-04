@@ -243,16 +243,12 @@ func (s *Service) GetSkill(ctx context.Context, tenantID, slug, path string) (Sk
 		files = []SkillFileInfo{}
 	}
 	return SkillDetail{
-		Marketplace: m.Slug,
-		Path:        skill.Path,
-		Name:        skill.Name,
-		Title:       skill.Title,
-		Description: skill.Description,
-		Repository:  m.Repository(),
-		Ref:         m.Ref,
-		Commit:      sha,
-		Content:     skill.Content,
-		Files:       files,
+		SkillSummary: summarize(m.Slug, skill),
+		Repository:   m.Repository(),
+		Ref:          m.Ref,
+		Commit:       sha,
+		Content:      skill.Content,
+		Files:        files,
 	}, nil
 }
 

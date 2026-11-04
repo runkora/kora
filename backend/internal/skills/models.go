@@ -51,16 +51,13 @@ type SkillPage struct {
 // Content is the full SKILL.md. Files lists the supporting files without
 // content.
 type SkillDetail struct {
-	Marketplace string          `json:"marketplace"`
-	Path        string          `json:"path"`
-	Name        string          `json:"name"`
-	Title       string          `json:"title"`
-	Description string          `json:"description"`
-	Repository  string          `json:"repository"`
-	Ref         string          `json:"ref"`
-	Commit      string          `json:"commit"`
-	Content     string          `json:"content"`
-	Files       []SkillFileInfo `json:"files"`
+	// SkillSummary carries the same fields as the skill's list item.
+	SkillSummary
+	Repository string          `json:"repository"`
+	Ref        string          `json:"ref"`
+	Commit     string          `json:"commit"`
+	Content    string          `json:"content"`
+	Files      []SkillFileInfo `json:"files"`
 }
 
 // SkillFileContent is the response of a skill request with ?file=.

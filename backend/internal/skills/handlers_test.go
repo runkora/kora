@@ -135,7 +135,8 @@ func TestAPI_Contract(t *testing.T) {
 
 	var skill map[string]any
 	if code := f.get("/marketplaces/team-skills/skills/skills/pdf", &skill); code != http.StatusOK || skill["path"] != "skills/pdf" || skill["content"] == "" ||
-		skill["marketplace"] != "team-skills" || skill["title"] != "pdf" || skill["commit"] != testSHA || skill["ref"] != "" {
+		skill["marketplace"] != "team-skills" || skill["title"] != "pdf" || skill["commit"] != testSHA || skill["ref"] != "" ||
+		skill["version"] != nil || !reflect.DeepEqual(skill["tags"], []any{}) || !reflect.DeepEqual(skill["tools"], []any{}) || skill["manualOnly"] != false {
 		t.Errorf("GET skill = %d %+v", code, skill)
 	}
 	if files, _ := skill["files"].([]any); len(files) != 1 || !reflect.DeepEqual(files[0], map[string]any{"path": "forms.md", "size": float64(5)}) {
