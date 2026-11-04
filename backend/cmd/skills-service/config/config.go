@@ -2,24 +2,18 @@
 package skillsconfig
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
 )
 
-// PolicyConfig configures the in-process OPA policy evaluator and the
-// policy-service client used for route/scope registration.
+// PolicyConfig configures the in-process OPA evaluator and the policy-service
+// client used for route and scope registration.
 type PolicyConfig struct {
-	// BundleEndpoint is the base URL for the policy-service bundle API.
-	// e.g. http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles
+	// BundleEndpoint is the base URL of the policy-service bundle API.
 	BundleEndpoint         string `yaml:"bundleEndpoint"`
 	BundlePollIntervalSecs int    `yaml:"bundlePollIntervalSecs"`
 	// PolicyServiceURL is the base URL of the policy service.
-	// Used for route registration at startup.
-	// e.g. http://orbit-policy-service.orbit-system.svc
 	PolicyServiceURL string `yaml:"policyServiceURL"`
 	RegisterRoutes   bool   `yaml:"registerRoutes"`
 }
@@ -32,14 +26,9 @@ func (c *PolicyConfig) BundlePollInterval() time.Duration {
 	return time.Duration(c.BundlePollIntervalSecs) * time.Second
 }
 
-// Config holds the skills-service configuration.
-//
-// Secrets and deployment-specific paths are loaded from env vars only, never
-// from YAML (per AGENTS.md "No secrets in YAML"):
-//   - REDIS_PASSWORD                       — owned by internal/platform/storage
-//   - KORA_MARKETPLACE_SOURCES_CONFIG     — ConfigMap mount path
-//   - GITHUB_APP_ID / GITHUB_APP_INSTALLATION_ID / GITHUB_APP_PRIVATE_KEY_PATH
-//     — GitHub App credentials for the TokenProvider
+// Config holds the skills-service configuration. It holds no secrets: the
+// Redis password comes from internal/platform/storage and the App keys from
+// the mounted KeysDir.
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`
@@ -63,70 +52,42 @@ type Config struct {
 	Policy PolicyConfig `yaml:"policy"`
 
 	Marketplace struct {
-		// SourcesConfigPath is the path to the mounted skills-mapping.yaml.
-		// Loaded from ORBIT_MARKETPLACE_SOURCES_CONFIG — never from YAML.
-		SourcesConfigPath string `yaml:"-"`
-
-		// CacheTTLSecs is the Redis key TTL for cached skill sets.
+		// SourcesPath is the mounted kora-skill-marketplaces file.
+		SourcesPath string `yaml:"sourcesPath"`
+		// KeysDir is the mounted kora-skill-marketplace-secrets Secret.
+		KeysDir string `yaml:"keysDir"`
+		// CacheTTLSecs is how long skill lists and files stay cached.
 		CacheTTLSecs int `yaml:"cacheTTLSecs"`
+		// FailureTTLSecs is how long a failed crawl stays cached.
+		FailureTTLSecs int `yaml:"failureTTLSecs"`
+		// Limits cap the crawl of one Marketplace.
+		Limits struct {
+			SkillsPerMarketplace int   `yaml:"skillsPerMarketplace"`
+			FilesPerSkill        int   `yaml:"filesPerSkill"`
+			BytesPerFile         int64 `yaml:"bytesPerFile"`
+		} `yaml:"limits"`
 	} `yaml:"marketplace"`
 
 	GitHub struct {
-		// AppID is the GitHub App ID.
-		// Loaded from GITHUB_APP_ID — never from YAML.
-		AppID string `yaml:"-"`
-
-		// InstallationID is the GitHub App installation ID for this tenant/org.
-		// Loaded from GITHUB_APP_INSTALLATION_ID — never from YAML.
-		InstallationID string `yaml:"-"`
-
-		// PrivateKeyPath is the path to the mounted PEM-encoded App private key.
-		// Loaded from GITHUB_APP_PRIVATE_KEY_PATH — never from YAML.
-		PrivateKeyPath string `yaml:"-"`
-
-		// APIBaseURL is the GitHub API root; overridable for GitHub Enterprise
-		// or test doubles. Defaults to https://api.github.com when unset.
+		// APIBaseURL is the GitHub API root.
 		APIBaseURL string `yaml:"apiBaseURL"`
 	} `yaml:"github"`
 }
 
-// ShutdownTimeout returns the server shutdown timeout as a time.Duration.
+// ShutdownTimeout returns the server shutdown timeout.
 func (c *Config) ShutdownTimeout() time.Duration {
 	return time.Duration(c.Server.ShutdownTimeoutSecs) * time.Second
 }
 
-// CacheTTL returns the Redis key TTL.
+// CacheTTL returns how long skill lists and files stay cached.
 func (c *Config) CacheTTL() time.Duration {
 	return time.Duration(c.Marketplace.CacheTTLSecs) * time.Second
 }
 
-// ApplyEnvOverrides reads env vars on top of YAML defaults. Required env vars
-// must be present at boot; missing values return an error so the readiness
-// probe fails fast rather than surfacing a 5xx on the first user request.
-func (c *Config) ApplyEnvOverrides() error {
-	dir := os.Getenv("ORBIT_MARKETPLACE_SOURCES_CONFIG")
-	if dir == "" {
-		return fmt.Errorf("ORBIT_MARKETPLACE_SOURCES_CONFIG environment variable is required")
-	}
-	c.Marketplace.SourcesConfigPath = filepath.Join(dir, "skills-mapping.yaml")
-
-	c.GitHub.AppID = os.Getenv("GITHUB_APP_ID")
-	if c.GitHub.AppID == "" {
-		return fmt.Errorf("GITHUB_APP_ID environment variable is required")
-	}
-
-	c.GitHub.InstallationID = os.Getenv("GITHUB_APP_INSTALLATION_ID")
-	if c.GitHub.InstallationID == "" {
-		return fmt.Errorf("GITHUB_APP_INSTALLATION_ID environment variable is required")
-	}
-
-	c.GitHub.PrivateKeyPath = os.Getenv("GITHUB_APP_PRIVATE_KEY_PATH")
-	if c.GitHub.PrivateKeyPath == "" {
-		return fmt.Errorf("GITHUB_APP_PRIVATE_KEY_PATH environment variable is required")
-	}
-
-	return nil
+// FailureTTL returns how long a failed crawl stays cached.
+func (c *Config) FailureTTL() time.Duration {
+	return time.Duration(c.Marketplace.FailureTTLSecs) * time.Second
 }
 
-// Current holds all non-secret configuration for the skills-service.
+// Current holds the skills-service configuration.
 var Current = config.MustLoadService[Config]("cmd/skills-service", config.Environment())

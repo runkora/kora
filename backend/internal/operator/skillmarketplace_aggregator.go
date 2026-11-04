@@ -325,8 +325,8 @@ func (a *SkillMarketplaceAggregator) upsertSecret(ctx context.Context, data map[
 			Type:       corev1.SecretTypeOpaque,
 			Data:       data,
 		}
-		if err := a.client.Create(ctx, s); err != nil {
-			return fmt.Errorf("create %s Secret: %w", marketplace.SecretName, err)
+		if createErr := a.client.Create(ctx, s); createErr != nil {
+			return fmt.Errorf("create %s Secret: %w", marketplace.SecretName, createErr)
 		}
 		return nil
 	case err != nil:
@@ -361,8 +361,8 @@ func (a *SkillMarketplaceAggregator) upsertConfigMap(ctx context.Context, file m
 			ObjectMeta: metav1.ObjectMeta{Name: marketplace.ConfigMapName, Namespace: systemNamespace, Labels: marketplaceLabels("skill-marketplaces")},
 			Data:       map[string]string{marketplace.FileName: data},
 		}
-		if err := a.client.Create(ctx, cm); err != nil {
-			return fmt.Errorf("create %s ConfigMap: %w", marketplace.ConfigMapName, err)
+		if createErr := a.client.Create(ctx, cm); createErr != nil {
+			return fmt.Errorf("create %s ConfigMap: %w", marketplace.ConfigMapName, createErr)
 		}
 		return nil
 	case err != nil:

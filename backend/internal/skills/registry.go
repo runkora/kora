@@ -1,9 +1,12 @@
 package skills
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"net/url"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,222 +14,231 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"sigs.k8s.io/yaml"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/marketplace"
 )
 
-// skillsMappingYAML is the wire shape of skills-mapping.yaml.
-type skillsMappingYAML struct {
-	SkillsMapping struct {
-		Tenants []struct {
-			ID           string   `json:"id"`
-			Marketplaces []string `json:"marketplaces"`
-		} `json:"tenants"`
-	} `json:"skillsMapping"`
+// registryReloadDebounce coalesces a burst of fsnotify events into one reload.
+const registryReloadDebounce = 200 * time.Millisecond
+
+// maxKeySize bounds one mounted private key.
+const maxKeySize = 16 << 10
+
+// Marketplace is one registered Marketplace and its credential.
+type Marketplace struct {
+	TenantID string
+	marketplace.Marketplace
+
+	// key is the mounted private key, compared on reload so a token provider
+	// and its cached token survive an unrelated change.
+	key    []byte
+	tokens *tokenProvider
 }
 
-// Registry is the in-memory view of skills-mapping.yaml built once at
-// startup. It is read-only after construction and safe for concurrent use.
+// Summary is the Marketplace as the API shows it.
+func (m *Marketplace) Summary() MarketplaceSummary {
+	return MarketplaceSummary{Slug: m.Slug, Name: m.Repo, Repository: m.Owner + "/" + m.Repo}
+}
+
+// source identifies what a crawl reads, so a cache entry from another
+// repository or ref is ignored.
+func (m *Marketplace) source() string {
+	return m.Owner + "/" + m.Repo + "@" + m.Ref
+}
+
+// Token returns an installation token that reads only this repository.
+func (m *Marketplace) Token(ctx context.Context) (string, error) {
+	if m.tokens == nil {
+		return "", ErrCredentialUnavailable
+	}
+	return m.tokens.Token(ctx)
+}
+
+// Registry holds the mounted Marketplaces file and keys and reloads both on
+// change. It is safe for concurrent use.
 type Registry struct {
-	mu      sync.RWMutex
-	sources map[string][]MarketplaceSource // key: tenantID
+	path    string
+	keysDir string
+	minter  installationTokenMinter
 	logger  logging.Logger
+
+	mu       sync.RWMutex
+	byTenant map[string][]*Marketplace
 }
 
-// NewRegistry reads skills-mapping.yaml at path, parses every GitHub URL into
-// a MarketplaceSource, and returns a ready-to-use Registry. An absent file is
-// not an error — the ConfigMap may not be mounted yet; ListSources returns
-// empty until a new process starts with the file present.
-func NewRegistry(path string, logger logging.Logger) (*Registry, error) {
-	sources, err := loadYAMLSources(path, logger)
-	if err != nil {
+// NewRegistry reads the Marketplaces file at path and the keys in keysDir. An
+// absent file gives an empty registry: the operator may not have rendered it.
+func NewRegistry(ctx context.Context, path, keysDir string, minter installationTokenMinter, logger logging.Logger) (*Registry, error) {
+	r := &Registry{path: path, keysDir: keysDir, minter: minter, logger: logger, byTenant: map[string][]*Marketplace{}}
+	if err := r.reload(ctx); err != nil {
 		return nil, err
 	}
-
-	total := 0
-	for _, ss := range sources {
-		total += len(ss)
-	}
-	logger.Info(context.Background(), "marketplace registry loaded",
-		logging.Field{Key: "path", Value: path},
-		logging.Field{Key: "tenants", Value: len(sources)},
-		logging.Field{Key: "sources", Value: total},
-	)
-
-	return &Registry{sources: sources, logger: logger}, nil
+	return r, nil
 }
 
-// ListSources returns a copy of the marketplace source list for tenantID.
-// Returns an empty slice if the tenant has no declared marketplaces.
-func (r *Registry) ListSources(tenantID string) []MarketplaceSource {
+// Marketplaces returns the tenant's Marketplaces, oldest first.
+func (r *Registry) Marketplaces(tenantID string) []*Marketplace {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	ss := r.sources[tenantID]
-	if len(ss) == 0 {
-		return []MarketplaceSource{}
-	}
-	out := make([]MarketplaceSource, len(ss))
-	copy(out, ss)
-	return out
+	return r.byTenant[tenantID]
 }
 
-// Reload reloads marketplace sources and keeps the previous
-// configuration if the new file cannot be parsed.
-func (r *Registry) Reload(path string) error {
-	sources, err := loadYAMLSources(path, r.logger)
-	if err != nil {
-		return fmt.Errorf("reload skills mapping: %w", err)
+// Find returns the tenant's Marketplace with this slug.
+func (r *Registry) Find(tenantID, slug string) (*Marketplace, bool) {
+	for _, m := range r.Marketplaces(tenantID) {
+		if m.Slug == slug {
+			return m, true
+		}
+	}
+	return nil, false
+}
+
+// reload swaps in the current file and keys. A file that cannot be read or
+// parsed keeps the previous Marketplaces.
+func (r *Registry) reload(ctx context.Context) error {
+	var file marketplace.File
+	data, err := os.ReadFile(r.path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
+		return fmt.Errorf("read %s: %w", r.path, err)
+	default:
+		if err := json.Unmarshal(data, &file); err != nil {
+			return fmt.Errorf("parse %s: %w", r.path, err)
+		}
+	}
+
+	r.mu.RLock()
+	previous := r.byTenant
+	r.mu.RUnlock()
+
+	next := make(map[string][]*Marketplace, len(file.Tenants))
+	total := 0
+	for _, tenant := range file.Tenants {
+		for _, spec := range tenant.Marketplaces {
+			next[tenant.ID] = append(next[tenant.ID], r.build(ctx, tenant.ID, spec, previous))
+			total++
+		}
 	}
 
 	r.mu.Lock()
-	r.sources = sources
+	r.byTenant = next
 	r.mu.Unlock()
-
-	total := 0
-	for _, ss := range sources {
-		total += len(ss)
-	}
-
-	r.logger.Info(context.Background(), "marketplace registry reloaded",
-		logging.Field{Key: "path", Value: path},
-		logging.Field{Key: "tenants", Value: len(sources)},
-		logging.Field{Key: "sources", Value: total},
+	r.logger.Info(ctx, "skill marketplace registry loaded",
+		logging.Field{Key: "tenants", Value: len(next)},
+		logging.Field{Key: "marketplaces", Value: total},
 	)
-
 	return nil
 }
 
-// Watch watches the containing directory because Kubernetes ConfigMap
-// updates replace symlinks instead of modifying the mounted file directly.
-func (r *Registry) Watch(ctx context.Context, path string) error {
+// build returns the Marketplace for spec, reusing the previous one when
+// neither the spec nor the key changed. A missing or invalid key leaves the
+// Marketplace without a credential, so browsing it fails closed.
+func (r *Registry) build(ctx context.Context, tenantID string, spec marketplace.Marketplace, previous map[string][]*Marketplace) *Marketplace {
+	key := r.readKey(spec.PrivateKeySecretKey)
+	for _, old := range previous[tenantID] {
+		if old.Marketplace == spec && bytes.Equal(old.key, key) {
+			return old
+		}
+	}
+	m := &Marketplace{TenantID: tenantID, Marketplace: spec, key: key}
+	if key == nil {
+		r.logger.Warn(ctx, "skill marketplace has no private key",
+			logging.Field{Key: "tenant", Value: tenantID},
+			logging.Field{Key: "marketplace", Value: spec.Slug},
+		)
+		return m
+	}
+	tokens, err := newTokenProvider(r.minter, spec.AppID, spec.InstallationID, spec.Repo, key)
+	if err != nil {
+		r.logger.Warn(ctx, "skill marketplace private key is invalid",
+			logging.Field{Key: "tenant", Value: tenantID},
+			logging.Field{Key: "marketplace", Value: spec.Slug},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return m
+	}
+	m.tokens = tokens
+	return m
+}
+
+// readKey returns the mounted key named name, or nil. Names are flat file
+// names written by the operator.
+func (r *Registry) readKey(name string) []byte {
+	if name == "" || strings.HasPrefix(name, ".") || strings.ContainsAny(name, `/\`) {
+		return nil
+	}
+	f, err := os.Open(filepath.Join(r.keysDir, name))
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+	key, err := io.ReadAll(io.LimitReader(f, maxKeySize+1))
+	if err != nil || len(key) == 0 || len(key) > maxKeySize {
+		return nil
+	}
+	return key
+}
+
+// Watch reloads on a change to the Marketplaces file or the keys directory
+// until ctx ends. Kubernetes updates both mounts by swapping a "..data"
+// symlink, so the directories are watched rather than the files.
+func (r *Registry) Watch(ctx context.Context) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return err
+		r.logger.Error(ctx, "skill marketplace registry watch failed", logging.Field{Key: "error", Value: err.Error()})
+		return
+	}
+	defer func() { _ = watcher.Close() }()
+	for _, dir := range []string{filepath.Dir(r.path), r.keysDir} {
+		if err := watcher.Add(dir); err != nil {
+			r.logger.Error(ctx, "skill marketplace registry watch failed",
+				logging.Field{Key: "path", Value: dir},
+				logging.Field{Key: "error", Value: err.Error()})
+		}
 	}
 
-	dir := filepath.Dir(path)
-	if err := watcher.Add(dir); err != nil {
-		_ = watcher.Close()
-		return fmt.Errorf("watch marketplace directory %s: %w", dir, err)
-	}
-
-	go func() {
-		defer watcher.Close()
-
-		for {
-			select {
-			case <-ctx.Done():
+	base := filepath.Base(r.path)
+	var debounce *time.Timer
+	for {
+		select {
+		case <-ctx.Done():
+			if debounce != nil {
+				debounce.Stop()
+			}
+			return
+		case event, ok := <-watcher.Events:
+			if !ok {
 				return
-
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-
-				if event.Op&(fsnotify.Write|fsnotify.Create|
-					fsnotify.Rename|fsnotify.Remove) == 0 {
-					continue
-				}
-
-				// Allow Kubernetes to finish switching ConfigMap symlinks.
-				time.Sleep(200 * time.Millisecond)
-
-				if err := r.Reload(path); err != nil {
-					r.logger.Error(ctx,
-						"marketplace registry reload failed",
-						logging.Field{Key: "error", Value: err.Error()},
-					)
-				}
-
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-				r.logger.Error(ctx,
-					"marketplace file watcher error",
-					logging.Field{Key: "error", Value: err.Error()},
-				)
 			}
-		}
-	}()
-	return nil
-}
-
-// loadYAMLSources reads and parses skills-mapping.yaml. An absent file
-// returns an empty map (not an error).
-func loadYAMLSources(path string, logger logging.Logger) (map[string][]MarketplaceSource, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return map[string][]MarketplaceSource{}, nil
-		}
-		return nil, fmt.Errorf("read skills mapping: %w", err)
-	}
-
-	var f skillsMappingYAML
-	if err := yaml.Unmarshal(data, &f); err != nil {
-		return nil, fmt.Errorf("parse skills mapping yaml: %w", err)
-	}
-
-	out := make(map[string][]MarketplaceSource, len(f.SkillsMapping.Tenants))
-	for _, tenant := range f.SkillsMapping.Tenants {
-		seen := make(map[string]struct{})
-		sources := make([]MarketplaceSource, 0, len(tenant.Marketplaces))
-		for _, rawURL := range tenant.Marketplaces {
-			src, err := parseGitHubURL(rawURL)
-			if err != nil {
-				logger.Warn(context.Background(), "skipping invalid marketplace URL",
-					logging.Field{Key: "tenant", Value: tenant.ID},
-					logging.Field{Key: "url", Value: rawURL},
-					logging.Field{Key: "error", Value: err.Error()},
-				)
+			if !isRelevantEvent(event, base, r.keysDir) {
 				continue
 			}
-			// Deduplicate: same URL listed twice under one tenant is kept once.
-			if _, dup := seen[src.MarketplaceSlug]; dup {
-				continue
+			if debounce != nil {
+				debounce.Stop()
 			}
-			seen[src.MarketplaceSlug] = struct{}{}
-			sources = append(sources, src)
-		}
-		if len(sources) > 0 {
-			out[tenant.ID] = sources
+			debounce = time.AfterFunc(registryReloadDebounce, func() {
+				if err := r.reload(ctx); err != nil {
+					r.logger.Error(ctx, "skill marketplace registry reload failed, keeping the current Marketplaces",
+						logging.Field{Key: "error", Value: err.Error()})
+				}
+			})
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			r.logger.Error(ctx, "skill marketplace registry watcher error", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}
-	return out, nil
 }
 
-// parseGitHubURL parses a GitHub repository URL of the form
-// https://github.com/{org}/{repo}[/][.git] and returns a MarketplaceSource.
-// Any other form is an error.
-func parseGitHubURL(raw string) (MarketplaceSource, error) {
-	// Strip trailing .git or /
-	raw = strings.TrimSuffix(
-		strings.TrimSuffix(strings.TrimRight(raw, "/"), ".git"),
-		"/",
-	)
-
-	u, err := url.Parse(raw)
-	if err != nil || u.Host != "github.com" {
-		return MarketplaceSource{}, fmt.Errorf("must be https://github.com/{org}/{repo}, got %q", raw)
+// isRelevantEvent reports whether an event changes the file or a key: a write
+// to the file, any change in the keys directory, or a "..data" swap.
+func isRelevantEvent(event fsnotify.Event, base, keysDir string) bool {
+	name := filepath.Base(event.Name)
+	if name != base && name != "..data" && filepath.Dir(event.Name) != filepath.Clean(keysDir) {
+		return false
 	}
-
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return MarketplaceSource{}, fmt.Errorf("must be https://github.com/{org}/{repo}, got %q", raw)
-	}
-
-	org := strings.ToLower(parts[0])
-	repo := strings.ToLower(parts[1])
-	slug := org + "__" + repo
-	link := "https://github.com/" + org + "/" + repo
-
-	return MarketplaceSource{
-		Name:            repo,
-		Org:             org,
-		RepoName:        repo,
-		Link:            link,
-		MarketplaceSlug: slug,
-	}, nil
+	return event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Rename) || event.Has(fsnotify.Remove)
 }

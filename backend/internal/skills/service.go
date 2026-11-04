@@ -2,376 +2,252 @@ package skills
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"golang.org/x/sync/singleflight"
-	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"golang.org/x/sync/singleflight"
+
+	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-// serverCap is the maximum number of skills returned in one response.
-// Clients page beyond it with NextCursor; page size is a client concern.
-const serverCap = 200
+const (
+	// crawlTimeout bounds one crawl. A crawl outlives the request that started
+	// it, so a client that gives up does not waste the work.
+	crawlTimeout = 5 * time.Minute
+	// minSearchLength is the shortest query that filters.
+	minSearchLength = 3
+	// DefaultLimit and MaxLimit bound a page of skills.
+	DefaultLimit = 25
+	MaxLimit     = 100
+)
 
-// crawlTimeout bounds one marketplace crawl. Large repositories (hundreds of
-// skills) take longer than a client is willing to wait, so a crawl is detached
-// from the request that started it and runs to completion under this limit.
-const crawlTimeout = 5 * time.Minute
-
-var slugSeparators = regexp.MustCompile(`[^a-z0-9]+`)
-
-// skillNamePattern matches every value skillSlugify can produce. The detail
-// handler rejects any other skillName before it reaches the service.
-var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
-
-// skillSlugify converts a skill name to the URL-safe slug segment used in
-// skillSlug, e.g. "Code Review" → "code-review".
-func skillSlugify(name string) string {
-	return strings.Trim(slugSeparators.ReplaceAllString(strings.ToLower(name), "-"), "-")
+// marketplaceFinder is the registry surface the service uses.
+type marketplaceFinder interface {
+	Marketplaces(tenantID string) []*Marketplace
+	Find(tenantID, slug string) (*Marketplace, bool)
 }
 
-// fullSkillSlug builds the skillSlug stored in Redis from the two URL
-// segments of the detail endpoint, e.g. ("org__repo", "go-expert") →
-// "org__repo__go-expert".
-func fullSkillSlug(marketplaceSlug, skillName string) string {
-	return marketplaceSlug + "__" + skillName
+// skillStore is the cache surface the service uses.
+type skillStore interface {
+	GetList(ctx context.Context, m *Marketplace) (skillList, bool, error)
+	SetList(ctx context.Context, m *Marketplace, list skillList) error
+	GetFailure(ctx context.Context, m *Marketplace) (crawlFailure, bool, error)
+	SetFailure(ctx context.Context, m *Marketplace, f crawlFailure) error
+	GetFiles(ctx context.Context, m *Marketplace, sha, path string) ([]SkillFile, bool, error)
+	SetFiles(ctx context.Context, m *Marketplace, sha, path string, files []SkillFile) error
 }
 
-// encodeCursor returns an opaque cursor pointing after skillSlug.
-func encodeCursor(skillSlug string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(skillSlug))
+// skillCrawler is the crawler surface the service uses.
+type skillCrawler interface {
+	Crawl(ctx context.Context, m *Marketplace) (skillList, error)
+	FetchFiles(ctx context.Context, m *Marketplace, sha string, skill skillRecord) ([]SkillFile, error)
 }
 
-// decodeCursor reverses encodeCursor. An empty cursor means "first page".
-func decodeCursor(cursor string) (string, error) {
-	if cursor == "" {
-		return "", nil
+// Service serves a tenant's Marketplaces from the cache, crawling on a miss.
+type Service struct {
+	registry marketplaceFinder
+	cache    skillStore
+	crawler  skillCrawler
+	logger   logging.Logger
+	flights  singleflight.Group
+}
+
+// NewService returns a Service.
+func NewService(registry marketplaceFinder, cache skillStore, crawler skillCrawler, logger logging.Logger) *Service {
+	return &Service{registry: registry, cache: cache, crawler: crawler, logger: logger}
+}
+
+// ListMarketplaces returns the tenant's Marketplaces, oldest first.
+func (s *Service) ListMarketplaces(tenantID string) []MarketplaceSummary {
+	ms := s.registry.Marketplaces(tenantID)
+	out := make([]MarketplaceSummary, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, m.Summary())
 	}
-	b, err := base64.RawURLEncoding.DecodeString(cursor)
-	if err != nil || len(b) == 0 {
-		return "", ErrInvalidCursor
-	}
-	return string(b), nil
-}
-
-// sortedBySlug returns entries ordered by SkillSlug, which cursor pagination
-// relies on. It never mutates the input, so a shared cached slice is safe.
-func sortedBySlug(entries []SkillEntry) []SkillEntry {
-	cmp := func(a, b SkillEntry) int { return strings.Compare(a.SkillSlug, b.SkillSlug) }
-	if slices.IsSortedFunc(entries, cmp) {
-		return entries
-	}
-	out := slices.Clone(entries)
-	slices.SortFunc(out, cmp)
 	return out
 }
 
-type skillCache interface {
-	GetMarketplace(ctx context.Context, tenantID, marketplaceSlug string) ([]SkillEntry, bool, error)
-	SetMarketplace(ctx context.Context, tenantID, marketplaceSlug string, skills []SkillEntry) error
-	GetSkill(ctx context.Context, skillSlug string) (Skill, bool, error)
-	SetSkill(ctx context.Context, skillSlug string, skill Skill) error
-}
-
-type skillCrawler interface {
-	FetchTree(ctx context.Context, source MarketplaceSource) (map[string]skillFilePath, error)
-	FetchSkills(ctx context.Context, source MarketplaceSource, skillPaths map[string]skillFilePath) ([]Skill, error)
-}
-
-// sourceRegistry is the minimal interface the service needs from the registry.
-type sourceRegistry interface {
-	ListSources(tenantID string) []MarketplaceSource
-}
-
-type skillSearcher interface {
-	ReplaceMarketplace(ctx context.Context, tenantID, marketplaceSlug string, skills []Skill) error
-	Search(ctx context.Context, tenantID, marketplaceSlug, query, cursor string) (ListSkillsResponse, error)
-}
-
-type Service struct {
-	registry sourceRegistry
-	cache    skillCache
-	crawler  skillCrawler
-	search   skillSearcher
-	logger   logging.Logger
-	crawls   singleflight.Group
-}
-
-func NewService(registry sourceRegistry, cache skillCache, crawler skillCrawler, search skillSearcher, logger logging.Logger) *Service {
-	return &Service{
-		registry: registry,
-		cache:    cache,
-		crawler:  crawler,
-		search:   search,
-		logger:   logger,
+// ListSkills returns one page of the Marketplace's skills in name order. A
+// search of three or more characters keeps skills whose name, description or
+// SKILL.md contains it, ignoring case.
+func (s *Service) ListSkills(ctx context.Context, tenantID, slug, search string, offset, limit int) (SkillPage, error) {
+	m, ok := s.registry.Find(tenantID, slug)
+	if !ok {
+		return SkillPage{}, ErrMarketplaceNotFound
 	}
-}
-
-// findSource returns the MarketplaceSource whose MarketplaceSlug matches slug
-// exactly. ListSources is always scoped to tenantID, so this implicitly
-// enforces tenant ownership — a slug that belongs to another tenant returns
-// ErrMarketplaceNotFound.
-func (s *Service) findSource(tenantID, marketplaceSlug string) (MarketplaceSource, error) {
-	for _, src := range s.registry.ListSources(tenantID) {
-		if src.MarketplaceSlug == marketplaceSlug {
-			return src, nil
-		}
-	}
-	return MarketplaceSource{}, ErrMarketplaceNotFound
-}
-
-// resolveMarketplace returns the cached or freshly-crawled []SkillEntry for a
-// marketplace, sorted by SkillSlug. The cache is keyed by tenantID + marketplaceSlug.
-func (s *Service) resolveMarketplace(ctx context.Context, tenantID string, source MarketplaceSource) ([]SkillEntry, error) {
-	entries, hit, err := s.cache.GetMarketplace(ctx, tenantID, source.MarketplaceSlug)
+	list, err := s.list(ctx, m)
 	if err != nil {
-		return nil, fmt.Errorf("read marketplace cache: %w", err)
-	}
-	if hit {
-		// Entries cached before pagination shipped may be unsorted.
-		return sortedBySlug(entries), nil
+		return SkillPage{}, err
 	}
 
-	skills, err := s.crawlMarketplace(ctx, tenantID, source)
-	if err != nil {
-		return nil, err
-	}
-	entries = make([]SkillEntry, len(skills))
-	for i, skill := range skills {
-		entries[i] = skillToEntry(skill)
-	}
-	return sortedBySlug(entries), nil
-}
-
-// crawlMarketplace is the shared refresh path for list and detail cache misses.
-// Full records are still available here for body indexing.
-func (s *Service) crawlMarketplace(ctx context.Context, tenantID string, source MarketplaceSource) ([]Skill, error) {
-	skillPaths, err := s.crawler.FetchTree(ctx, source)
-	if err != nil {
-		return nil, fmt.Errorf("fetch tree: %w", err)
-	}
-
-	skills, err := s.crawler.FetchSkills(ctx, source, skillPaths)
-	if err != nil {
-		return nil, fmt.Errorf("fetch skills: %w", err)
-	}
-
-	// Project []Skill to []SkillEntry for the marketplace list cache.
-	entries := make([]SkillEntry, len(skills))
-	for i, sk := range skills {
-		entries[i] = skillToEntry(sk)
-	}
-	// FetchTree returns a map, so crawl order is not stable. Sort before caching.
-	if err := s.cache.SetMarketplace(ctx, tenantID, source.MarketplaceSlug, sortedBySlug(entries)); err != nil {
-		return nil, fmt.Errorf("write marketplace cache: %w", err)
-	}
-
-	// Warm the individual skill cache while we have the full content.
-	for _, sk := range skills {
-		if err := s.cache.SetSkill(ctx, sk.SkillSlug, sk); err != nil {
-			s.logger.Warn(ctx, "failed to cache skill",
-				logging.Field{Key: "skillSlug", Value: sk.SkillSlug},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-	}
-
-	if err := s.search.ReplaceMarketplace(ctx, tenantID, source.MarketplaceSlug, skills); err != nil {
-		s.logger.Warn(ctx, "failed to index marketplace",
-			logging.Field{Key: "marketplace", Value: source.MarketplaceSlug},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-	}
-	return skills, nil
-}
-
-// ListSkills uses the existing slug-ordered list for browsing and full-text
-// relevance with a query-bound snapshot cursor for nonempty searches.
-func (s *Service) ListSkills(ctx context.Context, tenantID, marketplaceSlug, search, cursor string) (ListSkillsResponse, error) {
-	source, err := s.findSource(tenantID, marketplaceSlug)
-	if err != nil {
-		return ListSkillsResponse{}, err
-	}
-
-	if strings.TrimSpace(search) != "" {
-		return s.searchMarketplace(ctx, tenantID, source, search, cursor)
-	}
-	after, err := decodeCursor(cursor)
-	if err != nil {
-		return ListSkillsResponse{}, err
-	}
-
-	entries, err := s.resolveMarketplace(ctx, tenantID, source)
-	if err != nil {
-		return ListSkillsResponse{}, err
-	}
-
-	// entries are sorted by SkillSlug: jump to the first slug after the cursor.
-	start := 0
-	if after != "" {
-		start = sort.Search(len(entries), func(i int) bool {
-			return entries[i].SkillSlug > after
+	matches := list.Skills
+	if q := strings.ToLower(strings.TrimSpace(search)); utf8.RuneCountInString(q) >= minSearchLength {
+		matches = slices.DeleteFunc(slices.Clone(list.Skills), func(r skillRecord) bool {
+			return !strings.Contains(strings.ToLower(r.Name), q) &&
+				!strings.Contains(strings.ToLower(r.Description), q) &&
+				!strings.Contains(strings.ToLower(r.Content), q)
 		})
 	}
 
-	summaries := make([]SkillSummary, 0, min(serverCap, len(entries)-start))
-	var next string
-
-	for _, e := range entries[start:] {
-		if len(summaries) == serverCap {
-			// At least one more match exists beyond this batch.
-			next = encodeCursor(summaries[len(summaries)-1].SkillSlug)
-			break
-		}
-		summaries = append(summaries, SkillSummary{
-			Name:        e.Name,
-			Description: e.Description,
-			SkillSlug:   e.SkillSlug,
-			SkillName:   strings.TrimPrefix(e.SkillSlug, source.MarketplaceSlug+"__"),
-		})
+	page := SkillPage{Marketplace: m.Summary(), Skills: []SkillSummary{}, Total: len(matches), Offset: offset, Limit: limit}
+	start := min(offset, len(matches))
+	for _, r := range matches[start : start+min(limit, len(matches)-start)] {
+		page.Skills = append(page.Skills, SkillSummary{Path: r.Path, Name: r.Name, Description: r.Description})
 	}
-
-	return ListSkillsResponse{Skills: summaries, NextCursor: next}, nil
+	return page, nil
 }
 
-func (s *Service) searchMarketplace(ctx context.Context, tenantID string, source MarketplaceSource, query, cursor string) (ListSkillsResponse, error) {
-	result, err := s.search.Search(ctx, tenantID, source.MarketplaceSlug, query, cursor)
-	if !errors.Is(err, ErrSearchIndexMissing) || cursor != "" {
-		return result, err
+// GetSkill returns the skill at path with its text files, SKILL.md first.
+// Supporting files are fetched on first open and cached.
+func (s *Service) GetSkill(ctx context.Context, tenantID, slug, path string) (SkillDetail, error) {
+	m, ok := s.registry.Find(tenantID, slug)
+	if !ok {
+		return SkillDetail{}, ErrMarketplaceNotFound
 	}
-	if err = s.rebuildSearch(ctx, tenantID, source); err != nil {
-		return ListSkillsResponse{}, err
-	}
-	result, err = s.search.Search(ctx, tenantID, source.MarketplaceSlug, query, "")
-	if errors.Is(err, ErrSearchIndexMissing) {
-		return ListSkillsResponse{}, fmt.Errorf("skill search rebuild incomplete: %w: %w", ErrSearchUnavailable, err)
-	}
-	return result, err
-}
-
-func (s *Service) rebuildSearch(ctx context.Context, tenantID string, source MarketplaceSource) error {
-	entries, hit, err := s.cache.GetMarketplace(ctx, tenantID, source.MarketplaceSlug)
+	list, err := s.list(ctx, m)
 	if err != nil {
-		return fmt.Errorf("read marketplace for search: %w", err)
+		return SkillDetail{}, err
 	}
-	if hit {
-		skills := make([]Skill, 0, len(entries))
-		for _, entry := range entries {
-			skill, found, readErr := s.cache.GetSkill(ctx, entry.SkillSlug)
-			if readErr != nil {
-				return fmt.Errorf("read skill for search: %w", readErr)
-			}
-			if !found {
-				break
-			}
-			skills = append(skills, skill)
-		}
-		if len(skills) == len(entries) {
-			return s.search.ReplaceMarketplace(ctx, tenantID, source.MarketplaceSlug, skills)
-		}
+	i := slices.IndexFunc(list.Skills, func(r skillRecord) bool { return r.Path == path })
+	if i < 0 {
+		return SkillDetail{}, ErrSkillNotFound
 	}
-	_, err = s.crawlMarketplace(ctx, tenantID, source)
-	return err
-}
+	skill := list.Skills[i]
 
-// GetMarketplace returns the selected marketplace with one batch of its
-// skills. search and cursor behave as in ListSkills.
-func (s *Service) GetMarketplace(ctx context.Context, tenantID, marketplaceSlug, search, cursor string) (MarketplaceDetail, error) {
-	source, err := s.findSource(tenantID, marketplaceSlug)
+	files, err := s.files(ctx, m, list.SHA, skill)
 	if err != nil {
-		return MarketplaceDetail{}, err
+		return SkillDetail{}, err
 	}
-
-	list, err := s.ListSkills(ctx, tenantID, source.MarketplaceSlug, search, cursor)
-	if err != nil {
-		return MarketplaceDetail{}, err
-	}
-
-	return MarketplaceDetail{
-		Name:            source.Name,
-		MarketplaceSlug: source.MarketplaceSlug,
-		Link:            source.Link,
-		Skills:          list.Skills,
-		NextCursor:      list.NextCursor,
+	return SkillDetail{
+		Path:        skill.Path,
+		Name:        skill.Name,
+		Description: skill.Description,
+		Repository:  m.Owner + "/" + m.Repo,
+		Files:       append([]SkillFile{{Path: skillFileName, Content: skill.Content}}, files...),
 	}, nil
 }
 
-// GetSkill returns the full Skill record for skillName in marketplaceSlug.
-// The marketplace must be in the caller's tenant list, and the skill
-// (marketplaceSlug + "__" + skillName) must be in that marketplace's cached
-// skill list; otherwise the result is a not-found error.
-func (s *Service) GetSkill(ctx context.Context, tenantID, marketplaceSlug, skillName string) (Skill, error) {
-	source, err := s.findSource(tenantID, marketplaceSlug)
-	if err != nil {
-		return Skill{}, err
+// list returns the cached crawl of m, a cached failure, or a new crawl.
+// Concurrent callers for one Marketplace share one crawl.
+func (s *Service) list(ctx context.Context, m *Marketplace) (skillList, error) {
+	if list, ok, err := s.cache.GetList(ctx, m); err != nil || (ok && list.Source == m.source()) {
+		return list, err
+	}
+	if f, ok, err := s.cache.GetFailure(ctx, m); err != nil {
+		return skillList{}, err
+	} else if ok && f.Source == m.source() {
+		return skillList{}, f.err()
 	}
 
-	skillSlug := fullSkillSlug(source.MarketplaceSlug, skillName)
-
-	// Confirm the skill is in the tenant's marketplace before reading content.
-	// The per-skill key has no tenant prefix, so this check is what keeps a
-	// tenant from reading skills outside its own marketplaces.
-	entries, err := s.resolveMarketplace(ctx, tenantID, source)
-	if err != nil {
-		return Skill{}, err
-	}
-	_, found := slices.BinarySearchFunc(entries, skillSlug, func(e SkillEntry, slug string) int {
-		return strings.Compare(e.SkillSlug, slug)
-	})
-	if !found {
-		return Skill{}, ErrSkillNotFound
-	}
-
-	skill, hit, err := s.cache.GetSkill(ctx, skillSlug)
-	if err != nil {
-		return Skill{}, fmt.Errorf("read skill cache: %w", err)
-	}
-	if hit {
-		return skill, nil
-	}
-
-	return s.crawlAndFind(ctx, tenantID, source, skillSlug)
-}
-
-// crawlAndFind crawls the full marketplace (warming both caches) and returns
-// the target skill.
-func (s *Service) crawlAndFind(ctx context.Context, tenantID string, source MarketplaceSource, skillSlug string) (Skill, error) {
-	skills, err := s.crawlMarketplace(ctx, tenantID, source)
-	if err != nil {
-		return Skill{}, err
-	}
-
-	for _, sk := range skills {
-		if sk.SkillSlug == skillSlug {
-			return sk, nil
+	res, err := s.detached(ctx, "list/"+m.TenantID+"/"+m.Slug, func(ctx context.Context) (any, error) {
+		list, err := s.crawler.Crawl(ctx, m)
+		if err != nil {
+			return nil, s.crawlFailed(ctx, m, err)
 		}
+		if err := s.cache.SetList(ctx, m, list); err != nil {
+			s.logger.Warn(ctx, "failed to cache skill list", logging.Field{Key: "marketplace", Value: m.Slug}, logging.Field{Key: "error", Value: err.Error()})
+		}
+		return list, nil
+	})
+	if err != nil {
+		return skillList{}, err
 	}
-	return Skill{}, ErrSkillNotFound
+	return res.(skillList), nil
 }
 
-func skillToEntry(sk Skill) SkillEntry {
-	return SkillEntry{
-		Name:        sk.Name,
-		Description: sk.Description,
-		SkillSlug:   sk.SkillSlug,
-		Path:        sk.File.Path,
-		DocPaths:    skillDocPaths(sk.Documents),
+// files returns the cached supporting files of skill or fetches them.
+func (s *Service) files(ctx context.Context, m *Marketplace, sha string, skill skillRecord) ([]SkillFile, error) {
+	if len(skill.Files) == 0 {
+		return nil, nil
+	}
+	if files, ok, err := s.cache.GetFiles(ctx, m, sha, skill.Path); err != nil || ok {
+		return files, err
+	}
+	res, err := s.detached(ctx, "files/"+m.TenantID+"/"+m.Slug+"/"+sha+"/"+skill.Path, func(ctx context.Context) (any, error) {
+		files, err := s.crawler.FetchFiles(ctx, m, sha, skill)
+		if err != nil {
+			if f, ok := classify(m, err); ok {
+				return nil, fmt.Errorf("%w: %w", f.err(), err)
+			}
+			return nil, err
+		}
+		if err := s.cache.SetFiles(ctx, m, sha, skill.Path, files); err != nil {
+			s.logger.Warn(ctx, "failed to cache skill files", logging.Field{Key: "marketplace", Value: m.Slug}, logging.Field{Key: "error", Value: err.Error()})
+		}
+		return files, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return res.([]SkillFile), nil
+}
+
+// detached runs fn once per key, under crawlTimeout and free of the caller's
+// cancellation, and returns early if the caller gives up.
+func (s *Service) detached(ctx context.Context, key string, fn func(context.Context) (any, error)) (any, error) {
+	ch := s.flights.DoChan(key, func() (any, error) {
+		runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), crawlTimeout)
+		defer cancel()
+		return fn(runCtx)
+	})
+	select {
+	case res := <-ch:
+		return res.Val, res.Err
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }
 
-func skillDocPaths(docs []SkillFile) []string {
-	if len(docs) == 0 {
-		return nil
+// crawlFailed logs a failed crawl, caches it when GitHub or the credential
+// caused it, and returns the error the API maps.
+func (s *Service) crawlFailed(ctx context.Context, m *Marketplace, err error) error {
+	s.logger.Warn(ctx, "skill marketplace crawl failed",
+		logging.Field{Key: "tenant", Value: m.TenantID},
+		logging.Field{Key: "marketplace", Value: m.Slug},
+		logging.Field{Key: "error", Value: err.Error()},
+	)
+	f, ok := classify(m, err)
+	if !ok {
+		return err
 	}
-	paths := make([]string, len(docs))
-	for i, d := range docs {
-		paths[i] = d.Path
+	if cacheErr := s.cache.SetFailure(ctx, m, f); cacheErr != nil {
+		s.logger.Warn(ctx, "failed to cache crawl failure", logging.Field{Key: "marketplace", Value: m.Slug}, logging.Field{Key: "error", Value: cacheErr.Error()})
 	}
-	return paths
+	return fmt.Errorf("%w: %w", f.err(), err)
+}
+
+// classify maps a crawl error to the failure it caches. Cancellation and
+// internal errors are not GitHub's answer and are not cached.
+func classify(m *Marketplace, err error) (crawlFailure, bool) {
+	f := crawlFailure{Source: m.source()}
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return f, false
+	case errors.Is(err, ErrCredentialUnavailable):
+		f.Credential = true
+	case errors.Is(err, ghclient.ErrNotFound):
+		f.NotFound = true
+	case errors.Is(err, ghclient.ErrUnavailable), errors.Is(err, ghclient.ErrUnexpectedStatus),
+		errors.Is(err, ghclient.ErrTreeTruncated), errors.Is(err, ghclient.ErrBadCommit):
+	default:
+		return f, false
+	}
+	return f, true
+}
+
+// err is the sentinel a cached failure returns.
+func (f crawlFailure) err() error {
+	switch {
+	case f.NotFound:
+		return ErrRepositoryNotFound
+	case f.Credential:
+		return ErrCredentialUnavailable
+	default:
+		return ErrGitHubFailure
+	}
 }

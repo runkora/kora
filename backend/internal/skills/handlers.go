@@ -4,36 +4,45 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
-const marketplaceReadScope = "marketplace:read"
+const skillsReadScope = "skills:read"
 
-type marketplaceRegistry interface {
-	ListSources(tenantID string) []MarketplaceSource
+// Error codes in skills-service responses.
+const (
+	codeInvalidRequest         = "invalid_request"
+	codeNotFound               = "not_found"
+	codeMarketplaceUnavailable = "marketplace_unavailable"
+)
+
+// skillReader is the service surface the handlers use.
+type skillReader interface {
+	ListMarketplaces(tenantID string) []MarketplaceSummary
+	ListSkills(ctx context.Context, tenantID, slug, search string, offset, limit int) (SkillPage, error)
+	GetSkill(ctx context.Context, tenantID, slug, path string) (SkillDetail, error)
 }
 
-// Controller handles marketplace listing, skill listing, and skill details.
+// Controller serves the Marketplace API. Every route needs skills:read.
 type Controller struct {
-	service    *Service
-	registry   marketplaceRegistry
+	service    skillReader
 	logger     logging.Logger
 	middleware mw.MiddlewareHandler
 }
 
-// NewController protects every route with authentication and marketplace:read.
+// NewController protects every route with authentication, delegation and the
+// skills:read scope.
 func NewController(
 	logger logging.Logger,
-	service *Service,
-	registry marketplaceRegistry,
+	service skillReader,
 	verifier *token.Verifier,
 	eval policy.Evaluator,
 	revoked mw.RevocationChecker,
@@ -42,183 +51,152 @@ func NewController(
 	if verifier == nil || eval == nil || revoked == nil {
 		panic("skills controller requires a token verifier, policy evaluator and JTI blocklist")
 	}
-
 	if basePath == "/" {
 		basePath = ""
 	}
-
 	return &Controller{
-		service:  service,
-		registry: registry,
-		logger:   logger,
+		service: service,
+		logger:  logger,
 		middleware: mw.MiddlewareChain(
 			mw.AuthMiddlewareWithRevocation(verifier, revoked, logger),
 			mw.DelegationMiddlewareWithBlocklist(logger, verifier, revoked),
-			mw.ScopeEnforcementMiddleware(eval, MarketplaceRoutes(basePath), basePath, logger),
+			mw.ScopeEnforcementMiddleware(eval, Routes(basePath), basePath, logger),
 		),
 	}
 }
 
-// MarketplaceRoutes declares the scope required by every marketplace route.
-func MarketplaceRoutes(basePath string) []routescopes.RouteScope {
+// Routes declares the scope every route requires.
+func Routes(basePath string) []routescopes.RouteScope {
 	return []routescopes.RouteScope{{
 		PathPrefix:    strings.TrimRight(basePath, "/") + "/marketplaces",
 		Method:        http.MethodGet,
-		RequiredScope: marketplaceReadScope,
+		RequiredScope: skillsReadScope,
 	}}
 }
 
-// MarketplaceScopes declares the scope vocabulary owned by skills-service.
-func MarketplaceScopes() []routescopes.ScopeDeclaration {
+// Scopes declares the scope vocabulary skills-service owns.
+func Scopes() []routescopes.ScopeDeclaration {
 	return []routescopes.ScopeDeclaration{{
-		Scope:        marketplaceReadScope,
-		ResourceType: "marketplace",
+		Scope:        skillsReadScope,
+		ResourceType: "skills",
 		Action:       "read",
-		Description:  "Browse marketplaces and read skills",
+		Description:  "Browse skill Marketplaces and read skills",
 	}}
 }
 
-// GroupedBy leaves paths explicit in Boot; the server supplies the /v1 prefix.
-func (c *Controller) GroupedBy() string {
-	return ""
-}
+// GroupedBy leaves paths explicit in Boot; the server supplies the base path.
+func (c *Controller) GroupedBy() string { return "" }
 
-// Middleware verifies identity and delegation, then checks marketplace:read.
-func (c *Controller) Middleware() mw.MiddlewareHandler {
-	return c.middleware
-}
+// Middleware returns the auth, delegation and scope chain.
+func (c *Controller) Middleware() mw.MiddlewareHandler { return c.middleware }
 
-// Boot registers all marketplace endpoints on the platform mux.
+// Boot registers the routes.
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /marketplaces", c.handleListMarketplaces)
-	mux.Handle("GET /marketplaces/{marketplaceSlug}", c.handleGetMarketplace)
-	mux.Handle("GET /marketplaces/{marketplaceSlug}/{skillName}", c.handleGetSkill)
+	mux.Handle("GET /marketplaces/{slug}", c.handleListSkills)
+	mux.Handle("GET /marketplaces/{slug}/skills/{path...}", c.handleGetSkill)
 }
 
 func (c *Controller) handleListMarketplaces(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
 	tenantID, ok := c.tenantID(w, r)
 	if !ok {
 		return
 	}
-
-	sources := c.registry.ListSources(tenantID)
-	marketplaces := make([]MarketplaceSummary, 0, len(sources))
-
-	for _, source := range sources {
-		marketplaces = append(marketplaces, MarketplaceSummary{
-			Name:            source.Name,
-			MarketplaceSlug: source.MarketplaceSlug,
-			Link:            source.Link,
-		})
-	}
-
-	api.JSON(ctx, w, c.logger, http.StatusOK, ListMarketplacesResponse{Marketplaces: marketplaces})
+	api.JSON(r.Context(), w, c.logger, http.StatusOK, ListMarketplacesResponse{Marketplaces: c.service.ListMarketplaces(tenantID)})
 }
 
-// handleGetMarketplace returns the selected marketplace and up to serverCap of
-// its skills. Clients pass the previous response's nextCursor as ?cursor= to
-// fetch the next batch, and ?search= for full-text search ordered by relevance.
-func (c *Controller) handleGetMarketplace(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
+func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	tenantID, ok := c.tenantID(w, r)
 	if !ok {
 		return
 	}
 	query := r.URL.Query()
-	result, err := c.service.GetMarketplace(
-		ctx,
-		tenantID,
-		r.PathValue("marketplaceSlug"),
-		query.Get("search"),
-		query.Get("cursor"),
-	)
+	offset, okOffset := parseInt(query.Get("offset"), 0, 0)
+	limit, okLimit := parseInt(query.Get("limit"), DefaultLimit, 1)
+	if !okOffset || !okLimit {
+		c.respondError(w, r, ErrInvalidPage)
+		return
+	}
+	page, err := c.service.ListSkills(r.Context(), tenantID, r.PathValue("slug"), query.Get("search"), offset, min(limit, MaxLimit))
 	if err != nil {
 		c.respondError(w, r, err)
 		return
 	}
-
-	api.JSON(ctx, w, c.logger, http.StatusOK, result)
+	api.JSON(r.Context(), w, c.logger, http.StatusOK, page)
 }
 
 func (c *Controller) handleGetSkill(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
 	tenantID, ok := c.tenantID(w, r)
 	if !ok {
 		return
 	}
-
-	marketplaceSlug := r.PathValue("marketplaceSlug")
-	// Accept a full skillSlug ({marketplaceSlug}__{skillName}) as well, for
-	// callers that still address skills by slug.
-	skillName := strings.TrimPrefix(r.PathValue("skillName"), marketplaceSlug+"__")
-
-	// skillName is the slugified name segment of a skillSlug. Anything else,
-	// including another marketplace's slug or a value with a slash, is malformed.
-	if !skillNamePattern.MatchString(skillName) {
-		apiErr := api.ValidationError(
-			api.ErrCodeInvalidField,
-			"skillName must be lowercase letters, digits, and single hyphens",
-			nil,
-		)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+	path := r.PathValue("path")
+	if !isSkillPath(path) {
+		c.respondError(w, r, ErrSkillNotFound)
 		return
 	}
-
-	skill, err := c.service.GetSkill(ctx, tenantID, marketplaceSlug, skillName)
+	skill, err := c.service.GetSkill(r.Context(), tenantID, r.PathValue("slug"), path)
 	if err != nil {
 		c.respondError(w, r, err)
 		return
 	}
-
-	api.JSON(ctx, w, c.logger, http.StatusOK, skill)
+	api.JSON(r.Context(), w, c.logger, http.StatusOK, skill)
 }
 
-// tenantID returns the tenant ID from the verified platform token.
+// isSkillPath rejects a path with an empty, "." or ".." segment. Only paths
+// from the crawled tree are ever fetched, so this is defense in depth.
+func isSkillPath(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+// parseInt reads a non-negative query value no lower than floor. An empty
+// value gives def.
+func parseInt(raw string, def, floor int) (int, bool) {
+	if raw == "" {
+		return def, true
+	}
+	n, err := strconv.Atoi(raw)
+	return n, err == nil && n >= floor
+}
+
+// tenantID returns the tenant of the verified platform token.
 func (c *Controller) tenantID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	claims, ok := token.ClaimsFromContext(r.Context())
-	if !ok || claims == nil || claims.Orbit.TenantID == "" {
-		apiErr := api.UnauthorizedError(
-			api.ErrCodeUnauthorized,
-			"tenant-scoped platform token required",
-			nil,
-		)
-		api.ErrorResponse(r.Context(), w, c.logger, apiErr, nil)
+	if !ok || claims == nil || claims.Kora.TenantID == "" {
+		api.ErrorResponse(r.Context(), w, c.logger, api.UnauthorizedError(api.ErrCodeUnauthorized, "tenant-scoped platform token required", nil), nil)
 		return "", false
 	}
-
-	return claims.Orbit.TenantID, true
+	return claims.Kora.TenantID, true
 }
 
 func (c *Controller) respondError(w http.ResponseWriter, r *http.Request, err error) {
 	var apiErr *api.APIError
-
 	switch {
-	case errors.Is(err, ErrInvalidCursor):
-		apiErr = api.ValidationError(api.ErrCodeInvalidField, "cursor is invalid", nil)
-
-	case errors.Is(err, ErrInvalidSearch):
-		apiErr = api.ValidationError(api.ErrCodeInvalidField, ErrInvalidSearch.Error(), nil)
-
+	case errors.Is(err, ErrInvalidPage):
+		apiErr = api.ValidationError(codeInvalidRequest, "offset must be 0 or more and limit 1 or more.", nil)
 	case errors.Is(err, ErrMarketplaceNotFound):
-		apiErr = api.NotFoundError(api.ErrCodeResourceNotFound, "marketplace not found", nil)
-
+		apiErr = api.NotFoundError(codeNotFound, "Marketplace not found.", nil)
+	case errors.Is(err, ErrRepositoryNotFound):
+		apiErr = api.NotFoundError(codeNotFound, "The repository or ref of this Marketplace was not found on GitHub.", nil)
 	case errors.Is(err, ErrSkillNotFound):
-		apiErr = api.NotFoundError(api.ErrCodeResourceNotFound, "skill not found", nil)
-
-	case errors.Is(err, ErrRedisUnavailable),
-		errors.Is(err, ErrSearchUnavailable),
-		errors.Is(err, ghclient.ErrUnavailable),
-		errors.Is(err, context.Canceled),
-		errors.Is(err, context.DeadlineExceeded):
-		apiErr = api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "marketplace is temporarily unavailable", nil)
-
+		apiErr = api.NotFoundError(codeNotFound, "Skill not found.", nil)
+	case errors.Is(err, ErrCredentialUnavailable):
+		apiErr = badGateway("The GitHub App credential for this Marketplace is unavailable.")
+	case errors.Is(err, ErrGitHubFailure):
+		apiErr = badGateway("GitHub could not serve this Marketplace. Try again later.")
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		apiErr = api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "The request ended before the Marketplace was read.", nil)
 	default:
-		apiErr = api.InternalError(api.ErrCodeInternalError, "failed to read marketplace", nil)
+		apiErr = api.InternalError(api.ErrCodeInternalError, "Failed to read the Marketplace.", nil)
 	}
-
 	api.ErrorResponse(r.Context(), w, c.logger, apiErr, err)
+}
+
+func badGateway(message string) *api.APIError {
+	return &api.APIError{Code: codeMarketplaceUnavailable, Message: message, StatusCode: http.StatusBadGateway}
 }

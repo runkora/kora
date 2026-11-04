@@ -1,6 +1,6 @@
 // Package github provides a typed HTTP client for the GitHub REST API, limited
-// to the operations the kora credential broker needs — currently minting
-// GitHub App installation access tokens.
+// to the operations the credential broker and skills-service need: minting
+// installation tokens and reading repository trees and files.
 //
 // It embeds httpclient.Base so every call gets a named OTel client span, W3C
 // trace propagation, and structured logging without per-call boilerplate.
@@ -15,6 +15,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,16 +54,27 @@ var (
 	// docs/adr/2026-07-22-github-connection-category-scoped-actions.md.
 	ErrInstallationPermissions = errors.New("github installation lacks the requested permission level")
 
-	// ErrTreeTruncated is returned when GitHub's Trees API response is marked
-	// truncated — the repository has more than 100,000 entries or the tree
-	// exceeds 7 MB. The crawler cannot safely filter a partial tree.
+	// ErrTreeTruncated is returned when GitHub marks a Trees API response
+	// truncated: the repository has more than 100,000 entries or the tree
+	// exceeds 7 MB. A partial tree cannot be filtered safely.
 	ErrTreeTruncated = errors.New("github tree response was truncated")
 
-	// ErrUnavailable is returned by CreateInstallationToken, GetTree, and
-	// GetRawContent when GitHub cannot serve the call for now: a timeout or
-	// network failure, a 5xx status, or a rate limit. A later retry can
-	// succeed. For a status failure, the error also matches ErrUnexpectedStatus.
+	// ErrUnavailable is returned by CreateInstallationToken, ResolveRef, GetTree
+	// and GetRawContent when GitHub cannot serve the call for now: a timeout or
+	// network failure, a 5xx status, or a rate limit. For a status failure, the
+	// error also matches ErrUnexpectedStatus.
 	ErrUnavailable = errors.New("github is unavailable or rate-limited")
+
+	// ErrNotFound is returned by ResolveRef, GetTree and GetRawContent when the
+	// repository, ref or file does not exist or the token cannot see it.
+	ErrNotFound = errors.New("github repository, ref or file not found")
+
+	// ErrTooLarge is returned by GetRawContent for a file over its byte limit.
+	ErrTooLarge = errors.New("github file is over the size limit")
+
+	// ErrBadCommit is returned when GitHub resolves a ref to something that is
+	// not a commit SHA.
+	ErrBadCommit = errors.New("github ref did not resolve to a commit SHA")
 )
 
 // InstallationTokenRequest optionally scopes an installation token to a subset
@@ -82,13 +95,16 @@ type InstallationToken struct {
 	RepositorySelection string            `json:"repository_selection"`
 }
 
-// TreeEntry is one node in a GitHub repository tree as returned by the
-// Git Trees API (?recursive=1). Only Blob entries (Type == "blob") carry
-// file content; Tree entries are directory nodes.
+// TreeEntry is one node of a recursive Git Trees API response. Type is "blob"
+// for a file and "tree" for a directory. Size is set for blobs.
 type TreeEntry struct {
 	Path string `json:"path"`
-	Type string `json:"type"` // "blob" or "tree"
+	Type string `json:"type"`
+	Size int64  `json:"size"`
 }
+
+// maxTreeBytes bounds a tree response. GitHub truncates trees over 7 MB.
+const maxTreeBytes = 8 << 20
 
 // treeResponse is the wire shape of GET /repos/{org}/{repo}/git/trees/{ref}?recursive=1.
 type treeResponse struct {
@@ -270,22 +286,62 @@ func (c *Client) GetInstallationPermissions(ctx context.Context, appJWT string, 
 	return body.Permissions, nil
 }
 
-// GetTree returns the flat recursive file tree for the given repository ref
-// (branch, tag, or commit SHA). Path and type are populated for each entry.
-// Returns ErrTreeTruncated when GitHub marks the response truncated
-// (repo too large to enumerate fully)..
-// Returns an error that matches ErrUnavailable when GitHub is down or
-// rate-limits the call.
-func (c *Client) GetTree(ctx context.Context, token, org, repo, ref string) ([]TreeEntry, error) {
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1", c.baseURL, url.PathEscape(org), url.PathEscape(repo), url.PathEscape(ref))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build get-tree request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", acceptHeader)
+// ResolveRef returns the commit SHA that ref (a branch, tag or commit SHA)
+// points at. Pass "HEAD" for the default branch.
+func (c *Client) ResolveRef(ctx context.Context, token, owner, repo, ref string) (string, error) {
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	header.Set("Accept", "application/vnd.github.sha")
 
-	_, span, resp, err := c.Do(ctx, "github.Client.GetTree", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/repos/{owner}/{repo}/commits/{ref}",
+		Params: []string{owner, repo, ref}, Header: header,
+	})
+	defer span.End()
+	if err != nil {
+		return "", transportError(ctx, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// GitHub answers an unknown ref with 422 and an unknown repository with 404.
+	if resp.StatusCode != http.StatusOK {
+		return "", statusError(resp, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus), http.StatusNotFound, http.StatusUnprocessableEntity)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+	if err != nil {
+		return "", transportError(ctx, fmt.Errorf("read response body: %w", err))
+	}
+	sha := strings.TrimSpace(string(body))
+	if !isCommitSHA(sha) {
+		return "", c.RecordError(span, ErrBadCommit)
+	}
+	return sha, nil
+}
+
+// isCommitSHA reports whether s is a 40-character lowercase hex SHA.
+func isCommitSHA(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// GetTree returns the recursive file tree at sha. It returns ErrTreeTruncated
+// when GitHub marks the response truncated.
+func (c *Client) GetTree(ctx context.Context, token, owner, repo, sha string) ([]TreeEntry, error) {
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	header.Set("Accept", acceptHeader)
+
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/repos/{owner}/{repo}/git/trees/{sha}",
+		Params: []string{owner, repo, sha}, Query: url.Values{"recursive": {"1"}}, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return nil, transportError(ctx, err)
@@ -293,8 +349,12 @@ func (c *Client) GetTree(ctx context.Context, token, org, repo, ref string) ([]T
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, statusError(resp, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus))
+		return nil, statusError(resp, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus), http.StatusNotFound)
 	}
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.LimitReader(resp.Body, maxTreeBytes), resp.Body}
 	var body treeResponse
 	if err := c.DecodeJSON(span, resp, &body); err != nil {
 		return nil, err
@@ -305,20 +365,17 @@ func (c *Client) GetTree(ctx context.Context, token, org, repo, ref string) ([]T
 	return body.Tree, nil
 }
 
-// GetRawContent fetches the raw byte content of a single file at path in
-// the repository, at the given ref (branch, tag, or commit SHA).
-// Returns an error that matches ErrUnavailable when GitHub is down or
-// rate-limits the call.
-func (c *Client) GetRawContent(ctx context.Context, token, org, repo, ref, path string) ([]byte, error) {
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s", c.baseURL, url.PathEscape(org), url.PathEscape(repo), url.PathEscape(path), url.QueryEscape(ref))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build get-raw-content request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github.raw+json")
+// GetRawContent returns the content of the file at path and ref, reading at
+// most maxBytes. A longer file returns ErrTooLarge.
+func (c *Client) GetRawContent(ctx context.Context, token, owner, repo, ref, path string, maxBytes int64) ([]byte, error) {
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	header.Set("Accept", "application/vnd.github.raw+json")
 
-	_, span, resp, err := c.Do(ctx, "github.Client.GetRawContent", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/repos/{owner}/{repo}/contents/{path}",
+		Params: []string{owner, repo, path}, Query: url.Values{"ref": {ref}}, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return nil, transportError(ctx, err)
@@ -326,12 +383,14 @@ func (c *Client) GetRawContent(ctx context.Context, token, org, repo, ref, path 
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, statusError(resp, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus))
+		return nil, statusError(resp, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus), http.StatusNotFound)
 	}
-
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
 	if err != nil {
 		return nil, transportError(ctx, fmt.Errorf("read response body: %w", err))
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, c.RecordError(span, ErrTooLarge)
 	}
 	return data, nil
 }
@@ -349,11 +408,14 @@ func transportError(ctx context.Context, err error) error {
 }
 
 // statusError wraps err, the error of a non-2xx response, in ErrUnavailable
-// when the status shows an outage or a rate limit. Every other status, for
-// example 404, gives the same result on a retry and stays unwrapped.
-func statusError(resp *http.Response, err error) error {
-	if isUnavailable(resp, err) {
+// when the status shows an outage or a rate limit, and in ErrNotFound when the
+// status is one of notFound. Any other status stays unwrapped.
+func statusError(resp *http.Response, err error, notFound ...int) error {
+	switch {
+	case isUnavailable(resp, err):
 		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	case slices.Contains(notFound, resp.StatusCode):
+		return fmt.Errorf("%w: %w", ErrNotFound, err)
 	}
 	return err
 }

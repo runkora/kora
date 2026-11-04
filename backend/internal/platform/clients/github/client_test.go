@@ -23,7 +23,7 @@ func TestGetRawContent(t *testing.T) {
 		}))
 		defer server.Close()
 
-		got, err := NewClient(server.URL, logging.NewLogger()).GetRawContent(context.Background(), "test-token", "org", "repo", "main", "skills/skill-name/SKILL.md")
+		got, err := NewClient(server.URL, logging.NewLogger()).GetRawContent(context.Background(), "test-token", "org", "repo", "main", "skills/skill-name/SKILL.md", 1024)
 		if err != nil {
 			t.Fatalf("GetRawContent: %v", err)
 		}
@@ -38,6 +38,7 @@ func TestGetRawContent(t *testing.T) {
 		header          map[string]string
 		body            string
 		wantUnavailable bool
+		wantNotFound    bool
 	}{
 		{name: "500 is unavailable", status: http.StatusInternalServerError, wantUnavailable: true},
 		{name: "503 is unavailable", status: http.StatusServiceUnavailable, wantUnavailable: true},
@@ -72,6 +73,7 @@ func TestGetRawContent(t *testing.T) {
 			status:          http.StatusNotFound,
 			body:            `{"message":"Not Found"}`,
 			wantUnavailable: false,
+			wantNotFound:    true,
 		},
 	}
 	for _, tt := range tests {
@@ -85,21 +87,38 @@ func TestGetRawContent(t *testing.T) {
 			}))
 			defer server.Close()
 
-			_, err := NewClient(server.URL, logging.NewLogger()).GetRawContent(context.Background(), "test-token", "org", "repo", "main", "SKILL.md")
+			_, err := NewClient(server.URL, logging.NewLogger()).GetRawContent(context.Background(), "test-token", "org", "repo", "main", "SKILL.md", 1024)
 			if !errors.Is(err, ErrUnexpectedStatus) {
 				t.Fatalf("GetRawContent error = %v, want wrapped ErrUnexpectedStatus", err)
 			}
 			if got := errors.Is(err, ErrUnavailable); got != tt.wantUnavailable {
 				t.Errorf("errors.Is(err, ErrUnavailable) = %v, want %v; err = %v", got, tt.wantUnavailable, err)
 			}
+			if got := errors.Is(err, ErrNotFound); got != tt.wantNotFound {
+				t.Errorf("errors.Is(err, ErrNotFound) = %v, want %v; err = %v", got, tt.wantNotFound, err)
+			}
 		})
 	}
+
+	t.Run("a file over the limit is too large", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("12345"))
+		}))
+		defer server.Close()
+		client := NewClient(server.URL, logging.NewLogger())
+		if _, err := client.GetRawContent(context.Background(), "t", "org", "repo", "main", "f", 4); !errors.Is(err, ErrTooLarge) {
+			t.Errorf("GetRawContent over the limit = %v, want ErrTooLarge", err)
+		}
+		if got, err := client.GetRawContent(context.Background(), "t", "org", "repo", "main", "f", 5); err != nil || string(got) != "12345" {
+			t.Errorf("GetRawContent at the limit = %q, %v", got, err)
+		}
+	})
 
 	t.Run("network failure is unavailable", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 		server.Close() // every call to the closed server fails with a network error
 
-		_, err := NewClient(server.URL, logging.NewLogger()).GetRawContent(context.Background(), "test-token", "org", "repo", "main", "SKILL.md")
+		_, err := NewClient(server.URL, logging.NewLogger()).GetRawContent(context.Background(), "test-token", "org", "repo", "main", "SKILL.md", 1024)
 		if !errors.Is(err, ErrUnavailable) {
 			t.Errorf("GetRawContent error = %v, want wrapped ErrUnavailable", err)
 		}
@@ -111,7 +130,7 @@ func TestGetRawContent(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		_, err := NewClient(server.URL, logging.NewLogger()).GetRawContent(ctx, "test-token", "org", "repo", "main", "SKILL.md")
+		_, err := NewClient(server.URL, logging.NewLogger()).GetRawContent(ctx, "test-token", "org", "repo", "main", "SKILL.md", 1024)
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("GetRawContent error = %v, want context.Canceled", err)
 		}
@@ -119,6 +138,73 @@ func TestGetRawContent(t *testing.T) {
 			t.Errorf("GetRawContent error = %v, want no ErrUnavailable for a canceled call", err)
 		}
 	})
+}
+
+func TestGetTree(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/org/repo/git/trees/abc" || r.URL.Query().Get("recursive") != "1" {
+			t.Errorf("request = %s", r.URL)
+		}
+		switch r.Header.Get("Authorization") {
+		case "Bearer truncated":
+			_, _ = w.Write([]byte(`{"tree":[],"truncated":true}`))
+		default:
+			_, _ = w.Write([]byte(`{"tree":[{"path":"a/SKILL.md","type":"blob","size":12},{"path":"a","type":"tree"}]}`))
+		}
+	}))
+	defer server.Close()
+	client := NewClient(server.URL, logging.NewLogger())
+
+	got, err := client.GetTree(context.Background(), "t", "org", "repo", "abc")
+	if err != nil {
+		t.Fatalf("GetTree: %v", err)
+	}
+	if len(got) != 2 || got[0] != (TreeEntry{Path: "a/SKILL.md", Type: "blob", Size: 12}) {
+		t.Errorf("GetTree = %+v", got)
+	}
+	if _, err := client.GetTree(context.Background(), "truncated", "org", "repo", "abc"); !errors.Is(err, ErrTreeTruncated) {
+		t.Errorf("truncated tree = %v, want ErrTreeTruncated", err)
+	}
+}
+
+func TestResolveRef(t *testing.T) {
+	const sha = "0123456789abcdef0123456789abcdef01234567"
+	tests := []struct {
+		name    string
+		status  int
+		body    string
+		want    string
+		wantErr error
+	}{
+		{name: "returns the SHA", status: http.StatusOK, body: sha + "\n", want: sha},
+		{name: "unknown repository", status: http.StatusNotFound, wantErr: ErrNotFound},
+		{name: "unknown ref", status: http.StatusUnprocessableEntity, wantErr: ErrNotFound},
+		{name: "not a SHA", status: http.StatusOK, body: "<html>", wantErr: ErrBadCommit},
+		{name: "outage", status: http.StatusBadGateway, wantErr: ErrUnavailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.EscapedPath() != "/repos/org/repo/commits/release%2F1" || r.Header.Get("Accept") != "application/vnd.github.sha" {
+					t.Errorf("request = %s Accept %q", r.URL.EscapedPath(), r.Header.Get("Accept"))
+				}
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			got, err := NewClient(server.URL, logging.NewLogger()).ResolveRef(context.Background(), "t", "org", "repo", "release/1")
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("ResolveRef error = %v, want %v", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil || got != tt.want {
+				t.Errorf("ResolveRef = %q, %v; want %q", got, err, tt.want)
+			}
+		})
+	}
 }
 
 func TestGetTreeUnavailable(t *testing.T) {

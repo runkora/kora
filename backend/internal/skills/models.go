@@ -1,66 +1,10 @@
 package skills
 
-// MarketplaceSource is one marketplace entry derived from skills-mapping.yaml.
-// Org, RepoName, and MarketplaceSlug are backend-internal — they never appear
-// in API responses or URLs sent to the frontend.
-type MarketplaceSource struct {
-	Name            string `json:"name"`
-	Org             string `json:"org"`
-	RepoName        string `json:"repoName"`
-	Link            string `json:"link"`
-	MarketplaceSlug string `json:"marketplaceSlug"`
-}
-
-// SkillEntry is one skill entry stored in the marketplace Redis array and
-// returned by the list endpoint. Path and DocPaths are backend-only: they
-// tell the service which files to fetch from GitHub on a skill-cache miss;
-// the frontend never sees them.
-type SkillEntry struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	SkillSlug   string   `json:"skillSlug"`
-	Path        string   `json:"path"`
-	DocPaths    []string `json:"docPaths,omitempty"`
-}
-
-// SkillFile is one file (the main SKILL.md or a resource document) returned
-// by the skill detail endpoint.
-type SkillFile struct {
-	Path    string `json:"path"`
-	Name    string `json:"name"`
-	Content string `json:"content"`
-}
-
-// Skill is the full skill record returned by the detail endpoint.
-type Skill struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	SkillSlug   string      `json:"skillSlug"`
-	File        SkillFile   `json:"skill"`
-	Documents   []SkillFile `json:"documents"`
-}
-
-// SkillSummary is the list-endpoint projection sent to the frontend.
-// Path is intentionally omitted — the frontend receives name, description, skillSlug, and skillName only.
-type SkillSummary struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	SkillSlug   string `json:"skillSlug"`
-	SkillName   string `json:"skillName"`
-}
-
-// ListSkillsResponse is one cursor batch of skill summaries.
-type ListSkillsResponse struct {
-	Skills     []SkillSummary `json:"skills"`
-	NextCursor string         `json:"nextCursor,omitempty"` // empty = no more results
-}
-
-// MarketplaceSummary is the public projection of a MarketplaceSource.
-// Org and RepoName are intentionally omitted.
+// MarketplaceSummary is one Marketplace in API responses.
 type MarketplaceSummary struct {
-	Name            string `json:"name"`
-	MarketplaceSlug string `json:"marketplaceSlug"`
-	Link            string `json:"link"`
+	Slug       string `json:"slug"`
+	Name       string `json:"name"`
+	Repository string `json:"repository"`
 }
 
 // ListMarketplacesResponse is the response of GET /marketplaces.
@@ -68,12 +12,62 @@ type ListMarketplacesResponse struct {
 	Marketplaces []MarketplaceSummary `json:"marketplaces"`
 }
 
-// MarketplaceDetail is the response of GET /marketplaces/{marketplaceSlug}:
-// the selected marketplace and one cursor batch of its skills.
-type MarketplaceDetail struct {
-	Name            string         `json:"name"`
-	MarketplaceSlug string         `json:"marketplaceSlug"`
-	Link            string         `json:"link"`
-	Skills          []SkillSummary `json:"skills"`
-	NextCursor      string         `json:"nextCursor,omitempty"` // empty = no more results
+// SkillSummary is one skill in a Marketplace page.
+type SkillSummary struct {
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// SkillPage is the response of GET /marketplaces/{slug}.
+type SkillPage struct {
+	Marketplace MarketplaceSummary `json:"marketplace"`
+	Skills      []SkillSummary     `json:"skills"`
+	Total       int                `json:"total"`
+	Offset      int                `json:"offset"`
+	Limit       int                `json:"limit"`
+}
+
+// SkillFile is one text file of a skill, its path relative to the skill
+// folder.
+type SkillFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+// SkillDetail is the response of GET /marketplaces/{slug}/skills/{path...}.
+type SkillDetail struct {
+	Path        string      `json:"path"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Repository  string      `json:"repository"`
+	Files       []SkillFile `json:"files"`
+}
+
+// skillList is one crawl of a Marketplace as cached in Redis. Source records
+// the repository and ref it was read from, so an edited Marketplace is crawled
+// again instead of serving the old repository.
+type skillList struct {
+	Source string        `json:"source"`
+	SHA    string        `json:"sha"`
+	Skills []skillRecord `json:"skills"`
+}
+
+// skillRecord is one skill. Content is the full SKILL.md, used for search and
+// the skill page. Files are the supporting files to fetch on first open,
+// relative to Path.
+type skillRecord struct {
+	Path        string   `json:"path"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Content     string   `json:"content"`
+	Files       []string `json:"files,omitempty"`
+}
+
+// crawlFailure is a failed crawl as cached in Redis.
+type crawlFailure struct {
+	Source   string `json:"source"`
+	NotFound bool   `json:"notFound,omitempty"`
+	// Credential marks a credential failure; otherwise GitHub failed.
+	Credential bool `json:"credential,omitempty"`
 }

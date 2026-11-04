@@ -1,0 +1,211 @@
+package skills
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/base64"
+	"encoding/json"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
+)
+
+type fakeEvaluator struct {
+	policy.Evaluator
+	allow  bool
+	inputs []policy.CheckInput
+}
+
+func (f *fakeEvaluator) Check(_ context.Context, input policy.CheckInput) (policy.Result, error) {
+	f.inputs = append(f.inputs, input)
+	return policy.Result{Allow: f.allow}, nil
+}
+
+type noBlocklist struct{}
+
+func (noBlocklist) IsBlocked(context.Context, string) (bool, error) { return false, nil }
+
+// apiFixture serves the controller through the real auth and scope chain.
+type apiFixture struct {
+	t       *testing.T
+	handler http.Handler
+	eval    *fakeEvaluator
+	token   string
+	github  *fakeGitHub
+}
+
+func newAPIFixture(t *testing.T, allow bool, ms ...*Marketplace) *apiFixture {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := discard()
+	jwks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		api.JSON(r.Context(), w, logger, http.StatusOK, map[string]any{"keys": []map[string]string{{
+			"kty": "RSA", "kid": "skills-test", "use": "sig", "alg": "RS256",
+			"n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
+			"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
+		}}})
+	}))
+	t.Cleanup(jwks.Close)
+	signed := jwt.NewWithClaims(jwt.SigningMethodRS256, token.PlatformClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer: token.DefaultIssuer, Audience: jwt.ClaimStrings{token.DefaultAudience},
+			Subject: "caller", ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)), ID: "platform-1",
+		},
+		Kora: token.KoraClaims{TenantID: "example", PrincipalType: token.PrincipalTypeHuman},
+	})
+	signed.Header["kid"] = "skills-test"
+	bearer, err := signed.SignedString(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	g := sampleRepo()
+	svc, _, _ := newTestService(t, g, ms...)
+	eval := &fakeEvaluator{allow: allow}
+	verifier := token.NewVerifier(context.Background(), jwks.URL, token.DefaultIssuer, token.DefaultAudience)
+	c := NewController(logger, svc, verifier, eval, noBlocklist{}, "/v1")
+	server := api.NewAPI(context.Background(), logger).Server(context.Background(), 0, "/v1", nil, c)
+	return &apiFixture{t: t, handler: server.Handler, eval: eval, token: bearer, github: g}
+}
+
+func (f *apiFixture) get(target string, out any) int {
+	f.t.Helper()
+	r := httptest.NewRequest(http.MethodGet, "/v1"+target, nil)
+	r.Header.Set("Authorization", "Bearer "+f.token)
+	rr := httptest.NewRecorder()
+	f.handler.ServeHTTP(rr, r)
+	if out != nil {
+		if err := json.Unmarshal(rr.Body.Bytes(), out); err != nil {
+			f.t.Fatalf("decode %s: %v: %s", target, err, rr.Body.String())
+		}
+	}
+	return rr.Code
+}
+
+func TestAPI_Contract(t *testing.T) {
+	f := newAPIFixture(t, true, testMarketplace(t, "example", "team-skills"))
+
+	var list ListMarketplacesResponse
+	if code := f.get("/marketplaces", &list); code != http.StatusOK || !slices.Equal(list.Marketplaces, []MarketplaceSummary{{Slug: "team-skills", Name: "skills", Repository: "example-org/skills"}}) {
+		t.Errorf("GET /marketplaces = %d %+v", code, list)
+	}
+
+	var page SkillPage
+	if code := f.get("/marketplaces/team-skills?search=pdf&offset=0&limit=1", &page); code != http.StatusOK || page.Total != 2 || page.Limit != 1 || len(page.Skills) != 1 || page.Skills[0].Path != "skills/pdf" {
+		t.Errorf("GET page = %d %+v", code, page)
+	}
+	if code := f.get("/marketplaces/team-skills?limit=500", &page); code != http.StatusOK || page.Limit != MaxLimit {
+		t.Errorf("limit 500 = %d limit %d, want capped at %d", code, page.Limit, MaxLimit)
+	}
+	if code := f.get("/marketplaces/team-skills", &page); page.Limit != DefaultLimit || page.Offset != 0 || code != http.StatusOK {
+		t.Errorf("defaults = %d offset %d limit %d", code, page.Offset, page.Limit)
+	}
+
+	var skill SkillDetail
+	if code := f.get("/marketplaces/team-skills/skills/skills/pdf", &skill); code != http.StatusOK || skill.Path != "skills/pdf" || len(skill.Files) != 2 || skill.Files[0].Path != "SKILL.md" {
+		t.Errorf("GET skill = %d %+v", code, skill)
+	}
+
+	if len(f.eval.inputs) == 0 || f.eval.inputs[0].Claims.Kora.TenantID != "example" {
+		t.Errorf("policy inputs = %+v", f.eval.inputs)
+	}
+}
+
+func TestAPI_Errors(t *testing.T) {
+	noKey := testMarketplace(t, "example", "no-key")
+	noKey.tokens = nil
+	f := newAPIFixture(t, true, testMarketplace(t, "example", "team-skills"), noKey)
+
+	for _, tc := range []struct {
+		target string
+		code   int
+		error  string
+	}{
+		{"/marketplaces/team-skills?offset=-1", http.StatusBadRequest, codeInvalidRequest},
+		{"/marketplaces/team-skills?limit=0", http.StatusBadRequest, codeInvalidRequest},
+		{"/marketplaces/team-skills?limit=ten", http.StatusBadRequest, codeInvalidRequest},
+		{"/marketplaces/unknown", http.StatusNotFound, codeNotFound},
+		{"/marketplaces/team-skills/skills/skills/missing", http.StatusNotFound, codeNotFound},
+		// A Marketplace listed without its key fails closed.
+		{"/marketplaces/no-key", http.StatusBadGateway, codeMarketplaceUnavailable},
+		{"/marketplaces/no-key/skills/skills/pdf", http.StatusBadGateway, codeMarketplaceUnavailable},
+	} {
+		var body api.APIError
+		if code := f.get(tc.target, &body); code != tc.code || body.Code != tc.error || body.Message == "" {
+			t.Errorf("%s = %d %+v, want %d %s", tc.target, code, body, tc.code, tc.error)
+		}
+	}
+}
+
+// A path with an empty, "." or ".." segment is refused before any lookup, so
+// no client path reaches GitHub. The mux redirects most of them to the cleaned
+// path first; the handler refuses whatever reaches it.
+func TestAPI_SkillPathSegments(t *testing.T) {
+	f := newAPIFixture(t, true, testMarketplace(t, "example", "team-skills"))
+	for _, target := range []string{
+		"/marketplaces/team-skills/skills/skills//pdf",
+		"/marketplaces/team-skills/skills/skills/./pdf",
+		"/marketplaces/team-skills/skills/skills/%2E%2E/pdf",
+		"/marketplaces/team-skills/skills/skills/pdf/",
+	} {
+		if code := f.get(target, nil); code != http.StatusNotFound && code != http.StatusTemporaryRedirect {
+			t.Errorf("%s = %d, want 404 or the mux's redirect", target, code)
+		}
+	}
+	if fetched := f.github.fetchedPaths(); len(fetched) != 0 {
+		t.Errorf("GitHub fetched %v, want nothing", fetched)
+	}
+
+	svc, crawler, _ := newTestService(t, sampleRepo(), testMarketplace(t, "example", "team-skills"))
+	c := &Controller{service: svc, logger: discard()}
+	ctx := token.WithClaims(context.Background(), &token.PlatformClaims{Kora: token.KoraClaims{TenantID: "example"}})
+	for _, p := range []string{"", "skills//pdf", "skills/./pdf", "skills/../pdf", "../skills/pdf", "skills/pdf/"} {
+		r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/marketplaces/team-skills/skills/x", nil)
+		r.SetPathValue("slug", "team-skills")
+		r.SetPathValue("path", p)
+		rr := httptest.NewRecorder()
+		c.handleGetSkill(rr, r)
+		var body api.APIError
+		_ = json.Unmarshal(rr.Body.Bytes(), &body)
+		if rr.Code != http.StatusNotFound || body.Code != codeNotFound {
+			t.Errorf("path %q = %d %+v, want 404 not_found", p, rr.Code, body)
+		}
+	}
+	if crawler.crawls != 0 {
+		t.Errorf("crawls = %d, want none for a refused path", crawler.crawls)
+	}
+}
+
+func TestAPI_DeniedScope(t *testing.T) {
+	f := newAPIFixture(t, false, testMarketplace(t, "example", "team-skills"))
+	if code := f.get("/marketplaces/team-skills", nil); code != http.StatusForbidden {
+		t.Errorf("denied scope = %d, want 403", code)
+	}
+	input := f.eval.inputs[0]
+	if input.ResourceType != "skills" || input.Action != "read" {
+		t.Errorf("policy input = %s:%s, want skills:read", input.ResourceType, input.Action)
+	}
+	if len(f.github.fetchedPaths()) != 0 {
+		t.Error("a denied request reached GitHub")
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/marketplaces", nil)
+	rr := httptest.NewRecorder()
+	f.handler.ServeHTTP(rr, r)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("no token = %d, want 401", rr.Code)
+	}
+}

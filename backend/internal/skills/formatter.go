@@ -7,10 +7,11 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// Frontmatter errors skip the skill.
 var (
-	ErrNoFrontmatter      = errors.New("SKILL.md missing frontmatter block")
-	ErrMissingName        = errors.New("SKILL.md frontmatter missing required field: name")
-	ErrMissingDescription = errors.New("SKILL.md frontmatter missing required field: description")
+	errNoFrontmatter      = errors.New("SKILL.md missing frontmatter block")
+	errMissingName        = errors.New("SKILL.md frontmatter missing required field: name")
+	errMissingDescription = errors.New("SKILL.md frontmatter missing required field: description")
 )
 
 type skillFrontmatter struct {
@@ -18,29 +19,14 @@ type skillFrontmatter struct {
 	Description string `json:"description"`
 }
 
-// skillBody omits frontmatter so metadata is not indexed again as instructions.
-func skillBody(content string) string {
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	lines := strings.Split(content, "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return content
-	}
-	for i := 1; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == "---" {
-			return strings.Join(lines[i+1:], "\n")
-		}
-	}
-	return content
-}
-
-// ParseSkillFrontmatter parses the YAML frontmatter of a SKILL.md: the block
+// parseSkillFrontmatter parses the YAML frontmatter of a SKILL.md: the block
 // between an opening "---" line and the next "---" line. It is parsed as YAML,
 // so folded (>) and literal (|) block scalars, quoted values and values
 // containing colons all keep their full text.
-func ParseSkillFrontmatter(content string) (skillFrontmatter, error) {
+func parseSkillFrontmatter(content string) (skillFrontmatter, error) {
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return skillFrontmatter{}, ErrNoFrontmatter
+		return skillFrontmatter{}, errNoFrontmatter
 	}
 
 	end := -1
@@ -51,7 +37,7 @@ func ParseSkillFrontmatter(content string) (skillFrontmatter, error) {
 		}
 	}
 	if end == -1 {
-		return skillFrontmatter{}, ErrNoFrontmatter
+		return skillFrontmatter{}, errNoFrontmatter
 	}
 
 	var fm skillFrontmatter
@@ -65,10 +51,10 @@ func ParseSkillFrontmatter(content string) (skillFrontmatter, error) {
 	fm.Description = strings.TrimSpace(fm.Description)
 
 	if fm.Name == "" {
-		return skillFrontmatter{}, ErrMissingName
+		return skillFrontmatter{}, errMissingName
 	}
 	if fm.Description == "" {
-		return skillFrontmatter{}, ErrMissingDescription
+		return skillFrontmatter{}, errMissingDescription
 	}
 
 	return fm, nil

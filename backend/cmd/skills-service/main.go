@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 
 	sc "github.com/clear-route/orbit/cmd/skills-service/config"
@@ -29,12 +28,6 @@ func main() {
 	ctx := context.Background()
 	logger := initLogger()
 
-	if err := sc.Current.ApplyEnvOverrides(); err != nil {
-		logger.Error(ctx, "invalid config", logging.Field{Key: "error", Value: err.Error()})
-		os.Exit(1)
-	}
-
-	// Observability helps you understand what your running service is doing.
 	shutdownObservability, err := initObservability(ctx, logger)
 	if err != nil {
 		logger.Error(ctx, "failed to setup observability", logging.Field{Key: "error", Value: err.Error()})
@@ -50,7 +43,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	registry, err := initRegistry(ctx, logger)
+	gh := ghclient.NewClient(sc.Current.GitHub.APIBaseURL, logger)
+	registry, err := skills.NewRegistry(ctx, sc.Current.Marketplace.SourcesPath, sc.Current.Marketplace.KeysDir, gh, logger)
 	if err != nil {
 		logger.Error(ctx, "failed to initialize marketplace registry", logging.Field{Key: "error", Value: err.Error()})
 		_ = redis.Close()
@@ -62,24 +56,9 @@ func main() {
 	// stops with it.
 	backgroundCtx, stopBackground := context.WithCancel(ctx)
 
-	if err = registry.Watch(backgroundCtx, sc.Current.Marketplace.SourcesConfigPath); err != nil {
-		logger.Error(ctx, "failed to watch marketplace config",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		stopBackground()
-		_ = redis.Close()
-		shutdownObservability()
-		os.Exit(1)
-	}
+	go registry.Watch(backgroundCtx)
 
-	server, register, err := initServer(backgroundCtx, logger, redis, registry)
-	if err != nil {
-		logger.Error(ctx, "failed to initialize server", logging.Field{Key: "error", Value: err.Error()})
-		stopBackground()
-		_ = redis.Close()
-		shutdownObservability()
-		os.Exit(1)
-	}
+	server, register := initServer(backgroundCtx, logger, redis, registry, gh)
 
 	exitCode := run(ctx, logger, server, register)
 	stopBackground()
@@ -137,39 +116,14 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.RedisClie
 	return redis, nil
 }
 
-func initRegistry(_ context.Context, logger logging.Logger) (*skills.Registry, error) {
-	return skills.NewRegistry(sc.Current.Marketplace.SourcesConfigPath, logger)
-}
-
-func initControllers(ctx context.Context, logger logging.Logger, redis *storage.RedisClient, registry *skills.Registry) ([]api.Controller, error) {
-	installationID, err := strconv.ParseInt(sc.Current.GitHub.InstallationID, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid GITHUB_APP_INSTALLATION_ID: %w", err)
-	}
-
-	gh := ghclient.NewClient(sc.Current.GitHub.APIBaseURL, logger)
-
-	privateKeyPEM, err := os.ReadFile(sc.Current.GitHub.PrivateKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("read github app private key: %w", err)
-	}
-	defaultTokens, err := skills.NewTokenProvider(
-		gh,
-		sc.Current.GitHub.AppID,
-		installationID,
-		privateKeyPEM,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create token provider: %w", err)
-	}
-
-	crawler := skills.NewCrawler(gh, defaultTokens, logger)
-	cache := skills.NewCache(redis, sc.Current.CacheTTL())
-	search := skills.NewSearchIndex(redis, sc.Current.CacheTTL())
-	if err := search.EnsureIndex(ctx); err != nil {
-		// Browsing remains available; a search retries index creation on rebuild.
-		logger.Warn(ctx, "skill search index initialization failed", logging.Field{Key: "error", Value: err.Error()})
-	}
+func initControllers(ctx context.Context, logger logging.Logger, redis *storage.RedisClient, registry *skills.Registry, gh *ghclient.Client) []api.Controller {
+	limits := sc.Current.Marketplace.Limits
+	crawler := skills.NewCrawler(gh, skills.Limits{
+		SkillsPerMarketplace: limits.SkillsPerMarketplace,
+		FilesPerSkill:        limits.FilesPerSkill,
+		BytesPerFile:         limits.BytesPerFile,
+	}, logger)
+	cache := skills.NewCache(redis, sc.Current.CacheTTL(), sc.Current.FailureTTL())
 
 	pol := policy.NewEvaluator(
 		sc.Current.Policy.BundleEndpoint,
@@ -179,27 +133,17 @@ func initControllers(ctx context.Context, logger logging.Logger, redis *storage.
 	pol.Start(ctx)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
-	svc := skills.NewService(registry, cache, crawler, search, logger)
+	svc := skills.NewService(registry, cache, crawler, logger)
 
 	// Shared revoked-JTI blocklist: rejects logged-out platform tokens and
 	// revoked delegation tokens before natural expiry.
 	jtiBlocklist := storage.NewJTIBlocklist(redis)
 
-	controller := skills.NewController(
-		logger,
-		svc,
-		registry,
-		verifier,
-		pol,
-		jtiBlocklist,
-		sc.Current.Server.BasePath,
-	)
-
-	return []api.Controller{controller}, nil
+	return []api.Controller{skills.NewController(logger, svc, verifier, pol, jtiBlocklist, sc.Current.Server.BasePath)}
 }
 
-// initScopeRegistration returns a function that registers the marketplace
-// route/scope vocabulary with the policy service. The caller passes it to
+// initScopeRegistration returns a function that registers the skills
+// route and scope vocabulary with the policy service. The caller passes it to
 // routescopes.KeepRegistered, which owns the initial registration and the
 // periodic self-heal loop.
 func initScopeRegistration(logger logging.Logger) func(context.Context) error {
@@ -220,8 +164,8 @@ func initScopeRegistration(logger logging.Logger) func(context.Context) error {
 		if err := client.Register(
 			registerCtx,
 			"skills-service",
-			scopedRoutes,
-			skills.MarketplaceScopes(),
+			skills.Routes(sc.Current.Server.BasePath),
+			skills.Scopes(),
 		); err != nil {
 			return fmt.Errorf("register routes: %w", err)
 		}
@@ -235,13 +179,10 @@ func initServer(
 	logger logging.Logger,
 	redis *storage.RedisClient,
 	registry *skills.Registry,
-) (*http.Server, func(context.Context) error, error) {
+	gh *ghclient.Client,
+) (*http.Server, func(context.Context) error) {
 	apiServer := api.NewAPI(ctx, logger)
-
-	controllers, err := initControllers(ctx, logger, redis, registry)
-	if err != nil {
-		return nil, nil, err
-	}
+	controllers := initControllers(ctx, logger, redis, registry, gh)
 
 	var register func(context.Context) error
 
@@ -260,7 +201,7 @@ func initServer(
 		controllers...,
 	)
 
-	return server, register, nil
+	return server, register
 }
 
 func run(

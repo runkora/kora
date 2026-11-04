@@ -1,10 +1,8 @@
-package skills_test
+package skills
 
 import (
 	"errors"
 	"testing"
-
-	"github.com/clear-route/orbit/internal/skills"
 )
 
 func TestParseSkillFrontmatter(t *testing.T) {
@@ -61,9 +59,9 @@ func TestParseSkillFrontmatter(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parsed, err := skills.ParseSkillFrontmatter(tt.content)
+			parsed, err := parseSkillFrontmatter(tt.content)
 			if err != nil {
-				t.Fatalf("ParseSkillFrontmatter: %v", err)
+				t.Fatalf("parseSkillFrontmatter: %v", err)
 			}
 			if parsed.Name != tt.wantName {
 				t.Errorf("Name = %q, want %q", parsed.Name, tt.wantName)
@@ -81,15 +79,15 @@ func TestParseSkillFrontmatterErrors(t *testing.T) {
 		content string
 		wantErr error
 	}{
-		{"no frontmatter", "# Just a heading\n", skills.ErrNoFrontmatter},
-		{"unclosed frontmatter", "---\nname: x\ndescription: y\n", skills.ErrNoFrontmatter},
-		{"missing name", "---\ndescription: y\n---\n", skills.ErrMissingName},
-		{"missing description", "---\nname: x\n---\n", skills.ErrMissingDescription},
-		{"empty folded description", "---\nname: x\ndescription: >\n---\n", skills.ErrMissingDescription},
+		{"no frontmatter", "# Just a heading\n", errNoFrontmatter},
+		{"unclosed frontmatter", "---\nname: x\ndescription: y\n", errNoFrontmatter},
+		{"missing name", "---\ndescription: y\n---\n", errMissingName},
+		{"missing description", "---\nname: x\n---\n", errMissingDescription},
+		{"empty folded description", "---\nname: x\ndescription: >\n---\n", errMissingDescription},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := skills.ParseSkillFrontmatter(tt.content)
+			_, err := parseSkillFrontmatter(tt.content)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("err = %v, want %v", err, tt.wantErr)
 			}

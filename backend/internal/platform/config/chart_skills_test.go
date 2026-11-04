@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -10,6 +11,7 @@ import (
 
 	skillsConfig "github.com/runkora/kora/backend/cmd/skills-service/config"
 	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/marketplace"
 )
 
 func TestChartSkillsServiceWiring(t *testing.T) {
@@ -55,6 +57,25 @@ func TestChartSkillsServiceWiring(t *testing.T) {
 	}
 	if envCounts["EXTRA_SETTING"] != 1 {
 		t.Error("custom environment variable was not rendered exactly once")
+	}
+	mounts := map[string]string{}
+	for _, m := range container.VolumeMounts {
+		mounts[m.Name] = m.MountPath
+	}
+	if mounts["skill-marketplaces"] != filepath.Dir(cfg.Marketplace.SourcesPath) || mounts["skill-marketplace-secrets"] != cfg.Marketplace.KeysDir {
+		t.Errorf("mounts = %v, want the config's sourcesPath directory and keysDir", mounts)
+	}
+	sources := map[string]string{}
+	for _, v := range deploy.Spec.Template.Spec.Volumes {
+		switch {
+		case v.ConfigMap != nil:
+			sources[v.Name] = v.ConfigMap.Name
+		case v.Secret != nil:
+			sources[v.Name] = v.Secret.SecretName
+		}
+	}
+	if sources["skill-marketplaces"] != marketplace.ConfigMapName || sources["skill-marketplace-secrets"] != marketplace.SecretName {
+		t.Errorf("volumes = %v, want the operator's ConfigMap and Secret", sources)
 	}
 	var service corev1.Service
 	decode("templates/skills-service/service.yaml", &service)

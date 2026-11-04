@@ -19,7 +19,15 @@ policy:
   registerRoutes: true
 
 marketplace:
-  cacheTTLSecs: 43200
+  sourcesPath: /etc/kora/skill-marketplaces/marketplaces.json
+  keysDir: /etc/kora/skill-marketplace-secrets
+  cacheTTLSecs: 43200 # 12 hours
+  failureTTLSecs: 60
+  # A crawl skips, and logs, skills and files over these limits.
+  limits:
+    skillsPerMarketplace: 500
+    filesPerSkill: 100
+    bytesPerFile: 131072 # 128 KiB
 
 github:
   apiBaseURL: https://api.github.com

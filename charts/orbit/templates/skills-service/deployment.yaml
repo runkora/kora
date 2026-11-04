@@ -49,8 +49,6 @@ spec:
           env:
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
-            - name: KORA_MARKETPLACE_SOURCES_CONFIG
-              value: "/etc/kora/skill-marketplaces"
             {{- include "kora.platformEnv" (dict "root" $ "name" "skillsService" "keys" (list "REDIS_PASSWORD")) | nindent 12 }}
           ports:
             - name: skills-http
