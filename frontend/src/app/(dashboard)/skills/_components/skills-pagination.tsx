@@ -8,7 +8,7 @@ import { PAGE_SIZE } from '../_types';
 
 export function SkillsPagination() {
   const { skills, offset, total, status, goToPage } = useSkillsContext();
-  // The page on screen, not the one loading, so the range always matches the skills shown.
+  // The page on screen rather than the one loading: the range must match the skills shown.
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const from = skills.length === 0 ? 0 : offset + 1;
@@ -26,7 +26,7 @@ export function SkillsPagination() {
           size="icon-sm"
           disabled={loading || page <= 1}
           aria-label="Previous page"
-          onClick={() => goToPage(page - 1)}
+          onClick={() => goToPage(Math.min(page - 1, pageCount))}
         >
           <Icon name="chevron-left" size="2xs" />
         </Button>

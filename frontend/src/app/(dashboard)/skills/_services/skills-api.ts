@@ -21,13 +21,12 @@ async function getData<T>(url: string, signal?: AbortSignal): Promise<FetchResul
   }
 }
 
-/** Fetches one page of the overview; the Favourites view sends the user's keys. */
+/** Fetches one page of the overview. */
 export function fetchSkills(
   browse: SkillsBrowse,
-  keys: string[],
   signal: AbortSignal,
 ): Promise<FetchResult<SkillsPage>> {
-  return getData(ApiRoute.skills.GET({ ...browse, keys }), signal);
+  return getData(ApiRoute.skills.GET(browse), signal);
 }
 
 /** Fetches one supporting file of a skill. */

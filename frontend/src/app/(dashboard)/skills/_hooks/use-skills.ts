@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Marketplace, SkillSummary } from '@runkora/shared/api';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { usePreferences } from '../../_preferences/preferences-context';
@@ -8,6 +8,8 @@ import { fetchSkills } from '../_services/skills-api';
 import {
   PAGE_SIZE,
   browseQuery,
+  skillKey,
+  toggleFavouriteKey,
   toBrowse,
   toSearch,
   type SkillsBrowse,
@@ -103,11 +105,6 @@ export function useSkills(
   const [typed, setTyped] = useState<string | null>(null);
   const searchText = typed ?? browse.search;
   const inFlight = useRef<AbortController | null>(null);
-  // Read at request time, so toggling a favourite does not change the fetch callbacks.
-  const keys = useRef(favouriteKeys);
-  useEffect(() => {
-    keys.current = favouriteKeys;
-  }, [favouriteKeys]);
 
   const fetchPage = useCallback((next: SkillsBrowse) => {
     // A newer request aborts this one, so only the latest page reaches the screen.
@@ -115,7 +112,7 @@ export function useSkills(
     const controller = new AbortController();
     inFlight.current = controller;
 
-    void fetchSkills(next, keys.current, controller.signal).then((result) => {
+    void fetchSkills(next, controller.signal).then((result) => {
       if (controller.signal.aborted) return;
       setError(result.error);
       setSkills(result.data?.skills ?? []);
@@ -151,12 +148,7 @@ export function useSkills(
   }, [typed, browse, load]);
 
   const toggleFavourite = useCallback(
-    (key: string) =>
-      updatePreferences((prev) => {
-        const keys = prev.skills.favouriteSkills;
-        const next = keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key];
-        return { ...prev, skills: { favouriteSkills: next } };
-      }),
+    (key: string) => updatePreferences((prev) => toggleFavouriteKey(prev, key)),
     [updatePreferences],
   );
 
@@ -180,16 +172,20 @@ export function useSkills(
 
   const retry = useCallback(() => load(browse), [browse, load]);
 
+  const favourites = useMemo(() => new Set(favouriteKeys), [favouriteKeys]);
+  // A skill unfavourited in the Favourites view leaves it at once, as the design shows.
+  const shown = browse.favourites ? skills.filter((s) => favourites.has(skillKey(s))) : skills;
+
   return {
     marketplaces: initial.marketplaces,
     browse,
-    skills,
+    skills: shown,
     offset,
-    total,
+    total: total - (skills.length - shown.length),
     failures,
     status,
     error,
-    favourites: new Set(favouriteKeys),
+    favourites,
     toggleFavourite,
     searchText,
     setSearchText: setTyped,

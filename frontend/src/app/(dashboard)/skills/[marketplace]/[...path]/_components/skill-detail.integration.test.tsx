@@ -28,7 +28,7 @@ describe('SkillDetail', () => {
   it('renders SKILL.md without its frontmatter and title, and Raw shows the whole file', async () => {
     renderDetail();
 
-    expect(screen.getByRole('heading', { name: 'PDF Processing Guide', level: 1 })).toBeVisible();
+    expect(screen.getAllByText('PDF Processing Guide')).toHaveLength(1);
     expect(screen.queryByText(/^name: pdf/)).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Overview' })).toBeVisible();
 

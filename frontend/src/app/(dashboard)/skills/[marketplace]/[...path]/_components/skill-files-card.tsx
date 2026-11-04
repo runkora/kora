@@ -48,7 +48,7 @@ const CODE_EXTENSIONS = new Set([
   'css',
 ]);
 
-/** Hades has no tree, so each level indents by a fixed step, as the current file explorer does. */
+/** Hades has no tree component; each level indents by a fixed step. */
 const INDENT_REM = 1.25;
 /** Width of a size="sm" Icon, the chevron a file row leaves room for. */
 const CHEVRON_WIDTH = '1rem';

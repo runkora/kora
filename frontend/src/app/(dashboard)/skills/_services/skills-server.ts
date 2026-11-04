@@ -19,6 +19,9 @@ export async function loadMarketplaces(accessToken: string): Promise<Loaded<Mark
   }
 }
 
+/** skills-service takes at most 200 keys. */
+const MAX_KEYS = 200;
+
 const EMPTY_PAGE: SkillsPage = { skills: [], total: 0, offset: 0, limit: PAGE_SIZE };
 
 /**
@@ -30,11 +33,12 @@ export async function loadSkills(
   browse: SkillsBrowse,
   favourites: string[],
 ): Promise<Loaded<SkillsPage>> {
-  if (browse.favourites && favourites.length === 0) return { ok: true, data: EMPTY_PAGE };
+  const keys = favourites.filter(Boolean).slice(0, MAX_KEYS);
+  if (browse.favourites && keys.length === 0) return { ok: true, data: EMPTY_PAGE };
   try {
     const data = await fetchSkills(accessToken, {
       marketplace: browse.marketplace,
-      keys: browse.favourites ? favourites : [],
+      keys: browse.favourites ? keys : [],
       search: browse.search,
       offset: (browse.page - 1) * PAGE_SIZE,
       limit: PAGE_SIZE,

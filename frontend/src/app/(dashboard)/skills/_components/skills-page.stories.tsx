@@ -34,7 +34,8 @@ const meta: Meta<typeof SkillsShell> = {
     dashboardPage({
       'GET /api/skills': ({ url }: MockRequest) => {
         const query = Object.fromEntries(url.searchParams);
-        return { data: skillsPage(toBrowse(query), (query.keys ?? '').split(',')) };
+        // The BFF reads the stored favourites; the story stores these.
+        return { data: skillsPage(toBrowse(query), STORY_FAVOURITES) };
       },
       'PUT /api/preferences': {},
     }),

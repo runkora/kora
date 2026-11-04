@@ -11,7 +11,7 @@ import { useSkillsContext } from '../_context/skills-context';
 import { skillHref, skillKey } from '../_types';
 import { FavouriteButton, nameLine, SkillChips } from './skill-chips';
 
-/** Hades Text has no line clamp, so the description clamps with the agent card's inline style. */
+/** Hades Text has no line clamp; the agent card's inline style is the precedent. */
 const TWO_LINES = {
   display: '-webkit-box',
   WebkitLineClamp: 2,
@@ -19,7 +19,7 @@ const TWO_LINES = {
   overflow: 'hidden',
 } as const;
 
-/** skills-service has already searched the page, so the table keeps every row it gets. */
+/** skills-service has already searched the page; the table keeps every row it gets. */
 const keepRow = () => true;
 
 export function SkillList({ toolbarActions }: { toolbarActions: React.ReactNode }) {

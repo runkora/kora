@@ -17,7 +17,7 @@ import {
 import type { Marketplace, Skill, SkillSummary } from '@runkora/shared/api';
 import { usePreferences } from '../../../../_preferences/preferences-context';
 import { FavouriteButton, nameLine, SkillChips } from '../../../_components/skill-chips';
-import { skillKey } from '../../../_types';
+import { skillKey, toggleFavouriteKey } from '../../../_types';
 import { timeAgo } from './skill-format';
 
 const SHORT_COMMIT = 7;
@@ -26,21 +26,17 @@ const SHORT_COMMIT = 7;
 const refLabel = (ref: string) => ref || 'default branch';
 
 /** The skill folder on its host at the served commit, so the link shows exactly what this page shows. */
-export function folderUrl(skill: Skill): string {
+function folderUrl(skill: Skill): string {
+  const encode = (value: string) => value.split('/').map(encodeURIComponent).join('/');
   const at = skill.commit || skill.ref || 'HEAD';
-  return `https://github.com/${skill.repository}/tree/${at}/${skill.path}`;
+  return `https://github.com/${encode(skill.repository)}/tree/${encode(at)}/${encode(skill.path)}`;
 }
 
 export function SkillHeader({ skill, summary }: { skill: Skill; summary: SkillSummary | null }) {
   const { preferences, updatePreferences } = usePreferences();
   const key = skillKey(skill);
   const favourite = preferences.skills.favouriteSkills.includes(key);
-  const toggle = () =>
-    updatePreferences((prev) => {
-      const keys = prev.skills.favouriteSkills;
-      const next = keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key];
-      return { ...prev, skills: { favouriteSkills: next } };
-    });
+  const toggle = () => updatePreferences((prev) => toggleFavouriteKey(prev, key));
   const separator = (
     <Text as="span" size="supporting" color="subtle">
       ·

@@ -1,9 +1,14 @@
-/** Test-only stand-in for skills-service, reached by Next.js server fetches that page.route cannot see. */
+/**
+ * Test-only stand-in for skills-service and for the identity preferences the Favourites view reads,
+ * reached by Next.js server fetches that page.route cannot see.
+ */
 import { createServer } from 'node:http';
 import { BROKEN, MARKETPLACES, SKILLS, UNAVAILABLE_MESSAGE } from './skills-fixtures.ts';
 
 const port = Number(process.env.PLAYWRIGHT_SKILLS_PORT ?? '3101');
 const unavailable = { code: 'marketplace_unavailable', message: UNAVAILABLE_MESSAGE };
+// The one preferences document every test session shares.
+let preferences = {};
 
 createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -14,6 +19,17 @@ createServer((req, res) => {
 
   if (url.pathname === '/health') return json(200, {});
   if (!req.headers.authorization?.startsWith('Bearer ')) return json(401, { code: 'unauthorized' });
+  if (url.pathname === '/identity/preferences') {
+    if (req.method !== 'PUT') return json(200, preferences);
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      preferences = JSON.parse(body || '{}');
+      json(200, {});
+    });
+    return;
+  }
+  if (!url.pathname.startsWith('/v1/')) return json(404, { code: 'not_found' });
   if (url.pathname === '/v1/marketplaces') return json(200, { marketplaces: MARKETPLACES });
 
   if (url.pathname === '/v1/marketplaces/skills') {

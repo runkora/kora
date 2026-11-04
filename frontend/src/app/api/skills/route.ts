@@ -1,7 +1,7 @@
 /**
  * /api/skills: BFF proxy for one page of the Skills overview.
  *
- * GET ?marketplace=&favourites=1&keys=a:b,c:d&search=&page=
+ * GET ?marketplace=&favourites=1&search=&page=
  *     200 { data: SkillsPage }
  *     401 { code: 'unauthorized', message }
  *     4xx { code: 'upstream_error', message }  upstream refusal or not found
@@ -12,19 +12,18 @@ import 'server-only';
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@runkora/server/route-helpers';
+import { getPreferences } from '../../(dashboard)/_preferences/preferences-server';
 import { loadSkills } from '../../(dashboard)/skills/_services/skills-server';
 import { toBrowse } from '../../(dashboard)/skills/_types';
 
-/** skills-service takes at most 200 keys. */
-const MAX_KEYS = 200;
-
 export const GET = withAuth(async (req: NextRequest, session) => {
-  const query = Object.fromEntries(req.nextUrl.searchParams);
-  const browse = toBrowse(query);
-  // The Favourites view carries the user's keys, which the browser holds in its preferences.
-  const keys = (query.keys ?? '').split(',').filter(Boolean).slice(0, MAX_KEYS);
+  const browse = toBrowse(Object.fromEntries(req.nextUrl.searchParams));
+  // The Favourites view reads the user's keys from the stored preferences, not the request.
+  const favourites = browse.favourites
+    ? (await getPreferences(session.accessToken)).skills.favouriteSkills
+    : [];
 
-  const result = await loadSkills(session.accessToken, browse, keys);
+  const result = await loadSkills(session.accessToken, browse, favourites);
   if (!result.ok) {
     return NextResponse.json(
       { code: 'upstream_error', message: result.message },

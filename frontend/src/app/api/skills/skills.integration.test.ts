@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { ApiError } from '@orbit/server/api-error';
 
-const mocks = vi.hoisted(() => ({ fetchSkills: vi.fn() }));
+const mocks = vi.hoisted(() => ({ fetchSkills: vi.fn(), getPreferences: vi.fn() }));
+vi.mock('../../(dashboard)/_preferences/preferences-server', () => ({
+  getPreferences: mocks.getPreferences,
+}));
 vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn().mockResolvedValue({ accessToken: 'test-token' }),
   isSessionValid: vi.fn().mockReturnValue(true),
@@ -40,10 +43,13 @@ describe('GET /api/skills', () => {
     });
   });
 
-  it('forwards the favourite keys for the Favourites view', async () => {
+  it('reads the favourite keys from the stored preferences for the Favourites view', async () => {
     mocks.fetchSkills.mockResolvedValue({ skills: [], total: 0, offset: 0, limit: 10 });
+    mocks.getPreferences.mockResolvedValue({
+      skills: { favouriteSkills: ['a:skills/pdf', 'b:tools/lint'] },
+    });
 
-    await call('favourites=1&keys=a%3Askills%2Fpdf%2Cb%3Atools%2Flint&page=2');
+    await call('favourites=1&keys=ignored%3Askills%2Fx&page=2');
 
     expect(mocks.fetchSkills).toHaveBeenCalledWith('test-token', {
       marketplace: '',

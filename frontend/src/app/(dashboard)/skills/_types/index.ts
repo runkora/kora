@@ -1,4 +1,5 @@
 import type { Marketplace, SkillSummary } from '@runkora/shared/api';
+import type { UserPreferences } from '../../_preferences/preferences.schema';
 import { APP_ROUTES } from '@runkora/lib/routing';
 
 /** skills-service treats a shorter search as no search, so the page does too. */
@@ -37,6 +38,13 @@ export interface SkillsLoadError {
 /** The `marketplace:path` key a favourite is stored under. */
 export function skillKey(skill: { marketplace: string; path: string }): string {
   return `${skill.marketplace}:${skill.path}`;
+}
+
+/** The preferences with one skill added to or removed from the favourites. */
+export function toggleFavouriteKey(prev: UserPreferences, key: string): UserPreferences {
+  const keys = prev.skills.favouriteSkills;
+  const next = keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key];
+  return { ...prev, skills: { favouriteSkills: next } };
 }
 
 /** The browse values as a query string, for the overview URL and a skill's way back to it. */
@@ -78,11 +86,13 @@ export function toBrowse(query: {
   page?: unknown;
 }): SkillsBrowse {
   const page = Number(query.page);
+  // skills-service rejects an offset past its integer range; no tenant has this many pages.
+  const lastPage = 100_000;
   const favourites = query.favourites === '1';
   return {
     marketplace: !favourites && typeof query.marketplace === 'string' ? query.marketplace : '',
     favourites,
     search: toSearch(query.search),
-    page: Number.isInteger(page) && page > 1 ? page : 1,
+    page: Number.isInteger(page) && page > 1 ? Math.min(page, lastPage) : 1,
   };
 }

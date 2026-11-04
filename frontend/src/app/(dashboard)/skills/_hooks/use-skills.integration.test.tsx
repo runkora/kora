@@ -17,7 +17,7 @@ const FAVOURITES = ['anthropic-skills:skills/pdf'];
 /** Records each BFF request's query and answers with the fixture page. */
 function serveSkills(
   respond: (query: Record<string, string>) => Response | Promise<Response> = (query) =>
-    HttpResponse.json({ data: skillsPage(toBrowse(query), (query.keys ?? '').split(',')) }),
+    HttpResponse.json({ data: skillsPage(toBrowse(query), FAVOURITES) }),
 ) {
   const requests: Record<string, string>[] = [];
   server.use(
@@ -59,7 +59,7 @@ describe('useSkills', () => {
     expect(requests).toEqual([{ page: '2' }]);
   });
 
-  it('filters by a chip back on page 1, and the Favourites chip sends the favourite keys', async () => {
+  it('filters by a chip back on page 1, and leaves an unfavourited skill out of the Favourites view', async () => {
     const requests = serveSkills();
     window.history.replaceState(null, '', '/skills?page=2');
     const { result } = renderSkills(storyOverview({ page: 2 }));
@@ -70,7 +70,10 @@ describe('useSkills', () => {
     expect(window.location.search).toBe('?favourites=1');
 
     await waitFor(() => expect(result.current.total).toBe(1));
-    expect(requests.at(-1)).toEqual({ page: '1', favourites: '1', keys: FAVOURITES.join(',') });
+    expect(requests.at(-1)).toEqual({ page: '1', favourites: '1' });
+    act(() => result.current.toggleFavourite(FAVOURITES[0]));
+    expect(result.current.skills).toEqual([]);
+    expect(result.current.total).toBe(0);
   });
 
   it('searches 300 ms after typing stops, from three characters, back on page 1', async () => {

@@ -63,13 +63,23 @@ test('the URL holds the Marketplace, search and page, and Back from a skill rest
   await expect(page.getByText('11–20 of 28', { exact: true })).toBeVisible();
 });
 
-test('a favourited skill shows in the Favourites view', async ({ page }) => {
+test('a favourited skill shows in the Favourites view', async ({ page, request }) => {
+  // The stand-in keeps one preferences document, so each run starts from none.
+  const standIn = `http://127.0.0.1:${process.env.PLAYWRIGHT_SKILLS_PORT ?? '3101'}`;
+  await request.put(`${standIn}/identity/preferences`, {
+    headers: { Authorization: 'Bearer e2e' },
+    data: {},
+  });
   await page.goto(`/skills?marketplace=${PARTNER.slug}`);
 
+  const saved = page.waitForResponse((res) => res.url().endsWith('/api/preferences'));
   await page.getByRole('button', { name: 'Add to favourites' }).last().click();
+  await saved;
   await chip(page, /^Favourites/).click();
-
   await expect(page).toHaveURL('/skills?favourites=1');
+
+  // The server render reads the stored favourites, so a reload proves they were saved and sent.
+  await page.reload();
   await expect(page.getByText('1 skill', { exact: true })).toBeVisible();
   await expect(page.getByText('Linter', { exact: true })).toBeVisible();
 });

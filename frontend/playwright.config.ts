@@ -72,7 +72,8 @@ export default defineConfig({
         // of whether BFF_SESSION_SECRET is set in the host environment (e.g.
         // when invoked via `make` which exports the root .env).
         BFF_SESSION_SECRET: 'playwright-test-session-secret-32ch',
-        KORA_API_URL: process.env.KORA_API_URL ?? 'http://localhost:8080',
+        // The stand-in answers the identity preferences; every other identity call fails as before.
+        KORA_API_URL: process.env.KORA_API_URL ?? skillsURL,
         // These URLs are not called during E2E tests, but config.ts requires
         // them at boot.
         // A new requireEnv() in config.ts must be added here too: without it the

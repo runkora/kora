@@ -114,7 +114,7 @@ export function mergeWithDefaults(stored: Record<string, unknown>): UserPreferen
     },
     skills: {
       favouriteSkills: Array.isArray(skills.favouriteSkills)
-        ? skills.favouriteSkills.filter((x): x is string => typeof x === 'string')
+        ? skills.favouriteSkills.filter((x): x is string => typeof x === 'string' && x !== '')
         : PREFERENCE_DEFAULTS.skills.favouriteSkills,
     },
   };

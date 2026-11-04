@@ -122,7 +122,7 @@ function Browse() {
       select: () => selectChip(null),
     },
   ];
-  // The search row and the table stay while a search matches nothing, so it can be changed.
+  // The search row and the table stay while a search matches nothing, to let it change.
   const searchable = total > 0 || !!browse.search;
 
   return (

@@ -18,12 +18,11 @@ import { ApiRoute } from './api-routes';
  */
 describe('ApiRoute', () => {
   describe('skills', () => {
-    it('sends the favourite keys for the Favourites view and no Marketplace', () => {
+    it('sends the Favourites view without a Marketplace', () => {
       const url = new URL(
         ApiRoute.skills.GET({
           marketplace: 'a',
           favourites: true,
-          keys: ['a:skills/pdf', 'b:tools/lint'],
           search: '',
           page: 2,
         }),
@@ -33,7 +32,6 @@ describe('ApiRoute', () => {
       expect(Object.fromEntries(url.searchParams)).toEqual({
         page: '2',
         favourites: '1',
-        keys: 'a:skills/pdf,b:tools/lint',
       });
     });
   });

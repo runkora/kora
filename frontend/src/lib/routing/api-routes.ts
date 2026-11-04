@@ -498,15 +498,12 @@ export const ApiRoute = {
     GET: (params: {
       marketplace: string;
       favourites: boolean;
-      keys: string[];
       search: string;
       page: number;
     }): `${typeof API_BASE}/skills?${string}` => {
       const qs = new URLSearchParams({ page: String(params.page) });
-      if (params.favourites) {
-        qs.set('favourites', '1');
-        qs.set('keys', params.keys.join(','));
-      } else if (params.marketplace) qs.set('marketplace', params.marketplace);
+      if (params.favourites) qs.set('favourites', '1');
+      else if (params.marketplace) qs.set('marketplace', params.marketplace);
       if (params.search) qs.set('search', params.search);
       return `${API_BASE}/skills?${qs.toString()}`;
     },
