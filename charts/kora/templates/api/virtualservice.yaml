@@ -168,7 +168,9 @@ spec:
     - match:
         - uri:
             prefix: /v1/marketplaces
-      {{- include "orbit.forceHttpsHeaders" . | nindent 6 }}
+        - uri:
+            prefix: /v1/skills
+      {{- include "kora.edgeHeaders" . | nindent 6 }}
       route:
         - destination:
             host: orbit-skills-service.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
