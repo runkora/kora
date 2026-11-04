@@ -153,19 +153,20 @@ Each Marketplace reports a phase and an `Aggregated` condition:
 
 skills-service mounts the Marketplaces ConfigMap and the keys Secret and reloads both on change.
 
-- **Tokens:** skills-service mints each installation token with `repositories: [repo]` and `permissions: {contents: read}`.
-- **Crawl:** A crawl resolves the ref to one commit, reads the tree at that commit and fetches each `SKILL.md`. Supporting files load when a skill page opens, and a skill cache miss fetches only that skill. A `SKILL.md` at the repository root is skipped.
+- **Tokens:** skills-service mints each installation token with `repositories: [repo]` and `permissions: {contents: read}`. For a repository outside the App's installation, it mints a token with `permissions: {metadata: read}` only. That token reads public repositories and is refused on private ones.
+- **Crawl:** A crawl resolves the ref to one commit, reads the tree at that commit and fetches each `SKILL.md`. A skill page loads its `SKILL.md` and the list of its other files. Each other file is fetched when it is selected and then cached. A `SKILL.md` at the repository root is skipped.
 - **Skill identity:** A skill is identified by its folder path. The frontmatter `name` is the display name.
-- **Limits:** `backend/cmd/skills-service/config/base.yaml` caps skills per Marketplace, files per skill and bytes per file. Skills and files over a limit are skipped and logged. Binary files are never fetched.
+- **Limits:** The chart sets `skillsService.limits` for skills per Marketplace (500), listed files per skill (500), bytes per file (128 KiB) and total `SKILL.md` bytes per Marketplace (8 MiB). An empty value removes that cap. Skills and files over a limit are skipped and logged. Binary files are never fetched.
 - **Cache:** Redis holds the skill list per tenant and Marketplace, each skill's files, and failed crawls. Every key carries the tenant ID. Entries expire after `cacheTTL` (12 hours) and failed crawls after a shorter TTL.
 - **Search:** skills-service filters the cached list in memory and needs no Redis module. A skill matches when the query appears in its name, description or `SKILL.md` body.
-- **Errors:** A missing repository, ref or skill returns 404. An unavailable credential or a GitHub failure returns 502.
+- **Errors:** A missing repository, ref or skill returns 404. An unavailable credential or an upstream failure returns 502 with a message that cites no provider. An unavailable Redis returns 503, a server timeout returns 504, and a cancelled request gets no response.
 
 The API is under `/v1` and requires the `skills:read` scope. The tenant comes from the verified platform token.
 
 - `GET /v1/marketplaces` returns the Marketplaces of the caller's tenant.
 - `GET /v1/marketplaces/{marketplace}?search=&offset=&limit=` returns one page of skills in name order with `total`.
-- `GET /v1/marketplaces/{marketplace}/skills/{path...}` returns one skill and its text files.
+- `GET /v1/marketplaces/{marketplace}/skills/{path...}` returns one skill's `SKILL.md` and its file list.
+- `GET /v1/marketplaces/{marketplace}/skills/{path...}?file={path}` returns one listed file.
 
 ### Dashboard
 
@@ -179,7 +180,7 @@ The API is under `/v1` and requires the `skills:read` scope. The tenant comes fr
 
 ### Local Development
 
-- `deploy/local/marketplace/` defines one example Marketplace for `kora-tenant-example`.
+- `deploy/local/marketplace/` defines one example Marketplace for `kora-tenant-example` that reads `anthropics/skills`.
 - `scripts/cluster/create-secrets.sh` creates its App Secret only when a key file exists. Without the file, the Marketplace reports `CredentialUnavailable` and `make up` succeeds.
 - No service has a local authentication bypass or a host-run configuration override.
 
@@ -195,7 +196,8 @@ The API is under `/v1` and requires the `skills:read` scope. The tenant comes fr
 
 - Repository changes on a tracked branch will appear only after the cache expires.
 - A rotated private key will take effect after one operator pass and the kubelet Secret projection delay.
-- Two concurrent cache misses for the same Marketplace will both crawl GitHub.
+- Concurrent cache misses for the same Marketplace on different replicas will each crawl GitHub.
+- A public repository read outside the App's installation uses that App's rate limit.
 
 ### Neutral
 
@@ -232,6 +234,7 @@ The API is under `/v1` and requires the `skills:read` scope. The tenant comes fr
 - The Deployment mounts `kora-skill-marketplaces` and `kora-skill-marketplace-secrets` read-only.
 - `charts/kora/templates/api/virtualservice.yaml` routes `/v1/marketplaces` to skills-service. `charts/kora/templates/platform/netpols.yaml` opens the skills-service port to mesh callers.
 - The frontend deployment receives `SKILLS_SERVICE_URL`.
+- The chart renders a ServiceEntry for `api.github.com:443` so skills-service works under `REGISTRY_ONLY` outbound traffic.
 
 ### Dashboard
 
