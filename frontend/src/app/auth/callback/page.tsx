@@ -37,7 +37,7 @@ import {
 } from '@runkora/lib/oidc-client';
 import { isSafeRedirectPath } from '@runkora/lib/routing';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
-import { redirectToSignIn } from '@runkora/lib/tenant-switch';
+import { announceTenantSwitch, redirectToSignIn } from '@runkora/lib/tenant-switch';
 import type { SessionTenant } from '@runkora/server/auth-config';
 
 import { SwitchDenied } from './_components/switch-denied';
@@ -88,9 +88,11 @@ export default function CallbackPage() {
           tenants?: SessionTenant[];
         };
         if (res.ok) {
-          // A full reload drops client state from the old tenant.
-          if (ex.switchTo) window.location.replace(ex.next);
-          else router.replace(ex.next);
+          // A full reload drops client state from the old tenant, here and in the other tabs.
+          if (ex.switchTo) {
+            announceTenantSwitch();
+            window.location.replace(ex.next);
+          } else router.replace(ex.next);
           return;
         }
         if (res.status === 409 && body.tenants?.length) {

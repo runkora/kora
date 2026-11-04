@@ -289,6 +289,10 @@ export async function POST(request: Request): Promise<Response> {
   };
 
   const issuedTenant = tenantIdFromAccessToken(data.access_token) ?? tenantId;
+  // A switch that ran as a plain sign-in only succeeds if it reached the target.
+  if (raw.switch === true && !replaced && issuedTenant !== requestedHint) {
+    return Response.json({ error: 'tenant_switch_denied' }, { status: 403 });
+  }
   const payload: SessionPayload = {
     user,
     accessToken: data.access_token,

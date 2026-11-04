@@ -586,6 +586,35 @@ describe('POST /api/auth/session', () => {
       });
       expect(sent[0]).not.toHaveProperty('replaces_refresh_token');
     });
+
+    it.each([
+      ['seals the session when it reaches the target', 'kora-tenant-example-data', 200],
+      ['refuses the switch when it lands in another tenant', 'kora-tenant-example', 403],
+    ])('a switch without a session %s', async (_, issued, status) => {
+      vi.mocked(getSession).mockResolvedValue({} as unknown as IronSession<SessionPayload>);
+      upstream(() =>
+        HttpResponse.json(createBackendSessionResponse({}, createSessionUser(), issued)),
+      );
+      const { save } = makeMockSession();
+
+      const res = await POST(
+        makePostRequest({
+          id_token: 'tok',
+          tenant_id: 'kora-tenant-example',
+          tenant_hint: 'kora-tenant-example-data',
+          switch: true,
+        }),
+      );
+
+      expect(res.status).toBe(status);
+      if (status === 403) {
+        expect(await res.json()).toEqual({ error: 'tenant_switch_denied' });
+        expect(save).not.toHaveBeenCalled();
+        expect(cookieJar.set).not.toHaveBeenCalled();
+      } else {
+        expect(save).toHaveBeenCalledOnce();
+      }
+    });
   });
 });
 

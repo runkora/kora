@@ -15,7 +15,7 @@ import {
 import { TenantList, useTenantSwitch } from '@runkora/components';
 import { useBrand } from '@runkora/theme/brand-provider';
 import { APP_ROUTES } from '@runkora/lib/routing/routes';
-import { startTenantSwitch } from '@runkora/lib/tenant-switch';
+import { onTenantSwitch, startTenantSwitch } from '@runkora/lib/tenant-switch';
 import { useLogout } from '@runkora/lib/use-logout';
 import type { TenantOption } from '@runkora/server/auth-config';
 import { useSession } from './permissions-provider';
@@ -308,6 +308,9 @@ export function SidebarUserFooter() {
       returnPath: window.location.pathname + window.location.search,
     }),
   );
+
+  // Another tab moved the session to another tenant, so this page's data is stale.
+  useEffect(() => onTenantSwitch(() => window.location.reload()), []);
 
   // A failed switch's error belongs to that attempt, so a fresh open starts without it.
   const openMenu = () => {

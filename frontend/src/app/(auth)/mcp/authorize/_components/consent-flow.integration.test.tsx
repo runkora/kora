@@ -9,7 +9,10 @@ import { renderWithProviders } from '@runkora/test-utils';
 import type { TenantOption } from '@runkora/server/auth-config';
 import { ConsentFlow, type ConsentFlowProps } from './consent-flow';
 
-vi.mock('@runkora/lib/tenant-switch', () => ({ startTenantSwitch: vi.fn() }));
+vi.mock('@runkora/lib/tenant-switch', () => ({
+  startTenantSwitch: vi.fn(),
+  onTenantSwitch: () => () => {},
+}));
 
 import { startTenantSwitch } from '@runkora/lib/tenant-switch';
 

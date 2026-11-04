@@ -7,7 +7,7 @@ vi.mock('@runkora/lib/oidc-client', () => ({
   buildUserManager: () => ({ signinRedirect }),
 }));
 
-import { startTenantSwitch } from './tenant-switch';
+import { announceTenantSwitch, onTenantSwitch, startTenantSwitch } from './tenant-switch';
 
 const VALID = {
   tenant_id: 'kora-tenant-example',
@@ -45,5 +45,20 @@ describe('startTenantSwitch', () => {
     discoverReturns(body);
     await expect(startTenantSwitch(SWITCH)).rejects.toThrow('incomplete config');
     expect(signinRedirect).not.toHaveBeenCalled();
+  });
+});
+
+describe('tenant switch broadcast', () => {
+  it('tells a listener in another tab that a switch finished, until it unsubscribes', async () => {
+    const onSwitch = vi.fn();
+    const unsubscribe = onTenantSwitch(onSwitch);
+
+    announceTenantSwitch();
+    await vi.waitFor(() => expect(onSwitch).toHaveBeenCalledOnce());
+
+    unsubscribe();
+    announceTenantSwitch();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(onSwitch).toHaveBeenCalledOnce();
   });
 });

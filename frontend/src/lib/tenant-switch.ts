@@ -24,6 +24,25 @@ export interface SignInState {
   email?: string;
 }
 
+/** The channel that tells this origin's other tabs a switch finished. */
+const SWITCH_CHANNEL = 'kora-tenant-switch';
+
+/** Tells the other open tabs that the session moved to another tenant. */
+export function announceTenantSwitch(): void {
+  if (typeof BroadcastChannel === 'undefined') return;
+  const channel = new BroadcastChannel(SWITCH_CHANNEL);
+  channel.postMessage('switched');
+  channel.close();
+}
+
+/** Calls `onSwitch` when another tab finishes a switch. Returns the unsubscribe. */
+export function onTenantSwitch(onSwitch: () => void): () => void {
+  if (typeof BroadcastChannel === 'undefined') return () => {};
+  const channel = new BroadcastChannel(SWITCH_CHANNEL);
+  channel.onmessage = onSwitch;
+  return () => channel.close();
+}
+
 /** Checks the fields the sign-in redirect needs, so a malformed answer fails the switch. */
 function parseDiscover(body: unknown): DiscoverResponse {
   const d = (body ?? {}) as Partial<Record<keyof DiscoverResponse, unknown>>;

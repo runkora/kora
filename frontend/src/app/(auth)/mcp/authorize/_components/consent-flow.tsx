@@ -1,9 +1,9 @@
 /** @tier 3 — mcp-authorize-scoped. The OAuth consent screen + its result states. */
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Icon, Stack, Text } from '@runkora/hades';
-import { startTenantSwitch } from '@runkora/lib/tenant-switch';
+import { onTenantSwitch, startTenantSwitch } from '@runkora/lib/tenant-switch';
 import type { TenantOption } from '@runkora/server/auth-config';
 
 import { ConsentTenantSwitch } from './consent-tenant-switch';
@@ -53,6 +53,9 @@ export function ConsentFlow(props: ConsentFlowProps) {
   const [techOpen, setTechOpen] = useState(false);
   const [redirect, setRedirect] = useState('');
   const [error, setError] = useState('');
+
+  // Another tab moved the session to another tenant; reload so consent shows and binds the new one.
+  useEffect(() => onTenantSwitch(() => window.location.reload()), []);
 
   async function decide(decision: 'approve' | 'deny') {
     if (decision === 'deny') {

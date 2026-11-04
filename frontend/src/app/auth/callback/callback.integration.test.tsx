@@ -13,7 +13,7 @@ import { ErrorResponse } from 'oidc-client-ts';
 import { server } from '@runkora/test-utils';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import { buildUserManager, TENANT_CONFIG_STORAGE_KEY } from '@runkora/lib/oidc-client';
-import { redirectToSignIn } from '@runkora/lib/tenant-switch';
+import { announceTenantSwitch, redirectToSignIn } from '@runkora/lib/tenant-switch';
 
 import CallbackPage from './page';
 
@@ -23,7 +23,10 @@ vi.mock('@runkora/lib/oidc-client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@runkora/lib/oidc-client')>()),
   buildUserManager: vi.fn(),
 }));
-vi.mock('@runkora/lib/tenant-switch', () => ({ redirectToSignIn: vi.fn() }));
+vi.mock('@runkora/lib/tenant-switch', () => ({
+  redirectToSignIn: vi.fn(),
+  announceTenantSwitch: vi.fn(),
+}));
 
 const CONFIG = {
   tenantId: 'example',
@@ -62,6 +65,7 @@ function sessionReplies(...replies: Response[]) {
 beforeEach(() => {
   replace.mockReset();
   vi.mocked(redirectToSignIn).mockReset();
+  vi.mocked(announceTenantSwitch).mockReset();
   sessionStorage.setItem(TENANT_CONFIG_STORAGE_KEY, JSON.stringify(CONFIG));
 });
 
@@ -108,6 +112,15 @@ describe('CallbackPage', () => {
       switch: true,
     });
     expect(replace).not.toHaveBeenCalled();
+    expect(announceTenantSwitch).not.toHaveBeenCalled();
+  });
+
+  it('tells the other tabs when a switch succeeds', async () => {
+    callbackReturns({ state: SWITCH_STATE });
+    sessionReplies(HttpResponse.json({}));
+    render(<CallbackPage />);
+
+    await vi.waitFor(() => expect(announceTenantSwitch).toHaveBeenCalledOnce());
   });
 
   it.each([

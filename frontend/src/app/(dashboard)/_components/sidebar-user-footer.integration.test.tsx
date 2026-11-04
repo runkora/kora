@@ -39,7 +39,10 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
 }));
 
-vi.mock('@runkora/lib/tenant-switch', () => ({ startTenantSwitch: vi.fn() }));
+vi.mock('@runkora/lib/tenant-switch', () => ({
+  startTenantSwitch: vi.fn(),
+  onTenantSwitch: () => () => {},
+}));
 
 import { useSession } from './permissions-provider';
 import { startTenantSwitch } from '@runkora/lib/tenant-switch';
