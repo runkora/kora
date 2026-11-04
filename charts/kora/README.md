@@ -498,7 +498,6 @@ Kubernetes: `>=1.34.0-0`
 | skillsService.resources.requests.cpu | string | `"100m"` |  |
 | skillsService.resources.requests.memory | string | `"64Mi"` |  |
 | skillsService.serviceAccount.annotations | object | `{}` |  |
-| skillsService.skillsMapping.tenants | list | `[]` | Approved GitHub repositories grouped by platform tenant ID. |
 | skillsService.tolerations | list | `[]` |  |
 | skillsService.topologySpreadConstraints | list | `[]` |  |
 | spire.className | string | `"spire-system-spire"` |  |

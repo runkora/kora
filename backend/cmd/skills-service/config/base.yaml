@@ -19,7 +19,7 @@ policy:
   registerRoutes: true
 
 marketplace:
-  cacheTTL: 12h
+  cacheTTLSecs: 43200
 
 github:
   apiBaseURL: https://api.github.com

@@ -53,9 +53,6 @@ func TestConfigLoadsFromBaseYAML(t *testing.T) {
 
 func TestApplyEnvOverridesPopulatesGitHubCredentials(t *testing.T) {
 	setRequiredEnv(t)
-	t.Setenv("GITHUB_APP_ID", "12345")
-	t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
-	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "/tmp/key.pem")
 
 	var c sc.Config
 	if err := c.ApplyEnvOverrides(); err != nil {
@@ -73,62 +70,6 @@ func TestApplyEnvOverridesPopulatesGitHubCredentials(t *testing.T) {
 	}
 	if c.Marketplace.SourcesConfigPath != "/tmp/skills-mapping.yaml" {
 		t.Errorf("SourcesConfigPath: got %q, want %q", c.Marketplace.SourcesConfigPath, "/tmp/skills-mapping.yaml")
-	}
-}
-
-func TestEnvVarOverridesCacheTTL(t *testing.T) {
-	setRequiredEnv(t)
-	t.Setenv("MARKETPLACE_CACHE_TTL", "6h")
-
-	c := config.MustLoadService[sc.Config]("cmd/skills-service", "")
-	if err := c.ApplyEnvOverrides(); err != nil {
-		t.Fatalf("ApplyEnvOverrides: %v", err)
-	}
-
-	if c.CacheTTL() != 6*time.Hour {
-		t.Errorf("expected overridden cacheTTL 6h, got %s", c.CacheTTL())
-	}
-}
-
-func TestApplyEnvOverridesRejectsInvalidTTL(t *testing.T) {
-	setRequiredEnv(t)
-	t.Setenv("MARKETPLACE_CACHE_TTL", "not-a-duration")
-
-	var c sc.Config
-	if err := c.ApplyEnvOverrides(); err == nil {
-		t.Fatal("expected error for invalid MARKETPLACE_CACHE_TTL")
-	}
-}
-
-func TestApplyEnvOverridesLocalTenantIDRequiresLocalEnv(t *testing.T) {
-	cases := []struct {
-		name     string
-		appEnv   string
-		tenantID string
-		wantErr  bool
-		wantID   string
-	}{
-		{"unset env defaults to production", "", "t1", true, ""},
-		{"production rejects bypass", "production", "t1", true, ""},
-		{"unknown env rejects bypass", "staging", "t1", true, ""},
-		{"local allows bypass", "local", "t1", false, "t1"},
-		{"no bypass requested in production", "production", "", false, ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			setRequiredEnv(t)
-			t.Setenv("APP_ENV", tc.appEnv)
-			t.Setenv("LOCAL_TENANT_ID", tc.tenantID)
-
-			var c sc.Config
-			err := c.ApplyEnvOverrides()
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
-			}
-			if c.Marketplace.LocalTenantID != tc.wantID {
-				t.Errorf("LocalTenantID = %q, want %q", c.Marketplace.LocalTenantID, tc.wantID)
-			}
-		})
 	}
 }
 

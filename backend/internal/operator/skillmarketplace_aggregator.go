@@ -9,15 +9,10 @@
 //     skills-mapping.yaml, in the shape skills-service already reads and
 //     internal/platform/marketplace defines: each tenant's repository links.
 //
-// When skillsService.skillsMapping lists tenants, the chart writes the file
-// itself and sets marketplace.ChartMappingAnnotation. The operator then writes
-// nothing, and every source it would have rendered stays Pending.
-//
-// A source is rendered only when its owner/repo is on its tenant's
-// spec.allowedMarketplaceRepos. Its verdict therefore depends on that field and
-// on its sibling sources (repository clashes), not only on its own
-// spec, so every run computes a verdict for every source and patches the status
-// of each one whose verdict changed. The aggregator makes no GitHub calls.
+// A source's verdict depends on its sibling sources (repository clashes), not
+// only on its own spec, so every run computes a verdict for every source and
+// patches the status of each one whose verdict changed. The aggregator makes no
+// GitHub calls.
 //
 // See docs/adr/2026-08-17-agent-skills.md.
 package operator
@@ -27,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -60,13 +54,11 @@ func (v marketplaceVerdict) aggregated() bool {
 //  2. No active tenant owns the namespace: Pending, TenantNotActive.
 //  3. An older source in the namespace holds the repository: Invalid,
 //     DuplicateRepository.
-//  4. The repository is not on the tenant's allowlist: Pending, NotAllowlisted.
-//  5. Otherwise rendered: Aggregated.
+//  4. Otherwise rendered: Aggregated.
 //
-// "Older" is (creationTimestamp, metadata.name). A source that passes 3 holds
-// its repository even while it waits at 4. Rendered links keep that oldest-first
-// order, which is the display order skills-service shows.
-func buildMarketplaceSources(sources []SkillMarketplaceSource, tenants []OrbitTenant) (marketplace.SourcesFile, map[client.ObjectKey]marketplaceVerdict) {
+// "Older" is (creationTimestamp, metadata.name). Rendered links keep that
+// oldest-first order, which is the display order skills-service shows.
+func buildMarketplaceSources(sources []SkillMarketplaceSource, tenants []KoraTenant) (marketplace.SourcesFile, map[client.ObjectKey]marketplaceVerdict) {
 	// Two tenants can resolve to one namespace through spec.namespace. The
 	// owner must not depend on list order, and an inactive tenant must not hide
 	// an active one.
@@ -125,12 +117,6 @@ func buildMarketplaceSources(sources []SkillMarketplaceSource, tenants []OrbitTe
 		}
 		heldRepos[src.Namespace][repo] = src.Name
 
-		if !tenantAllowsRepo(tenant, repo) {
-			verdicts[key] = marketplaceVerdict{SkillMarketplaceSourcePhasePending, MarketplaceReasonNotAllowlisted,
-				fmt.Sprintf("%s is not in OrbitTenant %q spec.allowedMarketplaceRepos; a platform admin must approve it", repo, tenant.Name)}
-			continue
-		}
-
 		links[tenant.Name] = append(links[tenant.Name], marketplace.RepoURL(src.Spec.GitHub.Owner, src.Spec.GitHub.Repo))
 		verdicts[key] = marketplaceVerdict{SkillMarketplaceSourcePhaseAggregated, MarketplaceReasonAggregated,
 			fmt.Sprintf("rendered for tenant %q into %s", tenant.Name, marketplace.SourcesConfigMapName)}
@@ -163,20 +149,8 @@ func outranks(a, b *OrbitTenant) bool {
 	return a.Name < b.Name
 }
 
-// tenantAllowsRepo reports whether repo, a lowercase owner/repo, is on the
-// tenant's allowlist. GitHub treats owner and repository names
-// case-insensitively.
-func tenantAllowsRepo(t *OrbitTenant, repo string) bool {
-	for _, allowed := range t.Spec.AllowedMarketplaceRepos {
-		if strings.EqualFold(allowed, repo) {
-			return true
-		}
-	}
-	return false
-}
-
-// SkillMarketplaceAggregator renders every allow-listed SkillMarketplaceSource
-// into the orbit-skill-marketplace-sources ConfigMap in orbit-system and keeps
+// SkillMarketplaceAggregator renders every served SkillMarketplaceSource
+// into the kora-skill-marketplace-sources ConfigMap in kora-system and keeps
 // each source's status in step with its verdict. The SkillMarketplaceSource
 // reconciler and the tenant reconciler both run it.
 type SkillMarketplaceAggregator struct {
@@ -193,7 +167,6 @@ func NewSkillMarketplaceAggregator(c client.Client, logger logging.Logger) *Skil
 // Sync computes every source's verdict, writes the ConfigMap, then patches the
 // status of each source whose verdict changed. The ConfigMap is written first,
 // so a status never reads Aggregated before skills-service can see the source.
-// When the chart owns the file, nothing is written and no source is Aggregated.
 func (a *SkillMarketplaceAggregator) Sync(ctx context.Context) error {
 	tenants := &OrbitTenantList{}
 	if err := a.client.List(ctx, tenants); err != nil {
@@ -205,26 +178,10 @@ func (a *SkillMarketplaceAggregator) Sync(ctx context.Context) error {
 	}
 
 	file, verdicts := buildMarketplaceSources(sources.Items, tenants.Items)
-	chartOwned, err := a.upsertConfigMap(ctx, file)
-	if err != nil {
+	if err := a.upsertConfigMap(ctx, file); err != nil {
 		return err
 	}
-	if chartOwned {
-		deferToChart(verdicts)
-	}
 	return a.updateStatuses(ctx, sources.Items, verdicts)
-}
-
-// deferToChart turns every source that would have been rendered into one that
-// waits on the chart. A source excluded for its own reason keeps it: that reason
-// still stands once the chart lets go.
-func deferToChart(verdicts map[client.ObjectKey]marketplaceVerdict) {
-	for key, v := range verdicts {
-		if v.aggregated() {
-			verdicts[key] = marketplaceVerdict{SkillMarketplaceSourcePhasePending, MarketplaceReasonMappingManagedByChart,
-				fmt.Sprintf("the orbit chart sets %s from skillsService.skillsMapping; a platform admin must empty that list before sources are rendered", marketplace.SourcesFileName)}
-		}
-	}
 }
 
 // updateStatuses logs every source left out of the file and patches each
@@ -298,12 +255,11 @@ func (a *SkillMarketplaceAggregator) setStatus(ctx context.Context, src *SkillMa
 
 // upsertConfigMap creates or patches the marketplace sources ConfigMap,
 // skipping the write when the content is unchanged so the kubelet does not
-// re-project an identical volume. It writes nothing and reports chartOwned when
-// the chart's annotation says Helm writes the file.
-func (a *SkillMarketplaceAggregator) upsertConfigMap(ctx context.Context, file marketplace.SourcesFile) (chartOwned bool, err error) {
+// re-project an identical volume.
+func (a *SkillMarketplaceAggregator) upsertConfigMap(ctx context.Context, file marketplace.SourcesFile) error {
 	raw, err := yaml.Marshal(file)
 	if err != nil {
-		return false, fmt.Errorf("marshal marketplace sources: %w", err)
+		return fmt.Errorf("marshal marketplace sources: %w", err)
 	}
 	data := string(raw)
 
@@ -327,24 +283,20 @@ func (a *SkillMarketplaceAggregator) upsertConfigMap(ctx context.Context, file m
 			Data: map[string]string{marketplace.SourcesFileName: data},
 		}
 		if err := a.client.Create(ctx, cm); err != nil {
-			return false, fmt.Errorf("create %s ConfigMap: %w", marketplace.SourcesConfigMapName, err)
+			return fmt.Errorf("create %s ConfigMap: %w", marketplace.SourcesConfigMapName, err)
 		}
 		a.logger.Info(ctx, "created skill marketplace sources ConfigMap",
 			logging.Field{Key: "configmap", Value: marketplace.SourcesConfigMapName},
 			logging.Field{Key: "namespace", Value: systemNamespace},
 			logging.Field{Key: "tenants", Value: len(file.SkillsMapping.Tenants)},
 		)
-		return false, nil
+		return nil
 	case getErr != nil:
-		return false, fmt.Errorf("get %s ConfigMap: %w", marketplace.SourcesConfigMapName, getErr)
+		return fmt.Errorf("get %s ConfigMap: %w", marketplace.SourcesConfigMapName, getErr)
 	default:
-		if existing.Annotations[marketplace.ChartMappingAnnotation] == "true" {
-			a.logger.Debug(ctx, "chart owns the skill marketplace sources file, skipping update")
-			return true, nil
-		}
 		if existing.Data[marketplace.SourcesFileName] == data {
 			a.logger.Debug(ctx, "aggregated skill marketplace sources unchanged, skipping update")
-			return false, nil
+			return nil
 		}
 		// Two controllers share this aggregator; the lock turns a stale writer
 		// into a conflict and requeue instead of a silent overwrite.
@@ -354,13 +306,13 @@ func (a *SkillMarketplaceAggregator) upsertConfigMap(ctx context.Context, file m
 		}
 		existing.Data[marketplace.SourcesFileName] = data
 		if err := a.client.Patch(ctx, existing, patch); err != nil {
-			return false, fmt.Errorf("patch %s ConfigMap: %w", marketplace.SourcesConfigMapName, err)
+			return fmt.Errorf("patch %s ConfigMap: %w", marketplace.SourcesConfigMapName, err)
 		}
 		a.logger.Info(ctx, "updated skill marketplace sources ConfigMap",
 			logging.Field{Key: "configmap", Value: marketplace.SourcesConfigMapName},
 			logging.Field{Key: "namespace", Value: systemNamespace},
 			logging.Field{Key: "tenants", Value: len(file.SkillsMapping.Tenants)},
 		)
-		return false, nil
+		return nil
 	}
 }

@@ -36,8 +36,8 @@ func (c *PolicyConfig) BundlePollInterval() time.Duration {
 //
 // Secrets and deployment-specific paths are loaded from env vars only, never
 // from YAML (per AGENTS.md "No secrets in YAML"):
-//   - REDIS_HOST / REDIS_PASSWORD          — owned by internal/platform/storage
-//   - ORBIT_MARKETPLACE_SOURCES_CONFIG     — ConfigMap mount path
+//   - REDIS_PASSWORD                       — owned by internal/platform/storage
+//   - KORA_MARKETPLACE_SOURCES_CONFIG     — ConfigMap mount path
 //   - GITHUB_APP_ID / GITHUB_APP_INSTALLATION_ID / GITHUB_APP_PRIVATE_KEY_PATH
 //     — GitHub App credentials for the TokenProvider
 type Config struct {
@@ -67,12 +67,8 @@ type Config struct {
 		// Loaded from ORBIT_MARKETPLACE_SOURCES_CONFIG — never from YAML.
 		SourcesConfigPath string `yaml:"-"`
 
-		// LocalTenantID, when non-empty, bypasses token auth and uses this
-		// tenant ID directly. Set via LOCAL_TENANT_ID; rejected unless APP_ENV=local.
-		LocalTenantID string `yaml:"-"`
-
-		// CacheTTL is the Redis key TTL for cached skill sets.
-		CacheTTL time.Duration `yaml:"cacheTTL"`
+		// CacheTTLSecs is the Redis key TTL for cached skill sets.
+		CacheTTLSecs int `yaml:"cacheTTLSecs"`
 	} `yaml:"marketplace"`
 
 	GitHub struct {
@@ -101,7 +97,7 @@ func (c *Config) ShutdownTimeout() time.Duration {
 
 // CacheTTL returns the Redis key TTL.
 func (c *Config) CacheTTL() time.Duration {
-	return c.Marketplace.CacheTTL
+	return time.Duration(c.Marketplace.CacheTTLSecs) * time.Second
 }
 
 // ApplyEnvOverrides reads env vars on top of YAML defaults. Required env vars
@@ -113,21 +109,6 @@ func (c *Config) ApplyEnvOverrides() error {
 		return fmt.Errorf("ORBIT_MARKETPLACE_SOURCES_CONFIG environment variable is required")
 	}
 	c.Marketplace.SourcesConfigPath = filepath.Join(dir, "skills-mapping.yaml")
-
-	if v := os.Getenv("LOCAL_TENANT_ID"); v != "" {
-		if env := config.Environment(); env != "local" {
-			return fmt.Errorf("LOCAL_TENANT_ID disables authentication and is only allowed when APP_ENV=local (APP_ENV=%q)", env)
-		}
-		c.Marketplace.LocalTenantID = v
-	}
-
-	if v := os.Getenv("MARKETPLACE_CACHE_TTL"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("invalid MARKETPLACE_CACHE_TTL %q: %w", v, err)
-		}
-		c.Marketplace.CacheTTL = d
-	}
 
 	c.GitHub.AppID = os.Getenv("GITHUB_APP_ID")
 	if c.GitHub.AppID == "" {

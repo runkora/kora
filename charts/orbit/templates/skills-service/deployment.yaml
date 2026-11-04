@@ -20,8 +20,7 @@ spec:
       annotations:
         {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         checksum/config: {{ include (print $.Template.BasePath "/skills-service/config.yaml") . | sha256sum }}
-        checksum/marketplace-sources: {{ include (print $.Template.BasePath "/skills-service/configmap.yaml") . | sha256sum }}
-        {{- include "orbit.podAnnotations" (dict "root" $ "name" "skillsService") | nindent 8 }}
+        {{- include "kora.podAnnotations" (dict "root" $ "name" "skillsService") | nindent 8 }}
     spec:
       serviceAccountName: orbit-skills-service
       {{- include "orbit.imagePullSecrets" . | nindent 6 }}
@@ -34,7 +33,8 @@ spec:
         {{- include "orbit.redisCAVolume" . | nindent 8 }}
         - name: marketplace-sources
           configMap:
-            name: orbit-skill-marketplace-sources
+            name: kora-skill-marketplace-sources
+            optional: true
         {{- range .Values.skillsService.githubApps }}
         - name: github-app-{{ .secretName }}
           secret:

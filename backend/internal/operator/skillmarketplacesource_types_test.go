@@ -19,12 +19,12 @@ func TestSkillMarketplaceSourceDeepCopy_CopiesStatus(t *testing.T) {
 	now := metav1.Now()
 	in := &SkillMarketplaceSource{Status: SkillMarketplaceSourceStatus{
 		LastReconciledAt: &now,
-		Conditions:       []metav1.Condition{{Type: conditionAggregated, Reason: MarketplaceReasonNotAllowlisted}},
+		Conditions:       []metav1.Condition{{Type: conditionAggregated, Reason: MarketplaceReasonTenantNotActive}},
 	}}
 	out := in.DeepCopy()
 	out.Status.Conditions[0].Reason = MarketplaceReasonAggregated
 
-	if in.Status.Conditions[0].Reason != MarketplaceReasonNotAllowlisted {
+	if in.Status.Conditions[0].Reason != MarketplaceReasonTenantNotActive {
 		t.Error("Conditions shares its array with the copy")
 	}
 	if out.Status.LastReconciledAt == in.Status.LastReconciledAt {

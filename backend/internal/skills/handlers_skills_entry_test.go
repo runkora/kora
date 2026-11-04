@@ -538,7 +538,7 @@ func TestNewControllerRequiresBlocklist(t *testing.T) {
 		}
 	}()
 	verifier := token.NewVerifier(context.Background(), "http://127.0.0.1:0", token.DefaultIssuer, token.DefaultAudience)
-	NewController(logging.NewDevelopmentLogger(), nil, nil, verifier, &handlerEvaluator{}, nil, "/v1", "")
+	NewController(logging.NewDevelopmentLogger(), nil, nil, verifier, &handlerEvaluator{}, nil, "/v1")
 }
 
 func TestControllerAuthorization(t *testing.T) {
@@ -619,7 +619,7 @@ func TestControllerAuthorization(t *testing.T) {
 				eval := &handlerEvaluator{allow: tc.allow, err: tc.policyErr}
 				blocklist := &handlerBlocklist{blocked: tc.revoked, err: tc.blocklistErr}
 				svc := NewService(fixture.registry, fixture.cache, fixture.crawler, &fakeSearch{}, logger)
-				c := NewController(logger, svc, fixture.registry, verifier, eval, blocklist, "/v1", "")
+				c := NewController(logger, svc, fixture.registry, verifier, eval, blocklist, "/v1")
 				server := api.NewAPI(context.Background(), logger).Server(context.Background(), 0, "/v1", nil, c)
 				r := httptest.NewRequest(http.MethodGet, "/v1"+target, nil)
 				if tc.auth != "" {

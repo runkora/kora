@@ -3,10 +3,9 @@
 // A SkillMarketplaceSource registers one GitHub repository as a skill
 // marketplace for the tenant that owns the namespace it is applied in. The
 // tenant comes from the namespace, never the spec. The operator's
-// SkillMarketplaceAggregator renders it into the orbit-system
-// orbit-skill-marketplace-sources ConfigMap skills-service mounts, but only
-// once its owner/repo is on the tenant's spec.allowedMarketplaceRepos, and
-// reports the verdict on its status. Only the repository reaches
+// SkillMarketplaceAggregator renders it into the kora-system
+// kora-skill-marketplace-sources ConfigMap skills-service mounts and reports
+// the verdict on its status. Only the repository reaches
 // skills-service: it names the marketplace after the repo and reads the
 // default branch, so the spec has no display name and no branch.
 //
@@ -23,8 +22,7 @@ import (
 // SkillMarketplaceSource phases.
 const (
 	// SkillMarketplaceSourcePhasePending means the source is valid but not
-	// served yet: its tenant is inactive, its repository is not approved, or
-	// the chart sets the marketplace list itself.
+	// served yet: its tenant is inactive.
 	SkillMarketplaceSourcePhasePending = "Pending"
 	// SkillMarketplaceSourcePhaseAggregated means the source was rendered into
 	// orbit-skill-marketplace-sources for its tenant.
@@ -39,10 +37,8 @@ const (
 const (
 	MarketplaceReasonAggregated                = "Aggregated"
 	MarketplaceReasonTenantNotActive           = "TenantNotActive"
-	MarketplaceReasonNotAllowlisted            = "NotAllowlisted"
 	MarketplaceReasonGlobalSourcesNotSupported = "GlobalSourcesNotSupported"
 	MarketplaceReasonDuplicateRepository       = "DuplicateRepository"
-	MarketplaceReasonMappingManagedByChart     = "MappingManagedByChart"
 )
 
 // SkillMarketplaceSource registers a GitHub repository as a skill marketplace

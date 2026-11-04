@@ -32,7 +32,6 @@ func TestLoadPostgresConfig_ReadsPasswordFromEnv(t *testing.T) {
 
 func TestLoadRedisConfig(t *testing.T) {
 	t.Setenv("REDIS_PASSWORD", "secret")
-	t.Setenv("REDIS_HOST", "")
 	if err := loadRedisConfig(&RedisConfig{}); err == nil {
 		t.Error("a missing redis.host must fail")
 	}

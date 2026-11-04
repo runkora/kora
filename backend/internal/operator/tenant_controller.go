@@ -32,9 +32,7 @@ type TenantReconciler struct {
 	ConnAggregator  *ConnectionAggregator
 	MCPAggregator   *MCPServerAggregator
 	OAuthAggregator *OAuthClientAggregator
-	// MarketplaceAggregator renders tenants' SkillMarketplaceSources. An edit
-	// to spec.allowedMarketplaceRepos changes the tenant's generation, so it
-	// reaches Reconcile through the existing predicate.
+	// MarketplaceAggregator renders tenants' SkillMarketplaceSources.
 	MarketplaceAggregator *SkillMarketplaceAggregator
 	Logger                logging.Logger
 
@@ -278,9 +276,9 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		{
 			// Aggregated skill marketplace sources: each tenant's
 			// SkillMarketplaceSource CRs are rendered into the
-			// orbit-skill-marketplace-sources ConfigMap skills-service mounts.
-			// Re-aggregated here because an allowlist edit, a suspend and a
-			// reactivation all change which sources are served.
+			// kora-skill-marketplace-sources ConfigMap skills-service mounts.
+			// Re-aggregated here because a suspend and a reactivation
+			// change which sources are served.
 			name: "aggregated skill marketplace sources",
 			run:  func(ctx context.Context) error { return r.MarketplaceAggregator.Sync(ctx) },
 		},

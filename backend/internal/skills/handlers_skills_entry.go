@@ -23,11 +23,10 @@ type marketplaceRegistry interface {
 
 // Controller handles marketplace listing, skill listing, and skill details.
 type Controller struct {
-	service       *Service
-	registry      marketplaceRegistry
-	logger        logging.Logger
-	middleware    mw.MiddlewareHandler
-	localTenantID string
+	service    *Service
+	registry   marketplaceRegistry
+	logger     logging.Logger
+	middleware mw.MiddlewareHandler
 }
 
 // NewController protects every route with authentication and marketplace:read.
@@ -39,7 +38,6 @@ func NewController(
 	eval policy.Evaluator,
 	revoked mw.RevocationChecker,
 	basePath string,
-	localTenantID string,
 ) *Controller {
 	if verifier == nil || eval == nil || revoked == nil {
 		panic("skills controller requires a token verifier, policy evaluator and JTI blocklist")
@@ -49,32 +47,15 @@ func NewController(
 		basePath = ""
 	}
 
-	var middleware mw.MiddlewareHandler
-
-	if localTenantID != "" {
-		// Local development: bypass auth, delegation, and scope checks.
-		middleware = func(next http.Handler) http.Handler {
-			return next
-		}
-	} else {
-		middleware = mw.MiddlewareChain(
+	return &Controller{
+		service:  service,
+		registry: registry,
+		logger:   logger,
+		middleware: mw.MiddlewareChain(
 			mw.AuthMiddlewareWithRevocation(verifier, revoked, logger),
 			mw.DelegationMiddlewareWithBlocklist(logger, verifier, revoked),
-			mw.ScopeEnforcementMiddleware(
-				eval,
-				MarketplaceRoutes(basePath),
-				basePath,
-				logger,
-			),
-		)
-	}
-
-	return &Controller{
-		service:       service,
-		registry:      registry,
-		logger:        logger,
-		localTenantID: localTenantID,
-		middleware:    middleware,
+			mw.ScopeEnforcementMiddleware(eval, MarketplaceRoutes(basePath), basePath, logger),
+		),
 	}
 }
 
@@ -197,12 +178,7 @@ func (c *Controller) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 }
 
 // tenantID returns the tenant ID from the verified platform token.
-// In local development mode the configured localTenantID is used instead.
 func (c *Controller) tenantID(w http.ResponseWriter, r *http.Request) (string, bool) {
-	if c.localTenantID != "" {
-		return c.localTenantID, true
-	}
-
 	claims, ok := token.ClaimsFromContext(r.Context())
 	if !ok || claims == nil || claims.Orbit.TenantID == "" {
 		apiErr := api.UnauthorizedError(

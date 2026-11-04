@@ -46,4 +46,4 @@ A connection without its credential is skipped, not failed.
 
 ## Skill marketplace sources
 
-`marketplace/` holds `SkillMarketplaceSource` examples for the example tenant. Each repository must also be on the tenant's `allowedMarketplaceRepos` in `tenants/example.yaml`, or the source stays `Pending`. See [Skill marketplace sources](../../docs/guides/skill-marketplace-sources.md).
+`marketplace/` holds `SkillMarketplaceSource` examples for the example tenant. See [Skill marketplace sources](../../docs/guides/skill-marketplace-sources.md).

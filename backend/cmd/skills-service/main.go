@@ -43,11 +43,6 @@ func main() {
 
 	logger.Info(ctx, "skills-service starting", logging.Field{Key: "version", Value: sc.Current.App.Version})
 
-	if sc.Current.Marketplace.LocalTenantID != "" {
-		logger.Warn(ctx, "LOCAL_TENANT_ID set: authentication, delegation and scope enforcement are disabled",
-			logging.Field{Key: "tenant_id", Value: sc.Current.Marketplace.LocalTenantID})
-	}
-
 	redis, err := initStorage(ctx, logger)
 	if err != nil {
 		logger.Error(ctx, "failed to initialize storage", logging.Field{Key: "error", Value: err.Error()})
@@ -198,7 +193,6 @@ func initControllers(ctx context.Context, logger logging.Logger, redis *storage.
 		pol,
 		jtiBlocklist,
 		sc.Current.Server.BasePath,
-		sc.Current.Marketplace.LocalTenantID,
 	)
 
 	return []api.Controller{controller}, nil

@@ -71,16 +71,16 @@ type KoraTenantSpec struct {
 	// OIDC configures the identity provider for this tenant.
 	OIDC TenantOIDCSpec `json:"oidc"`
 
-	// AllowedMarketplaceRepos lists the GitHub repositories, as owner/repo, that
-	// this tenant's SkillMarketplaceSources may register. Matching ignores case.
-	// Only platform admins edit it: OrbitTenant is cluster-scoped, outside any
-	// tenant admin's namespace. A source whose repository is not listed stays
-	// Pending (NotAllowlisted).
-	// See docs/adr/2026-08-17-agent-skills.md.
+	// APIAuthoring is Enabled or Disabled. Disabled makes the tenant's
+	// agents, environments, triggers, trigger sources and roles read-only
+	// through the API. See docs/adr/2026-10-24-declarative-resources.md.
+	// +kubebuilder:validation:Enum=Enabled;Disabled
+	// +kubebuilder:default=Enabled
+	APIAuthoring string `json:"apiAuthoring,omitempty"`
+
+	// Budget is the tenant's spending limit. It replaces a budget set through the API.
 	// +optional
-	// +kubebuilder:validation:items:MaxLength=140
-	// +kubebuilder:validation:items:Pattern=`^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$`
-	AllowedMarketplaceRepos []string `json:"allowedMarketplaceRepos,omitempty"`
+	Budget *declarative.Budget `json:"budget,omitempty"`
 }
 
 // SecretRef is a reference to a Kubernetes Secret.

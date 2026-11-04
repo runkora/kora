@@ -17,9 +17,9 @@ import (
 func TestTenantReconciler_MarketplaceSourcesFollowTenantChanges(t *testing.T) {
 	ctx := context.Background()
 	tenant := marketTenant("acme", true)
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
-	otherTenant := marketTenant("other", true, "other-corp/skills")
-	otherSrc := marketSrc("orbit-tenant-other", "other", "other-corp", "skills", marketplaceT0)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	otherTenant := marketTenant("other", true)
+	otherSrc := marketSrc("kora-tenant-other", "other", "other-corp", "skills", marketplaceT0)
 	scheme := NewScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(&tenant, &src, &otherTenant, &otherSrc).
@@ -42,16 +42,12 @@ func TestTenantReconciler_MarketplaceSourcesFollowTenantChanges(t *testing.T) {
 	steps := []struct {
 		name       string
 		active     bool
-		allowRepo  bool
 		delete     bool
 		wantReason string
 	}{
-		{name: "before approval", active: true, wantReason: MarketplaceReasonNotAllowlisted},
-		{name: "allowlist edit admits source", active: true, allowRepo: true, wantReason: MarketplaceReasonAggregated},
-		{name: "allowlist removal revokes source", active: true, wantReason: MarketplaceReasonNotAllowlisted},
-		{name: "restoring approval admits source", active: true, allowRepo: true, wantReason: MarketplaceReasonAggregated},
-		{name: "suspension removes source", allowRepo: true, wantReason: MarketplaceReasonTenantNotActive},
-		{name: "reactivation restores source", active: true, allowRepo: true, wantReason: MarketplaceReasonAggregated},
+		{name: "active tenant serves source", active: true, wantReason: MarketplaceReasonAggregated},
+		{name: "suspension removes source", wantReason: MarketplaceReasonTenantNotActive},
+		{name: "reactivation restores source", active: true, wantReason: MarketplaceReasonAggregated},
 		{name: "deletion removes source", delete: true, wantReason: MarketplaceReasonTenantNotActive},
 	}
 	for _, step := range steps {
@@ -66,10 +62,6 @@ func TestTenantReconciler_MarketplaceSourcesFollowTenantChanges(t *testing.T) {
 				}
 			} else {
 				current.Spec.Active = step.active
-				current.Spec.AllowedMarketplaceRepos = nil
-				if step.allowRepo {
-					current.Spec.AllowedMarketplaceRepos = []string{"acme-corp/internal-skills"}
-				}
 				current.Generation++
 				if err := c.Update(ctx, current); err != nil {
 					t.Fatal(err)

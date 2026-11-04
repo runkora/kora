@@ -80,14 +80,3 @@ egressGateway:
   upstreamPorts:
     - 6443
 
-
-# Test Marketplace repositories for the local tenants.
-skillsService:
-  skillsMapping:
-    tenants:
-      - id: example
-        marketplaces:
-          - https://github.com/anthropics/skills
-      - id: example1
-        marketplaces:
-          - https://github.com/anthropics/skills

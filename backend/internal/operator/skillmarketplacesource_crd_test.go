@@ -14,8 +14,7 @@ import (
 )
 
 const (
-	skillMarketplaceSourceCRDPath = "../../../charts/orbit-crds/templates/crd-skillmarketplacesource.yaml"
-	orbitTenantCRDPath            = "../../../charts/orbit-crds/templates/crd-orbittenant.yaml"
+	skillMarketplaceSourceCRDPath = "../../../charts/kora-crds/generated/runkora.io_skillmarketplacesources.yaml"
 )
 
 type crdNode = map[string]any
@@ -139,13 +138,6 @@ func TestSkillMarketplaceSourceCRD_SpecCarriesOnlyTheRepository(t *testing.T) {
 	}
 }
 
-func TestOrbitTenantCRD_AllowedMarketplaceRepos(t *testing.T) {
-	items := crdChild(crdProp(crdProp(loadCRDSchema(t, orbitTenantCRDPath), "spec"), "allowedMarketplaceRepos"), "items")
-	assertMatches(t, crdPattern(t, items),
-		[]string{"acme-corp/internal-skills", "a/b.c"},
-		[]string{"acme-corp", "acme/internal/skills", "https://github.com/acme/skills", "/skills", "acme/"})
-}
-
 func assertMaxLength(t *testing.T, n crdNode, want int) {
 	t.Helper()
 	var got float64
@@ -165,10 +157,6 @@ func assertMaxLength(t *testing.T, n crdNode, want int) {
 	}
 }
 
-func allowedMarketplaceReposItems(t *testing.T) crdNode {
-	return crdChild(crdProp(crdProp(loadCRDSchema(t, orbitTenantCRDPath), "spec"), "allowedMarketplaceRepos"), "items")
-}
-
 func TestSkillMarketplaceSourceCRD_MaxLengths(t *testing.T) {
 	github := marketplaceGitHubSchema(t)
 	for _, c := range []struct {
@@ -180,69 +168,6 @@ func TestSkillMarketplaceSourceCRD_MaxLengths(t *testing.T) {
 		{"github.repo", crdProp(github, "repo"), 100},
 	} {
 		t.Run(c.name, func(t *testing.T) { assertMaxLength(t, c.node, c.want) })
-	}
-}
-
-func TestOrbitTenantCRD_AllowedMarketplaceReposMaxLength(t *testing.T) {
-	assertMaxLength(t, allowedMarketplaceReposItems(t), 140)
-}
-
-func TestMarketplaceCRD_ValidRepoPairsAcceptedByEveryPattern(t *testing.T) {
-	github := marketplaceGitHubSchema(t)
-	owner := crdPattern(t, crdProp(github, "owner"))
-	repo := crdPattern(t, crdProp(github, "repo"))
-	allowed := crdPattern(t, allowedMarketplaceReposItems(t))
-	for _, c := range []struct{ name, pair string }{
-		{"simple", "acme-corp/internal-skills"},
-		{"dotted_repo", "a/b.c"},
-		{"mixed_case", "Acme-Corp/Internal_Skills.V2"},
-		{"digits", "A1/9"},
-		{"max_length_owner_and_repo", strings.Repeat("o", 39) + "/" + strings.Repeat("r", 100)},
-		{"hyphen_inside_owner", "a-b-c/-leading-hyphen-repo"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			o, r, ok := strings.Cut(c.pair, "/")
-			if !ok {
-				t.Fatalf("test pair %q has no slash", c.pair)
-			}
-			if !owner.MatchString(o) {
-				t.Errorf("owner pattern %s rejects %q", owner, o)
-			}
-			if !repo.MatchString(r) {
-				t.Errorf("repo pattern %s rejects %q", repo, r)
-			}
-			if !allowed.MatchString(c.pair) {
-				t.Errorf("allowlist pattern %s rejects %q", allowed, c.pair)
-			}
-		})
-	}
-}
-
-func TestMarketplaceCRD_InvalidRepoPairsRejectedByAllowlist(t *testing.T) {
-	allowed := crdPattern(t, allowedMarketplaceReposItems(t))
-	for _, c := range []struct{ name, pair string }{
-		{"leading_hyphen_owner", "-acme/skills"},
-		{"trailing_hyphen_owner", "acme-/skills"},
-		{"underscore_owner", "acme_corp/skills"},
-		{"owner_over_39", strings.Repeat("o", 40) + "/skills"},
-		{"repo_with_space", "acme/with space"},
-		{"repo_with_slash", "acme/a/b"},
-		{"repo_with_question_mark", "acme/skills?"},
-		{"repo_over_100", "acme/" + strings.Repeat("r", 101)},
-		{"owner_only", "acme"},
-		{"empty_repo", "acme/"},
-		{"empty_owner", "/skills"},
-		{"three_segments", "acme/internal/skills"},
-		{"url", "https://github.com/acme/skills"},
-		{"leading_space", " acme/skills"},
-		{"trailing_newline", "acme/skills\n"},
-		{"empty", ""},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			if allowed.MatchString(c.pair) {
-				t.Errorf("allowlist pattern %s accepts %q", allowed, c.pair)
-			}
-		})
 	}
 }
 

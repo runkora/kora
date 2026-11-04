@@ -34,19 +34,13 @@ type RedisConfig struct {
 // loadRedisConfig checks the YAML host and reads the password from the
 // environment. It is called by LoadStorageConfig and LoadRedisConfig.
 func loadRedisConfig(cfg *RedisConfig) error {
-	if host := os.Getenv("REDIS_HOST"); host != "" {
-		cfg.Host = host
-	}
-
 	if cfg.Host == "" {
 		return errors.New("redis.host must be set")
 	}
-
 	cfg.Password = os.Getenv("REDIS_PASSWORD")
 	if cfg.Password == "" {
 		return fmt.Errorf("REDIS_PASSWORD environment variable is required")
 	}
-
 	return nil
 }
 

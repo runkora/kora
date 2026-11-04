@@ -21,8 +21,8 @@ func newTestMarketplaceReconciler(c client.Client) *SkillMarketplaceSourceReconc
 }
 
 func TestSkillMarketplaceSourceReconciler_SetsStatus(t *testing.T) {
-	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	tenant := marketTenant("acme", true)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	c := newMarketplaceClient(t, &tenant, &src)
 	r := newTestMarketplaceReconciler(c)
 
@@ -59,8 +59,8 @@ func TestSkillMarketplaceSourceReconciler_GlobalSourceGetsStatus(t *testing.T) {
 // succeed and drop it from the file.
 func TestSkillMarketplaceSourceReconciler_DeletedSourceStillSyncs(t *testing.T) {
 	ctx := context.Background()
-	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	tenant := marketTenant("acme", true)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	c := newMarketplaceClient(t, &tenant, &src)
 	r := newTestMarketplaceReconciler(c)
 
@@ -82,36 +82,9 @@ func TestSkillMarketplaceSourceReconciler_DeletedSourceStillSyncs(t *testing.T) 
 	}
 }
 
-func TestSkillMarketplaceSourceReconciler_SourceEditRevokesUnapprovedRepository(t *testing.T) {
-	ctx := context.Background()
-	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
-	c := newMarketplaceClient(t, &tenant, &src)
-	r := newTestMarketplaceReconciler(c)
-	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&src)}
-	if _, err := r.Reconcile(ctx, req); err != nil {
-		t.Fatalf("initial Reconcile: %v", err)
-	}
-
-	current := getMarketplaceSource(t, c, req.NamespacedName)
-	current.Spec.GitHub.Repo = "unapproved-skills"
-	current.Generation++
-	if err := c.Update(ctx, current); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.Reconcile(ctx, req); err != nil {
-		t.Fatalf("Reconcile after edit: %v", err)
-	}
-	assertMarketplaceStatus(t, getMarketplaceSource(t, c, req.NamespacedName),
-		SkillMarketplaceSourcePhasePending, MarketplaceReasonNotAllowlisted, metav1.ConditionFalse)
-	if file := readMarketplaceFile(t, c); len(file.SkillsMapping.Tenants) != 0 {
-		t.Errorf("after edit the file has %v, want no tenants", file.SkillsMapping.Tenants)
-	}
-}
-
 func TestSkillMarketplaceSourceReconciler_SyncFailureReturnsError(t *testing.T) {
-	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	tenant := marketTenant("acme", true)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	c := failingConfigMapWrites{Client: newMarketplaceClient(t, &tenant, &src)}
 	r := newTestMarketplaceReconciler(c)
 	key := client.ObjectKeyFromObject(&src)
