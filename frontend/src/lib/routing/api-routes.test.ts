@@ -20,7 +20,7 @@ describe('ApiRoute', () => {
   describe('marketplaceSkills', () => {
     it('encodes browse values and returns the Marketplace BFF path', () => {
       const url = new URL(
-        ApiRoute.marketplaceSkills.GET({
+        ApiRoute.skills.GET({
           marketplace: 'A & B',
           query: 'C# D',
           page: 2,
@@ -29,7 +29,7 @@ describe('ApiRoute', () => {
         }),
         'http://localhost',
       );
-      expect(url.pathname).toBe('/api/marketplace/skills');
+      expect(url.pathname).toBe('/api/skills');
       expect(Object.fromEntries(url.searchParams)).toEqual({
         marketplace: 'A & B',
         query: 'C# D',
@@ -41,7 +41,7 @@ describe('ApiRoute', () => {
 
     it('omits an empty search', () => {
       const url = new URL(
-        ApiRoute.marketplaceSkills.GET({
+        ApiRoute.skills.GET({
           marketplace: '',
           query: '',
           page: 1,
@@ -56,7 +56,7 @@ describe('ApiRoute', () => {
 
     it('starts with /api', () => {
       expect(
-        ApiRoute.marketplaceSkills.GET({
+        ApiRoute.skills.GET({
           marketplace: '',
           query: '',
           page: 1,

@@ -45,12 +45,12 @@ export const APP_ROUTES = {
     servers: '/mcp-gateway',
     server: (slug: string) => `/mcp-gateway/${slug}` as const,
   },
-  marketplace: {
-    overview: '/marketplace',
-    browse: (marketplaceSlug: string) =>
-      `/marketplace/${encodeURIComponent(marketplaceSlug)}` as const,
-    detail: (marketplaceSlug: string, skillName: string) =>
-      `/marketplace/${encodeURIComponent(marketplaceSlug)}/${encodeURIComponent(skillName)}` as const,
+  skills: {
+    root: '/skills',
+    marketplace: (slug: string) => `/skills/${encodeURIComponent(slug)}` as const,
+    /** A skill is addressed by its folder path; each segment is encoded on its own. */
+    skill: (slug: string, path: string) =>
+      `/skills/${encodeURIComponent(slug)}/${path.split('/').map(encodeURIComponent).join('/')}` as const,
   },
 
   // ── Policy ───────────────────────────────────────────────────────────────

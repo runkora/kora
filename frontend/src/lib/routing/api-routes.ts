@@ -490,28 +490,28 @@ export const ApiRoute = {
   },
 
   /**
-   * `/api/marketplace/skills`
+   * `/api/skills`
    *
    * GET — returns one result page of Marketplace Skills and the Marketplace
    *       list. Accepts `marketplace`, `query`, `page`, `pageSize`, and
    *       `sort`. The BFF validates each value and uses the default for an
    *       invalid value.
    */
-  marketplaceSkills: {
+  skills: {
     GET: (params: {
       marketplace: string;
       query: string;
       page: number;
       pageSize: number;
       sort: string;
-    }): `${typeof API_BASE}/marketplace/skills?${string}` => {
+    }): `${typeof API_BASE}/skills?${string}` => {
       const qs = new URLSearchParams();
       if (params.marketplace) qs.set('marketplace', params.marketplace);
       if (params.query) qs.set('query', params.query);
       qs.set('page', String(params.page));
       qs.set('pageSize', String(params.pageSize));
       qs.set('sort', params.sort);
-      return `${API_BASE}/marketplace/skills?${qs.toString()}`;
+      return `${API_BASE}/skills?${qs.toString()}`;
     },
   },
 } as const;
@@ -544,7 +544,7 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['policyExplain']['GET']>
   | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>
   | ReturnType<(typeof ApiRoute)['usage']['GET']>
-  | ReturnType<(typeof ApiRoute)['marketplaceSkills']['GET']>
+  | ReturnType<(typeof ApiRoute)['skills']['GET']>
   | ReturnType<(typeof ApiRoute)['usageBudget']['GET']>
   | ReturnType<(typeof ApiRoute)['catalogPricing']['GET']>
   | ReturnType<(typeof ApiRoute)['catalogPricingOverride']['PUT']>

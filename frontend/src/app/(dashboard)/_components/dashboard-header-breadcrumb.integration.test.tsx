@@ -1,5 +1,5 @@
 /**
- * Integration tests for the header of DashboardHeader in the Marketplace.
+ * Integration tests for the header of DashboardHeader in Skills.
  *
  * The overview shows the section title; the dedicated Skill path shows the
  * section and requested Skill identifier, following the Agents detail pattern.
@@ -32,30 +32,30 @@ afterEach(() => {
   vi.mocked(usePathname).mockReset();
 });
 
-describe('DashboardHeader in the Marketplace', () => {
-  it('overview: shows "Marketplace" as the section title', () => {
-    renderHeader('/marketplace');
+describe('DashboardHeader in Skills', () => {
+  it('overview: shows "Skills" as the section title', () => {
+    renderHeader('/skills');
 
-    expect(screen.getByText('Marketplace')).toBeInTheDocument();
+    expect(screen.getByText('Skills')).toBeInTheDocument();
   });
 
   it('overview: has no Back link', () => {
-    renderHeader('/marketplace');
+    renderHeader('/skills');
 
     expect(screen.queryByRole('link', { name: 'Back' })).not.toBeInTheDocument();
   });
 
   it('selected overview: shows Marketplace and the slug from the path', () => {
-    renderHeader('/marketplace/team__repo');
-    expect(screen.getByText('Marketplace')).toBeInTheDocument();
+    renderHeader('/skills/team__repo');
+    expect(screen.getByText('Skills')).toBeInTheDocument();
     expect(screen.getByText('team__repo')).toBeInTheDocument();
   });
 
   it('detail: shows the Skill identifier as the breadcrumb label', () => {
     const skillName = 'react-expert';
-    renderHeader(APP_ROUTES.marketplace.detail('platform-engineering__skills', skillName));
+    renderHeader(APP_ROUTES.skills.skill('platform-engineering__skills', skillName));
 
-    expect(screen.getByText('Marketplace')).toBeInTheDocument();
+    expect(screen.getByText('Skills')).toBeInTheDocument();
     expect(screen.getByText(skillName)).toBeInTheDocument();
     expect(screen.queryByText('platform-engineering__skills')).not.toBeInTheDocument();
   });

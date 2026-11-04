@@ -55,7 +55,7 @@ export default defineConfig({
   // ── Dev server ───────────────────────────────────────────────────────────
   webServer: [
     {
-      command: 'node e2e/marketplace-upstream.mjs',
+      command: 'node e2e/skills-upstream.mjs',
       url: `${marketplaceURL}/health`,
       timeout: 10_000,
       env: { PLAYWRIGHT_MARKETPLACE_PORT: marketplacePort },

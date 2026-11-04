@@ -245,10 +245,16 @@ describe('DashboardSidebar', () => {
   });
 
   describe('active state', () => {
-    it('keeps Marketplace active on a selected overview path', () => {
-      vi.mocked(usePathname).mockReturnValue('/marketplace/team__repo');
+    it('keeps Skills active on a Marketplace overview path', () => {
+      vi.mocked(usePathname).mockReturnValue('/skills/team__repo');
+      // Both entries are scope-gated: grant them so the test can check which is active.
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['agents:read', 'skills:read'],
+        user: null,
+        loaded: true,
+      });
       renderSidebar();
-      expect(screen.getByRole('link', { name: 'Marketplace' })).toHaveAttribute(
+      expect(screen.getByRole('link', { name: 'Skills' })).toHaveAttribute(
         'aria-current',
         'page',
       );

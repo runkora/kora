@@ -22,8 +22,9 @@ import { useSession } from './permissions-provider';
  */
 export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const activePathname = /^\/marketplace\/[^/]+\/?$/.test(pathname)
-    ? APP_ROUTES.marketplace.overview
+  // The Skills entry stays active on every Marketplace overview, since /skills opens one.
+  const activePathname = pathname.startsWith(`${APP_ROUTES.skills.root}/`)
+    ? APP_ROUTES.skills.root
     : pathname;
   const { scopes } = useSession();
 

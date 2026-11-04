@@ -14,8 +14,8 @@ import { SidebarStateProvider } from './_components/sidebar-state';
 import { PreferencesProvider } from './_preferences/preferences-context';
 import { getPreferences } from './_preferences/preferences-server';
 import { mergeWithDefaults } from './_preferences/preferences.schema';
-import { MarketplaceBrowseStateProvider } from './marketplace/_context/marketplace-browse-state';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { MarketplaceBrowseStateProvider } from './skills/_context/skills-browse-state';
+import { getSession, isSessionValid } from '@runkora/server/session';
 
 /**
  * Dashboard shell layout — sidebar + header + scrollable main.
