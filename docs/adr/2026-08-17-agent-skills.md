@@ -165,7 +165,7 @@ The API is under `/v1` and requires the `skills:read` scope. The tenant comes fr
 
 - `GET /v1/marketplaces` returns the tenant's Marketplaces. Each has its slug, repository, ref, the commit and time of its last crawl, and its skill count. The commit, time and count are empty until the Marketplace has been crawled.
 - `GET /v1/marketplaces/skills?marketplace=&keys=&search=&offset=&limit=` returns one page of skills across the tenant's Marketplaces, in title order, with `total`. `marketplace` narrows it to one Marketplace, and `keys` narrows it to a list of `marketplace:path` keys. Each skill carries its Marketplace, path, name, title (the first `SKILL.md` heading), description, and the frontmatter version, tags, allowed tools and manual-only flag.
-- `GET /v1/marketplaces/{marketplace}/skills/{path...}` returns one skill's title, `SKILL.md`, file list and the commit it was read at.
+- `GET /v1/marketplaces/{marketplace}/skills/{path...}` returns one skill's title, `SKILL.md`, file list, the commit it was read at and the same frontmatter fields as the list.
 - `GET /v1/marketplaces/{marketplace}/skills/{path...}?file={path}` returns one listed file.
 
 ### Dashboard
