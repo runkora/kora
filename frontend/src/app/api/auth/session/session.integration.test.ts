@@ -733,9 +733,9 @@ describe('GET /api/auth/session', () => {
     ]);
   });
 
-  it('does not expose accessToken, refreshToken, or tenantId in the response', async () => {
-    // Security assertion: tokens and the session's tenantId must never leak to
-    // the browser. They are sealed inside the HttpOnly iron-session cookie only.
+  it('returns the session tenant but never the tokens', async () => {
+    // Security assertion: the tokens stay sealed inside the HttpOnly iron-session cookie. The
+    // tenant id is returned so the switcher can name a tenant the eligible set left out.
     const payload = createSessionPayload();
     vi.mocked(getSession).mockResolvedValue(payload as unknown as IronSession<SessionPayload>);
     vi.mocked(isSessionValid).mockReturnValue(true);
@@ -745,6 +745,6 @@ describe('GET /api/auth/session', () => {
 
     expect(body).not.toHaveProperty('accessToken');
     expect(body).not.toHaveProperty('refreshToken');
-    expect(body).not.toHaveProperty('tenantId');
+    expect(body.tenantId).toBe(payload.tenantId);
   });
 });

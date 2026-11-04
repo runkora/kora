@@ -128,14 +128,14 @@ function MenuItem({
   danger,
   onSelect,
   itemRef,
-  role = 'menuitem',
+  role,
   children,
 }: {
   icon: React.ComponentProps<typeof Icon>['name'];
   danger?: boolean;
   onSelect: () => void;
   itemRef?: React.Ref<HTMLElement>;
-  /** `'menuitem'` inside the desktop `role="menu"`; unset in the mobile dialog. */
+  /** Set to `'menuitem'` only inside the desktop `role="menu"`; the mobile dialog leaves it unset. */
   role?: 'menuitem';
   children: React.ReactNode;
 }) {
@@ -273,7 +273,7 @@ function ConfirmLogoutBlock({ compact }: { compact: boolean }) {
  * (ADR-0061).
  */
 export function SidebarUserFooter() {
-  const { user, tenants = [] } = useSession();
+  const { user, tenants = [], tenantId } = useSession();
   const { logout } = useLogout();
   const router = useRouter();
   const isDesktop = useIsDesktop();
@@ -431,7 +431,7 @@ export function SidebarUserFooter() {
               {email}
             </Text>
             <Text as="span" size="micro" color="subtle" truncate>
-              {activeTenant?.displayName}
+              {activeTenant?.displayName ?? tenantId}
             </Text>
           </>
         ) : (
@@ -481,12 +481,14 @@ export function SidebarUserFooter() {
               animation: flyoutAnimation,
             }}
           >
-            <Stack id="account-identity" padding="comfortable">
+            <Stack padding="comfortable">
               {confirming ? (
                 <ConfirmLogoutBlock compact />
               ) : (
                 <Stack gap="comfortable">
-                  <IdentityBlock name={name} email={email} compact />
+                  <Stack id="account-identity">
+                    <IdentityBlock name={name} email={email} compact />
+                  </Stack>
                   {multiTenant ? (
                     <>
                       <Separator />
@@ -505,7 +507,7 @@ export function SidebarUserFooter() {
               id="account-menu"
               role={confirming ? undefined : 'menu'}
               aria-label={confirming ? undefined : 'Account'}
-              aria-describedby="account-identity"
+              aria-describedby={confirming ? undefined : 'account-identity'}
               onKeyDown={confirming ? undefined : handleMenuKeyDown}
               gap="tight"
               padding={confirming ? 'comfortable' : 'tight'}
@@ -532,11 +534,17 @@ export function SidebarUserFooter() {
                 </Stack>
               ) : (
                 <>
-                  <MenuItem icon="user" onSelect={handleViewProfile} itemRef={firstItemRef}>
+                  <MenuItem
+                    icon="user"
+                    role="menuitem"
+                    onSelect={handleViewProfile}
+                    itemRef={firstItemRef}
+                  >
                     View profile
                   </MenuItem>
                   <MenuItem
                     icon="log-out"
+                    role="menuitem"
                     danger
                     onSelect={menu.requestLogout}
                     itemRef={secondItemRef}
@@ -596,10 +604,10 @@ export function SidebarUserFooter() {
             </Stack>
           ) : (
             <Stack padding="snug">
-              <MenuItem icon="user" onSelect={handleViewProfile} role={undefined}>
+              <MenuItem icon="user" onSelect={handleViewProfile}>
                 View profile
               </MenuItem>
-              <MenuItem icon="log-out" danger onSelect={menu.requestLogout} role={undefined}>
+              <MenuItem icon="log-out" danger onSelect={menu.requestLogout}>
                 Log out
               </MenuItem>
             </Stack>

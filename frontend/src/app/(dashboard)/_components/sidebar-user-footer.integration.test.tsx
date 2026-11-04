@@ -122,15 +122,17 @@ describe('SidebarUserFooter', () => {
       await user.click(screen.getByRole('button', { name: /Dev User/ }));
 
       expect(screen.getByText('Signed in as')).toBeInTheDocument();
-      expect(screen.getByRole('menuitem', { name: /View profile/ })).toBeInTheDocument();
-      expect(screen.getByRole('menuitem', { name: /Log out/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /View profile/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Log out/ })).toBeInTheDocument();
+      // The sheet is a dialog with no menu, so its rows are plain buttons.
+      expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
     });
 
     it('navigates to the profile page and closes when View profile is selected', async () => {
       const user = userEvent.setup();
       renderFooter();
       await user.click(screen.getByRole('button', { name: /Dev User/ }));
-      await user.click(screen.getByRole('menuitem', { name: /View profile/ }));
+      await user.click(screen.getByRole('button', { name: /View profile/ }));
 
       expect(pushMock).toHaveBeenCalledWith(APP_ROUTES.profile);
       await waitFor(() => {
@@ -142,14 +144,14 @@ describe('SidebarUserFooter', () => {
       const user = userEvent.setup();
       renderFooter();
       await user.click(screen.getByRole('button', { name: /Dev User/ }));
-      await user.click(screen.getByRole('menuitem', { name: /^Log out$/ }));
+      await user.click(screen.getByRole('button', { name: /^Log out$/ }));
 
       expect(screen.getByText('Log out of kora?')).toBeInTheDocument();
       const dialog = screen.getByRole('dialog');
       await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
 
       expect(screen.queryByText('Log out of kora?')).not.toBeInTheDocument();
-      expect(screen.getByRole('menuitem', { name: /View profile/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /View profile/ })).toBeInTheDocument();
     });
   });
 
@@ -247,6 +249,32 @@ describe('SidebarUserFooter tenants', () => {
     expect(screen.getByRole('button', { name: 'Example Data' })).not.toHaveAttribute(
       'aria-current',
     );
+  });
+
+  it('names the session tenant on the trigger when the eligible set leaves it out', async () => {
+    vi.mocked(useSession).mockReturnValue({
+      ...TWO,
+      tenantId: 'kora-tenant-example-old',
+      tenants: TWO.tenants.map((t) => ({ ...t, active: false })),
+    });
+    renderFooter();
+
+    const trigger = screen.getByRole('button', { name: /dev@runkora\.test/ });
+    expect(within(trigger).getByText('kora-tenant-example-old')).toBeInTheDocument();
+  });
+
+  it('describes the desktop menu by the identity block, not the tenant list', async () => {
+    vi.mocked(useSession).mockReturnValue(TWO);
+    const restore = installDesktopMatchMedia();
+    try {
+      await openMenu();
+      const menu = screen.getByRole('menu', { name: 'Account' });
+      const description = document.getElementById(menu.getAttribute('aria-describedby') ?? '');
+      expect(description).toHaveTextContent('Signed in as');
+      expect(description).not.toHaveTextContent('Example Data');
+    } finally {
+      restore();
+    }
   });
 
   it('starts a switch to the chosen tenant from the current path', async () => {

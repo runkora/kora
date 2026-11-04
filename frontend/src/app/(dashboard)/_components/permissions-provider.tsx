@@ -25,6 +25,8 @@ interface SessionContextValue {
   apiAuthoring?: boolean;
   /** The eligible set from the last sign-in or switch. Empty for older sessions. */
   tenants?: TenantOption[];
+  /** The session's tenant; names it when a refused switch left it out of the eligible set. */
+  tenantId?: string;
 }
 
 // ── Context ──────────────────────────────────────────────────────────────────
@@ -68,6 +70,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
         loaded: true,
         apiAuthoring: data?.apiAuthoring,
         tenants: data?.tenants ?? [],
+        tenantId: data?.tenantId,
       });
 
       // Schedule a proactive re-fetch 4 minutes before the token expires so

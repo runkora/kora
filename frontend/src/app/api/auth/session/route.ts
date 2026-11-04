@@ -349,5 +349,6 @@ export async function GET(): Promise<Response> {
     permissions: { scopes },
     apiAuthoring: session.apiAuthoring ?? true,
     tenants: tenantOptions(session),
+    tenantId: session.tenantId,
   });
 }
