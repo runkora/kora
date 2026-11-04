@@ -77,6 +77,21 @@ func TestChartSkillsServiceWiring(t *testing.T) {
 	if sources["skill-marketplaces"] != marketplace.ConfigMapName || sources["skill-marketplace-secrets"] != marketplace.SecretName {
 		t.Errorf("volumes = %v, want the operator's ConfigMap and Secret", sources)
 	}
+	var entry struct {
+		Spec struct {
+			Hosts    []string `json:"hosts"`
+			Location string   `json:"location"`
+			Ports    []struct {
+				Number   int    `json:"number"`
+				Protocol string `json:"protocol"`
+			} `json:"ports"`
+		} `json:"spec"`
+	}
+	decode("templates/skills-service/serviceentry.yaml", &entry)
+	if len(entry.Spec.Hosts) != 1 || entry.Spec.Hosts[0] != "api.github.com" || entry.Spec.Location != "MESH_EXTERNAL" ||
+		len(entry.Spec.Ports) != 1 || entry.Spec.Ports[0].Number != 443 || entry.Spec.Ports[0].Protocol != "TLS" {
+		t.Errorf("ServiceEntry = %+v, want api.github.com:443 TLS, mesh external", entry.Spec)
+	}
 	var service corev1.Service
 	decode("templates/skills-service/service.yaml", &service)
 	if len(service.Spec.Ports) != 1 || service.Spec.Ports[0].Port != port || service.Spec.Ports[0].TargetPort.IntVal != port {
