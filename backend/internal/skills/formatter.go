@@ -44,6 +44,10 @@ func parseSkillFrontmatter(content string) (skillFrontmatter, error) {
 	for i, l := range rawLines {
 		lines[i] = strings.TrimRight(l, "\r\n")
 	}
+	// Editors on Windows often start the file with a UTF-8 byte order mark.
+	if len(lines) > 0 {
+		lines[0] = strings.TrimPrefix(lines[0], "\ufeff")
+	}
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return skillFrontmatter{}, errNoFrontmatter
 	}

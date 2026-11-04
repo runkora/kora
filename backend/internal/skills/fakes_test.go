@@ -109,6 +109,8 @@ type fakeGitHub struct {
 	files    map[string]string
 	refErr   error
 	fetchErr error
+	// failOnce fails the first fetch of a path with its error.
+	failOnce map[string]error
 	refs     []string
 	fetched  []string
 }
@@ -136,6 +138,10 @@ func (g *fakeGitHub) GetRawContent(_ context.Context, _, _, _, ref, path string,
 	}
 	if g.fetchErr != nil {
 		return nil, g.fetchErr
+	}
+	if err, ok := g.failOnce[path]; ok {
+		delete(g.failOnce, path)
+		return nil, err
 	}
 	content, ok := g.files[path]
 	if !ok {

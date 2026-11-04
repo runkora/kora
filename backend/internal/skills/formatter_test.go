@@ -155,6 +155,11 @@ func TestParseSkillFrontmatter_Metadata(t *testing.T) {
 			want:    skillFrontmatter{Name: "q", Description: "Q.", Title: "q", Version: v("2.0 # not a comment"), Tags: []string{}, Tools: []string{}},
 		},
 		{
+			name:    "a byte order mark before the frontmatter",
+			content: "\ufeff---\nname: bom\ndescription: B.\n---\n",
+			want:    skillFrontmatter{Name: "bom", Description: "B.", Title: "bom", Tags: []string{}, Tools: []string{}},
+		},
+		{
 			name:    "nothing declared",
 			content: "---\nname: bare\ndescription: Bare.\n---\n",
 			want:    skillFrontmatter{Name: "bare", Description: "Bare.", Title: "bare", Tags: []string{}, Tools: []string{}},

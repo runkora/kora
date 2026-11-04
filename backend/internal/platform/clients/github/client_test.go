@@ -244,3 +244,27 @@ func TestGetTreeUnavailable(t *testing.T) {
 		})
 	}
 }
+
+func TestRateLimitIsDistinguished(t *testing.T) {
+	for _, tc := range []struct {
+		status      int
+		header      string
+		rateLimited bool
+	}{
+		{http.StatusTooManyRequests, "", true},
+		{http.StatusForbidden, "0", true},
+		{http.StatusServiceUnavailable, "", false},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if tc.header != "" {
+				w.Header().Set("X-RateLimit-Remaining", tc.header)
+			}
+			w.WriteHeader(tc.status)
+		}))
+		_, err := NewClient(server.URL, logging.NewLogger()).GetRawContent(context.Background(), "t", "o", "r", "main", "f", 10)
+		server.Close()
+		if !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrRateLimited) != tc.rateLimited {
+			t.Errorf("status %d: err = %v, want unavailable with rateLimited %v", tc.status, err, tc.rateLimited)
+		}
+	}
+}

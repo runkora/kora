@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -154,6 +155,38 @@ func TestCrawl_SkipsSymlinks(t *testing.T) {
 	}
 	if slices.Contains(g.fetchedPaths(), "link/SKILL.md") || !strings.Contains(logs.String(), "SKILL.md is a symbolic link") {
 		t.Errorf("symlinked SKILL.md was fetched or not logged: %v", g.fetchedPaths())
+	}
+}
+
+// A failed fetch is retried once, except a missing file or a rate limit.
+func TestCrawl_RetriesAFailedFetchOnce(t *testing.T) {
+	g := repo(map[string]string{
+		"flaky/SKILL.md":   skillMD("flaky", "F.", ""),
+		"missing/SKILL.md": skillMD("missing", "M.", ""),
+	})
+	g.failOnce = map[string]error{
+		"flaky/SKILL.md":   ghclient.ErrUnexpectedStatus,
+		"missing/SKILL.md": ghclient.ErrNotFound,
+	}
+	list, err := NewCrawler(g, testLimits, discard()).Crawl(context.Background(), testMarketplace(t, "example", "m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"flaky=flaky"}; !slices.Equal(crawlNames(list), want) {
+		t.Errorf("skills = %v, want %v: flaky retried, missing not", crawlNames(list), want)
+	}
+	count := map[string]int{}
+	for _, p := range g.fetchedPaths() {
+		count[p]++
+	}
+	if count["flaky/SKILL.md"] != 2 || count["missing/SKILL.md"] != 1 {
+		t.Errorf("fetches = %v, want flaky twice and missing once", count)
+	}
+
+	g = repo(map[string]string{"a/SKILL.md": skillMD("a", "A.", "")})
+	g.failOnce = map[string]error{"a/SKILL.md": fmt.Errorf("%w: %w", ghclient.ErrUnavailable, ghclient.ErrRateLimited)}
+	if _, err := NewCrawler(g, testLimits, discard()).Crawl(context.Background(), testMarketplace(t, "example", "m")); !errors.Is(err, ghclient.ErrRateLimited) || len(g.fetchedPaths()) != 1 {
+		t.Errorf("rate limit = %v after %d fetches, want no retry", err, len(g.fetchedPaths()))
 	}
 }
 

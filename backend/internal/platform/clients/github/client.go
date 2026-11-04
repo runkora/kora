@@ -38,8 +38,8 @@ const (
 // Sentinel errors. Callers may test for these with errors.Is to branch on
 // failure category without string matching.
 var (
-	// ErrUnexpectedStatus is returned when GitHub responds with any status other
-	// than 201 Created to an installation-token request.
+	// ErrUnexpectedStatus is returned when GitHub responds with a status the
+	// call does not expect.
 	ErrUnexpectedStatus = errors.New("unexpected status from github")
 
 	// ErrMissingToken is returned when GitHub's response decodes successfully but
@@ -64,6 +64,10 @@ var (
 	// network failure, a 5xx status, or a rate limit. For a status failure, the
 	// error also matches ErrUnexpectedStatus.
 	ErrUnavailable = errors.New("github is unavailable or rate-limited")
+
+	// ErrRateLimited is returned, together with ErrUnavailable, when GitHub
+	// rate-limits the call. Retrying at once does not help.
+	ErrRateLimited = errors.New("github rate limit")
 
 	// ErrNotFound is returned by ResolveRef, GetTree and GetRawContent when the
 	// repository, ref or file does not exist or the token cannot see it.
@@ -418,11 +422,14 @@ func transportError(ctx context.Context, err error) error {
 }
 
 // statusError wraps err, the error of a non-2xx response, in ErrUnavailable
-// when the status shows an outage or a rate limit, and in ErrNotFound when the
-// status is one of notFound. Any other status stays unwrapped.
+// when the status shows an outage or a rate limit (a rate limit also wraps
+// ErrRateLimited), and in ErrNotFound when the status is one of notFound. Any
+// other status stays unwrapped.
 func statusError(resp *http.Response, err error, notFound ...int) error {
 	switch {
-	case isUnavailable(resp, err):
+	case isRateLimited(resp, err):
+		return fmt.Errorf("%w: %w: %w", ErrUnavailable, ErrRateLimited, err)
+	case resp.StatusCode >= http.StatusInternalServerError:
 		return fmt.Errorf("%w: %w", ErrUnavailable, err)
 	case slices.Contains(notFound, resp.StatusCode):
 		return fmt.Errorf("%w: %w", ErrNotFound, err)
@@ -430,28 +437,23 @@ func statusError(resp *http.Response, err error, notFound ...int) error {
 	return err
 }
 
-// isUnavailable reports whether a non-2xx response shows a GitHub outage or
-// a rate limit. err is the error of that response, its text holds the start
-// of GitHub's error body. A rate limit is a 429, or a 403 with GitHub's
-// signal: x-ratelimit-remaining 0, a retry-after header, or a "secondary
-// rate limit" message. Any other 403 is, for example, lost access or a file
-// that is too large. See
+// isRateLimited reports whether a non-2xx response shows a GitHub rate limit:
+// a 429, or a 403 with GitHub's signal (x-ratelimit-remaining 0, a
+// retry-after header, or a "secondary rate limit" message). Any other 403 is,
+// for example, lost access or a file that is too large. err is the error of
+// that response, its text holds the start of GitHub's error body. See
 // https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#exceeding-the-rate-limit
-func isUnavailable(resp *http.Response, err error) bool {
-	switch {
-	case resp.StatusCode >= http.StatusInternalServerError:
-		// A GitHub outage.
-		return true
-	case resp.StatusCode == http.StatusTooManyRequests:
+func isRateLimited(resp *http.Response, err error) bool {
+	switch resp.StatusCode {
+	case http.StatusTooManyRequests:
 		// A primary or secondary rate limit.
 		return true
-	case resp.StatusCode == http.StatusForbidden:
+	case http.StatusForbidden:
 		// A 403 is a rate limit only with GitHub's signal.
 		return resp.Header.Get("X-RateLimit-Remaining") == "0" ||
 			resp.Header.Get("Retry-After") != "" ||
 			strings.Contains(strings.ToLower(err.Error()), "secondary rate limit")
 	default:
-		// Any other status, for example 404.
 		return false
 	}
 }

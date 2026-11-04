@@ -282,6 +282,13 @@ func (c *Crawler) FetchFile(ctx context.Context, m *Marketplace, sha string, ski
 	return content, err
 }
 
+// retryDelay is the pause before the one retry of a file fetch.
+const retryDelay = 250 * time.Millisecond
+
+func retryable(err error) bool {
+	return !errors.Is(err, ghclient.ErrNotFound) && !errors.Is(err, ghclient.ErrTooLarge) && !errors.Is(err, ghclient.ErrRateLimited)
+}
+
 // errNotText is a fetched file that is not UTF-8 text.
 var errNotText = errors.New("file is not UTF-8 text")
 
@@ -305,6 +312,15 @@ func (c *Crawler) fetch(ctx context.Context, local *semaphore.Weighted, token st
 		limit = min(size, c.limits.BytesPerFile)
 	}
 	raw, err := c.github.GetRawContent(ctx, token, m.Owner, m.Repo, sha, p, limit)
+	// One retry for a failure that may pass. A missing file, a file over its
+	// bound or a rate limit gives the same answer again.
+	if err != nil && retryable(err) && ctx.Err() == nil {
+		select {
+		case <-ctx.Done():
+		case <-time.After(retryDelay):
+			raw, err = c.github.GetRawContent(ctx, token, m.Owner, m.Repo, sha, p, limit)
+		}
+	}
 	if err != nil {
 		return "", fmt.Errorf("download %s: %w", p, err)
 	}
