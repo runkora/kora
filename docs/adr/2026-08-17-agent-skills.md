@@ -130,6 +130,7 @@ spec:
 - `metadata.name` is the Marketplace slug in API paths and dashboard URLs. The display name is the repository name.
 - `spec.github.ref` is optional. A 40-character hex value pins a commit SHA, any other value tracks a branch, and no value tracks the default branch.
 - `privateKeySecretRef` references a Secret in the same namespace.
+- A tenant can declare several Marketplaces from different GitHub organizations, each with its own GitHub App.
 
 ### Operator Aggregation
 
@@ -171,7 +172,8 @@ The API is under `/v1` and requires the `skills:read` scope. The tenant comes fr
 - **Navigation:** The Skills entry under Control Plane is gated on `skills:read`.
 - **Routes:** The overview is `/skills/[marketplace]` and a skill is `/skills/[marketplace]/[...path]`. `/skills` opens the first Marketplace.
 - **Loading:** The server component loads the first page from the URL. Later browse changes call the BFF route `/api/skills` and update the URL with `window.history.replaceState` (see `frontend/docs/golden-paths/frontend-state-pattern.md`).
-- **State:** The URL holds the Marketplace, `search` and `page`. Results use the `tables.defaultPageSize` preference.
+- **State:** The URL holds the Marketplace, `search` and `page`, and the page saves no browse preference. Results are always in name order, A to Z, with no sort control, and use the `tables.defaultPageSize` preference.
+- **Failure:** A Marketplace that returns 502 shows as unavailable with the API message and a retry action.
 - **Components:** The overview uses Hades `DataTable` with the list and card toggle in `toolbarActions`. The file explorer uses the Hades icons `file`, `file-code`, `folder` and `folder-open`.
 - **Content:** File bodies render as plain text through Hades `CodeBlock`.
 
