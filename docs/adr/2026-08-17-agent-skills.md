@@ -158,25 +158,26 @@ skills-service mounts the Marketplaces ConfigMap and the keys Secret and reloads
 - **Skill identity:** A skill is identified by its folder path. The frontmatter `name` is the display name.
 - **Limits:** The chart sets `skillsService.limits` for skills per Marketplace (500), listed files per skill (500), bytes per file (128 KiB) and total `SKILL.md` bytes per Marketplace (8 MiB). An empty value removes that cap. Skills and files over a limit are skipped and logged. Binary files are never fetched.
 - **Cache:** Redis holds the skill list per tenant and Marketplace, each skill's files, and failed crawls. Every key carries the tenant ID. Entries expire after `cacheTTL` (12 hours) and failed crawls after a shorter TTL.
-- **Search:** skills-service filters the cached list in memory and needs no Redis module. A skill matches when the query appears in its name, description or `SKILL.md` body.
+- **Search:** skills-service filters the cached list in memory and needs no Redis module. A skill matches when the query appears in its title, name, description or `SKILL.md` body.
 - **Errors:** A missing repository, ref or skill returns 404. An unavailable credential or an upstream failure returns 502 with a message that cites no provider. An unavailable Redis returns 503, a server timeout returns 504, and a cancelled request gets no response.
 
 The API is under `/v1` and requires the `skills:read` scope. The tenant comes from the verified platform token.
 
-- `GET /v1/marketplaces` returns the Marketplaces of the caller's tenant.
-- `GET /v1/marketplaces/{marketplace}?search=&offset=&limit=` returns one page of skills in name order with `total`.
-- `GET /v1/marketplaces/{marketplace}/skills/{path...}` returns one skill's `SKILL.md` and its file list.
+- `GET /v1/marketplaces` returns the tenant's Marketplaces. Each has its slug, repository, ref, the commit and time of its last crawl, and its skill count. The commit, time and count are empty until the Marketplace has been crawled.
+- `GET /v1/skills?marketplace=&keys=&search=&offset=&limit=` returns one page of skills across the tenant's Marketplaces, in title order, with `total`. `marketplace` narrows it to one Marketplace, and `keys` narrows it to a list of `marketplace:path` keys. Each skill carries its Marketplace, path, name, title (the first `SKILL.md` heading), description, and the frontmatter version, tags, allowed tools and manual-only flag.
+- `GET /v1/marketplaces/{marketplace}/skills/{path...}` returns one skill's title, `SKILL.md`, file list and the commit it was read at.
 - `GET /v1/marketplaces/{marketplace}/skills/{path...}?file={path}` returns one listed file.
 
 ### Dashboard
 
 - **Navigation:** The Skills entry under Control Plane is gated on `skills:read`.
-- **Routes:** The overview is `/skills/[marketplace]` and a skill is `/skills/[marketplace]/[...path]`. `/skills` opens the first Marketplace.
+- **Routes:** The overview is `/skills`, and a skill is `/skills/[marketplace]/[...path]`.
 - **Loading:** The server component loads the first page from the URL. Later browse changes call the BFF route `/api/skills` and update the URL with `window.history.replaceState` (see `frontend/docs/golden-paths/frontend-state-pattern.md`).
-- **State:** The URL holds the Marketplace, `search` and `page`, and the page saves no browse preference. Results are always in name order, A to Z, with no sort control, and use the `tables.defaultPageSize` preference.
+- **State:** The URL holds `marketplace` (or `favourites`), `search` and `page`. Both the card and the list view show results in title order, ten per page.
+- **Favourites:** Each user's favourites are a `skills.favouriteSkills` list of `marketplace:path` keys in the preferences document, like the Models page favourites. The BFF sends them as `keys` for the Favourites view.
 - **Failure:** A Marketplace that returns 502 shows as unavailable with the API message and a retry action.
-- **Components:** The overview uses Hades `DataTable` with the list and card toggle in `toolbarActions`. The file explorer uses the Hades icons `file`, `file-code`, `folder` and `folder-open`.
-- **Content:** File bodies render as plain text through Hades `CodeBlock`.
+- **Components:** The overview follows the MCP servers page. Marketplace and Favourites filter chips with a count sit above both views. The card and list toggle sits in the search row for cards and in `toolbarActions` for the table. Each skill shows the `file` icon. The detail page has a header, the open file and a rail with Files and Source, and "View source" links to the skill folder at the served commit. The file explorer uses the Hades icons `file`, `file-code`, `folder` and `folder-open`.
+- **Content:** `SKILL.md` renders as markdown with a Raw view. Other files render as plain text through Hades `CodeBlock`.
 
 ### Local Development
 
@@ -242,6 +243,7 @@ The API is under `/v1` and requires the `skills:read` scope. The tenant comes fr
 - `frontend/src/server/` holds the only upstream calls to skills-service. `frontend/src/app/api/skills/route.ts` is the BFF route, registered in `frontend/src/lib/routing/api-routes.ts`.
 - `frontend/src/shared/api.ts` holds the response types that mirror the skills-service JSON.
 - The Control Plane navigation entry reads the user's scopes and shows Skills only with `skills:read`.
+- `frontend/src/app/(dashboard)/_preferences/preferences.schema.ts` gains `skills.favouriteSkills`.
 
 ### Local Development and Docs
 
