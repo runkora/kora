@@ -356,7 +356,9 @@ type failingCrawler struct {
 	err error
 }
 
-func (f failingCrawler) Crawl(context.Context, *Marketplace) (skillList, error) { return skillList{}, f.err }
+func (f failingCrawler) Crawl(context.Context, *Marketplace) (skillList, error) {
+	return skillList{}, f.err
+}
 
 // Across Marketplaces any error but Redis or cancellation is a failure of that
 // Marketplace alone.

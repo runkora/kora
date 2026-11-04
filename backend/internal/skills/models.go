@@ -89,15 +89,15 @@ type SkillFileInfo struct {
 // skillRecord is one skill. Content is the full SKILL.md, used for search and
 // the skill page. Files are the supporting files, each fetched on request.
 type skillRecord struct {
-	Path        string          `json:"path"`
-	Name        string          `json:"name"`
-	Title       string          `json:"title"`
-	Description string          `json:"description"`
-	Version     *string         `json:"version,omitempty"`
-	Tags        []string        `json:"tags"`
-	Tools       []string        `json:"tools"`
-	ManualOnly  bool            `json:"manualOnly,omitempty"`
-	Content     string          `json:"content"`
+	Path        string   `json:"path"`
+	Name        string   `json:"name"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Version     *string  `json:"version,omitempty"`
+	Tags        []string `json:"tags"`
+	Tools       []string `json:"tools"`
+	ManualOnly  bool     `json:"manualOnly,omitempty"`
+	Content     string   `json:"content"`
 	// BodyStart is where the text after the frontmatter starts in Content.
 	BodyStart int             `json:"bodyStart"`
 	Files     []SkillFileInfo `json:"files,omitempty"`
