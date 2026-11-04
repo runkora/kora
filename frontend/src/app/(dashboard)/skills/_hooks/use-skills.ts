@@ -6,6 +6,7 @@ import { APP_ROUTES } from '@runkora/lib/routing';
 import { usePreferences } from '../../_preferences/preferences-context';
 import { fetchSkills } from '../_services/skills-api';
 import {
+  PAGE_SIZE,
   browseQuery,
   toBrowse,
   toSearch,
@@ -21,6 +22,8 @@ export interface SkillsStateShape {
   /** The browse values of the latest request. The URL holds the same values. */
   browse: SkillsBrowse;
   skills: SkillSummary[];
+  /** The offset of the skills on screen, which lag `browse` while a page loads. */
+  offset: number;
   total: number;
   failures: SkillsOverview['failures'];
   status: LoadStatus;
@@ -90,6 +93,7 @@ export function useSkills(
   const [browse, setBrowse] = useState(restored ?? initial.browse);
   const [skills, setSkills] = useState(restored ? [] : initial.skills);
   const [total, setTotal] = useState(restored ? 0 : initial.total);
+  const [offset, setOffset] = useState((initial.browse.page - 1) * PAGE_SIZE);
   const [failures, setFailures] = useState(restored ? [] : initial.failures);
   const [status, setStatus] = useState<LoadStatus>(
     restored ? 'loading' : initialError ? 'error' : 'success',
@@ -116,6 +120,7 @@ export function useSkills(
       setError(result.error);
       setSkills(result.data?.skills ?? []);
       setTotal(result.data?.total ?? 0);
+      setOffset(result.data?.offset ?? 0);
       setFailures(result.data?.failures ?? []);
       setStatus(result.error ? 'error' : 'success');
     });
@@ -179,6 +184,7 @@ export function useSkills(
     marketplaces: initial.marketplaces,
     browse,
     skills,
+    offset,
     total,
     failures,
     status,

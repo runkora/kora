@@ -44,6 +44,7 @@ test('the URL holds the Marketplace, search and page, and Back from a skill rest
 
   await page.getByRole('button', { name: 'Next page' }).click();
   await expect(page).toHaveURL(`/skills?marketplace=${TEAM.slug}&search=review&page=2`);
+  await expect(page.getByText('11–20 of 28', { exact: true })).toBeVisible();
 
   await rows(page).first().click();
   await expect(page).toHaveURL(
@@ -77,7 +78,7 @@ test('an unavailable Marketplace says so and offers a retry', async ({ page }) =
   await page.goto(`/skills?marketplace=${BROKEN.slug}`);
 
   await expect(page.getByText('This Marketplace is unavailable.', { exact: true })).toBeVisible();
-  await expect(page.getByText(UNAVAILABLE_MESSAGE)).toBeVisible();
+  await expect(page.getByRole('main').getByText(UNAVAILABLE_MESSAGE)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
 });
 
@@ -110,5 +111,6 @@ test('a skill whose folder needs encoding opens from its row', async ({ page }) 
   await expect(page).toHaveURL(
     `/skills/${PARTNER.slug}/tools/caf%C3%A9%20notes?marketplace=${PARTNER.slug}`,
   );
-  await expect(page.getByRole('heading', { name: 'Café notes' })).toBeVisible();
+  // The first visit compiles the skill route in the dev server, which can take a while.
+  await expect(page.getByRole('heading', { name: 'Café notes' })).toBeVisible({ timeout: 20_000 });
 });

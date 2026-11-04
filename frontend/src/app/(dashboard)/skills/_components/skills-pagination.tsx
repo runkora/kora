@@ -7,10 +7,11 @@ import { useSkillsContext } from '../_context/skills-context';
 import { PAGE_SIZE } from '../_types';
 
 export function SkillsPagination() {
-  const { browse, skills, total, status, goToPage } = useSkillsContext();
-  const { page } = browse;
+  const { skills, offset, total, status, goToPage } = useSkillsContext();
+  // The page on screen, not the one loading, so the range always matches the skills shown.
+  const page = Math.floor(offset / PAGE_SIZE) + 1;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const from = skills.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const from = skills.length === 0 ? 0 : offset + 1;
   const to = skills.length === 0 ? 0 : Math.min(total, from + skills.length - 1);
   const loading = status === 'loading';
 
