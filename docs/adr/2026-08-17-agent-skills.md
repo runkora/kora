@@ -157,7 +157,7 @@ skills-service mounts the Marketplaces ConfigMap and the keys Secret and reloads
 - **Crawl:** A crawl resolves the ref to one commit, reads the tree at that commit and fetches each `SKILL.md`. A skill page loads its `SKILL.md` and the list of its other files. Each other file is fetched when it is selected and then cached. A `SKILL.md` at the repository root is skipped.
 - **Skill identity:** A skill is identified by its folder path. The frontmatter `name` is the display name.
 - **Limits:** The chart sets `skillsService.limits` for skills per Marketplace (500), listed files per skill (500), bytes per file (128 KiB) and total `SKILL.md` bytes per Marketplace (8 MiB). An empty value removes that cap. Skills and files over a limit are skipped and logged. Binary files are never fetched.
-- **Cache:** Redis holds the skill list per tenant and Marketplace, each skill's files, and failed crawls. Every key carries the tenant ID. Entries expire after `cacheTTL` (12 hours) and failed crawls after a shorter TTL.
+- **Cache:** Redis holds the skill list per tenant and Marketplace, each skill's files, and failed crawls. Every key carries the tenant ID. After `cacheTTL` (12 hours) the service reads the Marketplace's commit from GitHub. An unchanged commit keeps the list, and a new commit starts a crawl. Lists are kept for two `cacheTTL` periods and served stale only through a GitHub outage, timeout or rate limit. A refused credential or a missing repository fails closed. Failed crawls expire after a shorter TTL.
 - **Search:** skills-service filters the cached list in memory and needs no Redis module. A skill matches when the query appears in its title, name, description or `SKILL.md` body.
 - **Errors:** A missing repository, ref or skill returns 404. An unavailable credential or an upstream failure returns 502 with a message that cites no provider. An unavailable Redis returns 503, a server timeout returns 504, and a cancelled request gets no response.
 
@@ -195,7 +195,7 @@ The API is under `/v1` and requires the `skills:read` scope. The tenant comes fr
 
 ### Negative
 
-- Repository changes on a tracked branch will appear only after the cache expires.
+- Repository changes on a tracked branch will appear only after the next commit check, up to `cacheTTL` later.
 - A rotated private key will take effect after one operator pass and the kubelet Secret projection delay.
 - Concurrent cache misses for the same Marketplace on different replicas will each crawl GitHub.
 - A public repository read outside the App's installation uses that App's rate limit.
