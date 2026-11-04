@@ -1,5 +1,7 @@
-# Example Marketplace for the local example tenant. It reads the repository with
-# the local GitHub App named in ../connections/github.yaml, whose IDs it repeats.
+# Example Marketplace for the local example tenant. It reads the public
+# anthropics/skills repository through the local GitHub App named in
+# ../connections/github.yaml, whose IDs it repeats. The App is not installed on
+# that repository, so skills-service reads it with a metadata-only token.
 # scripts/cluster/create-secrets.sh creates the skills-github-app Secret when
 # secrets/kora-github-app.pem exists. Without it the Marketplace reports
 # CredentialUnavailable.

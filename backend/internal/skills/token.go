@@ -28,8 +28,10 @@ type installationTokenMinter interface {
 	CreateInstallationToken(ctx context.Context, appJWT string, installationID int64, body ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error)
 }
 
-// tokenProvider mints and caches installation tokens for one Marketplace. Each
-// token reads only the Marketplace repository, with contents:read.
+// tokenProvider mints and caches installation tokens for one Marketplace. A
+// token for an installed repository reads only that repository, with
+// contents:read. Any other repository gets a metadata:read token, which reads
+// public repositories only.
 type tokenProvider struct {
 	client         installationTokenMinter
 	appID          string
@@ -82,6 +84,13 @@ func (p *tokenProvider) Token(ctx context.Context) (string, error) {
 		Repositories: []string{p.repo},
 		Permissions:  map[string]string{"contents": "read"},
 	})
+	// GitHub refuses the repository-scoped mint for a repository outside the
+	// installation. A metadata-only token still reads a public repository.
+	if errors.Is(err, ghclient.ErrInstallationPermissions) {
+		tok, err = p.client.CreateInstallationToken(ctx, appJWT, p.installationID, ghclient.InstallationTokenRequest{
+			Permissions: map[string]string{"metadata": "read"},
+		})
+	}
 	// An outage may pass. Any other refusal means GitHub rejects the App,
 	// installation or repository, which only a credential change fixes.
 	if errors.Is(err, ghclient.ErrUnavailable) {

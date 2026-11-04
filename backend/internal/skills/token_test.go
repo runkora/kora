@@ -33,8 +33,10 @@ func testKeyPEM(t *testing.T) []byte {
 }
 
 type fakeMinter struct {
-	mu       sync.Mutex
-	err      error
+	mu sync.Mutex
+	// scopedErr fails only the repository-scoped mint.
+	scopedErr error
+	err       error
 	requests []ghclient.InstallationTokenRequest
 	expires  time.Time
 }
@@ -43,6 +45,9 @@ func (f *fakeMinter) CreateInstallationToken(_ context.Context, _ string, _ int6
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.requests = append(f.requests, body)
+	if f.scopedErr != nil && len(body.Repositories) > 0 {
+		return ghclient.InstallationToken{}, f.scopedErr
+	}
 	if f.err != nil {
 		return ghclient.InstallationToken{}, f.err
 	}
@@ -68,6 +73,33 @@ func TestTokenProvider_ScopesToTheRepository(t *testing.T) {
 	want := []ghclient.InstallationTokenRequest{{Repositories: []string{"skills"}, Permissions: map[string]string{"contents": "read"}}}
 	if !reflect.DeepEqual(minter.requests, want) {
 		t.Errorf("requests = %+v, want one repository-scoped mint", minter.requests)
+	}
+}
+
+// A repository outside the installation gets a metadata-only token, which
+// reads public repositories.
+func TestTokenProvider_FallsBackToMetadataOutsideTheInstallation(t *testing.T) {
+	minter := &fakeMinter{scopedErr: ghclient.ErrInstallationPermissions}
+	p, err := newTokenProvider(minter, "1", 2, "skills", testKeyPEM(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Token(context.Background()); err != nil {
+		t.Fatalf("Token = %v, want the fallback token", err)
+	}
+	want := []ghclient.InstallationTokenRequest{
+		{Repositories: []string{"skills"}, Permissions: map[string]string{"contents": "read"}},
+		{Permissions: map[string]string{"metadata": "read"}},
+	}
+	if !reflect.DeepEqual(minter.requests, want) {
+		t.Errorf("requests = %+v, want the scoped mint then metadata only", minter.requests)
+	}
+
+	// An outage is not a reason to fall back.
+	minter = &fakeMinter{scopedErr: ghclient.ErrUnavailable}
+	p, _ = newTokenProvider(minter, "1", 2, "skills", testKeyPEM(t))
+	if _, err := p.Token(context.Background()); !errors.Is(err, ghclient.ErrUnavailable) || len(minter.requests) != 1 {
+		t.Errorf("outage = %v after %d mints, want ErrUnavailable after one", err, len(minter.requests))
 	}
 }
 

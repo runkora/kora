@@ -13,6 +13,8 @@ The steps below assume a tenant created as described in [Tenants](tenants.md).
 
 skills-service mints each installation token with `contents: read` for the Marketplace repository alone.
 
+A public repository works through any App, including one that is not installed on the repository. skills-service then reads it with a `metadata: read` token and uses that App's rate limit.
+
 ## How to Register a Marketplace
 
 1.  **Store the Private Key:** Create a Secret in the tenant namespace:
