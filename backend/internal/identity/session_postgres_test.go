@@ -84,7 +84,7 @@ func TestPostgres_SwitchSession_CommitsTogether(t *testing.T) {
 	replaced, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
 	next, nextRT := testSessionRows(principal, "sre")
 
-	if err := sessions.SwitchSession(ctx, next, nextRT, replaced.ID, time.Now()); err != nil {
+	if err := sessions.SwitchSession(ctx, next, nextRT, oldRT, time.Now()); err != nil {
 		t.Fatalf("SwitchSession: %v", err)
 	}
 	if got, _ := sessions.GetSessionByID(ctx, replaced.ID); got.RevokedAt == nil {
@@ -104,12 +104,12 @@ func TestPostgres_SwitchSession_CommitsTogether(t *testing.T) {
 func TestPostgres_SwitchSession_RollsBack(t *testing.T) {
 	pool, sessions, refresh, principal := testSwitchRepos(t)
 	ctx := context.Background()
-	replaced, _ := seedSwitchSession(t, sessions, refresh, principal, "eng")
+	replaced, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
 
 	// Reusing the replaced session's ID makes the insert fail after both revokes ran.
 	next, nextRT := testSessionRows(principal, "sre")
 	next.ID = replaced.ID
-	if err := sessions.SwitchSession(ctx, next, nextRT, replaced.ID, time.Now()); err == nil {
+	if err := sessions.SwitchSession(ctx, next, nextRT, oldRT, time.Now()); err == nil {
 		t.Fatal("SwitchSession succeeded with a conflicting session ID")
 	}
 	if s, rt := liveRows(t, pool, principal); s != 1 || rt != 1 {
@@ -120,13 +120,13 @@ func TestPostgres_SwitchSession_RollsBack(t *testing.T) {
 func TestPostgres_SwitchSession_ReplacedNotLive(t *testing.T) {
 	pool, sessions, refresh, principal := testSwitchRepos(t)
 	ctx := context.Background()
-	replaced, _ := seedSwitchSession(t, sessions, refresh, principal, "eng")
+	replaced, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
 	if err := sessions.RevokeSession(ctx, replaced.ID, time.Now()); err != nil {
 		t.Fatalf("RevokeSession: %v", err)
 	}
 
 	next, nextRT := testSessionRows(principal, "sre")
-	if err := sessions.SwitchSession(ctx, next, nextRT, replaced.ID, time.Now()); !errors.Is(err, ErrSessionNotFound) {
+	if err := sessions.SwitchSession(ctx, next, nextRT, oldRT, time.Now()); !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("err = %v, want ErrSessionNotFound", err)
 	}
 	if _, err := sessions.GetSessionByID(ctx, next.ID); !errors.Is(err, ErrSessionNotFound) {
@@ -139,7 +139,7 @@ func TestPostgres_SwitchSession_ReplacedNotLive(t *testing.T) {
 
 func TestPostgres_SwitchSession_ConcurrentSwitchesFromOneSession(t *testing.T) {
 	pool, sessions, refresh, principal := testSwitchRepos(t)
-	replaced, _ := seedSwitchSession(t, sessions, refresh, principal, "eng")
+	_, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
 
 	const racers = 5
 	errs := make([]error, racers)
@@ -147,7 +147,7 @@ func TestPostgres_SwitchSession_ConcurrentSwitchesFromOneSession(t *testing.T) {
 	for i := range racers {
 		wg.Go(func() {
 			next, nextRT := testSessionRows(principal, "sre")
-			errs[i] = sessions.SwitchSession(context.Background(), next, nextRT, replaced.ID, time.Now())
+			errs[i] = sessions.SwitchSession(context.Background(), next, nextRT, oldRT, time.Now())
 		})
 	}
 	wg.Wait()
@@ -166,5 +166,81 @@ func TestPostgres_SwitchSession_ConcurrentSwitchesFromOneSession(t *testing.T) {
 	}
 	if s, rt := liveRows(t, pool, principal); s != 1 || rt != 1 {
 		t.Errorf("%d live sessions, %d live refresh tokens, want 1 and 1", s, rt)
+	}
+}
+
+func TestPostgres_SwitchSession_AfterRefreshConsumedTheToken(t *testing.T) {
+	pool, sessions, refresh, principal := testSwitchRepos(t)
+	ctx := context.Background()
+	replaced, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
+
+	// Refresh rotation consumes the token and leaves the session row live.
+	if err := refresh.RevokeRefreshToken(ctx, oldRT.ID, time.Now()); err != nil {
+		t.Fatalf("RevokeRefreshToken: %v", err)
+	}
+	next, nextRT := testSessionRows(principal, "sre")
+	if err := sessions.SwitchSession(ctx, next, nextRT, oldRT, time.Now()); !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("err = %v, want ErrSessionNotFound", err)
+	}
+	if got, _ := sessions.GetSessionByID(ctx, replaced.ID); got.RevokedAt != nil {
+		t.Error("the refused switch revoked the replaced session")
+	}
+	if _, err := sessions.GetSessionByID(ctx, next.ID); !errors.Is(err, ErrSessionNotFound) {
+		t.Errorf("next session was written: %v", err)
+	}
+	if s, _ := liveRows(t, pool, principal); s != 1 {
+		t.Errorf("%d live sessions, want 1", s)
+	}
+}
+
+func TestPostgres_SwitchSession_RefreshAfterSwitchFails(t *testing.T) {
+	_, sessions, refresh, principal := testSwitchRepos(t)
+	ctx := context.Background()
+	_, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
+
+	next, nextRT := testSessionRows(principal, "sre")
+	if err := sessions.SwitchSession(ctx, next, nextRT, oldRT, time.Now()); err != nil {
+		t.Fatalf("SwitchSession: %v", err)
+	}
+	if err := refresh.RevokeRefreshToken(ctx, oldRT.ID, time.Now()); !errors.Is(err, ErrRefreshTokenNotFound) {
+		t.Errorf("refresh rotation after the switch: err = %v, want ErrRefreshTokenNotFound", err)
+	}
+}
+
+func TestPostgres_SwitchSession_ExpiredReplacedToken(t *testing.T) {
+	_, sessions, refresh, principal := testSwitchRepos(t)
+	ctx := context.Background()
+	_, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
+
+	next, nextRT := testSessionRows(principal, "sre")
+	if err := sessions.SwitchSession(ctx, next, nextRT, oldRT, oldRT.ExpiresAt.Add(time.Minute)); !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("err = %v, want ErrSessionNotFound", err)
+	}
+}
+
+func TestPostgres_SwitchSession_RacesRefresh(t *testing.T) {
+	pool, sessions, refresh, principal := testSwitchRepos(t)
+	_, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
+
+	var switchErr, refreshErr error
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		next, nextRT := testSessionRows(principal, "sre")
+		switchErr = sessions.SwitchSession(context.Background(), next, nextRT, oldRT, time.Now())
+	})
+	wg.Go(func() {
+		refreshErr = refresh.RevokeRefreshToken(context.Background(), oldRT.ID, time.Now())
+	})
+	wg.Wait()
+
+	if (switchErr == nil) == (refreshErr == nil) {
+		t.Fatalf("switch err = %v, refresh err = %v, want exactly one to succeed", switchErr, refreshErr)
+	}
+	if switchErr == nil {
+		if s, _ := liveRows(t, pool, principal); s != 1 {
+			t.Errorf("%d live sessions after the switch won, want 1", s)
+		}
+	} else if !errors.Is(switchErr, ErrSessionNotFound) {
+		t.Errorf("switch err = %v, want ErrSessionNotFound", switchErr)
 	}
 }

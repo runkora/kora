@@ -106,17 +106,27 @@ func (m *mockSessionRepository) RevokeSession(_ context.Context, id string, revo
 	return nil
 }
 
-// SwitchSession applies every write or, on switchErr or a replaced session
-// that is not live, none.
-func (m *mockSessionRepository) SwitchSession(_ context.Context, next *Session, nextRefresh *RefreshToken, replacedID string, at time.Time) error {
+// SwitchSession applies every write or, on switchErr or a replaced token or
+// session that is not live, none.
+func (m *mockSessionRepository) SwitchSession(_ context.Context, next *Session, nextRefresh *RefreshToken, replacedRefresh *RefreshToken, at time.Time) error {
 	if m.switchErr != nil {
 		return m.switchErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	replacedID := replacedRefresh.SessionID
 	replaced, ok := m.sessions[replacedID]
 	if !ok || replaced.RevokedAt != nil {
 		return ErrSessionNotFound
+	}
+	if m.refresh != nil {
+		m.refresh.mu.Lock()
+		stored, found := m.refresh.byID[replacedRefresh.ID]
+		live := found && stored.RevokedAt == nil && at.Before(stored.ExpiresAt)
+		m.refresh.mu.Unlock()
+		if !live {
+			return ErrSessionNotFound
+		}
 	}
 	replaced.RevokedAt = &at
 	cp := *next

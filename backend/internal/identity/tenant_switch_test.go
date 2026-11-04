@@ -155,9 +155,9 @@ func (r recordingSessions) RevokeSession(ctx context.Context, id string, at time
 	return r.mockSessionRepository.RevokeSession(ctx, id, at)
 }
 
-func (r recordingSessions) SwitchSession(ctx context.Context, next *Session, nextRefresh *RefreshToken, replacedID string, at time.Time) error {
-	r.log.add("switch session " + replacedID + " to " + next.TenantID)
-	return r.mockSessionRepository.SwitchSession(ctx, next, nextRefresh, replacedID, at)
+func (r recordingSessions) SwitchSession(ctx context.Context, next *Session, nextRefresh *RefreshToken, replaced *RefreshToken, at time.Time) error {
+	r.log.add("switch session " + replaced.SessionID + " to " + next.TenantID)
+	return r.mockSessionRepository.SwitchSession(ctx, next, nextRefresh, replaced, at)
 }
 
 type recordingBlocklist struct {

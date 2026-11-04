@@ -34,11 +34,12 @@ type SessionRepository interface {
 	// RefreshTokenRepository.RevokeAllForSession before or after.
 	RevokeSession(ctx context.Context, id string, revokedAt time.Time) error
 
-	// SwitchSession commits a tenant switch in one transaction: it revokes the
-	// replaced session and its refresh tokens and inserts the next session and
-	// refresh token. A replaced session that is not live is ErrSessionNotFound
-	// and nothing is written.
-	SwitchSession(ctx context.Context, next *Session, nextRefresh *RefreshToken, replacedID string, at time.Time) error
+	// SwitchSession commits a tenant switch in one transaction: it consumes the
+	// replaced refresh token, revokes its session and that session's other
+	// refresh tokens, and inserts the next session and refresh token. A replaced
+	// token or session that is not live is ErrSessionNotFound and nothing is
+	// written.
+	SwitchSession(ctx context.Context, next *Session, nextRefresh *RefreshToken, replaced *RefreshToken, at time.Time) error
 }
 
 // ─── PostgreSQL implementation ────────────────────────────────────────────────
@@ -82,20 +83,35 @@ func (r *postgresSessionRepository) CreateSession(ctx context.Context, s *Sessio
 	return nil
 }
 
-func (r *postgresSessionRepository) SwitchSession(ctx context.Context, next *Session, nextRefresh *RefreshToken, replacedID string, at time.Time) error {
+func (r *postgresSessionRepository) SwitchSession(ctx context.Context, next *Session, nextRefresh *RefreshToken, replaced *RefreshToken, at time.Time) error {
 	claimsJSON, err := json.Marshal(next.Claims)
 	if err != nil {
 		return fmt.Errorf("marshal claims: %w", err)
 	}
 	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
-		// The conditional update is what makes two switches from one session
-		// mutually exclusive: the second finds no live row.
+		// Consuming the token with the guard refresh rotation uses makes a switch
+		// and a refresh of the same token mutually exclusive.
 		tag, err := tx.Exec(ctx, `
+			UPDATE identity_refresh_tokens
+			SET    revoked_at = $1
+			WHERE  id = $2
+			  AND  revoked_at IS NULL
+			  AND  expires_at > $1
+		`, at, replaced.ID)
+		if err != nil {
+			return fmt.Errorf("consume replaced refresh token: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrSessionNotFound
+		}
+		// The same guard on the session makes two switches from it mutually
+		// exclusive.
+		tag, err = tx.Exec(ctx, `
 			UPDATE identity_sessions
 			SET    revoked_at = $1
 			WHERE  id = $2
 			  AND  revoked_at IS NULL
-		`, at, replacedID)
+		`, at, replaced.SessionID)
 		if err != nil {
 			return fmt.Errorf("revoke replaced session: %w", err)
 		}
@@ -107,7 +123,7 @@ func (r *postgresSessionRepository) SwitchSession(ctx context.Context, next *Ses
 			SET    revoked_at = $1
 			WHERE  session_id = $2
 			  AND  revoked_at IS NULL
-		`, at, replacedID); err != nil {
+		`, at, replaced.SessionID); err != nil {
 			return fmt.Errorf("revoke replaced refresh tokens: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `
