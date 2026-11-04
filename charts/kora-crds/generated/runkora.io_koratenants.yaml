@@ -66,6 +66,19 @@ spec:
                   Active controls whether the tenant is active. When false, the operator
                   sets state:suspended in the registry without deleting cluster resources.
                 type: boolean
+              allowedMarketplaceRepos:
+                description: |-
+                  AllowedMarketplaceRepos lists the GitHub repositories, as owner/repo, that
+                  this tenant's SkillMarketplaceSources may register. Matching ignores case.
+                  Only platform admins edit it: KoraTenant is cluster-scoped, outside any
+                  tenant admin's namespace. A source whose repository is not listed stays
+                  Pending (NotAllowlisted).
+                  See docs/adr/2026-08-17-agent-skills.md.
+                items:
+                  maxLength: 140
+                  pattern: ^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$
+                  type: string
+                type: array
               apiAuthoring:
                 default: Enabled
                 description: |-

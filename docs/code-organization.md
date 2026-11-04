@@ -51,7 +51,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `example` | Reference implementation, not production. Full feature layout (`models`, `repository`, `postgres`, `service`, `handlers`) with tests, demonstrating the pattern |
 | `credentials` | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, and the non-registrable `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
 | `toolgateway` | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) |
-| `skills` | Read-only Agent Marketplace behind `skills-service`: tenant-scoped source registry, GitHub App token provider, crawler, Redis cache and search, marketplace controller ([marketplace backend ADR](adr/2026-08-28-marketplace-adr-backend.md)) |
+| `skills` | Read-only Agent Marketplace behind `skills-service`: tenant-scoped source registry, GitHub App token provider, crawler, Redis cache and search, marketplace controller ([agent skills ADR](adr/2026-08-17-agent-skills.md)) |
 | `errors` | Nothing yet: an empty placeholder directory. |
 
 > `internal/errors` is an intentional empty placeholder (a `git`-tracked directory with no Go files).

@@ -19,7 +19,7 @@
 // spec, so every run computes a verdict for every source and patches the status
 // of each one whose verdict changed. The aggregator makes no GitHub calls.
 //
-// See docs/adr/2026-10-13-skill-marketplace-source-registration.md.
+// See docs/adr/2026-08-17-agent-skills.md.
 package operator
 
 import (

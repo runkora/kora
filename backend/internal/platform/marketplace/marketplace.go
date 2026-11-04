@@ -5,7 +5,7 @@
 // skills-service already reads. skills-service mounts the ConfigMap and reloads
 // it on change. Neither side imports the other.
 //
-// See docs/adr/2026-10-13-skill-marketplace-source-registration.md.
+// See docs/adr/2026-08-17-agent-skills.md.
 package marketplace
 
 import "strings"

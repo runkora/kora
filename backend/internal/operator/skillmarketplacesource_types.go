@@ -10,7 +10,7 @@
 // skills-service: it names the marketplace after the repo and reads the
 // default branch, so the spec has no display name and no branch.
 //
-// See docs/adr/2026-10-13-skill-marketplace-source-registration.md.
+// See docs/adr/2026-08-17-agent-skills.md.
 package operator
 
 import (

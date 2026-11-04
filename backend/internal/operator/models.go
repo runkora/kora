@@ -76,7 +76,7 @@ type KoraTenantSpec struct {
 	// Only platform admins edit it: OrbitTenant is cluster-scoped, outside any
 	// tenant admin's namespace. A source whose repository is not listed stays
 	// Pending (NotAllowlisted).
-	// See docs/adr/2026-10-13-skill-marketplace-source-registration.md.
+	// See docs/adr/2026-08-17-agent-skills.md.
 	// +optional
 	// +kubebuilder:validation:items:MaxLength=140
 	// +kubebuilder:validation:items:Pattern=`^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$`

@@ -11,7 +11,7 @@
 // Allowlist edits, suspends and deletes of an OrbitTenant are handled by the
 // TenantReconciler, which runs the same aggregator.
 //
-// See docs/adr/2026-10-13-skill-marketplace-source-registration.md.
+// See docs/adr/2026-08-17-agent-skills.md.
 package operator
 
 import (
