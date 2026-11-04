@@ -263,6 +263,7 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 type CreateSessionRequest struct {
 	RunID        string `json:"run_id"`
 	AgentTypeID  string `json:"agent_type_id"`
+	AgentSlug    string `json:"agent_slug"`
 	TenantID     string `json:"tenant_id"`
 	Framework    string `json:"framework"`
 	Model        string `json:"model"`
@@ -363,7 +364,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			inferenceURL = fmt.Sprintf("%s/run/%s", strings.TrimRight(base, "/"), req.RunID)
 			extraEnv = append(extraEnv, "ANTHROPIC_BASE_URL="+inferenceURL)
 		}
-		extraEnv = append(extraEnv, claudeTelemetryEnv(ctx, c.cfg.OTLPEndpoint, req.RunID, req.TenantID)...)
+		extraEnv = append(extraEnv, claudeTelemetryEnv(ctx, c.cfg.OTLPEndpoint, req.RunID, req.TenantID, req.AgentTypeID, req.AgentSlug)...)
 		runner = NewClaudeRunner(ClaudeRunnerConfig{
 			BinaryPath:        c.cfg.ClaudeBinaryPath,
 			WrapperPath:       c.cfg.WrapperPath,
@@ -787,7 +788,7 @@ func toolGatewayURLForRun(gatewayURL, runID string) string {
 // traces, metrics and events to the platform collector, with every turn a child
 // of the span in ctx. Empty when no endpoint is configured, matching the
 // platform services. See docs/adr/2026-09-18-agent-runtime-trace-propagation.md.
-func claudeTelemetryEnv(ctx context.Context, endpoint, runID, tenantID string) []string {
+func claudeTelemetryEnv(ctx context.Context, endpoint, runID, tenantID, agentID, agentSlug string) []string {
 	if endpoint == "" {
 		return nil
 	}
@@ -802,7 +803,7 @@ func claudeTelemetryEnv(ctx context.Context, endpoint, runID, tenantID string) [
 		// ANTHROPIC_BASE_URL points at the inference gateway, and Claude Code
 		// only sends traceparent to a non-Anthropic base URL when told to.
 		"CLAUDE_CODE_PROPAGATE_TRACEPARENT=1",
-		"OTEL_RESOURCE_ATTRIBUTES=" + string(observability.RunIDKey) + "=" + runID + "," + string(observability.TenantIDKey) + "=" + tenantID,
+		"OTEL_RESOURCE_ATTRIBUTES=" + resourceAttributes(runID, tenantID, agentID, agentSlug),
 	}
 	carrier := propagation.MapCarrier{}
 	propagation.TraceContext{}.Inject(ctx, carrier)
@@ -810,4 +811,18 @@ func claudeTelemetryEnv(ctx context.Context, endpoint, runID, tenantID string) [
 		env = append(env, strings.ToUpper(key)+"="+carrier.Get(key))
 	}
 	return env
+}
+
+// resourceAttributes renders the run's identifiers as an OTEL_RESOURCE_ATTRIBUTES
+// value. The agent slug is omitted when empty, as from an older kora-agents.
+func resourceAttributes(runID, tenantID, agentID, agentSlug string) string {
+	attrs := []string{
+		string(observability.RunIDKey) + "=" + runID,
+		string(observability.TenantIDKey) + "=" + tenantID,
+		string(observability.AgentIDKey) + "=" + agentID,
+	}
+	if agentSlug != "" {
+		attrs = append(attrs, string(observability.AgentSlugKey)+"="+agentSlug)
+	}
+	return strings.Join(attrs, ",")
 }

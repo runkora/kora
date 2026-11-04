@@ -250,6 +250,7 @@ func (s *RunService) sessionRequest(ctx context.Context, run Run, at AgentType) 
 	req := sessionmanager.CreateSessionRequest{
 		RunID:       run.ID,
 		AgentTypeID: run.AgentTypeID,
+		AgentSlug:   at.Slug,
 		TenantID:    run.TenantID,
 		Framework:   string(at.Framework),
 		// One governed MCP endpoint per server the agent has tool grants on.
