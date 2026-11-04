@@ -233,7 +233,7 @@ The API is under `/v1` and requires the `skills:read` scope. The tenant comes fr
 
 - `charts/kora/templates/skills-service/` renders the Deployment, Service, ServiceAccount, config ConfigMap and client-mTLS DestinationRule.
 - The Deployment mounts `kora-skill-marketplaces` and `kora-skill-marketplace-secrets` read-only.
-- `charts/kora/templates/api/virtualservice.yaml` routes `/v1/marketplaces` to skills-service. `charts/kora/templates/platform/netpols.yaml` opens the skills-service port to mesh callers.
+- `charts/kora/templates/api/virtualservice.yaml` routes `/v1/marketplaces` and `/v1/skills` to skills-service. `charts/kora/templates/platform/netpols.yaml` opens the skills-service port to mesh callers.
 - The frontend deployment receives `SKILLS_SERVICE_URL`.
 - The chart renders a ServiceEntry for `api.github.com:443` so skills-service works under `REGISTRY_ONLY` outbound traffic.
 
