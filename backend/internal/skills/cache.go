@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -30,11 +31,12 @@ func NewCache(redis *storage.RedisClient, ttl, failureTTL time.Duration) *Cache 
 }
 
 func cacheKey(m *Marketplace, parts ...string) string {
-	key := "skills:" + m.TenantID + ":" + m.Slug
+	var key strings.Builder
+	key.WriteString("skills:" + m.TenantID + ":" + m.Slug)
 	for _, p := range parts {
-		key += ":" + p
+		key.WriteString(":" + p)
 	}
-	return key
+	return key.String()
 }
 
 // GetList returns the cached crawl of m, if any.

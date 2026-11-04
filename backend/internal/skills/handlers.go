@@ -146,7 +146,7 @@ func (c *Controller) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 // isSkillPath rejects a path with an empty, "." or ".." segment. Only paths
 // from the crawled tree are ever fetched, so this is defense in depth.
 func isSkillPath(p string) bool {
-	for _, seg := range strings.Split(p, "/") {
+	for seg := range strings.SplitSeq(p, "/") {
 		if seg == "" || seg == "." || seg == ".." {
 			return false
 		}
