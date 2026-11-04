@@ -1,72 +1,31 @@
 'use client';
 
-/** @tier 3 — skills-scoped. Card view of Skill results; each card links to its detail route. */
+/** @tier 3 — skills-scoped. Card view of the skills on this page; each card links to its skill. */
 
 import Link from 'next/link';
-import { Card, CardContent, CardFooter, CardHeader, Grid, Icon, Stack, Text } from '@runkora/hades';
+import { Card, CardContent, CardHeader, Grid, Stack, Text } from '@runkora/hades';
 import { APP_ROUTES } from '@runkora/lib/routing';
-import type { SkillSummary } from '@runkora/shared/api';
-import { useMarketplaceContext } from '../_context/skills-context';
+import { useSkillsContext } from '../_context/skills-context';
 
-export function MarketplaceSkillGrid() {
-  const { skills, browse, marketplaceName } = useMarketplaceContext();
+export function SkillGrid() {
+  const { skills, browse } = useSkillsContext();
 
   return (
     <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
       {skills.map((skill) => (
-        <SkillCard
-          key={skill.skillSlug}
-          skill={skill}
-          marketplaceName={marketplaceName}
-          href={APP_ROUTES.skills.skill(browse.marketplace, skill.skillName)}
-        />
+        <Stack asChild key={skill.path}>
+          <Link href={APP_ROUTES.skills.skill(browse.marketplace, skill.path)}>
+            <Card interactive column>
+              <CardHeader title={skill.name} />
+              <CardContent grow>
+                <Text size="supporting" color="muted">
+                  {skill.description || 'No description provided.'}
+                </Text>
+              </CardContent>
+            </Card>
+          </Link>
+        </Stack>
       ))}
     </Grid>
-  );
-}
-
-/**
- * One Skill result. The whole card is a link to the server-rendered detail page.
- */
-function SkillCard({
-  skill,
-  marketplaceName,
-  href,
-}: {
-  skill: SkillSummary;
-  marketplaceName: string;
-  href: string;
-}) {
-  let description: string;
-  if (skill.description) {
-    // The Skill has a description.
-    description = skill.description;
-  } else {
-    // The description is empty. Show a placeholder.
-    description = 'No description provided.';
-  }
-
-  return (
-    <Link href={href} aria-label={`Open ${skill.name}`} style={{ display: 'flex' }}>
-      <Card interactive column style={{ width: '100%' }}>
-        <Stack grow gap="none">
-          <CardHeader title={skill.name} />
-
-          {/* grow keeps the footers of the cards in one row aligned. */}
-          <CardContent grow>
-            <Text size="supporting" color="muted">
-              {description}
-            </Text>
-          </CardContent>
-
-          <CardFooter compact justify="between">
-            <Text as="span" size="caption" color="subtle">
-              {marketplaceName}
-            </Text>
-            <Icon name="chevron-right" size="2xs" color="muted" />
-          </CardFooter>
-        </Stack>
-      </Card>
-    </Link>
   );
 }

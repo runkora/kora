@@ -1,53 +1,30 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  SidebarLayout,
-  SidebarLayoutMain,
-  SidebarLayoutSidebar,
-  Skeleton,
-  Stack,
-} from '@orbit/hades';
+import { Card, CardContent, CardHeader, Skeleton, Stack } from '@runkora/hades';
 
-/**
- * The Skill page loads the Marketplaces and the Skill in one server pass, so
- * the skeleton stands in for the whole surface: the file explorer, the
- * preview of the selected file, and the repository card.
- */
-export default function SkillDetailLoading() {
+/** Mirrors the skill page: file explorer and preview beside the repository card. */
+export default function SkillLoading() {
   return (
-    <Stack role="status" aria-label="Loading the Skill">
-      <SidebarLayout sidebarWidth="detail-panel" gap="relaxed" align="start">
-        <SidebarLayoutMain>
-          <Stack gap="comfortable">
-            {/* File explorer: header and a few file rows. */}
-            <Card column>
-              <CardHeader>
-                <Skeleton shape="line" width="third" size="sm" />
-              </CardHeader>
-              <CardContent>
-                <Stack gap="snug">
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <Skeleton key={i} shape="line" width="half" size="sm" />
-                  ))}
-                </Stack>
-              </CardContent>
-            </Card>
-
-            {/* Preview of the selected file. */}
-            <Card column>
-              <CardHeader>
-                <Skeleton shape="line" width="quarter" size="sm" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton shape="block" width="full" size="xl" />
-              </CardContent>
-            </Card>
-          </Stack>
-        </SidebarLayoutMain>
-
-        <SidebarLayoutSidebar>
-          {/* Repository card: owner and owner/repo. */}
+    <Stack gap="comfortable" role="status" aria-label="Loading the skill">
+      <Skeleton shape="line" width="quarter" size="sm" />
+      <Stack direction={{ base: 'vertical', lg: 'horizontal' }} gap="relaxed">
+        <Stack gap="comfortable" grow minWidth="none">
+          <Card column>
+            <CardHeader>
+              <Skeleton shape="line" width="third" size="sm" />
+            </CardHeader>
+            <CardContent>
+              <Stack gap="snug">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} shape="line" width="half" size="sm" />
+                ))}
+              </Stack>
+            </CardContent>
+          </Card>
+          <Skeleton shape="block" width="full" size="xl" />
+        </Stack>
+        <Stack
+          minWidth={{ base: 'none', lg: 'detail-panel' }}
+          maxWidth={{ base: 'full', lg: 'detail-panel' }}
+        >
           <Card column>
             <CardContent padded>
               <Stack gap="tight">
@@ -56,8 +33,8 @@ export default function SkillDetailLoading() {
               </Stack>
             </CardContent>
           </Card>
-        </SidebarLayoutSidebar>
-      </SidebarLayout>
+        </Stack>
+      </Stack>
     </Stack>
   );
 }

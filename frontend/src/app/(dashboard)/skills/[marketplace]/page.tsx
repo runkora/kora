@@ -1,24 +1,50 @@
-import { getSession, isSessionValid } from '@runkora/server/session';
-import { loadMarketplacePage } from '../_services/skills-server';
-import { MarketplaceShell } from '../_components/skills-shell';
+// RSC: loads the Marketplaces and the page of skills the URL names.
 
-interface MarketplacePageProps {
+import { loadErrorMessage } from '@runkora/lib/load-error';
+import { getSession, isSessionValid } from '@runkora/server/session';
+import { getPreferences } from '../../_preferences/preferences-server';
+import { loadMarketplaces, loadSkillsPage } from '../_services/skills-server';
+import { SkillsShell } from '../_components/skills-shell';
+import { toBrowse } from '../_types';
+
+interface SkillsMarketplacePageProps {
   params: Promise<{ marketplace: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export default async function MarketplacePage({ params }: MarketplacePageProps) {
-  const { marketplace: marketplaceSlug } = await params;
+export default async function SkillsMarketplacePage({
+  params,
+  searchParams,
+}: SkillsMarketplacePageProps) {
+  const [{ marketplace }, query] = await Promise.all([params, searchParams]);
+  const browse = toBrowse(marketplace, query.search, query.page);
   const session = await getSession();
-  const result = await loadMarketplacePage(
-    isSessionValid(session) ? session.accessToken : null,
-    marketplaceSlug,
-  );
+
+  if (!isSessionValid(session)) {
+    return (
+      <SkillsShell
+        initialOverview={{ marketplaces: [], browse, skills: [], total: 0 }}
+        initialError={{ status: 401, message: loadErrorMessage(401, 'Skills') }}
+      />
+    );
+  }
+
+  const { tables } = await getPreferences(session.accessToken);
+  const [marketplaces, page] = await Promise.all([
+    loadMarketplaces(session.accessToken),
+    loadSkillsPage(session.accessToken, browse, tables.defaultPageSize),
+  ]);
+  const failed = !marketplaces.ok ? marketplaces : !page.ok ? page : null;
 
   return (
-    <MarketplaceShell
-      key={marketplaceSlug}
-      initialOverview={result.overview}
-      initialError={result.ok ? null : result.message}
+    <SkillsShell
+      initialOverview={{
+        marketplaces: marketplaces.ok ? marketplaces.data : [],
+        browse,
+        skills: page.ok ? page.data.skills : [],
+        total: page.ok ? page.data.total : 0,
+      }}
+      initialError={failed && { status: failed.status, message: failed.message }}
     />
   );
 }

@@ -1,8 +1,10 @@
 'use client';
 
-/** @tier 3 — skills-scoped. Main overview UI: header, toolbar, request notices, and Skill results. */
+/** @tier 3 — skills-scoped. The overview: header, Marketplace picker, search and results. */
 
 import { useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Alert,
   Button,
@@ -10,7 +12,6 @@ import {
   Icon,
   Input,
   Label,
-  NativeSelect,
   PageSectionHeader,
   Popover,
   PopoverContent,
@@ -21,82 +22,56 @@ import {
   Text,
 } from '@runkora/hades';
 import { ViewToggle, type ViewToggleProps } from '@runkora/components';
-import { useMarketplaceContext } from '../_context/skills-context';
-import { MIN_SEARCH_LENGTH, SORT_OPTIONS, type SkillSort } from '../_types';
-import { toResultState } from '../_utils/browse-params';
-import { MarketplacePagination } from './skills-pagination';
-import { MarketplaceResultsSkeleton } from './skills-results-skeleton';
-import { MarketplaceSkillGrid } from './skill-grid';
-import { MarketplaceSkillList } from './skill-list';
+import { APP_ROUTES } from '@runkora/lib/routing';
+import { useSkillsContext } from '../_context/skills-context';
+import { MIN_SEARCH_LENGTH, type SkillsLoadError } from '../_types';
+import { SkillGrid } from './skill-grid';
+import { SkillList } from './skill-list';
+import { SkillsPagination } from './skills-pagination';
+import { SkillsResultsSkeleton } from './skills-results-skeleton';
 
 type ViewMode = ViewToggleProps['viewMode'];
 
-/** The label of each sort option in the toolbar. */
-const SORT_LABELS: Record<SkillSort, string> = {
-  'name-asc': 'Sort: A–Z',
-  'name-desc': 'Sort: Z–A',
-  relevance: 'Sort: Relevance',
-};
-
-export function MarketplacePage() {
-  const { marketplaces } = useMarketplaceContext();
+export function SkillsPage() {
+  const { marketplaces, browse } = useSkillsContext();
   const [view, setView] = useState<ViewMode>('list');
+  const selected = marketplaces.some((marketplace) => marketplace.slug === browse.marketplace);
 
   return (
     <Stack gap="comfortable">
-      <PageSectionHeader title="Skills" description="Browse and review approved Skills." />
+      <PageSectionHeader title="Skills" description="Browse the skills in your Marketplaces." />
 
       {marketplaces.length === 0 ? (
-        <BlockingState />
+        <NoMarketplaces />
+      ) : !selected ? (
+        <EmptyState
+          icon="box"
+          title="Marketplace not found"
+          description="No Marketplace matches this address."
+          action={
+            <Button asChild variant="outline" size="sm">
+              <Link href={APP_ROUTES.skills.root}>Open Skills</Link>
+            </Button>
+          }
+        />
       ) : (
         <>
-          <Toolbar view={view} onViewChange={setView} />
-          <RequestNotice />
-          <Results view={view} />
+          <Toolbar
+            viewToggle={view === 'cards' && <ViewToggle viewMode={view} onToggle={setView} />}
+          />
+          <Results view={view} viewToggle={<ViewToggle viewMode={view} onToggle={setView} />} />
         </>
       )}
     </Stack>
   );
 }
 
-/** Shown when no usable Marketplace data exists: an error, a load, or no Marketplaces. */
-function BlockingState() {
-  const { status, error, retry } = useMarketplaceContext();
+/** The Marketplace list is empty, or could not load; a retry reloads the page. */
+function NoMarketplaces() {
+  const { error } = useSkillsContext();
+  const router = useRouter();
 
-  if (status === 'error') {
-    let message: string;
-    if (error) {
-      // The request returned an explanation.
-      message = error;
-    } else {
-      // No explanation.
-      message = 'The request failed.';
-    }
-    return (
-      <Alert variant="error">
-        <Icon name="triangle-alert" color="status-error" />
-        <Stack grow>
-          <Text size="caption" color="status-error">
-            Could not load the Marketplace. {message}
-          </Text>
-        </Stack>
-        <Button variant="outline" size="xs" onClick={retry}>
-          Try again
-        </Button>
-      </Alert>
-    );
-  }
-
-  if (status === 'loading') {
-    // A retry after a failed first load. The skeleton stands in for the
-    // toolbar and the results until the Marketplace list arrives.
-    return (
-      <Stack gap="comfortable" role="status" aria-label="Loading the Marketplace">
-        <MarketplaceResultsSkeleton />
-      </Stack>
-    );
-  }
-
+  if (error) return <LoadErrorAlert error={error} onRetry={() => router.refresh()} />;
   return (
     <EmptyState
       icon="box"
@@ -106,100 +81,86 @@ function BlockingState() {
   );
 }
 
-function Toolbar({
-  view,
-  onViewChange,
-}: {
-  view: ViewMode;
-  onViewChange: (view: ViewMode) => void;
-}) {
-  const {
-    marketplaces,
-    marketplaceName,
-    browse,
-    searchText,
-    setSearchText,
-    selectMarketplace,
-    setSort,
-  } = useMarketplaceContext();
+function LoadErrorAlert({ error, onRetry }: { error: SkillsLoadError; onRetry: () => void }) {
+  return (
+    <Alert variant="error">
+      <Icon name="triangle-alert" color="status-error" />
+      <Stack grow>
+        {error.status === 502 && (
+          <Text size="caption" weight="heavy" color="status-error">
+            This Marketplace is unavailable.
+          </Text>
+        )}
+        <Text size="caption" color="status-error">
+          {error.message}
+        </Text>
+      </Stack>
+      <Button variant="outline" size="xs" onClick={onRetry}>
+        Try again
+      </Button>
+    </Alert>
+  );
+}
+
+function Toolbar({ viewToggle }: { viewToggle: React.ReactNode }) {
+  const { marketplaces, browse, searchText, setSearchText, selectMarketplace } = useSkillsContext();
   const [pickerOpen, setPickerOpen] = useState(false);
-
-  function handleMarketplaceChange(name: string) {
-    selectMarketplace(name);
-    setPickerOpen(false);
-  }
-
-  function handleSortChange(value: string) {
-    const option = SORT_OPTIONS.find((sort) => sort === value);
-    if (option) {
-      // One of the sort options. Any other value keeps the current order.
-      setSort(option);
-    }
-  }
-
+  const current = marketplaces.find((marketplace) => marketplace.slug === browse.marketplace);
   const searchLength = searchText.trim().length;
-  const searchTooShort = searchLength > 0 && searchLength < MIN_SEARCH_LENGTH;
 
   return (
     <Stack gap="tight">
       <Stack direction={{ base: 'vertical', lg: 'horizontal' }} align="center" gap="snug">
-        <Stack grow style={{ minWidth: 0 }}>
+        <Stack grow minWidth="none">
           <Input
-            placeholder="Search Skills"
+            placeholder="Search skills"
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
-            aria-label="Search Skills"
+            aria-label="Search skills"
           />
         </Stack>
 
-        <Stack shrink>
-          <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" aria-label={`Marketplace: ${marketplaceName}`}>
-                <Icon name="filter" size="2xs" />
-                {marketplaceName}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" style={{ width: 240 }}>
-              <RadioGroup value={browse.marketplace} onValueChange={handleMarketplaceChange}>
-                <Stack gap="snug">
-                  {marketplaces.map((marketplace) => (
-                    <Label key={marketplace.marketplaceSlug}>
-                      <Stack direction="horizontal" align="center" gap="snug">
-                        <RadioGroupItem value={marketplace.marketplaceSlug} />
+        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" aria-label={`Marketplace: ${current?.name}`}>
+              <Icon name="filter" size="2xs" />
+              {current?.name}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end">
+            <RadioGroup
+              value={browse.marketplace}
+              onValueChange={(slug) => {
+                selectMarketplace(slug);
+                setPickerOpen(false);
+              }}
+            >
+              <Stack gap="snug">
+                {marketplaces.map((marketplace) => (
+                  <Label key={marketplace.slug}>
+                    <Stack direction="horizontal" align="center" gap="snug">
+                      <RadioGroupItem value={marketplace.slug} />
+                      <Stack gap="none">
                         <Text as="span" size="supporting">
                           {marketplace.name}
                         </Text>
+                        <Text as="span" size="caption" color="subtle" mono>
+                          {marketplace.repository}
+                        </Text>
                       </Stack>
-                    </Label>
-                  ))}
-                </Stack>
-              </RadioGroup>
-            </PopoverContent>
-          </Popover>
-        </Stack>
+                    </Stack>
+                  </Label>
+                ))}
+              </Stack>
+            </RadioGroup>
+          </PopoverContent>
+        </Popover>
 
-        <Stack shrink>
-          <NativeSelect
-            value={browse.sort}
-            onChange={(event) => handleSortChange(event.target.value)}
-            aria-label="Sort skills"
-          >
-            {SORT_OPTIONS.filter((sort) => sort !== 'relevance' || browse.query !== '').map(
-              (sort) => (
-                <option key={sort} value={sort}>
-                  {SORT_LABELS[sort]}
-                </option>
-              ),
-            )}
-          </NativeSelect>
-        </Stack>
-
-        <ViewToggle viewMode={view} onToggle={onViewChange} />
+        {viewToggle}
       </Stack>
 
-      {searchTooShort && (
-        <Text size="caption" color="subtle" role="status">
+      {searchLength > 0 && searchLength < MIN_SEARCH_LENGTH && (
+        <Text size="caption" color="subtle">
           Type at least {MIN_SEARCH_LENGTH} characters to search.
         </Text>
       )}
@@ -207,71 +168,18 @@ function Toolbar({
   );
 }
 
-/** Non-blocking notices above the results: a refresh in progress, or a failed refresh. */
-function RequestNotice() {
-  const { status, error, retry, total } = useMarketplaceContext();
+function Results({ view, viewToggle }: { view: ViewMode; viewToggle: React.ReactNode }) {
+  const { browse, skills, total, status, error, retry, clearSearch } = useSkillsContext();
 
-  if (status === 'loading') {
-    return (
-      <Alert variant="info" role="status" aria-live="polite">
-        <Icon name="loader" />
-        <Text size="caption">Loading Skills…</Text>
-      </Alert>
-    );
-  }
+  if (error) return <LoadErrorAlert error={error} onRetry={retry} />;
+  if (status === 'loading' && skills.length === 0) return <SkillsResultsSkeleton />;
 
-  if (status === 'error') {
-    let message: string;
-    if (error) {
-      // The request returned an explanation.
-      message = error;
-    } else {
-      // No explanation.
-      message = 'The request failed.';
-    }
-    return (
-      <Alert variant="error">
-        <Icon name="triangle-alert" color="status-error" />
-        <Stack grow>
-          <Text size="caption" color="status-error">
-            {message}
-            {total > 0 && ' The results below are from the last successful request.'}
-          </Text>
-        </Stack>
-        <Button variant="outline" size="xs" onClick={retry}>
-          Try again
-        </Button>
-      </Alert>
-    );
-  }
-
-  return null;
-}
-
-function Results({ view }: { view: ViewMode }) {
-  const { browse, total, clearSearch, status } = useMarketplaceContext();
-  if ((status === 'error' || status === 'loading') && total === 0) {
-    // Failed or pending Skills requests do not establish that the source is empty.
-    return null;
-  }
-  const resultState = toResultState(total, browse.query);
-
-  if (resultState === 'configured_but_empty') {
-    return (
-      <EmptyState
-        icon="box"
-        title="No Skills in this Marketplace"
-        description="This Marketplace has no Skills that you can view."
-      />
-    );
-  }
-
-  if (resultState === 'no_matches') {
+  if (total === 0 && browse.search) {
     return (
       <EmptyState
         icon="search"
-        title="No Skills match your search"
-        description="Try a broader search term, or clear the search."
+        title="No skills match your search"
+        description="Try a broader search, or clear the search."
         action={
           <Button variant="outline" size="sm" onClick={clearSearch}>
             Clear search
@@ -281,10 +189,20 @@ function Results({ view }: { view: ViewMode }) {
     );
   }
 
+  if (total === 0) {
+    return (
+      <EmptyState
+        icon="box"
+        title="No skills in this Marketplace"
+        description="This Marketplace has no skills that you can view."
+      />
+    );
+  }
+
   return (
     <Stack gap="comfortable">
-      {view === 'list' ? <MarketplaceSkillList /> : <MarketplaceSkillGrid />}
-      <MarketplacePagination />
+      {view === 'list' ? <SkillList toolbarActions={viewToggle} /> : <SkillGrid />}
+      <SkillsPagination />
     </Stack>
   );
 }

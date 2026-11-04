@@ -1,53 +1,31 @@
 /**
- * /api/skills — BFF proxy for the Marketplace overview.
+ * /api/skills: BFF proxy for one page of a Marketplace's skills.
  *
- * GET — returns one result page of Skills and the Marketplace list for the
- *       authenticated session. Query: `marketplace`, `query`, `page`,
- *       `pageSize`, `sort`. The route validates each value and uses the
- *       default for an invalid value.
- *
- *       Response: 200 { data: MarketplaceOverviewData }
- *                 401 { code: 'unauthorized', message: string }
- *                 499 { code: 'cancelled', message: string }       — the browser cancelled it
- *                 4xx { code: 'upstream_error', message: string }  — upstream status, such as 403
- *                 502 { code: 'upstream_error', message: string }  — any other upstream failure
+ * GET ?marketplace=&search=&page=&pageSize=
+ *     200 { data: MarketplaceSkillsPage }
+ *     401 { code: 'unauthorized', message }
+ *     4xx { code: 'upstream_error', message }  upstream refusal or not found
+ *     502 { code: 'upstream_error', message }  Marketplace unavailable or upstream failure
  */
 import 'server-only';
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@runkora/server/route-helpers';
-import { loadMarketplaceOverview } from '../../(dashboard)/skills/_services/skills-server';
-import { parseBrowseParams } from '../../(dashboard)/skills/_utils/browse-params';
+import { PREFERENCE_DEFAULTS } from '../../(dashboard)/_preferences/preferences.schema';
+import { loadSkillsPage } from '../../(dashboard)/skills/_services/skills-server';
+import { toBrowse } from '../../(dashboard)/skills/_types';
 
 export const GET = withAuth(async (req: NextRequest, session) => {
-  const browse = parseBrowseParams(req.nextUrl.searchParams);
-  // req.signal aborts when the browser cancels the request, so the
-  // cancellation reaches the Marketplace client.
-  const result = await loadMarketplaceOverview(session.accessToken, browse, req.signal);
+  const query = req.nextUrl.searchParams;
+  const browse = toBrowse(query.get('marketplace') ?? '', query.get('search'), query.get('page'));
+  const pageSize = Number(query.get('pageSize')) || PREFERENCE_DEFAULTS.tables.defaultPageSize;
 
-  if (!result.ok && req.signal.aborted) {
-    // The browser cancelled the request. Nobody reads this response.
-    return NextResponse.json(
-      { code: 'cancelled', message: 'Request cancelled' },
-      { status: result.status },
-    );
-  }
-
+  const result = await loadSkillsPage(session.accessToken, browse, pageSize);
   if (!result.ok) {
-    console.error(`[GET /api/skills] upstream error ${result.status}: ${result.message}`);
-    let clientStatus: number;
-    if (result.status >= 500) {
-      // An upstream failure. The browser sees a gateway error.
-      clientStatus = 502;
-    } else {
-      // An upstream refusal, such as 403. Pass it through.
-      clientStatus = result.status;
-    }
     return NextResponse.json(
-      { code: 'upstream_error', message: 'Failed to load Skills', data: result.overview },
-      { status: clientStatus },
+      { code: 'upstream_error', message: result.message },
+      { status: result.status >= 500 ? 502 : result.status },
     );
   }
-
-  return NextResponse.json({ data: result.overview });
+  return NextResponse.json({ data: result.data });
 });

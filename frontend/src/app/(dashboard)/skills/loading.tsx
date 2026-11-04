@@ -1,22 +1,16 @@
 import { Skeleton, Stack } from '@runkora/hades';
-import { MarketplaceResultsSkeleton } from './_components/skills-results-skeleton';
+import { SkillsResultsSkeleton } from './_components/skills-results-skeleton';
 
-/**
- * The Marketplace page loads the Marketplace options and one result page of
- * Skills in one server pass, so the skeleton stands in for the whole surface:
- * the header, the toolbar, the Skills table, and the pagination bar.
- */
-export default function MarketplaceLoading() {
+/** Stands in for the overview while the server loads the Marketplaces and the first page. */
+export default function SkillsLoading() {
   return (
     <Stack gap="comfortable">
-      {/* Page header: title + explainer. */}
       <Stack gap="tight">
         <Skeleton shape="line" width="quarter" size="lg" />
         <Skeleton shape="line" width="half" size="xs" />
       </Stack>
-
-      {/* Toolbar, Skills table, and pagination bar. */}
-      <MarketplaceResultsSkeleton />
+      <Skeleton shape="block" width="full" size="md" />
+      <SkillsResultsSkeleton />
     </Stack>
   );
 }

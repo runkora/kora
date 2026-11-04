@@ -492,25 +492,21 @@ export const ApiRoute = {
   /**
    * `/api/skills`
    *
-   * GET — returns one result page of Marketplace Skills and the Marketplace
-   *       list. Accepts `marketplace`, `query`, `page`, `pageSize`, and
-   *       `sort`. The BFF validates each value and uses the default for an
-   *       invalid value.
+   * GET: one page of a Marketplace's skills, A to Z.
    */
   skills: {
     GET: (params: {
       marketplace: string;
-      query: string;
+      search: string;
       page: number;
       pageSize: number;
-      sort: string;
     }): `${typeof API_BASE}/skills?${string}` => {
-      const qs = new URLSearchParams();
-      if (params.marketplace) qs.set('marketplace', params.marketplace);
-      if (params.query) qs.set('query', params.query);
-      qs.set('page', String(params.page));
-      qs.set('pageSize', String(params.pageSize));
-      qs.set('sort', params.sort);
+      const qs = new URLSearchParams({
+        marketplace: params.marketplace,
+        page: String(params.page),
+        pageSize: String(params.pageSize),
+      });
+      if (params.search) qs.set('search', params.search);
       return `${API_BASE}/skills?${qs.toString()}`;
     },
   },

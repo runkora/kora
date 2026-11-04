@@ -1,13 +1,12 @@
 'use client';
 
-/** @tier 3 — skills/[marketplace]/[...path]-scoped. Retries the failed server render. */
+/** @tier 3 — skills/[marketplace]/[...path]-scoped. A skill that could not load, with a retry of the server render. */
 
 import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Alert, Button, Icon, Stack, Text } from '@orbit/hades';
+import { Alert, Button, Icon, Stack, Text } from '@runkora/hades';
 
-/** Shown when the open Skill could not load. This is not a missing Skill. */
-export function MarketplaceSkillLoadError() {
+export function SkillLoadError({ status, message }: { status: number; message: string }) {
   const router = useRouter();
   const [pending, startRetry] = useTransition();
 
@@ -15,8 +14,13 @@ export function MarketplaceSkillLoadError() {
     <Alert variant="error">
       <Icon name="triangle-alert" color="status-error" />
       <Stack grow>
+        {status === 502 && (
+          <Text size="caption" weight="heavy" color="status-error">
+            This Marketplace is unavailable.
+          </Text>
+        )}
         <Text size="caption" color="status-error">
-          Orbit could not load this Skill from the Marketplace.
+          {message}
         </Text>
       </Stack>
       <Button

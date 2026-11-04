@@ -1,52 +1,41 @@
 import type { Marketplace, SkillSummary } from '@orbit/shared/api';
 
-/**
- * Search can preserve backend relevance; alphabetical sorting happens in the BFF.
- */
-export type SkillSort = 'name-asc' | 'name-desc' | 'relevance';
-
-/** Every Marketplace result page contains at most 24 Skills. */
-export const PAGE_SIZE = 24;
-
-/** Sort options accepted by the browse controls and BFF request parser. */
-export const SORT_OPTIONS: readonly SkillSort[] = ['name-asc', 'name-desc', 'relevance'];
-
-/** The default sort order: A to Z by Skill name. */
-export const DEFAULT_SORT: SkillSort = 'name-asc';
-
-/** Active searches keep the relevance order returned by skills-service. */
-export const DEFAULT_SEARCH_SORT: SkillSort = 'relevance';
-
-/** A search shorter than this counts as no search. */
+/** skills-service treats a shorter search as no search, so the page does too. */
 export const MIN_SEARCH_LENGTH = 3;
 
-/** Browse state kept in memory and sent as query values on BFF API requests. */
-export interface MarketplaceBrowseParams {
-  /** The marketplaceSlug of the Marketplace. Empty means "use the default Marketplace". */
+/** The browse state the overview URL holds: the path names the Marketplace. */
+export interface SkillsBrowse {
   marketplace: string;
-  /** Search text. Empty means "no search". */
-  query: string;
-  /** Page number, from 1. */
+  search: string;
   page: number;
-  pageSize: number;
-  /** Alphabetical order, or backend relevance during search. */
-  sort: SkillSort;
 }
 
-/** One loaded result page of the Marketplace overview. */
-export interface MarketplaceOverviewData {
+/** What the overview shows: the Marketplaces for the picker and one page of skills. */
+export interface SkillsOverview {
   marketplaces: Marketplace[];
-  /**
-   * The browse values that the request asked for, before the server corrected
-   * the Marketplace slug and page. These describe the request independently
-   * of the browser's address.
-   */
-  requested: MarketplaceBrowseParams;
-  /** The browse values that the server used, after validation. */
-  browse: MarketplaceBrowseParams;
+  browse: SkillsBrowse;
   skills: SkillSummary[];
   total: number;
 }
 
-/** What a successful browse request found. */
-export type ResultState = 'populated' | 'configured_but_empty' | 'no_matches';
+/** A failed load. A 502 means the Marketplace is unavailable, and the message says why. */
+export interface SkillsLoadError {
+  status: number;
+  message: string;
+}
+
+/** Search text as the API applies it: trimmed, and empty below MIN_SEARCH_LENGTH. */
+export function toSearch(text: unknown): string {
+  const trimmed = typeof text === 'string' ? text.trim() : '';
+  return trimmed.length < MIN_SEARCH_LENGTH ? '' : trimmed;
+}
+
+/** Reads browse values from a URL or request query. A missing or invalid page is page 1. */
+export function toBrowse(marketplace: string, search: unknown, page: unknown): SkillsBrowse {
+  const pageNumber = Number(page);
+  return {
+    marketplace,
+    search: toSearch(search),
+    page: Number.isInteger(pageNumber) && pageNumber > 1 ? pageNumber : 1,
+  };
+}

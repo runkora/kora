@@ -1235,56 +1235,50 @@ export interface AgentTypeGuardrails {
   wait_rearm_pause?: number;
 }
 
-// ── Marketplace ─────────────────────────────────────────────────────────
-// Mirrors the skills-service (backend/internal/skills) JSON: GET
-// /v1/marketplaces, /v1/marketplaces/{marketplaceSlug} and
-// /v1/marketplaces/{marketplaceSlug}/{skillName}.
+// ── Skills ──────────────────────────────────────────────────────────────
+// Mirrors the skills-service JSON (backend/internal/skills): GET /v1/marketplaces,
+// /v1/marketplaces/{slug} and /v1/marketplaces/{slug}/skills/{path}.
 
 export interface Marketplace {
-  /** Display name. The backend uses the repository name, so it is not unique. */
+  /** The SkillMarketplace resource name. */
+  slug: string;
+  /** The repository name. Not unique across owners. */
   name: string;
-  /** Identifier: `org__repo` in lower case. */
-  marketplaceSlug: string;
-  /** The GitHub repository link. */
-  link: string;
+  /** `owner/repo`. */
+  repository: string;
 }
 
-export interface GetMarketplaces {
+export interface MarketplaceList {
   marketplaces: Marketplace[];
 }
 
-/** One item of a Marketplace's Skill list. */
 export interface SkillSummary {
-  name: string;
-  description: string;
-  /** Identifier: `{marketplaceSlug}__{slugified name}`. */
-  skillSlug: string;
-  /** URL-safe name returned by the backend for detail navigation. */
-  skillName: string;
-}
-
-/**
- * The selected Marketplace with one cursor batch of its Skills: at most 200
- * items in skillSlug order, with no name sort or total.
- */
-export interface MarketplaceDetail extends Marketplace {
-  skills: SkillSummary[];
-  /** Omitted when there are no further results. */
-  nextCursor?: string;
-}
-
-/** One file of a Skill: the SKILL.md or a resource document. */
-export interface SkillFile {
+  /** The skill's folder path in the repository, and its identity. */
   path: string;
   name: string;
+  description: string;
+}
+
+/** One page of a Marketplace's skills, in name order. */
+export interface MarketplaceSkillsPage {
+  marketplace: Marketplace;
+  skills: SkillSummary[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+export interface SkillFile {
+  /** Relative to the skill folder. */
+  path: string;
   content: string;
 }
 
-/** One Skill with its full SKILL.md and resource documents. */
 export interface Skill {
+  path: string;
   name: string;
   description: string;
-  skillSlug: string;
-  skill: SkillFile;
-  documents: SkillFile[];
+  repository: string;
+  /** `SKILL.md` first, then the rest in path order. */
+  files: SkillFile[];
 }

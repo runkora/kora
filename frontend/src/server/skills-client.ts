@@ -1,30 +1,21 @@
 import 'server-only';
 
-import type { GetMarketplaces, MarketplaceDetail, Skill, SkillSummary } from '@orbit/shared/api';
-import { config } from '@orbit/server/config';
+import type { MarketplaceList, MarketplaceSkillsPage, Skill } from '@runkora/shared/api';
+import { config } from '@runkora/server/config';
 import { ApiError } from './api-error';
 
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
-/** Combines the caller's own cancellation, when given, with a fixed timeout. */
-function requestSignal(signal?: AbortSignal): AbortSignal {
-  const timeout = AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
-  return signal ? AbortSignal.any([signal, timeout]) : timeout;
-}
-
-async function request<T>(path: string, accessToken: string, signal?: AbortSignal): Promise<T> {
+/** skills-service takes the tenant from the forwarded session token. */
+async function request<T>(path: string, accessToken: string): Promise<T> {
   const response = await fetch(`${config.skillsServiceUrl}${path}`, {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
+    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
-    signal: requestSignal(signal),
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
 
   if (!response.ok) {
-    const errJson = await response.json().catch(() => ({}));
-    const err = errJson as { code?: string; message?: string };
+    const err = (await response.json().catch(() => ({}))) as { code?: string; message?: string };
     throw new ApiError(response.status, err.code ?? 'UNKNOWN', err.message ?? response.statusText);
   }
 
@@ -32,71 +23,29 @@ async function request<T>(path: string, accessToken: string, signal?: AbortSigna
 }
 
 /** GET /marketplaces */
-export async function fetchMarketplaces(
-  accessToken: string,
-  signal?: AbortSignal,
-): Promise<GetMarketplaces> {
-  return request<GetMarketplaces>('/marketplaces', accessToken, signal);
+export function fetchMarketplaces(accessToken: string): Promise<MarketplaceList> {
+  return request<MarketplaceList>('/marketplaces', accessToken);
 }
 
-/** Loads every matching Skill summary across cursor batches. */
-export async function fetchSkills(
+/** GET /marketplaces/{slug}: one page of skills, A to Z. */
+export function fetchSkillsPage(
   accessToken: string,
-  marketplaceSlug: string,
-  search: string,
-  signal?: AbortSignal,
-): Promise<{ skills: SkillSummary[] }> {
-  const batchSignal = requestSignal(signal);
-  const query = new URLSearchParams();
-  if (search) {
-    query.set('search', search);
-  }
-  const skills: SkillSummary[] = [];
-  const seenCursors = new Set<string>();
-  let nextCursor: string | undefined;
-
-  do {
-    batchSignal.throwIfAborted();
-    if (nextCursor) query.set('cursor', nextCursor);
-    const qs = query.toString();
-    const batch = await request<MarketplaceDetail>(
-      `/marketplaces/${encodeURIComponent(marketplaceSlug)}${qs ? `?${qs}` : ''}`,
-      accessToken,
-      batchSignal,
-    );
-    skills.push(...batch.skills);
-    nextCursor = batch.nextCursor;
-    if (nextCursor) {
-      if (seenCursors.has(nextCursor)) {
-        throw new ApiError(502, 'invalid_response', 'Failed to load Skills');
-      }
-      seenCursors.add(nextCursor);
-    }
-  } while (nextCursor);
-
-  return { skills };
+  slug: string,
+  page: { search: string; offset: number; limit: number },
+): Promise<MarketplaceSkillsPage> {
+  const query = new URLSearchParams({ offset: String(page.offset), limit: String(page.limit) });
+  if (page.search) query.set('search', page.search);
+  return request<MarketplaceSkillsPage>(
+    `/marketplaces/${encodeURIComponent(slug)}?${query.toString()}`,
+    accessToken,
+  );
 }
 
-/**
- * GET /marketplaces/{marketplaceSlug}/{skillName}
- *
- * Returns null for a missing Skill (404), so a caller can show a not-found
- * state without needing to inspect the error.
- */
-export async function fetchSkillDetail(
-  accessToken: string,
-  marketplaceSlug: string,
-  skillName: string,
-): Promise<Skill | null> {
-  try {
-    return await request<Skill>(
-      `/marketplaces/${encodeURIComponent(marketplaceSlug)}/${encodeURIComponent(skillName)}`,
-      accessToken,
-    );
-  } catch (err) {
-    if (err instanceof ApiError && err.isNotFound) {
-      return null;
-    }
-    throw err;
-  }
+/** GET /marketplaces/{slug}/skills/{path} */
+export function fetchSkill(accessToken: string, slug: string, path: string): Promise<Skill> {
+  const segments = path.split('/').map(encodeURIComponent).join('/');
+  return request<Skill>(
+    `/marketplaces/${encodeURIComponent(slug)}/skills/${segments}`,
+    accessToken,
+  );
 }

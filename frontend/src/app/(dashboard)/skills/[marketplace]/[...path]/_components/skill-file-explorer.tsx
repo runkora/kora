@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — skills/[marketplace]/[...path]-scoped. Folder tree of a Skill's files; picking a file selects it for the preview. */
+/** @tier 3 — skills/[marketplace]/[...path]-scoped. Folder tree of a skill's files; picking a file selects it for the preview. */
 
 import { useMemo, useState } from 'react';
 import {
@@ -19,16 +19,10 @@ import {
 import type { IconColor, IconName } from '@runkora/hades';
 import type { SkillFile } from '@runkora/shared/api';
 
-/** A file of the Skill, with its path relative to the Skill's folder. */
-export interface ExplorerFile {
-  relativePath: string;
-  file: SkillFile;
-}
-
 interface FileNode {
   kind: 'file';
   name: string;
-  entry: ExplorerFile;
+  file: SkillFile;
 }
 
 interface FolderNode {
@@ -64,10 +58,10 @@ const CODE_EXTENSIONS = new Set([
 ]);
 
 /** Builds the folder tree: folders before files, each group sorted by name. */
-export function buildFileTree(files: ExplorerFile[]): TreeNode[] {
+function buildFileTree(files: SkillFile[]): TreeNode[] {
   const root: FolderNode = { kind: 'folder', name: '', path: '', children: [] };
-  for (const entry of files) {
-    const parts = entry.relativePath.split('/');
+  for (const file of files) {
+    const parts = file.path.split('/');
     let folder = root;
     for (const part of parts.slice(0, -1)) {
       const path = folder.path ? `${folder.path}/${part}` : part;
@@ -80,7 +74,7 @@ export function buildFileTree(files: ExplorerFile[]): TreeNode[] {
       }
       folder = next;
     }
-    folder.children.push({ kind: 'file', name: parts[parts.length - 1], entry });
+    folder.children.push({ kind: 'file', name: parts[parts.length - 1], file });
   }
   sortTree(root);
   return root.children;
@@ -96,7 +90,7 @@ function sortTree(folder: FolderNode) {
 }
 
 /** The UTF-8 size of the content, as "512 B" or "10.1 KB". */
-export function formatSize(content: string): string {
+function formatSize(content: string): string {
   const bytes = new TextEncoder().encode(content).length;
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -106,16 +100,16 @@ export function formatSize(content: string): string {
 function fileIcon(name: string): { name: IconName; color: IconColor } {
   const ext = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1).toLowerCase() : '';
   if (ext === 'md') return { name: 'file-text', color: 'accent' };
-  if (CODE_EXTENSIONS.has(ext)) return { name: 'file-code', color: 'status-degraded' };
+  if (CODE_EXTENSIONS.has(ext)) return { name: 'file-code', color: 'muted' };
   return { name: 'file', color: 'muted' };
 }
 
 const indent = (depth: number) => ({ paddingLeft: `${0.75 + depth * INDENT_REM}rem` });
 
 interface SkillFileExplorerProps {
-  files: ExplorerFile[];
+  files: SkillFile[];
   selectedPath: string;
-  onSelect: (relativePath: string) => void;
+  onSelect: (path: string) => void;
 }
 
 export function SkillFileExplorer({ files, selectedPath, onSelect }: SkillFileExplorerProps) {
@@ -127,16 +121,16 @@ export function SkillFileExplorer({ files, selectedPath, onSelect }: SkillFileEx
     nodes.map((node) => {
       if (node.kind === 'file') {
         const icon = fileIcon(node.name);
-        const selected = node.entry.relativePath === selectedPath;
+        const selected = node.file.path === selectedPath;
         return (
           <Button
-            key={node.entry.relativePath}
+            key={node.file.path}
             variant="ghost"
             size="tile"
             fullWidth
             selected={selected}
             aria-current={selected ? 'true' : undefined}
-            onClick={() => onSelect(node.entry.relativePath)}
+            onClick={() => onSelect(node.file.path)}
           >
             <Stack
               grow
@@ -163,7 +157,7 @@ export function SkillFileExplorer({ files, selectedPath, onSelect }: SkillFileEx
                 </Text>
               </Stack>
               <Text as="span" size="caption" mono color="subtle">
-                {formatSize(node.entry.file.content)}
+                {formatSize(node.file.content)}
               </Text>
             </Stack>
           </Button>
@@ -195,12 +189,7 @@ export function SkillFileExplorer({ files, selectedPath, onSelect }: SkillFileEx
                   rotate={isOpen ? 90 : 0}
                   label=""
                 />
-                <Icon
-                  name={isOpen ? 'folder-open' : 'folder'}
-                  size="sm"
-                  color="status-degraded"
-                  label=""
-                />
+                <Icon name={isOpen ? 'folder-open' : 'folder'} size="sm" color="muted" label="" />
                 <Text as="span" size="supporting" mono truncate align="start">
                   {node.name}
                 </Text>
