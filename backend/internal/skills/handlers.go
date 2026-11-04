@@ -143,7 +143,7 @@ func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	for _, f := range failed {
 		c.logger.Warn(r.Context(), "skill marketplace left out of the skill list",
 			logging.Field{Key: "marketplace", Value: f.slug}, logging.Field{Key: "error", Value: f.err.Error()})
-		page.Failures = append(page.Failures, MarketplaceFailure{Marketplace: f.slug, Message: apiError(f.err).Message})
+		page.Failures = append(page.Failures, MarketplaceFailure{Marketplace: f.slug, Message: failureMessage(f.err)})
 	}
 	api.JSON(r.Context(), w, c.logger, http.StatusOK, page)
 }
@@ -245,6 +245,14 @@ func apiError(err error) *api.APIError {
 	default:
 		return api.InternalError(api.ErrCodeInternalError, "Failed to read the Marketplace.", nil)
 	}
+}
+
+// failureMessage is the product message for a Marketplace left out of a page.
+func failureMessage(err error) string {
+	if e := apiError(err); e.StatusCode != http.StatusInternalServerError {
+		return e.Message
+	}
+	return "This Marketplace could not be loaded. Try again later."
 }
 
 func statusError(status int, code, message string) *api.APIError {

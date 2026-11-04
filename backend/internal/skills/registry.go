@@ -45,7 +45,7 @@ func (m *Marketplace) Repository() string {
 // which list shape, so a cache entry from another repository, ref, credential
 // or an older shape is ignored.
 func (m *Marketplace) source() string {
-	return fmt.Sprintf("v2 %s/%s@%s app %s/%d", m.Owner, m.Repo, m.Ref, m.AppID, m.InstallationID)
+	return fmt.Sprintf("v3 %s/%s@%s app %s/%d", m.Owner, m.Repo, m.Ref, m.AppID, m.InstallationID)
 }
 
 // Token returns an installation token that reads only this repository.

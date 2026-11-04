@@ -15,6 +15,7 @@ import (
 	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 const (
@@ -77,7 +78,9 @@ func (s *Service) ListMarketplaces(ctx context.Context, tenantID string) ([]Mark
 		if err != nil {
 			return nil, err
 		}
-		if ok && list.Source == m.source() {
+		// A Marketplace without a usable key reports no sync state, as browsing
+		// it fails closed.
+		if ok && list.Source == m.source() && m.tokens != nil {
 			count, synced := len(list.Skills), list.SyncedAt
 			summary.Commit, summary.SyncedAt, summary.SkillCount = &list.SHA, &synced, &count
 		}
@@ -194,15 +197,19 @@ func compareSkills(a, b SkillSummary) int {
 	return strings.Compare(a.Path, b.Path)
 }
 
-// isMarketplaceFailure reports an error that belongs to one Marketplace and
-// leaves the others readable.
+// isMarketplaceFailure reports an error that belongs to one Marketplace.
+// Redis and a cancelled request affect every Marketplace and fail the request.
 func isMarketplaceFailure(err error) bool {
-	return errors.Is(err, ErrCredentialUnavailable) || errors.Is(err, ErrGitHubFailure) ||
-		errors.Is(err, ErrRepositoryNotFound) || errors.Is(err, context.DeadlineExceeded)
+	return !errors.Is(err, storage.ErrRedisUnavailable) && !errors.Is(err, context.Canceled)
 }
 
+// matchesSearch matches the title, name, description or the SKILL.md body.
 func matchesSearch(r skillRecord, query string) bool {
-	for _, field := range []string{r.Title, r.Name, r.Description, r.Content} {
+	body := r.Content
+	if r.BodyStart > 0 && r.BodyStart <= len(body) {
+		body = body[r.BodyStart:]
+	}
+	for _, field := range []string{r.Title, r.Name, r.Description, body} {
 		if strings.Contains(strings.ToLower(field), query) {
 			return true
 		}

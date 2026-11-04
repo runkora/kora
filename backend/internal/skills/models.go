@@ -98,7 +98,9 @@ type skillRecord struct {
 	Tools       []string        `json:"tools"`
 	ManualOnly  bool            `json:"manualOnly,omitempty"`
 	Content     string          `json:"content"`
-	Files       []SkillFileInfo `json:"files,omitempty"`
+	// BodyStart is where the text after the frontmatter starts in Content.
+	BodyStart int             `json:"bodyStart"`
+	Files     []SkillFileInfo `json:"files,omitempty"`
 }
 
 // crawlFailure is a failed crawl as cached in Redis.

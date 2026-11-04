@@ -3,6 +3,7 @@ package skills
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -114,6 +115,21 @@ func TestParseSkillFrontmatter_Metadata(t *testing.T) {
 			want:    skillFrontmatter{Name: "docx", Description: "Word.", Title: "docx", Version: v("1.4"), Tags: []string{"office", "docs"}, Tools: []string{}},
 		},
 		{
+			name:    "numeric versions keep their text and string flags parse",
+			content: "---\nname: n\ndescription: N.\nversion: 2.10\ndisable-model-invocation: \"true\"\nallowed-tools: Bash(git status:*), Bash(git add:*), Read\n---\n```bash\n# install deps\n```\n# Real Title #\n",
+			want:    skillFrontmatter{Name: "n", Description: "N.", Title: "Real Title", Version: v("2.10"), Tags: []string{}, Tools: []string{"Bash(git status:*)", "Bash(git add:*)", "Read"}, ManualOnly: true},
+		},
+		{
+			name:    "non-strict YAML keeps single-line metadata",
+			content: "---\nname: loose\ndescription: Use when: things\ntags: [x, y]\nversion: 3\n---\n",
+			want:    skillFrontmatter{Name: "loose", Description: "Use when: things", Title: "loose", Version: v("3"), Tags: []string{"x", "y"}, Tools: []string{}},
+		},
+		{
+			name:    "a large integer version",
+			content: "---\nname: big\ndescription: B.\nmetadata:\n  version: 20241105\n---\n",
+			want:    skillFrontmatter{Name: "big", Description: "B.", Title: "big", Version: v("20241105"), Tags: []string{}, Tools: []string{}},
+		},
+		{
 			name:    "nothing declared",
 			content: "---\nname: bare\ndescription: Bare.\n---\n",
 			want:    skillFrontmatter{Name: "bare", Description: "Bare.", Title: "bare", Tags: []string{}, Tools: []string{}},
@@ -124,6 +140,10 @@ func TestParseSkillFrontmatter_Metadata(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if body := tc.content[got.BodyStart:]; strings.HasPrefix(body, "---") || !strings.HasSuffix(tc.content, body) {
+				t.Errorf("BodyStart %d points at %q", got.BodyStart, body)
+			}
+			got.BodyStart = 0
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("got %+v (version %v), want %+v (version %v)", got, deref(got.Version), tc.want, deref(tc.want.Version))
 			}

@@ -81,7 +81,7 @@ func NewCrawler(github githubReader, limits Limits, logger logging.Logger) *Craw
 }
 
 // Crawl resolves the Marketplace ref to one commit, reads the tree at that
-// commit and fetches every SKILL.md. Skills come back in name order.
+// commit and fetches every SKILL.md. Skills come back in title order.
 func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) {
 	token, err := m.Token(ctx)
 	if err != nil {
@@ -123,7 +123,7 @@ func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 			records[i] = skillRecord{
 				Path: f.path, Name: fm.Name, Title: fm.Title, Description: fm.Description,
 				Version: fm.Version, Tags: fm.Tags, Tools: fm.Tools, ManualOnly: fm.ManualOnly,
-				Content: raw, Files: f.files,
+				Content: raw, BodyStart: fm.BodyStart, Files: f.files,
 			}
 			found[i] = true
 			return nil

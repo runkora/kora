@@ -3,11 +3,13 @@ package skills
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
 
 	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 type countingCrawler struct {
@@ -336,5 +338,56 @@ func TestListSkills_AcrossMarketplaces(t *testing.T) {
 	page, _, _ = fresh.ListSkills(ctx, "example", SkillQuery{Marketplace: "beta", Keys: []string{"alpha:skills/pdf"}, Limit: 10})
 	if page.Total != 0 {
 		t.Errorf("keys outside the Marketplace = %d, want 0", page.Total)
+	}
+}
+
+// Search reads the SKILL.md body, not its frontmatter keys.
+func TestListSkills_SearchSkipsFrontmatter(t *testing.T) {
+	svc, _, _ := newTestService(t, sampleRepo(), testMarketplace(t, "example", "team-skills"))
+	page, err := listOne(context.Background(), svc, "example", "team-skills", "description", 0, 10)
+	if err != nil || page.Total != 0 {
+		t.Errorf("search=description = %d, %v, want 0", page.Total, err)
+	}
+}
+
+// failingCrawler fails every crawl with err.
+type failingCrawler struct {
+	skillCrawler
+	err error
+}
+
+func (f failingCrawler) Crawl(context.Context, *Marketplace) (skillList, error) { return skillList{}, f.err }
+
+// Across Marketplaces any error but Redis or cancellation is a failure of that
+// Marketplace alone.
+func TestListSkills_UnclassifiedErrorIsAFailure(t *testing.T) {
+	m := testMarketplace(t, "example", "broken")
+	svc := NewService(fakeRegistry{"example": {m}}, newMemStore(), failingCrawler{err: errors.New("sign github app jwt: bad key")}, discard())
+	page, failed, err := svc.ListSkills(context.Background(), "example", SkillQuery{Limit: 10})
+	if err != nil || len(failed) != 1 || page.Total != 0 {
+		t.Errorf("ListSkills = %+v, %v, %v, want one failure", page, failed, err)
+	}
+	if msg := failureMessage(failed[0].err); msg != "This Marketplace could not be loaded. Try again later." {
+		t.Errorf("message = %q", msg)
+	}
+
+	svc = NewService(fakeRegistry{"example": {m}}, newMemStore(), failingCrawler{err: fmt.Errorf("x: %w", storage.ErrRedisUnavailable)}, discard())
+	if _, _, err := svc.ListSkills(context.Background(), "example", SkillQuery{Limit: 10}); !errors.Is(err, storage.ErrRedisUnavailable) {
+		t.Errorf("Redis error = %v, want it to fail the request", err)
+	}
+}
+
+// A Marketplace without a usable key shows no sync state.
+func TestListMarketplaces_NoKeyHidesSyncState(t *testing.T) {
+	m := testMarketplace(t, "example", "team-skills")
+	svc, _, _ := newTestService(t, sampleRepo(), m)
+	ctx := context.Background()
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil {
+		t.Fatal(err)
+	}
+	m.tokens = nil
+	got, err := svc.ListMarketplaces(ctx, "example")
+	if err != nil || got[0].Commit != nil || got[0].SkillCount != nil {
+		t.Errorf("ListMarketplaces = %+v, %v, want null sync state", got, err)
 	}
 }
