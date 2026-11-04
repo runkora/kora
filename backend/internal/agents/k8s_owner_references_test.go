@@ -326,6 +326,7 @@ func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 		"apiVersion": "networking.istio.io/v1beta1",
 		"kind":       "DestinationRule",
 		"metadata":   map[string]any{"name": agentDestinationRuleName("coder", ns), "namespace": cfg.SystemNamespace},
+		"spec":       map[string]any{"host": agentServiceHost("coder", ns)},
 	}}
 	ap := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "security.istio.io/v1beta1",

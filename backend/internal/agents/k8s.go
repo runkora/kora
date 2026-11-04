@@ -2143,12 +2143,20 @@ func (p *K8sProvisioner) ensureDestinationRule(ctx context.Context, at AgentType
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	if err != nil && update && owner.Kind != "" {
+	if err != nil {
 		existing, getErr := p.dynamicClient.Resource(destinationRuleGVR).
 			Namespace(p.cfg.SystemNamespace).
 			Get(ctx, name, metav1.GetOptions{})
 		if getErr != nil {
 			return fmt.Errorf("get existing destinationrule: %w", getErr)
+		}
+		// A hyphenated tenant and slug can render another agent's name. Refuse
+		// rather than leave this agent unreachable behind another's rule.
+		if existingHost, _, _ := unstructured.NestedString(existing.Object, "spec", "host"); existingHost != host {
+			return fmt.Errorf("destinationrule %s is for %s, not %s", name, existingHost, host)
+		}
+		if !update || owner.Kind == "" {
+			return p.deleteLegacyDestinationRule(ctx, at.Slug, namespace)
 		}
 		existing.SetOwnerReferences(mergeOwnerRefs(existing.GetOwnerReferences(), owner))
 		if _, err = p.dynamicClient.Resource(destinationRuleGVR).
@@ -2178,18 +2186,7 @@ func agentDestinationRuleName(slug, namespace string) string {
 // agent-<slug>, when it is this agent's. Another tenant's agent with the same
 // slug may hold that name, so the rule's host decides.
 func (p *K8sProvisioner) deleteLegacyDestinationRule(ctx context.Context, slug, namespace string) error {
-	rules := p.dynamicClient.Resource(destinationRuleGVR).Namespace(p.cfg.SystemNamespace)
-	legacy, err := rules.Get(ctx, "agent-"+slug, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("get legacy destinationrule: %w", err)
-	}
-	if host, _, _ := unstructured.NestedString(legacy.Object, "spec", "host"); host != agentServiceHost(slug, namespace) {
-		return nil
-	}
-	return ignoreNotFound(rules.Delete(ctx, legacy.GetName(), metav1.DeleteOptions{}))
+	return p.deleteOwnDestinationRule(ctx, "agent-"+slug, slug, namespace)
 }
 
 // agentAuthorizationPolicyName is the AuthorizationPolicy created beside each
@@ -2312,13 +2309,27 @@ func (p *K8sProvisioner) deleteAuthorizationPolicy(ctx context.Context, slug, na
 }
 
 func (p *K8sProvisioner) deleteDestinationRule(ctx context.Context, slug, namespace string) error {
-	err := p.dynamicClient.Resource(destinationRuleGVR).
-		Namespace(p.cfg.SystemNamespace).
-		Delete(ctx, agentDestinationRuleName(slug, namespace), metav1.DeleteOptions{})
-	if err = ignoreNotFound(err); err != nil {
+	if err := p.deleteOwnDestinationRule(ctx, agentDestinationRuleName(slug, namespace), slug, namespace); err != nil {
 		return err
 	}
 	return p.deleteLegacyDestinationRule(ctx, slug, namespace)
+}
+
+// deleteOwnDestinationRule deletes the named rule when its host is this
+// agent's service, so a rule that belongs to another agent is never removed.
+func (p *K8sProvisioner) deleteOwnDestinationRule(ctx context.Context, name, slug, namespace string) error {
+	rules := p.dynamicClient.Resource(destinationRuleGVR).Namespace(p.cfg.SystemNamespace)
+	rule, err := rules.Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get destinationrule %s: %w", name, err)
+	}
+	if host, _, _ := unstructured.NestedString(rule.Object, "spec", "host"); host != agentServiceHost(slug, namespace) {
+		return nil
+	}
+	return ignoreNotFound(rules.Delete(ctx, name, metav1.DeleteOptions{}))
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
