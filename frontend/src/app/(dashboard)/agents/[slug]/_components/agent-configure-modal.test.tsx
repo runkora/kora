@@ -13,7 +13,7 @@ const agent = {
 let current = agent;
 let dirty = true;
 let saving = false;
-let storedMcpTools = ['mcp:github:issues.list:use', 'mcp:github:pulls.get:use', 'mcp:slack:use'];
+const storedMcpTools = ['mcp:github:issues.list:use', 'mcp:github:pulls.get:use', 'mcp:slack:use'];
 
 vi.mock('../_hooks/use-agent-configuration', () => ({
   useAgentConfiguration: () => ({
