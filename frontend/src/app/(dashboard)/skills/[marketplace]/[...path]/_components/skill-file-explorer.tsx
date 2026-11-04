@@ -17,12 +17,12 @@ import {
   Text,
 } from '@runkora/hades';
 import type { IconColor, IconName } from '@runkora/hades';
-import type { SkillFile } from '@runkora/shared/api';
+import type { SkillFileEntry } from '@runkora/shared/api';
 
 interface FileNode {
   kind: 'file';
   name: string;
-  file: SkillFile;
+  file: SkillFileEntry;
 }
 
 interface FolderNode {
@@ -58,7 +58,7 @@ const CODE_EXTENSIONS = new Set([
 ]);
 
 /** Builds the folder tree: folders before files, each group sorted by name. */
-function buildFileTree(files: SkillFile[]): TreeNode[] {
+function buildFileTree(files: SkillFileEntry[]): TreeNode[] {
   const root: FolderNode = { kind: 'folder', name: '', path: '', children: [] };
   for (const file of files) {
     const parts = file.path.split('/');
@@ -89,9 +89,8 @@ function sortTree(folder: FolderNode) {
   }
 }
 
-/** The UTF-8 size of the content, as "512 B" or "10.1 KB". */
-function formatSize(content: string): string {
-  const bytes = new TextEncoder().encode(content).length;
+/** A byte count as "512 B" or "10.1 KB". */
+function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -107,7 +106,7 @@ function fileIcon(name: string): { name: IconName; color: IconColor } {
 const indent = (depth: number) => ({ paddingLeft: `${0.75 + depth * INDENT_REM}rem` });
 
 interface SkillFileExplorerProps {
-  files: SkillFile[];
+  files: SkillFileEntry[];
   selectedPath: string;
   onSelect: (path: string) => void;
 }
@@ -157,7 +156,7 @@ export function SkillFileExplorer({ files, selectedPath, onSelect }: SkillFileEx
                 </Text>
               </Stack>
               <Text as="span" size="caption" mono color="subtle">
-                {formatSize(node.file.content)}
+                {formatSize(node.file.size)}
               </Text>
             </Stack>
           </Button>

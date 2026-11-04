@@ -1,27 +1,16 @@
-// Client-side fetch helper for the /api/skills BFF route. Never calls skills-service directly.
+// Client-side fetch helpers for the /api/skills BFF routes. Never calls skills-service directly.
 
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
-import type { MarketplaceSkillsPage } from '@runkora/shared/api';
+import type { MarketplaceSkillsPage, SkillFile } from '@runkora/shared/api';
 import type { SkillsBrowse, SkillsLoadError } from '../_types';
 
-export type FetchSkillsPageResult =
-  { data: MarketplaceSkillsPage; error: null } | { data: null; error: SkillsLoadError };
+export type FetchResult<T> = { data: T; error: null } | { data: null; error: SkillsLoadError };
 
-/** Fetches one page of skills. Never throws; an aborted request returns an error the caller ignores. */
-export async function fetchSkillsPage(
-  browse: SkillsBrowse,
-  pageSize: number,
-  signal: AbortSignal,
-): Promise<FetchSkillsPageResult> {
+/** Never throws; an aborted request returns an error the caller ignores. */
+async function getData<T>(url: string, signal: AbortSignal): Promise<FetchResult<T>> {
   try {
-    const res = await fetch(ApiRoute.skills.GET({ ...browse, pageSize }), {
-      cache: 'no-store',
-      signal,
-    });
-    const body = (await res.json().catch(() => ({}))) as {
-      data?: MarketplaceSkillsPage;
-      message?: string;
-    };
+    const res = await fetch(url, { cache: 'no-store', signal });
+    const body = (await res.json().catch(() => ({}))) as { data?: T; message?: string };
     if (res.ok && body.data) return { data: body.data, error: null };
     return {
       data: null,
@@ -30,4 +19,21 @@ export async function fetchSkillsPage(
   } catch {
     return { data: null, error: { status: 0, message: 'Could not reach the server. Try again.' } };
   }
+}
+
+/** Fetches one page of skills. */
+export function fetchSkillsPage(
+  browse: SkillsBrowse,
+  pageSize: number,
+  signal: AbortSignal,
+): Promise<FetchResult<MarketplaceSkillsPage>> {
+  return getData(ApiRoute.skills.GET({ ...browse, pageSize }), signal);
+}
+
+/** Fetches one supporting file of a skill. */
+export function fetchSkillFile(
+  file: { marketplace: string; path: string; file: string },
+  signal: AbortSignal,
+): Promise<FetchResult<SkillFile>> {
+  return getData(ApiRoute.skillFile.GET(file), signal);
 }

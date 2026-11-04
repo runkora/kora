@@ -13,7 +13,7 @@ export default meta;
 type Story = StoryObj<typeof SkillLoadError>;
 
 export const UnavailableMarketplace: Story = {
-  args: { status: 502, message: 'The GitHub App credential for this Marketplace is unavailable.' },
+  args: { status: 502, message: 'This Marketplace could not be loaded. Try again later.' },
 };
 
 export const LoadFailed: Story = {

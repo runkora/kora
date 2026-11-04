@@ -54,9 +54,9 @@ export const STORY_SKILL: Skill = {
   name: 'pdf',
   description: 'Reads and writes PDF files.',
   repository: TEAM_MARKETPLACE.repository,
+  content: '# pdf\n\nRead the PDF, then answer from its text.',
   files: [
-    { path: 'SKILL.md', content: '# pdf\n\nRead the PDF, then answer from its text.' },
-    { path: 'reference/forms.md', content: '# Forms\n\nFill each field in order.' },
-    { path: 'scripts/extract.py', content: 'print("extract")\n' },
+    { path: 'reference/forms.md', size: 2048 },
+    { path: 'scripts/extract.py', size: 913 },
   ],
 };

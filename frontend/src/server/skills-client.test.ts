@@ -6,7 +6,7 @@ vi.mock('@orbit/server/config', () => ({
 }));
 
 import { ApiError } from './api-error';
-import { fetchSkill, fetchSkillsPage } from './skills-client';
+import { fetchSkill, fetchSkillFile, fetchSkillsPage } from './skills-client';
 
 function stubFetch(response: Response) {
   const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(() =>
@@ -39,6 +39,34 @@ describe('skills-client', () => {
     expect(fetchMock.mock.calls[0][0]).toBe(
       'http://skills-service.test/v1/marketplaces/team-skills/skills/skills/my%20skill',
     );
+  });
+
+  it('asks for one supporting file by its path in the query', async () => {
+    const fetchMock = stubFetch(Response.json({}));
+
+    await fetchSkillFile('token-a', 'team-skills', 'skills/pdf', 'reference/a b.md');
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'http://skills-service.test/v1/marketplaces/team-skills/skills/skills/pdf?file=reference%2Fa+b.md',
+    );
+  });
+
+  it.each([
+    '../SKILL.md',
+    'reference/./forms.md',
+    'reference//forms.md',
+    '/forms.md',
+    'forms.md/',
+    '',
+  ])('reads file %j as not found without a request', async (file) => {
+    const fetchMock = stubFetch(Response.json({}));
+
+    await expect(
+      fetchSkillFile('token-a', 'team-skills', 'skills/pdf', file),
+    ).rejects.toMatchObject({
+      status: 404,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each([

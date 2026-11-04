@@ -28,7 +28,13 @@ createServer((req, res) => {
 
   if (resource === 'skills') {
     const found = skills.find((entry) => entry.path === path.join('/'));
-    return found ? json(200, found) : json(404, { code: 'not_found', message: 'Skill not found.' });
+    if (!found) return json(404, { code: 'not_found', message: 'Skill not found.' });
+    const { bodies, ...detail } = found;
+    const file = url.searchParams.get('file');
+    if (file === null) return json(200, detail);
+    return file in bodies
+      ? json(200, { path: file, content: bodies[file] })
+      : json(404, { code: 'not_found', message: 'File not found.' });
   }
 
   const search = (url.searchParams.get('search') ?? '').toLowerCase();

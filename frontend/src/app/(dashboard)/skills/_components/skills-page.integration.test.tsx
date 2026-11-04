@@ -75,12 +75,17 @@ describe('SkillsPage', () => {
     renderWithProviders(
       <SkillsShell
         initialOverview={storyOverview({ skills: [], total: 0 })}
-        initialError={{ status: 502, message: 'The GitHub App credential is unavailable.' }}
+        initialError={{
+          status: 502,
+          message: 'This Marketplace could not be loaded. Try again later.',
+        }}
       />,
     );
 
     expect(screen.getByText('This Marketplace is unavailable.')).toBeVisible();
-    expect(screen.getByText('The GitHub App credential is unavailable.')).toBeVisible();
+    expect(
+      screen.getByText('This Marketplace could not be loaded. Try again later.'),
+    ).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
 
     await waitFor(() => expect(screen.getByText('1–3 of 30')).toBeVisible());

@@ -45,7 +45,7 @@ export const EmptyMarketplace: Story = story({ skills: [], total: 0 });
 
 export const UnavailableMarketplace: Story = story(
   { skills: [], total: 0 },
-  { status: 502, message: 'The GitHub App credential for this Marketplace is unavailable.' },
+  { status: 502, message: 'This Marketplace could not be loaded. Try again later.' },
 );
 
 export const NoMarketplaces: Story = story({ marketplaces: [], skills: [], total: 0 });

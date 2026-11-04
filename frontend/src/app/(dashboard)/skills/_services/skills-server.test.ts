@@ -33,8 +33,12 @@ describe('loadSkillsPage', () => {
 
   it.each([
     [
-      new ApiError(502, 'marketplace_unavailable', 'The GitHub App credential is unavailable.'),
-      { status: 502, message: 'The GitHub App credential is unavailable.' },
+      new ApiError(
+        502,
+        'marketplace_unavailable',
+        'This Marketplace could not be loaded. Try again later.',
+      ),
+      { status: 502, message: 'This Marketplace could not be loaded. Try again later.' },
     ],
     [
       new ApiError(403, 'forbidden', 'raw'),
@@ -46,11 +50,11 @@ describe('loadSkillsPage', () => {
     ],
     [
       new TypeError('fetch failed'),
-      { status: 500, message: 'Could not load the skills. Try again.' },
+      { status: 500, message: 'This Marketplace could not be loaded. Try again later.' },
     ],
     [
       new ApiError(502, 'UNKNOWN', 'Bad Gateway'),
-      { status: 500, message: 'Could not load the skills. Try again.' },
+      { status: 500, message: 'This Marketplace could not be loaded. Try again later.' },
     ],
   ])('maps %s to a page message', async (err, expected) => {
     fetchSkillsPage.mockRejectedValue(err);

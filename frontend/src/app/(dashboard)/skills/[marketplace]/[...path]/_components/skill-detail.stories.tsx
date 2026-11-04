@@ -13,8 +13,8 @@ const meta: Meta<typeof SkillDetail> = {
 export default meta;
 type Story = StoryObj<typeof SkillDetail>;
 
-export const Default: Story = { args: { skill: STORY_SKILL } };
+export const Default: Story = { args: { skill: STORY_SKILL, marketplace: 'team-skills' } };
 
 export const OnlySkillMd: Story = {
-  args: { skill: { ...STORY_SKILL, files: STORY_SKILL.files.slice(0, 1) } },
+  args: { skill: { ...STORY_SKILL, files: [] }, marketplace: 'team-skills' },
 };

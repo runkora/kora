@@ -1268,10 +1268,12 @@ export interface MarketplaceSkillsPage {
   limit: number;
 }
 
-export interface SkillFile {
+/** A supporting file in a skill folder, listed without its content. */
+export interface SkillFileEntry {
   /** Relative to the skill folder. */
   path: string;
-  content: string;
+  /** Bytes. */
+  size: number;
 }
 
 export interface Skill {
@@ -1279,6 +1281,14 @@ export interface Skill {
   name: string;
   description: string;
   repository: string;
-  /** `SKILL.md` first, then the rest in path order. */
-  files: SkillFile[];
+  /** The `SKILL.md` body. */
+  content: string;
+  /** The other text files, in path order. */
+  files: SkillFileEntry[];
+}
+
+/** GET /v1/marketplaces/{slug}/skills/{path}?file={path}: one supporting file. */
+export interface SkillFile {
+  path: string;
+  content: string;
 }

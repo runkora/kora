@@ -6,7 +6,14 @@ import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Alert, Button, Icon, Stack, Text } from '@runkora/hades';
 
-export function SkillLoadError({ status, message }: { status: number; message: string }) {
+interface SkillLoadErrorProps {
+  status: number;
+  message: string;
+  /** Defaults to re-rendering the page on the server. */
+  onRetry?: () => void;
+}
+
+export function SkillLoadError({ status, message, onRetry }: SkillLoadErrorProps) {
   const router = useRouter();
   const [pending, startRetry] = useTransition();
 
@@ -27,7 +34,7 @@ export function SkillLoadError({ status, message }: { status: number; message: s
         variant="outline"
         size="xs"
         disabled={pending}
-        onClick={() => startRetry(() => router.refresh())}
+        onClick={onRetry ?? (() => startRetry(() => router.refresh()))}
       >
         Try again
       </Button>

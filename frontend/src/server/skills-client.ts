@@ -1,6 +1,6 @@
 import 'server-only';
 
-import type { MarketplaceList, MarketplaceSkillsPage, Skill } from '@runkora/shared/api';
+import type { MarketplaceList, MarketplaceSkillsPage, Skill, SkillFile } from '@runkora/shared/api';
 import { config } from '@runkora/server/config';
 import { ApiError } from './api-error';
 
@@ -52,8 +52,23 @@ export async function fetchSkillsPage(
   );
 }
 
-/** GET /marketplaces/{slug}/skills/{path} */
+function skillPath(slug: string, path: string): string {
+  return `/marketplaces/${segment(slug)}/skills/${path.split('/').map(segment).join('/')}`;
+}
+
+/** GET /marketplaces/{slug}/skills/{path}: SKILL.md and the list of other files. */
 export async function fetchSkill(accessToken: string, slug: string, path: string): Promise<Skill> {
-  const segments = path.split('/').map(segment).join('/');
-  return request<Skill>(`/marketplaces/${segment(slug)}/skills/${segments}`, accessToken);
+  return request<Skill>(skillPath(slug, path), accessToken);
+}
+
+/** GET /marketplaces/{slug}/skills/{path}?file=: one supporting file, held to the same segment rules. */
+export async function fetchSkillFile(
+  accessToken: string,
+  slug: string,
+  path: string,
+  file: string,
+): Promise<SkillFile> {
+  file.split('/').forEach(segment);
+  const query = new URLSearchParams({ file });
+  return request<SkillFile>(`${skillPath(slug, path)}?${query.toString()}`, accessToken);
 }

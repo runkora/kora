@@ -37,7 +37,7 @@ export default async function SkillPage({ params, searchParams }: SkillPageProps
       </Stack>
 
       {result.ok ? (
-        <SkillDetail skill={result.data} />
+        <SkillDetail skill={result.data} marketplace={marketplace} />
       ) : result.status === 404 ? (
         <EmptyState
           icon="box"
