@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Button, Icon, Input, Stack, Text } from '@runkora/hades';
+import { Icon, Input, NavItem, Stack, Text } from '@runkora/hades';
 import type { TenantOption } from '@runkora/server/auth-config';
 
 /** Above this many tenants the list gains a search field and scrolls. */
@@ -46,21 +46,13 @@ export interface TenantListProps {
   /** Shows the error line under the rows. */
   failed: boolean;
   onPick: (tenant: TenantOption) => void;
-  /** `touch` gives 48px rows for the mobile sheet. */
-  size?: 'compact' | 'touch';
 }
 
 /**
- * Left-aligned rows with a check on the active tenant, a search field above six tenants, the error
+ * Rows styled as sidebar nav items (text inset by the row's own padding), a check on the active tenant, a search field above six tenants, the error
  * line when a switch fails and a note that switching signs the person in again.
  */
-export function TenantList({
-  tenants,
-  switching,
-  failed,
-  onPick,
-  size = 'compact',
-}: TenantListProps) {
+export function TenantList({ tenants, switching, failed, onPick }: TenantListProps) {
   const [query, setQuery] = useState('');
   const searchable = tenants.length > SEARCH_THRESHOLD;
   const q = query.trim().toLowerCase();
@@ -82,7 +74,6 @@ export function TenantList({
     <Stack gap="tight">
       {searchable ? (
         <Input
-          compact={size === 'compact'}
           value={query}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
           placeholder="Search tenants"
@@ -96,34 +87,29 @@ export function TenantList({
       >
         <Stack gap="none" shrink aria-label="Tenants">
           {shown.map((t) => (
-            <Button
+            <NavItem
               key={t.id}
-              variant="ghost"
-              size={size === 'touch' ? 'xl' : 'sm'}
-              fullWidth
-              selected={t.active}
+              state={switching !== null ? 'disabled' : t.active ? 'active' : 'default'}
               aria-current={t.active ? 'true' : undefined}
-              disabled={switching !== null}
+              // NavItem has no disabled prop; its disabled state blocks the pointer and this guards the keyboard.
+              aria-disabled={switching !== null}
               title={t.displayName}
-              // Touch rows keep the compact row's inset so the sheet can line the text up with its labels.
-              style={size === 'touch' ? { paddingInline: 12 } : undefined}
-              onClick={() => onPick(t)}
+              onClick={() => (switching === null ? onPick(t) : undefined)}
             >
               <Stack
                 direction="horizontal"
                 align="center"
                 justify="between"
                 gap="snug"
-                grow
                 minWidth="none"
               >
-                <Text as="span" size="caption" truncate>
+                <Text as="span" truncate style={{ font: 'inherit', color: 'inherit' }}>
                   {t.displayName}
                 </Text>
                 {t.active ? <Icon name="check" size="xs" color="accent" /> : null}
                 {switching === t.id ? <Icon name="loader" size="xs" color="subtle" /> : null}
               </Stack>
-            </Button>
+            </NavItem>
           ))}
           {shown.length === 0 ? (
             <Stack paddingInline="cozy" paddingBlock="snug">

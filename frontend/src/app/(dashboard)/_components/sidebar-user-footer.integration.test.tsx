@@ -268,7 +268,10 @@ describe('SidebarUserFooter tenants', () => {
     await user.click(screen.getByRole('button', { name: 'Example Data' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not start the switch.');
-    expect(screen.getByRole('button', { name: 'Example Data' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Example Data' })).toHaveAttribute(
+      'aria-disabled',
+      'false',
+    );
   });
 
   it('re-enables the list when the page returns from the back-forward cache', async () => {
@@ -277,7 +280,10 @@ describe('SidebarUserFooter tenants', () => {
     const user = await openMenu();
 
     await user.click(screen.getByRole('button', { name: 'Example Data' }));
-    expect(screen.getByRole('button', { name: 'Example Data' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Example Data' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
 
     const restored = new Event('pageshow');
     Object.defineProperty(restored, 'persisted', { value: true });
@@ -285,6 +291,9 @@ describe('SidebarUserFooter tenants', () => {
       window.dispatchEvent(restored);
     });
 
-    expect(screen.getByRole('button', { name: 'Example Data' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Example Data' })).toHaveAttribute(
+      'aria-disabled',
+      'false',
+    );
   });
 });

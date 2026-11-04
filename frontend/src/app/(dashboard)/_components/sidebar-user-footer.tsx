@@ -2,7 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
-import { BottomSheet, Button, Icon, SectionLabel, Separator, Stack, Text } from '@runkora/hades';
+import {
+  BottomSheet,
+  Button,
+  Icon,
+  NavItem,
+  SectionLabel,
+  Separator,
+  Stack,
+  Text,
+} from '@runkora/hades';
 import { TenantList, useTenantSwitch } from '@runkora/components';
 import { useBrand } from '@runkora/theme/brand-provider';
 import { APP_ROUTES } from '@runkora/lib/routing/routes';
@@ -111,57 +120,42 @@ function useDismissOnOutsideOrEscape(
   }, [active, containerRef, onDismiss]);
 }
 
-// ── Menu item (desktop + mobile share the same semantics, different sizing) ─
+// ── Menu item ───────────────────────────────────────────────────────────────
 
-interface MenuItemProps {
-  icon: React.ReactNode;
-  tone?: 'default' | 'danger';
-  height: number;
-  fontSize: number;
-  onSelect: () => void;
-  itemRef?: React.Ref<HTMLButtonElement>;
-  /** `'menuitem'` inside a `role="menu"` ancestor (desktop); `undefined` when
-   *  reused as a plain action row with no owning menu (the mobile dialog). */
-  role?: 'menuitem';
-  children: React.ReactNode;
-}
-
+// Session actions use the sidebar's NavItem so their size and inset match the nav rows.
 function MenuItem({
   icon,
-  tone = 'default',
-  height,
-  fontSize,
+  danger,
   onSelect,
   itemRef,
   role = 'menuitem',
   children,
-}: MenuItemProps) {
+}: {
+  icon: React.ComponentProps<typeof Icon>['name'];
+  danger?: boolean;
+  onSelect: () => void;
+  itemRef?: React.Ref<HTMLElement>;
+  /** `'menuitem'` inside the desktop `role="menu"`; unset in the mobile dialog. */
+  role?: 'menuitem';
+  children: React.ReactNode;
+}) {
   return (
-    <Button
+    <NavItem
       ref={itemRef}
-      variant="ghost"
-      fullWidth
       role={role}
       onClick={onSelect}
-      style={{
-        height,
-        padding: '0 12px',
-        gap: 10,
-        justifyContent: 'flex-start',
-        fontSize,
-        fontWeight: 500,
-        lineHeight: 1,
-      }}
+      // A NavItem button inherits the button's centred text; the sidebar's link rows start at the left.
+      style={{ textAlign: 'start' }}
+      icon={<Icon name={icon} color={danger ? 'status-error' : 'muted'} />}
     >
-      {icon}
       <Text
         as="span"
-        color={tone === 'danger' ? 'status-error' : 'muted'}
-        style={{ fontSize: 'inherit', fontWeight: 'inherit', lineHeight: 'inherit' }}
+        color={danger ? 'status-error' : undefined}
+        style={danger ? { font: 'inherit' } : { font: 'inherit', color: 'inherit' }}
       >
         {children}
       </Text>
-    </Button>
+    </NavItem>
   );
 }
 
@@ -216,23 +210,20 @@ function TenantSection({
   tenants,
   tenantSwitch,
   onPickActive,
-  touch,
 }: {
   tenants: TenantOption[];
   tenantSwitch: ReturnType<typeof useTenantSwitch>;
   onPickActive: () => void;
-  touch: boolean;
 }) {
   return (
     <Stack gap="snug">
       <SectionLabel>Tenant</SectionLabel>
-      {/* The sheet's rows bleed into its padding by their own inset, so row text meets the labels' edge. */}
-      <Stack style={touch ? { marginInline: -12 } : undefined}>
+      {/* Rows bleed out by their own padding, as in the sidebar nav, so row text meets the labels' edge. */}
+      <Stack style={{ marginInline: -12 }}>
         <TenantList
           tenants={tenants}
           switching={tenantSwitch.switching}
           failed={tenantSwitch.failed}
-          size={touch ? 'touch' : 'compact'}
           onPick={(t) => (t.active ? onPickActive() : tenantSwitch.start(t.id))}
         />
       </Stack>
@@ -491,7 +482,6 @@ export function SidebarUserFooter() {
                         tenants={tenants}
                         tenantSwitch={tenantSwitch}
                         onPickActive={closeAndFocusTrigger}
-                        touch={false}
                       />
                     </>
                   ) : null}
@@ -530,20 +520,12 @@ export function SidebarUserFooter() {
                 </Stack>
               ) : (
                 <>
-                  <MenuItem
-                    icon={<Icon name="user" size="sm" color="muted" />}
-                    height={32}
-                    fontSize={14}
-                    onSelect={handleViewProfile}
-                    itemRef={firstItemRef}
-                  >
+                  <MenuItem icon="user" onSelect={handleViewProfile} itemRef={firstItemRef}>
                     View profile
                   </MenuItem>
                   <MenuItem
-                    icon={<Icon name="log-out" size="sm" color="status-error" />}
-                    tone="danger"
-                    height={32}
-                    fontSize={14}
+                    icon="log-out"
+                    danger
                     onSelect={menu.requestLogout}
                     itemRef={secondItemRef}
                   >
@@ -575,7 +557,6 @@ export function SidebarUserFooter() {
                       tenants={tenants}
                       tenantSwitch={tenantSwitch}
                       onPickActive={menu.close}
-                      touch
                     />
                   </>
                 ) : null}
@@ -602,24 +583,11 @@ export function SidebarUserFooter() {
               </Button>
             </Stack>
           ) : (
-            <Stack style={{ padding: 8, gap: 12 }}>
-              <MenuItem
-                icon={<Icon name="user" size="md" color="muted" />}
-                height={48}
-                fontSize={15}
-                onSelect={handleViewProfile}
-                role={undefined}
-              >
+            <Stack padding="snug">
+              <MenuItem icon="user" onSelect={handleViewProfile} role={undefined}>
                 View profile
               </MenuItem>
-              <MenuItem
-                icon={<Icon name="log-out" size="md" color="status-error" />}
-                tone="danger"
-                height={48}
-                fontSize={15}
-                onSelect={menu.requestLogout}
-                role={undefined}
-              >
+              <MenuItem icon="log-out" danger onSelect={menu.requestLogout} role={undefined}>
                 Log out
               </MenuItem>
             </Stack>

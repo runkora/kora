@@ -59,5 +59,3 @@ export const LongName: Story = {
 export const Switching: Story = { args: { tenants: TWO, switching: 'kora-tenant-example-data' } };
 
 export const SwitchFailed: Story = { args: { tenants: TWO, failed: true } };
-
-export const Touch: Story = { args: { tenants: TWO, size: 'touch' } };

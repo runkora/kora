@@ -63,6 +63,7 @@ async function openMenu(canvasElement: HTMLElement) {
 async function pickSecond(canvasElement: HTMLElement) {
   const page = await openMenu(canvasElement);
   await userEvent.click(await page.findByRole('button', { name: 'Example Data' }));
+  (canvasElement.ownerDocument.activeElement as HTMLElement | null)?.blur();
 }
 
 export const OneTenant: Story = {
