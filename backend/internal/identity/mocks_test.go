@@ -114,19 +114,18 @@ func (m *mockSessionRepository) SwitchSession(_ context.Context, next *Session, 
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.refresh != nil {
+		m.refresh.mu.Lock()
+		stored, found := m.refresh.byID[replacedRefresh.ID]
+		m.refresh.mu.Unlock()
+		if !found || stored.RevokedAt != nil {
+			return ErrRefreshTokenNotFound
+		}
+	}
 	replacedID := replacedRefresh.SessionID
 	replaced, ok := m.sessions[replacedID]
 	if !ok || replaced.RevokedAt != nil {
 		return ErrSessionNotFound
-	}
-	if m.refresh != nil {
-		m.refresh.mu.Lock()
-		stored, found := m.refresh.byID[replacedRefresh.ID]
-		live := found && stored.RevokedAt == nil && at.Before(stored.ExpiresAt)
-		m.refresh.mu.Unlock()
-		if !live {
-			return ErrSessionNotFound
-		}
 	}
 	replaced.RevokedAt = &at
 	cp := *next

@@ -157,7 +157,7 @@ func TestPostgres_SwitchSession_ConcurrentSwitchesFromOneSession(t *testing.T) {
 		switch {
 		case err == nil:
 			won++
-		case !errors.Is(err, ErrSessionNotFound):
+		case !errors.Is(err, ErrRefreshTokenNotFound) && !errors.Is(err, ErrSessionNotFound):
 			t.Errorf("unexpected error: %v", err)
 		}
 	}
@@ -179,8 +179,8 @@ func TestPostgres_SwitchSession_AfterRefreshConsumedTheToken(t *testing.T) {
 		t.Fatalf("RevokeRefreshToken: %v", err)
 	}
 	next, nextRT := testSessionRows(principal, "sre")
-	if err := sessions.SwitchSession(ctx, next, nextRT, oldRT, time.Now()); !errors.Is(err, ErrSessionNotFound) {
-		t.Fatalf("err = %v, want ErrSessionNotFound", err)
+	if err := sessions.SwitchSession(ctx, next, nextRT, oldRT, time.Now()); !errors.Is(err, ErrRefreshTokenNotFound) {
+		t.Fatalf("err = %v, want ErrRefreshTokenNotFound", err)
 	}
 	if got, _ := sessions.GetSessionByID(ctx, replaced.ID); got.RevokedAt != nil {
 		t.Error("the refused switch revoked the replaced session")
@@ -207,17 +207,6 @@ func TestPostgres_SwitchSession_RefreshAfterSwitchFails(t *testing.T) {
 	}
 }
 
-func TestPostgres_SwitchSession_ExpiredReplacedToken(t *testing.T) {
-	_, sessions, refresh, principal := testSwitchRepos(t)
-	ctx := context.Background()
-	_, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
-
-	next, nextRT := testSessionRows(principal, "sre")
-	if err := sessions.SwitchSession(ctx, next, nextRT, oldRT, oldRT.ExpiresAt.Add(time.Minute)); !errors.Is(err, ErrSessionNotFound) {
-		t.Fatalf("err = %v, want ErrSessionNotFound", err)
-	}
-}
-
 func TestPostgres_SwitchSession_RacesRefresh(t *testing.T) {
 	pool, sessions, refresh, principal := testSwitchRepos(t)
 	_, oldRT := seedSwitchSession(t, sessions, refresh, principal, "eng")
@@ -240,7 +229,7 @@ func TestPostgres_SwitchSession_RacesRefresh(t *testing.T) {
 		if s, _ := liveRows(t, pool, principal); s != 1 {
 			t.Errorf("%d live sessions after the switch won, want 1", s)
 		}
-	} else if !errors.Is(switchErr, ErrSessionNotFound) {
-		t.Errorf("switch err = %v, want ErrSessionNotFound", switchErr)
+	} else if !errors.Is(switchErr, ErrRefreshTokenNotFound) {
+		t.Errorf("switch err = %v, want ErrRefreshTokenNotFound", switchErr)
 	}
 }

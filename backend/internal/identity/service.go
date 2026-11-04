@@ -546,7 +546,7 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 	principal := claims.principal(tenantID, idToken.Issuer)
 
 	resp, err := s.createSession(ctx, principal, replacedRefresh)
-	if errors.Is(err, ErrSessionNotFound) && replaced != nil {
+	if replaced != nil && replacedGone(err) {
 		err = &TenantMatchError{Err: ErrTenantSwitchDenied, Tenants: eligible}
 		observability.RecordFailure(span, err, errSpanTenantSwitchDenied)
 		return nil, err
@@ -870,8 +870,9 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 
 // createSession creates a full human session: PostgreSQL session + refresh
 // token + signed JWT. With replaced set it is a tenant switch: the new rows,
-// consuming replaced and revoking its session commit together, and a replaced
-// token or session that is no longer live is ErrSessionNotFound. For HUMAN/FEDERATED principals it also
+// consuming replaced and revoking its session commit together. A replaced token
+// already consumed is ErrRefreshTokenNotFound and a revoked session is
+// ErrSessionNotFound. For HUMAN/FEDERATED principals it also
 // upserts a user_profiles row; failures are non-fatal and logged.
 func (s *Service) createSession(ctx context.Context, principal *Principal, replaced *RefreshToken) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(observability.WithTenant(ctx, principal.TenantID), "identity.createSession",
@@ -1353,6 +1354,12 @@ func (s *Service) replacedSession(ctx context.Context, refreshToken, hint, bound
 		return nil, nil, denied
 	}
 	return session, rt, nil
+}
+
+// replacedGone reports whether a switch found the replaced refresh token or
+// session already ended when it committed.
+func replacedGone(err error) bool {
+	return errors.Is(err, ErrRefreshTokenNotFound) || errors.Is(err, ErrSessionNotFound)
 }
 
 // finishSwitch runs after the switch commits. It blocks the replaced access

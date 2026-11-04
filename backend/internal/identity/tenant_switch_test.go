@@ -313,15 +313,19 @@ func TestExchangeIDToken_SwitchTransactionFails(t *testing.T) {
 	}
 }
 
-func TestExchangeIDToken_SwitchReplacedSessionGoneAtCommit(t *testing.T) {
-	f := newSwitchFixture(t)
-	old := f.signIn(t, "user-1")
-	f.sessions.switchErr = fmt.Errorf("revoke: %w", ErrSessionNotFound)
+func TestExchangeIDToken_SwitchReplacedGoneAtCommit(t *testing.T) {
+	for _, gone := range []error{ErrRefreshTokenNotFound, ErrSessionNotFound} {
+		t.Run(gone.Error(), func(t *testing.T) {
+			f := newSwitchFixture(t)
+			old := f.signIn(t, "user-1")
+			f.sessions.switchErr = fmt.Errorf("switch: %w", gone)
 
-	_, err := f.switchTo(t, "sre", old.RefreshToken, groups("eng", "sre"))
-	var tme *TenantMatchError
-	if !errors.As(err, &tme) || !errors.Is(err, ErrTenantSwitchDenied) || len(tme.Tenants) != 2 {
-		t.Fatalf("err = %v, want ErrTenantSwitchDenied with the eligible set", err)
+			_, err := f.switchTo(t, "sre", old.RefreshToken, groups("eng", "sre"))
+			var tme *TenantMatchError
+			if !errors.As(err, &tme) || !errors.Is(err, ErrTenantSwitchDenied) || len(tme.Tenants) != 2 {
+				t.Fatalf("err = %v, want ErrTenantSwitchDenied with the eligible set", err)
+			}
+		})
 	}
 }
 
