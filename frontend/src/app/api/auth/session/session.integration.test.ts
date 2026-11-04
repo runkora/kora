@@ -592,8 +592,14 @@ describe('POST /api/auth/session', () => {
       ['refuses the switch when it lands in another tenant', 'kora-tenant-example', 403],
     ])('a switch without a session %s', async (_, issued, status) => {
       vi.mocked(getSession).mockResolvedValue({} as unknown as IronSession<SessionPayload>);
-      upstream(() =>
-        HttpResponse.json(createBackendSessionResponse({}, createSessionUser(), issued)),
+      const issuedSession = createBackendSessionResponse({}, createSessionUser(), issued);
+      upstream(() => HttpResponse.json(issuedSession));
+      const revoked: string[] = [];
+      server.use(
+        http.post('http://test-kora-api/identity/revoke', async ({ request }) => {
+          revoked.push(new URLSearchParams(await request.text()).get('token') ?? '');
+          return new HttpResponse(null, { status: 200 });
+        }),
       );
       const { save } = makeMockSession();
 
@@ -611,8 +617,13 @@ describe('POST /api/auth/session', () => {
         expect(await res.json()).toEqual({ error: 'tenant_switch_denied' });
         expect(save).not.toHaveBeenCalled();
         expect(cookieJar.set).not.toHaveBeenCalled();
+        // The session the refused switch was issued is revoked, not left to expire.
+        expect(revoked.sort()).toEqual(
+          [issuedSession.access_token, issuedSession.refresh_token].sort(),
+        );
       } else {
         expect(save).toHaveBeenCalledOnce();
+        expect(revoked).toEqual([]);
       }
     });
   });

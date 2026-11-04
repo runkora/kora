@@ -50,6 +50,7 @@ import type {
   BackendSessionResponse,
 } from '@runkora/server/auth-config';
 import { config } from '@runkora/server/config';
+import { revokeToken } from '@runkora/server/revoke';
 import { getSession, isSessionValid } from '@runkora/server/session';
 
 // ── Internal types ────────────────────────────────────────────────────────────
@@ -289,8 +290,17 @@ export async function POST(request: Request): Promise<Response> {
   };
 
   const issuedTenant = tenantIdFromAccessToken(data.access_token) ?? tenantId;
-  // A switch that ran as a plain sign-in only succeeds if it reached the target.
+  // A switch that ran as a plain sign-in only succeeds if it reached the target. The session it
+  // was issued is revoked, as logout does, so no unused session outlives the refusal.
   if (raw.switch === true && !replaced && issuedTenant !== requestedHint) {
+    const results = await Promise.allSettled([
+      revokeToken(data.access_token, 'access_token'),
+      revokeToken(data.refresh_token, 'refresh_token'),
+    ]);
+    for (const r of results) {
+      if (r.status === 'rejected')
+        console.error('[session] refused switch revocation failed:', r.reason);
+    }
     return Response.json({ error: 'tenant_switch_denied' }, { status: 403 });
   }
   const payload: SessionPayload = {
